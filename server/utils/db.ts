@@ -187,6 +187,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     DROP TABLE signals;
     ALTER TABLE signals_new RENAME TO signals;
     CREATE INDEX signals_project ON signals(project, id);
+`, `
+    -- An agent's comment the owner cleared from the bell: it stays on its issue, out of the notices.
+    ALTER TABLE comments ADD COLUMN cleared INTEGER NOT NULL DEFAULT 0;
 `]
 
 let db: DatabaseSync | null = null

@@ -221,6 +221,22 @@ describe('chunks', () => {
     })
 })
 
+describe('the bell', () => {
+    it("clears agents' comments by id or up to a time, leaving them on their issues", () => {
+        const {id} = store.createIssue('mesher', {title: 'A'})
+        const agent = {name: 'claude', owner: false}
+        const first = store.createComment('mesher', id, {body: 'one'}, agent)
+        store.createComment('mesher', id, {body: 'two'}, agent)
+        store.createComment('mesher', id, {body: 'mine'}, {name: 'steffen', owner: true})
+        expect(store.clearNotices({ids: [first.id]})).toBe(1)
+        expect(store.notices().map(n => n.body)).toEqual(['two'])
+        expect(store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})).toBe(1)
+        expect(store.notices()).toEqual([])
+        expect(store.listComments('mesher', id)).toHaveLength(3)
+        expect(failure(() => store.clearNotices({})).status).toBe(400)
+    })
+})
+
 describe('removing', () => {
     it('an issue takes its signals with it', () => {
         const {id} = store.createIssue('mesher', {title: 'A'})

@@ -79,6 +79,8 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `GET /projects/:project/issues/:issue/comments` | oldest first |
 | `POST /projects/:project/issues/:issue/comments` | `{body}` |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
+| `GET /notices` | agents' latest comments across projects, newest first (the page's bell) |
+| `POST /notices/clear` | `{ids}` or `{before}` → `{cleared}`: the owner takes them out of the bell; they stay on their issues |
 
 ## Signals to sessions
 

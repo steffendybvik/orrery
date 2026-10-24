@@ -140,8 +140,21 @@ export class Store {
     notices(limit = 30): Notice[] {
         return this.all<CommentRow & {title: string}>(`
             SELECT c.*, i.title FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
-            WHERE c.owned = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT ?`, limit)
+            WHERE c.owned = 0 AND c.cleared = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT ?`, limit)
             .map(row => ({...commentOf(row), project: row.project, title: row.title}))
+    }
+
+    /** Takes notices out of the bell (the comments stay on their issues): those in `ids`, or all made at
+     * or before `before`. Says how many. */
+    clearNotices(body: unknown): number {
+        const {ids, before} = (body ?? {}) as {ids?: unknown, before?: unknown}
+        if (Array.isArray(ids) && ids.every(id => Number.isInteger(id)) && ids.length) {
+            return Number(this.run(`UPDATE comments SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND id IN (${ids.map(() => '?').join(', ')})`, ...ids as number[]).changes)
+        }
+        if (typeof before === 'string' && before) {
+            return Number(this.run('UPDATE comments SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND created_at <= ?', before).changes)
+        }
+        throw badRequest('Send "ids" (comment ids) or "before" (a time) to clear')
     }
 
     // Projects
