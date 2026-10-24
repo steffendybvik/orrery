@@ -1,4 +1,5 @@
-// `DELETE /api/projects/:project` → 204; its chunks, issues and comments go too.
+// `DELETE /api/projects/:project` → 204; everything in it goes too (chunks, issues, comments, docs,
+// schedules, signals), for good. Agents can't while it holds anything of the owner's.
 export default defineEventHandler(event => {
     useStore().deleteProject(param(event, 'project'), actorOf(event))
     return deleted(event)

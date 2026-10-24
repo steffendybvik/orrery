@@ -223,6 +223,7 @@ export class Store {
             this.run('DELETE FROM issue_aliases WHERE project = ?', id)
             this.run('DELETE FROM chunk_aliases WHERE project = ?', id)
             this.run('DELETE FROM signals WHERE project = ?', id)
+            this.run('DELETE FROM schedules WHERE project = ?', id)
             this.run('DELETE FROM projects WHERE id = ?', id)
         })
         this.onChange(id)

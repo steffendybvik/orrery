@@ -1,10 +1,42 @@
 <script setup lang="ts">
-// A project's settings. For now its schedules: work Orrery starts on its own, each run making an issue
-// in the project and, if set, asking its Claude sessions to pick it up.
+// A project's settings: its schedules (work Orrery starts on its own, each run making an issue or
+// sending the project's Claude sessions a message), and deleting the project, for good.
 const route = useRoute()
+const router = useRouter()
 const {byId, ready} = useRoadmaps()
 const {of, edit} = useSchedules()
+const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
+
+// Deleting it, for good: what goes is spelled out, and the project's id has to be typed to confirm.
+const deleting = ref(false)
+const typed = ref('')
+const removing = ref(false)
+const failed = ref('')
+const loses = computed(() => {
+    if (!project.value) return []
+    const issues = allIssues(project.value).length
+    const chunks = project.value.board.chunks.filter(c => c.id).length
+    const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`
+    return [n(issues, 'issue'), n(chunks, 'chunk'), n(project.value.docs.length, 'doc'), n(of(project.value.id).length, 'schedule'), 'every comment and signal']
+})
+watch(() => route.params.project, () => {
+    deleting.value = false
+    typed.value = ''
+})
+async function remove() {
+    if (!project.value || typed.value !== project.value.id) return
+    removing.value = true
+    failed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        router.push('/now')
+    } catch (error) {
+        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't delete it. Is Orrery running?"
+    } finally {
+        removing.value = false
+    }
+}
 useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orrery` : 'Orrery'}))
 </script>
 
@@ -23,7 +55,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           <SectionIcon section="schedules" class="mt-0.5 size-4 text-accent-500" />
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <h2 class="text-[15px] font-semibold text-fg">Schedules</h2>
-            <p class="text-xs text-muted">Work Orrery starts on its own. Each run makes an issue in {{ project.name }}, and can ask its Claude sessions to pick it up.</p>
+            <p class="text-xs text-muted">Work Orrery starts on its own. Each run makes an issue in {{ project.name }} (and can ask its Claude sessions to pick it up), or just sends the sessions a message.</p>
           </div>
           <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" @click="edit(project.id)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
@@ -37,6 +69,34 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
             <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="edit(project.id)">Schedule something</button>
           </p>
         </div>
+      </section>
+
+      <section id="danger" class="mt-8 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
+        <header class="flex items-start gap-3">
+          <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <h2 class="text-[15px] font-semibold text-rose-600 dark:text-rose-400">Delete this project</h2>
+            <p class="text-xs text-muted">Removes {{ project.name }} and everything in it from Orrery.</p>
+          </div>
+          <button v-if="!deleting" type="button" class="h-7 shrink-0 rounded-md px-2.5 text-xs font-medium text-rose-600 ring-1 ring-rose-500/40 hover:bg-rose-500/10 dark:text-rose-400" @click="deleting = true">Delete project…</button>
+        </header>
+        <form v-if="deleting" class="flex flex-col gap-3" @submit.prevent="remove" @keydown.esc="deleting = false">
+          <div class="rounded-lg bg-rose-500/10 px-3 py-2.5 text-[13px] leading-relaxed text-rose-700 ring-1 ring-rose-500/30 dark:text-rose-300">
+            <p class="font-semibold">This is permanent. There is no undo.</p>
+            <p>Deleting {{ project.name }} throws away {{ loses.join(', ') }}. Claude sessions on it stop getting anything.</p>
+            <p class="mt-1 text-xs opacity-80">Only the iCloud backups keep a copy: the daily ones for two weeks, the latest until the next change replaces it.</p>
+          </div>
+          <label class="flex flex-col gap-1 text-xs text-muted">
+            <span>Type <span class="font-mono font-medium text-fg">{{ project.id }}</span> to confirm</span>
+            <input v-model="typed" autocomplete="off" spellcheck="false" aria-label="Type the project's id to confirm" class="h-8 w-64 rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line focus:ring-rose-500/50 focus:outline-none">
+          </label>
+          <div class="flex items-center gap-2">
+            <button type="submit" class="h-8 rounded-lg bg-rose-600 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="typed !== project.id || removing">
+              {{ removing ? 'Deleting…' : `Delete ${project.name} forever` }}
+            </button>
+            <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="deleting = false; typed = ''">Cancel</button>
+            <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+          </div>
+        </form>
       </section>
     </div>
     <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">No project “{{ route.params.project }}”.</div>

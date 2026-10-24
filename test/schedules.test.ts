@@ -114,6 +114,14 @@ describe('schedules', () => {
         expect(schedules.update('mesher', mine.id, {kind: 'issue'}).kind).toBe('issue')
     })
 
+    it('go with their project', () => {
+        const s = schedules.create('mesher', {title: 'Groom', cron: '0 9 * * *', timezone: 'UTC'}, me)
+        schedules.runNow('mesher', s.id)
+        store.deleteProject('mesher', me)
+        expect(schedules.list()).toEqual([])
+        expect(store.db.prepare('SELECT count(*) AS n FROM schedule_runs').get()).toEqual({n: 0})
+    })
+
     it('run a one-off once and then stop', () => {
         const s = schedules.create('mesher', {title: 'Once', at: '2099-01-01T09:00:00Z'}, me)
         expect(schedules.runDue(at('2099-01-02T00:00:00Z'))).toBe(1)
