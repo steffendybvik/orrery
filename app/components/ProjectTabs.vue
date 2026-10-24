@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Project} from '#shared/roadmap'
 
-// Issues | Roadmap | Docs, next to a project's name.
+// Issues | Roadmap | Docs | Settings, next to a project's name.
 const props = defineProps<{project: Project}>()
 const route = useRoute()
 const sections = computed(() => sectionsOf(props.project, route.path))

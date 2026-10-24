@@ -28,7 +28,7 @@ export function useStore(): Store {
 
 let schedules: Schedules | null = null
 
-export function useSchedules(): Schedules {
+export function useScheduler(): Schedules {
     schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening)
     return schedules
 }

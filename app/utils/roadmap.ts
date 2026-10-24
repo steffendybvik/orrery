@@ -78,16 +78,18 @@ export function ago(iso: string): string {
     return new Date(iso).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})
 }
 
-export type Section = 'issues' | 'roadmap' | 'docs'
+export type Section = 'issues' | 'roadmap' | 'docs' | 'settings'
 
 /** A project's pages, as the sidebar and the tabs show them; `path` marks the one on screen. */
 export function sectionsOf(project: Project, path: string) {
     const base = `/p/${project.id}`
-    const on = path.startsWith(`${base}/roadmap`) ? 'roadmap' : path.startsWith(`${base}/docs`) ? 'docs' : path === base || path.startsWith(`${base}/issues`) ? 'issues' : null
+    const on = path.startsWith(`${base}/roadmap`) ? 'roadmap' : path.startsWith(`${base}/docs`) ? 'docs' : path.startsWith(`${base}/settings`) ? 'settings'
+        : path === base || path.startsWith(`${base}/issues`) ? 'issues' : null
     return [
         {id: 'issues' as Section, label: 'Issues', to: base, count: total(project.board.counts) - project.board.counts.done, active: on === 'issues'},
         {id: 'roadmap' as Section, label: 'Roadmap', to: `${base}/roadmap`, count: project.board.chunks.filter(c => c.id).length, active: on === 'roadmap'},
         {id: 'docs' as Section, label: 'Docs', to: `${base}/docs`, count: project.docs.length, active: on === 'docs'},
+        {id: 'settings' as Section, label: 'Settings', to: `${base}/settings`, count: 0, active: on === 'settings'},
     ]
 }
 

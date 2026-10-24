@@ -3,7 +3,7 @@
 export default defineNitroPlugin(nitro => {
     const tick = () => {
         try {
-            useSchedules().runDue()
+            useScheduler().runDue()
         } catch (error) {
             console.error('[orrery] running schedules:', error)
         }

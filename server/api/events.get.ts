@@ -12,7 +12,7 @@ export default defineEventHandler(event => {
     const onSessions = (project: string) => stream.push({event: 'sessions', data: JSON.stringify({project, sessions: listSessions(project)})})
     const onSignal = (signal: Signal) => stream.push({event: 'signal', data: JSON.stringify(signal)})
     const onNotice = (notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)})
-    const onSchedules = (project: string) => stream.push({event: 'schedules', data: JSON.stringify({project, schedules: useSchedules().list(project)})})
+    const onSchedules = (project: string) => stream.push({event: 'schedules', data: JSON.stringify({project, schedules: useScheduler().list(project)})})
     projectEvents.on('project', onProject)
     projectEvents.on('removed', onRemoved)
     projectEvents.on('listeners', onListeners)

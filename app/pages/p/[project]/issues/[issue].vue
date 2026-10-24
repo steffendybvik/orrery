@@ -9,6 +9,9 @@ const router = useRouter()
 const {byId, ready} = useRoadmaps()
 const {open, last} = useIssueLink()
 const {who, load} = useOwner()
+const {of: schedulesOf, edit: editSchedule} = useSchedules()
+/** The schedule that made it, if one did (and still exists). */
+const madeBy = computed(() => issue.value?.schedule && project.value ? schedulesOf(project.value.id).find(s => s.id === issue.value!.schedule) : undefined)
 
 const project = computed(() => byId(route.params.project as string))
 const issueId = computed(() => route.params.issue as string)
@@ -121,6 +124,15 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <div class="flex items-center gap-1.5">
             <span class="font-mono text-xs text-faint">{{ issue.id }}</span>
             <CopyButton :text="issue.id" />
+            <button
+                v-if="madeBy"
+                type="button"
+                class="flex h-6 items-center gap-1 rounded-full px-2 text-[11px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg"
+                :title="`Made by the schedule “${madeBy.title}” (${describe(madeBy)}); click to edit it`"
+                @click="editSchedule(madeBy.project, madeBy)"
+            >
+              <SectionIcon section="schedules" class="size-3" /> {{ madeBy.title }}
+            </button>
             <button
                 v-if="!removing"
                 type="button"

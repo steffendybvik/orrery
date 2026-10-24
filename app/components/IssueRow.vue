@@ -52,6 +52,7 @@ const STATUS_PILL = {
     <StatusIcon :column="issue.column" :progress="progress(issue.counts).share" />
     <span class="flex min-w-0 flex-1 items-center gap-2">
       <span class="min-w-0 truncate" :class="issue.column === 'done' ? 'text-muted' : 'text-fg'"><InlineText :text="issue.title" /></span>
+      <span v-if="issue.schedule" class="shrink-0 text-faint" title="Made by a schedule"><SectionIcon section="schedules" class="size-3" /></span>
       <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line" :title="`${issue.counts.done} of ${total(issue.counts)} sub-issues done`"><ProgressRing :counts="issue.counts" :size="13" /></span>
     </span>
     <NuxtLink
