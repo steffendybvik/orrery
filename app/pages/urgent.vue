@@ -29,7 +29,7 @@ const groups = computed(() => ordered.value
           <h2 class="text-[13px] font-medium">{{ group.project.name }}</h2>
           <span class="font-mono text-[11px] text-faint">{{ group.issues.length }}</span>
         </NuxtLink>
-        <IssueRow v-for="{issue, chunk} in group.issues" :key="issue.id" :issue="issue" :project="group.project.id" :chunk="chunk.title" />
+        <IssueRow v-for="{issue, chunk} in group.issues" :key="issue.id" :issue="issue" :project="group.project.id" :chunk="chunk" />
       </section>
       <div v-if="ready && projects.length && !groups.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center">
         <p class="text-sm text-muted">Nothing urgent. Lovely.</p>

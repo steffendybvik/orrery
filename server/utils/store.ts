@@ -603,10 +603,13 @@ export class Store {
         return signal
     }
 
-    /** Asks the sessions (or `session`) to work through the chunk's open issues now. */
+    /** Asks the sessions (or `session`) to work through the chunk's open issues now; `none` is the issues in no chunk. */
     focusChunk(project: string, chunk: string, body: unknown, actor = AGENT): Signal {
-        chunk = this.chunkId(project, chunk)
-        this.chunkRow(project, chunk)
+        this.projectRow(project)
+        if (chunk !== 'none') {
+            chunk = this.chunkId(project, chunk)
+            this.chunkRow(project, chunk)
+        }
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         const {lastInsertRowid} = this.run('INSERT INTO signals (project, chunk, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             project, chunk, 'focus', nullable(input.note), nullable(input.session), actor.name, Number(actor.owner), stamp())

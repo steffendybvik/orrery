@@ -70,7 +70,7 @@ async function deliver(signal) {
             signal.issues.length
                 ? `Its open issues, most urgent first:\n${signal.issues.map(i => `- ${i.id}: ${i.title} [${[i.column, i.priority].filter(Boolean).join(', ')}]`).join('\n')}`
                 : 'It has no open issues left.',
-            `Take them one at a time as you would a focus on each (doing, comments, done). Read the chunk with: curl ${api}/chunks/${encodeURIComponent(signal.chunk)}`,
+            `Take them one at a time as you would a focus on each (doing, comments, done). Read ${signal.chunk === 'none' ? `them with: curl '${api}/issues?chunk=none'` : `the chunk with: curl ${api}/chunks/${encodeURIComponent(signal.chunk)}`}`,
         ].filter(Boolean).join('\n')
         : signal.kind === 'comment'
         ? [

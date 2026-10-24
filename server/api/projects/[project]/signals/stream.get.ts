@@ -25,7 +25,10 @@ export default defineEventHandler(event => {
     /** The signal with what a session needs to act on it: for a chunk, its open issues, most urgent first. */
     const told = (signal: Signal) => {
         if (!signal.issue) {
-            const chunk = store.chunk(project, signal.chunk!)
+            // `none`: the issues in no chunk, which the board keeps as a chunk without an id.
+            const chunk = signal.chunk === 'none'
+                ? store.project(project).board.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done' as const, priority: undefined, tasks: []}
+                : store.chunk(project, signal.chunk!)
             const open = chunk.tasks.filter(t => t.column !== 'done')
                 .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
                 .map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))

@@ -58,7 +58,7 @@ const subs = (issue: Issue) => `${issue.counts.done}/${total(issue.counts)}`
         >
           <div class="flex items-center gap-2 text-[11px] text-faint">
             <span class="font-mono">{{ issue.id }}</span>
-            <span class="min-w-0 flex-1 truncate">{{ chunk.title }}</span>
+            <span class="min-w-0 flex-1 truncate"><NuxtLink :to="chunkPath(project, chunk.id)" class="hover:text-fg hover:underline" @click.stop>{{ chunk.title }}</NuxtLink></span>
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />
           </div>
           <div class="flex items-start gap-2">

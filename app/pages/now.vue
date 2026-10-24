@@ -11,7 +11,7 @@ const {matches, active} = useFilters()
 const groups = computed(() => ordered.value.map(project => {
     const issues = project.board.chunks.flatMap(chunk => chunk.tasks
         .filter(t => t.column === 'doing' || t.column === 'now')
-        .map(issue => ({issue: active.value ? {...issue, tasks: filterTree(issue.tasks, matches)} : issue, chunk: chunk.title})))
+        .map(issue => ({issue: active.value ? {...issue, tasks: filterTree(issue.tasks, matches)} : issue, chunk})))
         .filter(({issue}) => !active.value || matches(issue) || issue.tasks.length)
         .sort((a, b) => Number(a.issue.column === 'now') - Number(b.issue.column === 'now'))
     return {project, issues, doing: issues.filter(i => i.issue.column === 'doing').length}

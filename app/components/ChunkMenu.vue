@@ -4,14 +4,15 @@ import {PRIORITIES} from '#shared/roadmap'
 
 // Right-clicking a chunk's card on the roadmap: set its priority, ask the Claude sessions to work through
 // it, start a new issue in it, copy its id, open or remove it (its issues stay, in no chunk), all as the
-// owner. The roadmap updates live once a change is saved. Esc or a click outside closes it.
+// owner. The roadmap updates live once a change is saved. Esc or a click outside closes it. No chunk
+// (`none`, the issues in none) isn't a chunk of its own, so it has no priority, id or removing.
 const {target, close} = useChunkMenu()
 const {byId, sessions} = useRoadmaps()
 const {load} = useOwner()
 const router = useRouter()
 
 const project = computed(() => byId(target.value?.project))
-const chunk = computed(() => project.value?.board.chunks.find(c => c.id && c.id === target.value?.chunk))
+const chunk = computed(() => project.value?.board.chunks.find(c => (c.id || 'none') === target.value?.chunk))
 const listening = computed(() => (sessions.value[target.value?.project ?? ''] ?? []).filter(s => s.listening).length)
 
 const menu = ref<HTMLElement | null>(null)
@@ -65,13 +66,13 @@ const remove = () => send('', 'DELETE')
 
 function newIssue() {
     if (!target.value) return
-    useNewIssue().open(target.value.project, target.value.chunk)
+    useNewIssue().open(target.value.project, chunk.value?.id || undefined)
     close()
 }
 
 function openChunk() {
     if (!target.value) return
-    router.push(chunkPath(target.value.project, target.value.chunk))
+    router.push(chunkPath(target.value.project, chunk.value?.id ?? ''))
     close()
 }
 
@@ -111,18 +112,18 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
         class="glass fixed z-50 flex w-64 animate-fade-up flex-col gap-1 rounded-xl p-1 outline-none"
         :style="{left: `${place.left}px`, top: `${place.top}px`}"
         role="menu"
-        :aria-label="`Actions for chunk ${chunk.id}`"
+        :aria-label="chunk.id ? `Actions for chunk ${chunk.id}` : 'Actions for the issues in no chunk'"
         tabindex="-1"
         @keydown.esc.stop="close"
         @contextmenu.prevent
     >
       <div class="flex items-center gap-2 px-2 pt-1.5 pb-1 text-xs">
-        <span class="font-mono text-faint">{{ chunk.id }}</span>
-        <span class="min-w-0 flex-1 truncate text-muted">{{ chunk.title }}</span>
+        <span v-if="chunk.id" class="font-mono text-faint">{{ chunk.id }}</span>
+        <span class="min-w-0 flex-1 truncate text-muted" :class="!chunk.id && 'italic'">{{ chunk.title }}</span>
       </div>
 
       <template v-if="!confirming">
-        <div class="flex flex-col gap-1 border-t border-line px-2 pt-2 pb-1">
+        <div v-if="chunk.id" class="flex flex-col gap-1 border-t border-line px-2 pt-2 pb-1">
           <span class="label">Priority</span>
           <div class="flex gap-1">
             <button
@@ -149,7 +150,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
             New issue in it
           </button>
-          <button type="button" :class="item" @click="copyId">
+          <button v-if="chunk.id" type="button" :class="item" @click="copyId">
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
             Copy id
           </button>
@@ -157,7 +158,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9" /></svg>
             Open
           </button>
-          <button type="button" :class="[item, 'text-rose-600 hover:bg-rose-500/10 dark:text-rose-400']" :disabled="busy" @click="confirming = true">
+          <button v-if="chunk.id" type="button" :class="[item, 'text-rose-600 hover:bg-rose-500/10 dark:text-rose-400']" :disabled="busy" @click="confirming = true">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
             Remove…
           </button>

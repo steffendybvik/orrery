@@ -9,7 +9,7 @@ import {total} from '#shared/roadmap'
 // The tree: each level is INDENT further in, and a sub-issue's line comes down from under its
 // parent's first icon (RAIL from the row's edge) and turns into it. `rails` says, for each level
 // above the parent, whether that level's line carries on past this row; `last` whether this one does.
-const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, chunk?: string, nested?: boolean, rails?: boolean[], last?: boolean}>(),
+const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, chunk?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean}>(),
     {depth: 0, chunk: undefined, nested: false, rails: () => [], last: true})
 const INDENT = 24
 const RAIL = 19
@@ -54,7 +54,13 @@ const STATUS_PILL = {
       <span class="min-w-0 truncate" :class="issue.column === 'done' ? 'text-muted' : 'text-fg'"><InlineText :text="issue.title" /></span>
       <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line" :title="`${issue.counts.done} of ${total(issue.counts)} sub-issues done`"><ProgressRing :counts="issue.counts" :size="13" /></span>
     </span>
-    <span v-if="chunk" class="hidden max-w-40 shrink-0 truncate text-xs text-faint lg:inline">{{ chunk }}</span>
+    <NuxtLink
+        v-if="chunk"
+        :to="chunkPath(project, chunk.id)"
+        class="hidden max-w-40 shrink-0 truncate text-xs text-faint hover:text-fg hover:underline lg:inline"
+        :title="`Open ${chunk.id ? chunk.title : 'the issues in no chunk'}`"
+        @click.stop
+    >{{ chunk.title }}</NuxtLink>
     <span class="hidden shrink-0 items-center gap-1 lg:flex">
       <LabelChip v-for="label in issue.labels.slice(0, 2)" :key="label" :label="label" />
       <span v-if="issue.labels.length > 2" class="text-[11px] text-faint">+{{ issue.labels.length - 2 }}</span>

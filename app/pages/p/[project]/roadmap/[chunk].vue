@@ -100,7 +100,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
           <span>{{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue' : 'issues' }}<template v-if="share.total !== chunk.tasks.length"> · {{ share.total }} with sub-issues</template></span>
           <ColumnBar :counts="chunk.counts" class="max-w-64 flex-1" />
         </div>
-        <SessionsPanel v-if="chunk.id && chunk.column !== 'done'" :project="project.id" :chunk="chunk.id" />
+        <SessionsPanel v-if="chunk.column !== 'done'" :project="project.id" :chunk="chunk.id || 'none'" />
       </header>
       <ViewToolbar>
         <span class="label">Issues</span>

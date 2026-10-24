@@ -7,7 +7,7 @@ import {COLUMNS} from '#shared/roadmap'
 const props = withDefaults(defineProps<{chunks: Chunk[], project: string, group: 'status' | 'chunk', showChunk?: boolean}>(), {showChunk: true})
 const {active} = useFilters()
 
-interface Group { key: string, title: string, column: Column, counts?: Counts, summary?: string, muted?: boolean, issues: {issue: Issue, chunk?: string}[] }
+interface Group { key: string, title: string, column: Column, counts?: Counts, summary?: string, muted?: boolean, issues: {issue: Issue, chunk?: {id: string, title: string}}[] }
 
 const groups = computed<Group[]>(() => {
     if (props.group === 'chunk') {
@@ -16,7 +16,7 @@ const groups = computed<Group[]>(() => {
             issues: chunk.tasks.map(issue => ({issue})),
         }))
     }
-    const all = props.chunks.flatMap(chunk => chunk.tasks.map(issue => ({issue, chunk: props.showChunk ? chunk.title : undefined})))
+    const all = props.chunks.flatMap(chunk => chunk.tasks.map(issue => ({issue, chunk: props.showChunk ? chunk : undefined})))
     return COLUMNS.map(column => ({key: `status:${column}`, title: COLUMN_STYLE[column].label, column, issues: all.filter(i => i.issue.column === column)}))
         .filter(g => g.issues.length)
 })

@@ -218,6 +218,7 @@ describe('chunks', () => {
         expect(sent).toEqual(['focus:-:1:joints-window'])
         expect(local.listSignals('mesher', 0, 50, {chunk: '1'}).map(s => s.id)).toEqual([signal.id])
         expect(failure(() => local.focusChunk('mesher', '9', {})).status).toBe(404)
+        expect(local.focusChunk('mesher', 'none', {}).chunk).toBe('none')
     })
 })
 
