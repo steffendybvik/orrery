@@ -5,7 +5,7 @@ import type {Session, Signal} from '#shared/roadmap'
 // to point one (or all) at this issue. Under them, the focus signals sent about it and who got them.
 const props = defineProps<{project: string, issue: string}>()
 const {sessions: all, signals: live} = useRoadmaps()
-const {load} = useOwner()
+const {load, who} = useOwner()
 
 const sessions = computed(() => all.value[props.project] ?? [])
 const listening = computed(() => sessions.value.filter(s => s.listening))
@@ -97,11 +97,11 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">
         <template v-if="signal.kind === 'comment'">
-          <span class="text-muted">{{ signal.createdBy }}</span>'s comment went to
+          <span class="text-muted">{{ who(signal.createdBy) }}</span>'s comment went to
           <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
         </template>
         <template v-else>
-          <span class="text-muted">{{ signal.createdBy }}</span> asked
+          <span class="text-muted">{{ who(signal.createdBy) }}</span> asked
           <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span> to focus on this
         </template>
         · {{ ago(signal.createdAt) }} ·

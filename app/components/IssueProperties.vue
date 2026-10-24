@@ -3,6 +3,7 @@ import type {Chunk, Issue, Project} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page.
 defineProps<{issue: Issue, project: Project, chunk: Chunk}>()
+const {who} = useOwner()
 </script>
 
 <template>
@@ -18,7 +19,7 @@ defineProps<{issue: Issue, project: Project, chunk: Chunk}>()
     <dd class="flex items-center gap-2"><PriorityIcon :priority="issue.priority" />{{ issue.priority ? `${issue.priority} · ${PRIORITY_LABEL[issue.priority]}` : 'No priority' }}</dd>
     <dt class="label">Assignee</dt>
     <dd class="flex items-center gap-2">
-      <template v-if="issue.assignee"><PersonAvatar :name="issue.assignee" />{{ issue.assignee }}</template>
+      <template v-if="issue.assignee"><PersonAvatar :name="issue.assignee" />{{ who(issue.assignee) }}</template>
       <span v-else class="text-faint">Unassigned</span>
     </dd>
     <dt class="label">Labels</dt>
@@ -36,7 +37,7 @@ defineProps<{issue: Issue, project: Project, chunk: Chunk}>()
     </template>
     <dt class="label">Created by</dt>
     <dd class="flex flex-wrap items-center gap-x-2 text-muted">
-      {{ issue.createdBy }}
+      {{ who(issue.createdBy) }}
       <span v-if="issue.protected" class="flex items-center gap-1 text-xs text-faint" title="Only the owner can delete it">
         <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
         protected

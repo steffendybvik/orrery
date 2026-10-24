@@ -8,6 +8,7 @@ const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
 const {open, last} = useIssueLink()
+const {who} = useOwner()
 
 const project = computed(() => byId(route.params.project as string))
 const issueId = computed(() => route.params.issue as string)
@@ -125,12 +126,12 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <ol class="relative flex flex-col gap-5 border-l border-line pl-5">
             <li class="text-xs text-faint">
               <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
-              <span class="text-muted">{{ issue.createdBy }}</span> created the issue · <span :title="issue.createdAt">{{ ago(issue.createdAt) }}</span>
+              <span class="text-muted">{{ who(issue.createdBy) }}</span> created the issue · <span :title="issue.createdAt">{{ ago(issue.createdAt) }}</span>
             </li>
             <li v-for="comment in comments" :key="comment.id" class="flex flex-col gap-1.5">
               <div class="-ml-[31px] flex items-center gap-2 text-xs">
                 <PersonAvatar :name="comment.createdBy" :size="20" />
-                <span class="font-medium text-fg">{{ comment.createdBy }}</span>
+                <span class="font-medium text-fg">{{ who(comment.createdBy) }}</span>
                 <span class="text-faint" :title="comment.createdAt">{{ ago(comment.createdAt) }}{{ comment.updatedAt !== comment.createdAt ? ' · edited' : '' }}</span>
               </div>
               <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="comment.body" class="text-[13px] leading-6" /></div>

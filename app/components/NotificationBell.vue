@@ -3,6 +3,7 @@
 // ones counted. Opening it marks them read; a notice opens its issue.
 const {notices, seenAt, unread, seen} = useInbox()
 const {open: openIssue} = useIssueLink()
+const {who} = useOwner()
 const shown = ref(false)
 const root = ref<HTMLElement | null>(null)
 
@@ -42,7 +43,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', close))
             <span class="flex items-center gap-2 text-xs">
               <span v-if="notice.createdAt > seenAt" class="size-1.5 shrink-0 rounded-full bg-accent-500" />
               <PersonAvatar :name="notice.createdBy" :size="16" />
-              <span class="text-fg">{{ notice.createdBy }}</span>
+              <span class="text-fg">{{ who(notice.createdBy) }}</span>
               <span class="text-faint">on</span>
               <span class="font-mono text-faint">{{ notice.issue }}</span>
               <span class="ml-auto shrink-0 text-faint">{{ ago(notice.createdAt) }}</span>

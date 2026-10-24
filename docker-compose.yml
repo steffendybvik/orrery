@@ -3,7 +3,8 @@
 # The live database is in the orrery-data volume. A copy goes to ORRERY_BACKUP (iCloud Drive's
 # Orrery folder by default) a few seconds after each change, plus one a day for two weeks; a new
 # volume starts from that copy. ORRERY_OWNER (in .env) is the name whose things no one else can
-# delete; send it as the `Orrery-Actor` header on your own requests.
+# delete; send it as the `Orrery-Actor` header on your own requests. ORRERY_OWNER_NAME is the name the
+# page shows for them instead.
 
 services:
   orrery:
@@ -12,6 +13,7 @@ services:
       - "${ORRERY_PORT:-9000}:9000"
     environment:
       NUXT_OWNER: ${ORRERY_OWNER:-owner}
+      NUXT_OWNER_NAME: ${ORRERY_OWNER_NAME:-}
       NUXT_BACKUP_DIR: /backup
       NUXT_PUBLIC_REPO_DIR: ${PWD}
     volumes:

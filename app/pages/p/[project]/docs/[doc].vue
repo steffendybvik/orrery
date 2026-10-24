@@ -5,6 +5,7 @@ import type {Doc} from '#shared/roadmap'
 // changes through the API.
 const route = useRoute()
 const {byId, ready} = useRoadmaps()
+const {who} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 const summary = computed(() => project.value?.docs.find(d => d.id === route.params.doc))
 
@@ -49,7 +50,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
         <h1 class="text-3xl font-semibold tracking-tight text-fg">{{ doc.title }}</h1>
         <div class="flex items-center gap-2 text-xs text-faint">
           <PersonAvatar :name="doc.createdBy" :size="16" />
-          <span class="text-muted">{{ doc.createdBy }}</span>
+          <span class="text-muted">{{ who(doc.createdBy) }}</span>
           <span>· updated {{ ago(doc.updatedAt) }}</span>
           <span v-if="doc.protected" class="flex items-center gap-1" title="Only the owner can delete it">· protected</span>
           <span class="ml-auto flex items-center gap-2">

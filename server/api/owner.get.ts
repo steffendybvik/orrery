@@ -1,2 +1,6 @@
-// `GET /api/owner` → {name}: the owner's name, which the page sends as `Orrery-Actor`.
-export default defineEventHandler(() => ({name: String(useRuntimeConfig().owner)}))
+// `GET /api/owner` → {name, display}: the owner's name, which the page sends as `Orrery-Actor`, and the
+// name it shows for them.
+export default defineEventHandler(() => {
+    const {owner, ownerName} = useRuntimeConfig()
+    return {name: String(owner), display: String(ownerName || owner)}
+})
