@@ -7,8 +7,20 @@ Apps (and the Claude sessions in their repos) keep their roadmaps here through t
 ## Run
 
 ```sh
-docker compose up -d --build        # http://localhost:9000, data in the orrery-data volume
-ORRERY_PORT=9010 docker compose up -d   # if 9000 is taken
+docker compose up -d                # http://localhost:9000, data in the orrery-data volume
+ORRERY_PORT=9010 docker compose up -d   # if 9000 is taken (or set it in .env)
+```
+
+That runs the repo with `nuxt dev`: it's mounted into the container, so a saved change shows on the
+page straight away and the server reloads itself, with no rebuild. Only this Mac can reach it. The
+container has its own `node_modules` and `.nuxt` (volumes), and installs packages as it starts, so
+after a `pnpm-lock.yaml` change, `docker compose restart orrery`. Change the Dockerfile and it's
+`docker compose up -d --build`.
+
+The built app, for when nothing's being worked on (same port and database, so one at a time):
+
+```sh
+docker compose stop orrery && docker compose --profile prod up -d --build orrery-prod
 ```
 
 Locally (Node 24.22.1, pnpm 10.14.0): `pnpm install`, then `pnpm dev` on http://localhost:9000.

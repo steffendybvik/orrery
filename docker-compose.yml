@@ -1,4 +1,9 @@
-# Orrery on http://localhost:9000 (or ORRERY_PORT): `docker compose up -d --build`.
+# Orrery on http://localhost:9000 (or ORRERY_PORT): `docker compose up -d`.
+#
+# `orrery` runs the repo with `nuxt dev`: the repo is mounted, so a saved change shows on the page
+# straight away (the server reloads itself), with no rebuild. The built app is `orrery-prod`, for when
+# nothing's being worked on: `docker compose stop orrery && docker compose --profile prod up -d --build orrery-prod`.
+# Both use the same port and database, so run one at a time.
 #
 # The live database is in the orrery-data volume. A copy goes to ORRERY_BACKUP (iCloud Drive's
 # Orrery folder by default) a few seconds after each change, plus one a day for two weeks; a new
@@ -6,20 +11,39 @@
 # delete; send it as the `Orrery-Actor` header on your own requests. ORRERY_OWNER_NAME is the name the
 # page shows for them instead.
 
+x-orrery: &orrery
+  environment:
+    NUXT_OWNER: ${ORRERY_OWNER:-owner}
+    NUXT_OWNER_NAME: ${ORRERY_OWNER_NAME:-}
+    NUXT_BACKUP_DIR: /backup
+    NUXT_PUBLIC_REPO_DIR: ${PWD}
+  restart: unless-stopped
+
 services:
   orrery:
-    build: .
+    <<: *orrery
+    build: {context: ., target: dev}
+    # This Mac only: the dev server hands out the source and its build errors to whoever can reach it.
+    ports:
+      - "127.0.0.1:${ORRERY_PORT:-9000}:9000"
+    volumes:
+      - .:/src
+      - orrery-node-modules:/src/node_modules
+      - orrery-nuxt:/src/.nuxt
+      - orrery-data:/data
+      - ${ORRERY_BACKUP:-${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Orrery}:/backup
+
+  orrery-prod:
+    <<: *orrery
+    profiles: [prod]
+    build: {context: ., target: prod}
     ports:
       - "${ORRERY_PORT:-9000}:9000"
-    environment:
-      NUXT_OWNER: ${ORRERY_OWNER:-owner}
-      NUXT_OWNER_NAME: ${ORRERY_OWNER_NAME:-}
-      NUXT_BACKUP_DIR: /backup
-      NUXT_PUBLIC_REPO_DIR: ${PWD}
     volumes:
       - orrery-data:/data
       - ${ORRERY_BACKUP:-${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Orrery}:/backup
-    restart: unless-stopped
 
 volumes:
   orrery-data:
+  orrery-node-modules:
+  orrery-nuxt:
