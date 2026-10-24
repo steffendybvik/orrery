@@ -9,5 +9,6 @@ useHotkeys()
       <slot />
     </main>
     <CommandPalette />
+    <NewIssueDialog />
   </div>
 </template>

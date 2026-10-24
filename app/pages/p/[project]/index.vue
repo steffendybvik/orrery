@@ -62,7 +62,13 @@ onMounted(() => nextTick(() => {
       <span class="label">Group</span>
       <SegmentedControl v-model="group" :options="groupings" />
     </div>
-    <template #end><FilterBar /></template>
+    <template #end>
+      <FilterBar />
+      <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id)">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New issue
+      </button>
+    </template>
   </ViewToolbar>
 
   <div class="min-h-0 flex-1" :class="view === 'list' ? 'overflow-y-auto' : 'overflow-hidden'">

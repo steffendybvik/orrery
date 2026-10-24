@@ -71,7 +71,13 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
       </header>
       <ViewToolbar>
         <span class="label">Issues</span>
-        <template #end><FilterBar /></template>
+        <template #end>
+          <FilterBar />
+          <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id, chunk.id || undefined)">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            New issue
+          </button>
+        </template>
       </ViewToolbar>
       <ListView v-if="shown[0]?.tasks.length" :chunks="shown" :project="project.id" group="status" :show-chunk="false" />
       <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this chunk matches the filters.' : 'No issues in this chunk yet.' }}</p>
