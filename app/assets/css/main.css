@@ -77,9 +77,11 @@
     color-scheme: dark;
 }
 
-/* Frosted panel for everything floating over the page (mesher's `glass`) */
+/* The panel for everything floating over the page (mesher's `glass`). Solid, not frosted: most of them
+   open inside something with its own backdrop-filter (the header, a dialog's scrim), which a blur
+   can't see past, so a see-through panel only showed grey. */
 @utility glass {
-    @apply border border-line bg-raised/80 shadow-2xl shadow-black/20 backdrop-blur-xl dark:bg-zinc-900/70 dark:shadow-black/40;
+    @apply border border-line bg-raised shadow-2xl shadow-black/20 dark:shadow-black/40;
 }
 
 /* The small uppercase heading over a group (OBJECTS, PROPERTIES) */
