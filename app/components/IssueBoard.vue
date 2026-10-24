@@ -3,9 +3,10 @@ import type {Chunk, Column, Issue} from '#shared/roadmap'
 import {COLUMNS, total} from '#shared/roadmap'
 
 // Issues as cards in their columns, Doing…Done, as Linear's board. A parent stands for its
-// sub-issues. Done starts folded to a count.
+// sub-issues. Done starts folded to a count. Right-clicking a card opens its menu (IssueMenu).
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()
+const {open: openMenu} = useIssueMenu()
 const showDone = ref(false)
 
 const columns = computed(() => {
@@ -53,6 +54,7 @@ const subs = (issue: Issue) => `${issue.counts.done}/${total(issue.counts)}`
             class="flex cursor-pointer flex-col gap-2 rounded-xl border bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
             :class="isLast(project, issue.id) ? 'border-faint/50' : 'border-line'"
             @click="open(project, issue.id)"
+            @contextmenu="openMenu($event, project, issue.id)"
         >
           <div class="flex items-center gap-2 text-[11px] text-faint">
             <span class="font-mono">{{ issue.id }}</span>

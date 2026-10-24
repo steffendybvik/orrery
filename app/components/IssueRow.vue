@@ -4,7 +4,7 @@ import {total} from '#shared/roadmap'
 
 // One issue as a row (id, title, labels, status, column, priority, assignee); a parent shows its
 // sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines as in Linear.
-// Clicking opens its page; `j`/`k` move between rows (`data-nav`).
+// Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`).
 //
 // The tree: each level is INDENT further in, and a sub-issue's line comes down from under its
 // parent's first icon (RAIL from the row's edge) and turns into it. `rails` says, for each level
@@ -16,6 +16,7 @@ const RAIL = 19
 const railAt = (level: number) => `${RAIL + level * INDENT}px`
 const childRails = computed(() => props.depth ? [...props.rails, !props.last] : [])
 const {open, isLast} = useIssueLink()
+const {open: openMenu} = useIssueMenu()
 const {changed} = useRoadmaps()
 
 const isParent = computed(() => props.issue.tasks.length > 0)
@@ -37,6 +38,7 @@ const STATUS_PILL = {
       :class="[isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '']"
       :style="{paddingLeft: `${12 + depth * INDENT}px`}"
       @click="open(project, issue.id)"
+      @contextmenu="openMenu($event, project, issue.id)"
   >
     <template v-if="depth">
       <template v-for="(carries, level) in rails" :key="level">

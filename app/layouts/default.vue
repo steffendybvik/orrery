@@ -13,5 +13,6 @@ await callOnce('owner', load)
     </main>
     <CommandPalette />
     <NewIssueDialog />
+    <IssueMenu />
   </div>
 </template>
