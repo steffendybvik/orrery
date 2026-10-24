@@ -5,6 +5,11 @@
 # nothing's being worked on: `docker compose stop orrery && docker compose --profile prod up -d --build orrery-prod`.
 # Both use the same port and database, so run one at a time.
 #
+# `orrery-work` is a second Orrery for work, the built app (so it only changes when it's rebuilt:
+# `docker compose up -d --build orrery-work`), with nothing shared: its own database (orrery-work-data),
+# its own backups (ORRERY_WORK_BACKUP, on this Mac by default, not in iCloud), on ORRERY_WORK_PORT
+# (9020), this Mac only, badged "Work".
+#
 # The live database is in the orrery-data volume. A copy goes to ORRERY_BACKUP (iCloud Drive's
 # Orrery folder by default) a few seconds after each change, plus one a day for two weeks; a new
 # volume starts from that copy. ORRERY_OWNER (in .env) is the name whose things no one else can
@@ -33,6 +38,21 @@ services:
       - orrery-data:/data
       - ${ORRERY_BACKUP:-${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Orrery}:/backup
 
+  orrery-work:
+    <<: *orrery
+    build: {context: ., target: prod}
+    ports:
+      - "127.0.0.1:${ORRERY_WORK_PORT:-9020}:9000"
+    environment:
+      NUXT_OWNER: ${ORRERY_OWNER:-owner}
+      NUXT_OWNER_NAME: ${ORRERY_OWNER_NAME:-}
+      NUXT_BACKUP_DIR: /backup
+      NUXT_PUBLIC_REPO_DIR: ${PWD}
+      NUXT_PUBLIC_LABEL: Work
+    volumes:
+      - orrery-work-data:/data
+      - ${ORRERY_WORK_BACKUP:-${HOME}/Library/Application Support/Orrery Work}:/backup
+
   orrery-prod:
     <<: *orrery
     profiles: [prod]
@@ -45,5 +65,6 @@ services:
 
 volumes:
   orrery-data:
+  orrery-work-data:
   orrery-node-modules:
   orrery-nuxt:

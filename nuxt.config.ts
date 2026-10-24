@@ -28,6 +28,9 @@ export default defineNuxtConfig({
             // Where this repo is on the machine, for the channel setup the Connect page hands out.
             // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).
             repoDir: '',
+            // Which Orrery this is when there's more than one (e.g. `Work`): a badge by the name, and
+            // the start of every tab's title. Override with NUXT_PUBLIC_LABEL.
+            label: '',
         },
     },
 

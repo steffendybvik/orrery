@@ -6,6 +6,7 @@ const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const open = useState('sidebar-open', () => false)
 const palette = useState('palette-open', () => false)
+const {label} = useRuntimeConfig().public
 const newProject = useState('new-project', () => false)
 
 watch(() => route.fullPath, () => {
@@ -64,6 +65,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           <svg class="size-4 text-zinc-950" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(-25 12 12)" /><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" /><circle cx="19.4" cy="8.6" r="1.6" fill="currentColor" stroke="none" /></svg>
         </div>
         <span class="text-sm font-semibold tracking-tight">orrery</span>
+        <span v-if="label" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${label} Orrery: its own database, apart from any other`">{{ label }}</span>
       </NuxtLink>
       <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="live === 'live' ? 'Changes through the API show here as they happen' : 'Not getting changes'">
         <span class="relative flex size-1.5">
@@ -165,7 +167,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           <span class="text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
         </div>
       </div>
-      <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: create one through the API.</p>
+      <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: start one with +.</p>
     </nav>
 
     <div class="hidden border-t border-line p-2 md:block">

@@ -23,6 +23,12 @@ The built app, for when nothing's being worked on (same port and database, so on
 docker compose stop orrery && docker compose --profile prod up -d --build orrery-prod
 ```
 
+A second Orrery for work runs beside it, apart in everything: `orrery-work` on http://localhost:9020
+(`ORRERY_WORK_PORT`), the built app, with its own database (the `orrery-work-data` volume) and its
+own backups on this Mac (`~/Library/Application Support/Orrery Work`, or `ORRERY_WORK_BACKUP`), not
+in iCloud. It's badged **Work**. A repo's sessions use it when its `.mcp.json` sets
+`ORRERY_URL=http://localhost:9020`. It changes only when rebuilt: `docker compose up -d --build orrery-work`.
+
 Locally (Node 24.22.1, pnpm 10.14.0): `pnpm install`, then `pnpm dev` on http://localhost:9000.
 The database is `.data/orrery.db` (`NUXT_DATABASE`).
 
