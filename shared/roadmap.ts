@@ -36,6 +36,8 @@ export interface Issue {
     comments: number
     /** Ids it had before (e.g. `MOT-5`), which still find it. */
     aliases: string[]
+    /** The schedule that made it, if one did. */
+    schedule?: number
     createdBy: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
@@ -129,6 +131,47 @@ export interface Signal {
     /** Sent by the owner. Sessions only act on these. */
     protected: boolean
     createdAt: string
+}
+
+/** Where a schedule's issues start: a board column other than Done. */
+export const PLACES = ['backlog', 'later', 'next', 'now', 'doing'] as const
+export type Place = (typeof PLACES)[number]
+
+/** One time a schedule ran: the issue it made, or why it didn't. */
+export interface ScheduleRun {
+    at: string
+    outcome: 'made' | 'skipped' | 'failed'
+    issue?: string
+    note?: string
+}
+
+/** Recurring work in a project: at each time (`cron` in `timezone`, or once `at`) Orrery makes an issue
+ * from it, and with `ask` points the project's listening Claude sessions at it. */
+export interface Schedule {
+    id: number
+    project: string
+    title: string
+    notes?: string
+    cron?: string
+    at?: string
+    timezone: string
+    /** Where its issues start. */
+    column: Place
+    chunk?: string
+    priority?: Priority
+    labels: string[]
+    ask: boolean
+    /** Skips a run while the issue from the last one isn't done. */
+    skipOpen: boolean
+    enabled: boolean
+    /** When it runs next; none once it's paused or a one-off has run. */
+    nextRun?: string
+    /** The latest runs, newest first. */
+    runs: ScheduleRun[]
+    createdBy: string
+    protected: boolean
+    createdAt: string
+    updatedAt: string
 }
 
 /** What a Claude session is doing, as its hooks last said: `waiting` is waiting on the owner. */

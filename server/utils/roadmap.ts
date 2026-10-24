@@ -158,6 +158,7 @@ export function checkRoadmap(data: unknown): RoadmapFile {
 export interface IssueInput extends Omit<TaskFile, 'tasks'> {
     comments?: number
     aliases?: string[]
+    schedule?: number
     createdBy?: string
     protected?: boolean
     createdAt?: string
@@ -186,8 +187,8 @@ function issueOf(task: IssueInput): Issue {
     const tasks = task.tasks.map(issueOf)
     const counts = tasks.length ? sum(tasks.map(t => t.counts)) : emptyCounts()
     if (!tasks.length) counts[leafColumn(task.status, task.plan)] += 1
-    const {id, title, priority, assignee, labels, status, plan, notes, comments = 0, aliases = [], createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
-    return {id, title, priority, assignee, labels, status, plan, notes, column: columnOf(counts), counts, comments, aliases, createdBy, protected: owned, createdAt, updatedAt, tasks}
+    const {id, title, priority, assignee, labels, status, plan, notes, comments = 0, aliases = [], schedule, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
+    return {id, title, priority, assignee, labels, status, plan, notes, column: columnOf(counts), counts, comments, aliases, schedule, createdBy, protected: owned, createdAt, updatedAt, tasks}
 }
 
 /** A leaf issue: done → Done; doing → Doing; otherwise its plan, and Backlog when it has none. */

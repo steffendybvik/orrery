@@ -78,8 +78,12 @@ export default defineEventHandler(event => {
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
     stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
     missed.forEach(push)
-    // A session that can hear catches up on the owner's comments nobody has answered yet.
-    if (attended && heard) store.carryUnanswered(project, attended.id)
+    // A session that can hear catches up on the owner's comments nobody has answered yet, and on
+    // scheduled work nobody was there to hear.
+    if (attended && heard) {
+        store.carryUnanswered(project, attended.id)
+        store.unheardScheduled(project).filter(s => !missed.some(m => m.id === s.id)).forEach(push)
+    }
     stream.onClosed(async () => {
         clearInterval(ping)
         projectEvents.off('signal', send)

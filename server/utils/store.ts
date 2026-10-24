@@ -72,7 +72,7 @@ interface ChunkRow extends Made { project: string, id: string, title: string, su
 interface IssueRow extends Made {
     project: string, id: string, title: string, status: Status, plan: Plan | null, priority: Priority | null,
     assignee: string | null, labels: string, notes: string | null,
-    parent: string | null, chunk: string | null, position: number
+    parent: string | null, chunk: string | null, position: number, schedule: number | null
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
@@ -218,6 +218,11 @@ export class Store {
         this.onChange(id)
     }
 
+    /** Tells the page the project changed, after a write made outside the store (a schedule marking its issue). */
+    changed(project: string) {
+        this.onChange(project)
+    }
+
     // Chunks
 
     listChunks(project: string): ChunkRecord[] {
@@ -275,6 +280,8 @@ export class Store {
             this.run('UPDATE issues SET chunk = NULL WHERE project = ? AND chunk = ?', project, id)
             this.run('DELETE FROM chunk_aliases WHERE project = ? AND chunk = ?', project, id)
             this.run('DELETE FROM signals WHERE project = ? AND chunk = ?', project, id)
+            // Schedules that made issues in it make them in no chunk from now on.
+            this.run('UPDATE schedules SET chunk = NULL WHERE project = ? AND chunk = ?', project, id)
             this.run('DELETE FROM chunks WHERE project = ? AND id = ?', project, id)
             this.touchProject(project)
         })
@@ -629,6 +636,15 @@ export class Store {
         return this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit).map(signalOf)
     }
 
+    /** The owner's asks from schedules in the last day that no session has heard yet: the next one to connect gets them. */
+    unheardScheduled(project: string): Signal[] {
+        const since = new Date(Date.now() - 86_400_000).toISOString()
+        return this.all<SignalRow>(`
+            SELECT s.* FROM signals s JOIN issues i ON i.project = s.project AND i.id = s.issue
+            WHERE s.project = ? AND s.kind = 'focus' AND s.owned = 1 AND s.delivered_to = '[]' AND i.schedule IS NOT NULL
+              AND i.status != 'done' AND s.created_at >= ? ORDER BY s.id`, project, since).map(signalOf)
+    }
+
     /** Notes that a session got the signal. */
     delivered(project: string, id: number, to: string): Signal {
         const row = this.get<SignalRow>('SELECT * FROM signals WHERE project = ? AND id = ?', project, id)
@@ -732,6 +748,7 @@ export class Store {
             notes: row.notes ?? undefined,
             comments: comments.get(row.id) ?? 0,
             aliases: issueAliases.get(row.id) ?? [],
+            schedule: row.schedule ?? undefined,
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,

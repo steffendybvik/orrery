@@ -1,8 +1,10 @@
 // The one store the routes share, and the events it sends: `project` (the project, read again)
 // after any change to it, `removed` (its id) once it's deleted, and `signal` (a Signal) when someone
-// asks the sessions on a project to focus on an issue. `/api/events` and the signal streams pass them on.
+// asks the sessions on a project to focus on an issue, and `schedules` (the project) when its schedules
+// change or run. `/api/events` and the signal streams pass them on.
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
+import {Schedules} from './schedules'
 import {Store} from './store'
 
 export const projectEvents = new EventEmitter()
@@ -22,6 +24,13 @@ export function useStore(): Store {
         projectEvents.emit('project', project)
     }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice))
     return store
+}
+
+let schedules: Schedules | null = null
+
+export function useSchedules(): Schedules {
+    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening)
+    return schedules
 }
 
 /** How many sessions are listening for each project's signals right now. */
@@ -52,6 +61,12 @@ export function param(event: H3Event, name: string): string {
 export function commentId(event: H3Event): number {
     const id = Number(param(event, 'comment'))
     if (!Number.isInteger(id)) throw notFound(`No comment ${param(event, 'comment')}`)
+    return id
+}
+
+export function scheduleId(event: H3Event): number {
+    const id = Number(param(event, 'schedule'))
+    if (!Number.isInteger(id)) throw notFound(`No schedule ${param(event, 'schedule')}`)
     return id
 }
 

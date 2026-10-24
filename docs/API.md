@@ -82,6 +82,24 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `GET /notices` | agents' latest comments across projects, newest first (the page's bell) |
 | `POST /notices/clear` | `{ids}` or `{before}` → `{cleared}`: the owner takes them out of the bell; they stay on their issues |
 
+## Schedules
+
+Recurring work in a project. At each time a schedule makes an issue (its title plus the day, e.g.
+`Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
+the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
+is listening, the next to connect within a day gets it). With `skipOpen` (the default) a run is skipped
+while the last run's issue isn't done. Missed runs while Orrery was down run once when it's back.
+
+| | |
+|---|---|
+| `GET /schedules` | every project's, soonest first, paused last |
+| `GET /projects/:project/schedules` | the project's |
+| `POST /projects/:project/schedules` | `{title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skipOpen?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` where its issues start (`backlog`, `later`, `next`, `now` (default), `doing`) |
+| `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be deleted by agents |
+| `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}` |
+
+Each schedule carries `nextRun` and its latest `runs`: `made` (with the issue), `skipped` or `failed` (with why).
+
 ## Signals to sessions
 
 The owner can ask the Claude sessions on a project to work on an issue now, or to work through a
