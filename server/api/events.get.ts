@@ -12,6 +12,7 @@ export default defineEventHandler(event => {
     const onSessions = (project: string) => stream.push({event: 'sessions', data: JSON.stringify({project, sessions: listSessions(project)})})
     const onSignal = (signal: Signal) => stream.push({event: 'signal', data: JSON.stringify(signal)})
     const onNotice = (notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)})
+    const onSettings = (settings: unknown) => stream.push({event: 'settings', data: JSON.stringify(settings)})
     const onSchedules = (project: string) => stream.push({event: 'schedules', data: JSON.stringify({project, schedules: useScheduler().list(project)})})
     projectEvents.on('project', onProject)
     projectEvents.on('removed', onRemoved)
@@ -20,6 +21,7 @@ export default defineEventHandler(event => {
     projectEvents.on('signal', onSignal)
     projectEvents.on('notice', onNotice)
     projectEvents.on('schedules', onSchedules)
+    projectEvents.on('settings', onSettings)
     // Keeps proxies and the browser from dropping a quiet connection.
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
     // The headers go out with the first event: without one, the browser waits to call it open. It
@@ -35,6 +37,7 @@ export default defineEventHandler(event => {
         projectEvents.off('signal', onSignal)
         projectEvents.off('notice', onNotice)
         projectEvents.off('schedules', onSchedules)
+        projectEvents.off('settings', onSettings)
         await stream.close()
     })
     return stream.send()

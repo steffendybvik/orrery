@@ -3,8 +3,8 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
-import type {Asks, Board, Chunk, Comment, Counts, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Signal, Status} from '#shared/roadmap'
-import {ASKS, PLANS, PRIORITIES, STATUSES} from '#shared/roadmap'
+import type {Asks, Board, Chunk, Comment, Settings, Counts, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Signal, Status} from '#shared/roadmap'
+import {ASKS, PLANS, PRIORITIES, STATUSES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
@@ -124,6 +124,10 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
     session: {type: 'string', nullable: true},
 }
 
+export const SETTINGS_FIELDS: Record<string, Field> = {
+    tint: {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`},
+}
+
 export const COMMENT_FIELDS: Record<string, Field> = {
     body: {type: 'string', required: true},
     /** `decision` or `feedback`: the comment waits on the owner until they comment after it. */
@@ -139,6 +143,7 @@ export class Store {
         private readonly onChange: (project: string) => void = () => {},
         private readonly onSignal: (signal: Signal) => void = () => {},
         private readonly onNotice: (notice: Notice) => void = () => {},
+        private readonly onSettings: (settings: Settings) => void = () => {},
     ) {}
 
     /** Agents' latest comments across projects (what the bell shows), newest first, after the ones still
@@ -227,6 +232,31 @@ export class Store {
             this.run('DELETE FROM projects WHERE id = ?', id)
         })
         this.onChange(id)
+    }
+
+    /** This Orrery's own settings. */
+    settings(): Settings {
+        const rows = this.all<{key: string, value: string}>('SELECT key, value FROM settings')
+        const value = (key: string) => {
+            const row = rows.find(r => r.key === key)
+            return row ? JSON.parse(row.value) as unknown : undefined
+        }
+        return {tint: (value('tint') as string | undefined) ?? null}
+    }
+
+    /** The owner's to change: they're how the Orrery looks to them. */
+    updateSettings(body: unknown, actor = AGENT): Settings {
+        if (!actor.owner) throw forbidden("Only the owner changes the Orrery's settings; send Orrery-Actor: <owner>")
+        const input = checkInput(body, SETTINGS_FIELDS, true)
+        transaction(this.db, () => {
+            for (const [key, value] of Object.entries(input)) {
+                if (value === undefined) continue
+                this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
+            }
+        })
+        const settings = this.settings()
+        this.onSettings(settings)
+        return settings
     }
 
     /** Tells the page the project changed, after a write made outside the store (a schedule marking its issue). */

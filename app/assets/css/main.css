@@ -77,6 +77,20 @@
     color-scheme: dark;
 }
 
+/* An Orrery's tint (App settings), so one looks unlike another: the backgrounds take on a little of
+   its colour, more in the dark. useAppSettings sets `data-tint` and `--tint` on <html>. */
+:root[data-tint] {
+    --canvas: color-mix(in oklab, var(--tint) 9%, #fafafa);
+    --panel: color-mix(in oklab, var(--tint) 6%, #ffffff);
+    --raised: color-mix(in oklab, var(--tint) 4%, #ffffff);
+}
+
+.dark[data-tint] {
+    --canvas: color-mix(in oklab, var(--tint) 12%, #09090b);
+    --panel: color-mix(in oklab, var(--tint) 10%, #0e0e11);
+    --raised: color-mix(in oklab, var(--tint) 8%, #18181b);
+}
+
 /* The panel for everything floating over the page (mesher's `glass`). Solid, not frosted: most of them
    open inside something with its own backdrop-filter (the header, a dialog's scrim), which a blur
    can't see past, so a see-through panel only showed grey. */

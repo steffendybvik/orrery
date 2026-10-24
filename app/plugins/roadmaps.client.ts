@@ -1,4 +1,4 @@
-import type {Issue, Notice, Project, Schedule, Session, Signal} from '#shared/roadmap'
+import type {Issue, Notice, Project, Schedule, Session, Settings, Signal} from '#shared/roadmap'
 
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
 // project in place, without a reload. After a dropped connection it loads them all again.
@@ -6,6 +6,9 @@ export default defineNuxtPlugin(() => {
     const {projects, ready, live, changed, listeners, sessions, signals} = useRoadmaps()
 
     async function load() {
+        const app = useAppSettings()
+        app.settings.value = await $fetch<Settings>('/api/settings').catch(() => app.settings.value)
+        app.apply()
         projects.value = await $fetch<Project[]>('/api/projects', {query: {expand: 'board'}})
         ready.value = true
         useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
@@ -68,6 +71,11 @@ export default defineNuxtPlugin(() => {
             const notice = JSON.parse((event as MessageEvent).data) as Notice
             const {notices} = useInbox()
             notices.value = [notice, ...notices.value.filter(n => n.id !== notice.id)].slice(0, 50)
+        })
+        events.addEventListener('settings', event => {
+            const app = useAppSettings()
+            app.settings.value = JSON.parse((event as MessageEvent).data) as Settings
+            app.apply()
         })
         events.addEventListener('schedules', event => {
             const {project, schedules} = JSON.parse((event as MessageEvent).data) as {project: string, schedules: Schedule[]}

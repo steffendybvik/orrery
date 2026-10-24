@@ -114,6 +114,15 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span class="flex-1">Connect an agent</span>
       </NuxtLink>
 
+      <NuxtLink
+          to="/settings"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/settings' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="settings" class="size-4 text-faint" />
+        <span class="flex-1">App settings</span>
+      </NuxtLink>
+
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>

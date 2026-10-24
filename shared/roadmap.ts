@@ -187,6 +187,15 @@ export interface Schedule {
     updatedAt: string
 }
 
+/** The tints a page can take on: a few named colours, or any `#rrggbb`. */
+export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green: '#22c55e', amber: '#f59e0b', rose: '#f43f5e', violet: '#8b5cf6'} as const
+
+/** This Orrery's own settings, not a project's. */
+export interface Settings {
+    /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
+    tint: string | null
+}
+
 /** What a Claude session is doing, as its hooks last said: `waiting` is waiting on the owner. */
 export const SESSION_STATES = ['starting', 'working', 'idle', 'waiting'] as const
 export type SessionState = (typeof SESSION_STATES)[number]

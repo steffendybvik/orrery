@@ -256,6 +256,17 @@ describe('comments that wait on the owner', () => {
     })
 })
 
+describe('settings', () => {
+    it('keep a tint, the owner’s to change', () => {
+        expect(store.settings()).toEqual({tint: null})
+        expect(store.updateSettings({tint: 'blue'}, {name: 'steffen', owner: true})).toEqual({tint: 'blue'})
+        expect(store.updateSettings({tint: '#123abc'}, {name: 'steffen', owner: true}).tint).toBe('#123abc')
+        expect(failure(() => store.updateSettings({tint: 'red; background: url(x)'}, {name: 'steffen', owner: true})).status).toBe(400)
+        expect(failure(() => store.updateSettings({tint: null}, {name: 'claude', owner: false})).status).toBe(403)
+        expect(store.updateSettings({tint: null}, {name: 'steffen', owner: true})).toEqual({tint: null})
+    })
+})
+
 describe('removing', () => {
     it('an issue takes its signals with it', () => {
         const {id} = store.createIssue('mesher', {title: 'A'})

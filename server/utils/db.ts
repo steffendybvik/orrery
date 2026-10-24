@@ -266,6 +266,12 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     DROP TABLE schedule_runs;
     ALTER TABLE schedule_runs_new RENAME TO schedule_runs;
     CREATE INDEX schedule_runs_schedule ON schedule_runs(schedule, id);
+`, `
+    -- The Orrery's own settings (not a project's), e.g. the background tint, as keys and JSON values.
+    CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
 `]
 
 let db: DatabaseSync | null = null
