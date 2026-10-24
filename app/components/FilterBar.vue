@@ -2,7 +2,8 @@
 import type {Column} from '#shared/roadmap'
 import {COLUMNS, PRIORITIES} from '#shared/roadmap'
 
-// Search (`/`), then the priority and column filters, shared by every view.
+// Search (`/`; Esc clears it, as the browser does a search field, which only says so with `search`),
+// then the priority and column filters, shared by every view.
 const {filters, active, clear} = useFilters()
 const priorities = [...PRIORITIES.map(p => ({value: p as string, label: `${p} · ${PRIORITY_LABEL[p]}`})), {value: 'none', label: 'No priority'}]
 const columns = COLUMNS.map(c => ({value: c as Column, label: COLUMN_STYLE[c].label}))
@@ -20,6 +21,7 @@ const columns = COLUMNS.map(c => ({value: c as Column, label: COLUMN_STYLE[c].la
           aria-label="Filter by id or title"
           class="min-w-0 flex-1 bg-transparent text-[13px] text-fg placeholder:text-faint focus:outline-none [&::-webkit-search-cancel-button]:hidden"
           @keydown.enter="($event.target as HTMLInputElement).blur()"
+          @search="filters.query = ($event.target as HTMLInputElement).value"
       >
       <KeyHint v-if="!filters.query" class="hidden group-focus-within:hidden sm:inline-flex">/</KeyHint>
     </label>
