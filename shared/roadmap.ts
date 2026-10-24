@@ -49,6 +49,8 @@ export interface Chunk {
     id: string
     title: string
     summary?: string
+    /** How much it matters, P0 being urgent. */
+    priority?: Priority
     column: Column
     counts: Counts
     /** Names it had before (e.g. `joints`), which still find it. */
@@ -108,12 +110,15 @@ export const emptyCounts = (): Counts => ({doing: 0, now: 0, next: 0, later: 0, 
 
 export const total = (counts: Counts) => COLUMNS.reduce((sum, column) => sum + counts[column], 0)
 
-/** A word to the Claude sessions on a project: `focus` asks one to work on the issue now; `comment`
- * brings the owner's comment on it (in `note`) to the session working on it, to answer. */
+/** A word to the Claude sessions on a project: `focus` asks one to work on the issue (or work through
+ * the chunk) now; `comment` brings the owner's comment on an issue (in `note`) to the session working
+ * on it, to answer. */
 export interface Signal {
     id: number
     project: string
-    issue: string
+    /** The issue it's about, or for a focus on a whole chunk, `chunk`. */
+    issue?: string
+    chunk?: string
     kind: 'focus' | 'comment'
     note?: string
     /** The session it's for; none means every session on the project. */

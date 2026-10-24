@@ -16,6 +16,7 @@ const spread = computed(() => COLUMNS.filter(c => c !== 'done' && props.chunk.co
   >
     <div class="flex items-start gap-2">
       <StatusIcon :column="chunk.column" :progress="share.share" class="mt-0.5" />
+      <PriorityIcon v-if="chunk.priority" :priority="chunk.priority" class="mt-0.5" />
       <h3 class="min-w-0 flex-1 text-[13px] leading-snug font-medium" :class="chunk.id ? 'text-fg' : 'text-muted italic'">{{ chunk.title }}</h3>
       <span class="font-mono text-[11px] text-faint tabular-nums">{{ chunk.tasks.length }}</span>
     </div>

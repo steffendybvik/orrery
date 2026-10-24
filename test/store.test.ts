@@ -198,6 +198,29 @@ describe("the owner's comments", () => {
     })
 })
 
+describe('chunks', () => {
+    it('have a priority to set and clear', () => {
+        expect(store.chunk('mesher', '1').priority).toBeUndefined()
+        expect(store.updateChunk('mesher', '1', {priority: 'P1'}).priority).toBe('P1')
+        expect(store.project('mesher').board.chunks[0]!.priority).toBe('P1')
+        expect(store.updateChunk('mesher', '1', {priority: null}).priority).toBeUndefined()
+        expect(failure(() => store.updateChunk('mesher', '1', {priority: 'P7'})).status).toBe(400)
+    })
+
+    it('can be focused on, by their id or a name they had', () => {
+        const sent: string[] = []
+        const local = new Store(openDb(':memory:'), () => {}, signal => sent.push(`${signal.kind}:${signal.issue ?? '-'}:${signal.chunk}:${signal.target ?? 'all'}`))
+        local.createProject({name: 'mesher', key: 'MSH'})
+        local.createChunk('mesher', {title: 'Joints'})
+        const signal = local.focusChunk('mesher', '1', {session: 'joints-window', note: 'urgent'}, {name: 'steffen', owner: true})
+        expect(signal).toMatchObject({chunk: '1', kind: 'focus', note: 'urgent', protected: true})
+        expect(signal.issue).toBeUndefined()
+        expect(sent).toEqual(['focus:-:1:joints-window'])
+        expect(local.listSignals('mesher', 0, 50, {chunk: '1'}).map(s => s.id)).toEqual([signal.id])
+        expect(failure(() => local.focusChunk('mesher', '9', {})).status).toBe(404)
+    })
+})
+
 describe('a session that connects', () => {
     it("gets the owner's comments that no agent has answered", () => {
         const sent: string[] = []

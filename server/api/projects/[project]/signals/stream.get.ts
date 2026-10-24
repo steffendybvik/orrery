@@ -22,8 +22,15 @@ export default defineEventHandler(event => {
         attended?.done()
     }
 
-    /** The signal with what a session needs to act on it. */
+    /** The signal with what a session needs to act on it: for a chunk, its open issues, most urgent first. */
     const told = (signal: Signal) => {
+        if (!signal.issue) {
+            const chunk = store.chunk(project, signal.chunk!)
+            const open = chunk.tasks.filter(t => t.column !== 'done')
+                .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
+                .map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
+            return {...signal, title: chunk.title, column: chunk.column, priority: chunk.priority ?? null, chunk: chunk.title, issues: open}
+        }
         const issue = store.issue(project, signal.issue)
         const chunk = store.project(project).board.chunks.find(c => c.id === (issue.chunk ?? ''))
         return {...signal, title: issue.title, column: issue.column, priority: issue.priority ?? null, chunk: chunk?.title ?? null}
@@ -37,6 +44,7 @@ export default defineEventHandler(event => {
         const line = (signal: Signal) => {
             const s = told(signal)
             if (s.kind === 'comment') return `${s.createdBy} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
+            if ('issues' in s) return `${s.createdBy} asks you to work through chunk ${signal.chunk}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}], open: ${s.issues.map(i => i.id).join(', ') || 'none'}${s.note ? ` — ${s.note}` : ''}\n`
             return `${s.createdBy} asks you to focus on ${s.issue}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}${s.chunk ? `, ${s.chunk}` : ''}]${s.note ? ` — ${s.note}` : ''}\n`
         }
         let send: (signal: Signal) => void = () => {}

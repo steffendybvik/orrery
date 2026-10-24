@@ -37,10 +37,10 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 
 | | |
 |---|---|
-| `GET /projects/:project/chunks` | with column, counts and top-level issue ids |
-| `POST /projects/:project/chunks` | `{title, summary?, position?}`; gets the next number |
+| `GET /projects/:project/chunks` | with column, priority, counts and top-level issue ids |
+| `POST /projects/:project/chunks` | `{title, summary?, priority?, position?}`; gets the next number |
 | `GET /projects/:project/chunks/:chunk` | with its issues |
-| `PATCH /projects/:project/chunks/:chunk` | `{title?, summary?, position?}` |
+| `PATCH /projects/:project/chunks/:chunk` | `{title?, summary?, priority?, position?}`; `priority` is `P0`–`P3` (P0 urgent) or `null` |
 | `DELETE /projects/:project/chunks/:chunk` | its issues stay, in no chunk |
 
 ## Issues
@@ -82,13 +82,15 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 
 ## Signals to sessions
 
-The owner can ask the Claude sessions on a project to work on an issue now (**Focus on this** on its
-page). Only the owner's signals reach sessions.
+The owner can ask the Claude sessions on a project to work on an issue now, or to work through a
+chunk's open issues (**Focus on this** on its page). Only the owner's signals reach sessions. A chunk's
+signal has `chunk` instead of `issue`, and the stream adds its open `issues`, most urgent first.
 
 | | |
 |---|---|
 | `POST /projects/:project/issues/:issue/focus` | `{note?}` → `{signal, listeners}`: sends it, and says how many sessions heard |
-| `GET /projects/:project/signals?after=` | the signals after that id, oldest first |
+| `POST /projects/:project/chunks/:chunk/focus` | `{note?}` → `{signal, listeners}`: the same, for a chunk |
+| `GET /projects/:project/signals?after=` | the signals after that id, oldest first; `?issue=` or `?chunk=` for the latest about one |
 | `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up); `?format=text` gives one line each, for the Monitor tool |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
 
@@ -109,7 +111,7 @@ listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION
 | `GET /projects/:project/sessions` | the project's, each `{id, name, state, since, listening}`; `state` is `idle`, `working`, `waiting` (needs the owner) or `starting` |
 | `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?}`: what a hook sends |
 
-`POST …/issues/:issue/focus` takes `{session}` to reach one session; without it, every session gets
+`POST …/focus` takes `{session}` to reach one session; without it, every session gets
 it. Each signal lists the sessions it reached in `deliveredTo`
 (`POST /projects/:project/signals/:signal/delivered`, sent by the channel).
 

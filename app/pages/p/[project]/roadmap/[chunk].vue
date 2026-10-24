@@ -1,5 +1,9 @@
 <script setup lang="ts">
-// A chunk's page: its summary and progress, and its issues by status. Esc goes back to the roadmap.
+import type {Priority} from '#shared/roadmap'
+import {PRIORITIES} from '#shared/roadmap'
+
+// A chunk's page: its summary, priority and progress, the Claude sessions to point at it, and its issues
+// by status. Esc goes back to the roadmap.
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -17,6 +21,21 @@ const shown = computed(() => {
     return [active.value ? {...chunk.value, tasks: filterTree(chunk.value.tasks, matches)} : chunk.value]
 })
 const share = computed(() => chunk.value ? progress(chunk.value.counts) : null)
+
+// How much it matters, set by the owner; the board updates live once it's saved.
+const {load} = useOwner()
+const savingPriority = ref(false)
+async function setPriority(priority: Priority | '') {
+    if (!project.value || !chunk.value?.id) return
+    savingPriority.value = true
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/chunks/${encodeURIComponent(chunk.value.id)}`, {
+            method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: {priority: priority || null},
+        })
+    } finally {
+        savingPriority.value = false
+    }
+}
 
 function onKey(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null
@@ -60,6 +79,19 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
             <span class="font-mono text-faint">{{ chunk.id }}</span>
             <CopyButton :text="chunk.id" />
           </span>
+          <label v-if="chunk.id" class="flex items-center gap-1.5 text-muted">
+            <PriorityIcon :priority="chunk.priority" />
+            <select
+                :value="chunk.priority ?? ''"
+                aria-label="Priority"
+                class="h-7 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:opacity-50"
+                :disabled="savingPriority"
+                @change="setPriority(($event.target as HTMLSelectElement).value as Priority | '')"
+            >
+              <option value="">No priority</option>
+              <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
+            </select>
+          </label>
         </div>
         <h1 class="text-xl font-semibold tracking-tight text-fg sm:text-2xl" :class="!chunk.id && 'text-muted italic'">{{ chunk.title }}</h1>
         <MarkdownView v-if="chunk.summary" :source="chunk.summary" />
@@ -68,6 +100,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
           <span>{{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue' : 'issues' }}<template v-if="share.total !== chunk.tasks.length"> · {{ share.total }} with sub-issues</template></span>
           <ColumnBar :counts="chunk.counts" class="max-w-64 flex-1" />
         </div>
+        <SessionsPanel v-if="chunk.id && chunk.column !== 'done'" :project="project.id" :chunk="chunk.id" />
       </header>
       <ViewToolbar>
         <span class="label">Issues</span>

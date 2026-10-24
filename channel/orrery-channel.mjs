@@ -28,6 +28,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         'Its messages arrive as <channel source="orrery" ...> and come from the owner through Orrery.',
         `When one asks you to focus on an issue: read it (curl ${api}/issues/<id>), set it to doing and assign it to claude`,
         `(PATCH with header "Orrery-Actor: claude"), comment as the work moves, and set it to done when it ships.`,
+        'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
         'When one brings the owner\'s comment on an issue, answer it with a comment on that issue (POST .../comments, same header), writing the JSON body from a file so Markdown survives the shell.',
         `The API is described at ${base}/api/guide.`,
     ].join(' '),
@@ -62,7 +63,16 @@ who.set('channel', channel)
 async function deliver(signal) {
     const where = [signal.column, signal.priority, signal.chunk].filter(Boolean).join(', ')
     const issue = `${api}/issues/${encodeURIComponent(signal.issue)}`
-    const content = signal.kind === 'comment'
+    const content = !signal.issue
+        ? [
+            `${signal.createdBy} asks you to work through chunk ${signal.chunk}: ${signal.title} [${[signal.column, signal.priority].filter(Boolean).join(', ')}].`,
+            signal.note ? `Note: ${signal.note}` : '',
+            signal.issues.length
+                ? `Its open issues, most urgent first:\n${signal.issues.map(i => `- ${i.id}: ${i.title} [${[i.column, i.priority].filter(Boolean).join(', ')}]`).join('\n')}`
+                : 'It has no open issues left.',
+            `Take them one at a time as you would a focus on each (doing, comments, done). Read the chunk with: curl ${api}/chunks/${encodeURIComponent(signal.chunk)}`,
+        ].filter(Boolean).join('\n')
+        : signal.kind === 'comment'
         ? [
             `${signal.createdBy} commented on ${signal.issue} (${signal.title}):`,
             '',
@@ -76,8 +86,9 @@ async function deliver(signal) {
             signal.note ? `Note: ${signal.note}` : '',
             `Read it with: curl ${issue}`,
         ].filter(Boolean).join('\n')
-    await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, issue: signal.issue, kind: signal.kind}}})
-    log(`delivered ${signal.kind} ${signal.issue}`)
+    const about = signal.issue ? {issue: signal.issue} : {chunk: signal.chunk}
+    await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind}}})
+    log(`delivered ${signal.kind} ${signal.issue ?? `chunk ${signal.chunk}`}`)
     // Tells Orrery it got here, so the owner sees which window has it.
     await fetch(`${api}/signals/${signal.id}/delivered?${who}`, {method: 'POST'}).catch(() => {})
 }

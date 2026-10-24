@@ -68,7 +68,7 @@ export interface IssueFilter {
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, next_number: number, next_chunk: number }
-interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, position: number }
+interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
     project: string, id: string, title: string, status: Status, plan: Plan | null, priority: Priority | null,
     assignee: string | null, labels: string, notes: string | null,
@@ -76,7 +76,7 @@ interface IssueRow extends Made {
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
-interface SignalRow { id: number, project: string, issue: string, kind: 'focus' | 'comment', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
+interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, kind: 'focus' | 'comment', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
@@ -92,6 +92,7 @@ export const PROJECT_FIELDS: Record<string, Field> = {
 export const CHUNK_FIELDS: Record<string, Field> = {
     title: {type: 'string', required: true},
     summary: {type: 'string', nullable: true},
+    priority: {type: 'string', values: PRIORITIES, nullable: true},
     position: {type: 'number'},
 }
 
@@ -226,8 +227,8 @@ export class Store {
         const now = stamp()
         const id = transaction(this.db, () => {
             const id = this.nextId(project, 'chunk')
-            this.run('INSERT INTO chunks (project, id, title, summary, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                project, id, title, nullable(input.summary), Number(input.position ?? this.nextPosition('chunks', project)), actor.name, Number(actor.owner), now, now)
+            this.run('INSERT INTO chunks (project, id, title, summary, priority, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, id, title, nullable(input.summary), nullable(input.priority), Number(input.position ?? this.nextPosition('chunks', project)), actor.name, Number(actor.owner), now, now)
             this.touchProject(project)
             return id
         })
@@ -243,6 +244,7 @@ export class Store {
             this.update('chunks', 'project = ? AND id = ?', [project, id], {
                 title: input.title === undefined ? undefined : String(input.title).trim(),
                 summary: input.summary,
+                priority: input.priority,
                 position: input.position,
             })
             this.touchProject(project)
@@ -259,6 +261,7 @@ export class Store {
         transaction(this.db, () => {
             this.run('UPDATE issues SET chunk = NULL WHERE project = ? AND chunk = ?', project, id)
             this.run('DELETE FROM chunk_aliases WHERE project = ? AND chunk = ?', project, id)
+            this.run('DELETE FROM signals WHERE project = ? AND chunk = ?', project, id)
             this.run('DELETE FROM chunks WHERE project = ? AND id = ?', project, id)
             this.touchProject(project)
         })
@@ -585,11 +588,24 @@ export class Store {
         return signal
     }
 
-    /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue. */
-    listSignals(project: string, after = 0, limit = 50, issue?: string): Signal[] {
+    /** Asks the sessions (or `session`) to work through the chunk's open issues now. */
+    focusChunk(project: string, chunk: string, body: unknown, actor = AGENT): Signal {
+        chunk = this.chunkId(project, chunk)
+        this.chunkRow(project, chunk)
+        const input = checkInput(body ?? {}, SIGNAL_FIELDS)
+        const {lastInsertRowid} = this.run('INSERT INTO signals (project, chunk, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            project, chunk, 'focus', nullable(input.note), nullable(input.session), actor.name, Number(actor.owner), stamp())
+        const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
+        this.onSignal(signal)
+        return signal
+    }
+
+    /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a chunk. */
+    listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, chunk?: string}): Signal[] {
         this.projectRow(project)
-        if (issue) {
-            return this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND issue = ? ORDER BY id DESC LIMIT ?', project, this.issueId(project, issue), limit)
+        if (about?.issue || about?.chunk) {
+            const [column, id] = about.issue ? ['issue', this.issueId(project, about.issue)] : ['chunk', this.chunkId(project, about.chunk!)]
+            return this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND ${column} = ? ORDER BY id DESC LIMIT ?`, project, id, limit)
                 .reverse().map(signalOf)
         }
         return this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit).map(signalOf)
@@ -706,11 +722,11 @@ export class Store {
         })
         const top = children.get(null) ?? []
         const grouped = chunks.map(c => ({
-            id: c.id, title: c.title, summary: c.summary ?? '', aliases: chunkAliases.get(c.id) ?? [], createdBy: c.created_by, protected: !!c.owned,
+            id: c.id, title: c.title, summary: c.summary ?? '', priority: c.priority ?? undefined, aliases: chunkAliases.get(c.id) ?? [], createdBy: c.created_by, protected: !!c.owned,
             tasks: top.filter(t => t.chunk === c.id).map(input),
         }))
         const loose = top.filter(t => !t.chunk)
-        if (loose.length) grouped.push({id: '', title: 'No chunk', summary: '', aliases: [], createdBy: '', protected: false, tasks: loose.map(input)})
+        if (loose.length) grouped.push({id: '', title: 'No chunk', summary: '', priority: undefined, aliases: [], createdBy: '', protected: false, tasks: loose.map(input)})
         return buildBoard({chunks: grouped})
     }
 
@@ -883,7 +899,7 @@ function commentOf(row: CommentRow): Comment {
 
 function signalOf(row: SignalRow): Signal {
     return {
-        id: row.id, project: row.project, issue: row.issue, kind: row.kind, note: row.note ?? undefined,
+        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, kind: row.kind, note: row.note ?? undefined,
         target: row.target ?? undefined, deliveredTo: JSON.parse(row.delivered_to) as string[], createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at,
     }
 }

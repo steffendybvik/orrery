@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import type {Session, Signal} from '#shared/roadmap'
 
-// On an issue's page: the Claude sessions working on its project, what each is doing, and a button
-// to point one (or all) at this issue. Under them, the focus signals sent about it and who got them.
-const props = defineProps<{project: string, issue: string}>()
+// On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
+// a button to point one (or all) at this issue, or at working through this chunk. Under them, the focus
+// signals sent about it and who got them.
+const props = defineProps<{project: string, issue?: string, chunk?: string}>()
+const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.chunk})
+const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
 const {sessions: all, signals: live} = useRoadmaps()
 const {load, who} = useOwner()
 
@@ -16,13 +19,13 @@ const failed = ref(false)
 const STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 
 async function loadSent() {
-    sent.value = await $fetch<Signal[]>(`/api/projects/${encodeURIComponent(props.project)}/signals`, {query: {issue: props.issue}}).catch(() => [])
+    sent.value = await $fetch<Signal[]>(`/api/projects/${encodeURIComponent(props.project)}/signals`, {query: about.value}).catch(() => [])
 }
-watch(() => props.issue, loadSent, {immediate: true})
+watch(path, loadSent, {immediate: true})
 // Signals sent or delivered just now, from the live stream.
 watch(live, now => {
     for (const signal of now) {
-        if (signal.project !== props.project || signal.issue !== props.issue) continue
+        if (signal.project !== props.project || (props.issue ? signal.issue !== props.issue : signal.chunk !== props.chunk)) continue
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal].sort((a, b) => a.id - b.id)
     }
 })
@@ -32,7 +35,7 @@ async function focus(session: Session | null) {
     failed.value = false
     try {
         const owner = await load()
-        const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/focus`, {
+        const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
             method: 'POST', headers: {'Orrery-Actor': owner}, body: session ? {session: session.id} : {},
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
@@ -76,7 +79,7 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
             class="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ring-1 transition-colors disabled:opacity-50"
             :class="session.state === 'idle' ? 'bg-accent-500/10 text-accent-700 ring-accent-500/40 hover:bg-accent-500/20 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
             :disabled="!!sending"
-            :title="`Ask ${session.name} to work on this now`"
+            :title="issue ? `Ask ${session.name} to work on this now` : `Ask ${session.name} to work through this chunk now`"
             @click="focus(session)"
         >
           {{ sending === session.id ? 'Sending…' : 'Focus on this' }}

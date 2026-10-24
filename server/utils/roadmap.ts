@@ -166,7 +166,7 @@ export interface IssueInput extends Omit<TaskFile, 'tasks'> {
 }
 
 export interface BoardInput {
-    chunks: (Omit<ChunkFile, 'tasks'> & {aliases?: string[], createdBy?: string, protected?: boolean, tasks: IssueInput[]})[]
+    chunks: (Omit<ChunkFile, 'tasks'> & {priority?: Priority, aliases?: string[], createdBy?: string, protected?: boolean, tasks: IssueInput[]})[]
 }
 
 /** Places every issue in its column and rolls them up into their parents and chunks. */
@@ -176,8 +176,8 @@ export function buildBoard(roadmap: BoardInput): Board {
         const tasks = chunk.tasks.map(issueOf)
         const own = sum(tasks.map(t => t.counts))
         merge(counts, own)
-        const {id, title, summary, aliases = [], createdBy = '', protected: owned = false} = chunk
-        return {id, title, summary: summary || undefined, column: columnOf(own), counts: own, aliases, createdBy, protected: owned, tasks}
+        const {id, title, summary, priority, aliases = [], createdBy = '', protected: owned = false} = chunk
+        return {id, title, summary: summary || undefined, priority, column: columnOf(own), counts: own, aliases, createdBy, protected: owned, tasks}
     })
     return {chunks, counts}
 }
