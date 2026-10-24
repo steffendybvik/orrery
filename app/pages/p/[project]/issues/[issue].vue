@@ -136,6 +136,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="comment.body" class="text-[13px] leading-6" /></div>
             </li>
           </ol>
+          <CommentBox :project="project.id" :issue="issue.id" @posted="c => comments = [...comments.filter(x => x.id !== c.id), c]" />
         </section>
 
         <p class="rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PATCH /api/projects/{{ project.id }}/issues/{{ issue.id }}</p>
