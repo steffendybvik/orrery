@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// The top bar of a page: the menu button (phones), the title, and the page's controls on the right.
+// The top bar of a page: the menu button (phones), the title, the page's controls, and the theme
+// button at the right end. On a phone the controls take a row of their own under the title.
 const sidebar = useState('sidebar-open', () => false)
 </script>
 
@@ -11,8 +12,9 @@ const sidebar = useState('sidebar-open', () => false)
     <div class="flex min-w-0 flex-1 items-center gap-2">
       <slot />
     </div>
-    <div class="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+    <div v-if="$slots.actions" class="order-last flex w-full min-w-0 items-center gap-2 sm:order-none sm:w-auto">
       <slot name="actions" />
     </div>
+    <ThemeToggle />
   </header>
 </template>

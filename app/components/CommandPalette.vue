@@ -5,10 +5,11 @@ import {COLUMNS, PRIORITIES} from '#shared/roadmap'
 // ⌘K: every command and place. With nothing typed it offers what fits the page first (the issue's
 // commands on an issue, the views on Issues), then the places; typing narrows it all, issues
 // included. ↑↓ choose, ↵ runs, Esc closes.
-interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, run: () => unknown }
+interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, run: () => unknown }
 
 const openPalette = useState('palette-open', () => false)
-const {projects, byId} = useRoadmaps()
+const {byId} = useRoadmaps()
+const {ordered: projects} = useProjectOrder()
 const {open: openIssue, pathOf} = useIssueLink()
 const {filters, active: filtering, clear} = useFilters()
 const {view, group} = useLastView()
@@ -26,7 +27,7 @@ const project = computed(() => byId(route.params.project as string | undefined))
 const issue = computed(() => route.name === 'p-project-issues-issue' && project.value ? findIssue(project.value, route.params.issue as string) : null)
 
 async function copy(text: string, what: string) {
-    await navigator.clipboard?.writeText(text)
+    if (!await copyText(text)) return
     copied.value = what
     setTimeout(() => copied.value = '', 1500)
 }
@@ -79,6 +80,7 @@ const here = computed<Entry[]>(() => {
 const everywhere = computed<Entry[]>(() => [
     {key: 'go:now', group: 'Go to', label: 'Now across projects', hint: 'g n', run: () => router.push('/now')},
     {key: 'go:urgent', group: 'Go to', label: 'Urgent across projects', hint: 'g u', run: () => router.push('/urgent')},
+    {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Clear the filters', run: clear}] : []),
     ...[...PRIORITIES, 'none'].map(p => ({
         key: `filter:priority:${p}`, group: 'Filter',
@@ -103,14 +105,14 @@ const places = computed<Entry[]>(() => projects.value.flatMap(p => [
 ]))
 
 const issues = computed<Entry[]>(() => projects.value.flatMap(p => allIssues(p).map(({issue: i}) => ({
-    key: `i:${p.id}/${i.id}`, group: i.id, label: i.title, detail: p.name, run: () => openIssue(p.id, i.id),
+    key: `i:${p.id}/${i.id}`, group: i.id, label: i.title, detail: p.name, also: i.aliases.join(' '), run: () => openIssue(p.id, i.id),
 }))))
 
 const results = computed(() => {
     const words = query.value.toLowerCase().split(/\s+/).filter(Boolean)
     if (!words.length) return [...here.value, ...everywhere.value.slice(0, 2), ...places.value.filter(e => e.key.startsWith('p:')), ...everywhere.value.slice(2)]
     const ranked = [here.value, everywhere.value, places.value, issues.value].flatMap((entries, tier) => entries.flatMap(entry => {
-        const text = `${entry.group} ${entry.label} ${entry.detail ?? ''}`.toLowerCase()
+        const text = `${entry.group} ${entry.label} ${entry.detail ?? ''} ${entry.also ?? ''}`.toLowerCase()
         if (!words.every(w => text.includes(w))) return []
         const starts = entry.group.toLowerCase().startsWith(words[0]!) || entry.label.toLowerCase().startsWith(words[0]!)
         return [{entry, score: tier * 2 + (starts ? 0 : 1)}]

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "orrery": {
+      "command": "node",
+      "args": ["channel/orrery-channel.mjs"],
+      "env": {"ORRERY_URL": "http://localhost:9010", "ORRERY_PROJECT": "orrery"}
+    }
+  }
+}

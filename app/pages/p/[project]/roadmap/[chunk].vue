@@ -7,7 +7,11 @@ const {matches, active} = useFilters()
 
 const project = computed(() => byId(route.params.project as string))
 const chunkId = computed(() => route.params.chunk === 'none' ? '' : String(route.params.chunk))
-const chunk = computed(() => project.value?.board.chunks.find(c => c.id === chunkId.value))
+const chunk = computed(() => project.value?.board.chunks.find(c => c.id === chunkId.value || c.aliases.includes(chunkId.value)))
+// A name it had before (/roadmap/joints) goes to its own address.
+watch(chunk, c => {
+    if (c && c.id && c.id !== chunkId.value) router.replace(chunkPath(String(route.params.project), c.id))
+}, {immediate: true})
 const shown = computed(() => {
     if (!chunk.value) return []
     return [active.value ? {...chunk.value, tasks: filterTree(chunk.value.tasks, matches)} : chunk.value]
@@ -47,9 +51,15 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
   <div class="min-h-0 flex-1 overflow-y-auto">
     <template v-if="project && chunk && share">
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
-        <div class="flex items-center gap-2 text-xs" :class="COLUMN_STYLE[chunk.column].text">
-          <StatusIcon :column="chunk.column" :progress="share.share" />
-          {{ COLUMN_STYLE[chunk.column].label }}
+        <div class="flex items-center gap-3 text-xs">
+          <span class="flex items-center gap-2" :class="COLUMN_STYLE[chunk.column].text">
+            <StatusIcon :column="chunk.column" :progress="share.share" />
+            {{ COLUMN_STYLE[chunk.column].label }}
+          </span>
+          <span v-if="chunk.id" class="flex items-center gap-1.5">
+            <span class="font-mono text-faint">{{ chunk.id }}</span>
+            <CopyButton :text="chunk.id" />
+          </span>
         </div>
         <h1 class="text-xl font-semibold tracking-tight text-fg sm:text-2xl" :class="!chunk.id && 'text-muted italic'">{{ chunk.title }}</h1>
         <MarkdownView v-if="chunk.summary" :source="chunk.summary" />

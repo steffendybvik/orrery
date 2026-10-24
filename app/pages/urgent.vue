@@ -2,9 +2,10 @@
 // Every open urgent (P0) issue in every project, sub-issues included, by project.
 useHead({title: 'Urgent · Orrery'})
 const {projects, ready} = useRoadmaps()
+const {ordered} = useProjectOrder()
 const {matches} = useFilters()
 
-const groups = computed(() => projects.value
+const groups = computed(() => ordered.value
     .map(project => ({project, issues: urgentIssues(project).filter(({issue}) => matches(issue))}))
     .filter(g => g.issues.length))
 </script>

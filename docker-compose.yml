@@ -13,6 +13,7 @@ services:
     environment:
       NUXT_OWNER: ${ORRERY_OWNER:-owner}
       NUXT_BACKUP_DIR: /backup
+      NUXT_PUBLIC_REPO_DIR: ${PWD}
     volumes:
       - orrery-data:/data
       - ${ORRERY_BACKUP:-${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Orrery}:/backup

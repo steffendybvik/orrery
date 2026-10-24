@@ -30,11 +30,12 @@ export interface Found {
     parents: Issue[]
 }
 
+/** The issue with this id, or one it had before. */
 export function findIssue(project: Project | undefined, id: string): Found | null {
     if (!project) return null
     const search = (issues: Issue[], chunk: Chunk, parents: Issue[]): Found | null => {
         for (const issue of issues) {
-            if (issue.id === id) return {issue, chunk, parents}
+            if (issue.id === id || issue.aliases.includes(id)) return {issue, chunk, parents}
             const found = search(issue.tasks, chunk, [...parents, issue])
             if (found) return found
         }

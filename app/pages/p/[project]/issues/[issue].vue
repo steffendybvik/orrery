@@ -12,6 +12,10 @@ const {open, last} = useIssueLink()
 const project = computed(() => byId(route.params.project as string))
 const issueId = computed(() => route.params.issue as string)
 const found = computed(() => findIssue(project.value, issueId.value))
+// An id it had before (MOT-5) goes to its own address.
+watch(found, f => {
+    if (f && f.issue.id !== issueId.value) router.replace(`/p/${route.params.project}/issues/${encodeURIComponent(f.issue.id)}`)
+}, {immediate: true})
 const issue = computed(() => found.value?.issue)
 const order = computed(() => project.value ? allIssues(project.value).map(i => i.issue.id) : [])
 const at = computed(() => order.value.indexOf(issueId.value))
@@ -50,13 +54,6 @@ function onKey(event: KeyboardEvent) {
 }
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
-
-const copied = ref(false)
-async function copyId() {
-    await navigator.clipboard?.writeText(issueId.value)
-    copied.value = true
-    setTimeout(() => copied.value = false, 1200)
-}
 
 useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · Orrery` : 'Orrery'}))
 </script>
@@ -98,16 +95,18 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
       <article class="flex min-w-0 flex-1 flex-col gap-8 px-4 py-6 sm:px-8 sm:py-10">
         <header class="flex flex-col gap-2">
-          <button type="button" class="flex w-fit items-center gap-1.5 font-mono text-xs text-faint hover:text-fg" title="Copy the id" @click="copyId">
-            {{ issue.id }}
-            <span v-if="copied" class="font-sans text-emerald-500">copied</span>
-          </button>
+          <div class="flex items-center gap-1.5">
+            <span class="font-mono text-xs text-faint">{{ issue.id }}</span>
+            <CopyButton :text="issue.id" />
+          </div>
           <h1 class="text-xl leading-snug font-semibold tracking-tight text-fg sm:text-2xl"><InlineText :text="issue.title" /></h1>
         </header>
 
         <div class="lg:hidden">
           <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" />
         </div>
+
+        <SessionsPanel v-if="issue.column !== 'done'" :project="project.id" :issue="issue.id" />
 
         <section>
           <MarkdownView v-if="issue.notes" :source="issue.notes" />

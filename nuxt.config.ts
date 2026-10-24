@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineNuxtConfig({
@@ -21,6 +22,16 @@ export default defineNuxtConfig({
         owner: 'owner',
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
+        public: {
+            // Where this repo is on the machine, for the channel setup the Connect page hands out.
+            // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).
+            repoDir: '',
+        },
+    },
+
+    // docs/API.md is served to agents (/api/guide, /llms-full.txt).
+    nitro: {
+        serverAssets: [{baseName: 'docs', dir: fileURLToPath(new URL('./docs', import.meta.url))}],
     },
 
     app: {

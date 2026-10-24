@@ -5,9 +5,10 @@ import type {Issue} from '#shared/roadmap'
 // stands for its sub-issues, so nothing shows twice.
 useHead({title: 'Now · Orrery'})
 const {projects, ready} = useRoadmaps()
+const {ordered} = useProjectOrder()
 const {matches, active} = useFilters()
 
-const groups = computed(() => projects.value.map(project => {
+const groups = computed(() => ordered.value.map(project => {
     const issues = project.board.chunks.flatMap(chunk => chunk.tasks
         .filter(t => t.column === 'doing' || t.column === 'now')
         .map(issue => ({issue: active.value ? {...issue, tasks: filterTree(issue.tasks, matches)} : issue, chunk: chunk.title})))

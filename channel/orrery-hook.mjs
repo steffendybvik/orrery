@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+// Orrery's Claude Code hook: tells Orrery what this session is doing, so the owner can see it and
+// point work at an idle one. Registered for SessionStart, UserPromptSubmit, Stop, Notification and
+// SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT (and ORRERY_URL) set. It prints
+// nothing (a hook's output would go to Claude) and never fails the hook.
+import {basename} from 'node:path'
+import {claudeWindow} from './session.mjs'
+
+const base = (process.env.ORRERY_URL ?? 'http://localhost:9010').replace(/\/+$/, '')
+let input = ''
+for await (const chunk of process.stdin) input += chunk
+try {
+    const hook = JSON.parse(input || '{}')
+    const window = claudeWindow()
+    await fetch(`${base}/api/sessions`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        signal: AbortSignal.timeout(1500),
+        body: JSON.stringify({
+            id: hook.session_id ?? window.id,
+            pid: window.pid,
+            project: process.env.ORRERY_PROJECT ?? basename(hook.cwd ?? process.cwd()),
+            name: window.name,
+            cwd: hook.cwd,
+            event: hook.hook_event_name ?? 'idle',
+            message: hook.message,
+        }),
+    })
+} catch {
+    // Orrery not running, or slow: the session carries on regardless.
+}
+process.exit(0)

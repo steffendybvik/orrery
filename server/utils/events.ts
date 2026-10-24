@@ -1,5 +1,6 @@
 // The one store the routes share, and the events it sends: `project` (the project, read again)
-// after any change to it and `removed` (its id) once it's deleted. `/api/events` passes them on.
+// after any change to it, `removed` (its id) once it's deleted, and `signal` (a Signal) when someone
+// asks the sessions on a project to focus on an issue. `/api/events` and the signal streams pass them on.
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import {Store} from './store'
@@ -19,8 +20,28 @@ export function useStore(): Store {
             return
         }
         projectEvents.emit('project', project)
-    })
+    }, signal => projectEvents.emit('signal', signal))
     return store
+}
+
+/** How many sessions are listening for each project's signals right now. */
+const listeners = new Map<string, number>()
+
+export function listening(project: string): number {
+    return listeners.get(project) ?? 0
+}
+
+/** Counts a listener in until `done` is called. */
+export function listen(project: string): () => void {
+    listeners.set(project, listening(project) + 1)
+    projectEvents.emit('listeners', project)
+    let counted = true
+    return () => {
+        if (!counted) return
+        counted = false
+        listeners.set(project, Math.max(0, listening(project) - 1))
+        projectEvents.emit('listeners', project)
+    }
 }
 
 /** A route's `:name` part, decoded. */

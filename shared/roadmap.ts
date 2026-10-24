@@ -34,6 +34,8 @@ export interface Issue {
     /** Its sub-issues' columns; an issue without any counts as one. */
     counts: Counts
     comments: number
+    /** Ids it had before (e.g. `MOT-5`), which still find it. */
+    aliases: string[]
     createdBy: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
@@ -49,6 +51,8 @@ export interface Chunk {
     summary?: string
     column: Column
     counts: Counts
+    /** Names it had before (e.g. `joints`), which still find it. */
+    aliases: string[]
     createdBy: string
     protected: boolean
     tasks: Issue[]
@@ -103,3 +107,40 @@ export interface Comment {
 export const emptyCounts = (): Counts => ({doing: 0, now: 0, next: 0, later: 0, backlog: 0, done: 0})
 
 export const total = (counts: Counts) => COLUMNS.reduce((sum, column) => sum + counts[column], 0)
+
+/** A word to the Claude sessions on a project: `focus` asks one to work on the issue now. */
+export interface Signal {
+    id: number
+    project: string
+    issue: string
+    kind: 'focus'
+    note?: string
+    /** The session it's for; none means every session on the project. */
+    target?: string
+    /** The names of the sessions it reached. */
+    deliveredTo: string[]
+    createdBy: string
+    /** Sent by the owner. Sessions only act on these. */
+    protected: boolean
+    createdAt: string
+}
+
+/** What a Claude session is doing, as its hooks last said: `waiting` is waiting on the owner. */
+export const SESSION_STATES = ['starting', 'working', 'idle', 'waiting'] as const
+export type SessionState = (typeof SESSION_STATES)[number]
+
+/** A Claude window working on a project, known from its hooks and its channel. */
+export interface Session {
+    /** Claude Code's session id. */
+    id: string
+    project: string
+    /** `ORRERY_SESSION` when it was started, else "<project> <n>". */
+    name: string
+    cwd?: string
+    state: SessionState
+    /** When it got into that state. */
+    since: string
+    startedAt: string
+    /** Its channel is connected, so a signal reaches it. */
+    listening: boolean
+}

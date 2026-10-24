@@ -2,11 +2,13 @@
 // `node:sqlite` is synchronous, so writes from several sessions never interleave.
 import {mkdirSync} from 'node:fs'
 import {restoreBackup} from './backup'
+import {renumber} from './renumber'
 import {dirname, resolve} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 
 // Each step brings the schema up one version (`PRAGMA user_version`); add steps, never edit them.
-const MIGRATIONS = [`
+// A step is SQL, or a function for what SQL can't say.
+const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     CREATE TABLE projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -110,6 +112,41 @@ const MIGRATIONS = [`
         updated_at TEXT NOT NULL,
         PRIMARY KEY (project, id)
     );
+`, `
+    -- Ids are the project's from here on: chunks 1, 2, …, issues KEY-1, KEY-2, … The ids things had
+    -- before stay as aliases.
+    CREATE TABLE issue_aliases (
+        project TEXT NOT NULL,
+        alias TEXT NOT NULL,
+        issue TEXT NOT NULL,
+        PRIMARY KEY (project, alias)
+    );
+    CREATE TABLE chunk_aliases (
+        project TEXT NOT NULL,
+        alias TEXT NOT NULL,
+        chunk TEXT NOT NULL,
+        PRIMARY KEY (project, alias)
+    );
+    ALTER TABLE projects ADD COLUMN next_chunk INTEGER NOT NULL DEFAULT 1;
+`, db => {
+    for (const {id} of db.prepare('SELECT id FROM projects').all() as {id: string}[]) renumber(db, id)
+}, `
+    -- Signals to the Claude sessions working on a project, e.g. "focus on MSH-42", in the order sent.
+    CREATE TABLE signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        issue TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('focus')),
+        note TEXT,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX signals_project ON signals(project, id);
+`, `
+    -- A signal can be for one session, and records the sessions it reached (a JSON list of names).
+    ALTER TABLE signals ADD COLUMN target TEXT;
+    ALTER TABLE signals ADD COLUMN delivered_to TEXT NOT NULL DEFAULT '[]';
 `]
 
 let db: DatabaseSync | null = null
@@ -133,7 +170,8 @@ export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
     opened.exec('PRAGMA foreign_keys = OFF')
     MIGRATIONS.slice(version, upTo).forEach((step, i) => {
         transaction(opened, () => {
-            opened.exec(step)
+            if (typeof step === 'string') opened.exec(step)
+            else step(opened)
             opened.exec(`PRAGMA user_version = ${version + i + 1}`)
         })
     })

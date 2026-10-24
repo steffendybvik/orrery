@@ -3,13 +3,14 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
-import type {Board, Chunk, Comment, Counts, Doc, DocSummary, Issue, Plan, Priority, Project, Status} from '#shared/roadmap'
+import type {Board, Chunk, Comment, Counts, Doc, DocSummary, Issue, Plan, Priority, Project, Signal, Status} from '#shared/roadmap'
 import {PLANS, PRIORITIES, STATUSES} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
 import {buildBoard} from './roadmap'
 import {transaction} from './db'
+import {renumber} from './renumber'
 
 /** A project without its board, as `GET /api/projects` lists it. */
 export interface ProjectSummary extends Omit<Project, 'board'> {
@@ -66,7 +67,7 @@ export interface IssueFilter {
 }
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
-interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, next_number: number }
+interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, next_number: number, next_chunk: number }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, position: number }
 interface IssueRow extends Made {
     project: string, id: string, title: string, status: Status, plan: Plan | null, priority: Priority | null,
@@ -75,10 +76,10 @@ interface IssueRow extends Made {
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
+interface SignalRow { id: number, project: string, issue: string, kind: 'focus', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
-const ISSUE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/
 
 export const PROJECT_FIELDS: Record<string, Field> = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
@@ -87,15 +88,14 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     description: {type: 'string', nullable: true},
 }
 
+// No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
 export const CHUNK_FIELDS: Record<string, Field> = {
-    id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
     title: {type: 'string', required: true},
     summary: {type: 'string', nullable: true},
     position: {type: 'number'},
 }
 
 export const ISSUE_FIELDS: Record<string, Field> = {
-    id: {type: 'string', pattern: ISSUE_ID, hint: 'use letters, digits, dots, dashes and underscores, e.g. MOT-5'},
     title: {type: 'string', required: true},
     status: {type: 'string', values: STATUSES},
     plan: {type: 'string', values: PLANS, nullable: true},
@@ -117,12 +117,22 @@ export const DOC_FIELDS: Record<string, Field> = {
     position: {type: 'number'},
 }
 
+export const SIGNAL_FIELDS: Record<string, Field> = {
+    note: {type: 'string', nullable: true},
+    /** A session id; left out, every session on the project gets it. */
+    session: {type: 'string', nullable: true},
+}
+
 export const COMMENT_FIELDS: Record<string, Field> = {
     body: {type: 'string', required: true},
 }
 
 export class Store {
-    constructor(readonly db: DatabaseSync, private readonly onChange: (project: string) => void = () => {}) {}
+    constructor(
+        readonly db: DatabaseSync,
+        private readonly onChange: (project: string) => void = () => {},
+        private readonly onSignal: (signal: Signal) => void = () => {},
+    ) {}
 
     // Projects
 
@@ -177,6 +187,9 @@ export class Store {
             this.run('DELETE FROM issues WHERE project = ?', id)
             this.run('DELETE FROM chunks WHERE project = ?', id)
             this.run('DELETE FROM docs WHERE project = ?', id)
+            this.run('DELETE FROM issue_aliases WHERE project = ?', id)
+            this.run('DELETE FROM chunk_aliases WHERE project = ?', id)
+            this.run('DELETE FROM signals WHERE project = ?', id)
             this.run('DELETE FROM projects WHERE id = ?', id)
         })
         this.onChange(id)
@@ -191,6 +204,7 @@ export class Store {
     }
 
     chunk(project: string, id: string): ChunkRecord & {tasks: Issue[]} {
+        id = this.chunkId(project, id)
         const row = this.chunkRow(project, id)
         const view = this.project(project).board.chunks.find(c => c.id === id)!
         return {...this.chunkRecord(row, view), tasks: view.tasks}
@@ -200,27 +214,22 @@ export class Store {
         this.projectRow(project)
         const input = checkInput(body, CHUNK_FIELDS)
         const title = String(input.title).trim()
-        let id = input.id ? String(input.id) : slugify(title) || 'chunk'
-        if (input.id) {
-            if (this.get('SELECT 1 FROM chunks WHERE project = ? AND id = ?', project, id)) throw conflict(`There is already a chunk "${id}" in ${project}`)
-        } else {
-            const base = id
-            for (let n = 2; this.get('SELECT 1 FROM chunks WHERE project = ? AND id = ?', project, id); n++) id = `${base}-${n}`
-        }
         const now = stamp()
-        transaction(this.db, () => {
+        const id = transaction(this.db, () => {
+            const id = this.nextId(project, 'chunk')
             this.run('INSERT INTO chunks (project, id, title, summary, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 project, id, title, nullable(input.summary), Number(input.position ?? this.nextPosition('chunks', project)), actor.name, Number(actor.owner), now, now)
             this.touchProject(project)
+            return id
         })
         this.onChange(project)
         return this.chunk(project, id)
     }
 
     updateChunk(project: string, id: string, body: unknown): ChunkRecord & {tasks: Issue[]} {
+        id = this.chunkId(project, id)
         this.chunkRow(project, id)
         const input = checkInput(body, CHUNK_FIELDS, true)
-        if (input.id !== undefined && input.id !== id) throw badRequest("A chunk's id can't change")
         transaction(this.db, () => {
             this.update('chunks', 'project = ? AND id = ?', [project, id], {
                 title: input.title === undefined ? undefined : String(input.title).trim(),
@@ -235,10 +244,12 @@ export class Store {
 
     /** Its issues stay, in no chunk (as Linear does with a deleted milestone). */
     deleteChunk(project: string, id: string, actor = AGENT) {
+        id = this.chunkId(project, id)
         const row = this.chunkRow(project, id)
         this.refuse(actor, `Deleting chunk "${id}"`, row.owned ? [`chunk "${id}"`] : [])
         transaction(this.db, () => {
             this.run('UPDATE issues SET chunk = NULL WHERE project = ? AND chunk = ?', project, id)
+            this.run('DELETE FROM chunk_aliases WHERE project = ? AND chunk = ?', project, id)
             this.run('DELETE FROM chunks WHERE project = ? AND id = ?', project, id)
             this.touchProject(project)
         })
@@ -249,6 +260,7 @@ export class Store {
 
     listIssues(project: string, filter: IssueFilter = {}): IssueRecord[] {
         const records = this.issueRecords(this.project(project))
+        if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: this.chunkId(project, filter.chunk)}
         const q = filter.q?.toLowerCase()
         return records.filter(r =>
             (!filter.status || r.status === filter.status)
@@ -263,17 +275,18 @@ export class Store {
     }
 
     issue(project: string, id: string): IssueDetail {
+        id = this.issueId(project, id)
         const found = this.findIssue(this.project(project), id)
         if (!found) throw notFound(`No issue ${id} in ${project}`)
         return {...found.issue, project, parent: found.parent, chunk: found.chunk || null}
     }
 
     createIssue(project: string, body: unknown, actor = AGENT): IssueDetail {
-        const row = this.projectRow(project)
+        this.projectRow(project)
         const input = checkInput(body, ISSUE_FIELDS)
         if (input.project !== undefined && input.project !== project) throw badRequest(`Create the issue in its project: POST /api/projects/${input.project}/issues`)
-        const parent = input.parent ? String(input.parent) : null
-        const chunk = input.chunk ? String(input.chunk) : null
+        const parent = input.parent ? this.issueId(project, String(input.parent)) : null
+        const chunk = input.chunk ? this.chunkId(project, String(input.chunk)) : null
         if (parent) {
             this.issueRow(project, parent)
             if (chunk) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
@@ -281,16 +294,7 @@ export class Store {
         if (chunk) this.chunkRow(project, chunk)
 
         const id = transaction(this.db, () => {
-            let id: string
-            if (input.id) {
-                id = String(input.id)
-                if (this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', project, id)) throw conflict(`There is already an issue ${id} in ${project}`)
-            } else {
-                let n = row.next_number
-                while (this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', project, `${row.key}-${n}`)) n++
-                id = `${row.key}-${n}`
-                this.run('UPDATE projects SET next_number = ? WHERE id = ?', n + 1, project)
-            }
+            const id = this.nextId(project, 'issue')
             const now = stamp()
             this.run(`INSERT INTO issues (project, id, title, status, plan, priority, assignee, labels, notes, parent, chunk, position,
                                           created_by, owned, created_at, updated_at)
@@ -308,18 +312,18 @@ export class Store {
     /** `parent: null` lifts a sub-issue to the top, into the chunk it was in unless `chunk` says otherwise.
      * `project` moves it (with its sub-issues and comments) to the top of another project. */
     updateIssue(project: string, id: string, body: unknown): IssueDetail {
+        id = this.issueId(project, id)
         this.issueRow(project, id)
         const input = checkInput(body, ISSUE_FIELDS, true)
-        if (input.id !== undefined && input.id !== id) throw badRequest("An issue's id can't change")
         if (input.project !== undefined && input.project !== project) {
             const {project: to, parent, chunk, ...rest} = input
-            this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null)
-            return this.updateIssue(String(to), id, rest)
+            const moved = this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null)
+            return this.updateIssue(String(to), moved, rest)
         }
         const row = this.issueRow(project, id)
 
-        const parent = input.parent === undefined ? row.parent : input.parent === null ? null : String(input.parent)
-        let chunk = input.chunk === undefined ? undefined : input.chunk === null ? null : String(input.chunk)
+        const parent = input.parent === undefined ? row.parent : input.parent === null ? null : this.issueId(project, String(input.parent))
+        let chunk = input.chunk === undefined ? undefined : input.chunk === null ? null : this.chunkId(project, String(input.chunk))
         if (parent) {
             if (chunk) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or set "parent" to null`)
             this.issueRow(project, parent)
@@ -353,41 +357,54 @@ export class Store {
 
     /** Deletes its sub-issues and comments too. */
     deleteIssue(project: string, id: string, actor = AGENT) {
+        id = this.issueId(project, id)
         this.issueRow(project, id)
-        this.refuse(actor, `Deleting ${id}`, this.ownedUnder(project, this.subtree(project, id)))
+        const subtree = this.subtree(project, id)
+        this.refuse(actor, `Deleting ${id}`, this.ownedUnder(project, subtree))
         transaction(this.db, () => {
+            this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
             this.run('DELETE FROM issues WHERE project = ? AND id = ?', project, id)
             this.touchProject(project)
         })
         this.onChange(project)
     }
 
-    /** Moves an issue and everything under it; their ids stay, so none may be taken in `to`. */
-    private moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string]) {
+    /** Moves an issue and everything under it to `to`, where they get its ids (KEY-n); the ids they had
+     * stay as aliases there. Says the issue's new id. */
+    private moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string]): string {
         this.projectRow(to)
-        if (parent) this.issueRow(to, String(parent))
-        if (parent && chunk) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
-        if (chunk) this.chunkRow(to, String(chunk))
+        const parentId = parent ? this.issueId(to, String(parent)) : null
+        const chunkId = chunk ? this.chunkId(to, String(chunk)) : null
+        if (parentId) this.issueRow(to, parentId)
+        if (parentId && chunkId) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
+        if (chunkId) this.chunkRow(to, chunkId)
         const subtree = this.subtree(from, id)
-        const taken = subtree.filter(i => this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', to, i))
-        if (taken.length) throw conflict(`${to} already has ${taken.join(', ')}`)
         const marks = subtree.map(() => '?').join(', ')
-        transaction(this.db, () => {
-            // Foreign keys hold within a project, so rows move without their links, then get them back.
-            const links = this.all<{id: string, parent: string | null}>(`SELECT id, parent FROM issues WHERE project = ? AND id IN (${marks})`, from, ...subtree)
-            const comments = this.all<{id: number}>(`SELECT id FROM comments WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
+        const moved = transaction(this.db, () => {
+            // Rows move first and get their new ids and links after, so the foreign keys wait for the commit.
             this.db.exec('PRAGMA defer_foreign_keys = ON')
-            this.run(`UPDATE issues SET project = ?, chunk = NULL, position = position + ? WHERE project = ? AND id IN (${marks})`,
-                to, this.nextPosition('issues', to), from, ...subtree)
-            if (comments.length) this.run(`UPDATE comments SET project = ? WHERE id IN (${comments.map(() => '?').join(', ')})`, to, ...comments.map(c => c.id))
-            for (const link of links) this.run('UPDATE issues SET parent = ? WHERE project = ? AND id = ?', link.id === id ? nullable(parent) : link.parent, to, link.id)
-            if (chunk && !parent) this.run('UPDATE issues SET chunk = ? WHERE project = ? AND id = ?', String(chunk), to, id)
-            this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', stamp(), to, id)
+            const names = new Map(subtree.map(old => [old, this.nextId(to, 'issue')]))
+            const links = this.all<{id: string, parent: string | null}>(`SELECT id, parent FROM issues WHERE project = ? AND id IN (${marks})`, from, ...subtree)
+            const comments = this.all<{id: number, issue: string}>(`SELECT id, issue FROM comments WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
+            const aliases = this.all<{alias: string, issue: string}>(`SELECT alias, issue FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
+            const position = this.nextPosition('issues', to)
+            for (const link of links) {
+                const next = names.get(link.id)!
+                this.run('UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, position = position + ? WHERE project = ? AND id = ?',
+                    to, next, link.id === id ? parentId : names.get(link.parent!) ?? null, link.id === id && !parentId ? chunkId : null, position, from, link.id)
+            }
+            for (const comment of comments) this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, names.get(comment.issue)!, comment.id)
+            this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
+            for (const {alias, issue} of aliases) this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, alias, names.get(issue)!)
+            for (const [old, next] of names) this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, old, next)
+            this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', stamp(), to, names.get(id)!)
             this.touchProject(from)
             this.touchProject(to)
+            return names.get(id)!
         })
         this.onChange(from)
         this.onChange(to)
+        return moved
     }
 
     /** The issue's id and every id under it. */
@@ -398,15 +415,18 @@ export class Store {
     // Comments
 
     listComments(project: string, issue: string): Comment[] {
+        issue = this.issueId(project, issue)
         this.issueRow(project, issue)
         return this.all<CommentRow>('SELECT * FROM comments WHERE project = ? AND issue = ? ORDER BY created_at, id', project, issue).map(commentOf)
     }
 
     comment(project: string, issue: string, id: number): Comment {
+        issue = this.issueId(project, issue)
         return commentOf(this.commentRow(project, issue, id))
     }
 
     createComment(project: string, issue: string, body: unknown, actor = AGENT): Comment {
+        issue = this.issueId(project, issue)
         this.issueRow(project, issue)
         const input = checkInput(body, COMMENT_FIELDS)
         const now = stamp()
@@ -422,6 +442,7 @@ export class Store {
 
     /** The owner's comments are theirs: an agent can't reword them. */
     updateComment(project: string, issue: string, id: number, body: unknown, actor = AGENT): Comment {
+        issue = this.issueId(project, issue)
         const row = this.commentRow(project, issue, id)
         this.refuse(actor, `Editing comment ${id}`, row.owned ? [`comment ${id}`] : [])
         const input = checkInput(body, COMMENT_FIELDS, true)
@@ -434,6 +455,7 @@ export class Store {
     }
 
     deleteComment(project: string, issue: string, id: number, actor = AGENT) {
+        issue = this.issueId(project, issue)
         const row = this.commentRow(project, issue, id)
         this.refuse(actor, `Deleting comment ${id}`, row.owned ? [`comment ${id}`] : [])
         transaction(this.db, () => {
@@ -511,16 +533,50 @@ export class Store {
         this.onChange(project)
     }
 
+    // Signals
+
+    /** Asks the sessions on the project to focus on the issue (`{note?}` says what for). */
+    focus(project: string, issue: string, body: unknown, actor = AGENT): Signal {
+        issue = this.issueId(project, issue)
+        this.issueRow(project, issue)
+        const input = checkInput(body ?? {}, SIGNAL_FIELDS)
+        const {lastInsertRowid} = this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            project, issue, 'focus', nullable(input.note), nullable(input.session), actor.name, Number(actor.owner), stamp())
+        const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
+        this.onSignal(signal)
+        return signal
+    }
+
+    /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue. */
+    listSignals(project: string, after = 0, limit = 50, issue?: string): Signal[] {
+        this.projectRow(project)
+        if (issue) {
+            return this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND issue = ? ORDER BY id DESC LIMIT ?', project, this.issueId(project, issue), limit)
+                .reverse().map(signalOf)
+        }
+        return this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit).map(signalOf)
+    }
+
+    /** Notes that a session got the signal. */
+    delivered(project: string, id: number, to: string): Signal {
+        const row = this.get<SignalRow>('SELECT * FROM signals WHERE project = ? AND id = ?', project, id)
+        if (!row) throw notFound(`No signal ${id} in ${project}`)
+        const names = [...new Set([...JSON.parse(row.delivered_to) as string[], to])]
+        this.run('UPDATE signals SET delivered_to = ? WHERE id = ?', JSON.stringify(names), id)
+        const signal = signalOf({...row, delivered_to: JSON.stringify(names)})
+        this.onSignal(signal)
+        return signal
+    }
+
     // Import
 
-    /** Loads a roadmap in `docs/roadmap.json`'s format; `replace` first clears the project's chunks and issues. */
+    /** Loads a roadmap in `docs/roadmap.json`'s format; `replace` first clears the project's chunks and issues.
+     * Everything gets the project's ids (chunks 1, 2, …, issues KEY-1, …), the file's ids becoming aliases. */
     importRoadmap(project: string, roadmap: RoadmapFile, replace = false, actor = AGENT): Project {
         this.projectRow(project)
         if (replace) this.refuse(actor, `Replacing ${project}'s roadmap`, this.ownedIn(project).filter(what => !what.startsWith('project ') && !what.startsWith('doc ')))
         const has = this.get('SELECT 1 FROM issues WHERE project = ? UNION SELECT 1 FROM chunks WHERE project = ?', project, project)
         if (has && !replace) throw conflict(`${project} already has chunks or issues; import with ?replace=true to replace them`)
-        const wrong = roadmap.chunks.flatMap(c => ids(c.tasks)).filter(id => !ISSUE_ID.test(id))
-        if (wrong.length) throw badRequest(`Issue ids should use letters, digits, dots, dashes and underscores: ${wrong.join(', ')}`)
 
         const now = stamp()
         let position = 0
@@ -533,17 +589,21 @@ export class Store {
             task.tasks.forEach(sub => insert(sub, task.id, null))
         }
         transaction(this.db, () => {
+            this.db.exec('PRAGMA defer_foreign_keys = ON')
             if (replace) {
                 this.run('DELETE FROM comments WHERE project = ?', project)
                 this.run('UPDATE issues SET parent = NULL, chunk = NULL WHERE project = ?', project)
                 this.run('DELETE FROM issues WHERE project = ?', project)
                 this.run('DELETE FROM chunks WHERE project = ?', project)
+                this.run('DELETE FROM issue_aliases WHERE project = ?', project)
+                this.run('DELETE FROM chunk_aliases WHERE project = ?', project)
             }
             roadmap.chunks.forEach((chunk, i) => {
                 this.run('INSERT INTO chunks (project, id, title, summary, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     project, chunk.id, chunk.title, chunk.summary || null, i, actor.name, Number(actor.owner), now, now)
                 chunk.tasks.forEach(task => insert(task, null, chunk.id))
             })
+            renumber(this.db, project)
             this.touchProject(project)
         })
         this.onChange(project)
@@ -577,6 +637,15 @@ export class Store {
         const issues = this.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
         const comments = new Map(this.all<{issue: string, n: number}>('SELECT issue, count(*) AS n FROM comments WHERE project = ? GROUP BY issue', project)
             .map(r => [r.issue, r.n]))
+        const aliases = (table: 'issue_aliases' | 'chunk_aliases', column: 'issue' | 'chunk') => {
+            const found = new Map<string, string[]>()
+            for (const row of this.all<{alias: string, of: string}>(`SELECT alias, ${column} AS of FROM ${table} WHERE project = ? ORDER BY alias`, project)) {
+                found.set(row.of, [...found.get(row.of) ?? [], row.alias])
+            }
+            return found
+        }
+        const issueAliases = aliases('issue_aliases', 'issue')
+        const chunkAliases = aliases('chunk_aliases', 'chunk')
         const children = new Map<string | null, IssueRow[]>()
         for (const row of issues) children.set(row.parent, [...children.get(row.parent) ?? [], row])
 
@@ -590,6 +659,7 @@ export class Store {
             plan: row.plan ?? undefined,
             notes: row.notes ?? undefined,
             comments: comments.get(row.id) ?? 0,
+            aliases: issueAliases.get(row.id) ?? [],
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,
@@ -598,11 +668,11 @@ export class Store {
         })
         const top = children.get(null) ?? []
         const grouped = chunks.map(c => ({
-            id: c.id, title: c.title, summary: c.summary ?? '', createdBy: c.created_by, protected: !!c.owned,
+            id: c.id, title: c.title, summary: c.summary ?? '', aliases: chunkAliases.get(c.id) ?? [], createdBy: c.created_by, protected: !!c.owned,
             tasks: top.filter(t => t.chunk === c.id).map(input),
         }))
         const loose = top.filter(t => !t.chunk)
-        if (loose.length) grouped.push({id: '', title: 'No chunk', summary: '', createdBy: '', protected: false, tasks: loose.map(input)})
+        if (loose.length) grouped.push({id: '', title: 'No chunk', summary: '', aliases: [], createdBy: '', protected: false, tasks: loose.map(input)})
         return buildBoard({chunks: grouped})
     }
 
@@ -637,6 +707,29 @@ export class Store {
     private chunkRecord(row: ChunkRow, view: Chunk): ChunkRecord {
         const {tasks, ...chunk} = view
         return {...chunk, project: row.project, position: row.position, createdAt: row.created_at, updatedAt: row.updated_at, issues: tasks.map(t => t.id)}
+    }
+
+    /** The issue's id, from its id or an id it had before (an alias). */
+    private issueId(project: string, id: string): string {
+        if (this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', project, id)) return id
+        return this.get<{issue: string}>('SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?', project, id)?.issue ?? id
+    }
+
+    /** The chunk's id, from its number or a name it had before (an alias). */
+    private chunkId(project: string, id: string): string {
+        if (this.get('SELECT 1 FROM chunks WHERE project = ? AND id = ?', project, id)) return id
+        return this.get<{chunk: string}>('SELECT chunk FROM chunk_aliases WHERE project = ? AND alias = ?', project, id)?.chunk ?? id
+    }
+
+    /** Hands out the project's next id: KEY-n for an issue, n for a chunk. Run inside the write's transaction. */
+    private nextId(project: string, kind: 'issue' | 'chunk'): string {
+        const row = this.projectRow(project)
+        const [column, table] = kind === 'issue' ? ['next_number', 'issues'] as const : ['next_chunk', 'chunks'] as const
+        const name = (n: number) => kind === 'issue' ? `${row.key}-${n}` : String(n)
+        let n = kind === 'issue' ? row.next_number : row.next_chunk
+        while (this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ?`, project, name(n))) n++
+        this.run(`UPDATE projects SET ${column} = ? WHERE id = ?`, n + 1, project)
+        return name(n)
     }
 
     private rootOf(project: string, row: IssueRow): IssueRow {
@@ -750,15 +843,18 @@ function commentOf(row: CommentRow): Comment {
     return {id: row.id, issue: row.issue, body: row.body, createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at, updatedAt: row.updated_at}
 }
 
+function signalOf(row: SignalRow): Signal {
+    return {
+        id: row.id, project: row.project, issue: row.issue, kind: row.kind, note: row.note ?? undefined,
+        target: row.target ?? undefined, deliveredTo: JSON.parse(row.delivered_to) as string[], createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at,
+    }
+}
+
 function docOf(row: DocRow): Doc {
     return {
         id: row.id, project: row.project, title: row.title, body: row.body,
         createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at, updatedAt: row.updated_at,
     }
-}
-
-function ids(tasks: TaskFile[]): string[] {
-    return tasks.flatMap(t => [t.id, ...ids(t.tasks)])
 }
 
 function nullable(value: Input[string]): string | null {
