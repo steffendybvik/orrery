@@ -16,11 +16,16 @@ const title = ref('')
 const notes = ref('')
 const chunk = ref('')
 const priority = ref<Priority | ''>('')
+const labels = ref<string[]>([])
 const column = ref<Exclude<Column, 'done'>>('backlog')
 const kind = ref<'issue' | 'feature request' | 'change request'>('issue')
 const ask = ref(false)
 watch(kind, now => ask.value = now !== 'issue')
 const KINDS = [{value: 'issue' as const, label: 'Issue'}, {value: 'feature request' as const, label: 'Feature request'}, {value: 'change request' as const, label: 'Change request'}]
+// The labels already in the project to pick from; the request kinds set their own
+const known = computed(() => project.value
+    ? [...new Set(allIssues(project.value).flatMap(({issue}) => issue.labels))].filter(l => !KINDS.some(k => k.value === l))
+    : [])
 const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
@@ -35,6 +40,7 @@ watch(target, now => {
     notes.value = ''
     chunk.value = now.chunk ?? ''
     priority.value = ''
+    labels.value = []
     column.value = 'backlog'
     kind.value = 'issue'
     ask.value = false
@@ -48,12 +54,13 @@ async function create() {
     failed.value = ''
     try {
         const plan = column.value === 'backlog' || column.value === 'doing' ? undefined : column.value
+        const picked = [...new Set([...kind.value !== 'issue' ? [kind.value] : [], ...labels.value])]
         const owner = await load()
         const issue = await $fetch<{id: string}>(`/api/projects/${encodeURIComponent(project.value.id)}/issues`, {
             method: 'POST',
             headers: {'Orrery-Actor': owner},
             body: {
-                ...kind.value !== 'issue' ? {labels: [kind.value]} : {},
+                ...picked.length ? {labels: picked} : {},
                 title: title.value.trim(),
                 ...notes.value.trim() ? {notes: notes.value.trim()} : {},
                 ...chunk.value ? {chunk: chunk.value} : {},
@@ -104,6 +111,7 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
             <option value="">No chunk</option>
             <option v-for="c in chunks" :key="c.id" :value="c.id">{{ c.title }}</option>
           </select>
+          <LabelPicker v-model="labels" :labels="known" />
           <label class="flex items-center gap-1.5 text-xs text-muted">
             <input v-model="ask" type="checkbox" class="accent-accent-500">
             Ask a Claude session to pick it up
