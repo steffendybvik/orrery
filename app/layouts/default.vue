@@ -14,5 +14,6 @@ await callOnce('owner', load)
     <CommandPalette />
     <NewIssueDialog />
     <IssueMenu />
+    <ChunkMenu />
   </div>
 </template>

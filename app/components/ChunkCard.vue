@@ -2,8 +2,10 @@
 import type {Chunk} from '#shared/roadmap'
 import {COLUMNS} from '#shared/roadmap'
 
-// A chunk on the roadmap: its progress and where its issues are. Clicking opens its page.
+// A chunk on the roadmap: its progress and where its issues are. Clicking opens its page, right-clicking
+// its menu (ChunkMenu).
 const props = defineProps<{chunk: Chunk, project: string}>()
+const {open: openMenu} = useChunkMenu()
 const share = computed(() => progress(props.chunk.counts))
 const spread = computed(() => COLUMNS.filter(c => c !== 'done' && props.chunk.counts[c]).map(c => ({column: c, n: props.chunk.counts[c]})))
 </script>
@@ -12,6 +14,7 @@ const spread = computed(() => COLUMNS.filter(c => c !== 'done' && props.chunk.co
   <NuxtLink
       data-nav
       :to="chunkPath(project, chunk.id)"
+      @contextmenu="chunk.id && openMenu($event, project, chunk.id)"
       class="flex flex-col gap-2.5 rounded-xl border border-line bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
   >
     <div class="flex items-start gap-2">
