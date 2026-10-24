@@ -82,6 +82,7 @@ const everywhere = computed<Entry[]>(() => [
     {key: 'go:now', group: 'Go to', label: 'Now across projects', hint: 'g n', run: () => router.push('/now')},
     {key: 'go:urgent', group: 'Go to', label: 'Urgent across projects', hint: 'g u', run: () => router.push('/urgent')},
     {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
+    {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Clear the filters', run: clear}] : []),
     ...[...PRIORITIES, 'none'].map(p => ({
         key: `filter:priority:${p}`, group: 'Filter',

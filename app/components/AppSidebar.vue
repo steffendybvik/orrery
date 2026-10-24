@@ -6,6 +6,7 @@ const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const open = useState('sidebar-open', () => false)
 const palette = useState('palette-open', () => false)
+const newProject = useState('new-project', () => false)
 
 watch(() => route.fullPath, () => {
     open.value = false
@@ -111,9 +112,12 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span class="flex-1">Connect an agent</span>
       </NuxtLink>
 
-      <div class="label mt-4 mb-1 flex items-center px-2">
+      <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
+        <button type="button" class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg" title="New project" aria-label="New project" @click="newProject = true">
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
       </div>
       <!-- Every project with its pages under it: Issues, Roadmap, Docs. -->
       <div
