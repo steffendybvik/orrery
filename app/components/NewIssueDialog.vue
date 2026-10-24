@@ -2,9 +2,9 @@
 import type {Column, Priority} from '#shared/roadmap'
 import {PRIORITIES} from '#shared/roadmap'
 
-// Writing a new issue, as the owner (so agents can't delete it); Orrery hands out its id. A feature or
-// change request is labelled as one, and can go straight to the listening Claude sessions to pick up.
-// ⌘↵ creates it and opens its page, Esc closes.
+// Writing a new issue, as the owner (so agents can't delete it); Orrery hands out its id. Its labels say
+// what kind it is (bug, feature request, …), and it can go straight to the listening Claude sessions to
+// pick up. ⌘↵ creates it and opens its page, Esc closes.
 const {target, close} = useNewIssue()
 const {byId} = useRoadmaps()
 const {load} = useOwner()
@@ -18,14 +18,10 @@ const chunk = ref('')
 const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
 const column = ref<Exclude<Column, 'done'>>('backlog')
-const kind = ref<'issue' | 'feature request' | 'change request'>('issue')
 const ask = ref(false)
-watch(kind, now => ask.value = now !== 'issue')
-const KINDS = [{value: 'issue' as const, label: 'Issue'}, {value: 'feature request' as const, label: 'Feature request'}, {value: 'change request' as const, label: 'Change request'}]
-// The labels already in the project to pick from; the request kinds set their own
-const known = computed(() => project.value
-    ? [...new Set(allIssues(project.value).flatMap(({issue}) => issue.labels))].filter(l => !KINDS.some(k => k.value === l))
-    : [])
+// The kinds of issue, always offered, and the labels already in the project
+const KINDS = ['bug', 'improvement', 'migration', 'feature request']
+const known = computed(() => [...new Set([...KINDS, ...project.value ? allIssues(project.value).flatMap(({issue}) => issue.labels) : []])])
 const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
@@ -42,7 +38,6 @@ watch(target, now => {
     priority.value = ''
     labels.value = []
     column.value = 'backlog'
-    kind.value = 'issue'
     ask.value = false
     failed.value = ''
     nextTick(() => titleInput.value?.focus())
@@ -54,13 +49,12 @@ async function create() {
     failed.value = ''
     try {
         const plan = column.value === 'backlog' || column.value === 'doing' ? undefined : column.value
-        const picked = [...new Set([...kind.value !== 'issue' ? [kind.value] : [], ...labels.value])]
         const owner = await load()
         const issue = await $fetch<{id: string}>(`/api/projects/${encodeURIComponent(project.value.id)}/issues`, {
             method: 'POST',
             headers: {'Orrery-Actor': owner},
             body: {
-                ...picked.length ? {labels: picked} : {},
+                ...labels.value.length ? {labels: labels.value} : {},
                 title: title.value.trim(),
                 ...notes.value.trim() ? {notes: notes.value.trim()} : {},
                 ...chunk.value ? {chunk: chunk.value} : {},
@@ -72,7 +66,7 @@ async function create() {
         const id = project.value.id
         if (ask.value) {
             await $fetch(`/api/projects/${encodeURIComponent(id)}/issues/${encodeURIComponent(issue.id)}/focus`, {
-                method: 'POST', headers: {'Orrery-Actor': owner}, body: kind.value !== 'issue' ? {note: `A new ${kind.value}: please pick it up.`} : {},
+                method: 'POST', headers: {'Orrery-Actor': owner}, body: {note: `A new ${labels.value.length ? labels.value.join(', ') : 'issue'}: please pick it up.`},
             }).catch(() => {})
         }
         close()
@@ -96,7 +90,6 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
           <span>New in {{ project.name }}</span>
           <KeyHint class="ml-auto">esc</KeyHint>
         </div>
-        <SegmentedControl v-model="kind" :options="KINDS" class="self-start" />
         <input ref="titleInput" v-model="title" placeholder="Issue title" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
         <textarea v-model="notes" rows="5" placeholder="Add a description… (Markdown works)" aria-label="Description" class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none" />
         <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
@@ -118,7 +111,7 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
           </label>
           <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
           <button type="submit" class="ml-auto flex h-8 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="!title.trim() || saving">
-            {{ saving ? 'Creating…' : kind === 'issue' ? 'Create issue' : `Send ${kind}` }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+            {{ saving ? 'Creating…' : 'Create issue' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
           </button>
         </div>
       </form>
