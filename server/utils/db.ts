@@ -1,0 +1,156 @@
+// The database: one SQLite file (`NUXT_DATABASE`, `.data/orrery.db` by default). Node's own
+// `node:sqlite` is synchronous, so writes from several sessions never interleave.
+import {mkdirSync} from 'node:fs'
+import {restoreBackup} from './backup'
+import {dirname, resolve} from 'node:path'
+import {DatabaseSync} from 'node:sqlite'
+
+// Each step brings the schema up one version (`PRAGMA user_version`); add steps, never edit them.
+const MIGRATIONS = [`
+    CREATE TABLE projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        key TEXT NOT NULL,
+        description TEXT,
+        next_number INTEGER NOT NULL DEFAULT 1,
+        -- Who made it (the Orrery-Actor header), and whether that was the owner: no one else can delete those.
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE TABLE chunks (
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT,
+        position REAL NOT NULL,
+        -- Who made it (the Orrery-Actor header), and whether that was the owner: no one else can delete those.
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project, id)
+    );
+    -- A sub-issue has a parent and no chunk: it is in its top-level issue's chunk.
+    CREATE TABLE issues (
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'doing', 'done')),
+        plan TEXT CHECK (plan IN ('now', 'next', 'later')),
+        priority TEXT CHECK (priority IN ('P1', 'P2', 'P3')),
+        assignee TEXT,
+        -- A JSON list of strings
+        labels TEXT NOT NULL DEFAULT '[]',
+        notes TEXT,
+        parent TEXT,
+        chunk TEXT,
+        position REAL NOT NULL,
+        -- Who made it (the Orrery-Actor header), and whether that was the owner: no one else can delete those.
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project, id),
+        FOREIGN KEY (project, parent) REFERENCES issues(project, id) ON DELETE CASCADE,
+        FOREIGN KEY (project, chunk) REFERENCES chunks(project, id)
+    );
+    CREATE INDEX issues_parent ON issues(project, parent);
+    CREATE TABLE comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL,
+        issue TEXT NOT NULL,
+        body TEXT NOT NULL,
+        -- Who made it (the Orrery-Actor header), and whether that was the owner: no one else can delete those.
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project, issue) REFERENCES issues(project, id) ON DELETE CASCADE
+    );
+    CREATE INDEX comments_issue ON comments(project, issue);
+`, `
+    -- P0 (urgent), and docs. SQLite can't change a CHECK, so issues is built again.
+    CREATE TABLE issues_new (
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'doing', 'done')),
+        plan TEXT CHECK (plan IN ('now', 'next', 'later')),
+        priority TEXT CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+        assignee TEXT,
+        labels TEXT NOT NULL DEFAULT '[]',
+        notes TEXT,
+        parent TEXT,
+        chunk TEXT,
+        position REAL NOT NULL,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project, id),
+        FOREIGN KEY (project, parent) REFERENCES issues_new(project, id) ON DELETE CASCADE,
+        FOREIGN KEY (project, chunk) REFERENCES chunks(project, id)
+    );
+    INSERT INTO issues_new SELECT * FROM issues;
+    DROP TABLE issues;
+    ALTER TABLE issues_new RENAME TO issues;
+    CREATE INDEX issues_parent ON issues(project, parent);
+    CREATE TABLE docs (
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        -- Markdown
+        body TEXT NOT NULL DEFAULT '',
+        position REAL NOT NULL,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project, id)
+    );
+`]
+
+let db: DatabaseSync | null = null
+
+export function useDb(): DatabaseSync {
+    if (db) return db
+    const config = useRuntimeConfig()
+    const path = resolve(String(config.database))
+    restoreBackup(path, String(config.backupDir ?? ''))
+    db = openDb(path)
+    return db
+}
+
+/** Opens the file and brings its schema up to date (or only `upTo` steps, for tests). */
+export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
+    if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
+    const opened = new DatabaseSync(path)
+    opened.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000')
+    const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
+    // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
+    opened.exec('PRAGMA foreign_keys = OFF')
+    MIGRATIONS.slice(version, upTo).forEach((step, i) => {
+        transaction(opened, () => {
+            opened.exec(step)
+            opened.exec(`PRAGMA user_version = ${version + i + 1}`)
+        })
+    })
+    if (opened.prepare('PRAGMA foreign_key_check').all().length) throw new Error(`${path}: a migration left rows pointing at nothing`)
+    opened.exec('PRAGMA foreign_keys = ON')
+    return opened
+}
+
+/** Runs `work` in one transaction: all of it lands, or none of it. */
+export function transaction<T>(database: DatabaseSync, work: () => T): T {
+    database.exec('BEGIN IMMEDIATE')
+    try {
+        const result = work()
+        database.exec('COMMIT')
+        return result
+    } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+    }
+}

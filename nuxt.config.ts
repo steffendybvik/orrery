@@ -1,0 +1,46 @@
+import tailwindcss from '@tailwindcss/vite'
+
+export default defineNuxtConfig({
+    compatibilityDate: '2026-10-01',
+    devtools: {enabled: false},
+    // A local, single-user board: the page is drawn in the browser and fed by /api.
+    ssr: false,
+    devServer: {port: 9000},
+
+    css: ['~/assets/css/main.css'],
+
+    vite: {
+        plugins: [tailwindcss()],
+    },
+
+    runtimeConfig: {
+        // Where the projects, chunks, issues and comments live. Override with NUXT_DATABASE.
+        database: '.data/orrery.db',
+        // Whose things agents can't delete: requests sent with `Orrery-Actor: <owner>` make them.
+        // Override with NUXT_OWNER.
+        owner: 'owner',
+        // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
+        backupDir: '',
+    },
+
+    app: {
+        head: {
+            title: 'Orrery',
+            meta: [{name: 'description', content: 'Where every app project stands'}],
+            link: [
+                {rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'},
+                {rel: 'preconnect', href: 'https://fonts.googleapis.com'},
+                {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: ''},
+                {
+                    rel: 'stylesheet',
+                    href: 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap',
+                },
+            ],
+            // Sets the theme before the first paint, so a light page doesn't flash dark.
+            script: [{
+                tagPosition: 'head',
+                innerHTML: `(()=>{let t='system';try{t=localStorage.getItem('orrery-theme')||t}catch{}const d=t==='dark'||(t==='system'&&!matchMedia('(prefers-color-scheme: light)').matches);document.documentElement.classList.toggle('dark',d)})()`,
+            }],
+        },
+    },
+})

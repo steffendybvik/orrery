@@ -1,0 +1,22 @@
+# Orrery on http://localhost:9000 (or ORRERY_PORT): `docker compose up -d --build`.
+#
+# The live database is in the orrery-data volume. A copy goes to ORRERY_BACKUP (iCloud Drive's
+# Orrery folder by default) a few seconds after each change, plus one a day for two weeks; a new
+# volume starts from that copy. ORRERY_OWNER (in .env) is the name whose things no one else can
+# delete; send it as the `Orrery-Actor` header on your own requests.
+
+services:
+  orrery:
+    build: .
+    ports:
+      - "${ORRERY_PORT:-9000}:9000"
+    environment:
+      NUXT_OWNER: ${ORRERY_OWNER:-owner}
+      NUXT_BACKUP_DIR: /backup
+    volumes:
+      - orrery-data:/data
+      - ${ORRERY_BACKUP:-${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Orrery}:/backup
+    restart: unless-stopped
+
+volumes:
+  orrery-data:

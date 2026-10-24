@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+/* `.dark` on <html> (set before the first paint, see nuxt.config) picks the dark theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Geist Mono", ui-monospace, monospace;
+
+    /* mesher's orange */
+    --color-accent-300: oklch(0.86 0.12 70);
+    --color-accent-400: oklch(0.80 0.15 65);
+    --color-accent-500: oklch(0.74 0.17 55);
+    --color-accent-600: oklch(0.66 0.18 45);
+
+    --animate-fade-up: fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    --animate-slide-in: slide-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    --animate-flash: flash 1.2s ease-out;
+
+    @keyframes fade-up {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes slide-in {
+        from { opacity: 0; transform: translateX(24px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* A row that just changed through the API */
+    @keyframes flash {
+        from { background-color: color-mix(in oklab, var(--color-accent-500) 22%, transparent); }
+        to { background-color: transparent; }
+    }
+}
+
+/* The surfaces and text, one set per theme: canvas (the page), panel (sidebar, cards), raised
+   (popovers), line (borders), fg / muted / faint (text), hover / active (rows), well (segmented controls). */
+@theme inline {
+    --color-canvas: var(--canvas);
+    --color-panel: var(--panel);
+    --color-raised: var(--raised);
+    --color-line: var(--line);
+    --color-fg: var(--fg);
+    --color-muted: var(--muted);
+    --color-faint: var(--faint);
+    --color-hover: var(--hover);
+    --color-active: var(--active);
+    --color-well: var(--well);
+}
+
+:root {
+    --canvas: #fafafa;
+    --panel: #ffffff;
+    --raised: #ffffff;
+    --line: rgb(0 0 0 / 0.08);
+    --fg: #18181b;
+    --muted: #52525b;
+    --faint: #a1a1aa;
+    --hover: rgb(0 0 0 / 0.04);
+    --active: rgb(0 0 0 / 0.07);
+    --well: rgb(0 0 0 / 0.05);
+    color-scheme: light;
+}
+
+.dark {
+    --canvas: #09090b;
+    --panel: #0e0e11;
+    --raised: #18181b;
+    --line: rgb(255 255 255 / 0.08);
+    --fg: #f4f4f5;
+    --muted: #a1a1aa;
+    --faint: #71717a;
+    --hover: rgb(255 255 255 / 0.05);
+    --active: rgb(255 255 255 / 0.1);
+    --well: rgb(0 0 0 / 0.25);
+    color-scheme: dark;
+}
+
+/* Frosted panel for everything floating over the page (mesher's `glass`) */
+@utility glass {
+    @apply border border-line bg-raised/80 shadow-2xl shadow-black/20 backdrop-blur-xl dark:bg-zinc-900/70 dark:shadow-black/40;
+}
+
+/* The small uppercase heading over a group (OBJECTS, PROPERTIES) */
+@utility label {
+    @apply text-[11px] font-medium tracking-wide text-faint uppercase;
+}
+
+body {
+    @apply bg-canvas font-sans text-[13px] text-fg antialiased;
+}
+
+::selection {
+    background: color-mix(in oklab, var(--color-accent-500) 35%, transparent);
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--active) transparent;
+}
+
+/* A doc's Markdown */
+.doc {
+    @apply text-[14px] leading-7 text-muted;
+
+    & > * + * { @apply mt-4; }
+    & h1, & h2, & h3, & h4 { @apply font-semibold tracking-tight text-fg; }
+    & h1 { @apply mt-10 text-xl; }
+    & h2 { @apply mt-10 border-b border-line pb-2 text-lg; }
+    & h3 { @apply mt-8 text-base; }
+    & h4 { @apply mt-6 text-sm; }
+    & > :first-child { @apply mt-0; }
+    & a { @apply text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
+    & strong { @apply font-semibold text-fg; }
+    & ul { @apply list-disc pl-5; }
+    & ol { @apply list-decimal pl-5; }
+    & li + li { @apply mt-1; }
+    & li::marker { @apply text-faint; }
+    & blockquote { @apply border-l-2 border-accent-500/60 pl-4 text-muted italic; }
+    & hr { @apply my-8 border-line; }
+    & :not(pre) > code { @apply rounded bg-well px-1 py-px font-mono text-[0.88em] text-fg ring-1 ring-line; }
+    & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[12px] leading-relaxed text-fg ring-1 ring-line; }
+    & table { @apply block w-full overflow-x-auto border-collapse text-[13px]; }
+    & th, & td { @apply border border-line px-3 py-1.5 text-left; }
+    & th { @apply bg-well font-medium text-fg; }
+    & img { @apply max-w-full rounded-lg; }
+    & input[type="checkbox"] { @apply mr-1.5 accent-accent-500; }
+}
