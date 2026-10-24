@@ -3,9 +3,10 @@ import type {Place, Priority, Schedule} from '#shared/roadmap'
 import {PLACES, PRIORITIES} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
-// Writing a schedule, or changing one, as the owner: in a project, what each run's issue says, when it
-// runs (presets, or a cron under Advanced) with its next times shown, where the issue starts, and
-// whether it asks the project's Claude sessions to pick it up. ⌘↵ saves, Esc closes.
+// Writing a schedule, or changing one, as the owner: in a project, whether each run makes an issue or
+// only sends a message to the project's Claude sessions, what it says, when it runs (presets, or a cron
+// under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
+// sessions to pick it up. ⌘↵ saves, Esc closes.
 const {editing} = useSchedules()
 const {byId} = useRoadmaps()
 const {load} = useOwner()
@@ -18,6 +19,8 @@ const KINDS: {value: Repeat['kind'], label: string}[] = [
 const PLACE_LABEL: Record<Place, string> = {backlog: 'Backlog', later: 'Later', next: 'Next', now: 'Now', doing: 'Doing'}
 
 const project = ref('')
+const sends = ref<'issue' | 'message'>('issue')
+const SENDS = [{value: 'issue' as const, label: 'Makes an issue'}, {value: 'message' as const, label: 'Sends a message'}]
 const title = ref('')
 const notes = ref('')
 const kind = ref<Repeat['kind']>('weekdays')
@@ -55,6 +58,7 @@ watch(editing, now => {
     if (!now) return
     const s = now.schedule
     project.value = now.project
+    sends.value = s?.kind ?? 'issue'
     title.value = s?.title ?? ''
     notes.value = s?.notes ?? ''
     timezone.value = s?.timezone ?? localZone()
@@ -94,7 +98,8 @@ const repeat = computed<Repeat>(() => {
 const cronText = computed(() => toCron(repeat.value))
 const atText = computed(() => repeat.value.kind === 'once' ? repeat.value.at : null)
 const upcoming = computed(() => nextTimes(cronText.value, atText.value, timezone.value))
-const ready = computed(() => !!project.value && !!title.value.trim() && upcoming.value.length > 0 && !saving.value)
+const ready = computed(() => !!project.value && !!title.value.trim() && (sends.value === 'issue' || !!notes.value.trim())
+    && upcoming.value.length > 0 && !saving.value)
 
 function toggleDay(d: number) {
     days.value = days.value.includes(d) ? days.value.filter(x => x !== d) : [...days.value, d]
@@ -109,6 +114,7 @@ async function save() {
     saving.value = true
     failed.value = ''
     const body = {
+        kind: sends.value,
         title: title.value.trim(),
         notes: notes.value.trim() || null,
         ...cronText.value ? {cron: cronText.value} : {at: atText.value},
@@ -147,8 +153,21 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
           <KeyHint class="ml-auto">esc</KeyHint>
         </div>
 
-        <input ref="titleInput" v-model="title" placeholder="What to do, e.g. Groom the backlog" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
-        <textarea v-model="notes" rows="3" placeholder="Instructions for each run… (Markdown works; it's the issue's description)" aria-label="Instructions" class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none" />
+        <SegmentedControl v-model="sends" :options="SENDS" class="self-start" />
+        <input
+            ref="titleInput"
+            v-model="title"
+            :placeholder="sends === 'issue' ? 'What to do, e.g. Groom the backlog' : 'Its name, e.g. Check CI'"
+            aria-label="Title"
+            class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none"
+        >
+        <textarea
+            v-model="notes"
+            rows="3"
+            :placeholder="sends === 'issue' ? 'Instructions for each run… (Markdown works; it\'s the issue\'s description)' : 'The message the sessions get each run, e.g. Check CI on main; if it\'s red, tell me why'"
+            :aria-label="sends === 'issue' ? 'Instructions' : 'Message'"
+            class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
+        />
 
         <section class="flex flex-col gap-2 border-t border-line pt-3">
           <span class="label">When</span>
@@ -205,7 +224,10 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
           </p>
         </section>
 
-        <section class="flex flex-col gap-2 border-t border-line pt-3">
+        <p v-if="sends === 'message'" class="border-t border-line pt-3 text-xs text-muted">
+          Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.
+        </p>
+        <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
           <span class="label">Each run makes an issue</span>
           <div class="flex flex-wrap items-center gap-2">
             <select v-model="column" aria-label="Where it starts" :class="field">

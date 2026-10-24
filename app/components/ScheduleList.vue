@@ -39,6 +39,7 @@ const groups = computed(() => {
 
 const OUTCOME = {
     made: 'text-emerald-600 dark:text-emerald-400',
+    sent: 'text-emerald-600 dark:text-emerald-400',
     skipped: 'text-faint',
     failed: 'text-rose-600 dark:text-rose-400',
 }
@@ -65,7 +66,7 @@ const OUTCOME = {
         <div class="flex min-w-0 flex-1 flex-col">
           <span class="truncate text-fg">{{ s.title }}</span>
           <span class="truncate text-xs text-faint">
-            {{ describe(s) }}<template v-if="s.ask"> · asks the sessions</template><template v-if="s.priority"> · {{ s.priority }}</template>
+            {{ describe(s) }}<template v-if="s.kind === 'message'"> · messages the sessions</template><template v-else-if="s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template>
           </span>
         </div>
         <span v-if="s.runs[0]" class="hidden shrink-0 items-center gap-1 text-xs md:flex" :class="OUTCOME[s.runs[0].outcome]" :title="s.runs[0].note ?? ''">
@@ -73,7 +74,7 @@ const OUTCOME = {
             ✓ made
             <button type="button" class="font-mono hover:underline" @click.stop="openIssue(s.project, s.runs[0].issue!)">{{ s.runs[0].issue }}</button>
           </template>
-          <template v-else>{{ s.runs[0].outcome === 'skipped' ? '⤼ skipped' : '✗ failed' }}</template>
+          <template v-else>{{ {sent: '✉ sent', skipped: '⤼ skipped', failed: '✗ failed'}[s.runs[0].outcome] }}</template>
           <span class="text-faint">· {{ ago(s.runs[0].at) }}</span>
         </span>
         <span class="w-36 shrink-0 text-right text-xs" :title="s.nextRun ? when(s.nextRun) : ''">

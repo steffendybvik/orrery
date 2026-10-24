@@ -1,6 +1,7 @@
 // A project's schedules: recurring work Orrery starts on its own. At each time a schedule makes an issue
 // in its project (marked with the schedule) and, with `ask`, points the project's listening Claude
-// sessions at it. A run is skipped while the last one's issue is still open (`skipOpen`). The timer
+// sessions at it; or, as a `message` schedule, sends its message to the sessions with no issue. An issue
+// run is skipped while the last one's issue is still open (`skipOpen`). The timer
 // (server/plugins/schedules.ts) calls `runDue`; a run is claimed by moving `next_run` on first, so two
 // servers (a reloading `nuxt dev`) can't run it twice, and after downtime a schedule runs once.
 import {Cron} from 'croner'
@@ -12,13 +13,15 @@ import type {Actor, Store} from './store'
 import {AGENT} from './store'
 
 interface ScheduleRow {
-    id: number, project: string, title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
+    id: number, project: string, kind: 'issue' | 'message', title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
     place: Place, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, enabled: number,
     next_run: string | null, created_by: string, owned: number, created_at: string, updated_at: string
 }
 interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null }
 
 export const SCHEDULE_FIELDS: Record<string, Field> = {
+    /** `issue` (the default) makes an issue each run; `message` sends `notes` to the sessions instead. */
+    kind: {type: 'string', values: ['issue', 'message']},
     title: {type: 'string', required: true},
     notes: {type: 'string', nullable: true},
     /** Five fields (minute hour day month weekday), e.g. `0 9 * * 1-5`; or `at`, once. */
@@ -71,9 +74,11 @@ export class Schedules {
         const chunk = this.chunk(project, input.chunk)
         const now = new Date().toISOString()
         const enabled = input.enabled ?? true
-        const {lastInsertRowid} = this.db.prepare(`INSERT INTO schedules (project, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
-            next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-            project, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, String(input.column ?? 'now'), chunk,
+        const kind = String(input.kind ?? 'issue')
+        if (kind === 'message' && !text(input.notes)?.trim()) throw badRequest('A message schedule needs its message in "notes"')
+        const {lastInsertRowid} = this.db.prepare(`INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
+            next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, String(input.column ?? 'now'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skipOpen ?? true), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
         this.onChange(project)
@@ -92,7 +97,11 @@ export class Schedules {
         }, timing)
         const enabled = input.enabled === undefined ? !!row.enabled : !!input.enabled
         const next = enabled && (timing || !row.enabled || !row.next_run) ? nextRun(when, new Date()) : enabled ? row.next_run : null
+        const kind = String(input.kind ?? row.kind)
+        const message = input.notes === undefined ? row.notes : text(input.notes)
+        if (kind === 'message' && !message?.trim()) throw badRequest('A message schedule needs its message in "notes"')
         const set: Record<string, unknown> = {
+            kind: input.kind,
             title: input.title === undefined ? undefined : String(input.title).trim(),
             notes: input.notes === undefined ? undefined : text(input.notes),
             cron: when.cron, at: when.at, timezone: when.timezone,
@@ -150,11 +159,18 @@ export class Schedules {
             this.onChange(row.project)
             return {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined}
         }
+        const actor: Actor = {name: row.created_by, owner: !!row.owned}
+        if (row.kind === 'message') {
+            // Only the owner's signals reach sessions, as with every signal.
+            if (!actor.owner) return record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
+            this.store.message(row.project, row.id, row.notes ?? row.title, actor)
+            const heard = this.listening(row.project)
+            return record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
+        }
         if (row.skip_open && !manual) {
             const open = this.lastOpenIssue(row)
             if (open) return record('skipped', null, `${open} from the last run isn't done yet`)
         }
-        const actor: Actor = {name: row.created_by, owner: !!row.owned}
         try {
             const issue = this.store.createIssue(row.project, {
                 title: `${row.title} · ${day(now, row.timezone)}`,
@@ -229,7 +245,7 @@ export class Schedules {
     private scheduleOf(row: ScheduleRow): Schedule {
         const runs = this.db.prepare('SELECT * FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT ?').all(row.id, RUNS) as unknown as RunRow[]
         return {
-            id: row.id, project: row.project, title: row.title, notes: row.notes ?? undefined,
+            id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
             cron: row.cron ?? undefined, at: row.at ?? undefined, timezone: row.timezone,
             column: row.place, chunk: row.chunk ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
             ask: !!row.ask, skipOpen: !!row.skip_open, enabled: !!row.enabled, nextRun: row.next_run ?? undefined,

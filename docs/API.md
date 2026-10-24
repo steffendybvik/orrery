@@ -84,7 +84,9 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 
 ## Schedules
 
-Recurring work in a project. At each time a schedule makes an issue (its title plus the day, e.g.
+Recurring work in a project. A `message` schedule sends its message (`notes`) to the project's
+listening sessions each run, with no issue (a `message` signal; the run is `sent`). Otherwise, at each
+time a schedule makes an issue (its title plus the day, e.g.
 `Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
 the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
 is listening, the next to connect within a day gets it). With `skipOpen` (the default) a run is skipped
@@ -94,11 +96,11 @@ while the last run's issue isn't done. Missed runs while Orrery was down run onc
 |---|---|
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
-| `POST /projects/:project/schedules` | `{title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skipOpen?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` where its issues start (`backlog`, `later`, `next`, `now` (default), `doing`) |
+| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skipOpen?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` where its issues start (`backlog`, `later`, `next`, `now` (default), `doing`); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be deleted by agents |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}` |
 
-Each schedule carries `nextRun` and its latest `runs`: `made` (with the issue), `skipped` or `failed` (with why).
+Each schedule carries `nextRun` and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why).
 
 ## Signals to sessions
 

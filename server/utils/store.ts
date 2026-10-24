@@ -76,7 +76,7 @@ interface IssueRow extends Made {
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
-interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, kind: 'focus' | 'comment', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
+interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
@@ -646,13 +646,25 @@ export class Store {
         return this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit).map(signalOf)
     }
 
-    /** The owner's asks from schedules in the last day that no session has heard yet: the next one to connect gets them. */
+    /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */
+    message(project: string, schedule: number, text: string, actor = AGENT): Signal {
+        this.projectRow(project)
+        const {lastInsertRowid} = this.run('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            project, schedule, 'message', text, actor.name, Number(actor.owner), stamp())
+        const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
+        this.onSignal(signal)
+        return signal
+    }
+
+    /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next
+     * one to connect gets them. */
     unheardScheduled(project: string): Signal[] {
         const since = new Date(Date.now() - 86_400_000).toISOString()
         return this.all<SignalRow>(`
-            SELECT s.* FROM signals s JOIN issues i ON i.project = s.project AND i.id = s.issue
-            WHERE s.project = ? AND s.kind = 'focus' AND s.owned = 1 AND s.delivered_to = '[]' AND i.schedule IS NOT NULL
-              AND i.status != 'done' AND s.created_at >= ? ORDER BY s.id`, project, since).map(signalOf)
+            SELECT s.* FROM signals s LEFT JOIN issues i ON i.project = s.project AND i.id = s.issue
+            WHERE s.project = ? AND s.owned = 1 AND s.delivered_to = '[]' AND s.created_at >= ?
+              AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status != 'done') OR s.kind = 'message')
+            ORDER BY s.id`, project, since).map(signalOf)
     }
 
     /** Notes that a session got the signal. */
@@ -947,7 +959,7 @@ function commentOf(row: CommentRow): Comment {
 
 function signalOf(row: SignalRow): Signal {
     return {
-        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, kind: row.kind, note: row.note ?? undefined,
+        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined,
         target: row.target ?? undefined, deliveredTo: JSON.parse(row.delivered_to) as string[], createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at,
     }
 }

@@ -100,6 +100,20 @@ describe('schedules', () => {
         expect(store.unheardScheduled('mesher')).toEqual([])
     })
 
+    it('send a message instead of making an issue, the owner’s only', () => {
+        const mine = schedules.create('mesher', {kind: 'message', title: 'Check CI', notes: 'Is main green?', cron: '*/15 * * * *', timezone: 'UTC'}, me)
+        const theirs = schedules.create('mesher', {kind: 'message', title: 'Theirs', notes: 'hi', cron: '*/15 * * * *', timezone: 'UTC'}, agent)
+        expect(failure(() => schedules.create('mesher', {kind: 'message', title: 'Empty', cron: '0 9 * * *'})).status).toBe(400)
+        expect(schedules.runNow('mesher', mine.id)).toMatchObject({outcome: 'sent', note: 'nobody listening; the next session to connect gets it'})
+        expect(schedules.runNow('mesher', theirs.id).outcome).toBe('skipped')
+        expect(store.listIssues('mesher')).toEqual([])
+        const [message] = signals.filter(s => s.kind === 'message')
+        expect(message).toMatchObject({schedule: mine.id, note: 'Is main green?', protected: true})
+        expect(message!.issue).toBeUndefined()
+        expect(store.unheardScheduled('mesher').map(s => s.id)).toEqual([message!.id])
+        expect(schedules.update('mesher', mine.id, {kind: 'issue'}).kind).toBe('issue')
+    })
+
     it('run a one-off once and then stop', () => {
         const s = schedules.create('mesher', {title: 'Once', at: '2099-01-01T09:00:00Z'}, me)
         expect(schedules.runDue(at('2099-01-02T00:00:00Z'))).toBe(1)

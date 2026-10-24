@@ -64,7 +64,15 @@ who.set('channel', channel)
 async function deliver(signal) {
     const where = [signal.column, signal.priority, signal.chunk].filter(Boolean).join(', ')
     const issue = `${api}/issues/${encodeURIComponent(signal.issue)}`
-    const content = !signal.issue
+    const content = signal.kind === 'message'
+        ? [
+            `${signal.createdBy}'s schedule "${signal.title}" says:`,
+            '',
+            signal.note.split('\n').map(line => `> ${line}`).join('\n'),
+            '',
+            'Do what it says. If it turns into work worth tracking, put it in an issue as usual.',
+        ].join('\n')
+        : !signal.issue
         ? [
             `${signal.createdBy} asks you to work through chunk ${signal.chunk}: ${signal.title} [${[signal.column, signal.priority].filter(Boolean).join(', ')}].`,
             signal.note ? `Note: ${signal.note}` : '',
@@ -87,9 +95,9 @@ async function deliver(signal) {
             signal.note ? `Note: ${signal.note}` : '',
             `Read it with: curl ${issue}`,
         ].filter(Boolean).join('\n')
-    const about = signal.issue ? {issue: signal.issue} : {chunk: signal.chunk}
+    const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : {schedule: String(signal.schedule)}
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind}}})
-    log(`delivered ${signal.kind} ${signal.issue ?? `chunk ${signal.chunk}`}`)
+    log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : `from schedule ${signal.schedule}`)}`)
     // Tells Orrery it got here, so the owner sees which window has it.
     await fetch(`${api}/signals/${signal.id}/delivered?${who}`, {method: 'POST'}).catch(() => {})
 }

@@ -121,14 +121,16 @@ export const total = (counts: Counts) => COLUMNS.reduce((sum, column) => sum + c
 
 /** A word to the Claude sessions on a project: `focus` asks one to work on the issue (or work through
  * the chunk) now; `comment` brings the owner's comment on an issue (in `note`) to the session working
- * on it, to answer. */
+ * on it, to answer; `message` is a schedule's message (in `note`), about no issue. */
 export interface Signal {
     id: number
     project: string
     /** The issue it's about, or for a focus on a whole chunk, `chunk`. */
     issue?: string
     chunk?: string
-    kind: 'focus' | 'comment'
+    /** The schedule that sent it (a message). */
+    schedule?: number
+    kind: 'focus' | 'comment' | 'message'
     note?: string
     /** The session it's for; none means every session on the project. */
     target?: string
@@ -147,17 +149,21 @@ export type Place = (typeof PLACES)[number]
 /** One time a schedule ran: the issue it made, or why it didn't. */
 export interface ScheduleRun {
     at: string
-    outcome: 'made' | 'skipped' | 'failed'
+    /** `made` an issue, `sent` a message, or `skipped` / `failed` (with why). */
+    outcome: 'made' | 'sent' | 'skipped' | 'failed'
     issue?: string
     note?: string
 }
 
 /** Recurring work in a project: at each time (`cron` in `timezone`, or once `at`) Orrery makes an issue
- * from it, and with `ask` points the project's listening Claude sessions at it. */
+ * from it, and with `ask` points the project's listening Claude sessions at it; or, as a `message`
+ * schedule, sends `notes` to the sessions without an issue. */
 export interface Schedule {
     id: number
     project: string
+    kind: 'issue' | 'message'
     title: string
+    /** The issue's description, or the message. */
     notes?: string
     cron?: string
     at?: string

@@ -24,6 +24,15 @@ export default defineEventHandler(event => {
 
     /** The signal with what a session needs to act on it: for a chunk, its open issues, most urgent first. */
     const told = (signal: Signal) => {
+        if (signal.kind === 'message') {
+            let title = 'a schedule'
+            try {
+                title = useScheduler().get(project, signal.schedule!).title
+            } catch {
+                // The schedule is gone since; its message still stands.
+            }
+            return {...signal, title, column: null, priority: null, chunk: null}
+        }
         if (!signal.issue) {
             // `none`: the issues in no chunk, which the board keeps as a chunk without an id.
             const chunk = signal.chunk === 'none'
@@ -46,6 +55,7 @@ export default defineEventHandler(event => {
     if (query.format === 'text') {
         const line = (signal: Signal) => {
             const s = told(signal)
+            if (s.kind === 'message') return `${s.createdBy}'s schedule "${s.title}": ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             if (s.kind === 'comment') return `${s.createdBy} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             if ('issues' in s) return `${s.createdBy} asks you to work through chunk ${signal.chunk}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}], open: ${s.issues.map(i => i.id).join(', ') || 'none'}${s.note ? ` — ${s.note}` : ''}\n`
             return `${s.createdBy} asks you to focus on ${s.issue}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}${s.chunk ? `, ${s.chunk}` : ''}]${s.note ? ` — ${s.note}` : ''}\n`
