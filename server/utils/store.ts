@@ -441,6 +441,24 @@ export class Store {
         return this.comment(project, issue, id)
     }
 
+    /** The owner's comments in the project that no agent has answered and no session has had yet,
+     * sent to `session` (just connected) to catch up on. Says how many. */
+    carryUnanswered(project: string, session: string): number {
+        const waiting = this.all<{issue: string, body: string, created_by: string}>(`
+            SELECT c.issue, c.body, c.created_by FROM comments c
+            WHERE c.project = ? AND c.owned = 1
+              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.created_at > c.created_at)
+              AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment'
+                              AND s.created_at >= c.created_at AND s.delivered_to != '[]')
+            ORDER BY c.created_at LIMIT 10`, project)
+        for (const comment of waiting) {
+            const {lastInsertRowid} = this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                project, comment.issue, 'comment', comment.body, session, comment.created_by, 1, stamp())
+            this.onSignal(signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!))
+        }
+        return waiting.length
+    }
+
     /** The owner's comment goes to the session last asked to focus on the issue (or, if none was,
      * every session on the project), so it can answer. */
     private carryComment(project: string, issue: string, body: string, actor: Actor) {

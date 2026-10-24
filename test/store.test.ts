@@ -198,6 +198,23 @@ describe("the owner's comments", () => {
     })
 })
 
+describe('a session that connects', () => {
+    it("gets the owner's comments that no agent has answered", () => {
+        const sent: string[] = []
+        const local = new Store(openDb(':memory:'), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
+        local.createProject({name: 'mesher', key: 'MSH'})
+        const me = {name: 'steffen', owner: true}
+        const a = local.createIssue('mesher', {title: 'A'}).id
+        const b = local.createIssue('mesher', {title: 'B'}).id
+        local.createComment('mesher', a, {body: 'answer me'}, me)
+        local.createComment('mesher', b, {body: 'answered'}, me)
+        local.createComment('mesher', b, {body: 'here you go'}, {name: 'claude', owner: false})
+        sent.length = 0
+        expect(local.carryUnanswered('mesher', 'new-window')).toBe(1)
+        expect(sent).toEqual([`${a}:new-window:answer me`])
+    })
+})
+
 describe('docs', () => {
     it('are listed with the project, without their text', () => {
         const doc = store.createDoc('mesher', {title: 'How joints work', body: '# Joints\n\nA **hinge** turns.'})
