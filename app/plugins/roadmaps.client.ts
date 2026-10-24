@@ -34,6 +34,10 @@ export default defineNuxtPlugin(() => {
             if (opened) load()
             opened = true
         })
+        events.addEventListener('ready', event => {
+            const build = (event as MessageEvent).data as string
+            if (build && build !== useRuntimeConfig().app.buildId) location.reload()
+        })
         events.addEventListener('error', () => {
             live.value = events.readyState === EventSource.CLOSED ? 'offline' : 'connecting'
         })

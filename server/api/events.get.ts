@@ -10,8 +10,9 @@ export default defineEventHandler(event => {
     projectEvents.on('removed', onRemoved)
     // Keeps proxies and the browser from dropping a quiet connection.
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
-    // The headers go out with the first event: without one, the browser waits to call it open.
-    stream.push({event: 'ready', data: ''})
+    // The headers go out with the first event: without one, the browser waits to call it open. It
+    // carries the build, so a tab left open across an update reloads into the new one.
+    stream.push({event: 'ready', data: String(useRuntimeConfig().app.buildId ?? '')})
 
     stream.onClosed(async () => {
         clearInterval(ping)
