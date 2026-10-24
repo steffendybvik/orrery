@@ -3,8 +3,8 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
-import type {Board, Chunk, Comment, Counts, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Signal, Status} from '#shared/roadmap'
-import {PLANS, PRIORITIES, STATUSES} from '#shared/roadmap'
+import type {Asks, Board, Chunk, Comment, Counts, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Signal, Status} from '#shared/roadmap'
+import {ASKS, PLANS, PRIORITIES, STATUSES} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
@@ -74,7 +74,7 @@ interface IssueRow extends Made {
     assignee: string | null, labels: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null
 }
-interface CommentRow extends Made { id: number, project: string, issue: string, body: string }
+interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
 interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, kind: 'focus' | 'comment', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
 
@@ -126,7 +126,12 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
 
 export const COMMENT_FIELDS: Record<string, Field> = {
     body: {type: 'string', required: true},
+    /** `decision` or `feedback`: the comment waits on the owner until they comment after it. */
+    asks: {type: 'string', values: ASKS, nullable: true},
 }
+
+/** Whether the owner has commented on the issue since comment `c`. */
+const ANSWERED = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id) AS answered'
 
 export class Store {
     constructor(
@@ -136,11 +141,14 @@ export class Store {
         private readonly onNotice: (notice: Notice) => void = () => {},
     ) {}
 
-    /** Agents' latest comments across projects (what the bell shows), newest first. */
+    /** Agents' latest comments across projects (what the bell shows), newest first, after the ones still
+     * waiting on the owner (a decision or feedback they haven't answered). */
     notices(limit = 30): Notice[] {
         return this.all<CommentRow & {title: string}>(`
-            SELECT c.*, i.title FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
-            WHERE c.owned = 0 AND c.cleared = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT ?`, limit)
+            SELECT * FROM (
+                SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
+                WHERE c.owned = 0 AND c.cleared = 0)
+            ORDER BY (asks IS NOT NULL AND answered = 0) DESC, created_at DESC, id DESC LIMIT ?`, limit)
             .map(row => ({...commentOf(row), project: row.project, title: row.title}))
     }
 
@@ -152,7 +160,9 @@ export class Store {
             return Number(this.run(`UPDATE comments SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND id IN (${ids.map(() => '?').join(', ')})`, ...ids as number[]).changes)
         }
         if (typeof before === 'string' && before) {
-            return Number(this.run('UPDATE comments SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND created_at <= ?', before).changes)
+            // Not the ones still waiting on the owner: those go when they're answered, or one by one.
+            return Number(this.run(`UPDATE comments AS c SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND created_at <= ?
+                AND (asks IS NULL OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id))`, before).changes)
         }
         throw badRequest('Send "ids" (comment ids) or "before" (a time) to clear')
     }
@@ -451,7 +461,7 @@ export class Store {
     listComments(project: string, issue: string): Comment[] {
         issue = this.issueId(project, issue)
         this.issueRow(project, issue)
-        return this.all<CommentRow>('SELECT * FROM comments WHERE project = ? AND issue = ? ORDER BY created_at, id', project, issue).map(commentOf)
+        return this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue = ? ORDER BY created_at, id`, project, issue).map(commentOf)
     }
 
     comment(project: string, issue: string, id: number): Comment {
@@ -465,8 +475,8 @@ export class Store {
         const input = checkInput(body, COMMENT_FIELDS)
         const now = stamp()
         const id = transaction(this.db, () => {
-            const {lastInsertRowid} = this.run('INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                project, issue, String(input.body), actor.name, Number(actor.owner), now, now)
+            const {lastInsertRowid} = this.run('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now)
             this.touchIssue(project, issue)
             return Number(lastInsertRowid)
         })
@@ -510,7 +520,7 @@ export class Store {
         this.refuse(actor, `Editing comment ${id}`, row.owned ? [`comment ${id}`] : [])
         const input = checkInput(body, COMMENT_FIELDS, true)
         transaction(this.db, () => {
-            this.update('comments', 'id = ?', [id], {body: input.body})
+            this.update('comments', 'id = ?', [id], {body: input.body, asks: input.asks})
             this.touchIssue(project, issue)
         })
         this.onChange(project)
@@ -929,7 +939,10 @@ export class Store {
 }
 
 function commentOf(row: CommentRow): Comment {
-    return {id: row.id, issue: row.issue, body: row.body, createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at, updatedAt: row.updated_at}
+    return {
+        id: row.id, issue: row.issue, body: row.body, asks: row.asks ?? undefined, answered: row.asks ? !!row.answered : undefined,
+        createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at, updatedAt: row.updated_at,
+    }
 }
 
 function signalOf(row: SignalRow): Signal {

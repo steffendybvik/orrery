@@ -7,3 +7,4 @@ The roadmap is in Orrery (http://localhost:9010), project `orrery`, issue ids `O
 - Work from an issue: set it to `doing` (assignee `claude`) before starting, comment as it moves, `done` when it ships.
 - Knowledge (decisions, how things work) goes in the project's docs.
 - Send `Orrery-Actor: claude` on every write. Orrery hands out ids; don't send one.
+- When you need the owner to decide or give feedback, ask in a comment on the issue with `"asks": "decision"` (or `"feedback"`), so it waits at the top of their bell until they answer.

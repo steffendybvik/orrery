@@ -30,6 +30,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         `(PATCH with header "Orrery-Actor: claude"), comment as the work moves, and set it to done when it ships.`,
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
         'When one brings the owner\'s comment on an issue, answer it with a comment on that issue (POST .../comments, same header), writing the JSON body from a file so Markdown survives the shell.',
+        'When you need the owner to decide something or give feedback, ask in a comment on the issue with "asks": "decision" or "asks": "feedback" in the body: it waits at the top of their bell until they answer.',
         `The API is described at ${base}/api/guide.`,
     ].join(' '),
 })

@@ -173,6 +173,11 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
                 <PersonAvatar :name="comment.createdBy" :size="20" />
                 <span class="font-medium text-fg">{{ who(comment.createdBy) }}</span>
                 <span class="text-faint" :title="comment.createdAt">{{ ago(comment.createdAt) }}{{ comment.updatedAt !== comment.createdAt ? ' · edited' : '' }}</span>
+                <span
+                    v-if="comment.asks"
+                    class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
+                    :class="comment.answered ? 'text-faint ring-line' : 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300'"
+                >{{ comment.answered ? `${comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
               </div>
               <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="comment.body" class="text-[13px] leading-6" /></div>
             </li>

@@ -98,10 +98,17 @@ export interface Project {
     docs: DocSummary[]
 }
 
+/** What an agent's comment waits on the owner for. */
+export const ASKS = ['decision', 'feedback'] as const
+export type Asks = (typeof ASKS)[number]
+
 export interface Comment {
     id: number
     issue: string
     body: string
+    /** It waits on the owner for this, until they comment on the issue after it (`answered`). */
+    asks?: Asks
+    answered?: boolean
     createdBy: string
     protected: boolean
     createdAt: string

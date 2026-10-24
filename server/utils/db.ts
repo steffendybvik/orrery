@@ -227,6 +227,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     CREATE INDEX schedule_runs_schedule ON schedule_runs(schedule, id);
     -- The schedule that made an issue, if one did.
     ALTER TABLE issues ADD COLUMN schedule INTEGER;
+`, `
+    -- An agent's comment that waits on the owner: a decision to make, or feedback to give.
+    ALTER TABLE comments ADD COLUMN asks TEXT CHECK (asks IN ('decision', 'feedback'));
 `]
 
 let db: DatabaseSync | null = null

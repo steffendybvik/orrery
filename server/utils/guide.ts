@@ -24,6 +24,8 @@ Use it like this: before a piece of work, create (or pick) its issue and set it 
 to yourself; comment as it moves; set it to \`done\` when it ships. Keep knowledge (decisions, how
 things work) in the project's docs. Name yourself on every write with the header \`Orrery-Actor: claude\`.
 Ids are handed out by Orrery: issues are the project's prefix and a number (\`MSH-142\`), chunks a number.
+When you need the owner to decide something or give feedback, ask in a comment on the issue with
+\`"asks": "decision"\` (or \`"feedback"\`): it waits at the top of their bell until they answer.
 
 ## Docs
 

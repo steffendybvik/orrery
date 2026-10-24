@@ -238,6 +238,24 @@ describe('the bell', () => {
     })
 })
 
+describe('comments that wait on the owner', () => {
+    it('lead the bell until the owner answers, and survive Clear read', () => {
+        const {id} = store.createIssue('mesher', {title: 'A'})
+        const agent = {name: 'claude', owner: false}
+        store.createComment('mesher', id, {body: 'note'}, agent)
+        const ask = store.createComment('mesher', id, {body: 'Ship it?', asks: 'decision'}, agent)
+        store.createComment('mesher', id, {body: 'later note'}, agent)
+        expect(ask).toMatchObject({asks: 'decision'})
+        expect(store.notices().map(n => [n.body, n.answered])).toEqual([['Ship it?', false], ['later note', undefined], ['note', undefined]])
+        store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})
+        expect(store.notices().map(n => n.body)).toEqual(['Ship it?'])
+        store.createComment('mesher', id, {body: 'Yes'}, {name: 'steffen', owner: true})
+        expect(store.notices()[0]).toMatchObject({body: 'Ship it?', answered: true})
+        expect(store.listComments('mesher', id).find(c => c.id === ask.id)).toMatchObject({asks: 'decision', answered: true})
+        expect(failure(() => store.createComment('mesher', id, {body: 'x', asks: 'vibes'}, agent)).status).toBe(400)
+    })
+})
+
 describe('removing', () => {
     it('an issue takes its signals with it', () => {
         const {id} = store.createIssue('mesher', {title: 'A'})

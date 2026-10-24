@@ -1,7 +1,8 @@
 import type {Notice} from '#shared/roadmap'
 
 // The bell: agents' comments, newest first; those after `seenAt` (remembered in this browser) are new.
-// Clearing takes them out of the bell for good (they stay on their issues).
+// Clearing takes them out of the bell for good (they stay on their issues). Those waiting on the owner
+// (a decision or feedback they haven't answered on the issue) count until answered.
 export function useInbox() {
     const notices = useState<Notice[]>('notices', () => [])
     const seenAt = useState<string>('notices-seen', () => {
@@ -11,7 +12,8 @@ export function useInbox() {
             return new Date().toISOString()
         }
     })
-    const unread = computed(() => notices.value.filter(n => n.createdAt > seenAt.value).length)
+    const waiting = computed(() => notices.value.filter(n => n.asks && !n.answered))
+    const unread = computed(() => notices.value.filter(n => n.createdAt > seenAt.value || (n.asks && !n.answered)).length)
 
     function seen() {
         seenAt.value = notices.value[0]?.createdAt ?? new Date().toISOString()
@@ -26,14 +28,19 @@ export function useInbox() {
     async function clear(ids?: number[]) {
         const owner = await useOwner().load()
         const body = ids ? {ids} : {before: seenAt.value}
-        const gone = new Set(ids ?? notices.value.filter(n => n.createdAt <= seenAt.value).map(n => n.id))
+        const gone = new Set(ids ?? notices.value.filter(n => n.createdAt <= seenAt.value && !(n.asks && !n.answered)).map(n => n.id))
         notices.value = notices.value.filter(n => !gone.has(n.id))
         await $fetch('/api/notices/clear', {method: 'POST', headers: {'Orrery-Actor': owner}, body}).catch(() => {})
         // Older ones move up into the bell's room.
         notices.value = await $fetch<Notice[]>('/api/notices').catch(() => notices.value)
     }
 
-    const read = computed(() => notices.value.filter(n => n.createdAt <= seenAt.value).length)
+    const read = computed(() => notices.value.filter(n => n.createdAt <= seenAt.value && !(n.asks && !n.answered)).length)
 
-    return {notices, seenAt, unread, read, seen, clear}
+    /** Reads them again, e.g. after the owner answers on an issue. */
+    async function refresh() {
+        notices.value = await $fetch<Notice[]>('/api/notices').catch(() => notices.value)
+    }
+
+    return {notices, seenAt, unread, waiting, read, seen, clear, refresh}
 }

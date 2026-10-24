@@ -21,6 +21,8 @@ async function post() {
         })
         body.value = ''
         emit('posted', comment)
+        // Answering may settle a comment waiting on the owner.
+        useInbox().refresh()
     } catch {
         failed.value = true
     } finally {
