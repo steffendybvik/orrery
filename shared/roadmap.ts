@@ -145,3 +145,9 @@ export interface Session {
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
 }
+
+/** An agent's comment, as the notification bell lists it. */
+export interface Notice extends Comment {
+    project: string
+    title: string
+}

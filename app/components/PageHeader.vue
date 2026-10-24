@@ -15,6 +15,7 @@ const sidebar = useState('sidebar-open', () => false)
     <div v-if="$slots.actions" class="order-last flex w-full min-w-0 items-center gap-2 sm:order-none sm:w-auto">
       <slot name="actions" />
     </div>
+    <NotificationBell />
     <ThemeToggle />
   </header>
 </template>

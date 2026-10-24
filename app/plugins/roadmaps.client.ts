@@ -1,4 +1,4 @@
-import type {Issue, Project, Session, Signal} from '#shared/roadmap'
+import type {Issue, Notice, Project, Session, Signal} from '#shared/roadmap'
 
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
 // project in place, without a reload. After a dropped connection it loads them all again.
@@ -8,6 +8,7 @@ export default defineNuxtPlugin(() => {
     async function load() {
         projects.value = await $fetch<Project[]>('/api/projects', {query: {expand: 'board'}})
         ready.value = true
+        useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
         const all = await $fetch<Session[]>('/api/sessions').catch(() => [])
         sessions.value = Object.groupBy(all, s => s.project) as Record<string, Session[]>
     }
@@ -61,6 +62,11 @@ export default defineNuxtPlugin(() => {
         events.addEventListener('signal', event => {
             const signal = JSON.parse((event as MessageEvent).data) as Signal
             signals.value = [signal, ...signals.value.filter(s => s.id !== signal.id)].slice(0, 200)
+        })
+        events.addEventListener('notice', event => {
+            const notice = JSON.parse((event as MessageEvent).data) as Notice
+            const {notices} = useInbox()
+            notices.value = [notice, ...notices.value.filter(n => n.id !== notice.id)].slice(0, 50)
         })
         events.addEventListener('removed', event => {
             const id = (event as MessageEvent).data as string

@@ -3,7 +3,7 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
-import type {Board, Chunk, Comment, Counts, Doc, DocSummary, Issue, Plan, Priority, Project, Signal, Status} from '#shared/roadmap'
+import type {Board, Chunk, Comment, Counts, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Signal, Status} from '#shared/roadmap'
 import {PLANS, PRIORITIES, STATUSES} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
@@ -132,7 +132,16 @@ export class Store {
         readonly db: DatabaseSync,
         private readonly onChange: (project: string) => void = () => {},
         private readonly onSignal: (signal: Signal) => void = () => {},
+        private readonly onNotice: (notice: Notice) => void = () => {},
     ) {}
+
+    /** Agents' latest comments across projects (what the bell shows), newest first. */
+    notices(limit = 30): Notice[] {
+        return this.all<CommentRow & {title: string}>(`
+            SELECT c.*, i.title FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
+            WHERE c.owned = 0 ORDER BY c.created_at DESC, c.id DESC LIMIT ?`, limit)
+            .map(row => ({...commentOf(row), project: row.project, title: row.title}))
+    }
 
     // Projects
 
@@ -438,6 +447,7 @@ export class Store {
         })
         this.onChange(project)
         if (actor.owner) this.carryComment(project, issue, String(input.body), actor)
+        else this.onNotice({...this.comment(project, issue, id), project, title: this.issueRow(project, issue).title})
         return this.comment(project, issue, id)
     }
 
@@ -447,7 +457,7 @@ export class Store {
         const waiting = this.all<{issue: string, body: string, created_by: string}>(`
             SELECT c.issue, c.body, c.created_by FROM comments c
             WHERE c.project = ? AND c.owned = 1
-              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.created_at > c.created_at)
+              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.id > c.id)
               AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment'
                               AND s.created_at >= c.created_at AND s.delivered_to != '[]')
             ORDER BY c.created_at LIMIT 10`, project)

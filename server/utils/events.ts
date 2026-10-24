@@ -20,7 +20,7 @@ export function useStore(): Store {
             return
         }
         projectEvents.emit('project', project)
-    }, signal => projectEvents.emit('signal', signal))
+    }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice))
     return store
 }
 
