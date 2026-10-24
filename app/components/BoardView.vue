@@ -4,17 +4,10 @@ import {COLUMNS} from '#shared/roadmap'
 
 // The columns Doing…Done with the chunks in them. Done starts folded to a count.
 const props = defineProps<{chunks: Chunk[], project: string}>()
-const opened = ref<Set<string>>(new Set())
 const showDone = ref(false)
 
 const columns = computed(() => COLUMNS.map(column => ({column, chunks: props.chunks.filter(c => c.column === column)})))
 
-function toggle(id: string) {
-    const next = new Set(opened.value)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    opened.value = next
-}
 const folded = (column: Column) => column === 'done' && !showDone.value
 </script>
 
@@ -50,8 +43,6 @@ const folded = (column: Column) => column === 'done' && !showDone.value
             :key="chunk.id || 'none'"
             :chunk="chunk"
             :project="project"
-            :open="opened.has(chunk.id)"
-            @toggle="toggle(chunk.id)"
         />
         <div v-if="!inColumn.length" class="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-faint">Nothing here</div>
       </div>

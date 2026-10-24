@@ -21,7 +21,7 @@ name whose things no one else can delete.
 
 ## Keys
 
-`j`/`k` move · `Enter` opens · `Esc` closes · `/` filters · `⌘K` jumps · `1`/`2` Board/List · `g n` Now · `g u` Urgent
+`j`/`k` move · `Enter` opens · `Esc` closes · `/` filters · `⌘K` jumps · `1`/`2` List/Board · `g n` Now · `g u` Urgent
 
 ## Checks
 

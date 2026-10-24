@@ -76,3 +76,19 @@ export function ago(iso: string): string {
     if (seconds < 7 * 86_400) return `${Math.round(seconds / 86_400)}d ago`
     return new Date(iso).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})
 }
+
+export type Section = 'issues' | 'roadmap' | 'docs'
+
+/** A project's pages, as the sidebar and the tabs show them; `path` marks the one on screen. */
+export function sectionsOf(project: Project, path: string) {
+    const base = `/p/${project.id}`
+    const on = path.startsWith(`${base}/roadmap`) ? 'roadmap' : path.startsWith(`${base}/docs`) ? 'docs' : path === base || path.startsWith(`${base}/issues`) ? 'issues' : null
+    return [
+        {id: 'issues' as Section, label: 'Issues', to: base, count: total(project.board.counts) - project.board.counts.done, active: on === 'issues'},
+        {id: 'roadmap' as Section, label: 'Roadmap', to: `${base}/roadmap`, count: project.board.chunks.filter(c => c.id).length, active: on === 'roadmap'},
+        {id: 'docs' as Section, label: 'Docs', to: `${base}/docs`, count: project.docs.length, active: on === 'docs'},
+    ]
+}
+
+/** A chunk's page; the issues in no chunk are at `none`. */
+export const chunkPath = (project: string, chunk: string) => `/p/${encodeURIComponent(project)}/roadmap/${chunk ? encodeURIComponent(chunk) : 'none'}`

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Counts, Issue} from '#shared/roadmap'
+import type {Issue} from '#shared/roadmap'
 
 // Every project with its progress and how many issues are being worked on; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
@@ -17,10 +17,6 @@ const nowCount = computed(() => projects.value.reduce((sum, p) =>
 const urgentCount = computed(() => projects.value.reduce((sum, p) => sum + urgentIssues(p).length, 0))
 const LIVE = {live: 'Live', connecting: 'Connecting…', offline: 'Offline'}
 
-// A project folds open to its Issues and Docs; the one on screen is always open.
-const unfolded = ref<Record<string, boolean>>({})
-const isUnfolded = (id: string) => unfolded.value[id] ?? route.params.project === id
-const openIssues = (counts: Counts) => progress(counts).total - counts.done
 </script>
 
 <template>
@@ -78,45 +74,31 @@ const openIssues = (counts: Counts) => progress(counts).total - counts.done
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
       </div>
-      <div v-for="project in projects" :key="project.id" class="flex flex-col gap-0.5">
-        <div
-            class="group flex items-center gap-1 rounded-lg pr-2 text-[13px] transition-colors"
-            :class="route.params.project === project.id && !isUnfolded(project.id) ? 'bg-active' : 'hover:bg-hover'"
+      <!-- Every project with its pages under it: Issues, Roadmap, Docs. -->
+      <div v-for="project in projects" :key="project.id" class="mb-2 flex flex-col gap-0.5">
+        <NuxtLink
+            :to="`/p/${project.id}`"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors hover:bg-hover"
+            :class="route.params.project === project.id ? 'font-medium text-fg' : 'text-muted hover:text-fg'"
         >
-          <button
-              type="button"
-              class="grid size-6 shrink-0 place-items-center rounded text-faint hover:text-fg"
-              :aria-label="isUnfolded(project.id) ? 'Fold' : 'Unfold'"
-              @click="unfolded = {...unfolded, [project.id]: !isUnfolded(project.id)}"
-          >
-            <svg class="size-3 transition-transform" :class="isUnfolded(project.id) && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-          </button>
-          <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 flex-1 items-center gap-2 py-1.5" :class="route.params.project === project.id ? 'font-medium text-fg' : 'text-muted group-hover:text-fg'">
-            <ProgressRing :counts="project.board.counts" bare :size="14" />
-            <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
-            <span v-if="project.board.counts.doing" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.counts.doing} being worked on`">
-              <span class="size-1 rounded-full bg-accent-500" />{{ project.board.counts.doing }}
-            </span>
-            <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.counts.done }}/{{ progress(project.board.counts).total }}</span>
-          </NuxtLink>
-        </div>
-        <template v-if="isUnfolded(project.id)">
-          <NuxtLink
-              v-for="item in [
-                  {to: `/p/${project.id}`, label: 'Issues', count: openIssues(project.board.counts), active: route.params.project === project.id && !route.path.includes('/docs')},
-                  {to: `/p/${project.id}/docs`, label: 'Docs', count: project.docs.length, active: route.params.project === project.id && route.path.includes('/docs')},
-              ]"
-              :key="item.label"
-              :to="item.to"
-              class="ml-7 flex items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"
-              :class="item.active ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-          >
-            <svg v-if="item.label === 'Issues'" class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" /></svg>
-            <svg v-else class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v4h4" /></svg>
-            <span class="flex-1">{{ item.label }}</span>
-            <span v-if="item.count" class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ item.count }}</span>
-          </NuxtLink>
-        </template>
+          <ProgressRing :counts="project.board.counts" bare :size="14" />
+          <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
+          <span v-if="project.board.counts.doing" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.counts.doing} being worked on`">
+            <span class="size-1 rounded-full bg-accent-500" />{{ project.board.counts.doing }}
+          </span>
+          <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.counts.done }}/{{ progress(project.board.counts).total }}</span>
+        </NuxtLink>
+        <NuxtLink
+            v-for="section in sectionsOf(project, route.path)"
+            :key="section.id"
+            :to="section.to"
+            class="ml-5 flex items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"
+            :class="section.active ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <SectionIcon :section="section.id" class="text-faint" />
+          <span class="flex-1">{{ section.label }}</span>
+          <span v-if="section.count" class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ section.count }}</span>
+        </NuxtLink>
       </div>
       <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: create one through the API.</p>
     </nav>

@@ -13,8 +13,11 @@ const groups = computed(() => projects.value
   <PageHeader>
     <PriorityIcon priority="P0" :size="16" />
     <h1 class="truncate text-sm font-medium">Urgent across projects</h1>
-    <template #actions><FilterBar /></template>
   </PageHeader>
+
+  <ViewToolbar>
+    <template #end><FilterBar /></template>
+  </ViewToolbar>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
@@ -25,7 +28,7 @@ const groups = computed(() => projects.value
           <h2 class="text-[13px] font-medium">{{ group.project.name }}</h2>
           <span class="font-mono text-[11px] text-faint">{{ group.issues.length }}</span>
         </NuxtLink>
-        <IssueRow v-for="{issue, chunk} in group.issues" :key="issue.id" :issue="issue" :project="group.project.id" :chunk="chunk.title" :nested="false" />
+        <IssueRow v-for="{issue, chunk} in group.issues" :key="issue.id" :issue="issue" :project="group.project.id" :chunk="chunk.title" />
       </section>
       <div v-if="ready && projects.length && !groups.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center">
         <p class="text-sm text-muted">Nothing urgent. Lovely.</p>
