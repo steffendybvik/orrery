@@ -2,7 +2,7 @@
 // saying the signal reached it, which also sets the session working.
 export default defineEventHandler(event => {
     const query = getQuery(event)
-    // The signal starts the session working, without a prompt for its hooks to see.
+    // A signal starts the session working, without a prompt for its hooks to see.
     if (typeof query.session === 'string' && query.session) report({id: query.session, project: param(event, 'project'), event: 'working'})
     const name = sessionName(typeof query.session === 'string' ? query.session : undefined)
         ?? (typeof query.name === 'string' && query.name ? query.name : 'a session')

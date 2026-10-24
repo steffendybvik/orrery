@@ -183,6 +183,21 @@ describe("the owner's things", () => {
     })
 })
 
+describe("the owner's comments", () => {
+    it('go to the session last asked to focus on the issue, or to all', () => {
+        const sent: string[] = []
+        const local = new Store(openDb(':memory:'), () => {}, signal => sent.push(`${signal.kind}:${signal.target ?? 'all'}:${signal.note}`))
+        local.createProject({name: 'mesher', key: 'MSH'})
+        const me = {name: 'steffen', owner: true}
+        const {id} = local.createIssue('mesher', {title: 'A'})
+        local.createComment('mesher', id, {body: 'first'}, me)
+        local.focus('mesher', id, {session: 'joints-window'}, me)
+        local.createComment('mesher', id, {body: 'second'}, me)
+        local.createComment('mesher', id, {body: 'from an agent'}, {name: 'claude', owner: false})
+        expect(sent).toEqual(['comment:all:first', 'focus:joints-window:undefined', 'comment:joints-window:second'])
+    })
+})
+
 describe('docs', () => {
     it('are listed with the project, without their text', () => {
         const doc = store.createDoc('mesher', {title: 'How joints work', body: '# Joints\n\nA **hinge** turns.'})

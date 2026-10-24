@@ -108,12 +108,13 @@ export const emptyCounts = (): Counts => ({doing: 0, now: 0, next: 0, later: 0, 
 
 export const total = (counts: Counts) => COLUMNS.reduce((sum, column) => sum + counts[column], 0)
 
-/** A word to the Claude sessions on a project: `focus` asks one to work on the issue now. */
+/** A word to the Claude sessions on a project: `focus` asks one to work on the issue now; `comment`
+ * brings the owner's comment on it (in `note`) to the session working on it, to answer. */
 export interface Signal {
     id: number
     project: string
     issue: string
-    kind: 'focus'
+    kind: 'focus' | 'comment'
     note?: string
     /** The session it's for; none means every session on the project. */
     target?: string

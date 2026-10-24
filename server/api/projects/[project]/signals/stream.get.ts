@@ -36,6 +36,7 @@ export default defineEventHandler(event => {
     if (query.format === 'text') {
         const line = (signal: Signal) => {
             const s = told(signal)
+            if (s.kind === 'comment') return `${s.createdBy} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             return `${s.createdBy} asks you to focus on ${s.issue}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}${s.chunk ? `, ${s.chunk}` : ''}]${s.note ? ` — ${s.note}` : ''}\n`
         }
         let send: (signal: Signal) => void = () => {}

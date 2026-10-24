@@ -28,6 +28,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         'Its messages arrive as <channel source="orrery" ...> and come from the owner through Orrery.',
         `When one asks you to focus on an issue: read it (curl ${api}/issues/<id>), set it to doing and assign it to claude`,
         `(PATCH with header "Orrery-Actor: claude"), comment as the work moves, and set it to done when it ships.`,
+        'When one brings the owner\'s comment on an issue, answer it with a comment on that issue (POST .../comments, same header), writing the JSON body from a file so Markdown survives the shell.',
         `The API is described at ${base}/api/guide.`,
     ].join(' '),
 })
@@ -60,11 +61,21 @@ who.set('channel', channel)
 /** Tells the session about a signal. */
 async function deliver(signal) {
     const where = [signal.column, signal.priority, signal.chunk].filter(Boolean).join(', ')
-    const content = [
-        `${signal.createdBy} asks you to focus on ${signal.issue}: ${signal.title}${where ? ` [${where}]` : ''}.`,
-        signal.note ? `Note: ${signal.note}` : '',
-        `Read it with: curl ${api}/issues/${encodeURIComponent(signal.issue)}`,
-    ].filter(Boolean).join('\n')
+    const issue = `${api}/issues/${encodeURIComponent(signal.issue)}`
+    const content = signal.kind === 'comment'
+        ? [
+            `${signal.createdBy} commented on ${signal.issue} (${signal.title}):`,
+            '',
+            signal.note.split('\n').map(line => `> ${line}`).join('\n'),
+            '',
+            `Answer with a comment on it: curl -s -X POST ${issue}/comments -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' --data @reply.json`,
+            `(the whole thread: curl ${issue}/comments)`,
+        ].join('\n')
+        : [
+            `${signal.createdBy} asks you to focus on ${signal.issue}: ${signal.title}${where ? ` [${where}]` : ''}.`,
+            signal.note ? `Note: ${signal.note}` : '',
+            `Read it with: curl ${issue}`,
+        ].filter(Boolean).join('\n')
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, issue: signal.issue, kind: signal.kind}}})
     log(`delivered ${signal.kind} ${signal.issue}`)
     // Tells Orrery it got here, so the owner sees which window has it.

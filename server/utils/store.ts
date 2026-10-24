@@ -76,7 +76,7 @@ interface IssueRow extends Made {
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
-interface SignalRow { id: number, project: string, issue: string, kind: 'focus', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
+interface SignalRow { id: number, project: string, issue: string, kind: 'focus' | 'comment', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
@@ -437,7 +437,17 @@ export class Store {
             return Number(lastInsertRowid)
         })
         this.onChange(project)
+        if (actor.owner) this.carryComment(project, issue, String(input.body), actor)
         return this.comment(project, issue, id)
+    }
+
+    /** The owner's comment goes to the session last asked to focus on the issue (or, if none was,
+     * every session on the project), so it can answer. */
+    private carryComment(project: string, issue: string, body: string, actor: Actor) {
+        const target = this.get<{target: string}>("SELECT target FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND target IS NOT NULL ORDER BY id DESC LIMIT 1", project, issue)?.target ?? null
+        const {lastInsertRowid} = this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            project, issue, 'comment', body, target, actor.name, 1, stamp())
+        this.onSignal(signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!))
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */

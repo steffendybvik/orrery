@@ -96,8 +96,14 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
 
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">
-        <span class="text-muted">{{ signal.createdBy }}</span> asked
-        <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span> to focus on this
+        <template v-if="signal.kind === 'comment'">
+          <span class="text-muted">{{ signal.createdBy }}</span>'s comment went to
+          <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
+        </template>
+        <template v-else>
+          <span class="text-muted">{{ signal.createdBy }}</span> asked
+          <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span> to focus on this
+        </template>
         · {{ ago(signal.createdAt) }} ·
         <span v-if="signal.deliveredTo.length" class="text-emerald-600 dark:text-emerald-400">delivered to {{ signal.deliveredTo.join(', ') }}</span>
         <span v-else-if="!signal.protected">not sent on (only the owner's signals reach sessions)</span>
