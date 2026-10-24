@@ -3,8 +3,22 @@ import type {Column} from '#shared/roadmap'
 import {COLUMNS, PRIORITIES} from '#shared/roadmap'
 
 // Search (`/`; Esc clears it, as the browser does a search field, which only says so with `search`),
-// then the priority and column filters, shared by every view.
+// then the priority, column, assignee and label filters, shared by every view. The assignees and labels
+// to pick from are the ones on this project's issues (every project's off a project's pages).
 const {filters, active, clear} = useFilters()
+const {projects, byId} = useRoadmaps()
+const {who} = useOwner()
+const route = useRoute()
+const issues = computed(() => {
+    const here = byId(route.params.project as string | undefined)
+    return (here ? [here] : projects.value).flatMap(p => allIssues(p).map(({issue}) => issue))
+})
+const sorted = (names: Iterable<string>) => [...new Set(names)].sort((a, b) => a.localeCompare(b))
+const assignees = computed(() => [
+    ...sorted(issues.value.flatMap(i => i.assignee ? [i.assignee] : [])).map(name => ({value: name, label: who(name)})),
+    {value: 'none', label: 'No assignee'},
+])
+const labels = computed(() => sorted(issues.value.flatMap(i => i.labels)).map(label => ({value: label, label})))
 const priorities = [...PRIORITIES.map(p => ({value: p as string, label: `${p} · ${PRIORITY_LABEL[p]}`})), {value: 'none', label: 'No priority'}]
 const columns = COLUMNS.map(c => ({value: c as Column, label: COLUMN_STYLE[c].label}))
 </script>
@@ -31,6 +45,10 @@ const columns = COLUMNS.map(c => ({value: c as Column, label: COLUMN_STYLE[c].la
     <FilterMenu v-model="filters.columns" label="Column" :options="columns" class="hidden sm:block">
       <template #option="{value}"><StatusIcon :column="value" /></template>
     </FilterMenu>
+    <FilterMenu v-model="filters.assignees" label="Assignee" :options="assignees" class="hidden sm:block">
+      <template #option="{value}"><PersonAvatar v-if="value !== 'none'" :name="value" :size="14" /><span v-else class="size-3.5 rounded-full border border-dashed border-faint" /></template>
+    </FilterMenu>
+    <FilterMenu v-if="labels.length" v-model="filters.labels" label="Label" :options="labels" class="hidden sm:block" />
     <button v-if="active" type="button" class="h-7 shrink-0 rounded-md px-2 text-xs text-muted hover:bg-hover hover:text-fg" @click="clear">Clear</button>
   </div>
 </template>
