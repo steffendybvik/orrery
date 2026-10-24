@@ -100,16 +100,16 @@ body {
     scrollbar-color: var(--active) transparent;
 }
 
-/* A doc's Markdown */
+/* A doc's Markdown; `data-size` (sm, lg) is the reader's pick on the doc page */
 .doc {
-    @apply text-[14px] leading-7 text-muted;
+    @apply text-[16px] leading-[1.75] text-zinc-700 dark:text-zinc-300;
 
-    & > * + * { @apply mt-4; }
+    & > * + * { @apply mt-5; }
     & h1, & h2, & h3, & h4 { @apply font-semibold tracking-tight text-fg; }
-    & h1 { @apply mt-10 text-xl; }
-    & h2 { @apply mt-10 border-b border-line pb-2 text-lg; }
-    & h3 { @apply mt-8 text-base; }
-    & h4 { @apply mt-6 text-sm; }
+    & h1 { @apply mt-12 text-2xl; }
+    & h2 { @apply mt-12 border-b border-line pb-2 text-xl; }
+    & h3 { @apply mt-9 text-lg; }
+    & h4 { @apply mt-7 text-base; }
     & > :first-child { @apply mt-0; }
     & a { @apply text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
     & strong { @apply font-semibold text-fg; }
@@ -120,10 +120,14 @@ body {
     & blockquote { @apply border-l-2 border-accent-500/60 pl-4 text-muted italic; }
     & hr { @apply my-8 border-line; }
     & :not(pre) > code { @apply rounded bg-well px-1 py-px font-mono text-[0.88em] text-fg ring-1 ring-line; }
-    & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[12px] leading-relaxed text-fg ring-1 ring-line; }
-    & table { @apply block w-full overflow-x-auto border-collapse text-[13px]; }
+    & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[13.5px] leading-relaxed text-fg ring-1 ring-line; }
+    & table { @apply block w-full overflow-x-auto border-collapse text-[14.5px]; }
     & th, & td { @apply border border-line px-3 py-1.5 text-left; }
     & th { @apply bg-well font-medium text-fg; }
     & img { @apply max-w-full rounded-lg; }
+    & h2, & h3 { @apply scroll-mt-6; }
     & input[type="checkbox"] { @apply mr-1.5 accent-accent-500; }
 }
+
+.doc[data-size="sm"] { @apply text-[14.5px]; }
+.doc[data-size="lg"] { @apply text-[18px]; }
