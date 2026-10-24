@@ -203,11 +203,18 @@ export function useDb(): DatabaseSync {
     return db
 }
 
+/** Lets go of the file, e.g. as `nuxt dev` swaps in a reloaded server; the next `useDb` opens it again. */
+export function closeDb() {
+    db?.close()
+    db = null
+}
+
 /** Opens the file and brings its schema up to date (or only `upTo` steps, for tests). */
 export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
     if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
     const opened = new DatabaseSync(path)
-    opened.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000')
+    // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes).
+    opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL')
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     opened.exec('PRAGMA foreign_keys = OFF')
