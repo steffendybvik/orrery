@@ -221,6 +221,15 @@ describe('chunks', () => {
     })
 })
 
+describe('removing', () => {
+    it('an issue takes its signals with it', () => {
+        const {id} = store.createIssue('mesher', {title: 'A'})
+        store.focus('mesher', id, {}, {name: 'steffen', owner: true})
+        store.deleteIssue('mesher', id, {name: 'steffen', owner: true})
+        expect(store.listSignals('mesher')).toEqual([])
+    })
+})
+
 describe('a session that connects', () => {
     it("gets the owner's comments that no agent has answered", () => {
         const sent: string[] = []

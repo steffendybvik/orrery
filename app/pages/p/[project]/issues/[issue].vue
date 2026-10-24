@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Comment} from '#shared/roadmap'
+import type {Comment, Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, sub-issues and activity, with its
@@ -8,7 +8,7 @@ const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
 const {open, last} = useIssueLink()
-const {who} = useOwner()
+const {who, load} = useOwner()
 
 const project = computed(() => byId(route.params.project as string))
 const issueId = computed(() => route.params.issue as string)
@@ -37,6 +37,28 @@ function back() {
     if (from && from.startsWith(`/p/${route.params.project}`) && !from.includes('/issues/')) router.back()
     else router.push(`/p/${route.params.project}`)
 }
+
+// Removing it (and its sub-issues), as the owner: asked once more in place, then back to where it was opened from.
+const removing = ref<'ask' | 'busy' | null>(null)
+const removeFailed = ref('')
+watch(issueId, () => {
+    removing.value = null
+    removeFailed.value = ''
+})
+async function remove() {
+    if (!project.value || !issue.value) return
+    removing.value = 'busy'
+    removeFailed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        back()
+    } catch (error) {
+        removing.value = 'ask'
+        removeFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't remove it. Is Orrery running?"
+    }
+}
+const under = (tasks: Issue[]): number => tasks.reduce((n, t) => n + 1 + under(t.tasks), 0)
+const subCount = computed(() => issue.value ? under(issue.value.tasks) : 0)
 
 function step(by: number) {
     const next = order.value[at.value + by]
@@ -99,7 +121,25 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <div class="flex items-center gap-1.5">
             <span class="font-mono text-xs text-faint">{{ issue.id }}</span>
             <CopyButton :text="issue.id" />
+            <button
+                v-if="!removing"
+                type="button"
+                class="ml-auto flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400"
+                title="Remove this issue"
+                @click="removing = 'ask'"
+            >
+              <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+              Remove
+            </button>
+            <span v-else class="ml-auto flex items-center gap-2 text-xs" @keydown.esc.stop="removing = null">
+              <span class="text-muted">Remove {{ issue.id }}{{ subCount ? ` and its ${subCount} sub-issue${subCount === 1 ? '' : 's'}` : '' }}, with its comments?</span>
+              <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="removing === 'busy'" @click="remove">
+                {{ removing === 'busy' ? 'Removing…' : 'Remove' }}
+              </button>
+              <button type="button" class="h-7 rounded-md px-2 text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="removing === 'busy'" @click="removing = null">Cancel</button>
+            </span>
           </div>
+          <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
           <h1 class="text-xl leading-snug font-semibold tracking-tight text-fg sm:text-2xl"><InlineText :text="issue.title" /></h1>
         </header>
 

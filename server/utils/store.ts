@@ -375,6 +375,8 @@ export class Store {
         this.refuse(actor, `Deleting ${id}`, this.ownedUnder(project, subtree))
         transaction(this.db, () => {
             this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
+            // Its signals too, so a session catching up isn't told about an issue that's gone.
+            this.run(`DELETE FROM signals WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
             this.run('DELETE FROM issues WHERE project = ? AND id = ?', project, id)
             this.touchProject(project)
         })
