@@ -113,6 +113,8 @@ body {
     & h3 { @apply mt-9 text-lg; }
     & h4 { @apply mt-7 text-base; }
     & > :first-child { @apply mt-0; }
+    /* A long link or path breaks rather than running out of its column (comments on a phone). */
+    & a, & :not(pre) > code { overflow-wrap: anywhere; }
     & a { @apply text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
     & strong { @apply font-semibold text-fg; }
     & ul { @apply list-disc pl-5; }

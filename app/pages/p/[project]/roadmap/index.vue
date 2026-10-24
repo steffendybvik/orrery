@@ -19,7 +19,7 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
     <template v-if="project">
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
       <ProjectTabs :project="project" />
-      <ProgressRing :counts="project.board.counts" class="hidden sm:inline-flex" />
+      <ProgressRing :counts="project.board.counts" class="max-sm:hidden" />
     </template>
   </PageHeader>
 
