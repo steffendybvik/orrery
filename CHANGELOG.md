@@ -5,6 +5,10 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Phones:** the header no longer carries a project's page tabs (they ran under the bell); the menu
+  opens a full-screen drawer with bigger rows instead.
+- **Easier to read:** an issue row says its status once, as a pill, rather than three times; comments
+  and notifications read a size below a doc, under their header line; and toolbar buttons stay on one line.
 - **Starting sessions, across restarts:** a session Orrery started keeps counting against the limit, with
   its time left and +30 min, after Orrery restarts; a launcher that dies takes its sessions back when it
   starts again; and Stop goes through the session's channel when no launcher is there to stop it.
