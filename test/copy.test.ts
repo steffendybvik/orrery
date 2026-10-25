@@ -3,7 +3,7 @@ import {copy} from '../scripts/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {Store} from '../server/utils/store'
-import {onPostgres, testDb} from './db'
+import {testDb} from './db'
 
 /** An Orrery with a bit of everything in it. */
 async function filled() {
@@ -55,5 +55,3 @@ describe('copying an Orrery', () => {
         await expect(copy(source.db, source.db)).rejects.toThrow('already has projects')
     })
 })
-
-export {onPostgres}
