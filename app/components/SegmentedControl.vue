@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T extends string">
-// mesher's segmented choice (Persp | Ortho), with an optional key hint per option.
+// A segmented choice (List | Board), with an optional key hint per option.
 defineProps<{options: {value: T, label: string, hint?: string}[]}>()
 const model = defineModel<T>({required: true})
 </script>

@@ -1,10 +1,14 @@
-// The column rules, a port of mesher's `roadmap.rs`: every leaf issue goes where its status and plan
-// put it, and parents and chunks follow their leaves. Also checks a roadmap in mesher's
-// `docs/roadmap.json` format, which `POST /api/projects/:project/import` takes.
-import type {Board, Chunk, Column, Counts, Issue, Plan, Priority, Status} from '#shared/roadmap'
-import {COLUMNS, PLANS, PRIORITIES, STATUSES, emptyCounts, total} from '#shared/roadmap'
+// The column rules: every leaf issue goes where its status puts it, and parents and chunks follow their
+// leaves. Also checks a roadmap in the `roadmap.json` format (chunks of tasks with a status and a plan),
+// which `POST /api/projects/:project/import` takes.
+import type {Board, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Place, Priority, Proposal} from '#shared/roadmap'
+import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 
-/** A roadmap in `docs/roadmap.json`'s format, once checked. */
+/** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
+export const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
+export const LEGACY_PLANS = ['now', 'next', 'later'] as const
+
+/** A roadmap in the `roadmap.json` format, once checked. */
 export interface RoadmapFile {
     comment: string
     chunks: ChunkFile[]
@@ -23,8 +27,8 @@ export interface TaskFile {
     priority?: Priority
     assignee?: string
     labels: string[]
-    status: Status
-    plan?: Plan
+    status: (typeof LEGACY_STATUSES)[number]
+    plan?: (typeof LEGACY_PLANS)[number]
     notes?: string
     tasks: TaskFile[]
 }
@@ -115,8 +119,8 @@ export function checkRoadmap(data: unknown): RoadmapFile {
             priority: oneOf(value, 'priority', PRIORITIES, at),
             assignee: text(value, 'assignee', at),
             labels: labels(value, at),
-            status: oneOf(value, 'status', STATUSES, at) ?? 'todo',
-            plan: oneOf(value, 'plan', PLANS, at),
+            status: oneOf(value, 'status', LEGACY_STATUSES, at) ?? 'todo',
+            plan: oneOf(value, 'plan', LEGACY_PLANS, at),
             notes: text(value, 'notes', at),
             tasks: tasks.filter(t => t !== null),
         }
@@ -154,9 +158,25 @@ export function checkRoadmap(data: unknown): RoadmapFile {
     return roadmap
 }
 
+/** The status a task in the `roadmap.json` format becomes: done → Done, doing → In progress, todo → Todo with a plan,
+ * Backlog without one. */
+export function legacyStatus(status: TaskFile['status'], plan?: TaskFile['plan']): Place {
+    if (status === 'done') return 'done'
+    if (status === 'doing') return 'started'
+    return plan ? 'todo' : 'backlog'
+}
+
 /** An issue as the board is built from it: as written, plus what the database knows. */
-export interface IssueInput extends Omit<TaskFile, 'tasks'> {
+export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> {
+    /** A status's id. */
+    status: string
+    proposal?: Proposal
+    decidedBy?: string
+    decidedAt?: string
+    decisionNote?: string
     comments?: number
+    aliases?: string[]
+    schedule?: number
     createdBy?: string
     protected?: boolean
     createdAt?: string
@@ -165,53 +185,89 @@ export interface IssueInput extends Omit<TaskFile, 'tasks'> {
 }
 
 export interface BoardInput {
-    chunks: (Omit<ChunkFile, 'tasks'> & {createdBy?: string, protected?: boolean, tasks: IssueInput[]})[]
+    chunks: (Omit<ChunkFile, 'tasks'> & {priority?: Priority, aliases?: string[], createdBy?: string, protected?: boolean, tasks: IssueInput[]})[]
 }
 
-/** Places every issue in its column and rolls them up into their parents and chunks. */
-export function buildBoard(roadmap: BoardInput): Board {
-    const counts = emptyCounts()
+/** Places every issue in its column and rolls them up into their parents and chunks. `statuses` are in board order. */
+export function buildBoard(roadmap: BoardInput, statuses: IssueStatus[]): Board {
+    const rules = new Rules(statuses)
+    const counts: Counts = {}
+    const kinds = emptyKinds()
     const chunks = roadmap.chunks.map((chunk): Chunk => {
-        const tasks = chunk.tasks.map(issueOf)
-        const own = sum(tasks.map(t => t.counts))
-        merge(counts, own)
-        const {id, title, summary, createdBy = '', protected: owned = false} = chunk
-        return {id, title, summary: summary || undefined, column: columnOf(own), counts: own, createdBy, protected: owned, tasks}
+        const tasks = chunk.tasks.map(task => rules.issue(task))
+        const own = rules.sum(tasks)
+        merge(counts, own.counts)
+        mergeKinds(kinds, own.kinds)
+        const {id, title, summary, priority, aliases = [], createdBy = '', protected: owned = false} = chunk
+        const column = rules.columnOf(own.counts, own.kinds)
+        return {id, title, summary: summary || undefined, priority, column, kind: rules.kindOf(column), counts: own.counts, kinds: own.kinds, aliases, createdBy, protected: owned, tasks}
     })
-    return {chunks, counts}
+    return {chunks, counts, kinds}
 }
 
-function issueOf(task: IssueInput): Issue {
-    const tasks = task.tasks.map(issueOf)
-    const counts = tasks.length ? sum(tasks.map(t => t.counts)) : emptyCounts()
-    if (!tasks.length) counts[leafColumn(task.status, task.plan)] += 1
-    const {id, title, priority, assignee, labels, status, plan, notes, comments = 0, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
-    return {id, title, priority, assignee, labels, status, plan, notes, column: columnOf(counts), counts, comments, createdBy, protected: owned, createdAt, updatedAt, tasks}
-}
+class Rules {
+    private readonly kind = new Map<string, Place>()
+    /** The open statuses, least along first: started, then todo, then backlog, each in board order. */
+    private readonly open: IssueStatus[]
 
-/** A leaf issue: done → Done; doing → Doing; otherwise its plan, and Backlog when it has none. */
-export function leafColumn(status: Status, plan?: Plan): Column {
-    if (status === 'done') return 'done'
-    if (status === 'doing') return 'doing'
-    return plan ?? 'backlog'
-}
+    constructor(private readonly statuses: IssueStatus[]) {
+        statuses.forEach(s => this.kind.set(s.id, s.kind))
+        this.kind.set('proposed', 'proposed')
+        this.open = (['started', 'todo', 'backlog'] as const).flatMap(kind => statuses.filter(s => s.kind === kind))
+    }
 
-/** Done when every leaf is; Doing when any is; else the soonest column an open leaf is in. A chunk
- * without issues yet is in the backlog. */
-export function columnOf(counts: Counts): Column {
-    if (!total(counts)) return 'backlog'
-    if (counts.done === total(counts)) return 'done'
-    return COLUMNS.find(column => column !== 'done' && counts[column] > 0) ?? 'backlog'
-}
+    kindOf(column: Column): Place {
+        return this.kind.get(column) ?? 'backlog'
+    }
 
-function sum(all: Counts[]): Counts {
-    const counts = emptyCounts()
-    all.forEach(c => merge(counts, c))
-    return counts
+    /** `proposed`: it's under a proposal, so it's proposed too. */
+    issue(task: IssueInput, proposed = false): Issue {
+        proposed ||= !!task.proposal
+        const tasks = task.tasks.map(t => this.issue(t, proposed))
+        let {counts, kinds} = this.sum(tasks)
+        if (!tasks.length) {
+            const column = proposed ? 'proposed' : this.kind.has(task.status) ? task.status : this.first('backlog')
+            counts = {[column]: 1}
+            kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
+        }
+        const column = this.columnOf(counts, kinds)
+        const {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, comments = 0, aliases = [], schedule, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
+        return {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, createdBy, protected: owned, createdAt, updatedAt, tasks}
+    }
+
+    /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.
+     * Else the least-along open status any leaf is in. Proposed when it's only proposals; nothing yet is in the backlog. */
+    columnOf(counts: Counts, kinds: Kinds): Column {
+        const has = (s: IssueStatus) => (counts[s.id] ?? 0) > 0
+        if (!total(kinds) && !kinds.canceled) return kinds.proposed ? 'proposed' : this.first('backlog')
+        if (!open(kinds)) {
+            return this.statuses.find(s => s.kind === 'done' && has(s))?.id ?? this.statuses.find(s => CLOSED.includes(s.kind) && has(s))!.id
+        }
+        return this.open.find(has)!.id
+    }
+
+    sum(issues: {counts: Counts, kinds: Kinds}[]): {counts: Counts, kinds: Kinds} {
+        const counts: Counts = {}
+        const kinds = emptyKinds()
+        issues.forEach(i => {
+            merge(counts, i.counts)
+            mergeKinds(kinds, i.kinds)
+        })
+        return {counts, kinds}
+    }
+
+    /** The first status of a kind, in board order; there's always one of each. */
+    first(kind: Place): Column {
+        return this.statuses.find(s => s.kind === kind)?.id ?? kind
+    }
 }
 
 function merge(into: Counts, from: Counts) {
-    for (const column of COLUMNS) into[column] += from[column]
+    for (const [column, n] of Object.entries(from)) into[column] = (into[column] ?? 0) + n
+}
+
+function mergeKinds(into: Kinds, from: Kinds) {
+    for (const kind of Object.keys(into) as Place[]) into[kind] += from[kind]
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

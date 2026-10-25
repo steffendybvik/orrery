@@ -1,13 +1,20 @@
-import type {Issue, Project} from '#shared/roadmap'
+import type {Issue, Notice, Project, Schedule, Session, Settings, Signal} from '#shared/roadmap'
 
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
 // project in place, without a reload. After a dropped connection it loads them all again.
 export default defineNuxtPlugin(() => {
-    const {projects, ready, live, changed} = useRoadmaps()
+    const {projects, ready, live, changed, listeners, sessions, signals} = useRoadmaps()
 
     async function load() {
+        const app = useAppSettings()
+        app.settings.value = await $fetch<Settings>('/api/settings').catch(() => app.settings.value)
+        app.apply()
         projects.value = await $fetch<Project[]>('/api/projects', {query: {expand: 'board'}})
         ready.value = true
+        useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
+        await useSchedules().load()
+        const all = await $fetch<Session[]>('/api/sessions').catch(() => [])
+        sessions.value = Object.groupBy(all, s => s.project) as Record<string, Session[]>
     }
 
     /** The issues whose `updatedAt` moved, so their rows can flash. */
@@ -47,6 +54,31 @@ export default defineNuxtPlugin(() => {
             markChanged(projects.value[index], project)
             if (index < 0) projects.value = [...projects.value, project].sort((a, b) => a.name.localeCompare(b.name))
             else projects.value = projects.value.map(p => p.id === project.id ? project : p)
+        })
+        events.addEventListener('listeners', event => {
+            const {project, count} = JSON.parse((event as MessageEvent).data) as {project: string, count: number}
+            listeners.value = {...listeners.value, [project]: count}
+        })
+        events.addEventListener('sessions', event => {
+            const {project, sessions: now} = JSON.parse((event as MessageEvent).data) as {project: string, sessions: Session[]}
+            sessions.value = {...sessions.value, [project]: now}
+        })
+        events.addEventListener('signal', event => {
+            const signal = JSON.parse((event as MessageEvent).data) as Signal
+            signals.value = [signal, ...signals.value.filter(s => s.id !== signal.id)].slice(0, 200)
+        })
+        events.addEventListener('notice', event => {
+            useInbox().arrived(JSON.parse((event as MessageEvent).data) as Notice)
+        })
+        events.addEventListener('settings', event => {
+            const app = useAppSettings()
+            app.settings.value = JSON.parse((event as MessageEvent).data) as Settings
+            app.apply()
+        })
+        events.addEventListener('schedules', event => {
+            const {project, schedules} = JSON.parse((event as MessageEvent).data) as {project: string, schedules: Schedule[]}
+            const {byProject} = useSchedules()
+            byProject.value = {...byProject.value, [project]: schedules}
         })
         events.addEventListener('removed', event => {
             const id = (event as MessageEvent).data as string

@@ -46,7 +46,7 @@ onMounted(() => nextTick(() => {
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
       <ProjectTabs :project="project" />
       <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-faint ring-1 ring-line">{{ project.key }}</span>
-      <ProgressRing :counts="project.board.counts" class="hidden sm:inline-flex" />
+      <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
       <span v-if="project.description" class="hidden min-w-0 truncate text-xs text-faint lg:inline">{{ project.description }}</span>
     </template>
   </PageHeader>
@@ -62,7 +62,13 @@ onMounted(() => nextTick(() => {
       <span class="label">Group</span>
       <SegmentedControl v-model="group" :options="groupings" />
     </div>
-    <template #end><FilterBar /></template>
+    <template #end>
+      <FilterBar />
+      <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id)">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New issue
+      </button>
+    </template>
   </ViewToolbar>
 
   <div class="min-h-0 flex-1" :class="view === 'list' ? 'overflow-y-auto' : 'overflow-hidden'">

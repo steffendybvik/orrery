@@ -4,25 +4,58 @@ export interface Filters {
     /** P1, P2, P3 or `none`; empty shows all. */
     priorities: string[]
     columns: Column[]
+    /** Names, or `none` for unassigned issues; empty shows all. */
+    assignees: string[]
+    /** An issue with any of these labels; empty shows all. */
+    labels: string[]
     query: string
 }
 
-// The filters over issues (priority, column, text in the id or title), shared by every view.
+const none = (): Filters => ({priorities: [], columns: [], assignees: [], labels: [], query: ''})
+
+// The filters over issues (priority, column, assignee, label, text in the id or title), shared by every view.
+// They start on the open columns (Done and Canceled left out, whatever the statuses are called), ticked in
+// the Column filter like any other pick; `changed` says they've moved off that, and `clear` goes back to it.
 export function useFilters() {
-    const filters = useState<Filters>('filters', () => ({priorities: [], columns: [], query: ''}))
-    const active = computed(() => !!(filters.value.priorities.length || filters.value.columns.length || filters.value.query.trim()))
+    const filters = useState<Filters>('filters', none)
+    const {columns: all} = useStatuses()
+    const open = computed(() => all.value.filter(c => !isClosed(c.kind)).map(c => c.id))
+    const defaults = (): Filters => ({...none(), columns: [...open.value]})
+
+    // The statuses arrive with the settings, so the open columns are ticked once they're known.
+    const seeded = useState('filters-seeded', () => false)
+    if (import.meta.client && !seeded.value) {
+        const stop = watch(open, columns => {
+            if (seeded.value || !columns.length) return
+            seeded.value = true
+            if (!filters.value.columns.length) filters.value.columns = [...columns]
+            queueMicrotask(() => stop())
+        }, {immediate: true})
+    }
+
+    const active = computed(() => {
+        const {priorities, columns, assignees, labels, query} = filters.value
+        return !!(priorities.length || columns.length || assignees.length || labels.length || query.trim())
+    })
+    const changed = computed(() => {
+        const {priorities, columns, assignees, labels, query} = filters.value
+        const same = columns.length === open.value.length && columns.every(c => open.value.includes(c))
+        return !!(priorities.length || !same || assignees.length || labels.length || query.trim())
+    })
 
     function matches(issue: Issue): boolean {
-        const {priorities, columns, query} = filters.value
+        const {priorities, columns, assignees, labels, query} = filters.value
         const text = query.trim().toLowerCase()
         return (!priorities.length || priorities.includes(issue.priority ?? 'none'))
             && (!columns.length || columns.includes(issue.column))
+            && (!assignees.length || assignees.includes(issue.assignee ?? 'none'))
+            && (!labels.length || issue.labels.some(l => labels.includes(l)))
             && (!text || issue.id.toLowerCase().includes(text) || issue.title.toLowerCase().includes(text))
     }
 
     function clear() {
-        filters.value = {priorities: [], columns: [], query: ''}
+        filters.value = defaults()
     }
 
-    return {filters, active, matches, clear}
+    return {filters, active, changed, matches, clear}
 }

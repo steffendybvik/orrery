@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineNuxtConfig({
@@ -14,13 +15,26 @@ export default defineNuxtConfig({
     },
 
     runtimeConfig: {
-        // Where the projects, chunks, issues and comments live. Override with NUXT_DATABASE.
+        // Where the projects, chunks, issues and comments live: a SQLite file, or a postgres:// URL. Override with NUXT_DATABASE.
         database: '.data/orrery.db',
-        // Whose things agents can't delete: requests sent with `Orrery-Actor: <owner>` make them.
-        // Override with NUXT_OWNER.
-        owner: 'owner',
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
+        // Host names Orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
+        // Override with NUXT_ALLOWED_HOSTS.
+        allowedHosts: '',
+        public: {
+            // Where this repo is on the machine, for the channel setup the Connect page hands out.
+            // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).
+            repoDir: '',
+            // Which Orrery this is, each its own server and database (`personal`, `work`, …): a chip by
+            // the name, and the start of every tab's title. Override with NUXT_PUBLIC_ENVIRONMENT.
+            environment: 'personal',
+        },
+    },
+
+    // docs/API.md is served to agents (/api/guide, /llms-full.txt).
+    nitro: {
+        serverAssets: [{baseName: 'docs', dir: fileURLToPath(new URL('./docs', import.meta.url))}],
     },
 
     app: {

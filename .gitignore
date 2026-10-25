@@ -3,6 +3,14 @@ node_modules
 .output
 .data
 .env
+.env.*
+!.env.example
 dist
 *.log
 .DS_Store
+coverage
+.idea
+
+# Playwright
+/test-results
+/playwright-report

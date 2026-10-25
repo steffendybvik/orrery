@@ -7,7 +7,7 @@
     --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
     --font-mono: "Geist Mono", ui-monospace, monospace;
 
-    /* mesher's orange */
+    /* The accent: orange */
     --color-accent-300: oklch(0.86 0.12 70);
     --color-accent-400: oklch(0.80 0.15 65);
     --color-accent-500: oklch(0.74 0.17 55);
@@ -77,9 +77,25 @@
     color-scheme: dark;
 }
 
-/* Frosted panel for everything floating over the page (mesher's `glass`) */
+/* An Orrery's tint (App settings), so one looks unlike another: the backgrounds take on a little of
+   its colour, more in the dark. useAppSettings sets `data-tint` and `--tint` on <html>. */
+:root[data-tint] {
+    --canvas: color-mix(in oklab, var(--tint) 9%, #fafafa);
+    --panel: color-mix(in oklab, var(--tint) 6%, #ffffff);
+    --raised: color-mix(in oklab, var(--tint) 4%, #ffffff);
+}
+
+.dark[data-tint] {
+    --canvas: color-mix(in oklab, var(--tint) 12%, #09090b);
+    --panel: color-mix(in oklab, var(--tint) 10%, #0e0e11);
+    --raised: color-mix(in oklab, var(--tint) 8%, #18181b);
+}
+
+/* The panel for everything floating over the page (`glass`). Solid, not frosted: most of them
+   open inside something with its own backdrop-filter (the header, a dialog's scrim), which a blur
+   can't see past, so a see-through panel only showed grey. */
 @utility glass {
-    @apply border border-line bg-raised/80 shadow-2xl shadow-black/20 backdrop-blur-xl dark:bg-zinc-900/70 dark:shadow-black/40;
+    @apply border border-line bg-raised shadow-2xl shadow-black/20 dark:shadow-black/40;
 }
 
 /* The small uppercase heading over a group (OBJECTS, PROPERTIES) */
@@ -100,17 +116,19 @@ body {
     scrollbar-color: var(--active) transparent;
 }
 
-/* A doc's Markdown */
+/* A doc's Markdown; `data-size` (sm, lg) is the reader's pick on the doc page */
 .doc {
-    @apply text-[14px] leading-7 text-muted;
+    @apply text-[16px] leading-[1.75] text-zinc-700 dark:text-zinc-300;
 
-    & > * + * { @apply mt-4; }
+    & > * + * { @apply mt-5; }
     & h1, & h2, & h3, & h4 { @apply font-semibold tracking-tight text-fg; }
-    & h1 { @apply mt-10 text-xl; }
-    & h2 { @apply mt-10 border-b border-line pb-2 text-lg; }
-    & h3 { @apply mt-8 text-base; }
-    & h4 { @apply mt-6 text-sm; }
+    & h1 { @apply mt-12 text-2xl; }
+    & h2 { @apply mt-12 border-b border-line pb-2 text-xl; }
+    & h3 { @apply mt-9 text-lg; }
+    & h4 { @apply mt-7 text-base; }
     & > :first-child { @apply mt-0; }
+    /* A long link or path breaks rather than running out of its column (comments on a phone). */
+    & a, & :not(pre) > code { overflow-wrap: anywhere; }
     & a { @apply text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
     & strong { @apply font-semibold text-fg; }
     & ul { @apply list-disc pl-5; }
@@ -120,10 +138,14 @@ body {
     & blockquote { @apply border-l-2 border-accent-500/60 pl-4 text-muted italic; }
     & hr { @apply my-8 border-line; }
     & :not(pre) > code { @apply rounded bg-well px-1 py-px font-mono text-[0.88em] text-fg ring-1 ring-line; }
-    & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[12px] leading-relaxed text-fg ring-1 ring-line; }
-    & table { @apply block w-full overflow-x-auto border-collapse text-[13px]; }
+    & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[13.5px] leading-relaxed text-fg ring-1 ring-line; }
+    & table { @apply block w-full overflow-x-auto border-collapse text-[14.5px]; }
     & th, & td { @apply border border-line px-3 py-1.5 text-left; }
     & th { @apply bg-well font-medium text-fg; }
     & img { @apply max-w-full rounded-lg; }
+    & h2, & h3 { @apply scroll-mt-6; }
     & input[type="checkbox"] { @apply mr-1.5 accent-accent-500; }
 }
+
+.doc[data-size="sm"] { @apply text-[14.5px]; }
+.doc[data-size="lg"] { @apply text-[18px]; }
