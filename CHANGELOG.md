@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Unseen changes:** issues and docs that changed since the owner last opened them carry a quiet accent
+  dot and a bolder title, on rows, board cards, the docs list and the project in the sidebar, until
+  opened or cleared with Mark seen. The owner's own changes from the page don't count.
 - **Starting sessions:** a project can let Orrery start sessions itself, in tmux through a launcher on
   the host, when the owner's work finds nobody listening or the owner starts one from the Sessions tab,
   within limits on how many run and for how long. The launcher installs once as a background service
@@ -20,6 +23,7 @@ the database schema are the public surface, and a database always migrates forwa
   told which issues it had in progress, so it carries on with them.
 - **Fixed:** a proposal keeps the owner's picks when a live update comes in before they approve, and a
   choice an option reveals shows its recommendation ticked, as approving sends it.
+- **Fixed:** `pnpm orrery:copy` takes secrets and their uses across too.
 - **Fixed:** a cleared session keeps its new id when its channel reports with the old one, can be stopped
   by either, and shows its work under both. A launch that ends before its session connects frees its place
   at once. A signal aimed at one session, or already delivered, no longer starts one. Stop is only offered

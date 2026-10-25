@@ -19,6 +19,7 @@ const nowCount = computed(() => projects.value.reduce((sum, p) =>
     sum + p.board.chunks.reduce((n, c) => n + c.tasks.filter((t: Issue) => isNow(t)).length, 0), 0))
 const urgentCount = computed(() => projects.value.reduce((sum, p) => sum + urgentIssues(p).length, 0))
 const {name: owner, load: loadOwner} = useOwner()
+const {unseenIn} = useUnseen()
 onMounted(loadOwner)
 const mineCount = computed(() => projects.value.reduce((sum, p) => sum + myIssues(p, owner.value).length, 0))
 const LIVE = {live: 'Live', connecting: 'Connecting…', offline: 'Offline'}
@@ -174,6 +175,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.iconColor" class="size-3.5" />
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
+            <span v-if="unseenIn(project)" class="size-1.5 shrink-0 rounded-full bg-accent-500" :title="`${unseenIn(project)} changed since you last looked`" />
             <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
               <span class="size-1 rounded-full bg-accent-500" />{{ project.board.kinds.started }}
             </span>

@@ -22,6 +22,11 @@ watch(found, f => {
     if (f && f.issue.id !== issueId.value) router.replace(`/p/${route.params.project}/issues/${encodeURIComponent(f.issue.id)}`)
 }, {immediate: true})
 const issue = computed(() => found.value?.issue)
+// Open, it's seen, and stays seen as it changes in front of you.
+const {seeIssue} = useUnseen()
+watch(() => issue.value?.updatedAt, () => {
+    if (project.value && issue.value) seeIssue(project.value.id, issue.value)
+}, {immediate: true})
 const order = computed(() => project.value ? allIssues(project.value).map(i => i.issue.id) : [])
 const at = computed(() => order.value.indexOf(issueId.value))
 

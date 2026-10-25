@@ -52,6 +52,7 @@ export default defineNuxtPlugin(() => {
             const project = JSON.parse((event as MessageEvent).data) as Project
             const index = projects.value.findIndex(p => p.id === project.id)
             markChanged(projects.value[index], project)
+            useUnseen().ownChanges(project)
             if (index < 0) projects.value = [...projects.value, project].sort((a, b) => a.name.localeCompare(b.name))
             else projects.value = projects.value.map(p => p.id === project.id ? project : p)
         })

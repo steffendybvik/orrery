@@ -8,6 +8,11 @@ const {byId, ready} = useRoadmaps()
 const {who} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 const summary = computed(() => project.value?.docs.find(d => d.id === route.params.doc))
+// Open, it's seen, and stays seen as it changes in front of you.
+const {seeDoc} = useUnseen()
+watch(() => summary.value?.updatedAt, () => {
+    if (project.value && summary.value) seeDoc(project.value.id, summary.value)
+}, {immediate: true})
 
 const doc = ref<Doc | null>(null)
 const missing = ref(false)

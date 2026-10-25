@@ -9,6 +9,7 @@ watch(() => project.value?.docs[0]?.id, first => {
     if (first) router.replace(`/p/${project.value!.id}/docs/${first}`)
 }, {immediate: true})
 useHead(() => ({title: project.value ? `Docs · ${project.value.name} · Orrery` : 'Orrery'}))
+const {docUnseen} = useUnseen()
 </script>
 
 <template>
@@ -31,7 +32,8 @@ useHead(() => ({title: project.value ? `Docs · ${project.value.name} · Orrery`
             class="group flex items-center gap-3 rounded-lg px-3 py-2.5 outline-none hover:bg-hover focus-visible:bg-active"
         >
           <svg class="size-4 shrink-0 text-faint group-hover:text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6Z" /><path d="M14 3v4h4M9 12h6M9 16h6" stroke-linecap="round" /></svg>
-          <span class="min-w-0 flex-1 truncate text-[13px] text-fg">{{ doc.title }}</span>
+          <span class="min-w-0 flex-1 truncate text-[13px] text-fg" :class="docUnseen(project.id, doc) ? 'font-medium' : ''">{{ doc.title }}</span>
+          <span v-if="docUnseen(project.id, doc)" class="size-1.5 shrink-0 rounded-full bg-accent-500" title="Changed since you last opened it" />
           <svg v-if="doc.protected" class="size-3 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><title>Only the owner can delete it</title><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
           <PersonAvatar :name="doc.createdBy" :size="16" />
           <span class="w-16 shrink-0 text-right text-xs text-faint" :title="doc.updatedAt">{{ ago(doc.updatedAt) }}</span>

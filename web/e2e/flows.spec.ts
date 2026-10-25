@@ -129,3 +129,27 @@ test('the issues start on the open ones, Done and Canceled a tick away', async (
     await page.getByRole('button', {name: 'Clear'}).click()
     await expect(page.getByText('Shipped pantry export')).toBeHidden()
 })
+
+test("marks what changed since the owner last looked, but not the owner's own changes", async ({page, request}) => {
+    const unseen = (title: string) => page.locator('[data-issue]', {hasText: title}).getByTitle('Changed since you last opened it')
+    // What was there before the first visit counts as seen; an agent's issue arriving live doesn't.
+    await page.goto('/p/larder?view=list')
+    await expect(page.getByText('Live', {exact: true})).toBeVisible()
+    const issue = await api(request, 'post', '/issues', {title: 'Label the jars'})
+    await expect(unseen('Label the jars')).toBeVisible()
+    // Opening it is seeing it.
+    await page.locator('[data-issue]', {hasText: 'Label the jars'}).click()
+    await expect(page).toHaveURL(new RegExp(`/issues/${issue.id}$`))
+    await page.goBack()
+    await expect(page.locator('[data-issue]', {hasText: 'Label the jars'})).toBeVisible()
+    await expect(unseen('Label the jars')).toBeHidden()
+    // The owner's own change from the page stays seen; an agent's comment is news again.
+    await page.evaluate(id => $fetch(`/api/projects/larder/issues/${id}`, {method: 'PATCH', body: {priority: 'P1'}, headers: {'Orrery-Actor': 'ada_lovelace'}}), issue.id)
+    await expect.poll(async () => (await api(request, 'get', `/issues/${issue.id}`)).priority).toBe('P1')
+    await page.waitForTimeout(500)
+    await expect(unseen('Label the jars')).toBeHidden()
+    await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Done the top shelf'})
+    await expect(unseen('Label the jars')).toBeVisible()
+    await page.getByRole('button', {name: /Mark \d+ seen/}).click()
+    await expect(unseen('Label the jars')).toBeHidden()
+})
