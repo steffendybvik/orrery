@@ -173,7 +173,7 @@ the project; without one, it's `shop`.
 
 ## Keys
 
-`j`/`k` move · `Enter` opens · `Esc` closes · `/` filters · `⌘K` jumps · `1`/`2` List/Board · `g n` Now · `g u` Urgent · `g m` My issues
+`j`/`k` move · `Enter` opens · `Esc` closes · `/` filters · `⌘K` jumps · `1`/`2` List/Board · `g n` Now · `g m` My issues
 
 ## Checks
 

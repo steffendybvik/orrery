@@ -80,8 +80,7 @@ const here = computed<Entry[]>(() => {
 
 const everywhere = computed<Entry[]>(() => [
     {key: 'go:now', group: 'Go to', label: 'Now across projects', hint: 'g n', run: () => router.push('/now')},
-    {key: 'go:urgent', group: 'Go to', label: 'Urgent across projects', hint: 'g u', run: () => router.push('/urgent')},
-    {key: 'go:mine', group: 'Go to', label: 'My issues', hint: 'g m', run: () => router.push('/mine')},
+    {key: 'go:mine', group: 'Go to', label: 'My issues and urgent', hint: 'g m', run: () => router.push('/mine')},
     {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
