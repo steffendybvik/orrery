@@ -5,6 +5,8 @@ import type {Project} from '#shared/roadmap'
 // many at once, how long each runs), whether its launcher is there, and the sessions it has started.
 const props = defineProps<{project: Project}>()
 const {load} = useOwner()
+/** What installs the launcher, run in the project's repo: this Orrery's checkout, where it knows it. */
+const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
 const {launchers, sessions} = useRoadmaps()
 const started = computed(() => (sessions.value[props.project.id] ?? []).filter(s => s.started))
 const failed = ref('')
@@ -53,7 +55,7 @@ function saveStarts(on = !!props.project.starts) {
     </div>
     <p v-if="state" class="text-xs text-faint">
       <template v-if="state.launchers">Its launcher is running{{ state.started ? `, with ${state.started} session${state.started === 1 ? '' : 's'} it started` : '' }}.</template>
-      <template v-else>No launcher is running for it: start one in its repo with <span class="font-mono">ORRERY_PROJECT={{ project.id }} node channel/orrery-launcher.mjs</span>.</template>
+      <template v-else>No launcher is running for it: install one, once, in its repo with <span class="font-mono break-all">{{ install }}</span> <CopyButton :text="install" label="Copy" /></template>
     </p>
     <ul v-if="started.length" class="flex flex-col border-t border-line pt-2">
       <li v-for="session in started" :key="session.id" class="flex flex-wrap items-center gap-2 py-1">

@@ -89,12 +89,21 @@ project; without one, it's `shop`.
 ## 4. Optionally, let Orrery start sessions
 
 Orrery can start a session itself when you send the project work and nobody is listening, or when you
-press **Start session** on its Sessions tab, so nobody has to open a terminal. Turn it on under **Starting sessions** on the project's Settings tab (how many at once,
-how many minutes each), then run the launcher on your machine, in the repo, and leave it running:
+press **Start session** on its Sessions tab, so nobody has to open a terminal. Turn it on under **Starting
+sessions** on the project's Settings tab (how many at once, how many minutes each), then install the launcher
+once, in the repo:
 
 ```bash
-ORRERY_PROJECT=shop ORRERY_URL=http://localhost:9000 node /path/to/orrery/channel/orrery-launcher.mjs
+node /path/to/orrery/channel/orrery-launcher.mjs --install
 ```
+
+It runs in the background from then on (launchd on macOS, systemd on Linux), starts at login, and serves
+every project installed this way; run `--install` again in another repo to add its project, and
+`--uninstall` to take one off. It finds the project and the Orrery in the repo's `.mcp.json` (or
+`ORRERY_PROJECT` and `ORRERY_URL`), and keeps its list in `~/.config/orrery/launcher.json`. Its log is
+`~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
+stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
+terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes

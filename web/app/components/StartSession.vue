@@ -5,6 +5,8 @@ import type {Project} from '#shared/roadmap'
 // for the project's minutes, within its limit. Says why not when it can't (no launcher, the limit reached).
 const props = defineProps<{project: Project}>()
 const {load} = useOwner()
+/** What installs the launcher, run in the project's repo: this Orrery's checkout, where it knows it. */
+const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
 const {launchers, sessions} = useRoadmaps()
 const busy = ref(false)
 const failed = ref('')
@@ -17,7 +19,7 @@ async function refresh() {
 watch(() => [props.project, launchers.value[props.project.id], sessions.value[props.project.id]], refresh, {immediate: true})
 
 const full = computed(() => !!state.value && !!props.project.starts && state.value.started + state.value.starting >= props.project.starts.limit)
-const why = computed(() => !state.value?.launchers ? `No launcher is running for ${props.project.name}: start one in its repo with ORRERY_PROJECT=${props.project.id} node channel/orrery-launcher.mjs`
+const why = computed(() => !state.value?.launchers ? `No launcher is running for ${props.project.name}: install one in its repo with ${install}`
     : full.value ? `${props.project.name} already has its ${props.project.starts!.limit} at once` : `Start a Claude session on ${props.project.name} for ${props.project.starts!.minutes} minutes`)
 
 async function start() {
@@ -47,7 +49,7 @@ async function start() {
     </button>
     <span v-if="state?.starting" class="text-xs text-faint">{{ state.starting }} on its way…</span>
     <span v-else-if="state && (!state.launchers || full)" class="max-w-72 text-right text-xs text-faint">
-      <template v-if="!state.launchers">No launcher running: start one in its repo with <span class="font-mono">ORRERY_PROJECT={{ project.id }} node channel/orrery-launcher.mjs</span></template>
+      <template v-if="!state.launchers">No launcher running: install one in its repo with <span class="font-mono break-all">{{ install }}</span> <CopyButton :text="install" label="Copy" /></template>
       <template v-else>At its limit of {{ project.starts!.limit }} at once.</template>
     </span>
     <span v-if="failed" class="max-w-64 text-right text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>

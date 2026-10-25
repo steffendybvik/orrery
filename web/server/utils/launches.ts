@@ -72,7 +72,7 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
 export async function startLaunch(project: string): Promise<Launch> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`${project} doesn't let Orrery start sessions; turn it on in its settings`)
-    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: start one in its repo with ORRERY_PROJECT=${project} node channel/orrery-launcher.mjs`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
     if (startedSessions(project) + pendingOn(project) >= starts.limit) throw conflict(`${project} already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     const id = randomBytes(6).toString('hex')
     const launch = {id, project, after: await useStore().lastSignal(project), minutes: starts.minutes, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')}
