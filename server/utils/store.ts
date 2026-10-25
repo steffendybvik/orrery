@@ -630,8 +630,8 @@ export class Store {
                                           created_by, owned, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), this.resolveStatus(input.status, input.plan), nullable(input.priority),
-                // A proposal waits on the owner, so it's theirs unless it says whose it is.
-                input.assignee === undefined && input.proposal === 'pending' ? this.owner : nullable(this.assigneeOf(input.assignee)),
+                // A proposal waits on the owner, so it's theirs, whoever the request names.
+                input.proposal === 'pending' ? this.owner : nullable(this.assigneeOf(input.assignee)),
                 JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
                 parent, chunk, Number(input.position ?? this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
             this.record(project, id, actor, [['created', null, null]])
@@ -675,7 +675,7 @@ export class Store {
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
         const status = input.status === undefined && input.plan === undefined ? undefined : this.resolveStatus(input.status, input.plan)
-        const assignee = input.assignee === undefined && input.proposal === 'pending' ? this.owner : this.assigneeOf(input.assignee)
+        const assignee = input.proposal === 'pending' ? this.owner : this.assigneeOf(input.assignee)
         const labels = input.labels === undefined ? undefined : JSON.stringify(input.labels ?? [])
         const moved = input.parent !== undefined && parent !== row.parent
         transaction(this.db, () => {

@@ -255,7 +255,9 @@ describe('proposals', () => {
         expect(store.issue('larder', id).assignee).toBe('owner')
         expect(store.decide('larder', id, {decision: 'changes'}, owner).assignee).toBe('claude')
         expect(store.updateIssue('larder', id, {proposal: 'pending'}, claude).assignee).toBe('owner')
-        expect(store.createIssue('larder', {title: 'Card', proposal: 'pending', assignee: 'claude'}, claude).assignee).toBe('claude')
+        expect(store.createIssue('larder', {title: 'Card', proposal: 'pending', assignee: 'claude'}, claude).assignee).toBe('owner')
+        const {id: tag} = store.createIssue('larder', {title: 'Tag', assignee: 'claude'}, claude)
+        expect(store.updateIssue('larder', tag, {proposal: 'pending', assignee: 'claude'}, claude).assignee).toBe('owner')
     })
 })
 

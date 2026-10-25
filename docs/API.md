@@ -75,7 +75,7 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
 
 - `proposal: "pending"` (on `POST` or `PATCH`) makes an issue a proposal, or puts one up again after
   the owner asked for changes (clearing their last decision). It's assigned to the owner (their id)
-  while it waits on them, unless the request sets `assignee`
+  while it waits on them, whatever `assignee` the request sends, so it's under their My issues
 - The owner decides with `POST …/issues/:issue/decide {decision, note?}`; `proposal` becomes
   `approved`, `changes` or `rejected`, with `decidedBy`, `decidedAt` and `decisionNote`. The decision is
   also left as the owner's comment (`Approved this proposal.` and the note), so the session on it hears,

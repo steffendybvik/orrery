@@ -16,12 +16,12 @@ export function columnPatch(column: Column, proposal?: string): Record<string, u
     return proposal ? {status: column, proposal: null} : {status: column}
 }
 
-/** Open issues assigned to `owner` anywhere in the project, sub-issues included; the proposals waiting
- * on them first. */
+/** Open issues assigned to `owner` anywhere in the project, sub-issues included, and every proposal
+ * waiting on them whoever it's assigned to; the proposals first. */
 export function myIssues(project: Project, owner: string | null) {
     if (!owner) return []
     return allIssues(project)
-        .filter(({issue}) => issue.assignee?.toLowerCase() === owner.toLowerCase() && !isClosed(issue.kind))
+        .filter(({issue}) => (issue.assignee?.toLowerCase() === owner.toLowerCase() || issue.proposal === 'pending') && !isClosed(issue.kind))
         .sort((a, b) => Number(b.issue.column === 'proposed') - Number(a.issue.column === 'proposed'))
 }
 
