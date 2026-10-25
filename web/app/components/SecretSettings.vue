@@ -107,16 +107,16 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
         <input
             v-model="form.name"
             :disabled="!!editing"
-            placeholder="api_key"
+            placeholder="API_KEY"
             aria-label="Name"
             maxlength="64"
             autocomplete="off"
-            :class="[input, 'w-44 font-mono uppercase placeholder:normal-case disabled:opacity-60']"
+            :class="[input, 'w-44 font-mono uppercase disabled:opacity-60']"
         >
         <input
             v-model="form.value"
             type="password"
-            :placeholder="editing ? `New value for ${editing}` : 'Value'"
+            :placeholder="editing ? `New value for ${editing}` : 'value'"
             aria-label="Value"
             autocomplete="new-password"
             :class="[input, 'w-72 max-w-full font-mono']"
