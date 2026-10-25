@@ -257,13 +257,15 @@ export class Store {
 
     /** Agents' latest comments across projects (what the bell shows), newest first, after the ones still
      * waiting on the owner (a decision or feedback they haven't answered). */
-    notices(limit = 30): Notice[] {
-        return this.all<CommentRow & {title: string}>(`
+    /** The bell's notices: the latest `limit` (all of them when null), and with `cleared` the cleared ones
+     * too (marked so), as the notifications page lists them. */
+    notices(limit: number | null = 30, cleared = false): Notice[] {
+        return this.all<CommentRow & {title: string, cleared: number}>(`
             SELECT * FROM (
                 SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
-                WHERE c.owned = 0 AND c.cleared = 0)
-            ORDER BY (asks IS NOT NULL AND answered = 0) DESC, created_at DESC, id DESC LIMIT ?`, limit)
-            .map(row => ({...commentOf(row), project: row.project, title: row.title}))
+                WHERE c.owned = 0 ${cleared ? '' : 'AND c.cleared = 0'})
+            ORDER BY (asks IS NOT NULL AND answered = 0) DESC, created_at DESC, id DESC LIMIT ?`, limit ?? -1)
+            .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 
     /** Takes notices out of the bell (the comments stay on their issues): those in `ids`, or all made at
@@ -630,8 +632,8 @@ export class Store {
                                           created_by, owned, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), this.resolveStatus(input.status, input.plan), nullable(input.priority),
-                // A proposal waits on the owner, so it's theirs unless it says whose it is.
-                input.assignee === undefined && input.proposal === 'pending' ? this.owner : nullable(this.assigneeOf(input.assignee)),
+                // A proposal waits on the owner, so it's theirs, whoever the request names.
+                input.proposal === 'pending' ? this.owner : nullable(this.assigneeOf(input.assignee)),
                 JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
                 parent, chunk, Number(input.position ?? this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
             this.record(project, id, actor, [['created', null, null]])
@@ -675,7 +677,7 @@ export class Store {
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
         const status = input.status === undefined && input.plan === undefined ? undefined : this.resolveStatus(input.status, input.plan)
-        const assignee = input.assignee === undefined && input.proposal === 'pending' ? this.owner : this.assigneeOf(input.assignee)
+        const assignee = input.proposal === 'pending' ? this.owner : this.assigneeOf(input.assignee)
         const labels = input.labels === undefined ? undefined : JSON.stringify(input.labels ?? [])
         const moved = input.parent !== undefined && parent !== row.parent
         transaction(this.db, () => {

@@ -75,7 +75,7 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
 
 - `proposal: "pending"` (on `POST` or `PATCH`) makes an issue a proposal, or puts one up again after
   the owner asked for changes (clearing their last decision). It's assigned to the owner (their id)
-  while it waits on them, unless the request sets `assignee`
+  while it waits on them, whatever `assignee` the request sends, so it's under their My issues
 - The owner decides with `POST …/issues/:issue/decide {decision, note?}`; `proposal` becomes
   `approved`, `changes` or `rejected`, with `decidedBy`, `decidedAt` and `decisionNote`. The decision is
   also left as the owner's comment (`Approved this proposal.` and the note), so the session on it hears,
@@ -126,7 +126,7 @@ instead of `done` when it won't ship.
 | `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
 | `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, createdBy, createdAt}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal` or `project` (moved in from `before`) |
-| `GET /notices` | agents' latest comments across projects, newest first (the page's bell) |
+| `GET /notices` | agents' latest comments across projects, newest first (the page's bell); `?all=true` lists every one, cleared ones too (`cleared: true`) |
 | `POST /notices/clear` | `{ids}` or `{before}` → `{cleared}`: the owner takes them out of the bell; they stay on their issues |
 
 ## Schedules
