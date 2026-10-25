@@ -19,4 +19,10 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 
 `pnpm test` (the column rules, the store, schedules) · `pnpm typecheck`
 
+`pnpm test:e2e` runs the main flows in a real browser with Playwright: naming the owner, a project,
+issues moved on the board, sub-issues, ⌘K, a proposal approved, a change showing up live in a second
+tab. It starts `nuxt dev` on port 3199 with a fresh `.data/e2e.db`, so your own database isn't
+touched. The first time, get its browser with `pnpm exec playwright install chromium`. A failed run
+leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
+
 The database's migrations are numbered steps in `server/utils/db.ts`: add a step, never edit one.
