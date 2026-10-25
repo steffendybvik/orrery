@@ -2,10 +2,11 @@
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
-import type {ActivityField, Asks, Board, Chunk, Comment, IssueEvent, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, IssueStatus, Kind, Kinds, Notice, NoticeList, Priority, Project, Proposal, Signal} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Settings, Signal} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
+import {describePicks, parseChoices, resolvePicks} from './choices'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
 import {LEGACY_PLANS, buildBoard, legacyStatus} from './roadmap'
 import type {Db, Value} from './database'
@@ -81,7 +82,8 @@ interface IssueRow extends Made {
     project: string, id: string, title: string, status: string, priority: Priority | null,
     assignee: string | null, labels: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
-    proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null
+    proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
+    choices: string, picks: string | null, explore: string | null
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
 interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
@@ -132,6 +134,8 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     /** `pending` makes it a proposal (or puts one up again after changes); `null` commits it. The owner
      * decides on it with `decide`. */
     proposal: {type: 'string', values: ['pending'], nullable: true},
+    /** A proposal's choices for the owner: `[{key, question, pick: one|any, options: [{key, title, body?}], recommended?, from?}]`. */
+    choices: {type: 'json', nullable: true, parse: parseChoices},
     /** Only on an update: moves the issue, its sub-issues and their comments to another project. */
     project: {type: 'string', pattern: SLUG, hint: "use the other project's id"},
     parent: {type: 'string', nullable: true},
@@ -149,6 +153,24 @@ export const DOC_FIELDS: Record<string, Field> = {
 export const DECISION_FIELDS: Record<string, Field> = {
     decision: {type: 'string', values: DECISIONS, required: true},
     note: {type: 'string', nullable: true},
+    /** Approving a proposal with choices: the options picked, choice → options; a choice left out takes its recommendation. */
+    picks: {type: 'json', parse: parsePicks},
+    /** Asking for changes: the option to go further down, `{choice, option}`. */
+    explore: {type: 'json', parse: parseExplore},
+}
+
+function parsePicks(value: unknown): string {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('should be {choice: [options]}')
+    for (const [key, picked] of Object.entries(value)) {
+        if (!Array.isArray(picked) || picked.some(p => typeof p !== 'string')) throw new Error(`${key} should be a list of option keys`)
+    }
+    return JSON.stringify(value)
+}
+
+function parseExplore(value: unknown): string {
+    const {choice, option} = (value ?? {}) as {choice?: unknown, option?: unknown}
+    if (typeof choice !== 'string' || typeof option !== 'string') throw new Error('should be {choice, option}')
+    return JSON.stringify({choice, option})
 }
 
 /** The comment a decision leaves on its proposal, for the session working on it to hear. */
@@ -651,13 +673,13 @@ export class Store {
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
-            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, proposal, parent, chunk, position,
+            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, proposal, choices, parent, chunk, position,
                                           created_by, owned, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), await this.resolveStatus(input.status, input.plan), nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
                 input.proposal === 'pending' ? (await this.ownerId()) : nullable(await this.assigneeOf(input.assignee)),
-                JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
+                JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
                 parent, chunk, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
             await this.record(project, id, actor, [['created', null, null]])
             await this.touchProject(project)
@@ -723,8 +745,9 @@ export class Store {
                 labels,
                 notes: input.notes,
                 proposal: input.proposal,
+                choices: input.choices === undefined ? undefined : String(input.choices ?? '[]'),
                 // Put up again, it waits on a new decision.
-                ...input.proposal === 'pending' ? {decided_by: null, decided_at: null, decision_note: null} : {},
+                ...input.proposal === 'pending' ? {decided_by: null, decided_at: null, decision_note: null, picks: null, explore: null} : {},
                 parent: input.parent === undefined ? undefined : parent,
                 chunk,
                 position: input.position,
@@ -763,12 +786,31 @@ export class Store {
         const decision = input.decision as Decision
         const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null
         const assignee = row.owned ? row.assignee : row.created_by
+        // With choices: approving takes the picks (the recommendation where none is sent), and asking for
+        // changes can name an option to go further down.
+        const choices = JSON.parse(row.choices) as Choice[]
+        if (input.picks !== undefined && (decision !== 'approved' || !choices.length)) throw badRequest(`"picks" go with approving a proposal that has choices`)
+        if (input.explore !== undefined && decision !== 'changes') throw badRequest(`"explore" goes with asking for changes`)
+        let picks: Picks | null = null
+        if (decision === 'approved' && choices.length) {
+            try {
+                picks = resolvePicks(choices, input.picks ? JSON.parse(String(input.picks)) as Picks : {})
+            } catch (error) {
+                throw badRequest(`Can't approve ${id} with those picks: ${(error as Error).message}`)
+            }
+        }
+        const explore = input.explore ? JSON.parse(String(input.explore)) as {choice: string, option: string} : null
+        const explored = explore && choices.find(c => c.key === explore.choice)?.options.find(o => o.key === explore.option)
+        if (explore && !explored) throw badRequest(`${id} has no option ${explore.option} in a choice "${explore.choice}"`)
         await this.db.transaction(async () => {
-            await this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ?, assignee = ? WHERE project = ? AND id = ?',
-                decision, actor.name, stamp(), note, assignee, project, id)
+            await this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ?, assignee = ?, picks = ?, explore = ? WHERE project = ? AND id = ?',
+                decision, actor.name, stamp(), note, assignee, picks ? JSON.stringify(picks) : null, explore ? JSON.stringify(explore) : null, project, id)
             await this.record(project, id, actor, [['proposal', row.proposal, decision], ['assignee', row.assignee, assignee]])
         })
-        await this.createComment(project, id, {body: note ? `${DECIDED[decision]}\n\n${note}` : DECIDED[decision]}, actor)
+        const said = picks ? `Approved this proposal with:\n${describePicks(choices, picks)}`
+            : explored ? `Asked to explore ${explored.key} (${explored.title}) further: add a choice that goes down it, then put the proposal up again.`
+            : DECIDED[decision]
+        await this.createComment(project, id, {body: note ? `${said}\n\n${note}` : said}, actor)
         return await this.issue(project, id)
     }
 
@@ -1171,6 +1213,9 @@ export class Store {
             decidedBy: row.decided_by ?? undefined,
             decidedAt: row.decided_at ?? undefined,
             decisionNote: row.decision_note ?? undefined,
+            choices: JSON.parse(row.choices) as Choice[],
+            picks: row.picks ? JSON.parse(row.picks) as Picks : undefined,
+            explore: row.explore ? JSON.parse(row.explore) as {choice: string, option: string} : undefined,
             comments: comments.get(row.id) ?? 0,
             aliases: issueAliases.get(row.id) ?? [],
             schedule: row.schedule ?? undefined,

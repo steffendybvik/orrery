@@ -80,6 +80,15 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
   `approved`, `changes` or `rejected`, with `decidedBy`, `decidedAt` and `decisionNote`. The decision is
   also left as the owner's comment (`Approved this proposal.` and the note), so the session on it hears,
   and the issue goes back to whoever proposed it
+- **Choices:** a proposal can put questions to the owner instead of a plain yes or no. Send
+  `choices: [{key, question, pick, options: [{key, title, body?}], recommended?, from?}]` on `POST` or
+  `PATCH`. `pick` is `one` or `any`, `recommended` lists the options you'd pick (ticked for the owner
+  to start with), and `from: {choice, option}` makes a choice that goes further down an earlier one's
+  option (it only counts if that option is picked). The owner approves with
+  `POST …/decide {decision: "approved", picks?: {choice: [options]}}`: a choice left out takes its
+  recommendation, a pick-one takes exactly one. The issue keeps `picks`, and the decision comment lists
+  them. Or they ask for changes with `explore: {choice, option}`: add a choice `from` that option, then
+  put the proposal up again with `proposal: "pending"`
 - Approving doesn't commit it: `PATCH {proposal: null}` does (with a `status` to place it),
   and the issue keeps `decidedBy` and `decidedAt`. An agent can only commit an approved proposal (403
   otherwise); a rejected one stays in Proposed until the owner deletes or commits it

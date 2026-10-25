@@ -1,7 +1,7 @@
 // The column rules: every leaf issue goes where its status puts it, and parents and chunks follow their
 // leaves. Also checks a roadmap in the `roadmap.json` format (chunks of tasks with a status and a plan),
 // which `POST /api/projects/:project/import` takes.
-import type {Board, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Place, Priority, Proposal} from '#shared/roadmap'
+import type {Board, Choice, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Picks, Place, Priority, Proposal} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 
 /** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
@@ -174,6 +174,9 @@ export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> 
     decidedBy?: string
     decidedAt?: string
     decisionNote?: string
+    choices?: Choice[]
+    picks?: Picks
+    explore?: {choice: string, option: string}
     comments?: number
     aliases?: string[]
     schedule?: number
@@ -231,8 +234,8 @@ class Rules {
             kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
         }
         const column = this.columnOf(counts, kinds)
-        const {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, comments = 0, aliases = [], schedule, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
-        return {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, createdBy, protected: owned, createdAt, updatedAt, tasks}
+        const {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, choices = [], picks, explore, comments = 0, aliases = [], schedule, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
+        return {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, createdBy, protected: owned, createdAt, updatedAt, tasks}
     }
 
     /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.

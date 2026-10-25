@@ -270,6 +270,56 @@ describe('proposals', () => {
     })
 })
 
+describe('proposals with choices', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+    const claude: Actor = {name: 'claude', owner: false}
+    const PARTS = {key: 'parts', question: 'Which parts?', pick: 'any', recommended: ['A', 'B'],
+        options: [{key: 'A', title: 'Write-only store'}, {key: 'B', title: 'Orrery makes the call'}, {key: 'D', title: 'Approve risky uses', body: 'Holds the request until you say yes.'}]}
+    const KEY = {key: 'key', question: 'Where the key lives', pick: 'one', recommended: ['env'], options: [{key: 'env', title: 'ORRERY_SECRET_KEY'}, {key: 'keychain', title: 'OS keychain'}]}
+    const propose = async (choices: object[]) => (await store.createIssue('larder', {title: 'Secrets', proposal: 'pending', choices}, claude)).id
+
+    it('are approved with the recommendation, or with the picks sent', async () => {
+        const id = await propose([PARTS, KEY])
+        expect((await store.issue('larder', id)).choices.map(c => c.key)).toEqual(['parts', 'key'])
+        expect((await store.decide('larder', id, {decision: 'approved'}, owner)).picks).toEqual({parts: ['A', 'B'], key: ['env']})
+        expect((await store.listComments('larder', id)).at(-1)?.body)
+            .toBe('Approved this proposal with:\n- Which parts? A Write-only store, B Orrery makes the call\n- Where the key lives env ORRERY_SECRET_KEY')
+        await store.updateIssue('larder', id, {proposal: 'pending'}, claude)
+        expect((await store.issue('larder', id)).picks).toBeUndefined()
+        expect((await store.decide('larder', id, {decision: 'approved', picks: {parts: ['A', 'D'], key: ['keychain']}, note: 'D too'}, owner)).picks)
+            .toEqual({parts: ['A', 'D'], key: ['keychain']})
+    })
+
+    it('refuse picks that make no sense', async () => {
+        const id = await propose([PARTS, {...KEY, recommended: []}])
+        const refused = async (body: object) => (await failure(() => store.decide('larder', id, body, owner))).status
+        expect(await refused({decision: 'approved'})).toBe(400)
+        expect(await refused({decision: 'approved', picks: {key: ['env', 'keychain']}})).toBe(400)
+        expect(await refused({decision: 'approved', picks: {key: ['vault']}})).toBe(400)
+        expect(await refused({decision: 'approved', picks: {colour: ['red'], key: ['env']}})).toBe(400)
+        expect(await refused({decision: 'rejected', picks: {key: ['env']}})).toBe(400)
+        expect(await refused({decision: 'changes', explore: {choice: 'parts', option: 'Z'}})).toBe(400)
+        const bad = async (choices: unknown) => (await failure(() => store.createIssue('larder', {title: 'x', choices}))).status
+        expect(await bad([{key: 'k', question: 'q', options: [{key: 'A', title: 'only one'}]}])).toBe(400)
+        expect(await bad([{...KEY, recommended: ['env', 'keychain']}])).toBe(400)
+        expect(await bad([PARTS, {...KEY, from: {choice: 'parts', option: 'Q'}}])).toBe(400)
+    })
+
+    it('go further down an option the owner asks to explore', async () => {
+        const id = await propose([PARTS])
+        const explored = await store.decide('larder', id, {decision: 'changes', explore: {choice: 'parts', option: 'D'}, note: 'What would a refund look like?'}, owner)
+        expect(explored).toMatchObject({proposal: 'changes', explore: {choice: 'parts', option: 'D'}, assignee: 'claude'})
+        expect((await store.listComments('larder', id)).at(-1)?.body).toMatch(/^Asked to explore D \(Approve risky uses\) further/)
+        const RISK = {key: 'risk', question: 'Which uses wait for you?', pick: 'one', recommended: ['money'], from: {choice: 'parts', option: 'D'},
+            options: [{key: 'money', title: 'Anything that spends money'}, {key: 'writes', title: 'Every write'}]}
+        await store.updateIssue('larder', id, {choices: [PARTS, RISK], proposal: 'pending'}, claude)
+        // Going further down D only counts when D is picked.
+        expect((await store.decide('larder', id, {decision: 'approved'}, owner)).picks).toEqual({parts: ['A', 'B']})
+        await store.updateIssue('larder', id, {proposal: 'pending'}, claude)
+        expect((await store.decide('larder', id, {decision: 'approved', picks: {parts: ['D']}}, owner)).picks).toEqual({parts: ['D'], risk: ['money']})
+    })
+})
+
 describe("the owner's things", () => {
     const me: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}

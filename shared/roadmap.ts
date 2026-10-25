@@ -42,6 +42,28 @@ export type Proposal = (typeof PROPOSALS)[number]
 export const DECISIONS = ['approved', 'changes', 'rejected'] as const
 export type Decision = (typeof DECISIONS)[number]
 
+/** One option of a choice: `A`, `B`, … or a word, with a title and (Markdown) more about it. */
+export interface ChoiceOption {
+    key: string
+    title: string
+    body?: string
+}
+
+/** A question on a proposal, answered by picking one option or any of them. The agent ticks what it
+ * recommends. A choice `from` an option goes further down that option (asked for when the owner explored
+ * it), and counts only if that option is picked. */
+export interface Choice {
+    key: string
+    question: string
+    pick: 'one' | 'any'
+    options: ChoiceOption[]
+    recommended: string[]
+    from?: {choice: string, option: string}
+}
+
+/** The owner's picks: for each choice, the options they ticked. */
+export type Picks = Record<string, string[]>
+
 /** P0 is urgent. */
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
 export type Priority = (typeof PRIORITIES)[number]
@@ -67,6 +89,12 @@ export interface Issue {
     decidedBy?: string
     decidedAt?: string
     decisionNote?: string
+    /** A proposal's choices: what the owner decides, the agent's recommendation ticked. */
+    choices: Choice[]
+    /** The owner's picks when they approved it, choice → options. */
+    picks?: Picks
+    /** The option the owner asked to explore further when they asked for changes. */
+    explore?: {choice: string, option: string}
     column: Column
     /** What its column means. */
     kind: Place

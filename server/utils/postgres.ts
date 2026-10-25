@@ -206,7 +206,11 @@ const SCHEMA = `
 `
 
 /** Steps after the baseline, in order, each matching SQLite's step BASELINE + its place + 1. */
-const STEPS: string[] = []
+const STEPS: string[] = [`
+    ALTER TABLE issues ADD COLUMN choices text NOT NULL DEFAULT '[]';
+    ALTER TABLE issues ADD COLUMN picks text;
+    ALTER TABLE issues ADD COLUMN explore text;
+`]
 
 /** The transaction the code running now is part of, if any: its connection, and the database it's on. */
 const current = new AsyncLocalStorage<{db: PostgresDb, client: pg.PoolClient}>()

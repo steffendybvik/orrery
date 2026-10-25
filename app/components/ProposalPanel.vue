@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type {Decision, Issue} from '#shared/roadmap'
+import type {Choice, Decision, Issue, Picks} from '#shared/roadmap'
 
 // A proposal's decision, as the owner: approve it, ask for changes or reject it, with a note the session
-// on it hears as their comment. Approved, it's still not work until it's committed to the roadmap.
+// on it hears as their comment. Approved, it's still not work until it's committed to the roadmap. With
+// choices, approving sends what's ticked, and Explore on an option asks for changes down that option.
 const props = defineProps<{project: string, issue: Issue}>()
 const {who, load} = useOwner()
 const note = ref('')
@@ -35,7 +36,21 @@ async function send(path: string, method: 'POST' | 'PATCH', body: Record<string,
         busy.value = false
     }
 }
-const decide = (decision: Decision) => send('/decide', 'POST', {decision, ...note.value.trim() ? {note: note.value.trim()} : {}})
+// What's ticked: the decision's picks once there is one, else the agent's recommendation.
+const picks = ref<Picks>({})
+watch(() => [props.issue.id, JSON.stringify(props.issue.choices), JSON.stringify(props.issue.picks)], () => {
+    picks.value = props.issue.picks ?? Object.fromEntries(props.issue.choices.map(c => [c.key, c.recommended]))
+}, {immediate: true})
+const deciding = computed(() => props.issue.proposal === 'pending' || props.issue.proposal === 'changes')
+const explored = computed(() => {
+    const {explore, choices} = props.issue
+    const choice = explore && choices.find(c => c.key === explore.choice)
+    return choice ? {choice, option: choice.options.find(o => o.key === explore.option)} : null
+})
+
+const withNote = () => note.value.trim() ? {note: note.value.trim()} : {}
+const decide = (decision: Decision) => send('/decide', 'POST', {decision, ...decision === 'approved' && props.issue.choices.length ? {picks: picks.value} : {}, ...withNote()})
+const explore = (choice: Choice, option: string) => send('/decide', 'POST', {decision: 'changes', explore: {choice: choice.key, option}, ...withNote()})
 const commit = () => send('', 'PATCH', {proposal: null})
 </script>
 
@@ -50,6 +65,10 @@ const commit = () => send('', 'PATCH', {proposal: null})
       </span>
     </header>
     <p v-if="issue.decisionNote && issue.proposal !== 'pending'" class="text-[13px] leading-relaxed text-muted">“{{ issue.decisionNote }}”</p>
+    <p v-if="explored && issue.proposal === 'changes'" class="text-[13px] text-muted">
+      You asked to explore <span class="font-mono text-xs">{{ explored.option?.key }}</span> {{ explored.option?.title }}: the agent adds a choice down it, then puts it up again.
+    </p>
+    <ProposalChoices v-if="issue.choices.length" v-model="picks" :issue="issue" :open="deciding" @explore="explore" />
     <p class="text-xs text-muted">
       It's a proposal, not work yet: it sits in Proposed, out of the progress.
       <template v-if="issue.proposal === 'approved'">Commit it to put it on the roadmap.</template>
@@ -57,7 +76,7 @@ const commit = () => send('', 'PATCH', {proposal: null})
     <textarea
         v-model="note"
         rows="2"
-        placeholder="A note with your decision (optional): what to change, or why"
+        :placeholder="issue.choices.length ? 'A note with your decision (optional): why, or what to look at when exploring' : 'A note with your decision (optional): what to change, or why'"
         aria-label="A note with your decision"
         class="min-h-14 resize-y rounded-lg bg-panel px-2.5 py-2 text-[13px] leading-relaxed text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
     />

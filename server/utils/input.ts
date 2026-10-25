@@ -6,8 +6,10 @@ import type {Instruction} from '#shared/prompt'
 
 export interface Field {
     /** `strings` is a list of strings, such as labels; `lines` a list of `{id?, text, on?}`, such as standing
-     * instructions (a new one gets an id, and is on unless it says not). */
-    type: 'string' | 'number' | 'boolean' | 'strings' | 'lines'
+     * instructions (a new one gets an id, and is on unless it says not); `json` anything `parse` checks. */
+    type: 'string' | 'number' | 'boolean' | 'strings' | 'lines' | 'json'
+    /** For `json`: the value checked and given back as the JSON text to store, or an `Error` saying what's wrong. */
+    parse?: (value: unknown) => string
     required?: boolean
     /** Null clears the field (a plan, a parent). */
     nullable?: boolean
@@ -36,6 +38,14 @@ export function checkInput(body: unknown, spec: Record<string, Field>, partial =
         if (value === null) {
             if (field.nullable) input[key] = null
             else problems.push(`"${key}" can't be null`)
+            continue
+        }
+        if (field.type === 'json') {
+            try {
+                input[key] = field.parse!(value)
+            } catch (error) {
+                problems.push(`"${key}": ${(error as Error).message}`)
+            }
             continue
         }
         if (field.type === 'lines') {
