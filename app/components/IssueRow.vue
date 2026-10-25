@@ -62,6 +62,11 @@ const STATUS_PILL = {
         :title="`Open ${chunk.id ? chunk.title : 'the issues in no chunk'}`"
         @click.stop
     >{{ chunk.title }}</NuxtLink>
+    <span
+        v-if="issue.proposal && issue.proposal !== 'pending'"
+        class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
+        :class="{approved: 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300', changes: 'text-sky-700 ring-sky-500/30 dark:text-sky-300', rejected: 'text-rose-700 ring-rose-500/30 dark:text-rose-300'}[issue.proposal]"
+    >{{ {approved: 'Approved', changes: 'Changes asked', rejected: 'Rejected'}[issue.proposal] }}</span>
     <span class="hidden shrink-0 items-center gap-1 lg:flex">
       <LabelChip v-for="label in issue.labels.slice(0, 2)" :key="label" :label="label" />
       <span v-if="issue.labels.length > 2" class="text-[11px] text-faint">+{{ issue.labels.length - 2 }}</span>

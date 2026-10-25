@@ -8,6 +8,7 @@ export const COLUMN_STYLE: Record<Column, {label: string, text: string, fill: st
     next: {label: 'Next', text: 'text-violet-600 dark:text-violet-400', fill: 'bg-violet-500'},
     later: {label: 'Later', text: 'text-zinc-500 dark:text-zinc-400', fill: 'bg-zinc-400'},
     backlog: {label: 'Backlog', text: 'text-zinc-400 dark:text-zinc-500', fill: 'bg-zinc-300 dark:bg-zinc-600'},
+    proposed: {label: 'Proposed', text: 'text-amber-600 dark:text-amber-400', fill: 'bg-amber-400'},
     done: {label: 'Done', text: 'text-emerald-600 dark:text-emerald-400', fill: 'bg-emerald-500'},
 }
 

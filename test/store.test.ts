@@ -156,6 +156,41 @@ describe('comments', () => {
     })
 })
 
+describe('proposals', () => {
+    const owner: Actor = {name: 'steffen', owner: true}
+    const claude: Actor = {name: 'claude', owner: false}
+
+    it('sit in Proposed with their sub-issues, out of the committed work', () => {
+        const proposal = store.createIssue('mesher', {title: 'Button', proposal: 'pending', chunk: '1'})
+        store.createIssue('mesher', {title: 'Its states', parent: proposal.id, plan: 'now'})
+        store.createIssue('mesher', {title: 'Work', chunk: '1', plan: 'now'})
+        const {board} = store.project('mesher')
+        expect([store.issue('mesher', proposal.id).column, board.counts.proposed, total(board.counts)]).toEqual(['proposed', 1, 1])
+        expect(store.listIssues('mesher', {proposal: 'none'}).map(i => i.title)).toEqual(['Work'])
+    })
+
+    it("are decided by the owner, who's heard by the session on them", () => {
+        const {id} = store.createIssue('mesher', {title: 'Button', proposal: 'pending'}, claude)
+        expect(failure(() => store.decide('mesher', id, {decision: 'approved'}, claude)).status).toBe(403)
+        const decided = store.decide('mesher', id, {decision: 'changes', note: 'Rounder corners'}, owner)
+        expect([decided.proposal, decided.decidedBy, decided.decisionNote, decided.column]).toEqual(['changes', 'steffen', 'Rounder corners', 'proposed'])
+        expect(store.listComments('mesher', id).at(-1)?.body).toBe('Asked for changes to this proposal.\n\nRounder corners')
+        // Put up again, it waits on a new decision.
+        expect(store.updateIssue('mesher', id, {proposal: 'pending'}, claude).decidedBy).toBeUndefined()
+        expect(failure(() => store.decide('mesher', store.createIssue('mesher', {title: 'Work'}).id, {decision: 'approved'}, owner)).status).toBe(400)
+    })
+
+    it('are committed once approved, or by the owner', () => {
+        const {id} = store.createIssue('mesher', {title: 'Button', proposal: 'pending'})
+        expect(failure(() => store.updateIssue('mesher', id, {proposal: null}, claude)).status).toBe(403)
+        store.decide('mesher', id, {decision: 'approved'}, owner)
+        const committed = store.updateIssue('mesher', id, {proposal: null, plan: 'next'}, claude)
+        expect([committed.proposal, committed.column, committed.decidedBy]).toEqual([undefined, 'next', 'steffen'])
+        const other = store.createIssue('mesher', {title: 'Card', proposal: 'pending'})
+        expect(store.updateIssue('mesher', other.id, {proposal: null}, owner).column).toBe('backlog')
+    })
+})
+
 describe("the owner's things", () => {
     const me: Actor = {name: 'steffen', owner: true}
     const claude: Actor = {name: 'claude', owner: false}

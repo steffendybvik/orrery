@@ -159,6 +159,8 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" />
         </div>
 
+        <ProposalPanel :project="project.id" :issue="issue" />
+
         <SessionsPanel v-if="issue.column !== 'done'" :project="project.id" :issue="issue.id" />
 
         <section>

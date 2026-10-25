@@ -1,7 +1,7 @@
 // The column rules, a port of mesher's `roadmap.rs`: every leaf issue goes where its status and plan
 // put it, and parents and chunks follow their leaves. Also checks a roadmap in mesher's
 // `docs/roadmap.json` format, which `POST /api/projects/:project/import` takes.
-import type {Board, Chunk, Column, Counts, Issue, Plan, Priority, Status} from '#shared/roadmap'
+import type {Board, Chunk, Column, Counts, Issue, Plan, Priority, Proposal, Status} from '#shared/roadmap'
 import {COLUMNS, PLANS, PRIORITIES, STATUSES, emptyCounts, total} from '#shared/roadmap'
 
 /** A roadmap in `docs/roadmap.json`'s format, once checked. */
@@ -156,6 +156,10 @@ export function checkRoadmap(data: unknown): RoadmapFile {
 
 /** An issue as the board is built from it: as written, plus what the database knows. */
 export interface IssueInput extends Omit<TaskFile, 'tasks'> {
+    proposal?: Proposal
+    decidedBy?: string
+    decidedAt?: string
+    decisionNote?: string
     comments?: number
     aliases?: string[]
     schedule?: number
@@ -174,7 +178,7 @@ export interface BoardInput {
 export function buildBoard(roadmap: BoardInput): Board {
     const counts = emptyCounts()
     const chunks = roadmap.chunks.map((chunk): Chunk => {
-        const tasks = chunk.tasks.map(issueOf)
+        const tasks = chunk.tasks.map(task => issueOf(task))
         const own = sum(tasks.map(t => t.counts))
         merge(counts, own)
         const {id, title, summary, priority, aliases = [], createdBy = '', protected: owned = false} = chunk
@@ -183,27 +187,30 @@ export function buildBoard(roadmap: BoardInput): Board {
     return {chunks, counts}
 }
 
-function issueOf(task: IssueInput): Issue {
-    const tasks = task.tasks.map(issueOf)
+/** `proposed`: it's under a proposal, so it's proposed too. */
+function issueOf(task: IssueInput, proposed = false): Issue {
+    proposed ||= !!task.proposal
+    const tasks = task.tasks.map(t => issueOf(t, proposed))
     const counts = tasks.length ? sum(tasks.map(t => t.counts)) : emptyCounts()
-    if (!tasks.length) counts[leafColumn(task.status, task.plan)] += 1
-    const {id, title, priority, assignee, labels, status, plan, notes, comments = 0, aliases = [], schedule, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
-    return {id, title, priority, assignee, labels, status, plan, notes, column: columnOf(counts), counts, comments, aliases, schedule, createdBy, protected: owned, createdAt, updatedAt, tasks}
+    if (!tasks.length) counts[leafColumn(task.status, task.plan, proposed)] += 1
+    const {id, title, priority, assignee, labels, status, plan, notes, proposal, decidedBy, decidedAt, decisionNote, comments = 0, aliases = [], schedule, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
+    return {id, title, priority, assignee, labels, status, plan, notes, proposal, decidedBy, decidedAt, decisionNote, column: columnOf(counts), counts, comments, aliases, schedule, createdBy, protected: owned, createdAt, updatedAt, tasks}
 }
 
-/** A leaf issue: done → Done; doing → Doing; otherwise its plan, and Backlog when it has none. */
-export function leafColumn(status: Status, plan?: Plan): Column {
+/** A leaf issue: proposed → Proposed; done → Done; doing → Doing; otherwise its plan, and Backlog when it has none. */
+export function leafColumn(status: Status, plan?: Plan, proposed = false): Column {
+    if (proposed) return 'proposed'
     if (status === 'done') return 'done'
     if (status === 'doing') return 'doing'
     return plan ?? 'backlog'
 }
 
-/** Done when every leaf is; Doing when any is; else the soonest column an open leaf is in. A chunk
- * without issues yet is in the backlog. */
+/** Done when every committed leaf is; Doing when any is; else the soonest column an open leaf is in.
+ * Proposed when it's only proposals; a chunk without issues yet is in the backlog. */
 export function columnOf(counts: Counts): Column {
-    if (!total(counts)) return 'backlog'
+    if (!total(counts)) return counts.proposed ? 'proposed' : 'backlog'
     if (counts.done === total(counts)) return 'done'
-    return COLUMNS.find(column => column !== 'done' && counts[column] > 0) ?? 'backlog'
+    return COLUMNS.find(column => column !== 'done' && column !== 'proposed' && counts[column] > 0) ?? 'backlog'
 }
 
 function sum(all: Counts[]): Counts {

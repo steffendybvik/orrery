@@ -1,8 +1,9 @@
 // A project's roadmap as the board draws it: the server reads it from the database, places every
 // issue in a column and rolls the columns up into parents and chunks, so the page only draws.
 
-/** The board's columns, in the order work moves through them (Done last). */
-export const COLUMNS = ['doing', 'now', 'next', 'later', 'backlog', 'done'] as const
+/** The board's columns, in the order work moves through them (Done last). Proposed holds proposals,
+ * apart from committed work until the owner commits them. */
+export const COLUMNS = ['doing', 'now', 'next', 'later', 'backlog', 'proposed', 'done'] as const
 export type Column = (typeof COLUMNS)[number]
 
 export const STATUSES = ['todo', 'doing', 'done'] as const
@@ -12,11 +13,18 @@ export type Status = (typeof STATUSES)[number]
 export const PLANS = ['now', 'next', 'later'] as const
 export type Plan = (typeof PLANS)[number]
 
+/** Where a proposal stands: waiting on the owner (`pending`), or as they decided. */
+export const PROPOSALS = ['pending', 'approved', 'changes', 'rejected'] as const
+export type Proposal = (typeof PROPOSALS)[number]
+/** What the owner can decide on a proposal. */
+export const DECISIONS = ['approved', 'changes', 'rejected'] as const
+export type Decision = (typeof DECISIONS)[number]
+
 /** P0 is urgent. */
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
 export type Priority = (typeof PRIORITIES)[number]
 
-/** How many leaf issues sit in each column. */
+/** How many leaf issues sit in each column. Proposed ones aren't work yet: they're left out of `total`. */
 export type Counts = Record<Column, number>
 
 export interface Issue {
@@ -30,6 +38,12 @@ export interface Issue {
     status: Status
     plan?: Plan
     notes?: string
+    /** Set when it's a proposal (with its sub-issues): not work until the owner commits it. */
+    proposal?: Proposal
+    /** Who last decided on the proposal, when, and what they said. */
+    decidedBy?: string
+    decidedAt?: string
+    decisionNote?: string
     column: Column
     /** Its sub-issues' columns; an issue without any counts as one. */
     counts: Counts
@@ -117,9 +131,10 @@ export interface Comment {
     updatedAt: string
 }
 
-export const emptyCounts = (): Counts => ({doing: 0, now: 0, next: 0, later: 0, backlog: 0, done: 0})
+export const emptyCounts = (): Counts => ({doing: 0, now: 0, next: 0, later: 0, backlog: 0, proposed: 0, done: 0})
 
-export const total = (counts: Counts) => COLUMNS.reduce((sum, column) => sum + counts[column], 0)
+/** The committed issues: every column but Proposed. */
+export const total = (counts: Counts) => COLUMNS.reduce((sum, column) => column === 'proposed' ? sum : sum + counts[column], 0)
 
 /** A word to the Claude sessions on a project: `focus` asks one to work on the issue (or work through
  * the chunk) now; `comment` brings the owner's comment on an issue (in `note`) to the session working

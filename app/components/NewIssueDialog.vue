@@ -26,7 +26,7 @@ const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
 const WHERE: {value: Exclude<Column, 'done'>, label: string}[] = [
-    {value: 'backlog', label: 'Backlog'}, {value: 'later', label: 'Later'}, {value: 'next', label: 'Next'},
+    {value: 'proposed', label: 'Proposed'}, {value: 'backlog', label: 'Backlog'}, {value: 'later', label: 'Later'}, {value: 'next', label: 'Next'},
     {value: 'now', label: 'Now'}, {value: 'doing', label: 'Doing'},
 ]
 
@@ -48,7 +48,7 @@ async function create() {
     saving.value = true
     failed.value = ''
     try {
-        const plan = column.value === 'backlog' || column.value === 'doing' ? undefined : column.value
+        const plan = column.value === 'backlog' || column.value === 'doing' || column.value === 'proposed' ? undefined : column.value
         const owner = await load()
         const issue = await $fetch<{id: string}>(`/api/projects/${encodeURIComponent(project.value.id)}/issues`, {
             method: 'POST',
@@ -61,6 +61,7 @@ async function create() {
                 ...priority.value ? {priority: priority.value} : {},
                 ...plan ? {plan} : {},
                 ...column.value === 'doing' ? {status: 'doing'} : {},
+                ...column.value === 'proposed' ? {proposal: 'pending'} : {},
             },
         })
         const id = project.value.id

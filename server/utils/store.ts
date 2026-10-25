@@ -3,8 +3,8 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
-import type {Asks, Board, Chunk, Comment, Settings, Counts, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Signal, Status} from '#shared/roadmap'
-import {ASKS, PLANS, PRIORITIES, STATUSES, TINTS} from '#shared/roadmap'
+import type {Asks, Board, Chunk, Comment, Settings, Counts, Decision, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Proposal, Signal, Status} from '#shared/roadmap'
+import {ASKS, DECISIONS, PLANS, PRIORITIES, STATUSES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
@@ -62,6 +62,8 @@ export interface IssueFilter {
     chunk?: string
     /** An issue id, or `none` for top-level issues. */
     parent?: string
+    /** Where a proposal stands, or `none` for committed work (nothing proposed, nor under a proposal). */
+    proposal?: string
     /** Text in the id or title. */
     q?: string
 }
@@ -72,7 +74,8 @@ interface ChunkRow extends Made { project: string, id: string, title: string, su
 interface IssueRow extends Made {
     project: string, id: string, title: string, status: Status, plan: Plan | null, priority: Priority | null,
     assignee: string | null, labels: string, notes: string | null,
-    parent: string | null, chunk: string | null, position: number, schedule: number | null
+    parent: string | null, chunk: string | null, position: number, schedule: number | null,
+    proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
@@ -105,6 +108,9 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     assignee: {type: 'string', nullable: true},
     labels: {type: 'strings', nullable: true},
     notes: {type: 'string', nullable: true},
+    /** `pending` makes it a proposal (or puts one up again after changes); `null` commits it. The owner
+     * decides on it with `decide`. */
+    proposal: {type: 'string', values: ['pending'], nullable: true},
     /** Only on an update: moves the issue, its sub-issues and their comments to another project. */
     project: {type: 'string', pattern: SLUG, hint: "use the other project's id"},
     parent: {type: 'string', nullable: true},
@@ -118,6 +124,14 @@ export const DOC_FIELDS: Record<string, Field> = {
     body: {type: 'string'},
     position: {type: 'number'},
 }
+
+export const DECISION_FIELDS: Record<string, Field> = {
+    decision: {type: 'string', values: DECISIONS, required: true},
+    note: {type: 'string', nullable: true},
+}
+
+/** The comment a decision leaves on its proposal, for the session working on it to hear. */
+const DECIDED: Record<Decision, string> = {approved: 'Approved this proposal.', changes: 'Asked for changes to this proposal.', rejected: 'Rejected this proposal.'}
 
 export const SIGNAL_FIELDS: Record<string, Field> = {
     note: {type: 'string', nullable: true},
@@ -346,6 +360,7 @@ export class Store {
             && (!filter.label || r.labels.includes(filter.label))
             && (!filter.chunk || (filter.chunk === 'none' ? !r.chunk : r.chunk === filter.chunk))
             && (!filter.parent || (filter.parent === 'none' ? !r.parent : r.parent === filter.parent))
+            && (!filter.proposal || (filter.proposal === 'none' ? r.column !== 'proposed' : r.proposal === filter.proposal))
             && (!q || r.id.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)))
     }
 
@@ -371,11 +386,11 @@ export class Store {
         const id = transaction(this.db, () => {
             const id = this.nextId(project, 'issue')
             const now = stamp()
-            this.run(`INSERT INTO issues (project, id, title, status, plan, priority, assignee, labels, notes, parent, chunk, position,
+            this.run(`INSERT INTO issues (project, id, title, status, plan, priority, assignee, labels, notes, proposal, parent, chunk, position,
                                           created_by, owned, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), String(input.status ?? 'todo'), nullable(input.plan), nullable(input.priority),
-                nullable(input.assignee), JSON.stringify(input.labels ?? []), nullable(input.notes),
+                nullable(input.assignee), JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
                 parent, chunk, Number(input.position ?? this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
             this.touchProject(project)
             return id
@@ -385,17 +400,21 @@ export class Store {
     }
 
     /** `parent: null` lifts a sub-issue to the top, into the chunk it was in unless `chunk` says otherwise.
-     * `project` moves it (with its sub-issues and comments) to the top of another project. */
-    updateIssue(project: string, id: string, body: unknown): IssueDetail {
+     * `project` moves it (with its sub-issues and comments) to the top of another project. `proposal:
+     * null` commits a proposal: an agent can only commit one the owner approved. */
+    updateIssue(project: string, id: string, body: unknown, actor = AGENT): IssueDetail {
         id = this.issueId(project, id)
         this.issueRow(project, id)
         const input = checkInput(body, ISSUE_FIELDS, true)
         if (input.project !== undefined && input.project !== project) {
             const {project: to, parent, chunk, ...rest} = input
             const moved = this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null)
-            return this.updateIssue(String(to), moved, rest)
+            return this.updateIssue(String(to), moved, rest, actor)
         }
         const row = this.issueRow(project, id)
+        if (input.proposal === null && row.proposal && row.proposal !== 'approved' && !actor.owner) {
+            throw forbidden(`Committing ${id} is the owner's call until they approve it: it's ${row.proposal === 'pending' ? 'waiting on them' : row.proposal === 'changes' ? 'waiting on changes' : 'rejected'}`)
+        }
 
         const parent = input.parent === undefined ? row.parent : input.parent === null ? null : this.issueId(project, String(input.parent))
         let chunk = input.chunk === undefined ? undefined : input.chunk === null ? null : this.chunkId(project, String(input.chunk))
@@ -420,6 +439,9 @@ export class Store {
                 assignee: input.assignee,
                 labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
                 notes: input.notes,
+                proposal: input.proposal,
+                // Put up again, it waits on a new decision.
+                ...input.proposal === 'pending' ? {decided_by: null, decided_at: null, decision_note: null} : {},
                 parent: input.parent === undefined ? undefined : parent,
                 chunk,
                 position: input.position,
@@ -444,6 +466,22 @@ export class Store {
             this.touchProject(project)
         })
         this.onChange(project)
+    }
+
+    /** The owner's decision on a proposal: approved (still not work until it's committed), changes asked
+     * for, or rejected. It's kept on the issue and left as their comment, so the session on it hears. */
+    decide(project: string, id: string, body: unknown, actor = AGENT): IssueDetail {
+        id = this.issueId(project, id)
+        const row = this.issueRow(project, id)
+        if (!actor.owner) throw forbidden(`Deciding on ${id} is the owner's call; send Orrery-Actor: <owner>`)
+        if (!row.proposal) throw badRequest(`${id} isn't a proposal; make it one with PATCH {"proposal": "pending"}`)
+        const input = checkInput(body ?? {}, DECISION_FIELDS)
+        const decision = input.decision as Decision
+        const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null
+        this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ? WHERE project = ? AND id = ?',
+            decision, actor.name, stamp(), note, project, id)
+        this.createComment(project, id, {body: note ? `${DECIDED[decision]}\n\n${note}` : DECIDED[decision]}, actor)
+        return this.issue(project, id)
     }
 
     /** Moves an issue and everything under it to `to`, where they get its ids (KEY-n); the ids they had
@@ -802,6 +840,10 @@ export class Store {
             status: row.status,
             plan: row.plan ?? undefined,
             notes: row.notes ?? undefined,
+            proposal: row.proposal ?? undefined,
+            decidedBy: row.decided_by ?? undefined,
+            decidedAt: row.decided_at ?? undefined,
+            decisionNote: row.decision_note ?? undefined,
             comments: comments.get(row.id) ?? 0,
             aliases: issueAliases.get(row.id) ?? [],
             schedule: row.schedule ?? undefined,

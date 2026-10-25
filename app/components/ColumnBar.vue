@@ -4,7 +4,8 @@ import {COLUMNS, total} from '#shared/roadmap'
 
 // A thin bar split by where the leaves are: done first, then doing, now, next, later, backlog.
 const props = defineProps<{counts: Counts}>()
-const ORDER = ['done', ...COLUMNS.filter(c => c !== 'done')] as const
+// Proposals aren't work yet, so they're not in the bar.
+const ORDER = ['done', ...COLUMNS.filter(c => c !== 'done' && c !== 'proposed')] as const
 const parts = computed(() => {
     const all = total(props.counts) || 1
     return ORDER.filter(c => props.counts[c]).map(c => ({column: c, width: `${(props.counts[c] / all) * 100}%`}))

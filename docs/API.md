@@ -47,11 +47,12 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 
 | | |
 |---|---|
-| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?plan= ?priority= ?column= ?assignee= ?label= ?chunk= ?parent= ?q=` (`none` for unset) |
-| `POST /projects/:project/issues` | `{title, status?, plan?, priority?, assignee?, labels?, notes?, parent?, chunk?, position?}`; gets the next `KEY-n` |
+| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?plan= ?priority= ?column= ?assignee= ?label= ?chunk= ?parent= ?proposal= ?q=` (`none` for unset; `?proposal=none` is committed work only) |
+| `POST /projects/:project/issues` | `{title, status?, plan?, priority?, assignee?, labels?, notes?, proposal?, parent?, chunk?, position?}`; gets the next `KEY-n` |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and chunk |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |
 | `DELETE /projects/:project/issues/:issue` | with its sub-issues and comments |
+| `POST /projects/:project/issues/:issue/decide` | `{decision, note?}`, the owner only: `approved`, `changes` or `rejected` a proposal → the issue |
 
 - `status`: `todo` (default) · `doing` · `done`
 - `plan` (open issues): `now` · `next` · `later`; none is the backlog
@@ -60,6 +61,20 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 - `parent: null` lifts a sub-issue to the top, into the chunk it was in
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `notes` may use inline `` `code` `` and `**bold**`
+
+### Proposals
+
+A proposal is an issue that isn't work yet: something put to the owner to approve. It sits in the
+**Proposed** column with its sub-issues, out of the counts' progress, until it's committed.
+
+- `proposal: "pending"` (on `POST` or `PATCH`) makes an issue a proposal, or puts one up again after
+  the owner asked for changes (clearing their last decision)
+- The owner decides with `POST …/issues/:issue/decide {decision, note?}`; `proposal` becomes
+  `approved`, `changes` or `rejected`, with `decidedBy`, `decidedAt` and `decisionNote`. The decision is
+  also left as the owner's comment (`Approved this proposal.` and the note), so the session on it hears
+- Approving doesn't commit it: `PATCH {proposal: null}` does (with a `plan` or `status` to place it),
+  and the issue keeps `decidedBy` and `decidedAt`. An agent can only commit an approved proposal (403
+  otherwise); a rejected one stays in Proposed until the owner deletes or commits it
 
 ## Docs
 
@@ -144,9 +159,11 @@ it. Each signal lists the sessions it reached in `deliveredTo`
 
 ## Columns
 
-Computed, never written: a leaf issue that's done is in Done, doing in Doing, else its plan (Now,
-Next, Later) or Backlog. A parent issue or a chunk: Done when every leaf is, Doing when any is,
-else the soonest column of an open leaf. Counts and progress are leaves only.
+Computed, never written: a leaf issue that's a proposal (or under one) is in Proposed; done is in
+Done, doing in Doing, else its plan (Now, Next, Later) or Backlog. A parent issue or a chunk: Done
+when every committed leaf is, Doing when any is, else the soonest column of an open leaf, and
+Proposed when it holds only proposals. Counts and progress are leaves only, and progress leaves
+proposals out.
 
 ## Errors
 
