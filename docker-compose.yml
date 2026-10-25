@@ -7,7 +7,7 @@
 # corrupted).
 #
 # The first time it's opened, it asks your name, and keeps it in the database: what you make, no one
-# else can delete. Your `Orrery-Actor` header is it in lowercase snake case (`steffen_dybvik`).
+# else can delete. Your `Orrery-Actor` header is it in lowercase snake case (`skoll_fenrisson`).
 # ORRERY_ENVIRONMENT names this Orrery (`personal` by default; e.g. `work`): a chip by its name and
 # the start of every tab's title. Each is its own server with its own database: another compose
 # project with its own .env file, e.g. `docker compose --env-file .env.work up -d` with

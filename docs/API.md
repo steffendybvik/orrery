@@ -19,8 +19,9 @@ had before (`MOT-5`, the chunk slug `joints`) are kept as **aliases**: every rou
 
 There's no auth. The owner is whoever gave their name when the Orrery was first opened (`GET /api/owner`
 → `{name, display, named}`; `PUT /api/owner {name}` gives it, anyone the first time, then the owner only).
-Their `Orrery-Actor` is that name in lowercase snake case: `Steffen Dybvik` is `steffen_dybvik`
-(`owner` until a name is given; renaming moves what was theirs to the new id). What the owner makes is
+Their `Orrery-Actor` is that name in lowercase snake case: `Sköll Fenrisson` is `skoll_fenrisson`
+(`owner` until a name is given; renaming moves what was theirs to the new id). Don't guess it from
+a git name: read it from `GET /api/owner`, or assign to `owner` (below), which always means them. What the owner makes is
 `protected`: no one else can delete it, directly or by deleting what holds it (a parent issue,
 the project, a replacing import), and no one else can edit the owner's comments. That's a 403.
 Docs the owner wrote can still be edited by agents (they keep them current), not deleted.
@@ -60,7 +61,8 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 - `status`: a status's id (see [Statuses](#statuses)), `backlog` by default. A kind works too and picks its
   first status: `{"status": "started"}` is In progress. The words from before statuses still work:
   `doing` is started, and `todo` with a `plan` (`now`, `next`, `later`) is Todo, with `plan: null` Backlog
-- `priority`: `P0` (urgent, listed under Urgent until done) · `P1` · `P2` · `P3`; `labels`: a list of strings; `assignee`: a name
+- `priority`: `P0` (urgent, listed under Urgent until done) · `P1` · `P2` · `P3`; `labels`: a list of strings; `assignee`: a name, or `owner` for the owner
+  (stored as their id, so it shows under their My issues; `?assignee=owner` finds theirs too)
 - A top-level issue is in a `chunk`; a sub-issue (`parent`) is in its parent's chunk, so it takes no `chunk`
 - `parent: null` lifts a sub-issue to the top, into the chunk it was in
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases

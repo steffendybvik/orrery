@@ -305,10 +305,20 @@ describe("the owner's name", () => {
         const proposed = store.createIssue('larder', {title: 'A', proposal: 'pending'}, claude)
         expect(store.issue('larder', proposed.id).assignee).toBe('owner')
 
-        expect(store.nameOwner({name: 'Steffen Dybvík'}, claude)).toEqual({name: 'steffen_dybvik', display: 'Steffen Dybvík', named: true})
-        expect(store.issue('larder', mine.id).createdBy).toBe('steffen_dybvik')
-        expect(store.issue('larder', proposed.id).assignee).toBe('steffen_dybvik')
+        expect(store.nameOwner({name: 'Sköll Fenrisson'}, claude)).toEqual({name: 'skoll_fenrisson', display: 'Sköll Fenrisson', named: true})
+        expect(store.issue('larder', mine.id).createdBy).toBe('skoll_fenrisson')
+        expect(store.issue('larder', proposed.id).assignee).toBe('skoll_fenrisson')
         expect(store.issue('larder', mine.id).protected).toBe(true)
+    })
+
+    it('is who `owner` means as an assignee, so agents needn\'t know the id', () => {
+        store.nameOwner({name: 'Sköll Fenrisson'})
+        const a = store.createIssue('larder', {title: 'A', assignee: 'owner'}, claude)
+        expect(a.assignee).toBe('skoll_fenrisson')
+        const b = store.createIssue('larder', {title: 'B'}, claude)
+        expect(store.updateIssue('larder', b.id, {assignee: 'Owner'}, claude).assignee).toBe('skoll_fenrisson')
+        expect(store.listIssues('larder', {assignee: 'owner'}).map(i => i.id)).toEqual([a.id, b.id])
+        expect(store.updateIssue('larder', b.id, {assignee: 'claude'}, claude).assignee).toBe('claude')
     })
 
     it('is only the owner\'s to change once given', () => {

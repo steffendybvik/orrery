@@ -10,7 +10,7 @@ watch(named, now => {
     if (!now) nextTick(() => input.value?.focus())
 }, {immediate: true})
 
-/** As the server makes it: `Steffen Dybvik` → `steffen_dybvik`. */
+/** As the server makes it: `Sköll Fenrisson` → `skoll_fenrisson`. */
 const id = computed(() => display.value.normalize('NFKD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''))
 const ready = computed(() => !!id.value && id.value !== 'agent' && !saving.value)

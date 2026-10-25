@@ -268,7 +268,7 @@ export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green:
 /** This Orrery's own settings, not a project's. */
 /** Whose Orrery it is: their name as the page shows it, and the `Orrery-Actor` id it makes. */
 export interface Owner {
-    /** The id: the name in lowercase snake case (`steffen_dybvik`); `owner` until they give one. */
+    /** The id: the name in lowercase snake case (`skoll_fenrisson`); `owner` until they give one. */
     name: string
     display: string
     /** Whether they've given their name (the page asks on first open). */
