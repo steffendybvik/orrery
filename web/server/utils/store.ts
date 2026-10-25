@@ -407,6 +407,12 @@ export class Store {
         }
     }
 
+    /** Whether Orrery may start sessions for the project, and within what; none while the owner hasn't let it. */
+    async starts(project: string): Promise<Starts | undefined> {
+        const row = await this.projectRow(project)
+        return row.starts ? JSON.parse(row.starts) as Starts : undefined
+    }
+
     /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
     async prompts(project: string): Promise<{focus: string, chunk: string}> {
         const row = await this.projectRow(project)
@@ -566,6 +572,9 @@ export class Store {
     async updateSettings(body: unknown, actor = AGENT): Promise<Settings> {
         if (!actor.owner) throw forbidden("Only the owner changes the Orrery's settings; send Orrery-Actor: <owner>")
         const input = checkInput(body, SETTINGS_FIELDS, true)
+        if (input.sessionLimit != null && !(Number.isInteger(input.sessionLimit) && Number(input.sessionLimit) >= 0 && Number(input.sessionLimit) <= 50)) {
+            throw badRequest(`"sessionLimit" should be a whole number from 0 to 50, not ${input.sessionLimit}`)
+        }
         await this.db.transaction(async () => {
             for (const [key, sent] of Object.entries(input)) {
                 if (sent === undefined) continue

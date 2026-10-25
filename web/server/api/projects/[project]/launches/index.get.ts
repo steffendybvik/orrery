@@ -2,6 +2,6 @@
 // sessions for the project, how many it has running, and how many are on their way.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
-    await useStore().project(project)
+    await useStore().starts(project)
     return launchState(project)
 })

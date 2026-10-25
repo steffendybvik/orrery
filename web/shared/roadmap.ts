@@ -345,8 +345,15 @@ export interface Session {
     startedAt: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
-    /** Orrery started it (no terminal), so it stops on its own after the project's `starts.minutes`. */
-    started?: boolean
+    /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
+    started?: StartedSession
+}
+
+/** A session Orrery started, as its launch made it. */
+export interface StartedSession {
+    launch: string
+    tmux: string
+    stopsAt: string
 }
 
 /** An agent's comment, as the notification bell and page list it. */

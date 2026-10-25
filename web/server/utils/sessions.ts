@@ -2,7 +2,7 @@
 // session's hooks say who it is and what it's doing (POST /api/sessions); its channel, while
 // connected, says it's there to hear signals. Both name the window by Claude Code's session id,
 // falling back to the claude process's pid.
-import type {Session, SessionState} from '#shared/roadmap'
+import type {Session, SessionState, StartedSession} from '#shared/roadmap'
 
 interface Known extends Session {
     pid?: number
@@ -122,9 +122,9 @@ export function hearing(project: string, id: string): boolean {
 }
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
- * started with the channel flag, so its messages would be dropped; `started` that Orrery started it.
+ * started with the channel flag, so its messages would be dropped; `started` is the launch Orrery started it for.
  * Says the session's id. */
-export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started = false): {id: string, done: () => void} {
+export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
@@ -132,7 +132,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
         sessions.set(session.id, session)
     }
     session.listening = heard
-    if (started) session.started = true
+    if (started) session.started = started
     if (name) session.name = name
     changed(project)
     const held = session
@@ -145,9 +145,33 @@ export function attend(project: string, id: string | undefined, pid: number | un
     }
 }
 
-/** How many sessions Orrery started are running, on the project or over all of them. */
+/** How many sessions Orrery started are running, on the project or over all of them: one whose channel
+ * has gone (it crashed, or was stopped by hand) no longer counts. */
 export function startedSessions(project?: string): number {
-    return listSessions(project).filter(s => s.started).length
+    return listSessions(project).filter(s => s.started && s.listening).length
+}
+
+/** The session Orrery started for the launch, if it's still known. */
+export function sessionOfLaunch(project: string, launch: string): Session | undefined {
+    const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
+    return session && publicOf(session)
+}
+
+/** The launch's session has ended (its launcher stopped it): it's dropped. */
+export function launchEnded(project: string, launch: string) {
+    const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
+    if (!session) return
+    sessions.delete(session.id)
+    changed(project)
+}
+
+/** Moves the launch's stop time; says the session as it now is. */
+export function extendLaunch(project: string, launch: string, stopsAt: string): Session | undefined {
+    const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
+    if (!session?.started) return undefined
+    session.started = {...session.started, stopsAt}
+    changed(project)
+    return publicOf(session)
 }
 
 export function listSessions(project?: string): Session[] {

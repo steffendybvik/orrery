@@ -7,6 +7,8 @@ import type {Project} from '#shared/roadmap'
 const props = defineProps<{project?: Project}>()
 const {settings, save: saveSettings} = useAppSettings()
 const {load} = useOwner()
+const {launchers, sessions} = useRoadmaps()
+const started = computed(() => props.project ? (sessions.value[props.project.id] ?? []).filter(s => s.started) : [])
 const failed = ref('')
 const field = 'h-8 w-20 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
 
@@ -19,13 +21,13 @@ watch(() => [props.project?.starts, settings.value.sessionLimit] as const, ([sta
     total.value = all
 }, {immediate: true})
 
-// Whether a launcher is there to start them, asked again as the project changes.
+// Whether a launcher is there to start them, asked again as the project, its launchers or its sessions change.
 const state = ref<{launchers: number, started: number, starting: number} | null>(null)
 async function refresh() {
     if (!props.project) return
     state.value = await $fetch<typeof state.value>(`/api/projects/${encodeURIComponent(props.project.id)}/launches`).catch(() => null)
 }
-watch(() => props.project, refresh, {immediate: true})
+watch(() => [props.project, props.project && launchers.value[props.project.id], props.project && sessions.value[props.project.id]], refresh, {immediate: true})
 
 async function save(change: Record<string, unknown>) {
     failed.value = ''
@@ -63,6 +65,13 @@ function saveStarts(on = !!props.project?.starts) {
         <template v-if="state.launchers">Its launcher is running{{ state.started ? `, with ${state.started} session${state.started === 1 ? '' : 's'} it started` : '' }}.</template>
         <template v-else>No launcher is running for it: start one in its repo with <span class="font-mono">ORRERY_PROJECT={{ project.id }} node channel/orrery-launcher.mjs</span>.</template>
       </p>
+      <ul v-if="started.length" class="flex flex-col border-t border-line pt-2">
+        <li v-for="session in started" :key="session.id" class="flex flex-wrap items-center gap-2 py-1">
+          <SessionDot :session="session" />
+          <span class="min-w-0 truncate text-fg">{{ session.name }}</span>
+          <StartedSession :session="session" class="ml-auto" />
+        </li>
+      </ul>
     </template>
     <div v-else class="flex flex-wrap items-center gap-2 text-xs text-muted">
       <span>At most</span>

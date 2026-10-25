@@ -229,13 +229,19 @@ A project whose owner set `starts: {limit, minutes}` gets sessions started for i
 the owner's signal (a focus, a comment, a schedule's) finds nobody listening on it, Orrery asks the
 project's launcher (`channel/orrery-launcher.mjs`, on the host) to start one in a detached tmux session.
 At most `limit` run at once on the project, and `sessionLimit` (`PATCH /settings`, 3 by default) over every
-project; each is stopped after `minutes`. Its channel catches up from the signal it was started for. Those
-sessions list with `started: true`.
+project, a whole number from 0 to 50; each is stopped after `minutes`. Several signals at once start one
+session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
+signal it was started for. Those sessions list with `started: {launch, tmux, stopsAt}`, and count toward
+the limits while their channel is connected.
 
 | | |
 |---|---|
-| `GET /projects/:project/launches/stream` | server-sent `launch` events, `{id, project, after, minutes}`, for the launcher |
+| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}` and `extend` `{id, stopsAt}` |
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
+| `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
+| `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
+| `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
+| `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped |
 
 `POST …/focus` takes `{session}` to reach one session; without it, every session gets
 it. Each signal lists the sessions it reached in `deliveredTo`

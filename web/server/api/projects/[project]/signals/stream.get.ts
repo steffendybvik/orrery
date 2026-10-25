@@ -18,9 +18,8 @@ export default defineEventHandler(async event => {
     // drops its messages, so the session isn't counted as listening.
     const heard = text('channel') !== 'no'
     // A session Orrery started says which launch it is (`started`).
-    const started = text('started')
-    const attended = text('session') || text('pid') ? attend(project, text('session'), Number(text('pid')) || undefined, text('name'), heard, !!started) : null
-    if (started) launched(started)
+    const started = text('started') ? launched(text('started')!) : undefined
+    const attended = text('session') || text('pid') ? attend(project, text('session'), Number(text('pid')) || undefined, text('name'), heard, started) : null
     const stopListening = heard ? listen(project) : () => {}
     const done = () => {
         stopListening()

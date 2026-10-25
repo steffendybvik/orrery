@@ -9,11 +9,13 @@ export function useRoadmaps() {
     const changed = useState<Record<string, number>>('projects-changed', () => ({}))
     /** How many Claude sessions listen for each project's signals (known for projects asked about). */
     const listeners = useState<Record<string, number>>('projects-listeners', () => ({}))
+    /** How many launchers that start sessions are connected for each project (known once one comes or goes). */
+    const launchers = useState<Record<string, number>>('projects-launchers', () => ({}))
     /** The Claude sessions on each project, as their hooks and channels last said. */
     const sessions = useState<Record<string, Session[]>>('projects-sessions', () => ({}))
     /** Signals as they're sent and delivered, latest first (what the issue pages show). */
     const signals = useState<Signal[]>('projects-signals', () => [])
 
     const byId = (id: string | undefined) => projects.value.find(p => p.id === id)
-    return {projects, ready, live, changed, listeners, sessions, signals, byId}
+    return {projects, ready, live, changed, listeners, launchers, sessions, signals, byId}
 }

@@ -1,64 +1,112 @@
 // Sessions Orrery starts itself, with no terminal. When the owner's signal reaches a project nobody is
 // listening on, and the owner lets the project have sessions started (its `starts`), Orrery asks the
-// project's launcher (channel/orrery-launcher.mjs, running on the host in the repo) to start one in tmux:
-// within the project's limit, and the Orrery's (`sessionLimit`) over every project. The started session's
-// channel catches up from that signal, and the launcher stops the session after the project's minutes.
+// project's launchers (channel/orrery-launcher.mjs, running on the host in the repo) to start one in tmux:
+// within the project's limit, and the Orrery's (`sessionLimit`) over every project. The first launcher to
+// claim the launch starts it; its channel catches up from that signal, and the launcher stops the session
+// after the project's minutes, or when the owner stops it.
 import {randomBytes} from 'node:crypto'
-import type {Signal} from '#shared/roadmap'
+import type {Session, Signal} from '#shared/roadmap'
 
-/** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to catch up from. */
+/** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
+ * catch up from; `tmux` names the tmux session it runs in. */
 export interface Launch {
     id: string
     project: string
     after: number
     minutes: number
+    tmux: string
 }
 
-/** Launches asked for whose session hasn't connected yet; one that never does is let go after a while. */
-const pending = new Map<string, Launch & {at: number}>()
+/** What goes down a project's launcher stream: a session to start, or one of its sessions to stop or keep longer. */
+export type LaunchEvent =
+    | {type: 'launch', launch: Launch}
+    | {type: 'stop', project: string, id: string}
+    | {type: 'extend', project: string, id: string, stopsAt: string}
+
+/** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
+ * `claimed` once a launcher has taken it on. */
+const pending = new Map<string, Launch & {at: number, claimed: boolean}>()
 const PENDING_FOR = 3 * 60 * 1000
 /** How many launchers each project has connected. */
-const launchers = new Map<string, number>()
-
-export function launchersOf(project: string): number {
-    return launchers.get(project) ?? 0
-}
-
+const launchers = counter('launchers')
+export const launchersOf = launchers.count
 /** Counts a project's launcher in until `done` is called. */
-export function addLauncher(project: string): () => void {
-    launchers.set(project, launchersOf(project) + 1)
-    let counted = true
-    return () => {
-        if (!counted) return
-        counted = false
-        launchers.set(project, Math.max(0, launchersOf(project) - 1))
-    }
-}
+export const addLauncher = launchers.add
 
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) if (Date.now() - launch.at > PENDING_FOR) pending.delete(id)
     return [...pending.values()].filter(l => !project || l.project === project).length
 }
 
+function emit(event: LaunchEvent) {
+    projectEvents.emit('launches', event)
+}
+
 /** Starts a session for the signal if it's the owner's, nobody on its project is there to hear it, the owner
  * lets the project have sessions started, a launcher is there to start one, and the limits allow it. One
- * launch on its way covers every signal after it, as its channel catches up from the first. */
+ * launch on its way covers every signal after it, as its channel catches up from the first. The launch is
+ * held from the first check, so signals that come together start one session, not one each. */
 export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const {project} = signal
-    if (!signal.protected || signal.deliveredTo.length || listening(project) || !launchersOf(project) || pendingOn(project)) return null
-    const store = useStore()
-    const {starts} = await store.project(project)
-    if (!starts || startedSessions(project) >= starts.limit) return null
-    if (startedSessions() + pendingOn() >= (await store.settings()).sessionLimit) return null
-    const launch = {id: randomBytes(6).toString('hex'), project, after: signal.id - 1, minutes: starts.minutes}
-    pending.set(launch.id, {...launch, at: Date.now()})
-    projectEvents.emit('launch', launch)
+    if (!signal.protected || listening(project) || !launchersOf(project) || pendingOn(project)) return null
+    const id = randomBytes(6).toString('hex')
+    const held = {id, project, after: signal.id - 1, minutes: 0, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
+    pending.set(id, held)
+    const minutes = await allowedMinutes(project).catch(error => {
+        pending.delete(id)
+        throw error
+    })
+    if (!minutes) {
+        pending.delete(id)
+        return null
+    }
+    held.minutes = minutes
+    const {at: _at, claimed: _claimed, ...launch} = held
+    emit({type: 'launch', launch})
     return launch
 }
 
-/** The launch's session connected: it counts as a started session from now on. */
-export function launched(id: string) {
+/** The minutes a new session on the project gets; none when the owner hasn't let it have sessions started,
+ * or a limit is reached (counting the launch being held). */
+async function allowedMinutes(project: string): Promise<number | null> {
+    const store = useStore()
+    const starts = await store.starts(project)
+    if (!starts || startedSessions(project) >= starts.limit) return null
+    if (startedSessions() + pendingOn() > (await store.settings()).sessionLimit) return null
+    return starts.minutes
+}
+
+/** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. */
+export function claim(project: string, id: string): boolean {
+    const launch = pending.get(id)
+    if (!launch || launch.project !== project || launch.claimed) return false
+    launch.claimed = true
+    return true
+}
+
+/** The launch's session connected: it counts as a started session from now on. Says what it was started as. */
+export function launched(id: string): {launch: string, tmux: string, stopsAt: string} | undefined {
+    const launch = pending.get(id)
     pending.delete(id)
+    return launch && {launch: id, tmux: launch.tmux, stopsAt: new Date(Date.now() + launch.minutes * 60_000).toISOString()}
+}
+
+/** The owner stopping a session Orrery started: its launcher kills it, and says when it's gone. */
+export function stopLaunch(project: string, id: string): Session {
+    const session = sessionOfLaunch(project, id)
+    if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
+    emit({type: 'stop', project, id})
+    return session
+}
+
+/** The owner giving a session Orrery started more time: `minutes` from when it would have stopped, or from now if that's past. */
+export function extendLaunchBy(project: string, id: string, minutes: number): Session {
+    const session = sessionOfLaunch(project, id)
+    if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    const from = Math.max(Date.now(), Date.parse(session.started.stopsAt))
+    const stopsAt = new Date(from + minutes * 60_000).toISOString()
+    emit({type: 'extend', project, id, stopsAt})
+    return extendLaunch(project, id, stopsAt)!
 }
 
 /** For the project's settings: its launchers, and the sessions it has started and on their way. */

@@ -2,7 +2,8 @@ import type {Project, Signal} from '#shared/roadmap'
 
 // `GET /api/events` → server-sent events: `project` (a project read again, as JSON) when its
 // roadmap changes, `removed` (its id) when it goes, and `listeners` ({project, count}) when a session
-// starts or stops listening for its signals, and `schedules` ({project, schedules}) when they change or
+// starts or stops listening for its signals, `launchers` ({project, count}) when a launcher that starts
+// sessions for it connects or goes, and `schedules` ({project, schedules}) when they change or
 // run, and `secrets` (the list, never a value) when they change or one is used, so open pages update
 // without a reload.
 export default defineEventHandler(async event => {
@@ -10,6 +11,7 @@ export default defineEventHandler(async event => {
     const onProject = (project: Project) => stream.push({event: 'project', data: JSON.stringify(project)})
     const onRemoved = (id: string) => stream.push({event: 'removed', data: id})
     const onListeners = (project: string) => stream.push({event: 'listeners', data: JSON.stringify({project, count: listening(project)})})
+    const onLaunchers = (project: string) => stream.push({event: 'launchers', data: JSON.stringify({project, count: launchersOf(project)})})
     const onSessions = (project: string) => stream.push({event: 'sessions', data: JSON.stringify({project, sessions: listSessions(project)})})
     const onSignal = (signal: Signal) => stream.push({event: 'signal', data: JSON.stringify(signal)})
     const onNotice = (notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)})
@@ -20,6 +22,7 @@ export default defineEventHandler(async event => {
     projectEvents.on('project', onProject)
     projectEvents.on('removed', onRemoved)
     projectEvents.on('listeners', onListeners)
+    projectEvents.on('launchers', onLaunchers)
     projectEvents.on('sessions', onSessions)
     projectEvents.on('signal', onSignal)
     projectEvents.on('notice', onNotice)
@@ -37,6 +40,7 @@ export default defineEventHandler(async event => {
         projectEvents.off('project', onProject)
         projectEvents.off('removed', onRemoved)
         projectEvents.off('listeners', onListeners)
+        projectEvents.off('launchers', onLaunchers)
         projectEvents.off('sessions', onSessions)
         projectEvents.off('signal', onSignal)
         projectEvents.off('notice', onNotice)

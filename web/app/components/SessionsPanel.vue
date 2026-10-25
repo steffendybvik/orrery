@@ -93,6 +93,7 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
         <span class="text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
           {{ STATE[session.state] }} · {{ ago(session.since) }}
         </span>
+        <StartedSession :session="session" />
         <button
             v-if="session.listening"
             type="button"

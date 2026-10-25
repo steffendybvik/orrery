@@ -96,9 +96,10 @@ how many minutes each), then run the launcher on your machine, in the repo, and 
 ORRERY_PROJECT=shop ORRERY_URL=http://localhost:9000 node /path/to/orrery/channel/orrery-launcher.mjs
 ```
 
-It needs [tmux](https://github.com/tmux/tmux): each session runs detached (`tmux attach -t <name>` to
+It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
-are up, or when the launcher stops. Nobody is there to answer a permission prompt, so it runs in `auto` mode
+are up, when you press **Stop** beside it (in the sessions panel or the project's settings, with **+30 min**
+to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
 App settings caps the sessions started over every project (3 by default). The cap is time, not cost:

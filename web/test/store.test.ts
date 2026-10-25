@@ -582,9 +582,17 @@ describe('starting sessions', () => {
         expect((await store.updateProject('larder', {starts: null}, owner)).starts).toBeUndefined()
     })
 
-    it('runs at most three over every project until the owner says otherwise', async () => {
+    it('runs at most three over every project until the owner says otherwise, from 0 to 50', async () => {
         expect((await store.settings()).sessionLimit).toBe(3)
         expect((await store.updateSettings({sessionLimit: 5}, owner)).sessionLimit).toBe(5)
+        for (const wrong of [-2, 2.7, 100000]) expect((await failure(() => store.updateSettings({sessionLimit: wrong}, owner))).status).toBe(400)
+        expect((await store.settings()).sessionLimit).toBe(5)
+    })
+
+    it('reads without building the board', async () => {
+        await store.updateProject('larder', {starts: {limit: 1, minutes: 45}}, owner)
+        expect(await store.starts('larder')).toEqual({limit: 1, minutes: 45})
+        expect((await failure(() => store.starts('nope'))).status).toBe(404)
     })
 })
 
