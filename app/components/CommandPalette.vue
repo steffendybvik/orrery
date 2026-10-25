@@ -244,8 +244,8 @@ function onKey(event: KeyboardEvent) {
           <KeyHint>esc</KeyHint>
         </div>
         <div ref="list" class="overflow-y-auto p-1" role="listbox">
-          <section v-for="s in sections" :key="s.key" :aria-label="s.title" class="pb-1">
-            <h3 class="label px-3 pt-2 pb-1">{{ s.title }}</h3>
+          <section v-for="(s, i) in sections" :key="s.key" :aria-label="s.title" class="pb-1" :class="i > 0 && 'mt-1 border-t border-line'">
+            <h3 class="label px-3 pt-2.5 pb-1">{{ s.title }}</h3>
             <div
                 v-for="entry in s.entries"
                 :key="entry.key"
