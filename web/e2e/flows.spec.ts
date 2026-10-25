@@ -3,7 +3,7 @@ import {expect, test} from '@playwright/test'
 
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
 // them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
-// issues starting on the open ones.
+// issues starting on the open ones; then a chunk made, edited and removed from its page.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -152,4 +152,32 @@ test("marks what changed since the owner last looked, but not the owner's own ch
     await expect(unseen('Label the jars')).toBeVisible()
     await page.getByRole('button', {name: /Mark \d+ seen/}).click()
     await expect(unseen('Label the jars')).toBeHidden()
+})
+
+test('makes a chunk from the roadmap, renames it, gives it a summary and removes it', async ({page, request}) => {
+    await page.goto('/p/larder/roadmap')
+    await page.getByRole('button', {name: 'New chunk'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'New chunk'})
+    await dialog.getByLabel('Title').fill('Shelves')
+    await dialog.getByLabel('Summary').fill('Where things go')
+    await dialog.getByRole('button', {name: /Create chunk/}).click()
+    await expect(page).toHaveURL(/\/p\/larder\/roadmap\/\d+$/)
+    const id = page.url().split('/').at(-1)!
+    expect(await api(request, 'get', `/chunks/${id}`)).toMatchObject({title: 'Shelves', summary: 'Where things go', createdBy: 'ada_lovelace'})
+
+    await page.getByRole('heading', {name: 'Shelves'}).click()
+    await page.getByLabel('Title', {exact: true}).fill('Shelving')
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('heading', {name: 'Shelving'})).toBeVisible()
+
+    await page.getByRole('button', {name: 'Edit'}).click()
+    await page.getByLabel('Summary', {exact: true}).fill('Where **everything** goes')
+    await page.keyboard.press('ControlOrMeta+Enter')
+    await expect(page.locator('.doc strong', {hasText: 'everything'})).toBeVisible()
+    expect(await api(request, 'get', `/chunks/${id}`)).toMatchObject({title: 'Shelving', summary: 'Where **everything** goes'})
+
+    await page.getByRole('button', {name: 'Remove this chunk'}).click()
+    await page.getByRole('button', {name: 'Remove', exact: true}).click()
+    await expect(page).toHaveURL(/\/p\/larder\/roadmap$/)
+    expect((await request.get(`/api/projects/larder/chunks/${id}`)).status()).toBe(404)
 })

@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Chunks from the page:** New chunk on the roadmap (and in ⌘K) makes one with a title and summary; on
+  a chunk's page the title edits in place, the summary has Edit, and the bin removes it (its issues stay,
+  in no chunk).
 - **Fixed:** the Connect brief quotes a project's name for the shell, keeps a window's session name to
   letters, digits and dashes, and keeps a name on one line, so a crafted `?name=` or `?session=` can't
   run a command or add to the brief. A new project's id and prefix now match what the store makes.
