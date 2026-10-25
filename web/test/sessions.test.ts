@@ -88,6 +88,39 @@ describe('a session', () => {
         expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T12:00:00.000Z')).toBeUndefined()
     })
 
+    it('outlives a /clear: the new id takes it over by its pid, and the old one stays an alias', () => {
+        const channel = sessions.attend('larder', 'before', 42, undefined)
+        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'before', name: 'larder 1', listening: true, state: 'idle'}])
+        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart'})
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder 1', listening: true}])
+        // The channel, connected before, now goes by the new id; its old one still finds the session.
+        expect(channel.id).toBe('after')
+        expect([sessions.currentId('before'), sessions.currentId('other')]).toEqual(['after', 'other'])
+        expect([sessions.hearing('larder', 'before'), sessions.sessionName('before')]).toEqual([true, 'larder 1'])
+        // A second clear: every id it has had leads to the newest.
+        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'latest', pid: 42, project: 'larder', event: 'SessionStart'})
+        expect(sessions.sessionIds('before')).toEqual(['latest', 'before', 'after'])
+        // Quitting ends it, aliases and all.
+        sessions.report({id: 'latest', project: 'larder', event: 'SessionEnd', reason: 'prompt_input_exit'})
+        expect(sessions.listSessions('larder')).toEqual([])
+        expect(sessions.currentId('before')).toBe('before')
+        // A clear of a session Orrery never heard of starts nothing.
+        expect(sessions.report({id: 'stranger', project: 'larder', event: 'SessionEnd', reason: 'clear'})).toBeNull()
+    })
+
+    it('started by Orrery keeps its launch across a /clear', () => {
+        sessions.attend('larder', 'before', 42, undefined, true, {launch: 'l1', tmux: 'orrery-larder-l1', stopsAt: '2026-10-25T11:00:00.000Z'})
+        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart'})
+        expect(sessions.sessionOfLaunch('larder', 'l1')?.id).toBe('after')
+        expect(sessions.startedSessions('larder')).toBe(1)
+        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stopsAt).toBe('2026-10-25T11:30:00.000Z')
+        sessions.launchEnded('larder', 'l1')
+        expect([sessions.listSessions('larder'), sessions.currentId('before')]).toEqual([[], 'before'])
+    })
+
     it('is forgotten after six quiet hours, unless it is listening', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
         sessions.report({id: 'quiet', project: 'larder', event: 'Stop'})

@@ -86,6 +86,10 @@ owner's comment on one goes to the session working it rather than to every sessi
 The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
 project; without one, it's `shop`.
 
+With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
+Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the
+issues it had in progress and their latest comment, so it carries on with them.
+
 ## 4. Optionally, let Orrery start sessions
 
 Orrery can start a session itself when you send the project work and nobody is listening, or when you

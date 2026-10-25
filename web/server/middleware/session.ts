@@ -9,6 +9,7 @@ export default defineEventHandler(event => {
     if (!session || !match || !['POST', 'PUT', 'PATCH'].includes(event.method)) return
     const [project, issue] = [decodeURIComponent(match[1]!), decodeURIComponent(match[2]!)]
     event.node.res.once('finish', () => {
-        if (event.node.res.statusCode < 400) useStore().workedBy(project, issue, session).catch(() => {})
+        // The channel's id may be from before a `/clear`: the issue goes to the session as it is now.
+        if (event.node.res.statusCode < 400) useStore().workedBy(project, issue, currentId(session)).catch(() => {})
     })
 })

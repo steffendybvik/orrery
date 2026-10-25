@@ -1,7 +1,8 @@
 // The Claude sessions working on each project, kept in memory (they're live, not history). A
 // session's hooks say who it is and what it's doing (POST /api/sessions); its channel, while
 // connected, says it's there to hear signals. Both name the window by Claude Code's session id,
-// falling back to the claude process's pid.
+// falling back to the claude process's pid. A `/clear` gives the window a new session id while its
+// channel carries on under the old one, so the ids a session had before stay aliases of it.
 import type {Session, SessionState, StartedSession} from '#shared/roadmap'
 
 interface Known extends Session {
@@ -16,6 +17,8 @@ interface Known extends Session {
 }
 
 const sessions = new Map<string, Known>()
+/** A session's earlier ids, each to the one it has now. */
+const aliases = new Map<string, string>()
 // A session nothing has heard from in this long, and that isn't listening, is dropped.
 const FORGET_AFTER = 6 * 60 * 60 * 1000
 
@@ -40,10 +43,23 @@ export interface Report {
     message?: string
     /** For `PreToolUse` on Bash: the command it's about to run, to see which issues it writes to. */
     command?: string
+    /** For `SessionEnd`: why (`clear` keeps the window, which starts again under a new id). */
+    reason?: string
+}
+
+/** The id the session goes by now, for one it had before a `/clear`; any other id as it is. */
+export function currentId(id: string): string {
+    return aliases.get(id) ?? id
+}
+
+/** Every id the session has gone by, its own first. */
+export function sessionIds(id: string): string[] {
+    const now = currentId(id)
+    return [now, ...[...aliases].filter(([, to]) => to === now).map(([from]) => from)]
 }
 
 function find(id?: string, pid?: number): Known | undefined {
-    if (id && sessions.has(id)) return sessions.get(id)
+    if (id && sessions.has(currentId(id))) return sessions.get(currentId(id))
     if (pid) return [...sessions.values()].find(s => s.pid === pid)
     return undefined
 }
@@ -54,6 +70,11 @@ function nameFor(project: string): string {
     let n = 1
     while (taken.has(`${project} ${n}`)) n++
     return `${project} ${n}`
+}
+
+function forget(session: Known) {
+    sessions.delete(session.id)
+    for (const [from, to] of aliases) if (to === session.id) aliases.delete(from)
 }
 
 function changed(project: string) {
@@ -67,14 +88,17 @@ export function report(input: Report): Session | null {
     const event = input.event === 'Notification'
         ? (/permission|approv|allow/i.test(input.message ?? '') ? 'waiting' : 'idle')
         : STATES[input.event] ?? input.event
-    if (event === 'end') {
+    // A `/clear` ends Claude Code's session but not the window: it starts again under a new id, which
+    // finds this one by its pid, and its channel goes on listening.
+    if (event === 'end' && input.reason !== 'clear') {
         if (session) {
-            sessions.delete(session.id)
+            forget(session)
             changed(session.project)
         }
         return null
     }
     const state = (['starting', 'working', 'idle', 'waiting'] as const).find(s => s === event) ?? 'idle'
+    if (!session && event === 'end') return null
     if (!session) {
         session = {
             id: input.id ?? `pid-${input.pid}`, pid: input.pid, project: input.project, name: input.name || nameFor(input.project),
@@ -82,9 +106,13 @@ export function report(input: Report): Session | null {
         }
         sessions.set(session.id, session)
     } else {
-        // A session first heard of by its pid gets its real id when a hook brings it.
+        // A session first heard of by its pid gets its real id when a hook brings it, and one cleared
+        // its new one; the old id stays an alias, as its channel and the issues it worked still use it.
         if (input.id && session.id !== input.id) {
             sessions.delete(session.id)
+            for (const [from, to] of aliases) if (to === session.id) aliases.set(from, input.id)
+            aliases.set(session.id, input.id)
+            aliases.delete(input.id)
             session.id = input.id
             sessions.set(session.id, session)
         }
@@ -122,13 +150,14 @@ export function issueWrites(command: string, project: string): {project: string,
 
 /** Whether the session is on the project with its channel connected, there to hear a signal now. */
 export function hearing(project: string, id: string): boolean {
-    const session = sessions.get(id)
+    const session = sessions.get(currentId(id))
     return !!session && session.project === project && session.listening
 }
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
  * started with the channel flag, so its messages would be dropped; `started` is the launch Orrery started it for;
- * `stops` when the channel ends its session when the owner stops it (an older one doesn't). Says the session's id. */
+ * `stops` when the channel ends its session when the owner stops it (an older one doesn't). Says the session's id, the one it
+ * has now: a `/clear` changes it while the channel stays connected. */
 export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
@@ -144,13 +173,15 @@ export function attend(project: string, id: string | undefined, pid: number | un
     changed(project)
     const held = session
     return {
-        id: held.id,
+        get id() {
+            return held.id
+        },
         done: () => {
             held.streams = Math.max(0, (held.streams ?? 1) - 1)
             if (stops) held.stoppable = Math.max(0, (held.stoppable ?? 1) - 1)
             if (held.streams) return
             held.listening = false
-            if (held.stopping) sessions.delete(held.id)
+            if (held.stopping) forget(held)
             changed(project)
         },
     }
@@ -184,7 +215,7 @@ export function sessionOfLaunch(project: string, launch: string): Session | unde
 export function launchEnded(project: string, launch: string) {
     const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
     if (!session) return
-    sessions.delete(session.id)
+    forget(session)
     changed(project)
 }
 
@@ -199,13 +230,13 @@ export function extendLaunch(project: string, launch: string, stopsAt: string): 
 
 export function listSessions(project?: string): Session[] {
     const now = Date.now()
-    for (const [id, s] of sessions) if (!s.listening && now - s.seenAt > FORGET_AFTER) sessions.delete(id)
+    for (const s of [...sessions.values()]) if (!s.listening && now - s.seenAt > FORGET_AFTER) forget(s)
     return [...sessions.values()].filter(s => !project || s.project === project)
         .sort((a, b) => a.startedAt.localeCompare(b.startedAt)).map(publicOf)
 }
 
 export function sessionName(id: string | undefined): string | undefined {
-    return id ? sessions.get(id)?.name : undefined
+    return id ? sessions.get(currentId(id))?.name : undefined
 }
 
 function publicOf({pid: _pid, seenAt: _seen, streams: _streams, stoppable, stopping: _stopping, ...session}: Known): Session {

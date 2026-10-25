@@ -220,7 +220,9 @@ the text stream with the Monitor tool. The Connect page at `/connect` hands out 
 The Claude sessions working on a project, live (not stored): their name, what they're doing and
 whether they're listening. Hooks report state (`channel/orrery-hook.mjs` on `SessionStart`,
 `UserPromptSubmit`, `Stop`, `Notification`, `SessionEnd`); the channel's connection says it's
-listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION` names it.
+listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION` names it. A `/clear`
+gives the window a new id while its channel stays connected: the session keeps its name and listening,
+and its old ids still find it.
 
 | | |
 |---|---|
@@ -228,7 +230,7 @@ listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION
 | `GET /projects/:project/sessions` | the project's, each `{id, name, state, since, listening, reachable}`; `state` is `idle`, `working`, `waiting` (needs the owner) or `starting`; `reachable` when its channel is open and knows to end it, so it can be stopped |
 | `POST /projects/:project/sessions/:session/stop` | the session: the owner stopping it, one Orrery started through its launcher, any other through its channel, which ends its claude process; 409 when it has no channel running |
 | `GET /projects/:project/sessions/work` | `{<session id>: {issues, signals}}`: what each is on, for its Sessions page: the open issues it worked last (newest first, each `{id, title, column, kind, priority}`) and the last five signals that went to it |
-| `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?}`: what a hook sends |
+| `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?, command?, reason?, source?}`: what a hook sends. A `SessionEnd` with `reason: "clear"` keeps the session; a `SessionStart` with `source` `clear`, `compact` or `resume` answers with `brief` too, the issues it has in progress, for the hook to hand the fresh context |
 
 ### Starting sessions
 
