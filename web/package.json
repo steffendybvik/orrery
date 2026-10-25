@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@heroicons/vue": "2.2.0",
-    "croner": "9.0.0",
+    "croner": "10.0.1",
     "dompurify": "3.4.16",
     "h3": "1.15.11",
     "marked": "18.1.0",

@@ -18,8 +18,8 @@ importers:
         specifier: 2.2.0
         version: 2.2.0(vue@3.5.44(typescript@5.9.3))
       croner:
-        specifier: 9.0.0
-        version: 9.0.0
+        specifier: 10.0.1
+        version: 10.0.1
       dompurify:
         specifier: 3.4.16
         version: 3.4.16
@@ -1564,10 +1564,6 @@ packages:
 
   croner@10.0.1:
     resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
-    engines: {node: '>=18.0'}
-
-  croner@9.0.0:
-    resolution: {integrity: sha512-onMB0OkDjkXunhdW9htFjEhqrD54+M94i6ackoUkjHKbRnXdyEyKRelp4nJ1kAz32+s27jP1FsebpJCVl0BsvA==}
     engines: {node: '>=18.0'}
 
   cross-spawn@7.0.6:
@@ -5306,8 +5302,6 @@ snapshots:
       readable-stream: 4.8.0
 
   croner@10.0.1: {}
-
-  croner@9.0.0: {}
 
   cross-spawn@7.0.6:
     dependencies:
