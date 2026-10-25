@@ -147,6 +147,8 @@ export interface Signal {
     /** The issue it's about, or for a focus on a whole chunk, `chunk`. */
     issue?: string
     chunk?: string
+    /** For a chunk: only its issues of this status (`now`, …), not all its open ones. */
+    status?: string
     /** The schedule that sent it (a message). */
     schedule?: number
     kind: 'focus' | 'comment' | 'message'

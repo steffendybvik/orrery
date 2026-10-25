@@ -307,6 +307,16 @@ describe('chunks', () => {
         expect(failure(() => local.focusChunk('mesher', '9', {})).status).toBe(404)
         expect(local.focusChunk('mesher', 'none', {}).chunk).toBe('none')
     })
+
+    it('can be focused on for their issues of one status', () => {
+        const local = new Store(openDb(':memory:'), () => {})
+        local.createProject({name: 'mesher', key: 'MSH'})
+        local.createChunk('mesher', {title: 'Joints'})
+        expect(local.focusChunk('mesher', '1', {status: 'now'}, {name: 'skoll', owner: true}).status).toBe('now')
+        expect(local.focusChunk('mesher', '1', {}).status).toBeUndefined()
+        expect(failure(() => local.focusChunk('mesher', '1', {status: 'done'})).status).toBe(400)
+        expect(failure(() => local.focusChunk('mesher', '1', {status: 'soon'})).status).toBe(400)
+    })
 })
 
 describe('the bell', () => {

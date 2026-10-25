@@ -22,7 +22,8 @@ export default defineEventHandler(event => {
         attended?.done()
     }
 
-    /** The signal with what a session needs to act on it: for a chunk, its open issues, most urgent first. */
+    /** The signal with what a session needs to act on it: for a chunk, its open issues (or those of its
+     * `status`), most urgent first. */
     const told = (signal: Signal) => {
         if (signal.kind === 'message') {
             let title = 'a schedule'
@@ -38,7 +39,7 @@ export default defineEventHandler(event => {
             const chunk = signal.chunk === 'none'
                 ? store.project(project).board.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done' as const, priority: undefined, tasks: []}
                 : store.chunk(project, signal.chunk!)
-            const open = chunk.tasks.filter(t => t.column !== 'done')
+            const open = chunk.tasks.filter(t => signal.status ? t.column === signal.status : t.column !== 'done')
                 .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
                 .map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
             return {...signal, title: chunk.title, column: chunk.column, priority: chunk.priority ?? null, chunk: chunk.title, issues: open}
@@ -57,7 +58,7 @@ export default defineEventHandler(event => {
             const s = told(signal)
             if (s.kind === 'message') return `${s.createdBy}'s schedule "${s.title}": ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             if (s.kind === 'comment') return `${s.createdBy} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
-            if ('issues' in s) return `${s.createdBy} asks you to work through chunk ${signal.chunk}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}], open: ${s.issues.map(i => i.id).join(', ') || 'none'}${s.note ? ` — ${s.note}` : ''}\n`
+            if ('issues' in s) return `${s.createdBy} asks you to work through ${s.status ? `the ${s.status} issues in ` : ''}chunk ${signal.chunk}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}], ${s.status ?? 'open'}: ${s.issues.map(i => i.id).join(', ') || 'none'}${s.note ? ` — ${s.note}` : ''}\n`
             return `${s.createdBy} asks you to focus on ${s.issue}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}${s.chunk ? `, ${s.chunk}` : ''}]${s.note ? ` — ${s.note}` : ''}\n`
         }
         let send: (signal: Signal) => void = () => {}

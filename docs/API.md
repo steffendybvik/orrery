@@ -126,12 +126,13 @@ Each schedule carries `nextRun` and its latest `runs`: `made` (with the issue), 
 
 The owner can ask the Claude sessions on a project to work on an issue now, or to work through a
 chunk's open issues (**Focus on this** on its page). Only the owner's signals reach sessions. A chunk's
-signal has `chunk` instead of `issue`, and the stream adds its open `issues`, most urgent first.
+signal has `chunk` instead of `issue`, and the stream adds its open `issues`, most urgent first. With
+`status` (**Focus on all Now** on a status group of its page) it's only the chunk's issues of that status.
 
 | | |
 |---|---|
 | `POST /projects/:project/issues/:issue/focus` | `{note?}` → `{signal, listeners}`: sends it, and says how many sessions heard |
-| `POST /projects/:project/chunks/:chunk/focus` | `{note?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk) |
+| `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk); `status` (`doing`, `now`, `next`, `later`, `backlog`, `proposed`) narrows it to those issues |
 | `GET /projects/:project/signals?after=` | the signals after that id, oldest first; `?issue=` or `?chunk=` for the latest about one |
 | `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up); `?format=text` gives one line each, for the Monitor tool |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |

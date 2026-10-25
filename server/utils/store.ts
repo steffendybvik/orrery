@@ -4,7 +4,7 @@
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
 import type {Asks, Board, Chunk, Comment, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Proposal, Signal, Status} from '#shared/roadmap'
-import {ASKS, DECISIONS, PLANS, PRIORITIES, STATUSES, TINTS} from '#shared/roadmap'
+import {ASKS, COLUMNS, DECISIONS, PLANS, PRIORITIES, STATUSES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
@@ -79,7 +79,7 @@ interface IssueRow extends Made {
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
-interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
+interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
@@ -140,6 +140,12 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
     note: {type: 'string', nullable: true},
     /** A session id; left out, every session on the project gets it. */
     session: {type: 'string', nullable: true},
+}
+
+/** A chunk's focus can be narrowed to its issues of one status: `{status: 'now'}`. */
+export const CHUNK_SIGNAL_FIELDS: Record<string, Field> = {
+    ...SIGNAL_FIELDS,
+    status: {type: 'string', nullable: true, values: COLUMNS.filter(c => c !== 'done')},
 }
 
 export const SETTINGS_FIELDS: Record<string, Field> = {
@@ -749,16 +755,17 @@ export class Store {
         return signal
     }
 
-    /** Asks the sessions (or `session`) to work through the chunk's open issues now; `none` is the issues in no chunk. */
+    /** Asks the sessions (or `session`) to work through the chunk's open issues now, or (`status`) its issues of
+     * that status; `none` is the issues in no chunk. */
     focusChunk(project: string, chunk: string, body: unknown, actor = AGENT): Signal {
         this.projectRow(project)
         if (chunk !== 'none') {
             chunk = this.chunkId(project, chunk)
             this.chunkRow(project, chunk)
         }
-        const input = checkInput(body ?? {}, SIGNAL_FIELDS)
-        const {lastInsertRowid} = this.run('INSERT INTO signals (project, chunk, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            project, chunk, 'focus', nullable(input.note), nullable(input.session), actor.name, Number(actor.owner), stamp())
+        const input = checkInput(body ?? {}, CHUNK_SIGNAL_FIELDS)
+        const {lastInsertRowid} = this.run('INSERT INTO signals (project, chunk, status, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            project, chunk, nullable(input.status), 'focus', nullable(input.note), nullable(input.session), actor.name, Number(actor.owner), stamp())
         const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
         this.onSignal(signal)
         return signal
@@ -1094,7 +1101,7 @@ function commentOf(row: CommentRow): Comment {
 
 function signalOf(row: SignalRow): Signal {
     return {
-        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined,
+        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined,
         target: row.target ?? undefined, deliveredTo: JSON.parse(row.delivered_to) as string[], createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at,
     }
 }

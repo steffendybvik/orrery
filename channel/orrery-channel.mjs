@@ -83,11 +83,11 @@ async function deliver(signal) {
         ].join('\n')
         : !signal.issue
         ? [
-            `${signal.createdBy} asks you to work through chunk ${signal.chunk}: ${signal.title} [${[signal.column, signal.priority].filter(Boolean).join(', ')}].`,
+            `${signal.createdBy} asks you to work through ${signal.status ? `the ${signal.status} issues in ` : ''}chunk ${signal.chunk}: ${signal.title} [${[signal.column, signal.priority].filter(Boolean).join(', ')}].`,
             signal.note ? `Note: ${signal.note}` : '',
             signal.issues.length
-                ? `Its open issues, most urgent first:\n${signal.issues.map(i => `- ${i.id}: ${i.title} [${[i.column, i.priority].filter(Boolean).join(', ')}]`).join('\n')}`
-                : 'It has no open issues left.',
+                ? `Its ${signal.status ?? 'open'} issues, most urgent first:\n${signal.issues.map(i => `- ${i.id}: ${i.title} [${[i.column, i.priority].filter(Boolean).join(', ')}]`).join('\n')}`
+                : `It has no ${signal.status ?? 'open'} issues left.`,
             `Take them one at a time as you would a focus on each (doing, comments, done). Read ${signal.chunk === 'none' ? `them with: curl '${api}/issues?chunk=none'` : `the chunk with: curl ${api}/chunks/${encodeURIComponent(signal.chunk)}`}`,
         ].filter(Boolean).join('\n')
         : signal.kind === 'comment'

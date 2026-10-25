@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Session, Signal} from '#shared/roadmap'
+import type {Column, Session, Signal} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
 // a button to point one (or all) at this issue, or at working through this chunk. Under them, the focus
@@ -105,7 +105,8 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
         </template>
         <template v-else>
           <span class="text-muted">{{ who(signal.createdBy) }}</span> asked
-          <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span> to focus on this
+          <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
+          {{ signal.status ? `to work through its ${COLUMN_STYLE[signal.status as Column]?.label ?? signal.status} issues` : 'to focus on this' }}
         </template>
         · {{ ago(signal.createdAt) }} ·
         <span v-if="signal.deliveredTo.length" class="text-emerald-600 dark:text-emerald-400">delivered to {{ signal.deliveredTo.join(', ') }}</span>

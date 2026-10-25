@@ -3,7 +3,7 @@ import type {Chunk, Column, Counts, Issue} from '#shared/roadmap'
 import {COLUMNS} from '#shared/roadmap'
 
 // Top-level issues as rows with their sub-issues under them, in groups that fold: by status (Doing…Done, each row
-// saying its chunk) or by chunk. Done starts folded, unless a filter is on.
+// saying its chunk) or by chunk. Done starts folded, unless a filter is on. `#group-end` adds to a group's header.
 const props = withDefaults(defineProps<{chunks: Chunk[], project: string, group: 'status' | 'chunk', showChunk?: boolean}>(), {showChunk: true})
 const {active} = useFilters()
 
@@ -47,6 +47,7 @@ function toggle(group: Group) {
         <span v-else class="font-mono text-[11px] text-faint tabular-nums">{{ group.issues.length }}</span>
         <span v-if="group.summary" class="hidden min-w-0 flex-1 truncate text-xs text-faint md:inline"><InlineText :text="group.summary" /></span>
         <span v-if="group.counts" class="ml-auto shrink-0 text-xs" :class="COLUMN_STYLE[group.column].text">{{ COLUMN_STYLE[group.column].label }}</span>
+        <div v-if="$slots['group-end']" class="ml-auto shrink-0"><slot name="group-end" :column="group.column" /></div>
       </div>
       <div v-if="isOpen(group)">
         <IssueRow v-for="{issue, chunk} in group.issues" :key="issue.id" :issue="issue" :project="project" :chunk="chunk" nested />

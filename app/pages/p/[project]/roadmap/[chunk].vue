@@ -3,7 +3,7 @@ import type {Priority} from '#shared/roadmap'
 import {PRIORITIES} from '#shared/roadmap'
 
 // A chunk's page: its summary, priority and progress, the Claude sessions to point at it, and its issues
-// by status. Esc goes back to the roadmap.
+// by status, each status with a button to point the sessions at just those. Esc goes back to the roadmap.
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -112,7 +112,11 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
           </button>
         </template>
       </ViewToolbar>
-      <ListView v-if="shown[0]?.tasks.length" :chunks="shown" :project="project.id" group="status" :show-chunk="false" />
+      <ListView v-if="shown[0]?.tasks.length" :chunks="shown" :project="project.id" group="status" :show-chunk="false">
+        <template #group-end="{column}">
+          <StatusFocus :project="project.id" :chunk="chunk.id || 'none'" :column="column" />
+        </template>
+      </ListView>
       <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this chunk matches the filters.' : 'No issues in this chunk yet.' }}</p>
     </template>
     <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">

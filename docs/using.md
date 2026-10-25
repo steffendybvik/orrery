@@ -18,6 +18,7 @@ The "ask the session" items only show when a Claude session is listening on that
 
 - **An issue**: right-click it, or open its page. The **Claude sessions** panel there lists each session on the project, with **Focus on this** next to each and **Focus all on this** when more than one is listening. Under it are the focus signals already sent, and who got them.
 - **A chunk**: right-click its card on the roadmap, or open the chunk's page (`/p/<project>/roadmap/<chunk>`) for the same sessions panel.
+- **A chunk's issues of one status**: on the chunk's page, each status group has **Focus on all Now** (or Next, Doing, …). Pick one session or all, and they work through just those issues, most urgent first.
 - **A new issue**: the new-issue dialog (`c`) has a checkbox that sends it to the listening sessions as it's made.
 - The sidebar lists every Claude session at the bottom, with the ones waiting on you first.
 

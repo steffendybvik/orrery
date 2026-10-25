@@ -291,6 +291,10 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- Environments are servers after all, each with its own database (NUXT_PUBLIC_ENVIRONMENT names it).
     ALTER TABLE projects DROP COLUMN environment;
+`, `
+    -- A focus on a chunk can be narrowed to its issues of one status ('doing', 'now', …): "work through
+    -- the Now issues in chunk 3". Unchecked, so it carries over to statuses a project makes its own.
+    ALTER TABLE signals ADD COLUMN status TEXT;
 `]
 
 let db: DatabaseSync | null = null
