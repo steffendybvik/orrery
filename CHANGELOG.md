@@ -5,6 +5,10 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Before and after, on a slider:** in a comment, description or doc, a picture whose alt text starts with
+  "Before", followed by one starting with "After", shows as one picture at full width with a handle to
+  drag between the two (arrow keys too). The labels open each one full size; anywhere else the Markdown
+  is still two pictures.
 - **Starting sessions, across restarts:** a session Orrery started keeps counting against the limit, with
   its time left and +30 min, after Orrery restarts; a launcher that dies takes its sessions back when it
   starts again; and Stop goes through the session's channel when no launcher is there to stop it.
