@@ -2,6 +2,10 @@
 // No projects yet: start one here, or add it through the API.
 const origin = computed(() => import.meta.client ? location.origin : 'http://localhost:9000')
 const newProject = useState('new-project', () => false)
+const command = computed(() => `curl -X POST ${origin.value}/api/projects \\
+  -H 'Content-Type: application/json' \\
+  -H 'Orrery-Actor: claude' \\
+  -d '{"name": "mesher", "key": "MSH"}'`)
 </script>
 
 <template>
@@ -17,10 +21,10 @@ const newProject = useState('new-project', () => false)
       <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
       New project
     </button>
-    <pre class="overflow-x-auto rounded-xl bg-well p-4 font-mono text-xs leading-relaxed text-muted ring-1 ring-line">curl -X POST {{ origin }}/api/projects \
-  -H 'Content-Type: application/json' \
-  -H 'Orrery-Actor: claude' \
-  -d '{"name": "mesher", "key": "MSH"}'</pre>
+    <div class="relative">
+      <pre class="overflow-x-auto rounded-xl bg-well p-4 pr-24 font-mono text-xs leading-relaxed text-muted ring-1 ring-line">{{ command }}</pre>
+      <CopyButton :text="command" class="absolute top-3 right-3" />
+    </div>
     <p class="text-xs text-faint">Then chunks, issues and comments under <span class="font-mono">/api/projects/mesher/…</span>. The whole API is listed in <span class="font-mono">docs/API.md</span>.</p>
   </div>
 </template>
