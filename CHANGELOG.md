@@ -3,7 +3,7 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## Unreleased
+## 1.0.0-rc.2 (2026-10-25)
 
 - **Unseen changes, louder:** a changed issue or doc now tints its row with an accent bar, and its dot is
   bigger; and opening a doc tints the parts that are new or changed since you last read it, with a count
