@@ -34,6 +34,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 |---|---|---|
 | `ORRERY_PORT` | the port on this machine | `9000` |
 | `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts) | `127.0.0.1` |
+| `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_ENVIRONMENT` | this Orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
@@ -80,8 +81,8 @@ A repo's channel and hook point at the server its projects are on, by `ORRERY_UR
 
 ## Where each database is
 
-Nothing names the database directly: it's always `/data/orrery.db` in the container, and `/data` is
-the project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE_PROJECT_NAME`,
+It's always `/data/orrery.db` in the container, and `/data` is `ORRERY_DATA` when it's set, else the
+project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE_PROJECT_NAME`,
 or the folder's name (`orrery`) without one. So a new project name is a new, empty database, and two
 env files with the same one (or both without one) share a container and a database: give every
 server its own. `docker compose --env-file .env.work down -v` deletes that server's volumes, its

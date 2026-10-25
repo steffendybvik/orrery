@@ -13,6 +13,9 @@
 # project with its own .env file, e.g. `docker compose --env-file .env.work up -d` with
 # COMPOSE_PROJECT_NAME=orrery-work and its own ORRERY_PORT in it.
 #
+# ORRERY_DATA puts the database (orrery.db, with its -wal and -shm beside it) in a folder of yours instead
+# of the orrery-data volume; on Linux it must be writable by uid 1000, the image's `node` user.
+#
 # Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network,
 # and ORRERY_ALLOWED_HOSTS names any host name it's reached by besides localhost and an IP (see SECURITY.md).
 #
@@ -29,7 +32,7 @@ services:
       NUXT_BACKUP_DIR: /backup
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
     volumes:
-      - orrery-data:/data
+      - ${ORRERY_DATA:-orrery-data}:/data
       - ${ORRERY_BACKUP:-orrery-backup}:/backup
     restart: unless-stopped
 
