@@ -14,11 +14,33 @@ export interface Filters {
 const none = (): Filters => ({priorities: [], columns: [], assignees: [], labels: [], query: ''})
 
 // The filters over issues (priority, column, assignee, label, text in the id or title), shared by every view.
+// They start on the open columns (Done and Canceled left out, whatever the statuses are called), ticked in
+// the Column filter like any other pick; `changed` says they've moved off that, and `clear` goes back to it.
 export function useFilters() {
     const filters = useState<Filters>('filters', none)
+    const {columns: all} = useStatuses()
+    const open = computed(() => all.value.filter(c => !isClosed(c.kind)).map(c => c.id))
+    const defaults = (): Filters => ({...none(), columns: [...open.value]})
+
+    // The statuses arrive with the settings, so the open columns are ticked once they're known.
+    const seeded = useState('filters-seeded', () => false)
+    if (import.meta.client && !seeded.value) {
+        const stop = watch(open, columns => {
+            if (seeded.value || !columns.length) return
+            seeded.value = true
+            if (!filters.value.columns.length) filters.value.columns = [...columns]
+            queueMicrotask(() => stop())
+        }, {immediate: true})
+    }
+
     const active = computed(() => {
         const {priorities, columns, assignees, labels, query} = filters.value
         return !!(priorities.length || columns.length || assignees.length || labels.length || query.trim())
+    })
+    const changed = computed(() => {
+        const {priorities, columns, assignees, labels, query} = filters.value
+        const same = columns.length === open.value.length && columns.every(c => open.value.includes(c))
+        return !!(priorities.length || !same || assignees.length || labels.length || query.trim())
     })
 
     function matches(issue: Issue): boolean {
@@ -32,8 +54,8 @@ export function useFilters() {
     }
 
     function clear() {
-        filters.value = none()
+        filters.value = defaults()
     }
 
-    return {filters, active, matches, clear}
+    return {filters, active, changed, matches, clear}
 }

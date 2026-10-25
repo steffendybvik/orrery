@@ -28,7 +28,7 @@ The "ask the session" items only show when a Claude session is listening on that
 |---|---|
 | **Now** (`/now`) | Everything started, and urgent or high-priority Todo, across projects |
 | **My issues** (`/mine`) | Open urgent (P0) issues anywhere on top, then what's assigned to you, proposals first |
-| A project's **Issues** | A list (grouped by status or chunk) or a board, with search and filters for priority, column, assignee and label |
+| A project's **Issues** | A list (grouped by status or chunk) or a board, with search and filters for priority, column, assignee and label. It starts on the open issues: tick Done or Canceled under **Column** to see those too, and **Clear** to go back |
 | An **issue's page** | Its title and description edit in place. Status, priority, assignee, labels and chunk change on the right. Also sub-issues, the sessions panel, and the activity: comments with a quiet line for every change between them (who moved it, assigned it, relabelled it, and when) |
 | **Roadmap** | Chunks as cards in their columns. A chunk's page has its summary, priority, progress, issues and the sessions panel |
 | **Docs** | The project's Markdown pages, with contents beside them |

@@ -2,7 +2,8 @@ import type {APIRequestContext, Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
-// them, sub-issues, ⌘K, a proposal the owner approves, and a change showing up live in another tab.
+// them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
+// issues starting on the open ones.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -94,4 +95,23 @@ test('a change shows up live in another tab', async ({page, context, request}) =
     await api(request, 'patch', '/issues/LAR-2', {title: 'Expiry badges: soon and gone'})
     await expect(page.getByText('Expiry badges: soon and gone')).toBeVisible()
     await expect(other.getByText('Expiry badges: soon and gone')).toBeVisible()
+})
+
+test('the issues start on the open ones, Done and Canceled a tick away', async ({page, request}) => {
+    await api(request, 'post', '/issues', {title: 'Shipped pantry export', status: 'done'})
+    await api(request, 'post', '/issues', {title: 'Dropped barcode idea', status: 'canceled'})
+    await page.goto('/p/larder?view=list')
+    await expect(page.getByText('Expiry badges: soon and gone')).toBeVisible()
+    await expect(page.getByText('Shipped pantry export')).toBeHidden()
+    await expect(page.getByText('Dropped barcode idea')).toBeHidden()
+    await expect(page.getByRole('button', {name: 'Clear'})).toBeHidden()
+
+    await page.getByRole('button', {name: /^Column/}).click()
+    await page.getByRole('button').filter({hasText: /^Done$/}).click()
+    await expect(page.getByText('Shipped pantry export')).toBeVisible()
+    await expect(page.getByText('Dropped barcode idea')).toBeHidden()
+
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', {name: 'Clear'}).click()
+    await expect(page.getByText('Shipped pantry export')).toBeHidden()
 })

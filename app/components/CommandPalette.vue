@@ -21,7 +21,7 @@ const openPalette = useState('palette-open', () => false)
 const {byId} = useRoadmaps()
 const {ordered: projects} = useProjectOrder()
 const {open: openIssue, pathOf} = useIssueLink()
-const {filters, active: filtering, clear} = useFilters()
+const {filters, changed: filtering, clear} = useFilters()
 const {view, group} = useLastView()
 const {set: setTheme} = useTheme()
 const {columns} = useStatuses()
@@ -96,7 +96,7 @@ const everywhere = computed<Entry[]>(() => [
     {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
-    ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Clear the filters', run: clear}] : []),
+    ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Reset the filters to the open issues', run: clear}] : []),
     ...[...PRIORITIES, 'none'].map(p => ({
         key: `filter:priority:${p}`, group: 'Filter',
         label: `${filters.value.priorities.includes(p) ? 'Stop filtering' : 'Filter'} by priority: ${p === 'none' ? 'none' : `${p} ${PRIORITY_LABEL[p]}`}`,

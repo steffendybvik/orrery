@@ -5,7 +5,7 @@ import {PRIORITIES} from '#shared/roadmap'
 // Search (`/`; Esc clears it, as the browser does a search field, which only says so with `search`),
 // then the priority, column, assignee and label filters, shared by every view. The assignees and labels
 // to pick from are the ones on this project's issues (every project's off a project's pages).
-const {filters, active, clear} = useFilters()
+const {filters, changed, clear} = useFilters()
 const {projects, byId} = useRoadmaps()
 const {who} = useOwner()
 const route = useRoute()
@@ -50,6 +50,6 @@ const columns = computed(() => order.value.map(c => ({value: c.id as Column, lab
       <template #option="{value}"><PersonAvatar v-if="value !== 'none'" :name="value" :size="14" /><span v-else class="size-3.5 rounded-full border border-dashed border-faint" /></template>
     </FilterMenu>
     <FilterMenu v-if="labels.length" v-model="filters.labels" label="Label" :options="labels" class="hidden sm:block" />
-    <button v-if="active" type="button" class="h-7 shrink-0 rounded-md px-2 text-xs text-muted hover:bg-hover hover:text-fg" @click="clear">Clear</button>
+    <button v-if="changed" type="button" title="Back to the open issues" class="h-7 shrink-0 rounded-md px-2 text-xs text-muted hover:bg-hover hover:text-fg" @click="clear">Clear</button>
   </div>
 </template>
