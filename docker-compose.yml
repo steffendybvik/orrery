@@ -19,6 +19,13 @@
 # Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network,
 # and ORRERY_ALLOWED_HOSTS names any host name it's reached by besides localhost and an IP (see SECURITY.md).
 #
+# Postgres instead of the SQLite file: `docker compose --profile postgres up -d` adds a postgres service (its
+# data in the orrery-pg volume), and ORRERY_DATABASE points Orrery at it; put both in .env to keep them:
+#   COMPOSE_PROFILES=postgres
+#   ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery
+# Or set ORRERY_DATABASE to a Postgres of your own. Orrery's backups are SQLite's only: back Postgres up
+# with its own means (pg_dump on a schedule, or a managed service's backups).
+#
 # Working on Orrery itself: docker-compose.dev.yml, on top of this.
 
 services:
@@ -29,13 +36,33 @@ services:
     environment:
       NUXT_PUBLIC_ENVIRONMENT: ${ORRERY_ENVIRONMENT:-personal}
       NUXT_PUBLIC_REPO_DIR: ${PWD}
+      NUXT_DATABASE: ${ORRERY_DATABASE:-/data/orrery.db}
       NUXT_BACKUP_DIR: /backup
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
     volumes:
       - ${ORRERY_DATA:-orrery-data}:/data
       - ${ORRERY_BACKUP:-orrery-backup}:/backup
+    depends_on:
+      postgres: {condition: service_healthy, required: false}
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17.6-alpine
+    profiles: [postgres]
+    environment:
+      POSTGRES_USER: orrery
+      POSTGRES_PASSWORD: ${ORRERY_PG_PASSWORD:-orrery}
+      POSTGRES_DB: orrery
+    volumes:
+      - orrery-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U orrery -d orrery]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
 volumes:
   orrery-data:
   orrery-backup:
+  orrery-pg:

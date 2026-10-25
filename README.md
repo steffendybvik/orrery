@@ -29,7 +29,7 @@ live, answer their questions in one place, and point them at what matters next.
 - **Recurring work.** Schedules that make an issue, or send the sessions a message, on a cron.
 - **Keyboard first.** `⌘K` jumps anywhere, `j`/`k` move, `c` writes an issue.
 - **Yours.** One SQLite file with automatic backups, no accounts, nothing leaves the machine. Run one
-  Orrery, or a few side by side (say personal and work).
+  Orrery, or a few side by side (say personal and work), or keep one in Postgres.
 
 The full tour of what's where: [Using Orrery](docs/using.md).
 
@@ -58,7 +58,7 @@ that repo, and the session sets the repo up to use Orrery itself.
 ## Docs
 
 - [Using Orrery](docs/using.md): right-click menus, pointing sessions at work, every page, the keys
-- [Running Orrery](docs/running.md): settings, backups, two servers side by side, where each database lives, without Docker
+- [Running Orrery](docs/running.md): settings, backups, Postgres, two servers side by side, where each database lives, without Docker
 - [Connecting a repo](docs/connect.md): the channel, a terminal alias and the session hooks
 - [The API](docs/API.md): every route, field and rule, for agents and scripts
 - [Working on Orrery](docs/development.md): the dev server and the checks

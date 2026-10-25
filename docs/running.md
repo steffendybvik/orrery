@@ -23,13 +23,33 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
+| `ORRERY_DATABASE` | a `postgres://` URL to keep the Orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_ENVIRONMENT` | this Orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
 ## Backups
 
 A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks. A new, empty
 volume starts from the latest one. The live file never goes in the backup folder: a synced SQLite
-file gets corrupted, a snapshot doesn't.
+file gets corrupted, a snapshot doesn't. These backups are SQLite's: on Postgres they're off.
+
+## Postgres
+
+SQLite suits one machine. To keep the Orrery in Postgres instead (a server shared by a team, or a
+database you already back up), put this in `.env`:
+
+```sh
+COMPOSE_PROFILES=postgres
+ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery
+```
+
+and `docker compose up -d`: the `postgres` profile adds a Postgres 17 service, its data in the
+`orrery-pg` volume, and Orrery waits for it, then lays down its tables. Set `ORRERY_PG_PASSWORD` to
+change the bundled database's password (it's only reachable from Orrery's container). For a Postgres
+of your own, leave out the profile and point `ORRERY_DATABASE` at it.
+
+Back it up with Postgres's own means: `pg_dump` on a schedule
+(`docker compose exec postgres pg_dump -U orrery orrery > orrery.sql`), or a managed service's
+backups.
 
 ## Two servers: personal and work
 
