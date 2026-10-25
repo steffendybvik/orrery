@@ -14,6 +14,9 @@ interface Known extends Session {
     stoppable?: number
     /** The owner asked it to quit: it's dropped once its channel goes. */
     stopping?: boolean
+    /** The launch its channel says Orrery started it for, kept for when Orrery doesn't know that launch yet
+     * (Orrery restarted): the launcher's report of it then marks the session started again. */
+    launch?: string
 }
 
 const sessions = new Map<string, Known>()
@@ -159,7 +162,7 @@ export function hearing(project: string, id: string): boolean {
  * started with the channel flag, so its messages would be dropped; `started` is the launch Orrery started it for;
  * `stops` when the channel ends its session when the owner stops it (an older one doesn't). Says the session's id, the one it
  * has now: a `/clear` changes it while the channel stays connected. */
-export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false): {id: string, done: () => void} {
+export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
@@ -170,6 +173,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     session.streams = (session.streams ?? 0) + 1
     if (stops) session.stoppable = (session.stoppable ?? 0) + 1
     if (started) session.started = started
+    if (launch) session.launch = launch
     if (name) session.name = name
     changed(project)
     const held = session
@@ -193,7 +197,8 @@ export function attend(project: string, id: string | undefined, pid: number | un
 export function stopSession(project: string, id: string): Session {
     const session = sessions.get(currentId(id))
     if (!session || session.project !== project) throw notFound(`No session ${id} in ${project}`)
-    if (session.started) return stopLaunch(project, session.started.launch)
+    // With no launcher connected to stop it, its channel can.
+    if (session.started && (launchersOf(project) || !session.stoppable)) return stopLaunch(project, session.started.launch)
     if (!session.stoppable) throw conflict(`${session.name} has no Orrery channel running that can stop it (an older channel needs the session restarted): close it in its terminal`)
     session.stopping = true
     projectEvents.emit('session-stop', {project, id: session.id})
@@ -210,6 +215,15 @@ export function startedSessions(project?: string): number {
 export function sessionOfLaunch(project: string, launch: string): Session | undefined {
     const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
     return session && publicOf(session)
+}
+
+/** A launch its launcher says it runs: the session started for it counts as started again, with its stop time,
+ * if its channel connected before Orrery heard of the launch (Orrery restarted). */
+export function adoptLaunch(project: string, started: StartedSession) {
+    const session = [...sessions.values()].find(s => s.project === project && (s.started?.launch === started.launch || s.launch === started.launch))
+    if (!session) return
+    session.started = started
+    changed(project)
 }
 
 /** The launch's session has ended (its launcher stopped it): it's dropped. */

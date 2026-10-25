@@ -11,7 +11,9 @@
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and is stopped after the
 // project's minutes, or when the owner stops it from Orrery. With several launchers on a project, the first
-// to claim a launch starts it. Stopping the launcher stops the sessions it started. It answers the warning
+// to claim a launch starts it. Stopping the launcher stops the sessions it started; one that dies instead (a
+// crash, the service restarting it) takes its project's sessions back when it starts again, as each keeps its
+// stop time in tmux, and tells Orrery which it runs whenever it connects. It answers the warning
 // Claude Code shows for the channel flag on every start (the channel is the repo's own); run the channel
 // command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
@@ -118,12 +120,60 @@ async function stop(id, why) {
     await fetch(`${session.api}/launches/${id}/ended`, {method: 'POST'}).catch(() => {})
 }
 
+/** The tmux option a session keeps its stop time in, so a launcher that restarts can take it back. */
+const STOPS_AT = '@orrery_stops_at'
+
 /** Stops the session when `stopsAt` comes (again, when the owner gives it longer). */
 function stopAt(id, stopsAt) {
     const session = running.get(id)
     if (!session) return
     clearTimeout(session.timer)
+    session.stopsAt = stopsAt
     session.timer = setTimeout(() => stop(id, 'its time is up'), Math.max(0, Date.parse(stopsAt) - Date.now()))
+    try {
+        tmux('set-option', '-t', session.tmux, STOPS_AT, stopsAt)
+    } catch {
+        // It has ended; its timer finds it gone.
+    }
+}
+
+/** The tmux session a launch on the project runs in, as Orrery names it. */
+const tmuxName = (project, id) => `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')
+
+/** Takes back the project's sessions a launcher before this one started (it died without stopping them),
+ * with their stop times; one without a stop time is stopped, as nothing would. */
+function adopt(project, api) {
+    let names = []
+    try {
+        names = tmux('list-sessions', '-F', '#{session_name}').split('\n')
+    } catch {
+        return // No tmux server: nothing is running.
+    }
+    const prefix = tmuxName(project, '')
+    for (const name of names) {
+        const id = name.startsWith(prefix) ? name.slice(prefix.length) : ''
+        if (!/^[0-9a-f]{12}$/.test(id) || running.has(id)) continue
+        running.set(id, {tmux: name, api})
+        let stopsAt = ''
+        try {
+            stopsAt = tmux('show-options', '-v', '-t', name, STOPS_AT)
+        } catch {
+            // Started before stop times were kept.
+        }
+        if (Number.isNaN(Date.parse(stopsAt))) {
+            stop(id, "it was started by a launcher before this one, and its time isn't known")
+            continue
+        }
+        stopAt(id, stopsAt)
+        log(`took back ${name}, running until ${new Date(stopsAt).toLocaleTimeString()}`)
+    }
+}
+
+/** Tells the project's Orrery which of its sessions this launcher runs, so one that restarted knows them again. */
+async function report(api) {
+    const launches = [...running.entries()].filter(([, s]) => s.api === api && s.stopsAt).map(([id, s]) => ({id, tmux: s.tmux, stopsAt: s.stopsAt}))
+    await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launches})})
+        .catch(() => {})
 }
 
 /** Gets the new session past Claude Code's startup prompts: the channel flag's warning it accepts; a folder
@@ -145,6 +195,7 @@ async function getPast(id, dir) {
 /** Serves one project: listens for its launches, and for the owner stopping or extending the sessions it started. */
 function serve({url, project, dir}) {
     const api = `${url}/api/projects/${encodeURIComponent(project)}`
+    adopt(project, api)
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
@@ -163,6 +214,7 @@ function serve({url, project, dir}) {
         url: () => `${api}/launches/stream`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
+                await report(api)
                 const {starts} = JSON.parse(data)
                 log(starts
                     ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes} minutes each`

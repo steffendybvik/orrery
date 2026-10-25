@@ -5,15 +5,8 @@ import type {Project} from '#shared/roadmap'
 // opt-in, the launcher installed on the host, then starting, watching and stopping them. Open while a step
 // is left.
 const props = defineProps<{project: Project}>()
-const {launchers, sessions} = useRoadmaps()
-const repoDir = String(useRuntimeConfig().public.repoDir || '/path/to/orrery')
-const install = `node ${repoDir}/channel/orrery-launcher.mjs --install`
-
-const running = ref<number | null>(null)
-async function refresh() {
-    running.value = (await $fetch<{launchers: number}>(`/api/projects/${encodeURIComponent(props.project.id)}/launches`).catch(() => null))?.launchers ?? null
-}
-watch(() => [props.project, launchers.value[props.project.id], sessions.value[props.project.id]], refresh, {immediate: true})
+const {state, install} = useLaunchState(() => props.project.id)
+const running = computed(() => state.value?.launchers ?? null)
 const ready = computed(() => !!props.project.starts && !!running.value)
 </script>
 

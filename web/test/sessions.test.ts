@@ -209,7 +209,35 @@ describe('stopping a session', () => {
 
     it("goes through the launcher for one Orrery started", () => {
         vi.stubGlobal('stopLaunch', (project: string, launch: string) => ({project, launch}))
+        vi.stubGlobal('launchersOf', () => 1)
         sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stopsAt: '2999-01-01T00:00:00.000Z'})
         expect(sessions.stopSession('larder', 'b')).toEqual({project: 'larder', launch: 'abc'})
+    })
+
+    it("goes through its channel for one Orrery started when no launcher is there to stop it", () => {
+        const asked: unknown[] = []
+        projectEvents.on('session-stop', event => asked.push(event))
+        vi.stubGlobal('stopLaunch', () => {
+            throw new Error('not through the launcher')
+        })
+        vi.stubGlobal('launchersOf', () => 0)
+        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stopsAt: '2999-01-01T00:00:00.000Z'}, true)
+        expect(sessions.stopSession('larder', 'b').name).toBe('larder 1')
+        expect(asked).toEqual([{project: 'larder', id: 'b'}])
+    })
+})
+
+describe('a session Orrery started, after Orrery restarts', () => {
+    it("counts as started again once its launcher reports the launch, though its channel connected first", () => {
+        const started = {launch: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', stopsAt: '2999-01-01T00:00:00.000Z'}
+        // Orrery doesn't know the launch yet, so the channel connects as an ordinary session, saying its launch.
+        sessions.attend('larder', 'b', undefined, undefined, true, undefined, true, started.launch)
+        expect(sessions.startedSessions('larder')).toBe(0)
+        sessions.adoptLaunch('larder', started)
+        expect(sessions.startedSessions('larder')).toBe(1)
+        expect(sessions.sessionOfLaunch('larder', started.launch)?.started).toEqual(started)
+        // Another project's report of the same id doesn't touch it.
+        sessions.adoptLaunch('mesa', {...started, stopsAt: '2000-01-01T00:00:00.000Z'})
+        expect(sessions.sessionOfLaunch('larder', started.launch)?.started?.stopsAt).toBe(started.stopsAt)
     })
 })

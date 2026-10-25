@@ -27,6 +27,9 @@ export type LaunchEvent =
  * `claimed` once a launcher has taken it on. */
 const pending = new Map<string, Launch & {at: number, claimed: boolean}>()
 const PENDING_FOR = 3 * 60 * 1000
+/** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
+ * each reports its sessions when it connects, so one that reconnects to a restarted Orrery is known again. */
+const reported = new Map<string, {project: string, tmux: string, stopsAt: string}>()
 /** How many launchers each project has connected. */
 const launchers = counter('launchers')
 export const launchersOf = launchers.count
@@ -102,12 +105,24 @@ export function claim(project: string, id: string): boolean {
 export function launched(id: string): {launch: string, tmux: string, stopsAt: string} | undefined {
     const launch = pending.get(id)
     pending.delete(id)
-    return launch && {launch: id, tmux: launch.tmux, stopsAt: new Date(Date.now() + launch.minutes * 60_000).toISOString()}
+    if (launch) return {launch: id, tmux: launch.tmux, stopsAt: new Date(Date.now() + launch.minutes * 60_000).toISOString()}
+    const known = reported.get(id)
+    return known && {launch: id, tmux: known.tmux, stopsAt: known.stopsAt}
+}
+
+/** A launcher saying which of the project's sessions it runs, as it connects: they count as started again,
+ * with their stop times, whether their channels connected before this or connect after. */
+export function reportRunning(project: string, launches: {id: string, tmux: string, stopsAt: string}[]) {
+    for (const {id, tmux, stopsAt} of launches) {
+        reported.set(id, {project, tmux, stopsAt})
+        adoptLaunch(project, {launch: id, tmux, stopsAt})
+    }
 }
 
 /** The launch has ended, whether or not its session ever connected: it no longer holds the project's place. */
 export function launchGone(id: string) {
     pending.delete(id)
+    reported.delete(id)
 }
 
 /** The owner stopping a session Orrery started: its launcher kills it, and says when it's gone. */
@@ -125,6 +140,8 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
     const from = Math.max(Date.now(), Date.parse(session.started.stopsAt))
     const stopsAt = new Date(from + minutes * 60_000).toISOString()
     emit({type: 'extend', project, id, stopsAt})
+    const known = reported.get(id)
+    if (known) known.stopsAt = stopsAt
     return extendLaunch(project, id, stopsAt)!
 }
 

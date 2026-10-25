@@ -3,6 +3,12 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## Unreleased
+
+- **Starting sessions, across restarts:** a session Orrery started keeps counting against the limit, with
+  its time left and +30 min, after Orrery restarts; a launcher that dies takes its sessions back when it
+  starts again; and Stop goes through the session's channel when no launcher is there to stop it.
+
 ## 1.0.0-rc.2 (2026-10-25)
 
 - **Unseen changes, louder:** a changed issue or doc now tints its row with an accent bar, and its dot is

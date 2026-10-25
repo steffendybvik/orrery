@@ -20,7 +20,7 @@ export default defineEventHandler(async event => {
     // A session Orrery started says which launch it is (`started`); a channel that quits when the owner stops
     // its session says so (`stops`).
     const started = text('started') ? launched(text('started')!) : undefined
-    const attended = text('session') || text('pid') ? attend(project, text('session'), Number(text('pid')) || undefined, text('name'), heard, started, text('stops') === 'yes') : null
+    const attended = text('session') || text('pid') ? attend(project, text('session'), Number(text('pid')) || undefined, text('name'), heard, started, text('stops') === 'yes', text('started')) : null
     const stopListening = heard ? listen(project) : () => {}
     const done = () => {
         stopListening()

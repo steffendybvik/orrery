@@ -5,18 +5,11 @@ import type {Project} from '#shared/roadmap'
 // for the project's minutes, within its limit. Says why not when it can't (no launcher, the limit reached).
 const props = defineProps<{project: Project}>()
 const {load} = useOwner()
-/** What installs the launcher, run in the project's repo: this Orrery's checkout, where it knows it. */
-const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
-const {launchers, sessions} = useRoadmaps()
 const busy = ref(false)
 const failed = ref('')
 
 // Whether a launcher is there and how many are running or on their way, asked again as those change.
-const state = ref<{launchers: number, started: number, starting: number} | null>(null)
-async function refresh() {
-    state.value = await $fetch<typeof state.value>(`/api/projects/${encodeURIComponent(props.project.id)}/launches`).catch(() => null)
-}
-watch(() => [props.project, launchers.value[props.project.id], sessions.value[props.project.id]], refresh, {immediate: true})
+const {state, refresh, install} = useLaunchState(() => props.project.id)
 
 const full = computed(() => !!state.value && !!props.project.starts && state.value.started + state.value.starting >= props.project.starts.limit)
 const why = computed(() => !state.value?.launchers ? `No launcher is running for ${props.project.name}: install one in its repo with ${install}`
