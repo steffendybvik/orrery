@@ -2,10 +2,20 @@
 import type {Column} from '#shared/roadmap'
 import {PRIORITIES} from '#shared/roadmap'
 
-// ⌘K: every command and place. With nothing typed it offers what fits the page first (the issue's
-// commands on an issue, the views on Issues), then the places; typing narrows it all, issues
-// included. ↑↓ choose, ↵ runs, Esc closes.
-interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, run: () => unknown }
+// ⌘K: every command and place, in sections. With nothing typed: Here (what fits the page), Jump to (the
+// projects, this one first) and Go to. Typing finds Projects, Issues, Chunks, Docs and Commands, a few of
+// each with "N more" to open the rest, best match first; an exact issue id is the Top hit. `>` searches
+// commands only, `#` issues, `@` projects, chunks and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
+interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, id?: string, run: () => unknown }
+type SectionKey = 'top' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'chunks' | 'docs' | 'commands'
+interface Section { key: SectionKey, title: string, entries: Entry[], hidden: number }
+type Row = {kind: 'entry', key: string, entry: Entry, section: SectionKey} | {kind: 'more', key: string, section: SectionKey, n: number}
+
+/** How many of each a search shows before "N more". */
+const CAPS: Partial<Record<SectionKey, number>> = {projects: 3, issues: 6, chunks: 3, docs: 3, commands: 5}
+const TITLES: Record<SectionKey, string> = {top: 'Top hit', here: 'Here', jump: 'Jump to', go: 'Go to', projects: 'Projects', issues: 'Issues', chunks: 'Chunks', docs: 'Docs', commands: 'Commands'}
+/** Scope prefixes: what a search is narrowed to. */
+const SCOPES: Record<string, SectionKey[]> = {'>': ['commands'], '#': ['issues'], '@': ['projects', 'chunks', 'docs']}
 
 const openPalette = useState('palette-open', () => false)
 const {byId} = useRoadmaps()
@@ -109,23 +119,75 @@ const places = computed<Entry[]>(() => projects.value.flatMap(p => [
 ]))
 
 const issues = computed<Entry[]>(() => projects.value.flatMap(p => allIssues(p).map(({issue: i}) => ({
-    key: `i:${p.id}/${i.id}`, group: i.id, label: i.title, detail: p.name, also: i.aliases.join(' '), run: () => openIssue(p.id, i.id),
+    key: `i:${p.id}/${i.id}`, group: 'Issue', id: i.id, label: i.title, detail: p.name, also: i.aliases.join(' '), run: () => openIssue(p.id, i.id),
 }))))
 
-const results = computed(() => {
-    const words = query.value.toLowerCase().split(/\s+/).filter(Boolean)
-    if (!words.length) return [...here.value, ...everywhere.value.slice(0, 2), ...places.value.filter(e => e.key.startsWith('p:')), ...everywhere.value.slice(2)]
-    const ranked = [here.value, everywhere.value, places.value, issues.value].flatMap((entries, tier) => entries.flatMap(entry => {
-        const text = `${entry.group} ${entry.label} ${entry.detail ?? ''} ${entry.also ?? ''}`.toLowerCase()
-        if (!words.every(w => text.includes(w))) return []
-        const starts = entry.group.toLowerCase().startsWith(words[0]!) || entry.label.toLowerCase().startsWith(words[0]!)
-        return [{entry, score: tier * 2 + (starts ? 0 : 1)}]
-    }))
-    return ranked.sort((a, b) => a.score - b.score).slice(0, 60).map(r => r.entry)
+/** The sections a search opened past their cap. */
+const expanded = ref<SectionKey[]>([])
+
+/** How well an entry matches: 0 its id (or an id it had), 1 its title starts with the query, 2 a word in it
+ * does, 3 it's in there somewhere; null when a word of the query isn't. */
+function rank(entry: Entry, text: string, words: string[]): number | null {
+    const haystack = `${entry.id ?? ''} ${entry.group} ${entry.label} ${entry.detail ?? ''} ${entry.also ?? ''}`.toLowerCase()
+    if (!words.every(w => haystack.includes(w))) return null
+    const label = entry.label.toLowerCase()
+    if (entry.id && [entry.id, ...(entry.also?.split(' ') ?? [])].some(id => id.toLowerCase() === text)) return 0
+    if (label.startsWith(text)) return 1
+    if (label.split(/[\s:/·-]+/).some(w => w.startsWith(words[0]!))) return 2
+    return 3
+}
+
+const sections = computed<Section[]>(() => {
+    const raw = query.value.trim()
+    const scope = SCOPES[raw[0] ?? ''] ?? null
+    const text = (scope ? raw.slice(1) : raw).trim().toLowerCase()
+    const words = text.split(/\s+/).filter(Boolean)
+    const section = (key: SectionKey, entries: Entry[], cap = Infinity): Section => {
+        // A scoped search shows more of its one kind before "N more".
+        const shown = expanded.value.includes(key) ? entries : entries.slice(0, scope ? 50 : cap)
+        return {key, title: TITLES[key], entries: shown, hidden: entries.length - shown.length}
+    }
+    if (!words.length && !scope) {
+        const current = project.value?.id
+        const jump = places.value.filter(e => e.key.startsWith('p:') && e.key.endsWith(':issues'))
+            .sort((a, b) => Number(b.key === `p:${current}:issues`) - Number(a.key === `p:${current}:issues`))
+        return [
+            section('here', here.value.filter(e => e.group !== 'Go to')),
+            section('jump', jump),
+            section('go', [...here.value.filter(e => e.group === 'Go to'), ...everywhere.value.filter(e => e.group === 'Go to')]),
+        ].filter(s => s.entries.length)
+    }
+    const found = (entries: Entry[]) => entries.flatMap((entry, i) => {
+        const score = words.length ? rank(entry, text, words) : 3
+        return score === null ? [] : [{entry, score, i}]
+    }).sort((a, b) => a.score - b.score || a.i - b.i)
+    const hits = found(issues.value)
+    const top = hits.filter(h => h.score === 0).map(h => h.entry)
+    const pool: Record<'projects' | 'issues' | 'chunks' | 'docs' | 'commands', Entry[]> = {
+        projects: found(places.value.filter(e => e.key.startsWith('p:'))).map(h => h.entry),
+        issues: hits.filter(h => h.score > 0).map(h => h.entry),
+        chunks: found(places.value.filter(e => e.key.startsWith('c:'))).map(h => h.entry),
+        docs: found(places.value.filter(e => e.key.startsWith('d:'))).map(h => h.entry),
+        commands: found([...here.value, ...everywhere.value]).map(h => h.entry),
+    }
+    const order = (['projects', 'issues', 'chunks', 'docs', 'commands'] as const).filter(k => !scope || scope.includes(k))
+    return [
+        ...(!scope || scope.includes('issues')) && top.length ? [section('top', top)] : [],
+        ...order.map(k => section(k, pool[k], CAPS[k])),
+    ].filter(s => s.entries.length)
 })
+
+/** The rows ↑↓ move through: every entry, and each section's "N more". */
+const rows = computed<Row[]>(() => sections.value.flatMap(s => [
+    ...s.entries.map(entry => ({kind: 'entry' as const, key: `${s.key}:${entry.key}`, entry, section: s.key})),
+    ...s.hidden ? [{kind: 'more' as const, key: `${s.key}:more`, section: s.key, n: s.hidden}] : [],
+]))
+const results = computed(() => rows.value.filter(r => r.kind === 'entry'))
+const rowIndex = computed(() => new Map(rows.value.map((r, i) => [r.key, i])))
 
 watch(query, () => {
     active.value = 0
+    expanded.value = []
 })
 watch(openPalette, isOpen => {
     if (!isOpen) return
@@ -133,18 +195,31 @@ watch(openPalette, isOpen => {
     active.value = 0
     nextTick(() => input.value?.focus())
 })
-watch(active, index => nextTick(() => list.value?.children[index]?.scrollIntoView({block: 'nearest'})))
+watch(active, index => nextTick(() => list.value?.querySelector(`[data-row="${index}"]`)?.scrollIntoView({block: 'nearest'})))
 
-function run(entry: Entry | undefined) {
-    if (!entry) return
+function run(row: Row | undefined) {
+    if (!row) return
+    if (row.kind === 'more') {
+        // The section opens in place, the choice staying on its first newly shown row.
+        expanded.value = [...expanded.value, row.section]
+        return
+    }
     openPalette.value = false
-    entry.run()
+    row.entry.run()
+}
+
+/** ⇥ (⇧⇥ back): to the first row of the next section. */
+function jumpSection(step: 1 | -1) {
+    const starts = sections.value.map(s => rowIndex.value.get(`${s.key}:${s.entries[0]!.key}`)!)
+    const at = starts.findLastIndex(i => i <= active.value)
+    active.value = starts[(at + step + starts.length) % starts.length] ?? 0
 }
 
 function onKey(event: KeyboardEvent) {
-    const n = results.value.length
+    const n = rows.value.length
     if (event.key === 'Escape') openPalette.value = false
-    else if (event.key === 'Enter') run(results.value[active.value])
+    else if (event.key === 'Enter') run(rows.value[active.value])
+    else if (n && event.key === 'Tab') jumpSection(event.shiftKey ? -1 : 1)
     else if (n && (event.key === 'ArrowDown' || (event.ctrlKey && event.key === 'n'))) active.value = (active.value + 1) % n
     else if (n && (event.key === 'ArrowUp' || (event.ctrlKey && event.key === 'p'))) active.value = (active.value + n - 1) % n
     else return
@@ -168,27 +243,43 @@ function onKey(event: KeyboardEvent) {
           >
           <KeyHint>esc</KeyHint>
         </div>
-        <ul ref="list" class="overflow-y-auto p-1" role="listbox">
-          <li
-              v-for="(entry, index) in results"
-              :key="entry.key"
-              role="option"
-              :aria-selected="index === active"
-              class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13px]"
-              :class="index === active ? 'bg-active' : 'hover:bg-hover'"
-              @mouseenter="active = index"
-              @click="run(entry)"
-          >
-            <span class="w-16 shrink-0 truncate text-[11px] text-faint" :class="entry.key.startsWith('i:') ? 'font-mono' : 'uppercase tracking-wide'">{{ entry.group }}</span>
-            <span class="min-w-0 flex-1 truncate text-fg">{{ entry.label }}</span>
-            <span v-if="entry.detail" class="max-w-40 shrink-0 truncate font-mono text-[11px] text-faint">{{ entry.detail }}</span>
-            <KeyHint v-if="entry.hint">{{ entry.hint }}</KeyHint>
-          </li>
-          <li v-if="!results.length" class="px-3 py-6 text-center text-sm text-faint">Nothing matches</li>
-        </ul>
-        <div class="flex items-center gap-3 border-t border-line px-4 py-2 text-[11px] text-faint">
+        <div ref="list" class="overflow-y-auto p-1" role="listbox">
+          <section v-for="s in sections" :key="s.key" :aria-label="s.title" class="pb-1">
+            <h3 class="label px-3 pt-2 pb-1">{{ s.title }}</h3>
+            <div
+                v-for="entry in s.entries"
+                :key="entry.key"
+                role="option"
+                :data-row="rowIndex.get(`${s.key}:${entry.key}`)"
+                :aria-selected="rowIndex.get(`${s.key}:${entry.key}`) === active"
+                class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13px]"
+                :class="rowIndex.get(`${s.key}:${entry.key}`) === active ? 'bg-active' : 'hover:bg-hover'"
+                @mouseenter="active = rowIndex.get(`${s.key}:${entry.key}`)!"
+                @click="run(rows[rowIndex.get(`${s.key}:${entry.key}`)!])"
+            >
+              <span v-if="entry.id" class="shrink-0 font-mono text-[11px] text-faint">{{ entry.id }}</span>
+              <span class="min-w-0 flex-1 truncate text-fg">{{ entry.label }}</span>
+              <span v-if="entry.detail" class="max-w-40 shrink-0 truncate text-[11px] text-faint" :class="!entry.id && 'font-mono'">{{ entry.detail }}</span>
+              <KeyHint v-if="entry.hint">{{ entry.hint }}</KeyHint>
+            </div>
+            <div
+                v-if="s.hidden"
+                role="option"
+                :data-row="rowIndex.get(`${s.key}:more`)"
+                :aria-selected="rowIndex.get(`${s.key}:more`) === active"
+                class="flex cursor-pointer items-center rounded-lg px-3 py-1.5 text-xs text-muted"
+                :class="rowIndex.get(`${s.key}:more`) === active ? 'bg-active' : 'hover:bg-hover'"
+                @mouseenter="active = rowIndex.get(`${s.key}:more`)!"
+                @click="run(rows[rowIndex.get(`${s.key}:more`)!])"
+            >{{ s.hidden }} more…</div>
+          </section>
+          <p v-if="!rows.length" class="px-3 py-6 text-center text-sm text-faint">Nothing matches</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-[11px] text-faint">
           <span><KeyHint>↑</KeyHint> <KeyHint>↓</KeyHint> choose</span>
+          <span><KeyHint>⇥</KeyHint> section</span>
           <span><KeyHint>↵</KeyHint> run</span>
+          <span class="hidden sm:inline"><KeyHint>&gt;</KeyHint> commands · <KeyHint>#</KeyHint> issues · <KeyHint>@</KeyHint> places</span>
           <span class="ml-auto">{{ results.length }} {{ results.length === 1 ? 'result' : 'results' }}</span>
         </div>
       </div>
