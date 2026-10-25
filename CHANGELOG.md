@@ -5,6 +5,11 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Releases:** a project's Releases tab lists the versions it ships, each with the branch its work
+  gathers on, how far its issues are and whether it shipped; an issue's Release says which one it goes out
+  in. A release's page links its branch and PRs (once Settings says where the code is) and drafts its
+  changelog from its issues. `GET/POST /projects/:project/releases`, `?release=` on issues, and a
+  `releases` tool for sessions.
 - **Phones:** the header no longer carries a project's page tabs (they ran under the bell); the menu
   opens a full-screen drawer with bigger rows instead.
 - **Easier to read:** an issue row says its status once, as a pill, rather than three times; comments

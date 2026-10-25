@@ -30,6 +30,12 @@ const chunks = computed(() => props.project.board.chunks.filter(c => c.id))
 const statusOptions = computed(() => places.value.map(p => ({value: p.id, label: p.label})))
 const priorityOptions = [{value: '', label: 'No priority'}, ...PRIORITIES.map(p => ({value: p, label: `${p} · ${PRIORITY_LABEL[p]}`}))]
 const chunkOptions = computed(() => [{value: '', label: 'No chunk'}, ...chunks.value.map(c => ({value: c.id, label: c.title}))])
+// The release it ships in, newest first; a shipped one says so.
+const release = computed({
+    get: () => props.issue.release ?? '',
+    set: (next: string) => save({release: next || null}),
+})
+const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shippedOn ? `${r.version} · shipped` : r.version}))])
 
 // Labels: any the project uses, or a new one.
 const known = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.labels))])
@@ -113,6 +119,18 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
       </NuxtLink>
     </dd>
+
+    <template v-if="project.releases.length || issue.release">
+      <dt class="label">Release</dt>
+      <dd class="flex min-w-0 items-center gap-1">
+        <PropertyPicker v-model="release" :options="releaseOptions" label="Release" :disabled="saving">
+          <span class="truncate font-mono text-xs" :class="!issue.release && 'font-sans text-faint'">{{ issue.release ?? 'No release' }}</span>
+        </PropertyPicker>
+        <NuxtLink v-if="issue.release" :to="releasePath(project.id, issue.release)" class="shrink-0 rounded p-1 text-faint hover:bg-hover hover:text-fg" title="Open the release" aria-label="Open the release">
+          <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
+        </NuxtLink>
+      </dd>
+    </template>
 
     <template v-if="hasSubs">
       <dt class="label">Progress</dt>

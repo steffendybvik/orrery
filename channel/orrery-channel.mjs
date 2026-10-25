@@ -33,7 +33,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {}},
     instructions: [
         `Orrery (${base}) keeps this repo's roadmap as project "${project}", and this server's tools read and write it`,
-        '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, docs, doc, write_doc): use them instead of curl.',
+        '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, releases, docs, doc, write_doc): use them instead of curl.',
         'Its messages arrive as <channel ...> blocks and come from the owner through Orrery.',
         'When one asks you to focus on an issue: read it (issue), start it (start_issue), comment as the work moves (comment), and finish it when it ships (finish_issue).',
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
