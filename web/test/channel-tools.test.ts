@@ -25,7 +25,7 @@ const issue = (fields: object = {}) => ({id: 'LAR-1', title: 'Shelves', status: 
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'docs', 'doc', 'write_doc', 'secrets', 'egress'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'secrets', 'egress'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -60,6 +60,17 @@ describe("the channel's tools", () => {
         expect(calls[0]!.body).toEqual({title: 'Shelves', proposal: 'pending'})
         expect((await call('finish_issue', {id: 'LAR-1', comment: 'Built', status: 'in-review'})).text).toBe('In review: LAR-1 [in-review] Shelves')
         expect(calls.slice(1).map(c => c.method)).toEqual(['POST', 'PATCH'])
+    })
+
+    it('list the releases, and the issues in one', async () => {
+        const kinds = {proposed: 0, backlog: 1, todo: 0, started: 0, done: 2, canceled: 0}
+        const {call, calls} = harness({
+            'GET /releases': {body: [{version: '1.1.0', branch: 'v1.1.0', issues: 3, kinds}, {version: '1.0.0', shippedOn: '2026-10-01', issues: 1, kinds: {...kinds, backlog: 0, done: 1}}]},
+            'GET /issues': {body: []},
+        })
+        expect((await call('releases')).text).toBe('1.1.0 on v1.1.0: 3 issues, 2/3 done\n1.0.0 (shipped 2026-10-01): 1 issue, 1/1 done')
+        await call('issues', {release: '1.1.0'})
+        expect(calls[1]!.url).toBe('/issues?release=1.1.0')
     })
 
     it("say Orrery's reason when it refuses", async () => {

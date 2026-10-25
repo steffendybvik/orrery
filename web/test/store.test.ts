@@ -42,7 +42,14 @@ describe('projects', () => {
 
     it('refuses unknown fields', async () => {
         expect(await failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted, starts'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted, starts, repo'})
+    })
+
+    it('keep where their code is', async () => {
+        expect((await store.updateProject('larder', {repo: 'https://github.com/you/larder'})).repo).toBe('https://github.com/you/larder')
+        expect((await failure(() => store.updateProject('larder', {repo: 'github.com/you/larder'}))).status).toBe(400)
+        expect((await store.updateProject('larder', {repo: null})).repo).toBeUndefined()
+        expect((await store.createProject({name: 'pantry', repo: 'https://git.example/pantry'})).repo).toBe('https://git.example/pantry')
     })
 
     it('keep an icon to set and clear', async () => {
@@ -441,6 +448,82 @@ describe('chunks', () => {
         expect((await local.focusChunk('larder', '1', {})).status).toBeUndefined()
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'done'}))).status).toBe(400)
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'soon'}))).status).toBe(400)
+    })
+})
+
+describe('releases', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it('are made by version and refuse a second of the same', async () => {
+        const made = await store.createRelease('larder', {version: '1.0.0-rc.2', branch: ' v1.0.0-rc.2 '})
+        expect(made).toMatchObject({version: '1.0.0-rc.2', branch: 'v1.0.0-rc.2', issues: 0, tasks: [], project: 'larder'})
+        expect((await failure(() => store.createRelease('larder', {version: '1.0.0-rc.2'}))).status).toBe(409)
+        expect((await failure(() => store.createRelease('larder', {version: 'one two'}))).status).toBe(400)
+        expect((await failure(() => store.createRelease('larder', {version: '1.0.0', shippedOn: 'today'}))).status).toBe(400)
+    })
+
+    it('count their issues, a parent with its sub-issues; those being prepared first', async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        await store.createRelease('larder', {version: '1.1.0'})
+        await store.createRelease('larder', {version: '0.8.0', shippedOn: '2026-09-01'})
+        await store.createRelease('larder', {version: '0.9.0', shippedOn: '2026-10-01'})
+        const parent = await store.createIssue('larder', {title: 'Hinges', chunk: '1', release: '1.0.0'})
+        await store.createIssue('larder', {title: 'Pin', parent: parent.id, status: 'done'})
+        await store.createIssue('larder', {title: 'Socket', parent: parent.id, release: '1.0.0'})
+        const loose = await store.createIssue('larder', {title: 'Ball joint', chunk: '1'})
+        await store.createIssue('larder', {title: 'Its socket', parent: loose.id, release: '1.1.0', status: 'done'})
+
+        const [newer, older, ...shipped] = (await store.project('larder')).releases
+        expect(shipped.map(r => r.version)).toEqual(['0.9.0', '0.8.0'])
+        expect(newer).toMatchObject({version: '1.1.0', issues: 1, kinds: {done: 1}})
+        expect(older).toMatchObject({version: '1.0.0', issues: 1, kinds: {done: 1, backlog: 1}})
+        expect((await store.release('larder', '1.0.0')).tasks.map(t => t.id)).toEqual([parent.id])
+        expect((await store.listIssues('larder', {release: '1.0.0'})).map(i => i.title)).toEqual(['Hinges', 'Socket'])
+        expect((await store.listIssues('larder', {release: 'none'})).map(i => i.title)).toEqual(['Pin', 'Ball joint'])
+        expect((await failure(() => store.listIssues('larder', {release: '9.9'}))).status).toBe(404)
+    })
+
+    it('are set on an issue and taken off, as its activity says', async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        const issue = await store.createIssue('larder', {title: 'Hinges'})
+        expect((await store.updateIssue('larder', issue.id, {release: '1.0.0'})).release).toBe('1.0.0')
+        expect((await failure(() => store.updateIssue('larder', issue.id, {release: '2.0.0'}))).status).toBe(404)
+        expect((await store.updateIssue('larder', issue.id, {release: null})).release).toBeUndefined()
+        expect((await store.listActivity('larder', issue.id)).filter(e => e.field === 'release').map(e => [e.before, e.after]))
+            .toEqual([[undefined, '1.0.0'], ['1.0.0', undefined]])
+    })
+
+    it('change all but their version, and go leaving their issues in none', async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        const issue = await store.createIssue('larder', {title: 'Hinges', release: '1.0.0'})
+        expect(await store.updateRelease('larder', '1.0.0', {notes: 'Joints.', shippedOn: '2026-10-25', branch: ''})).toMatchObject({notes: 'Joints.', shippedOn: '2026-10-25'})
+        expect((await store.release('larder', '1.0.0')).branch).toBeUndefined()
+        expect((await failure(() => store.updateRelease('larder', '1.0.0', {version: '1.0.1'}))).status).toBe(400)
+        await store.deleteRelease('larder', '1.0.0')
+        expect((await store.issue('larder', issue.id)).release).toBeUndefined()
+        expect((await store.project('larder')).releases).toEqual([])
+    })
+
+    it("are the owner's to delete when the owner made them", async () => {
+        await store.createRelease('larder', {version: '1.0.0'}, owner)
+        expect((await failure(() => store.deleteRelease('larder', '1.0.0'))).status).toBe(403)
+        await store.deleteRelease('larder', '1.0.0', owner)
+    })
+
+    it('stay behind when their issue moves to another project', async () => {
+        await store.createProject({name: 'pantry', key: 'PAN'})
+        await store.createRelease('larder', {version: '1.0.0'})
+        const issue = await store.createIssue('larder', {title: 'Hinges', release: '1.0.0'})
+        const moved = await store.updateIssue('larder', issue.id, {project: 'pantry'})
+        expect(moved.release).toBeUndefined()
+        expect((await store.project('larder')).releases[0]!.issues).toBe(0)
+    })
+
+    it('go with their project', async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        await store.deleteProject('larder')
+        await store.createProject({name: 'larder', key: 'LAR'})
+        expect((await store.project('larder')).releases).toEqual([])
     })
 })
 

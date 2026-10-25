@@ -31,9 +31,9 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | | |
 |---|---|
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
-| `POST /projects` | `{name, id?, key?, description?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
-| `GET /projects/:project` | the project with its board |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?, focusPrompt?, chunkPrompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `null` clears either |
+| `POST /projects` | `{name, id?, key?, description?, repo?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
+| `GET /projects/:project` | the project with its board, docs and releases |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?, repo?, focusPrompt?, chunkPrompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `null` clears any of them |
 | `DELETE /projects/:project` | with its chunks, issues and comments |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there |
 
@@ -47,12 +47,26 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `PATCH /projects/:project/chunks/:chunk` | `{title?, summary?, priority?, position?}`; `priority` is `P0`–`P3` (P0 urgent) or `null` |
 | `DELETE /projects/:project/chunks/:chunk` | its issues stay, in no chunk |
 
+## Releases
+
+The versions a project ships, and which issues go out in each. Chunks are themes; a release cuts across
+them. An issue says which release it ships in with `release` (a version); a sub-issue set for none goes
+out with its parent.
+
+| | |
+|---|---|
+| `GET /projects/:project/releases` | those being prepared first, then the shipped ones, latest first: `{version, branch?, notes?, shippedOn?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included |
+| `POST /projects/:project/releases` | `{version, branch?, notes?, shippedOn?}`: `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shippedOn` the day it shipped (`YYYY-MM-DD`; none while it's being prepared) |
+| `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues) |
+| `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shippedOn?}`; the version doesn't change; `null` clears |
+| `DELETE /projects/:project/releases/:release` | its issues stay, set for none |
+
 ## Issues
 
 | | |
 |---|---|
-| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?chunk= ?parent= ?proposal= ?q=` (`none` for unset; `status` and `column` take a status's id or a kind; `?proposal=none` is committed work only) |
-| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, notes?, proposal?, parent?, chunk?, position?}`; gets the next `KEY-n` |
+| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?chunk= ?release= ?parent= ?proposal= ?q=` (`none` for unset; `status` and `column` take a status's id or a kind; `?proposal=none` is committed work only) |
+| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, notes?, proposal?, parent?, chunk?, release?, position?}`; gets the next `KEY-n` |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and chunk |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |
 | `DELETE /projects/:project/issues/:issue` | with its sub-issues and comments |
@@ -65,6 +79,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
   (stored as their id, so it shows under their My issues; `?assignee=owner` finds theirs too)
 - A top-level issue is in a `chunk`; a sub-issue (`parent`) is in its parent's chunk, so it takes no `chunk`
 - `parent: null` lifts a sub-issue to the top, into the chunk it was in
+- `release`: the version of a release of the project (see [Releases](#releases)); moving the issue to another project takes it out
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `notes` may use inline `` `code` `` and `**bold**`
 
@@ -134,7 +149,7 @@ instead of `done` when it won't ship.
 | `GET /projects/:project/issues/:issue/comments` | oldest first |
 | `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
-| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, createdBy, createdAt}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal` or `project` (moved in from `before`) |
+| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, createdBy, createdAt}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release` or `project` (moved in from `before`) |
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell). `?list=waiting` is every one still waiting; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
 | `POST /notices/clear` | `{ids}` or `{before}` → `{cleared}`: the owner takes them out of the bell; they stay on their issues |
 
