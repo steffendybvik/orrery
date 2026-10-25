@@ -43,7 +43,10 @@ export default defineNuxtConfig({
             title: 'Orrery',
             meta: [{name: 'description', content: 'Where every app project stands'}],
             link: [
+                {rel: 'icon', href: '/favicon.ico', sizes: '32x32'},
                 {rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'},
+                {rel: 'apple-touch-icon', href: '/apple-touch-icon.png'},
+                {rel: 'manifest', href: '/site.webmanifest'},
                 {rel: 'preconnect', href: 'https://fonts.googleapis.com'},
                 {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: ''},
                 {

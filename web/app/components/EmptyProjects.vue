@@ -11,7 +11,7 @@ const command = computed(() => `curl -X POST ${origin.value}/api/projects \\
 <template>
   <div class="mx-auto flex max-w-xl animate-fade-up flex-col gap-5 px-4 py-16">
     <div class="grid size-12 place-items-center rounded-2xl bg-gradient-to-br from-accent-300 to-accent-600 shadow-lg shadow-accent-600/30">
-      <svg class="size-6 text-zinc-950" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(-25 12 12)" /><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" /><circle cx="19.4" cy="8.6" r="1.6" fill="currentColor" stroke="none" /></svg>
+      <OrreryMark class="size-6 text-zinc-950" />
     </div>
     <div class="flex flex-col gap-1.5">
       <h1 class="text-lg font-semibold tracking-tight">No projects yet</h1>
