@@ -343,7 +343,7 @@ export interface Session {
     startedAt: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
-    /** Its channel's stream is open (even without the channel flag), so the owner can stop it from Orrery. */
+    /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from Orrery. */
     reachable?: boolean
     /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
     started?: StartedSession

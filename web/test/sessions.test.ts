@@ -148,11 +148,14 @@ describe('stopping a session', () => {
         projectEvents.on('session-stop', event => asked.push(event))
         expect(() => sessions.stopSession('larder', 'a')).toThrow('No session a in larder')
         sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})
-        expect(() => sessions.stopSession('larder', 'a')).toThrow("has no Orrery channel running")
+        expect(() => sessions.stopSession('larder', 'a')).toThrow('has no Orrery channel running')
         expect(sessions.listSessions('larder')[0]!.reachable).toBe(false)
-        // A channel without the flag can't hear signals, but can still be stopped.
-        const first = sessions.attend('larder', 'a', undefined, undefined, false)
-        const second = sessions.attend('larder', 'a', undefined, undefined, false)
+        // An older channel doesn't know to quit; one without the flag can't hear signals, but can still be stopped.
+        const old = sessions.attend('larder', 'a', undefined, undefined, true)
+        expect(() => sessions.stopSession('larder', 'a')).toThrow('an older channel needs the session restarted')
+        old.done()
+        const first = sessions.attend('larder', 'a', undefined, undefined, false, undefined, true)
+        const second = sessions.attend('larder', 'a', undefined, undefined, false, undefined, true)
         expect(sessions.listSessions('larder')[0]!.reachable).toBe(true)
         expect(() => sessions.stopSession('mesa', 'a')).toThrow('No session a in mesa')
         expect(sessions.stopSession('larder', 'a').name).toBe('larder 1')
