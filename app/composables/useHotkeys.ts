@@ -1,7 +1,7 @@
 import type {View} from './useLastView'
 
 // The keys: j/k move between rows and cards, Enter opens, Esc closes, / searches, ⌘K jumps,
-// 1/2 switch List/Board, c writes a new issue, g n goes to Now, g u to Urgent. Rows take part by carrying `data-nav`.
+// 1/2 switch List/Board, c writes a new issue, g n goes to Now, g u to Urgent, g m to My issues. Rows take part by carrying `data-nav`.
 export function useHotkeys() {
     const route = useRoute()
     const router = useRouter()
@@ -64,8 +64,9 @@ export function useHotkeys() {
             case 'g': g = Date.now(); return
             case 'n':
             case 'u':
+            case 'm':
                 if (Date.now() - g > 1000) return
-                router.push(event.key === 'n' ? '/now' : '/urgent')
+                router.push({n: '/now', u: '/urgent', m: '/mine'}[event.key])
                 break
             default: return
         }

@@ -14,6 +14,15 @@ export const COLUMN_STYLE: Record<Column, {label: string, text: string, fill: st
 
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}
 
+/** Open issues assigned to `owner` anywhere in the project, sub-issues included; the proposals waiting
+ * on them first. */
+export function myIssues(project: Project, owner: string | null) {
+    if (!owner) return []
+    return allIssues(project)
+        .filter(({issue}) => issue.assignee?.toLowerCase() === owner.toLowerCase() && issue.column !== 'done')
+        .sort((a, b) => Number(b.issue.column === 'proposed') - Number(a.issue.column === 'proposed'))
+}
+
 /** Open urgent (P0) issues anywhere in the project, sub-issues included. */
 export function urgentIssues(project: Project) {
     return allIssues(project).filter(({issue}) => issue.priority === 'P0' && issue.column !== 'done')

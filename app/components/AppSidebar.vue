@@ -17,6 +17,9 @@ watch(() => route.fullPath, () => {
 const nowCount = computed(() => projects.value.reduce((sum, p) =>
     sum + p.board.chunks.reduce((n, c) => n + c.tasks.filter((t: Issue) => t.column === 'doing' || t.column === 'now').length, 0), 0))
 const urgentCount = computed(() => projects.value.reduce((sum, p) => sum + urgentIssues(p).length, 0))
+const {name: owner, load: loadOwner} = useOwner()
+onMounted(loadOwner)
+const mineCount = computed(() => projects.value.reduce((sum, p) => sum + myIssues(p, owner.value).length, 0))
 const LIVE = {live: 'Live', connecting: 'Connecting…', offline: 'Offline'}
 
 // Projects are dragged by their name to rearrange them (or moved with ⌥↑/⌥↓); a line shows where one lands.
@@ -112,6 +115,16 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <PriorityIcon priority="P0" :size="16" />
         <span class="flex-1">Urgent</span>
         <span v-if="urgentCount" class="rounded-full bg-accent-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums">{{ urgentCount }}</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/mine"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/mine' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+        <span class="flex-1">My issues</span>
+        <span v-if="mineCount" class="font-mono text-[11px] text-faint tabular-nums">{{ mineCount }}</span>
       </NuxtLink>
 
       <NuxtLink
