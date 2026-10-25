@@ -67,13 +67,15 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
           <span class="text-muted">{{ who(doc.createdBy) }}</span>
           <span>· updated {{ ago(doc.updatedAt) }}</span>
           <span v-if="doc.protected" class="flex items-center gap-1" title="Only the owner can delete it">· protected</span>
-          <span v-if="rendered?.changed" class="flex items-center gap-1.5 text-accent-600 dark:text-accent-400"><span class="unseen-dot" />{{ rendered.changed }} {{ rendered.changed === 1 ? 'part' : 'parts' }} changed since you last read it</span>
           <span class="ml-auto flex items-center gap-2">
             <SegmentedControl v-model="size" :options="sizes" class="[&_button]:px-2 [&_button]:py-0.5" title="Text size" />
             <span class="font-mono">{{ doc.id }}</span>
             <CopyButton :text="doc.id" />
           </span>
         </div>
+        <p v-if="rendered?.changed" class="flex items-center gap-2 text-xs text-accent-600 dark:text-accent-400">
+          <span class="unseen-dot" />{{ rendered.changed }} {{ rendered.changed === 1 ? 'part' : 'parts' }} changed since you last read it, tinted below
+        </p>
       </header>
       <MarkdownView :source="doc.body" :title="doc.title" :before="before?.body" :data-size="size" />
       <p class="mt-12 rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PUT /api/projects/{{ doc.project }}/docs/{{ doc.id }}</p>
