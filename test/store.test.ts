@@ -283,7 +283,7 @@ describe('proposals with choices', () => {
         expect((await store.issue('larder', id)).choices.map(c => c.key)).toEqual(['parts', 'key'])
         expect((await store.decide('larder', id, {decision: 'approved'}, owner)).picks).toEqual({parts: ['A', 'B'], key: ['env']})
         expect((await store.listComments('larder', id)).at(-1)?.body)
-            .toBe('Approved this proposal with:\n- Which parts? A Write-only store, B Orrery makes the call\n- Where the key lives env ORRERY_SECRET_KEY')
+            .toBe('Approved this proposal with:\n- Which parts? → **A** Write-only store, **B** Orrery makes the call\n- Where the key lives → **ORRERY_SECRET_KEY**')
         await store.updateIssue('larder', id, {proposal: 'pending'}, claude)
         expect((await store.issue('larder', id)).picks).toBeUndefined()
         expect((await store.decide('larder', id, {decision: 'approved', picks: {parts: ['A', 'D'], key: ['keychain']}, note: 'D too'}, owner)).picks)
