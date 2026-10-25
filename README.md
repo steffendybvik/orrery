@@ -52,8 +52,22 @@ that repo, and the session sets the repo up to use Orrery itself.
   before opening it to anyone else.
 - **The channel is a research preview.** Sending "focus on this" to a session uses Claude Code
   channels, which are a research preview: the session has to be started with
-  `claude --dangerously-load-development-channels server:<name>`. Without it, everything else still
-  works; you just can't nudge a session from the page.
+  `claude --dangerously-load-development-channels server:<name>`, where `<name>` is the Orrery server
+  in the repo's `.mcp.json`. For a repo whose server is `orrery-shop`:
+
+  ```sh
+  cd ~/code/shop
+  claude --dangerously-load-development-channels server:orrery-shop
+  ```
+
+  Or save the typing with an alias in `~/.zshrc`, then `source ~/.zshrc` and start it with `shop`:
+
+  ```sh
+  alias shop="cd ~/code/shop && claude --dangerously-load-development-channels server:orrery-shop"
+  ```
+
+  Without it, everything else still works; you just can't nudge a session from the page.
+  [Connecting a repo](docs/connect.md) has the server setup.
 
 ## Docs
 
