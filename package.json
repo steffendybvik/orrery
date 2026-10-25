@@ -1,6 +1,5 @@
 {
-  "name": "orrery",
-  "version": "1.0.0",
+  "name": "orrery-workspace",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -10,44 +9,16 @@
     "pnpm": "10.14.0"
   },
   "scripts": {
-    "dev": "nuxt dev",
-    "build": "nuxt build",
-    "preview": "nuxt preview",
-    "postinstall": "nuxt prepare",
-    "typecheck": "nuxt typecheck",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
-    "orrery:copy": "jiti scripts/copy.ts"
+    "dev": "pnpm --dir web dev",
+    "build": "pnpm --dir web build",
+    "preview": "pnpm --dir web preview",
+    "typecheck": "pnpm --dir web typecheck",
+    "test": "pnpm --dir web test",
+    "test:coverage": "pnpm --dir web test:coverage",
+    "test:e2e": "pnpm --dir web test:e2e",
+    "orrery:copy": "pnpm --dir web orrery:copy"
   },
   "dependencies": {
-    "@heroicons/vue": "2.2.0",
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "croner": "9.0.0",
-    "dompurify": "3.4.16",
-    "h3": "1.15.11",
-    "marked": "18.1.0",
-    "nuxt": "4.6.2",
-    "pg": "8.16.3",
-    "vue": "^3.5.44",
-    "vue-router": "^5.4.0"
-  },
-  "devDependencies": {
-    "jiti": "2.7.0",
-    "@playwright/test": "1.56.1",
-    "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^24.0.0",
-    "@types/pg": "8.15.5",
-    "@vitest/coverage-v8": "5.0.5",
-    "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3",
-    "vitest": "^5.0.5",
-    "vue-tsc": "^3.3.13"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "@parcel/watcher"
-    ]
+    "@modelcontextprotocol/sdk": "1.32.1"
   }
 }

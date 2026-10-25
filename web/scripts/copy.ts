@@ -14,8 +14,10 @@ const TABLES = ['statuses', 'settings', 'projects', 'chunks', 'issues', 'comment
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
 const NUMBERED = ['comments', 'issue_events', 'schedules', 'schedule_runs', 'signals']
 
-const open = (where: string): Db => isPostgres(where) ? new PostgresDb(where) : new SqliteDb(openDb(resolve(where)))
-const describe = (where: string) => isPostgres(where) ? where.replace(/\/\/([^:@/]+):[^@]+@/, '//$1:…@') : resolve(where)
+// A file is from where the command was run: `pnpm orrery:copy` runs this in web/, and pnpm keeps that in INIT_CWD.
+const file = (where: string) => resolve(process.env.INIT_CWD ?? process.cwd(), where)
+const open = (where: string): Db => isPostgres(where) ? new PostgresDb(where) : new SqliteDb(openDb(file(where)))
+const describe = (where: string) => isPostgres(where) ? where.replace(/\/\/([^:@/]+):[^@]+@/, '//$1:…@') : file(where)
 
 export async function copy(source: Db, target: Db): Promise<Record<string, number>> {
     if ((await target.get<{n: number}>('SELECT count(*) AS n FROM projects'))!.n) throw new Error('The target already has projects: copy into an empty Orrery')

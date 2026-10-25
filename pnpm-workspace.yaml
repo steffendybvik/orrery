@@ -1,0 +1,7 @@
+# The repo root holds the channel (`channel/`, run by path from other repos, so its one dependency is the
+# root's) and scripts that run in the app; the Nuxt app is its own package in web/.
+packages:
+  - web
+onlyBuiltDependencies:
+  - esbuild
+  - '@parcel/watcher'

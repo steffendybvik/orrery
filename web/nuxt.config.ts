@@ -15,8 +15,9 @@ export default defineNuxtConfig({
     },
 
     runtimeConfig: {
-        // Where the projects, chunks, issues and comments live: a SQLite file, or a postgres:// URL. Override with NUXT_DATABASE.
-        database: '.data/orrery.db',
+        // Where the projects, chunks, issues and comments live: a SQLite file (from web/, so in the repo's own
+        // .data), or a postgres:// URL. Override with NUXT_DATABASE.
+        database: '../.data/orrery.db',
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
         // Host names Orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
@@ -34,7 +35,7 @@ export default defineNuxtConfig({
 
     // docs/API.md is served to agents (/api/guide, /llms-full.txt).
     nitro: {
-        serverAssets: [{baseName: 'docs', dir: fileURLToPath(new URL('./docs', import.meta.url))}],
+        serverAssets: [{baseName: 'docs', dir: fileURLToPath(new URL('../docs', import.meta.url))}],
     },
 
     app: {

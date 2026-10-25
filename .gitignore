@@ -12,5 +12,5 @@ coverage
 .idea
 
 # Playwright
-/test-results
-/playwright-report
+/web/test-results
+/web/playwright-report

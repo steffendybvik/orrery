@@ -8,12 +8,15 @@ importers:
 
   .:
     dependencies:
-      '@heroicons/vue':
-        specifier: 2.2.0
-        version: 2.2.0(vue@3.5.44(typescript@5.9.3))
       '@modelcontextprotocol/sdk':
         specifier: 1.32.1
         version: 1.32.1(zod@4.6.7)
+
+  web:
+    dependencies:
+      '@heroicons/vue':
+        specifier: 2.2.0
+        version: 2.2.0(vue@3.5.44(typescript@5.9.3))
       croner:
         specifier: 9.0.0
         version: 9.0.0

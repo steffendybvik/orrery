@@ -16,8 +16,10 @@ services:
     volumes:
       - .:/src
       - orrery-node-modules:/src/node_modules
-      - orrery-nuxt:/src/.nuxt
+      - orrery-web-node-modules:/src/web/node_modules
+      - orrery-nuxt:/src/web/.nuxt
 
 volumes:
   orrery-node-modules:
+  orrery-web-node-modules:
   orrery-nuxt:

@@ -1,5 +1,21 @@
 # Working on Orrery
 
+## Where things are
+
+```
+web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
+              public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts), its package.json
+channel/      the channel and hooks Claude sessions run, by path, from every connected repo
+docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
+```
+
+The root is a pnpm workspace with the app as its one package: `pnpm dev`, `pnpm test`,
+`pnpm typecheck`, `pnpm test:e2e` and `pnpm orrery:copy` run there and work in `web/`. The root's
+own dependency is the channel's MCP SDK, so `channel/` keeps working from other repos. The database
+stays in the repo's `.data/`.
+
+## The dev server
+
 `docker-compose.dev.yml` runs the repo with `nuxt dev` in place of the built app, on the same port
 and database: a saved change shows on the page straight away and the server reloads itself, with no
 rebuild. It's this machine's only.
@@ -21,8 +37,9 @@ Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 2
 
 `pnpm test:e2e` runs the main flows in a real browser with Playwright: naming the owner, a project,
 issues moved on the board, sub-issues, ⌘K, a proposal approved, a change showing up live in a second
-tab. It starts `nuxt dev` on port 3199 with a fresh `.data/e2e.db`, so your own database isn't
+tab. It starts `nuxt dev` on port 3199 with a fresh `web/.data/e2e.db`, so your own database isn't
 touched. The first time, get its browser with `pnpm exec playwright install chromium`. A failed run
 leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
 
-The database's migrations are numbered steps in `server/utils/db.ts`: add a step, never edit one.
+The database's migrations are numbered steps in `web/server/utils/db.ts`, with Postgres's after its baseline in
+`web/server/utils/postgres.ts`: add a step to both, never edit one.
