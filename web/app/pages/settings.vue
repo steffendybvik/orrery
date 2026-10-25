@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {TINTS} from '#shared/roadmap'
+import type {Heading} from '~/utils/markdown'
 
 // This Orrery's own settings (a project's are on its Settings tab): whose it is, and its tint, a colour
 // the backgrounds take on, so one Orrery (personal, work) looks unlike another at a glance.
@@ -7,6 +8,15 @@ useHead({title: 'App settings · Orrery'})
 const {settings, tintColor, save} = useAppSettings()
 const {environment} = useRuntimeConfig().public
 const failed = ref('')
+// The sections, listed beside them on a wide screen.
+const headings: Heading[] = [
+    {id: 'name', text: 'Your name', level: 2},
+    {id: 'tint', text: 'Background tint', level: 2},
+    {id: 'statuses', text: 'Issue statuses', level: 2},
+    {id: 'sessions', text: 'What sessions hear', level: 2},
+    {id: 'secrets', text: 'Secrets', level: 2},
+]
+const scroller = ref<HTMLElement | null>(null)
 const custom = ref('#3b82f6')
 watch(tintColor, now => {
     if (now) custom.value = now
@@ -50,9 +60,10 @@ async function pick(tint: string | null) {
     <h1 class="truncate text-sm font-medium">App settings</h1>
   </PageHeader>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8">
-      <section class="flex flex-col gap-3">
+  <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+    <div class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8">
+    <div class="flex min-w-0 max-w-3xl flex-1 flex-col gap-8">
+      <section id="name" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Your name</h2>
           <p class="text-xs text-muted">
@@ -73,7 +84,7 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
-      <section class="flex flex-col gap-3 border-t border-line pt-8">
+      <section id="tint" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Background tint</h2>
           <p class="text-xs text-muted">
@@ -111,7 +122,7 @@ async function pick(tint: string | null) {
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       </section>
 
-      <section class="flex flex-col gap-3 border-t border-line pt-8">
+      <section id="statuses" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Issue statuses</h2>
           <p class="text-xs text-muted">
@@ -122,7 +133,7 @@ async function pick(tint: string | null) {
         <StatusSettings />
       </section>
 
-      <section class="flex flex-col gap-3 border-t border-line pt-8">
+      <section id="sessions" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
           <p class="text-xs text-muted">
@@ -133,7 +144,7 @@ async function pick(tint: string | null) {
         <FocusPrompts />
       </section>
 
-      <section class="flex flex-col gap-3 border-t border-line pt-8">
+      <section id="secrets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Secrets</h2>
           <p class="text-xs text-muted">
@@ -144,6 +155,12 @@ async function pick(tint: string | null) {
         </header>
         <SecretSettings />
       </section>
+    </div>
+    <aside class="hidden w-56 shrink-0 xl:block">
+      <div class="sticky top-6">
+        <DocContents :headings="headings" :root="scroller" />
+      </div>
+    </aside>
     </div>
   </div>
 </template>

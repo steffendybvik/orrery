@@ -14,6 +14,9 @@ function follow() {
         const element = document.getElementById(heading.id)
         if (element && element.getBoundingClientRect().top <= top) reading = heading.id
     }
+    // At the bottom, the last heading may never reach the top: it's the one being read.
+    const {scrollTop, clientHeight, scrollHeight} = props.root
+    if (scrollTop > 0 && scrollTop + clientHeight >= scrollHeight - 2) reading = props.headings.at(-1)?.id ?? reading
     current.value = reading
 }
 
