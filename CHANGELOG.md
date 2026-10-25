@@ -3,7 +3,7 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## 1.0.0-rc.2 (unreleased)
+## 1.0.0-rc.2 (2026-10-25)
 
 - **Fixed, a window with a channel per project:** only the channel of the window's own project decides
   whether it's listening and whether Stop can reach it, so the other projects' channels (skipped by
