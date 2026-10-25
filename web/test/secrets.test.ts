@@ -181,4 +181,81 @@ describe('egress', () => {
         expect(result.truncated).toBe(true)
         expect(result.body).toHaveLength(1_000_000)
     })
+
+    it("doesn't leak a value cut through at the end of a long answer", async () => {
+        for (const k of [1, 5, VALUE.length - 1]) {
+            answer = () => new Response(`${'x'.repeat(1_000_000 - k)}${VALUE}tail`)
+            const result = await secrets.egress({url: 'https://api.stripe.com/?k={{secret:STRIPE_KEY}}'}, agent)
+            expect(result.truncated).toBe(true)
+            expect(result.body.endsWith(VALUE.slice(0, k))).toBe(false)
+            expect(result.body.length).toBeLessThanOrEqual(1_000_000)
+        }
+    })
+
+    it('scrubs JSON-escaped values and Basic auth with a user name', async () => {
+        await secrets.set('ODD', {value: 'q"uo/te\\z+&1', hosts: ['api.stripe.com']}, me)
+        const odd = 'q"uo/te\\z+&1'
+        answer = () => new Response([
+            JSON.stringify({echo: odd}),
+            JSON.stringify(odd).replaceAll('/', '\\/'),
+            `Basic ${Buffer.from(`user:${VALUE}`).toString('base64')}`,
+            `Basic ${Buffer.from(`ab:${VALUE}`).toString('base64url')}`,
+        ].join(' '))
+        const result = await secrets.egress({url: 'https://api.stripe.com/?k={{secret:STRIPE_KEY}}&o={{secret:ODD}}'}, agent)
+        const decoded = [...result.body.matchAll(/[A-Za-z0-9+/_-]{8,}={0,2}/g)].map(([m]) => Buffer.from(m, 'base64').toString('latin1')).join(' ')
+        expect(result.body + decoded).not.toContain(VALUE)
+        expect(result.body).not.toContain('uo\\/te')
+        expect(result.body).not.toContain('uo/te')
+    })
+
+    it('reads no more of an answer than it gives back', async () => {
+        let pulled = 0
+        const stream = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                pulled += 65_536
+                if (pulled > 50_000_000) controller.close()
+                else controller.enqueue(new Uint8Array(65_536).fill(120))
+            },
+        })
+        answer = () => new Response(stream)
+        const result = await secrets.egress({url: 'https://api.stripe.com/?k={{secret:STRIPE_KEY}}'}, agent)
+        expect(result.truncated).toBe(true)
+        expect(pulled).toBeLessThan(2_000_000)
+    })
+
+    it('answers 502 and records the use when the answer breaks off', async () => {
+        const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode('partial'))
+                controller.error(new Error(`socket hang up after ${VALUE}`))
+            },
+        })
+        answer = () => new Response(stream)
+        const failed = await failure(() => secrets.egress({url: 'https://api.stripe.com/?k={{secret:STRIPE_KEY}}'}, agent))
+        expect(failed.status).toBe(502)
+        expect(failed.message).not.toContain(VALUE)
+        const {uses} = await secrets.get('STRIPE_KEY')
+        expect(uses[0]).toMatchObject({status: 200, error: expect.stringContaining('socket hang up')})
+    })
+
+    it('escapes the value where it goes: in the url and in a JSON body', async () => {
+        const odd = 'ab+cd&x=1"q\\z'
+        await secrets.set('ODD', {value: odd, hosts: ['api.stripe.com']}, me)
+        await secrets.egress({url: 'https://api.stripe.com/v1?k={{secret:ODD}}', method: 'POST', body: {key: '{{secret:ODD}}'}}, agent)
+        expect(new URL(sent[0]!.url).searchParams.get('k')).toBe(odd)
+        expect(JSON.parse(String(sent[0]!.init.body))).toEqual({key: odd})
+        // A text body goes as it is unless it says it's JSON or a form.
+        await secrets.egress({url: 'https://api.stripe.com/v1', method: 'POST', body: 'key={{secret:ODD}}', headers: {'Content-Type': 'application/x-www-form-urlencoded'}}, agent)
+        expect(new URLSearchParams(String(sent[1]!.init.body)).get('key')).toBe(odd)
+        await secrets.egress({url: 'https://api.stripe.com/v1', method: 'POST', body: 'raw {{secret:ODD}}', headers: {Authorization: 'X {{secret:ODD}}'}}, agent)
+        expect(sent[2]!.init.body).toBe(`raw ${odd}`)
+        expect((sent[2]!.init.headers as Record<string, string>).Authorization).toBe(`X ${odd}`)
+    })
+
+    it('forgets its uses when deleted, so a new secret by that name starts clean', async () => {
+        await secrets.egress({url: 'https://api.stripe.com/?k={{secret:STRIPE_KEY}}'}, agent)
+        await secrets.delete('STRIPE_KEY', me)
+        await stripe()
+        expect((await secrets.get('STRIPE_KEY')).uses).toEqual([])
+    })
 })

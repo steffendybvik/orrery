@@ -5,6 +5,10 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Fixed:** egress no longer leaks a secret at the 1 MB cut, scrubs its JSON-escaped, form-encoded and
+  Basic-auth forms too, reads no more of an answer than it gives back, answers 502 when one breaks off,
+  and escapes the value for the url or JSON body it goes in. A deleted secret's uses go with it. A
+  secret's projects are now said to be a guard against slips, not a boundary.
 - **Unseen changes:** issues and docs that changed since the owner last opened them carry a quiet accent
   dot and a bolder title, on rows, board cards, the docs list and the project in the sidebar, until
   opened or cleared with Mark seen. The owner's own changes from the page don't count.

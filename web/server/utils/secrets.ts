@@ -129,6 +129,7 @@ export class Secrets {
         this.ownerOnly(actor)
         await this.row(name)
         await this.db.run('DELETE FROM secrets WHERE name = ?', name)
+        await this.db.run('DELETE FROM secret_uses WHERE secret = ?', name)
         await this.changed()
     }
 
@@ -141,7 +142,9 @@ export class Secrets {
         const template = String(input.url)
         const names = [...new Set([template, ...Object.values(headers), text ?? ''].flatMap(part => [...part.matchAll(PLACEHOLDER)].map(m => m[1]!)))]
         if (!names.length) throw badRequest('Put a secret in the request as {{secret:NAME}}; Orrery only makes requests that use one')
-        const project = input.project === undefined ? null : (await this.store.project(String(input.project))).id
+        // Says what the caller says it's for: a guard against using a key in the wrong project by mistake,
+        // not a boundary, as nothing proves who's calling.
+        const project = input.project === undefined ? null : await this.store.projectId(String(input.project))
         const issue = input.issue === undefined ? null : String(input.issue)
 
         const secrets = new Map<string, {row: SecretRow, hosts: string[], value: string}>()
@@ -152,12 +155,17 @@ export class Secrets {
             if (projects && (!project || !projects.includes(project))) throw forbidden(`${name} is only for ${projects.join(', ')}; send the "project" it's for`)
             secrets.set(name, {row, hosts: JSON.parse(row.hosts), value: this.open(row)})
         }
-        const scrub = scrubber(secrets)
-        const fill = (part: string) => part.replace(PLACEHOLDER, (whole, name: string) => secrets.get(name)?.value ?? whole)
+        const {scrub, cut} = scrubber(secrets)
+        /** Each placeholder in `part` replaced by its value, escaped as `escape` says for where it goes. */
+        const fill = (part: string, escape: (value: string) => string = value => value) =>
+            part.replace(PLACEHOLDER, (whole, name: string) => {
+                const secret = secrets.get(name)
+                return secret ? escape(secret.value) : whole
+            })
 
         let url: URL
         try {
-            url = new URL(fill(template))
+            url = new URL(fill(template, encodeURIComponent))
         } catch {
             throw badRequest(`"url" isn't a URL: ${template}`)
         }
@@ -171,6 +179,10 @@ export class Secrets {
         if (text !== undefined && typeof (body as {body?: unknown}).body !== 'string' && !Object.keys(sent).some(k => k.toLowerCase() === 'content-type')) {
             sent['Content-Type'] = 'application/json'
         }
+        const type = Object.entries(sent).find(([k]) => k.toLowerCase() === 'content-type')?.[1].toLowerCase() ?? ''
+        const inBody = type.includes('json') ? (value: string) => JSON.stringify(value).slice(1, -1)
+            : type.includes('x-www-form-urlencoded') ? encodeURIComponent
+                : undefined
         const record = async (status: number | null, error: string | null) => {
             for (const name of names) {
                 await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -181,20 +193,30 @@ export class Secrets {
 
         let response: Response
         try {
-            response = await this.send(url, {method, headers: sent, body: text === undefined ? undefined : fill(text), redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT)})
+            response = await this.send(url, {method, headers: sent, body: text === undefined ? undefined : fill(text, inBody), redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT)})
         } catch (error) {
             const reason = scrub((error as Error).message)
             await record(null, reason)
             throw createError({statusCode: 502, statusMessage: 'Bad Gateway', message: `The request to ${host} failed: ${reason}`})
         }
-        const bytes = new Uint8Array(await response.arrayBuffer())
+        // Read past the cut by more than any form of a value is long, so one there is scrubbed whole first.
+        let read: {bytes: Uint8Array, more: boolean}
+        try {
+            read = await readUpTo(response, MAX_BODY + 8 * Math.max(...[...secrets.values()].map(s => s.value.length)) + 64)
+        } catch (error) {
+            const reason = scrub((error as Error).message)
+            await record(response.status, reason)
+            throw createError({statusCode: 502, statusMessage: 'Bad Gateway', message: `The answer from ${host} broke off: ${reason}`})
+        }
         await record(response.status, null)
         const answer = Object.fromEntries([...response.headers].filter(([k]) => k !== 'set-cookie').map(([k, v]) => [k, scrub(v)]))
+        const whole = scrub(new TextDecoder().decode(read.bytes))
+        const truncated = read.more || whole.length > MAX_BODY
         return {
             status: response.status,
             headers: answer,
-            body: scrub(new TextDecoder().decode(bytes.subarray(0, MAX_BODY))),
-            ...bytes.length > MAX_BODY ? {truncated: true} : {},
+            body: truncated ? cut(whole.slice(0, MAX_BODY)) : whole,
+            ...truncated ? {truncated: true} : {},
             secrets: names,
         }
     }
@@ -208,7 +230,7 @@ export class Secrets {
     /** Projects as kept: each one there, by its id; none is null (any). */
     private async projectsOf(sent: string[] | null | undefined): Promise<string[] | null> {
         if (!sent?.length) return null
-        const ids = await Promise.all(sent.map(async p => (await this.store.project(p)).id))
+        const ids = await Promise.all(sent.map(p => this.store.projectId(p)))
         return [...new Set(ids)].sort()
     }
 
@@ -264,14 +286,70 @@ function parseHeaders(value: unknown): string {
     return JSON.stringify(value)
 }
 
-/** Puts the placeholder back wherever a value shows: as it is, URL-encoded, or in base64 (as Basic auth sends it).
- * It stops a value echoed back; the hosts are what stop one being sent away on purpose. */
-function scrubber(secrets: Map<string, {value: string}>): (text: string) => string {
-    const base64 = (text: string) => Buffer.from(text).toString('base64')
-    const forms = [...secrets].flatMap(([name, {value}]) => [value, encodeURIComponent(value), base64(value), base64(`${value}:`)]
-        .map(form => ({form, name})))
+/** Up to `limit` bytes of an answer's body, and whether there was more; the rest isn't read. */
+async function readUpTo(response: Response, limit: number): Promise<{bytes: Uint8Array, more: boolean}> {
+    const reader = response.body?.getReader()
+    if (!reader) return {bytes: new Uint8Array(), more: false}
+    const chunks: Uint8Array[] = []
+    let length = 0
+    while (length <= limit) {
+        const {done, value} = await reader.read()
+        if (done) return {bytes: Buffer.concat(chunks), more: false}
+        chunks.push(value)
+        length += value.length
+    }
+    await reader.cancel().catch(() => {})
+    return {bytes: Buffer.concat(chunks).subarray(0, limit), more: true}
+}
+
+const BASE64 = /[A-Za-z0-9+/_-]/
+
+/** `text` with each base64 word that has `core` in it, padding and all, replaced by `by`. */
+function replaceWords(text: string, core: string, by: string): string {
+    let out = ''
+    let from = 0
+    for (let at = text.indexOf(core); at >= 0; at = text.indexOf(core, from)) {
+        let start = at
+        while (start > from && BASE64.test(text[start - 1]!)) start--
+        let end = at + core.length
+        while (end < text.length && BASE64.test(text[end]!)) end++
+        while (text[end] === '=') end++
+        out += text.slice(from, start) + by
+        from = end
+    }
+    return out + text.slice(from)
+}
+
+/** `scrub` puts the placeholder back wherever a value shows: as it is, URL- or form-encoded, JSON-escaped,
+ * or inside base64 (as Basic auth sends it, a user name and all). `cut` drops what's left of one at the end
+ * of an answer cut short. It stops a value echoed back; the hosts are what stop one being sent away on purpose. */
+function scrubber(secrets: Map<string, {value: string}>): {scrub: (text: string) => string, cut: (text: string) => string} {
+    const json = (value: string) => JSON.stringify(value).slice(1, -1)
+    const forms = [...secrets].flatMap(([name, {value}]) => [
+        value, encodeURIComponent(value), new URLSearchParams({v: value}).toString().slice(2), json(value), json(value).replaceAll('/', '\\/'),
+    ].map(form => ({form, name})))
         .sort((a, b) => b.form.length - a.form.length)
-    return text => forms.reduce((out, {form, name}) => out.replaceAll(form, `{{secret:${name}}}`), text)
+    // In base64 the value's characters depend on where it starts, so each of the three starts has its own run
+    // of characters that only the value decides; one found takes the whole base64 word it's in.
+    const cores = [...secrets].flatMap(([name, {value}]) => [0, 1, 2].flatMap(start => {
+        const bytes = Buffer.concat([Buffer.alloc(start), Buffer.from(value)])
+        const [from, to] = [Math.ceil(start * 8 / 6), Math.floor(bytes.length * 8 / 6)]
+        return [bytes.toString('base64').slice(from, to), bytes.toString('base64url').slice(from, to)]
+    }).filter(core => core.length >= 4).map(core => ({core, name})))
+    const starts = [...forms.map(f => f.form), ...cores.map(c => c.core)]
+    return {
+        scrub: text => {
+            const plain = forms.reduce((out, {form, name}) => out.replaceAll(form, `{{secret:${name}}}`), text)
+            return cores.reduce((out, {core, name}) => replaceWords(out, core, `{{secret:${name}}}`), plain)
+        },
+        cut: text => {
+            const left = Math.max(0, ...starts.map(form => {
+                for (let k = Math.min(form.length - 1, text.length); k > 0; k--) if (text.endsWith(form.slice(0, k))) return k
+                return 0
+            }))
+            return text.slice(0, text.length - left)
+        },
+    }
 }
 
 function secretOf(row: SecretRow, last: UseRow | undefined): Secret {

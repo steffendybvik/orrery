@@ -134,7 +134,7 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
             :aria-pressed="form.projects.includes(project.id)"
             @click="form.projects = form.projects.includes(project.id) ? form.projects.filter(p => p !== project.id) : [...form.projects, project.id]"
         >{{ project.name }}</button>
-        <span class="text-faint">{{ form.projects.length ? '' : '(none picked: every project)' }}</span>
+        <span class="text-faint" title="Agents say which project a request is for, so this guards against a slip, not a determined agent: the hosts are the limit">{{ form.projects.length ? '(a guard against slips; the hosts are the limit)' : '(none picked: every project)' }}</span>
       </div>
       <div class="flex items-center gap-2">
         <button type="submit" class="h-7 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy || !form.name.trim() || !form.value || !list(form.hosts).length">
