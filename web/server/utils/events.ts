@@ -36,25 +36,30 @@ export function useScheduler(): Schedules {
     return schedules
 }
 
-/** How many sessions are listening for each project's signals right now. */
-const listeners = new Map<string, number>()
-
-export function listening(project: string): number {
-    return listeners.get(project) ?? 0
-}
-
-/** Counts a listener in until `done` is called. */
-export function listen(project: string): () => void {
-    listeners.set(project, listening(project) + 1)
-    projectEvents.emit('listeners', project)
-    let counted = true
-    return () => {
-        if (!counted) return
-        counted = false
-        listeners.set(project, Math.max(0, listening(project) - 1))
-        projectEvents.emit('listeners', project)
+/** A count per project of things that are there until they say they're done (a listening session, a
+ * launcher), emitting `event` with the project each time it changes. `done` counts once however often it's called. */
+export function counter(event: string) {
+    const counts = new Map<string, number>()
+    const count = (project: string): number => counts.get(project) ?? 0
+    const add = (project: string): (() => void) => {
+        counts.set(project, count(project) + 1)
+        projectEvents.emit(event, project)
+        let counted = true
+        return () => {
+            if (!counted) return
+            counted = false
+            counts.set(project, Math.max(0, count(project) - 1))
+            projectEvents.emit(event, project)
+        }
     }
+    return {count, add}
 }
+
+const listeners = counter('listeners')
+/** How many sessions are listening for each project's signals right now. */
+export const listening = listeners.count
+/** Counts a listener in until `done` is called. */
+export const listen = listeners.add
 
 /** A route's `:name` part, decoded. */
 export function param(event: H3Event, name: string): string {

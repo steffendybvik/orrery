@@ -2,7 +2,7 @@
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Settings, Signal} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, SessionWork, Settings, Signal, Starts} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
@@ -75,7 +75,7 @@ export interface IssueFilter {
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 interface ProjectRow extends Made {
     id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
-    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string
+    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null
 }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
@@ -108,10 +108,22 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     /** Ids of the Orrery's standing instructions the project switches off. */
     muted: {type: 'strings', nullable: true},
+    /** The owner's: `{limit, minutes}` lets Orrery start sessions for it; null stops that. */
+    starts: {type: 'json', nullable: true, parse: parseStarts},
 }
 
-/** What a project's sessions are told: only the owner changes it. */
-const PROMPT_FIELDS = ['focusPrompt', 'chunkPrompt', 'instructions', 'muted']
+/** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
+function parseStarts(value: unknown): string {
+    const {limit, minutes, ...rest} = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
+    const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
+    if (Object.keys(rest).length || !whole(limit, 20) || !whole(minutes, 24 * 60)) {
+        throw new Error(`should be {limit, minutes}: at most 20 sessions at once, each for 1 to 1440 minutes, not ${JSON.stringify(value)}`)
+    }
+    return JSON.stringify({limit, minutes})
+}
+
+/** What a project's sessions are told, and whether Orrery starts them: only the owner changes these. */
+const PROMPT_FIELDS = ['focusPrompt', 'chunkPrompt', 'instructions', 'muted', 'starts']
 
 // No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
 export const CHUNK_FIELDS: Record<string, Field> = {
@@ -379,14 +391,23 @@ export class Store {
 
     private promptsAreTheOwners(input: Input, actor: Actor) {
         const sent = PROMPT_FIELDS.filter(key => input[key] !== undefined)
-        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told (${sent.join(', ')}); send Orrery-Actor: <owner>`)
+        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told, and whether Orrery starts them (${sent.join(', ')}); send Orrery-Actor: <owner>`)
     }
 
     /** The prompt fields as columns: an empty template is none (the Orrery's). */
     private promptColumns(input: Input): Input {
         const template = (value: Input[string]) => value === undefined ? undefined : String(value ?? '').trim() || null
         const list = (value: Input[string]) => value === undefined ? undefined : JSON.stringify(value ?? [])
-        return {focus_prompt: template(input.focusPrompt), chunk_prompt: template(input.chunkPrompt), instructions: list(input.instructions), muted: list(input.muted)}
+        return {
+            focus_prompt: template(input.focusPrompt), chunk_prompt: template(input.chunkPrompt), instructions: list(input.instructions), muted: list(input.muted),
+            starts: input.starts === undefined ? undefined : input.starts ?? null,
+        }
+    }
+
+    /** Whether Orrery may start sessions for the project, and within what; none while the owner hasn't let it. */
+    async starts(project: string): Promise<Starts | undefined> {
+        const row = await this.projectRow(project)
+        return row.starts ? JSON.parse(row.starts) as Starts : undefined
     }
 
     /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
@@ -1071,6 +1092,12 @@ export class Store {
         return signal
     }
 
+    /** The id of the project's latest signal, 0 before its first. */
+    async lastSignal(project: string): Promise<number> {
+        await this.projectRow(project)
+        return Number((await this.get<{id: number | null}>('SELECT MAX(id) AS id FROM signals WHERE project = ?', project))?.id ?? 0)
+    }
+
     /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a chunk. */
     async listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, chunk?: string}): Promise<Signal[]> {
         await this.projectRow(project)
@@ -1080,6 +1107,20 @@ export class Store {
                 .reverse().map(signalOf)
         }
         return (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit)).map(signalOf)
+    }
+
+    /** What each of the project's sessions is on, for its Sessions page: the open issues it worked last (newest
+     * first), and the last `signals` signals that went to it, by its id or, sent to every session, by its name. */
+    async sessionWork(project: string, sessions: {id: string, name: string}[], signals = 5): Promise<Record<string, SessionWork>> {
+        await this.projectRow(project)
+        const open = new Map((await this.listIssues(project)).filter(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)).map(i => [i.id, i]))
+        const worked = await this.all<{issue: string, session: string}>('SELECT issue, session FROM issue_sessions WHERE project = ? ORDER BY at DESC', project)
+        const recent = (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? ORDER BY id DESC LIMIT 200', project)).map(signalOf)
+        return Object.fromEntries(sessions.map(session => [session.id, {
+            issues: worked.filter(w => w.session === session.id && open.has(w.issue))
+                .map(w => open.get(w.issue)!).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
+            signals: recent.filter(s => s.target === session.id || (!s.target && s.deliveredTo.includes(session.name))).slice(0, signals),
+        }]))
     }
 
     /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */
@@ -1170,6 +1211,7 @@ export class Store {
             chunkPrompt: row.chunk_prompt ?? undefined,
             instructions: JSON.parse(row.instructions) as Instruction[],
             muted: JSON.parse(row.muted) as string[],
+            starts: row.starts ? JSON.parse(row.starts) as Starts : undefined,
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,

@@ -69,6 +69,25 @@ describe('a session', () => {
         expect(sessions.listSessions('larder').find(s => s.id === 'b')).toMatchObject({name: 'larder 1', listening: false})
     })
 
+    it('started by Orrery says which launch, and counts as one it started while its channel is there', () => {
+        const launch = (id: string) => ({launch: id, tmux: `orrery-larder-${id}`, stopsAt: '2026-10-25T11:00:00.000Z'})
+        const a = sessions.attend('larder', 'a', undefined, undefined, true, launch('l1'))
+        sessions.attend('larder', 'b', undefined, undefined)
+        sessions.attend('mesa', 'c', undefined, undefined, true, launch('l3'))
+        expect(sessions.listSessions('larder').map(s => s.started?.launch)).toEqual(['l1', undefined])
+        expect([sessions.startedSessions('larder'), sessions.startedSessions()]).toEqual([1, 2])
+        // Its channel gone (it crashed, or was killed by hand), it no longer holds a place.
+        a.done()
+        expect(sessions.startedSessions('larder')).toBe(0)
+        expect(sessions.sessionOfLaunch('larder', 'l1')?.id).toBe('a')
+        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stopsAt).toBe('2026-10-25T11:30:00.000Z')
+        // Its launcher saying it ended drops it, by its launch.
+        sessions.launchEnded('larder', 'l1')
+        sessions.launchEnded('larder', 'l3')
+        expect(sessions.listSessions().map(s => s.id)).toEqual(['b', 'c'])
+        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T12:00:00.000Z')).toBeUndefined()
+    })
+
     it('is forgotten after six quiet hours, unless it is listening', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
         sessions.report({id: 'quiet', project: 'larder', event: 'Stop'})
@@ -115,5 +134,41 @@ describe('the issues a session writes to', () => {
         sessions.report({id: 'b', project: 'larder', event: 'PreToolUse', command: 'ls'})
         await Promise.resolve()
         expect(worked).toEqual(['larder/LAR-7:a'])
+    })
+})
+
+describe('stopping a session', () => {
+    beforeEach(() => {
+        vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+    })
+
+    it("asks its channel to end it, and drops it once the channel's gone", () => {
+        const asked: unknown[] = []
+        projectEvents.on('session-stop', event => asked.push(event))
+        expect(() => sessions.stopSession('larder', 'a')).toThrow('No session a in larder')
+        sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})
+        expect(() => sessions.stopSession('larder', 'a')).toThrow('has no Orrery channel running')
+        expect(sessions.listSessions('larder')[0]!.reachable).toBe(false)
+        // An older channel doesn't know to quit; one without the flag can't hear signals, but can still be stopped.
+        const old = sessions.attend('larder', 'a', undefined, undefined, true)
+        expect(() => sessions.stopSession('larder', 'a')).toThrow('an older channel needs the session restarted')
+        old.done()
+        const first = sessions.attend('larder', 'a', undefined, undefined, false, undefined, true)
+        const second = sessions.attend('larder', 'a', undefined, undefined, false, undefined, true)
+        expect(sessions.listSessions('larder')[0]!.reachable).toBe(true)
+        expect(() => sessions.stopSession('mesa', 'a')).toThrow('No session a in mesa')
+        expect(sessions.stopSession('larder', 'a').name).toBe('larder 1')
+        expect(asked).toEqual([{project: 'larder', id: 'a'}])
+        first.done()
+        expect(sessions.listSessions('larder')).toHaveLength(1)
+        second.done()
+        expect(sessions.listSessions('larder')).toEqual([])
+    })
+
+    it("goes through the launcher for one Orrery started", () => {
+        vi.stubGlobal('stopLaunch', (project: string, launch: string) => ({project, launch}))
+        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stopsAt: '2999-01-01T00:00:00.000Z'})
+        expect(sessions.stopSession('larder', 'b')).toEqual({project: 'larder', launch: 'abc'})
     })
 })

@@ -171,6 +171,9 @@ export interface Project {
     /** Its own standing instructions, and the ids of the Orrery's it switches off. */
     instructions: Instruction[]
     muted: string[]
+    /** Whether Orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
+     * within what; none while the owner hasn't let it. */
+    starts?: Starts
     createdBy: string
     protected: boolean
     createdAt: string
@@ -303,6 +306,12 @@ export interface Owner {
     named: boolean
 }
 
+/** The sessions Orrery may start for a project: at most `limit` running at once, each stopped after `minutes`. */
+export interface Starts {
+    limit: number
+    minutes: number
+}
+
 export interface Settings {
     /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
     tint: string | null
@@ -334,6 +343,24 @@ export interface Session {
     startedAt: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
+    /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from Orrery. */
+    reachable?: boolean
+    /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
+    started?: StartedSession
+}
+
+/** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, and
+ * the last signals that went to it. */
+export interface SessionWork {
+    issues: Pick<Issue, 'id' | 'title' | 'column' | 'kind' | 'priority'>[]
+    signals: Signal[]
+}
+
+/** A session Orrery started, as its launch made it. */
+export interface StartedSession {
+    launch: string
+    tmux: string
+    stopsAt: string
 }
 
 /** An agent's comment, as the notification bell and page list it. */

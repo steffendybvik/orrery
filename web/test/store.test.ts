@@ -42,7 +42,7 @@ describe('projects', () => {
 
     it('refuses unknown fields', async () => {
         expect(await failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted, starts'})
     })
 
     it('keep an icon to set and clear', async () => {
@@ -428,6 +428,7 @@ describe('chunks', () => {
         expect(signal.issue).toBeUndefined()
         expect(sent).toEqual(['focus:-:1:joints-window'])
         expect((await local.listSignals('larder', 0, 50, {chunk: '1'})).map(s => s.id)).toEqual([signal.id])
+        expect(await local.lastSignal('larder')).toBe(signal.id)
         expect((await failure(() => local.focusChunk('larder', '9', {}))).status).toBe(404)
         expect((await local.focusChunk('larder', 'none', {})).chunk).toBe('none')
     })
@@ -569,6 +570,47 @@ describe("an owner's comment", () => {
     })
 })
 
+describe('starting sessions', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it("is the owner's to allow, as {limit, minutes}, and to stop with null", async () => {
+        expect((await store.project('larder')).starts).toBeUndefined()
+        expect((await failure(() => store.updateProject('larder', {starts: {limit: 1, minutes: 30}}))).status).toBe(403)
+        expect((await store.updateProject('larder', {starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
+        for (const wrong of [{limit: 0, minutes: 30}, {limit: 2}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
+            expect((await failure(() => store.updateProject('larder', {starts: wrong}, owner))).status).toBe(400)
+        }
+        expect((await store.updateProject('larder', {starts: null}, owner)).starts).toBeUndefined()
+    })
+
+    it('reads without building the board', async () => {
+        await store.updateProject('larder', {starts: {limit: 1, minutes: 45}}, owner)
+        expect(await store.starts('larder')).toEqual({limit: 1, minutes: 45})
+        expect((await failure(() => store.starts('nope'))).status).toBe(404)
+    })
+})
+
+describe("what a project's sessions are on", () => {
+    it('is the open issues each worked last, newest first, and the last signals that went to it', async () => {
+        const owner = {name: 'skoll', owner: true}
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        const lids = (await store.createIssue('larder', {title: 'Lids', status: 'done'})).id
+        await store.workedBy('larder', shelves, 'a')
+        await store.workedBy('larder', lids, 'a')
+        await store.workedBy('larder', jars, 'a')
+        await store.focus('larder', shelves, {session: 'b'}, owner)
+        const everyone = await store.focus('larder', jars, {}, owner)
+        await store.delivered('larder', everyone.id, 'pantry')
+        const work = await store.sessionWork('larder', [{id: 'a', name: 'larder 1'}, {id: 'b', name: 'pantry'}])
+        expect(work.a!.issues.map(i => i.id)).toEqual([jars])
+        expect(work.a!.signals).toEqual([])
+        // b was asked to focus on Shelves, which makes it Shelves' worker; and it heard the focus on Jars sent to all.
+        expect(work.b!.issues.map(i => i.id)).toEqual([shelves])
+        expect(work.b!.signals.map(s => s.issue)).toEqual([jars, shelves])
+    })
+})
+
 describe('statuses', () => {
     const owner = {name: 'skoll', owner: true}
 
@@ -638,6 +680,7 @@ describe('removing', () => {
         await store.focus('larder', id, {}, {name: 'skoll', owner: true})
         await store.deleteIssue('larder', id, {name: 'skoll', owner: true})
         expect(await store.listSignals('larder')).toEqual([])
+        expect(await store.lastSignal('larder')).toBe(0)
     })
 })
 
