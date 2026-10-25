@@ -1,0 +1,25 @@
+# Working on Orrery: the repo with `nuxt dev`, so a saved change shows on the page straight away and
+# the server reloads itself, with no rebuild. Same database and port as the built app, in its place:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# or set COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml in .env, and `docker compose up -d`.
+# It's this machine's only, whatever ORRERY_HOST says: the dev server hands out the source and its
+# build errors to whoever can reach it. The container has its own node_modules and .nuxt (volumes),
+# so they don't clash with the host's; after a pnpm-lock.yaml change, `docker compose restart orrery`.
+
+services:
+  orrery:
+    build: {context: ., target: dev}
+    ports: !override
+      - "127.0.0.1:${ORRERY_PORT:-9000}:9000"
+    volumes:
+      - .:/src
+      - orrery-node-modules:/src/node_modules
+      - orrery-web-node-modules:/src/web/node_modules
+      - orrery-nuxt:/src/web/.nuxt
+
+volumes:
+  orrery-node-modules:
+  orrery-web-node-modules:
+  orrery-nuxt:

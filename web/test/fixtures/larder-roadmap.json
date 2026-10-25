@@ -1,0 +1,1144 @@
+{
+  "$comment": "Larder's roadmap, an invented app for tests: chunks of work with their tasks. status: todo | doing | done. plan (open tasks): now | next | later, none = backlog. priority: P1 | P2 | P3.",
+  "chunks": [
+    {
+      "id": "review-fixes",
+      "title": "Review fixes",
+      "summary": "What the first review turned up.",
+      "tasks": [
+        {
+          "id": "FIX-1",
+          "title": "Round shelf quantities the same way everywhere",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "FIX-2",
+          "title": "Keep the search box's text after going back",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "FIX-3",
+          "title": "Stop the expiry badge flickering on load",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "FIX-4",
+          "title": "Show the unit next to every quantity",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "FIX-5",
+          "title": "Trim spaces from item names",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "FIX-6",
+          "title": "Fix the empty state on a new pantry",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "FIX-7",
+          "title": "Sort shelves by their position, not their name",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "FIX-8",
+          "title": "Keep the scroll position when an item is edited",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "FIX-9",
+          "title": "Escape markdown in recipe titles",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "FIX-10",
+          "title": "Close the item sheet on Escape",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "FIX-11",
+          "title": "Say which field is wrong when a save fails",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        }
+      ]
+    },
+    {
+      "id": "pantry",
+      "title": "Pantry: items, shelves, expiry",
+      "summary": "Everything in the cupboards, where it is and when it goes off.",
+      "tasks": [
+        {
+          "id": "HIE-0",
+          "title": "Shelves as a list you can reorder",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "HIE-1",
+          "title": "Move an item to another shelf",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "HIE-2",
+          "title": "Expiry dates with a soon / gone badge",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "HIE-3",
+          "title": "Quantities with units (g, ml, pieces)",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "HIE-4",
+          "title": "Merge two items that are the same thing",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "HIE-5",
+          "title": "Item photos",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "HIE-6",
+          "title": "Archive items you no longer buy",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "HIE-7",
+          "title": "Low-stock threshold per item",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "HIE-8",
+          "title": "Bulk edit several items",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "HIE-9",
+          "title": "Opened-on date for jars and packs",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "HIE-10",
+          "title": "Fridge and freezer as their own shelves",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "HIE-11",
+          "title": "History of an item's quantity",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Follows on from the item above."
+        }
+      ]
+    },
+    {
+      "id": "recipes",
+      "title": "Recipes",
+      "summary": "Recipes that know what's in the pantry.",
+      "tasks": [
+        {
+          "id": "MOT-1",
+          "title": "Recipe editor with steps and ingredients",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "MOT-2",
+          "title": "Scale a recipe by servings",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "MOT-3",
+          "title": "Link ingredients to pantry items",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "MOT-4",
+          "title": "Show which ingredients are missing",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "MOT-5",
+          "title": "Tags on recipes",
+          "priority": "P1",
+          "status": "doing",
+          "plan": "now",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "MOT-6",
+          "title": "Cooking mode: one step at a time, screen stays on",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "now"
+        },
+        {
+          "id": "MOT-7",
+          "title": "Timers inside steps",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "MOT-8",
+          "title": "Substitutes for an ingredient",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "MOT-9",
+          "title": "Favourite recipes",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "MOT-10",
+          "title": "Notes on a recipe after cooking it",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "MOT-11",
+          "title": "Recipe photos",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "MOT-12",
+          "title": "Duplicate a recipe",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "MOT-13",
+          "title": "Print a recipe on one page",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "MOT-14",
+          "title": "Search recipes by what's in the pantry",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "MOT-15",
+          "title": "Ingredient groups (for the sauce, for the dough)",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "MOT-16",
+          "title": "Cook a recipe and take its ingredients from the pantry",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Keep it working offline."
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "title": "Sync between devices",
+      "summary": "One pantry on the phone and the laptop.",
+      "tasks": [
+        {
+          "id": "ARC-1",
+          "title": "Sync changes in the background",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "ARC-2",
+          "title": "Resolve two edits to the same item",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "ARC-3",
+          "title": "Show when the last sync was",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "ARC-4",
+          "title": "Work offline and catch up later",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "PERF-1",
+          "title": "Sign in with a link by email",
+          "priority": "P2",
+          "status": "doing",
+          "plan": "next",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "KER-1",
+          "title": "Sync photos without blocking the rest",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "KER-2",
+          "title": "Retry a failed sync with backoff",
+          "priority": "P3",
+          "status": "todo",
+          "notes": "Check it on a phone as well as the desktop."
+        }
+      ]
+    },
+    {
+      "id": "imports",
+      "title": "Recipe imports",
+      "summary": "Getting recipes in without retyping them.",
+      "tasks": [
+        {
+          "id": "VER-1",
+          "title": "Import a recipe from a web page",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "VER-2",
+          "title": "Import from a pasted block of text",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "VER-3",
+          "title": "Read quantities like 1½ cups",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "VER-4",
+          "title": "Map imported units to the pantry's units",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "VER-5",
+          "title": "Import a whole cookbook export",
+          "priority": "P2",
+          "status": "done"
+        },
+        {
+          "id": "VER-6",
+          "title": "Keep the source link on an imported recipe",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "VER-7",
+          "title": "Preview an import before saving it",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next"
+        },
+        {
+          "id": "VER-8",
+          "title": "Skip duplicates on import",
+          "priority": "P3",
+          "status": "todo"
+        }
+      ]
+    },
+    {
+      "id": "planner",
+      "title": "Meal planner",
+      "summary": "What we're eating this week.",
+      "tasks": [
+        {
+          "id": "CAD-1",
+          "title": "Week view with breakfast, lunch and dinner",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "CAD-4",
+          "title": "Drag a recipe onto a day",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "CAD-8",
+          "title": "Leftovers as a meal",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "CAD-5",
+          "title": "Repeat a week",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next"
+        },
+        {
+          "id": "CAD-2",
+          "title": "Plan from what expires soonest",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "CAD-3",
+          "title": "Servings per meal",
+          "priority": "P2",
+          "status": "doing",
+          "plan": "next",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "CAD-7",
+          "title": "Mark a meal as cooked",
+          "priority": "P1",
+          "status": "doing",
+          "plan": "next",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "CAD-9",
+          "title": "Notes on a day",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "CAD-10",
+          "title": "Copy a meal to another day",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "CAD-11",
+          "title": "Plan for guests",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "CAD-14",
+          "title": "A month view",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "CAD-6",
+          "title": "Suggest a week from favourites",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "CAD-12",
+          "title": "Skip a meal",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "CAD-13",
+          "title": "Show the week's prep the night before",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        }
+      ]
+    },
+    {
+      "id": "shopping",
+      "title": "Shopping list",
+      "summary": "The list that writes itself.",
+      "tasks": [
+        {
+          "id": "AI-7",
+          "title": "Shopping list from the week's plan",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "AI-1",
+          "title": "Group the list by aisle",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next"
+        },
+        {
+          "id": "AI-2",
+          "title": "Tick items off in the shop",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "AI-3",
+          "title": "Add bought items to the pantry",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "AI-4",
+          "title": "Share the list with the household",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "AI-5",
+          "title": "Add an item by voice",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "AI-8",
+          "title": "Remember usual quantities",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "AI-9",
+          "title": "Several lists (market, supermarket)",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "AI-6",
+          "title": "Clear ticked items",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Follows on from the item above."
+        }
+      ]
+    },
+    {
+      "id": "barcode",
+      "title": "Barcode scanning",
+      "summary": "Scan it in instead of typing.",
+      "tasks": [
+        {
+          "id": "SCU-1",
+          "title": "Scan a barcode to add an item",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "SCU-2",
+          "title": "Look up a product's name and size",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "SCU-3",
+          "title": "Scan to take an item out",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later"
+        }
+      ]
+    },
+    {
+      "id": "nutrition",
+      "title": "Nutrition",
+      "summary": "Rough numbers, not a diet app.",
+      "tasks": [
+        {
+          "id": "PRN-1",
+          "title": "Calories per recipe serving",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "PRN-5",
+          "title": "Protein, carbs and fat per serving",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next"
+        },
+        {
+          "id": "PRN-6",
+          "title": "Nutrition per pantry item",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "PRN-2",
+          "title": "Weekly totals in the planner",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next"
+        },
+        {
+          "id": "PRN-3",
+          "title": "Allergens on items and recipes",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "PRN-4",
+          "title": "Warn about an allergen in a planned meal",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "PRN-8",
+          "title": "Show where the numbers come from",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "PRN-7",
+          "title": "Hide nutrition for those who don't want it",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Check it on a phone as well as the desktop."
+        }
+      ]
+    },
+    {
+      "id": "sharing",
+      "title": "Household sharing",
+      "summary": "One pantry, several people.",
+      "tasks": [
+        {
+          "id": "LIB-1",
+          "title": "Invite someone to the household",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "LIB-2",
+          "title": "Roles: can edit, can view",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "LIB-3",
+          "title": "See who changed an item",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "LIB-4",
+          "title": "Leave a household",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "LIB-5",
+          "title": "Several households per person",
+          "priority": "P2",
+          "status": "doing",
+          "plan": "next",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "LIB-7",
+          "title": "Notify when the list changes",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "LIB-8",
+          "title": "Assign a meal to a cook",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "LIB-9",
+          "title": "Remove a member",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "LIB-6",
+          "title": "Household name and picture",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Small; the kind of thing a review catches."
+        }
+      ]
+    },
+    {
+      "id": "ux",
+      "title": "UX",
+      "summary": "Small things that make it pleasant.",
+      "tasks": [
+        {
+          "id": "UX-9",
+          "title": "Dark mode",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "UX-10",
+          "title": "Keyboard shortcuts on the desktop",
+          "priority": "P2",
+          "status": "todo",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "UX-11",
+          "title": "Undo the last change",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "UX-12",
+          "title": "Larger text setting",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "UX-13",
+          "title": "Pull to refresh",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "UX-14",
+          "title": "Haptics on tick-off",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "UX-15",
+          "title": "Empty states with a next step",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "UX-16",
+          "title": "Onboarding with a sample pantry",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "UX-17",
+          "title": "Quick add from anywhere",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "now",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "UX-1",
+          "title": "Swipe to delete with undo",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "UX-6",
+          "title": "Remember the last view",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "UX-7",
+          "title": "Show units the way the household prefers",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "UX-2",
+          "title": "Smoother list animations",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "UX-3",
+          "title": "Command palette",
+          "priority": "P3",
+          "status": "doing",
+          "plan": "later",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "UX-4",
+          "title": "Settings page tidy-up",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later"
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Data and backups",
+      "summary": "It's their data: get it out, put it back.",
+      "tasks": [
+        {
+          "id": "DAT-4",
+          "title": "Export everything as JSON",
+          "priority": "P1",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "DAT-1",
+          "title": "Import a JSON export",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "DAT-3",
+          "title": "Nightly backup",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "DAT-2",
+          "title": "Restore a backup",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "DAT-5",
+          "title": "Delete the account and its data",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "DAT-6",
+          "title": "Export recipes as Markdown",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later"
+        },
+        {
+          "id": "DAT-7",
+          "title": "Check a backup can be read",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        }
+      ]
+    },
+    {
+      "id": "interfaces",
+      "title": "Interfaces: CLI and API",
+      "summary": "For people who'd rather script it.",
+      "tasks": [
+        {
+          "id": "API-1",
+          "title": "Read-only HTTP API",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "API-2",
+          "title": "API tokens per household",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "API-3",
+          "title": "CLI to add items",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "API-4",
+          "title": "Webhook when stock runs low",
+          "priority": "P1",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "API-5",
+          "title": "Document the API",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Check it on a phone as well as the desktop."
+        }
+      ]
+    },
+    {
+      "id": "tidy",
+      "title": "Code health",
+      "summary": "Keeping it easy to change.",
+      "tasks": [
+        {
+          "id": "RST-1",
+          "title": "Split the item store into its own module",
+          "priority": "P2",
+          "status": "done",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "RST-2",
+          "title": "Remove the old shelf migration",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Nice to have, not urgent."
+        },
+        {
+          "id": "RST-3",
+          "title": "Typed API client",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Small; the kind of thing a review catches."
+        },
+        {
+          "id": "RST-4",
+          "title": "Drop the unused date library",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "RST-5",
+          "title": "One place for unit conversion",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Keep it working offline."
+        },
+        {
+          "id": "RST-6",
+          "title": "Tests for the expiry rules",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "RST-7",
+          "title": "Lint the CSS",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "RST-8",
+          "title": "Rename quantity fields consistently",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Nice to have, not urgent."
+        }
+      ]
+    },
+    {
+      "id": "ops",
+      "title": "Ops and quality",
+      "summary": "Running it without surprises.",
+      "tasks": [
+        {
+          "id": "OPS-1",
+          "title": "Error reporting",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next"
+        },
+        {
+          "id": "OPS-2",
+          "title": "Health check endpoint",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next",
+          "notes": "Needs a decision on the details first."
+        },
+        {
+          "id": "OPS-6",
+          "title": "CI on every push",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "next"
+        },
+        {
+          "id": "OPS-3",
+          "title": "Release notes per version",
+          "priority": "P3",
+          "status": "done",
+          "notes": "Check it on a phone as well as the desktop."
+        },
+        {
+          "id": "OPS-4",
+          "title": "Load test the sync",
+          "priority": "P3",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Follows on from the item above."
+        },
+        {
+          "id": "OPS-5",
+          "title": "Uptime alerts",
+          "priority": "P3",
+          "status": "todo"
+        }
+      ]
+    },
+    {
+      "id": "legal",
+      "title": "Legal",
+      "summary": "",
+      "tasks": [
+        {
+          "id": "LIC-1",
+          "title": "Privacy policy",
+          "priority": "P2",
+          "status": "todo",
+          "plan": "later",
+          "notes": "Small; the kind of thing a review catches."
+        }
+      ]
+    }
+  ]
+}
