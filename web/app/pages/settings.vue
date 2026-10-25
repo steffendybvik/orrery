@@ -132,6 +132,18 @@ async function pick(tint: string | null) {
         </header>
         <FocusPrompts />
       </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Secrets</h2>
+          <p class="text-xs text-muted">
+            Keys your agents use to call outside services without ever seeing them. An agent puts
+            <span class="font-mono">{{ '{' + '{secret:NAME}' + '}' }}</span> in a request, and Orrery fills it in and sends it, over https, only to the hosts you allow.
+            Taking a host off needs nothing more; letting a secret go somewhere new takes its value again.
+          </p>
+        </header>
+        <SecretSettings />
+      </section>
     </div>
   </div>
 </template>

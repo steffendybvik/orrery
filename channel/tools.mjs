@@ -80,13 +80,28 @@ export const TOOLS = [
         description: 'Writes a doc, new or replacing the one with this id: a decision and why, how something works.',
         inputSchema: {type: 'object', required: ['id', 'title', 'body'], properties: {id: {type: 'string', description: 'lowercase-with-dashes'}, title: {type: 'string'}, body: {type: 'string', description: 'Markdown'}}},
     },
+    {name: 'secrets', description: 'Lists the secrets you can use in egress, by name, with the hosts each may go to. You never see a value.', inputSchema: {type: 'object', properties: {}}},
+    {
+        name: 'egress',
+        description: 'Calls an outside service with a secret: put {{secret:NAME}} in the url, a header or the body, and Orrery fills it in, sends it (https, only to a host the secret allows) and answers with the value scrubbed out. Every use is recorded.',
+        inputSchema: {type: 'object', required: ['url'], properties: {
+            url: {type: 'string'},
+            method: {type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']},
+            headers: {type: 'object', additionalProperties: {type: 'string'}, description: 'e.g. {"Authorization": "Bearer {{secret:STRIPE_KEY}}"}'},
+            body: {description: 'Text as it is; anything else goes as JSON'},
+            issue: {type: 'string', description: 'The issue it is for, kept with the record'},
+        }},
+    },
 ]
 
 /** The tools against one project's API (`api`, `…/api/projects/<project>`), writing as `claude` from `session`. */
 export function orreryTools({api, session, fetch = globalThis.fetch}) {
     const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}}
-    async function call(method, path, body) {
-        const response = await fetch(`${api}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})
+    // The project is the last part of `api`; secrets and egress are the Orrery's, at its root.
+    const project = decodeURIComponent(api.split('/').pop())
+    const root = api.replace(/\/projects\/[^/]+$/, '')
+    async function call(method, path, body, base = api) {
+        const response = await fetch(`${base}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})
         const text = await response.text()
         const data = text ? JSON.parse(text) : null
         if (!response.ok) throw new Error(data?.message ?? data?.statusMessage ?? `${response.status} ${response.statusText}`)
@@ -144,6 +159,14 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
         async write_doc({id, title, body}) {
             await call('PUT', `/docs/${encodeURIComponent(id)}`, {title, body})
             return `Saved the doc ${id}.`
+        },
+        async secrets() {
+            const secrets = await call('GET', '/secrets', undefined, root)
+            return secrets.map(s => `${s.name} → ${s.hosts.join(', ')}${s.projects ? ` (only ${s.projects.join(', ')})` : ''}`).join('\n') || 'No secrets yet; the owner sets them on App settings.'
+        },
+        async egress(args) {
+            const {status, headers, body, truncated} = await call('POST', '/egress', {...args, project}, root)
+            return `${status}${headers['content-type'] ? ` (${headers['content-type']})` : ''}\n\n${body}${truncated ? '\n\n(cut at 1 MB)' : ''}`
         },
     }
 

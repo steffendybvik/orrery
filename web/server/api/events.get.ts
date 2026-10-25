@@ -3,7 +3,8 @@ import type {Project, Signal} from '#shared/roadmap'
 // `GET /api/events` → server-sent events: `project` (a project read again, as JSON) when its
 // roadmap changes, `removed` (its id) when it goes, and `listeners` ({project, count}) when a session
 // starts or stops listening for its signals, and `schedules` ({project, schedules}) when they change or
-// run, so open pages update without a reload.
+// run, and `secrets` (the list, never a value) when they change or one is used, so open pages update
+// without a reload.
 export default defineEventHandler(async event => {
     const stream = createEventStream(event)
     const onProject = (project: Project) => stream.push({event: 'project', data: JSON.stringify(project)})
@@ -13,6 +14,7 @@ export default defineEventHandler(async event => {
     const onSignal = (signal: Signal) => stream.push({event: 'signal', data: JSON.stringify(signal)})
     const onNotice = (notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)})
     const onSettings = (settings: unknown) => stream.push({event: 'settings', data: JSON.stringify(settings)})
+    const onSecrets = (secrets: unknown) => stream.push({event: 'secrets', data: JSON.stringify(secrets)})
     const onSchedules = (project: string) => useScheduler().list(project)
         .then(schedules => stream.push({event: 'schedules', data: JSON.stringify({project, schedules})}), () => {})
     projectEvents.on('project', onProject)
@@ -23,6 +25,7 @@ export default defineEventHandler(async event => {
     projectEvents.on('notice', onNotice)
     projectEvents.on('schedules', onSchedules)
     projectEvents.on('settings', onSettings)
+    projectEvents.on('secrets', onSecrets)
     // Keeps proxies and the browser from dropping a quiet connection.
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
     // The headers go out with the first event: without one, the browser waits to call it open. It
@@ -39,6 +42,7 @@ export default defineEventHandler(async event => {
         projectEvents.off('notice', onNotice)
         projectEvents.off('schedules', onSchedules)
         projectEvents.off('settings', onSettings)
+        projectEvents.off('secrets', onSecrets)
         await stream.close()
     })
     return stream.send()

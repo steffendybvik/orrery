@@ -347,3 +347,35 @@ export interface Notice extends Comment {
 /** The lists of notices: the bell's, and the notifications page's tabs. */
 export const NOTICE_LISTS = ['bell', 'waiting', 'inbox', 'cleared'] as const
 export type NoticeList = (typeof NOTICE_LISTS)[number]
+
+/** A secret as anyone sees it: never its value. Agents put `{{secret:NAME}}` in a request Orrery makes for them. */
+export interface Secret {
+    name: string
+    /** Its last 4 characters, to tell one value from another. */
+    last4: string
+    /** The hosts it may be sent to; Orrery refuses any other. */
+    hosts: string[]
+    /** The projects that may use it; null for any. */
+    projects: string[] | null
+    createdBy: string
+    createdAt: string
+    updatedAt: string
+    lastUsed: SecretUse | null
+}
+
+/** One request a secret went out in, kept without the value. */
+export interface SecretUse {
+    id: number
+    secret: string
+    method: string
+    host: string
+    /** The path as the agent wrote it, placeholders and all. */
+    path: string
+    project: string | null
+    issue: string | null
+    /** The status that came back, or null when it never got one (`error` says why). */
+    status: number | null
+    error: string | null
+    createdBy: string
+    createdAt: string
+}

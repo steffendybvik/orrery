@@ -35,6 +35,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
         'When one brings the owner\'s comment on an issue, answer it with a comment on that issue.',
         'When you need the owner to decide something or give feedback, comment with asks "decision" or "feedback": it waits at the top of their bell until they answer.',
+        'To call an outside service that needs a key, use egress with {{secret:NAME}} where the key goes (secrets lists the names): you never see the value, and never ask the owner for one.',
         `The full API is described at ${base}/api/guide.`,
     ].join(' '),
 })

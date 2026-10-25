@@ -1,10 +1,11 @@
 // The one store the routes share, and the events it sends: `project` (the project, read again)
 // after any change to it, `removed` (its id) once it's deleted, and `signal` (a Signal) when someone
-// asks the sessions on a project to focus on an issue, and `schedules` (the project) when its schedules
-// change or run. `/api/events` and the signal streams pass them on.
+// asks the sessions on a project to focus on an issue, `schedules` (the project) when its schedules
+// change or run, and `secrets` (the list, no values) when they change or one is used. `/api/events` and the signal streams pass them on.
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import {Schedules} from './schedules'
+import {Secrets} from './secrets'
 import {Store} from './store'
 
 export const projectEvents = new EventEmitter()
@@ -18,6 +19,14 @@ export function useStore(): Store {
     }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
     store.hears = hearing
     return store
+}
+
+let secrets: Secrets | null = null
+
+/** The secrets, sealed with ORRERY_SECRET_KEY (NUXT_SECRET_KEY); `secrets` (the list) goes out when they change or one is used. */
+export function useSecrets(): Secrets {
+    secrets ??= new Secrets(useStore(), () => String(useRuntimeConfig().secretKey ?? ''), list => projectEvents.emit('secrets', list))
+    return secrets
 }
 
 let schedules: Schedules | null = null

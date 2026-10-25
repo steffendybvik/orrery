@@ -1,4 +1,4 @@
-import type {Issue, Notice, Project, Schedule, Session, Settings, Signal} from '#shared/roadmap'
+import type {Issue, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
 
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
 // project in place, without a reload. After a dropped connection it loads them all again.
@@ -79,6 +79,9 @@ export default defineNuxtPlugin(() => {
             const {project, schedules} = JSON.parse((event as MessageEvent).data) as {project: string, schedules: Schedule[]}
             const {byProject} = useSchedules()
             byProject.value = {...byProject.value, [project]: schedules}
+        })
+        events.addEventListener('secrets', event => {
+            useSecretList().secrets.value = JSON.parse((event as MessageEvent).data) as Secret[]
         })
         events.addEventListener('removed', event => {
             const id = (event as MessageEvent).data as string

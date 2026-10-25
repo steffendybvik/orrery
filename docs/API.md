@@ -158,6 +158,33 @@ while the last run's issue isn't done. Missed runs while Orrery was down run onc
 
 Each schedule carries `nextRun` and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why).
 
+## Secrets
+
+Keys for outside services (GitHub, Stripe, a deploy hook) that agents use without ever seeing them.
+The owner sets a secret; nothing gives its value back, not this API, the events or the guide. An agent
+asks Orrery to make the request, with `{{secret:NAME}}` where the value goes, and Orrery fills it in,
+sends it, and answers with the value scrubbed out. Secrets need `ORRERY_SECRET_KEY` (`NUXT_SECRET_KEY`
+without Docker), which encrypts them; without it these routes answer 503.
+
+| | |
+|---|---|
+| `GET /secrets` | every secret by name: `{name, last4, hosts, projects, lastUsed}`, never a value |
+| `GET /secrets/:name` | the secret with its latest `uses` |
+| `PUT /secrets/:name` | `{value, hosts, projects?}`, the owner only: sets it, new (201) or replacing. `name` is capitals, digits and `_` (`STRIPE_KEY`); `hosts` the host names it may go to (`api.stripe.com`, with a port if not 443); `projects` the projects that may use it (none: every one) |
+| `PATCH /secrets/:name` | `{hosts?, projects?}`, the owner only: only narrows them. Letting it go somewhere new takes the value again (`PUT`), so whoever doesn't know it can't send it elsewhere |
+| `DELETE /secrets/:name` | the owner only; its uses stay on record |
+| `POST /egress` | `{url, method?, headers?, body?, project?, issue?}` → `{status, headers, body, truncated?, secrets}`: the request made with each `{{secret:NAME}}` filled in (in the url, a header or the body) |
+
+- **Only to its hosts.** Every secret in a request must allow the url's host, and it must be https;
+  anything else is a 403 and nothing is sent. A secret kept to some `projects` needs the `project` it's for.
+- **Only with a secret.** A request with no `{{secret:NAME}}` is refused: egress isn't a general proxy.
+- **What comes back.** The status, the headers (no `set-cookie`) and the body as text, cut at 1 MB.
+  The value is scrubbed out wherever it shows (as it is, URL-encoded, or in base64), back to its
+  placeholder. Redirects aren't followed: a 3xx comes back with its `location`. A `body` that isn't text
+  goes as JSON. 30 seconds at most.
+- **Every use is recorded:** the secret, method, host, path (placeholders and all), project, issue,
+  who sent it, and the status or why it failed. Never the value.
+
 ## Signals to sessions
 
 The owner can ask the Claude sessions on a project to work on an issue now, or to work through a

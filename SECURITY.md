@@ -37,6 +37,24 @@ is refused, and a write's body must be JSON, which another site can't send witho
 asking first. Orrery never says yes, and sets no CORS headers, so another site can't read its answers
 either.
 
+## Secrets
+
+[Secrets](docs/API.md#secrets) let your agents call outside services without the key ever reaching
+them: Orrery fills it into the request and sends it.
+
+- **Agents never hold the value.** No route, event or page gives it back, only its last 4 characters.
+- **It only goes where you said.** Each secret names its hosts, and Orrery sends it nowhere else and
+  only over https. This is what stops a planted comment or fetched page talking an agent into sending
+  `{{secret:STRIPE_KEY}}` to its own server. Since the owner is only a name (above), anyone who can
+  reach Orrery can narrow where a secret goes, replace it or delete it, but not widen it: that takes
+  the value again. The hosts are sealed in with the value, so changing them in the database stops it
+  opening.
+- **Scrubbing is a backstop.** Orrery takes the value out of what comes back, but a service that
+  echoes it in another form could still show it. The hosts you allow are what keep it safe, so allow
+  only the service's own.
+- **Encrypted at rest** with `ORRERY_SECRET_KEY`, which isn't in the database: a backup holds the secrets
+  only in ciphertext. Lose the key and they're gone; set them again.
+
 ## Your data
 
 - Everything is in one SQLite file (`/data/orrery.db` in the container), not encrypted.
@@ -44,7 +62,8 @@ either.
   roadmaps leave the machine for that service.
 - The session hooks send Orrery each session's id, its name, its working folder, what it's doing and
   Claude Code's notification text. They go to the Orrery at `ORRERY_URL`, nowhere else.
-- Orrery itself sends nothing anywhere. The page loads its fonts from Google Fonts.
+- Orrery itself sends nothing anywhere, except the requests your agents make with a secret, to the hosts
+  you allowed it. The page loads its fonts from Google Fonts.
 
 ## Reporting a problem
 

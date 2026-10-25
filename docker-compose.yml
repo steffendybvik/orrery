@@ -19,6 +19,9 @@
 # Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network,
 # and ORRERY_ALLOWED_HOSTS names any host name it's reached by besides localhost and an IP (see SECURITY.md).
 #
+# ORRERY_SECRET_KEY (a long random string: openssl rand -base64 32) turns on secrets, keys agents use to
+# call outside services without seeing them; it encrypts them, so keep it out of the backups.
+#
 # Postgres instead of the SQLite file: `docker compose --profile postgres up -d` adds a postgres service (its
 # data in the orrery-pg volume), and ORRERY_DATABASE points Orrery at it; put both in .env to keep them:
 #   COMPOSE_PROFILES=postgres
@@ -39,6 +42,7 @@ services:
       NUXT_DATABASE: ${ORRERY_DATABASE:-/data/orrery.db}
       NUXT_BACKUP_DIR: /backup
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
+      NUXT_SECRET_KEY: ${ORRERY_SECRET_KEY:-}
     volumes:
       - ${ORRERY_DATA:-orrery-data}:/data
       - ${ORRERY_BACKUP:-orrery-backup}:/backup

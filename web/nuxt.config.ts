@@ -23,6 +23,9 @@ export default defineNuxtConfig({
         // Host names Orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
         // Override with NUXT_ALLOWED_HOSTS.
         allowedHosts: '',
+        // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
+        // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
+        secretKey: '',
         public: {
             // Where this repo is on the machine, for the channel setup the Connect page hands out.
             // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).
