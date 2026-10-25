@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {TINTS} from '#shared/roadmap'
 
-// A project's settings: its name, where its code is, its icon in the sidebar and the icon's colour, and deleting the
-// project, for good. Its schedules have a page of their own.
+// A project's settings: its name, where its code is, its icon in the sidebar and the icon's colour, and deleting
+// the project, for good. Its schedules have a page of their own, and so does starting its sessions (Sessions).
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -224,17 +224,6 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           </p>
         </header>
         <FocusPrompts :project="project" />
-      </section>
-
-      <section id="starts" class="flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
-          <p class="text-xs text-muted">
-            When you send {{ project.name }} work and no session is listening, Orrery can start one itself, in a detached tmux
-            session on your machine (its launcher does the starting). It runs in auto mode, as nobody is there to answer a prompt.
-          </p>
-        </header>
-        <SessionStarts :project="project" />
       </section>
 
       <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
