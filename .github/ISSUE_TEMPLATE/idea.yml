@@ -1,0 +1,16 @@
+name: Idea
+description: Something Orrery could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's in the way
+      description: What you're trying to do with Orrery and your sessions, and where it falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you'd like it to work. Rough is fine.

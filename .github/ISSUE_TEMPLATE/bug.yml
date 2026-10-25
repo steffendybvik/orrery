@@ -1,0 +1,30 @@
+name: Bug
+description: Something in Orrery doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      placeholder: |
+        1. Open a project's board
+        2. …
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release (or commit), and whether it runs in Docker or with pnpm.
+      placeholder: 1.0.0, Docker
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or errors
+      description: From `docker compose logs orrery`, the browser console, or the API's response.
+      render: text
