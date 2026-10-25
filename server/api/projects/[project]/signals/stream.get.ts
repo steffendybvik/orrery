@@ -6,10 +6,10 @@ import {renderPrompt} from '#shared/prompt'
 // sent: server-sent `signal` events (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
 // what it missed), or with `?format=text` one plain line each, for Claude Code's Monitor tool. Each
 // open stream counts as a listening session.
-export default defineEventHandler(event => {
+export default defineEventHandler(async event => {
     const project = param(event, 'project')
     const store = useStore()
-    store.project(project)
+    await store.project(project)
     const query = getQuery(event)
     const after = Number(query.after ?? getHeader(event, 'last-event-id') ?? 0) || 0
     const text = (key: string) => typeof query[key] === 'string' && query[key] ? String(query[key]) : undefined
@@ -30,15 +30,15 @@ export default defineEventHandler(event => {
     /** The signal with what a session needs to act on it: for a chunk, its open issues (or those of its
      * `status`), most urgent first. Columns go by their statuses' names. A focus comes with its `prompt`:
      * the project's (or the Orrery's) template filled in, with the standing instructions picked for it. */
-    const told = (signal: Signal) => {
-        const statuses = store.statuses()
-        const templates = store.prompts(project)
+    const told = async (signal: Signal) => {
+        const statuses = await store.statuses()
+        const templates = await store.prompts(project)
         const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
         const name = (column: string) => column === 'proposed' ? 'Proposed' : statuses.find(s => s.id === column)?.name ?? column
         if (signal.kind === 'message') {
             let title = 'a schedule'
             try {
-                title = useScheduler().get(project, signal.schedule!).title
+                title = (await useScheduler().get(project, signal.schedule!)).title
             } catch {
                 // The schedule is gone since; its message still stands.
             }
@@ -47,8 +47,8 @@ export default defineEventHandler(event => {
         if (!signal.issue) {
             // `none`: the issues in no chunk, which the board keeps as a chunk without an id.
             const chunk = signal.chunk === 'none'
-                ? store.project(project).board.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done', priority: undefined, tasks: []}
-                : store.chunk(project, signal.chunk!)
+                ? (await store.project(project)).board.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done', priority: undefined, tasks: []}
+                : await store.chunk(project, signal.chunk!)
             // A status, or a kind (`started`): its issues; else every open one.
             const fits = (t: {column: string, kind: string}) => signal.status
                 ? t.column === signal.status || t.kind === signal.status
@@ -65,8 +65,8 @@ export default defineEventHandler(event => {
             }, signal.instructions)
             return {...signal, status, title: chunk.title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: chunk.title, issues: open, prompt}
         }
-        const issue = store.issue(project, signal.issue)
-        const chunk = store.project(project).board.chunks.find(c => c.id === (issue.chunk ?? ''))
+        const issue = await store.issue(project, signal.issue)
+        const chunk = (await store.project(project)).board.chunks.find(c => c.id === (issue.chunk ?? ''))
         if (signal.kind !== 'focus') return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null}
         const prompt = renderPrompt(templates.focus, {
             actor: signal.createdBy, issue: issue.id, title: issue.title, status: name(issue.column), priority: issue.priority, chunk: chunk?.title,
@@ -77,11 +77,17 @@ export default defineEventHandler(event => {
     // The owner's signals for every session, or for this one; a receipt (deliveredTo) isn't news.
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.deliveredTo.length
         && (!signal.target || signal.target === attended?.id)
-    const missed = after ? store.listSignals(project, after).filter(s => s.project === project && s.protected && (!s.target || s.target === attended?.id)) : []
+    const missed = after ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && (!s.target || s.target === attended?.id)) : []
+
+    /** Sends signals one after another, in the order they came, however long each takes to read. */
+    let queue: Promise<unknown> = Promise.resolve()
+    const inOrder = (work: () => Promise<unknown>) => {
+        queue = queue.then(work).catch(error => console.error(`[orrery] a signal for ${project}:`, error))
+    }
 
     if (query.format === 'text') {
-        const line = (signal: Signal) => {
-            const s = told(signal)
+        const line = async (signal: Signal) => {
+            const s = await told(signal)
             if (s.kind === 'message') return `${s.createdBy}'s schedule "${s.title}": ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             if (s.kind === 'comment') return `${s.createdBy} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             return `${'prompt' in s ? s.prompt.replace(/\s*\n+\s*/g, ' ') : s.title}\n`
@@ -90,8 +96,8 @@ export default defineEventHandler(event => {
         const stream = new ReadableStream<string>({
             start(controller) {
                 controller.enqueue(`Listening for focus signals on ${project}.\n`)
-                missed.forEach(s => controller.enqueue(line(s)))
-                send = signal => wanted(signal) && controller.enqueue(line(signal))
+                missed.forEach(s => inOrder(async () => controller.enqueue(await line(s))))
+                send = signal => wanted(signal) && inOrder(async () => controller.enqueue(await line(signal)))
                 projectEvents.on('signal', send)
             },
             cancel() {
@@ -108,7 +114,7 @@ export default defineEventHandler(event => {
     }
 
     const stream = createEventStream(event)
-    const push = (signal: Signal) => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(told(signal))})
+    const push = (signal: Signal) => inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(await told(signal))}))
     const send = (signal: Signal) => wanted(signal) && push(signal)
     projectEvents.on('signal', send)
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
@@ -117,8 +123,9 @@ export default defineEventHandler(event => {
     // A session that can hear catches up on the owner's comments nobody has answered yet, and on
     // scheduled work nobody was there to hear.
     if (attended && heard) {
-        store.carryUnanswered(project, attended.id)
-        store.unheardScheduled(project).filter(s => !missed.some(m => m.id === s.id)).forEach(push)
+        await store.carryUnanswered(project, attended.id)
+        const unheard = await store.unheardScheduled(project)
+        unheard.filter(s => !missed.some(m => m.id === s.id)).forEach(push)
     }
     stream.onClosed(async () => {
         clearInterval(ping)

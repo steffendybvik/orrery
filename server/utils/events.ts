@@ -13,15 +13,8 @@ projectEvents.setMaxListeners(0)
 let store: Store | null = null
 
 export function useStore(): Store {
-    store ??= new Store(useDb(), id => {
-        let project
-        try {
-            project = store!.project(id)
-        } catch {
-            projectEvents.emit('removed', id)
-            return
-        }
-        projectEvents.emit('project', project)
+    store ??= new Store(useDatabase(), id => {
+        store!.project(id).then(project => projectEvents.emit('project', project), () => projectEvents.emit('removed', id))
     }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
     return store
 }

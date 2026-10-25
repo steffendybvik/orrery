@@ -4,7 +4,7 @@ import type {Project, Signal} from '#shared/roadmap'
 // roadmap changes, `removed` (its id) when it goes, and `listeners` ({project, count}) when a session
 // starts or stops listening for its signals, and `schedules` ({project, schedules}) when they change or
 // run, so open pages update without a reload.
-export default defineEventHandler(event => {
+export default defineEventHandler(async event => {
     const stream = createEventStream(event)
     const onProject = (project: Project) => stream.push({event: 'project', data: JSON.stringify(project)})
     const onRemoved = (id: string) => stream.push({event: 'removed', data: id})
@@ -13,7 +13,8 @@ export default defineEventHandler(event => {
     const onSignal = (signal: Signal) => stream.push({event: 'signal', data: JSON.stringify(signal)})
     const onNotice = (notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)})
     const onSettings = (settings: unknown) => stream.push({event: 'settings', data: JSON.stringify(settings)})
-    const onSchedules = (project: string) => stream.push({event: 'schedules', data: JSON.stringify({project, schedules: useScheduler().list(project)})})
+    const onSchedules = (project: string) => useScheduler().list(project)
+        .then(schedules => stream.push({event: 'schedules', data: JSON.stringify({project, schedules})}), () => {})
     projectEvents.on('project', onProject)
     projectEvents.on('removed', onRemoved)
     projectEvents.on('listeners', onListeners)

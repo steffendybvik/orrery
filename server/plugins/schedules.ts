@@ -1,9 +1,9 @@
 // Runs the schedules that are due: on start (so a schedule missed while Orrery was down runs once), then
 // every 30 seconds.
 export default defineNitroPlugin(nitro => {
-    const tick = () => {
+    const tick = async () => {
         try {
-            useScheduler().runDue()
+            await useScheduler().runDue()
         } catch (error) {
             console.error('[orrery] running schedules:', error)
         }

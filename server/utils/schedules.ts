@@ -55,40 +55,40 @@ export class Schedules {
     }
 
     /** Every project's schedules, or one project's; soonest first, paused last. */
-    list(project?: string): Schedule[] {
-        if (project) this.store.project(project)
+    async list(project?: string): Promise<Schedule[]> {
+        if (project) await this.store.project(project)
         const rows = project
-            ? this.db.prepare('SELECT * FROM schedules WHERE project = ?').all(project) as unknown as ScheduleRow[]
-            : this.db.prepare('SELECT * FROM schedules').all() as unknown as ScheduleRow[]
-        return rows.map(row => this.scheduleOf(row))
+            ? (await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE project = ?', project))
+            : (await this.db.all<ScheduleRow>('SELECT * FROM schedules'))
+        return (await Promise.all(rows.map(row => this.scheduleOf(row))))
             .sort((a, b) => (a.nextRun ?? '~').localeCompare(b.nextRun ?? '~') || a.title.localeCompare(b.title))
     }
 
-    get(project: string, id: number): Schedule {
-        return this.scheduleOf(this.row(project, id))
+    async get(project: string, id: number): Promise<Schedule> {
+        return await this.scheduleOf(await this.row(project, id))
     }
 
-    create(project: string, body: unknown, actor = AGENT): Schedule {
-        this.store.project(project)
+    async create(project: string, body: unknown, actor = AGENT): Promise<Schedule> {
+        await this.store.project(project)
         const input = checkInput(body, SCHEDULE_FIELDS)
         const when = this.when({cron: input.cron, at: input.at, timezone: input.timezone}, true)
-        const chunk = this.chunk(project, input.chunk)
+        const chunk = await this.chunk(project, input.chunk)
         const now = new Date().toISOString()
         const enabled = input.enabled ?? true
         const kind = String(input.kind ?? 'issue')
         if (kind === 'message' && !text(input.notes)?.trim()) throw badRequest('A message schedule needs its message in "notes"')
-        const {lastInsertRowid} = this.db.prepare(`INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
-            next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, this.place(input.column ?? 'todo'), chunk,
+        const {lastInsertRowid} = await this.db.run(`INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
+            next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, await this.place(input.column ?? 'todo'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skipOpen ?? true), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
         this.onChange(project)
-        return this.get(project, Number(lastInsertRowid))
+        return await this.get(project, Number(lastInsertRowid))
     }
 
     /** Changing when it runs, or turning it back on, works out its next run again. */
-    update(project: string, id: number, body: unknown): Schedule {
-        const row = this.row(project, id)
+    async update(project: string, id: number, body: unknown): Promise<Schedule> {
+        const row = await this.row(project, id)
         const input = checkInput(body, SCHEDULE_FIELDS, true)
         const timing = input.cron !== undefined || input.at !== undefined || input.timezone !== undefined
         const when = this.when({
@@ -106,8 +106,8 @@ export class Schedules {
             title: input.title === undefined ? undefined : String(input.title).trim(),
             notes: input.notes === undefined ? undefined : text(input.notes),
             cron: when.cron, at: when.at, timezone: when.timezone,
-            place: input.column === undefined ? undefined : this.place(input.column),
-            chunk: input.chunk === undefined ? undefined : this.chunk(project, input.chunk),
+            place: input.column === undefined ? undefined : await this.place(input.column),
+            chunk: input.chunk === undefined ? undefined : await this.chunk(project, input.chunk),
             priority: input.priority === undefined ? undefined : text(input.priority),
             labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
             ask: input.ask === undefined ? undefined : Number(input.ask),
@@ -117,63 +117,61 @@ export class Schedules {
             updated_at: new Date().toISOString(),
         }
         const fields = Object.entries(set).filter(([, v]) => v !== undefined)
-        this.db.prepare(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...fields.map(([, v]) => v as string | number | null), id)
+        await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), id)
         this.onChange(project)
-        return this.get(project, id)
+        return await this.get(project, id)
     }
 
     /** The owner's schedules are theirs: an agent can't delete them. Its issues stay. */
-    delete(project: string, id: number, actor = AGENT) {
-        const row = this.row(project, id)
+    async delete(project: string, id: number, actor = AGENT) {
+        const row = await this.row(project, id)
         if (row.owned && !actor.owner) throw forbidden(`Deleting schedule ${id}: it's the owner's; only they can delete it`)
-        this.db.prepare('DELETE FROM schedules WHERE id = ?').run(id)
-        this.db.prepare('UPDATE issues SET schedule = NULL WHERE schedule = ?').run(id)
+        await this.db.run('DELETE FROM schedules WHERE id = ?', id)
+        await this.db.run('UPDATE issues SET schedule = NULL WHERE schedule = ?', id)
         this.onChange(project)
     }
 
     /** Runs what's due, each once, and says how many ran. */
-    runDue(now = new Date()): number {
-        const due = this.db.prepare('SELECT * FROM schedules WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ?')
-            .all(now.toISOString()) as unknown as ScheduleRow[]
+    async runDue(now = new Date()): Promise<number> {
+        const due = (await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ?', now.toISOString()))
         let ran = 0
         for (const row of due) {
             // Claimed by moving its next run on: if another server got there first, nothing changes here.
             const next = row.at ? null : nextRun(row, now)
-            const claimed = this.db.prepare('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?')
-                .run(next, row.at ? 0 : 1, row.id, row.next_run).changes
+            const claimed = (await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
             if (!claimed) continue
-            this.run(row, now, false)
+            await this.run(row, now, false)
             ran++
         }
         return ran
     }
 
     /** Runs it now, whatever its time, and even while the last run's issue is open. */
-    runNow(project: string, id: number): ScheduleRun {
-        return this.run(this.row(project, id), new Date(), true)
+    async runNow(project: string, id: number): Promise<ScheduleRun> {
+        return await this.run(await this.row(project, id), new Date(), true)
     }
 
     /** Makes the issue and asks the sessions; the run is recorded whatever happens. */
-    private run(row: ScheduleRow, now: Date, manual: boolean): ScheduleRun {
-        const record = (outcome: ScheduleRun['outcome'], issue: string | null, note: string | null): ScheduleRun => {
-            this.db.prepare('INSERT INTO schedule_runs (schedule, at, outcome, issue, note) VALUES (?, ?, ?, ?, ?)').run(row.id, now.toISOString(), outcome, issue, note)
+    private async run(row: ScheduleRow, now: Date, manual: boolean): Promise<ScheduleRun> {
+        const record = async (outcome: ScheduleRun['outcome'], issue: string | null, note: string | null): Promise<ScheduleRun> => {
+            await this.db.run('INSERT INTO schedule_runs (schedule, at, outcome, issue, note) VALUES (?, ?, ?, ?, ?)', row.id, now.toISOString(), outcome, issue, note)
             this.onChange(row.project)
             return {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined}
         }
         const actor: Actor = {name: row.created_by, owner: !!row.owned}
         if (row.kind === 'message') {
             // Only the owner's signals reach sessions, as with every signal.
-            if (!actor.owner) return record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
-            this.store.message(row.project, row.id, row.notes ?? row.title, actor)
+            if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
+            await this.store.message(row.project, row.id, row.notes ?? row.title, actor)
             const heard = this.listening(row.project)
-            return record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
+            return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
         }
         if (row.skip_open && !manual) {
-            const open = this.lastOpenIssue(row)
-            if (open) return record('skipped', null, `${open} from the last run isn't done yet`)
+            const open = await this.lastOpenIssue(row)
+            if (open) return await record('skipped', null, `${open} from the last run isn't done yet`)
         }
         try {
-            const issue = this.store.createIssue(row.project, {
+            const issue = await this.store.createIssue(row.project, {
                 title: `${row.title} · ${day(now, row.timezone)}`,
                 ...row.notes ? {notes: row.notes} : {},
                 ...row.chunk ? {chunk: row.chunk} : {},
@@ -181,47 +179,47 @@ export class Schedules {
                 ...row.labels !== '[]' ? {labels: JSON.parse(row.labels) as string[]} : {},
                 status: row.place,
             }, actor)
-            this.db.prepare('UPDATE issues SET schedule = ? WHERE project = ? AND id = ?').run(row.id, row.project, issue.id)
+            await this.db.run('UPDATE issues SET schedule = ? WHERE project = ? AND id = ?', row.id, row.project, issue.id)
             this.store.changed(row.project)
             let note: string | null = null
             if (row.ask) {
-                this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}`}, actor)
+                await this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}`}, actor)
                 note = actor.owner ? `asked the sessions (${this.listening(row.project)} listening)` : "made by an agent, so it didn't ask the sessions"
             }
-            return record('made', issue.id, note)
+            return await record('made', issue.id, note)
         } catch (error) {
-            return record('failed', null, error instanceof Error ? error.message : String(error))
+            return await record('failed', null, error instanceof Error ? error.message : String(error))
         }
     }
 
     /** The issue from its last run, if that's still there and not done. */
-    private lastOpenIssue(row: ScheduleRow): string | null {
-        const last = this.db.prepare("SELECT issue FROM schedule_runs WHERE schedule = ? AND outcome = 'made' ORDER BY id DESC LIMIT 1").get(row.id) as {issue: string} | undefined
+    private async lastOpenIssue(row: ScheduleRow): Promise<string | null> {
+        const last = await this.db.get<{issue: string}>("SELECT issue FROM schedule_runs WHERE schedule = ? AND outcome = 'made' ORDER BY id DESC LIMIT 1", row.id)
         if (!last?.issue) return null
         try {
-            return CLOSED.includes(this.store.issue(row.project, last.issue).kind as never) ? null : last.issue
+            return CLOSED.includes((await this.store.issue(row.project, last.issue)).kind as never) ? null : last.issue
         } catch {
             return null
         }
     }
 
     /** The open status a schedule's issues start in, from an id or a kind. */
-    private place(column: Input[string]): string {
-        const status = this.store.status(this.store.resolveStatus(column))
+    private async place(column: Input[string]): Promise<string> {
+        const status = await this.store.status(await this.store.resolveStatus(column))
         if (CLOSED.includes(status.kind)) throw badRequest(`A schedule's issues start open, not in ${status.name}`)
         return status.id
     }
 
-    private row(project: string, id: number): ScheduleRow {
-        const row = this.db.prepare('SELECT * FROM schedules WHERE project = ? AND id = ?').get(project, id) as ScheduleRow | undefined
+    private async row(project: string, id: number): Promise<ScheduleRow> {
+        const row = (await this.db.get<ScheduleRow>('SELECT * FROM schedules WHERE project = ? AND id = ?', project, id))
         if (!row) throw notFound(`No schedule ${id} in ${project}`)
         return row
     }
 
     /** The chunk its issues go in, checked: its id, or one it had before. */
-    private chunk(project: string, chunk: unknown): string | null {
+    private async chunk(project: string, chunk: unknown): Promise<string | null> {
         if (chunk === undefined || chunk === null || chunk === '') return null
-        return this.store.chunk(project, String(chunk)).id
+        return (await this.store.chunk(project, String(chunk))).id
     }
 
     /** Exactly one of a cron (that parses) and a time to run once (in the future, when `strict`), in a known zone. */
@@ -250,8 +248,8 @@ export class Schedules {
         return {cron: null, at: time.toISOString(), timezone}
     }
 
-    private scheduleOf(row: ScheduleRow): Schedule {
-        const runs = this.db.prepare('SELECT * FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT ?').all(row.id, RUNS) as unknown as RunRow[]
+    private async scheduleOf(row: ScheduleRow): Promise<Schedule> {
+        const runs = (await this.db.all<RunRow>('SELECT * FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT ?', row.id, RUNS))
         return {
             id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
             cron: row.cron ?? undefined, at: row.at ?? undefined, timezone: row.timezone,

@@ -3,7 +3,7 @@
 // issues now, or only those of `status` (`now`, …). `listeners` says how many sessions were listening to hear it.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
-    const signal = useStore().focusChunk(project, param(event, 'chunk'), await readBody(event).catch(() => ({})), actorOf(event))
+    const signal = await useStore().focusChunk(project, param(event, 'chunk'), await readBody(event).catch(() => ({})), await actorOf(event))
     setResponseStatus(event, 201)
     return {signal, listeners: listening(project)}
 })

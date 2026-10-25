@@ -12,9 +12,9 @@ export function originOf(event: H3Event): string {
     return getRequestURL(event).origin
 }
 
-export function overview(event: H3Event): string {
+export async function overview(event: H3Event): Promise<string> {
     const origin = originOf(event)
-    const projects = useStore().listProjects()
+    const projects = await useStore().listProjects()
     return `# Orrery
 
 > A local roadmap board for your projects and the Claude Code sessions working on them. Each app's roadmap (chunks of work, issues with

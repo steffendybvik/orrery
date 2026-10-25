@@ -3,7 +3,7 @@
 // says how many sessions were listening to hear it.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
-    const signal = useStore().focus(project, param(event, 'issue'), await readBody(event).catch(() => ({})), actorOf(event))
+    const signal = await useStore().focus(project, param(event, 'issue'), await readBody(event).catch(() => ({})), await actorOf(event))
     setResponseStatus(event, 201)
     return {signal, listeners: listening(project)}
 })

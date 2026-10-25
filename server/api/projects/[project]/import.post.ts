@@ -8,5 +8,5 @@ export default defineEventHandler(async event => {
         if (error instanceof RoadmapError) throw badRequest(error.message, error.details)
         throw error
     }
-    return useStore().importRoadmap(param(event, 'project'), roadmap, getQuery(event).replace === 'true', actorOf(event))
+    return await useStore().importRoadmap(param(event, 'project'), roadmap, getQuery(event).replace === 'true', await actorOf(event))
 })

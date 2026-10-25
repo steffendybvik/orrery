@@ -3,17 +3,36 @@
 // after their parent), and keeps each old id as an alias, so links and agents that use it still find
 // the same thing. Ids already in that form keep it: a number never comes to mean another issue.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
+import type {Db} from './database'
 
 // Marks ids mid-rename, so a new id never meets an old one in a primary key.
 const MOVING = '\u0001'
 
+type Statement = [sql: string, ...params: SQLInputValue[]]
+type Issue = {id: string, parent: string | null, chunk: string | null}
+
+const KEY = 'SELECT key FROM projects WHERE id = ?'
+const CHUNKS = 'SELECT id FROM chunks WHERE project = ? ORDER BY position, created_at'
+const ISSUES = 'SELECT id, parent, chunk FROM issues WHERE project = ? ORDER BY position, created_at'
+
 /** Run with foreign keys off or deferred: rows point at ids that are changing. */
-export function renumber(db: DatabaseSync, project: string) {
-    const run = (sql: string, ...params: SQLInputValue[]) => db.prepare(sql).run(...params)
-    const all = <T>(sql: string, ...params: SQLInputValue[]) => db.prepare(sql).all(...params) as T[]
-    const {key} = db.prepare('SELECT key FROM projects WHERE id = ?').get(project) as {key: string}
-    const chunks = all<{id: string}>('SELECT id FROM chunks WHERE project = ? ORDER BY position, created_at', project)
-    const issues = all<{id: string, parent: string | null, chunk: string | null}>('SELECT id, parent, chunk FROM issues WHERE project = ? ORDER BY position, created_at', project)
+export async function renumber(db: Db, project: string) {
+    const {key} = (await db.get<{key: string}>(KEY, project))!
+    const statements = plan(project, key, await db.all<{id: string}>(CHUNKS, project), await db.all<Issue>(ISSUES, project))
+    for (const statement of statements) await db.run(...statement)
+}
+
+/** The same, on the raw connection: for the migration step that gave everything its id. */
+export function renumberSync(db: DatabaseSync, project: string) {
+    const {key} = db.prepare(KEY).get(project) as {key: string}
+    const statements = plan(project, key, db.prepare(CHUNKS).all(project) as {id: string}[], db.prepare(ISSUES).all(project) as Issue[])
+    for (const [sql, ...params] of statements) db.prepare(sql).run(...params)
+}
+
+/** The writes that renumber the project, in order. */
+function plan(project: string, key: string, chunks: {id: string}[], issues: Issue[]): Statement[] {
+    const statements: Statement[] = []
+    const run = (...statement: Statement) => statements.push(statement)
 
     const children = new Map<string | null, typeof issues>()
     for (const issue of issues) children.set(issue.parent, [...children.get(issue.parent) ?? [], issue])
@@ -56,6 +75,7 @@ export function renumber(db: DatabaseSync, project: string) {
     run('DELETE FROM issue_aliases WHERE project = ? AND alias IN (SELECT id FROM issues WHERE project = ?)', project, project)
     const highest = (ids: Iterable<string>, form: RegExp) => Math.max(0, ...[...ids].map(id => Number(form.exec(id)?.[1] ?? 0)))
     run('UPDATE projects SET next_number = ?, next_chunk = ? WHERE id = ?', highest(issueIds.values(), own) + 1, highest(chunkIds.values(), /^(\d+)$/) + 1, project)
+    return statements
 }
 
 /** Keeps the ids already in `form` and gives the rest the next numbers after the highest, in order. */

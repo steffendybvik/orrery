@@ -2,14 +2,13 @@
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
-import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
 import type {ActivityField, Asks, Board, Chunk, Comment, IssueEvent, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, IssueStatus, Kind, Kinds, Notice, Priority, Project, Proposal, Signal} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
 import {LEGACY_PLANS, buildBoard, legacyStatus} from './roadmap'
-import {transaction} from './db'
+import type {Db, Value} from './database'
 import type {Instruction} from '#shared/prompt'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
 import {renumber} from './renumber'
@@ -206,7 +205,7 @@ const ANSWERED = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project A
 
 export class Store {
     constructor(
-        readonly db: DatabaseSync,
+        readonly db: Db,
         private readonly onChange: (project: string) => void = () => {},
         private readonly onSignal: (signal: Signal) => void = () => {},
         private readonly onNotice: (notice: Notice) => void = () => {},
@@ -216,112 +215,112 @@ export class Store {
     ) {}
 
     /** The owner's id: what waits on them (a proposal, an agent's ask) is assigned to it. */
-    private get owner() {
-        return this.ownerOf().name
+    private async ownerId() {
+        return (await this.ownerOf()).name
     }
 
     /** An assignee as stored: `owner` is the owner's id, whatever their name, so an agent needn't know it. */
-    private assigneeOf(value: Input[string]): string | null | undefined {
+    private async assigneeOf(value: Input[string]): Promise<string | null | undefined> {
         if (value === undefined) return undefined
         const name = String(value ?? '').trim()
-        return name.toLowerCase() === 'owner' ? this.owner : name || null
+        return name.toLowerCase() === 'owner' ? await this.ownerId() : name || null
     }
 
     /** The owner: their name as the page shows it, their `Orrery-Actor` id, and whether they've given it. */
-    ownerOf(): Owner {
-        const row = this.get<{value: string}>("SELECT value FROM settings WHERE key = 'owner'")
+    async ownerOf(): Promise<Owner> {
+        const row = await this.get<{value: string}>("SELECT value FROM settings WHERE key = 'owner'")
         const display = row ? String(JSON.parse(row.value)) : ''
         return display ? {name: actorId(display), display, named: true} : {name: this.unnamed, display: this.unnamed, named: false}
     }
 
     /** Names the owner: anyone may the first time (the page asks on first open), then only the owner. What
      * was theirs under the old id (what they made, what's assigned to them, their decisions) moves to the new one. */
-    nameOwner(body: unknown, actor = AGENT): Owner {
-        const before = this.ownerOf()
+    async nameOwner(body: unknown, actor = AGENT): Promise<Owner> {
+        const before = await this.ownerOf()
         if (before.named && !actor.owner) throw forbidden("Only the owner renames the owner; send Orrery-Actor: <owner>")
         const display = String(checkInput(body, OWNER_FIELDS).name).trim().slice(0, 60)
         const name = actorId(display)
         if (!name) throw badRequest('The name needs a letter or a digit in it')
         if (name === AGENT.name) throw badRequest(`"${AGENT.name}" is what requests without Orrery-Actor are; pick another name`)
-        transaction(this.db, () => {
-            this.run("INSERT INTO settings (key, value) VALUES ('owner', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(display))
+        await this.db.transaction(async () => {
+            await this.run("INSERT INTO settings (key, value) VALUES ('owner', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(display))
             if (name === before.name) return
             for (const table of ['projects', 'chunks', 'issues', 'docs', 'comments', 'signals', 'schedules', 'issue_events'])
-                this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)
-            this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)
-            this.run('UPDATE issues SET decided_by = ? WHERE lower(decided_by) = ?', name, before.name)
+                await this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)
+            await this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)
+            await this.run('UPDATE issues SET decided_by = ? WHERE lower(decided_by) = ?', name, before.name)
         })
-        if (name !== before.name) for (const {id} of this.all<{id: string}>('SELECT id FROM projects')) this.onChange(id)
-        return this.ownerOf()
+        if (name !== before.name) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.onChange(id)
+        return await this.ownerOf()
     }
 
     /** Agents' latest comments across projects (what the bell shows), newest first, after the ones still
      * waiting on the owner (a decision or feedback they haven't answered). */
     /** The bell's notices: the latest `limit` (all of them when null), and with `cleared` the cleared ones
      * too (marked so), as the notifications page lists them. */
-    notices(limit: number | null = 30, cleared = false): Notice[] {
-        return this.all<CommentRow & {title: string, cleared: number}>(`
+    async notices(limit: number | null = 30, cleared = false): Promise<Notice[]> {
+        return (await this.all<CommentRow & {title: string, cleared: number}>(`
             SELECT * FROM (
                 SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
                 WHERE c.owned = 0 ${cleared ? '' : 'AND c.cleared = 0'})
-            ORDER BY (asks IS NOT NULL AND answered = 0) DESC, created_at DESC, id DESC LIMIT ?`, limit ?? -1)
+            ORDER BY (asks IS NOT NULL AND answered = 0) DESC, created_at DESC, id DESC LIMIT ?`, limit ?? -1))
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 
     /** Takes notices out of the bell (the comments stay on their issues): those in `ids`, or all made at
      * or before `before`. Says how many. */
-    clearNotices(body: unknown): number {
+    async clearNotices(body: unknown): Promise<number> {
         const {ids, before} = (body ?? {}) as {ids?: unknown, before?: unknown}
         if (Array.isArray(ids) && ids.every(id => Number.isInteger(id)) && ids.length) {
-            return Number(this.run(`UPDATE comments SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND id IN (${ids.map(() => '?').join(', ')})`, ...ids as number[]).changes)
+            return Number((await this.run(`UPDATE comments SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND id IN (${ids.map(() => '?').join(', ')})`, ...ids as number[])).changes)
         }
         if (typeof before === 'string' && before) {
             // Not the ones still waiting on the owner: those go when they're answered, or one by one.
-            return Number(this.run(`UPDATE comments AS c SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND created_at <= ?
-                AND (asks IS NULL OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id))`, before).changes)
+            return Number((await this.run(`UPDATE comments AS c SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND created_at <= ?
+                AND (asks IS NULL OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id))`, before)).changes)
         }
         throw badRequest('Send "ids" (comment ids) or "before" (a time) to clear')
     }
 
     // Projects
 
-    listProjects(): ProjectSummary[] {
-        return this.all<ProjectRow>('SELECT * FROM projects ORDER BY name COLLATE NOCASE').map(row => {
-            const {board, ...project} = this.projectOf(row)
+    async listProjects(): Promise<ProjectSummary[]> {
+        return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY name COLLATE NOCASE')).map(async row => {
+            const {board, ...project} = await this.projectOf(row)
             return {...project, counts: board.counts, kinds: board.kinds, chunks: board.chunks.filter(c => c.id).length}
-        })
+        }))
     }
 
-    listBoards(): Project[] {
-        return this.all<ProjectRow>('SELECT * FROM projects ORDER BY name COLLATE NOCASE').map(row => this.projectOf(row))
+    async listBoards(): Promise<Project[]> {
+        return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY name COLLATE NOCASE')).map(row => this.projectOf(row)))
     }
 
-    project(id: string): Project {
-        return this.projectOf(this.projectRow(id))
+    async project(id: string): Promise<Project> {
+        return await this.projectOf(await this.projectRow(id))
     }
 
-    createProject(body: unknown, actor = AGENT): Project {
+    async createProject(body: unknown, actor = AGENT): Promise<Project> {
         const input = checkInput(body, PROJECT_FIELDS)
         this.promptsAreTheOwners(input, actor)
         const name = String(input.name).trim()
         const id = input.id ? String(input.id) : slugify(name)
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
-        if (this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
+        if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
         const now = stamp()
-        this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             id, name, key, nullable(input.description), nullable(input.icon), nullable(input.iconColor), actor.name, Number(actor.owner), now, now)
-        this.update('projects', 'id = ?', [id], this.promptColumns(input))
+        await this.update('projects', 'id = ?', [id], this.promptColumns(input))
         this.onChange(id)
-        return this.project(id)
+        return await this.project(id)
     }
 
-    updateProject(id: string, body: unknown, actor = AGENT): Project {
-        this.projectRow(id)
+    async updateProject(id: string, body: unknown, actor = AGENT): Promise<Project> {
+        await this.projectRow(id)
         const input = checkInput(body, PROJECT_FIELDS, true)
         this.promptsAreTheOwners(input, actor)
         if (input.id !== undefined && input.id !== id) throw badRequest("A project's id can't change")
-        this.update('projects', 'id = ?', [id], {
+        await this.update('projects', 'id = ?', [id], {
             name: input.name === undefined ? undefined : String(input.name).trim(),
             key: input.key,
             description: input.description,
@@ -330,7 +329,7 @@ export class Store {
             ...this.promptColumns(input),
         })
         this.onChange(id)
-        return this.project(id)
+        return await this.project(id)
     }
 
     private promptsAreTheOwners(input: Input, actor: Actor) {
@@ -346,9 +345,9 @@ export class Store {
     }
 
     /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
-    prompts(project: string): {focus: string, chunk: string} {
-        const row = this.projectRow(project)
-        const settings = this.settings()
+    async prompts(project: string): Promise<{focus: string, chunk: string}> {
+        const row = await this.projectRow(project)
+        const settings = await this.settings()
         return {
             focus: row.focus_prompt ?? settings.focusPrompt ?? DEFAULT_FOCUS_PROMPT,
             chunk: row.chunk_prompt ?? settings.chunkPrompt ?? DEFAULT_CHUNK_PROMPT,
@@ -356,9 +355,9 @@ export class Store {
     }
 
     /** The texts of the standing instructions for a focus: those named by id, or else the ones ticked by default. */
-    private instructionsFor(project: string, ids: Input[string]): string[] {
-        const row = this.projectRow(project)
-        const global = this.settings().instructions
+    private async instructionsFor(project: string, ids: Input[string]): Promise<string[]> {
+        const row = await this.projectRow(project)
+        const global = (await this.settings()).instructions
         const own = JSON.parse(row.instructions) as Instruction[]
         if (ids === undefined || ids === null) return defaultInstructions(global, own, JSON.parse(row.muted) as string[]).map(i => i.text)
         const all = [...global, ...own]
@@ -367,34 +366,34 @@ export class Store {
         return all.filter(i => (ids as string[]).includes(i.id)).map(i => i.text)
     }
 
-    deleteProject(id: string, actor = AGENT) {
-        this.refuse(actor, `Deleting ${id}`, this.ownedIn(id))
-        transaction(this.db, () => {
+    async deleteProject(id: string, actor = AGENT) {
+        this.refuse(actor, `Deleting ${id}`, await this.ownedIn(id))
+        await this.db.transaction(async () => {
             // Comments and issues first: the foreign keys would refuse the project going before them.
-            this.run('DELETE FROM comments WHERE project = ?', id)
-            this.run('UPDATE issues SET parent = NULL, chunk = NULL WHERE project = ?', id)
-            this.run('DELETE FROM issues WHERE project = ?', id)
-            this.run('DELETE FROM chunks WHERE project = ?', id)
-            this.run('DELETE FROM docs WHERE project = ?', id)
-            this.run('DELETE FROM issue_aliases WHERE project = ?', id)
-            this.run('DELETE FROM chunk_aliases WHERE project = ?', id)
-            this.run('DELETE FROM signals WHERE project = ?', id)
-            this.run('DELETE FROM schedules WHERE project = ?', id)
-            this.run('DELETE FROM projects WHERE id = ?', id)
+            await this.run('DELETE FROM comments WHERE project = ?', id)
+            await this.run('UPDATE issues SET parent = NULL, chunk = NULL WHERE project = ?', id)
+            await this.run('DELETE FROM issues WHERE project = ?', id)
+            await this.run('DELETE FROM chunks WHERE project = ?', id)
+            await this.run('DELETE FROM docs WHERE project = ?', id)
+            await this.run('DELETE FROM issue_aliases WHERE project = ?', id)
+            await this.run('DELETE FROM chunk_aliases WHERE project = ?', id)
+            await this.run('DELETE FROM signals WHERE project = ?', id)
+            await this.run('DELETE FROM schedules WHERE project = ?', id)
+            await this.run('DELETE FROM projects WHERE id = ?', id)
         })
         this.onChange(id)
     }
 
     /** This Orrery's own settings. */
-    settings(): Settings {
-        const rows = this.all<{key: string, value: string}>('SELECT key, value FROM settings')
+    async settings(): Promise<Settings> {
+        const rows = await this.all<{key: string, value: string}>('SELECT key, value FROM settings')
         const value = (key: string) => {
             const row = rows.find(r => r.key === key)
             return row ? JSON.parse(row.value) as unknown : undefined
         }
         return {
             tint: (value('tint') as string | undefined) ?? null,
-            statuses: this.statuses(),
+            statuses: await this.statuses(),
             focusPrompt: (value('focusPrompt') as string | undefined) || null,
             chunkPrompt: (value('chunkPrompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
@@ -404,69 +403,69 @@ export class Store {
     // Statuses
 
     /** The issue statuses, in board order: by kind, then as arranged. */
-    statuses(): IssueStatus[] {
-        const rows = this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses ORDER BY position, id')
+    async statuses(): Promise<IssueStatus[]> {
+        const rows = await this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses ORDER BY position, id')
         return KINDS.flatMap(kind => rows.filter(r => r.kind === kind))
     }
 
     /** A new status, the owner's to add: `{name, kind, color?, id?, position?}`. */
-    createStatus(body: unknown, actor = AGENT): IssueStatus {
+    async createStatus(body: unknown, actor = AGENT): Promise<IssueStatus> {
         this.ownerOnly(actor, 'statuses')
         const input = checkInput(body, {...STATUS_FIELDS, color: {...STATUS_FIELDS.color!, required: false}})
         const name = String(input.name).trim()
         const id = input.id ? String(input.id) : slugify(name)
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (id === 'proposed') throw badRequest('"proposed" is where proposals sit; give the status another id')
-        if (this.get('SELECT 1 FROM statuses WHERE id = ?', id)) throw conflict(`There is already a status "${id}"`)
-        const position = input.position ?? (this.get<{n: number | null}>('SELECT max(position) AS n FROM statuses')?.n ?? 0) + 1
-        this.run('INSERT INTO statuses (id, name, kind, color, position) VALUES (?, ?, ?, ?, ?)', id, name, String(input.kind), String(input.color ?? 'slate'), Number(position))
-        this.statusesChanged()
-        return this.status(id)
+        if (await this.get('SELECT 1 FROM statuses WHERE id = ?', id)) throw conflict(`There is already a status "${id}"`)
+        const position = input.position ?? ((await this.get<{n: number | null}>('SELECT max(position) AS n FROM statuses'))?.n ?? 0) + 1
+        await this.run('INSERT INTO statuses (id, name, kind, color, position) VALUES (?, ?, ?, ?, ?)', id, name, String(input.kind), String(input.color ?? 'slate'), Number(position))
+        await this.statusesChanged()
+        return await this.status(id)
     }
 
     /** Renames, recolours or moves a status, or gives it another kind (not the last of its kind). */
-    updateStatus(id: string, body: unknown, actor = AGENT): IssueStatus {
+    async updateStatus(id: string, body: unknown, actor = AGENT): Promise<IssueStatus> {
         this.ownerOnly(actor, 'statuses')
-        const before = this.status(id)
+        const before = await this.status(id)
         const input = checkInput(body, STATUS_FIELDS, true)
         if (input.id !== undefined && input.id !== id) throw badRequest("A status's id can't change; rename it with \"name\"")
-        if (input.kind !== undefined && input.kind !== before.kind) this.keepOneOf(before)
-        this.run('UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = coalesce(?, position) WHERE id = ?',
+        if (input.kind !== undefined && input.kind !== before.kind) await this.keepOneOf(before)
+        await this.run('UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = coalesce(?, position) WHERE id = ?',
             input.name === undefined ? null : String(input.name).trim(), nullable(input.kind), nullable(input.color), input.position === undefined ? null : Number(input.position), id)
-        this.statusesChanged()
-        return this.status(id)
+        await this.statusesChanged()
+        return await this.status(id)
     }
 
     /** Removes a status; its issues and schedules move to `into` (another status), which it needs when it has any. */
-    deleteStatus(id: string, into: string | undefined, actor = AGENT) {
+    async deleteStatus(id: string, into: string | undefined, actor = AGENT) {
         this.ownerOnly(actor, 'statuses')
-        const status = this.status(id)
-        this.keepOneOf(status)
-        const used = this.get<{n: number}>('SELECT (SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ?) AS n', id, id)!.n
-        if (into !== undefined) this.status(into)
+        const status = await this.status(id)
+        await this.keepOneOf(status)
+        const used = (await this.get<{n: number}>('SELECT (SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ?) AS n', id, id))!.n
+        if (into !== undefined) await this.status(into)
         if (into === id) throw badRequest('Move its issues to another status')
         if (used && !into) throw conflict(`${used} issues or schedules are in ${status.name}; say which status they move to with ?into=`)
-        transaction(this.db, () => {
+        await this.db.transaction(async () => {
             if (into) {
-                this.run('UPDATE issues SET status = ? WHERE status = ?', into, id)
-                this.run('UPDATE schedules SET place = ? WHERE place = ?', into, id)
-                this.run('UPDATE signals SET status = ? WHERE status = ?', into, id)
+                await this.run('UPDATE issues SET status = ? WHERE status = ?', into, id)
+                await this.run('UPDATE schedules SET place = ? WHERE place = ?', into, id)
+                await this.run('UPDATE signals SET status = ? WHERE status = ?', into, id)
             }
-            this.run('DELETE FROM statuses WHERE id = ?', id)
+            await this.run('DELETE FROM statuses WHERE id = ?', id)
         })
-        this.statusesChanged()
+        await this.statusesChanged()
     }
 
-    status(id: string): IssueStatus {
-        const found = this.statuses().find(s => s.id === id)
+    async status(id: string): Promise<IssueStatus> {
+        const found = (await this.statuses()).find(s => s.id === id)
         if (!found) throw notFound(`No status "${id}"`)
         return found
     }
 
     /** The status an issue gets from what was sent: a status's id, a kind (its first status), or the words
      * from before statuses (`doing`; `todo` with a `plan`). */
-    resolveStatus(status: Input[string], plan?: Input[string]): string {
-        const statuses = this.statuses()
+    async resolveStatus(status: Input[string], plan?: Input[string]): Promise<string> {
+        const statuses = await this.statuses()
         const first = (kind: Kind) => statuses.find(s => s.kind === kind)!.id
         if (plan !== undefined && (status === undefined || status === 'todo')) return first(plan ? 'todo' : 'backlog')
         if (status === undefined) return first('backlog')
@@ -478,15 +477,15 @@ export class Store {
     }
 
     /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */
-    private statusIds(status: string): string[] {
-        const statuses = this.statuses()
+    private async statusIds(status: string): Promise<string[]> {
+        const statuses = await this.statuses()
         if (statuses.some(s => s.id === status)) return [status]
         const kind = (KINDS.includes(status as Kind) ? status : LEGACY_KINDS[status]) as Kind | undefined
         return kind ? statuses.filter(s => s.kind === kind).map(s => s.id) : []
     }
 
-    private keepOneOf(status: IssueStatus) {
-        if (this.statuses().filter(s => s.kind === status.kind).length === 1) throw conflict(`${status.name} is the only ${status.kind} status; add another before it goes`)
+    private async keepOneOf(status: IssueStatus) {
+        if ((await this.statuses()).filter(s => s.kind === status.kind).length === 1) throw conflict(`${status.name} is the only ${status.kind} status; add another before it goes`)
     }
 
     private ownerOnly(actor: Actor, what: string) {
@@ -494,24 +493,24 @@ export class Store {
     }
 
     /** Every board is drawn again with them, and the page gets the new list with the settings. */
-    private statusesChanged() {
-        this.onSettings(this.settings())
-        for (const {id} of this.all<{id: string}>('SELECT id FROM projects')) this.onChange(id)
+    private async statusesChanged() {
+        this.onSettings(await this.settings())
+        for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.onChange(id)
     }
 
     /** The owner's to change: they're how the Orrery looks to them. */
-    updateSettings(body: unknown, actor = AGENT): Settings {
+    async updateSettings(body: unknown, actor = AGENT): Promise<Settings> {
         if (!actor.owner) throw forbidden("Only the owner changes the Orrery's settings; send Orrery-Actor: <owner>")
         const input = checkInput(body, SETTINGS_FIELDS, true)
-        transaction(this.db, () => {
+        await this.db.transaction(async () => {
             for (const [key, sent] of Object.entries(input)) {
                 if (sent === undefined) continue
                 // An empty template is none: the default.
                 const value = (key === 'focusPrompt' || key === 'chunkPrompt') && typeof sent === 'string' ? sent.trim() || null : sent
-                this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
+                await this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
             }
         })
-        const settings = this.settings()
+        const settings = await this.settings()
         this.onSettings(settings)
         return settings
     }
@@ -523,82 +522,83 @@ export class Store {
 
     // Chunks
 
-    listChunks(project: string): ChunkRecord[] {
-        const {board} = this.project(project)
-        return this.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project)
+    async listChunks(project: string): Promise<ChunkRecord[]> {
+        const {board} = await this.project(project)
+        return (await this.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project))
             .map(row => this.chunkRecord(row, board.chunks.find(c => c.id === row.id)!))
     }
 
-    chunk(project: string, id: string): ChunkRecord & {tasks: Issue[]} {
-        id = this.chunkId(project, id)
-        const row = this.chunkRow(project, id)
-        const view = this.project(project).board.chunks.find(c => c.id === id)!
+    async chunk(project: string, id: string): Promise<ChunkRecord & {tasks: Issue[]}> {
+        id = await this.chunkId(project, id)
+        const row = await this.chunkRow(project, id)
+        const view = (await this.project(project)).board.chunks.find(c => c.id === id)!
         return {...this.chunkRecord(row, view), tasks: view.tasks}
     }
 
-    createChunk(project: string, body: unknown, actor = AGENT): ChunkRecord & {tasks: Issue[]} {
-        this.projectRow(project)
+    async createChunk(project: string, body: unknown, actor = AGENT): Promise<ChunkRecord & {tasks: Issue[]}> {
+        await this.projectRow(project)
         const input = checkInput(body, CHUNK_FIELDS)
         const title = String(input.title).trim()
         const now = stamp()
-        const id = transaction(this.db, () => {
-            const id = this.nextId(project, 'chunk')
-            this.run('INSERT INTO chunks (project, id, title, summary, priority, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                project, id, title, nullable(input.summary), nullable(input.priority), Number(input.position ?? this.nextPosition('chunks', project)), actor.name, Number(actor.owner), now, now)
-            this.touchProject(project)
+        const id = await this.db.transaction(async () => {
+            const id = await this.nextId(project, 'chunk')
+            await this.run('INSERT INTO chunks (project, id, title, summary, priority, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, id, title, nullable(input.summary), nullable(input.priority), Number(input.position ?? await this.nextPosition('chunks', project)), actor.name, Number(actor.owner), now, now)
+            await this.touchProject(project)
             return id
         })
         this.onChange(project)
-        return this.chunk(project, id)
+        return await this.chunk(project, id)
     }
 
-    updateChunk(project: string, id: string, body: unknown): ChunkRecord & {tasks: Issue[]} {
-        id = this.chunkId(project, id)
-        this.chunkRow(project, id)
+    async updateChunk(project: string, id: string, body: unknown): Promise<ChunkRecord & {tasks: Issue[]}> {
+        id = await this.chunkId(project, id)
+        await this.chunkRow(project, id)
         const input = checkInput(body, CHUNK_FIELDS, true)
-        transaction(this.db, () => {
-            this.update('chunks', 'project = ? AND id = ?', [project, id], {
+        await this.db.transaction(async () => {
+            await this.update('chunks', 'project = ? AND id = ?', [project, id], {
                 title: input.title === undefined ? undefined : String(input.title).trim(),
                 summary: input.summary,
                 priority: input.priority,
                 position: input.position,
             })
-            this.touchProject(project)
+            await this.touchProject(project)
         })
         this.onChange(project)
-        return this.chunk(project, id)
+        return await this.chunk(project, id)
     }
 
     /** Its issues stay, in no chunk. */
-    deleteChunk(project: string, id: string, actor = AGENT) {
-        id = this.chunkId(project, id)
-        const row = this.chunkRow(project, id)
+    async deleteChunk(project: string, id: string, actor = AGENT) {
+        id = await this.chunkId(project, id)
+        const row = await this.chunkRow(project, id)
         this.refuse(actor, `Deleting chunk "${id}"`, row.owned ? [`chunk "${id}"`] : [])
-        transaction(this.db, () => {
-            this.run('UPDATE issues SET chunk = NULL WHERE project = ? AND chunk = ?', project, id)
-            this.run('DELETE FROM chunk_aliases WHERE project = ? AND chunk = ?', project, id)
-            this.run('DELETE FROM signals WHERE project = ? AND chunk = ?', project, id)
+        await this.db.transaction(async () => {
+            await this.run('UPDATE issues SET chunk = NULL WHERE project = ? AND chunk = ?', project, id)
+            await this.run('DELETE FROM chunk_aliases WHERE project = ? AND chunk = ?', project, id)
+            await this.run('DELETE FROM signals WHERE project = ? AND chunk = ?', project, id)
             // Schedules that made issues in it make them in no chunk from now on.
-            this.run('UPDATE schedules SET chunk = NULL WHERE project = ? AND chunk = ?', project, id)
-            this.run('DELETE FROM chunks WHERE project = ? AND id = ?', project, id)
-            this.touchProject(project)
+            await this.run('UPDATE schedules SET chunk = NULL WHERE project = ? AND chunk = ?', project, id)
+            await this.run('DELETE FROM chunks WHERE project = ? AND id = ?', project, id)
+            await this.touchProject(project)
         })
         this.onChange(project)
     }
 
     // Issues
 
-    listIssues(project: string, filter: IssueFilter = {}): IssueRecord[] {
-        const records = this.issueRecords(this.project(project))
-        if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: this.chunkId(project, filter.chunk)}
+    async listIssues(project: string, filter: IssueFilter = {}): Promise<IssueRecord[]> {
+        const records = this.issueRecords(await this.project(project))
+        if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: await this.chunkId(project, filter.chunk)}
         const q = filter.q?.toLowerCase()
-        const statuses = filter.status ? this.statusIds(filter.status) : []
-        const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? this.statusIds(filter.column) : []
+        const statuses = filter.status ? await this.statusIds(filter.status) : []
+        const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? await this.statusIds(filter.column) : []
+        const assignee = filter.assignee && filter.assignee !== 'none' ? await this.assigneeOf(filter.assignee) : undefined
         return records.filter(r =>
             (!filter.status || statuses.includes(r.status))
             && (!filter.priority || (filter.priority === 'none' ? !r.priority : r.priority === filter.priority))
             && (!filter.column || columns.includes(r.column))
-            && (!filter.assignee || (filter.assignee === 'none' ? !r.assignee : r.assignee === this.assigneeOf(filter.assignee)))
+            && (!filter.assignee || (filter.assignee === 'none' ? !r.assignee : r.assignee === assignee))
             && (!filter.label || r.labels.includes(filter.label))
             && (!filter.chunk || (filter.chunk === 'none' ? !r.chunk : r.chunk === filter.chunk))
             && (!filter.parent || (filter.parent === 'none' ? !r.parent : r.parent === filter.parent))
@@ -606,82 +606,82 @@ export class Store {
             && (!q || r.id.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)))
     }
 
-    issue(project: string, id: string): IssueDetail {
-        id = this.issueId(project, id)
-        const found = this.findIssue(this.project(project), id)
+    async issue(project: string, id: string): Promise<IssueDetail> {
+        id = await this.issueId(project, id)
+        const found = this.findIssue(await this.project(project), id)
         if (!found) throw notFound(`No issue ${id} in ${project}`)
         return {...found.issue, project, parent: found.parent, chunk: found.chunk || null}
     }
 
-    createIssue(project: string, body: unknown, actor = AGENT): IssueDetail {
-        this.projectRow(project)
+    async createIssue(project: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
+        await this.projectRow(project)
         const input = checkInput(body, ISSUE_FIELDS)
         if (input.project !== undefined && input.project !== project) throw badRequest(`Create the issue in its project: POST /api/projects/${input.project}/issues`)
-        const parent = input.parent ? this.issueId(project, String(input.parent)) : null
-        const chunk = input.chunk ? this.chunkId(project, String(input.chunk)) : null
+        const parent = input.parent ? await this.issueId(project, String(input.parent)) : null
+        const chunk = input.chunk ? await this.chunkId(project, String(input.chunk)) : null
         if (parent) {
-            this.issueRow(project, parent)
+            await this.issueRow(project, parent)
             if (chunk) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
         }
-        if (chunk) this.chunkRow(project, chunk)
+        if (chunk) await this.chunkRow(project, chunk)
 
-        const id = transaction(this.db, () => {
-            const id = this.nextId(project, 'issue')
+        const id = await this.db.transaction(async () => {
+            const id = await this.nextId(project, 'issue')
             const now = stamp()
-            this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, proposal, parent, chunk, position,
+            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, proposal, parent, chunk, position,
                                           created_by, owned, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                project, id, String(input.title).trim(), this.resolveStatus(input.status, input.plan), nullable(input.priority),
+                project, id, String(input.title).trim(), await this.resolveStatus(input.status, input.plan), nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
-                input.proposal === 'pending' ? this.owner : nullable(this.assigneeOf(input.assignee)),
+                input.proposal === 'pending' ? (await this.ownerId()) : nullable(await this.assigneeOf(input.assignee)),
                 JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
-                parent, chunk, Number(input.position ?? this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
-            this.record(project, id, actor, [['created', null, null]])
-            this.touchProject(project)
+                parent, chunk, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
+            await this.record(project, id, actor, [['created', null, null]])
+            await this.touchProject(project)
             return id
         })
         this.onChange(project)
-        return this.issue(project, id)
+        return await this.issue(project, id)
     }
 
     /** `parent: null` lifts a sub-issue to the top, into the chunk it was in unless `chunk` says otherwise.
      * `project` moves it (with its sub-issues and comments) to the top of another project. `proposal:
      * null` commits a proposal: an agent can only commit one the owner approved. */
-    updateIssue(project: string, id: string, body: unknown, actor = AGENT): IssueDetail {
-        id = this.issueId(project, id)
-        this.issueRow(project, id)
+    async updateIssue(project: string, id: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
+        id = await this.issueId(project, id)
+        await this.issueRow(project, id)
         const input = checkInput(body, ISSUE_FIELDS, true)
         if (input.project !== undefined && input.project !== project) {
             const {project: to, parent, chunk, ...rest} = input
-            const moved = this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null, actor)
-            return this.updateIssue(String(to), moved, rest, actor)
+            const moved = await this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null, actor)
+            return await this.updateIssue(String(to), moved, rest, actor)
         }
-        const row = this.issueRow(project, id)
+        const row = await this.issueRow(project, id)
         if (input.proposal === null && row.proposal && row.proposal !== 'approved' && !actor.owner) {
             throw forbidden(`Committing ${id} is the owner's call until they approve it: it's ${row.proposal === 'pending' ? 'waiting on them' : row.proposal === 'changes' ? 'waiting on changes' : 'rejected'}`)
         }
 
-        const parent = input.parent === undefined ? row.parent : input.parent === null ? null : this.issueId(project, String(input.parent))
-        let chunk = input.chunk === undefined ? undefined : input.chunk === null ? null : this.chunkId(project, String(input.chunk))
+        const parent = input.parent === undefined ? row.parent : input.parent === null ? null : await this.issueId(project, String(input.parent))
+        let chunk = input.chunk === undefined ? undefined : input.chunk === null ? null : await this.chunkId(project, String(input.chunk))
         if (parent) {
             if (chunk) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or set "parent" to null`)
-            this.issueRow(project, parent)
-            for (let up: string | null = parent; up; up = this.issueRow(project, up).parent) {
+            await this.issueRow(project, parent)
+            for (let up: string | null = parent; up; up = (await this.issueRow(project, up)).parent) {
                 if (up === id) throw badRequest(`${parent} is ${up === parent ? 'this issue' : 'under this issue'}, so it can't be its parent`)
             }
             chunk = null
         } else if (chunk === undefined && row.parent) {
-            chunk = this.rootOf(project, row).chunk
+            chunk = (await this.rootOf(project, row)).chunk
         }
-        if (chunk) this.chunkRow(project, chunk)
+        if (chunk) await this.chunkRow(project, chunk)
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
-        const status = input.status === undefined && input.plan === undefined ? undefined : this.resolveStatus(input.status, input.plan)
-        const assignee = input.proposal === 'pending' ? this.owner : this.assigneeOf(input.assignee)
+        const status = input.status === undefined && input.plan === undefined ? undefined : await this.resolveStatus(input.status, input.plan)
+        const assignee = input.proposal === 'pending' ? (await this.ownerId()) : await this.assigneeOf(input.assignee)
         const labels = input.labels === undefined ? undefined : JSON.stringify(input.labels ?? [])
         const moved = input.parent !== undefined && parent !== row.parent
-        transaction(this.db, () => {
-            this.record(project, id, actor, [
+        await this.db.transaction(async () => {
+            await this.record(project, id, actor, [
                 ['title', row.title, title],
                 ['status', row.status, status],
                 ['priority', row.priority, input.priority],
@@ -692,7 +692,7 @@ export class Store {
                 // A sub-issue is in its parent's chunk, so a new parent says it all.
                 moved ? ['parent', row.parent, parent] : ['chunk', row.chunk, chunk],
             ])
-            this.update('issues', 'project = ? AND id = ?', [project, id], {
+            await this.update('issues', 'project = ? AND id = ?', [project, id], {
                 title,
                 status,
                 priority: input.priority,
@@ -706,24 +706,24 @@ export class Store {
                 chunk,
                 position: input.position,
             })
-            this.touchProject(project)
+            await this.touchProject(project)
         })
         this.onChange(project)
-        return this.issue(project, id)
+        return await this.issue(project, id)
     }
 
     /** Deletes its sub-issues and comments too. */
-    deleteIssue(project: string, id: string, actor = AGENT) {
-        id = this.issueId(project, id)
-        this.issueRow(project, id)
-        const subtree = this.subtree(project, id)
-        this.refuse(actor, `Deleting ${id}`, this.ownedUnder(project, subtree))
-        transaction(this.db, () => {
-            this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
+    async deleteIssue(project: string, id: string, actor = AGENT) {
+        id = await this.issueId(project, id)
+        await this.issueRow(project, id)
+        const subtree = await this.subtree(project, id)
+        this.refuse(actor, `Deleting ${id}`, await this.ownedUnder(project, subtree))
+        await this.db.transaction(async () => {
+            await this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
             // Its signals too, so a session catching up isn't told about an issue that's gone.
-            this.run(`DELETE FROM signals WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
-            this.run('DELETE FROM issues WHERE project = ? AND id = ?', project, id)
-            this.touchProject(project)
+            await this.run(`DELETE FROM signals WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
+            await this.run('DELETE FROM issues WHERE project = ? AND id = ?', project, id)
+            await this.touchProject(project)
         })
         this.onChange(project)
     }
@@ -731,57 +731,58 @@ export class Store {
     /** The owner's decision on a proposal: approved (still not work until it's committed), changes asked
      * for, or rejected. It's kept on the issue and left as their comment, so the session on it hears, and
      * the issue goes back to the agent who proposed it. */
-    decide(project: string, id: string, body: unknown, actor = AGENT): IssueDetail {
-        id = this.issueId(project, id)
-        const row = this.issueRow(project, id)
+    async decide(project: string, id: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
+        id = await this.issueId(project, id)
+        const row = await this.issueRow(project, id)
         if (!actor.owner) throw forbidden(`Deciding on ${id} is the owner's call; send Orrery-Actor: <owner>`)
         if (!row.proposal) throw badRequest(`${id} isn't a proposal; make it one with PATCH {"proposal": "pending"}`)
         const input = checkInput(body ?? {}, DECISION_FIELDS)
         const decision = input.decision as Decision
         const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null
         const assignee = row.owned ? row.assignee : row.created_by
-        transaction(this.db, () => {
-            this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ?, assignee = ? WHERE project = ? AND id = ?',
+        await this.db.transaction(async () => {
+            await this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ?, assignee = ? WHERE project = ? AND id = ?',
                 decision, actor.name, stamp(), note, assignee, project, id)
-            this.record(project, id, actor, [['proposal', row.proposal, decision], ['assignee', row.assignee, assignee]])
+            await this.record(project, id, actor, [['proposal', row.proposal, decision], ['assignee', row.assignee, assignee]])
         })
-        this.createComment(project, id, {body: note ? `${DECIDED[decision]}\n\n${note}` : DECIDED[decision]}, actor)
-        return this.issue(project, id)
+        await this.createComment(project, id, {body: note ? `${DECIDED[decision]}\n\n${note}` : DECIDED[decision]}, actor)
+        return await this.issue(project, id)
     }
 
     /** Moves an issue and everything under it to `to`, where they get its ids (KEY-n); the ids they had
      * stay as aliases there. Says the issue's new id. */
-    private moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string], actor: Actor): string {
-        this.projectRow(to)
-        const parentId = parent ? this.issueId(to, String(parent)) : null
-        const chunkId = chunk ? this.chunkId(to, String(chunk)) : null
-        if (parentId) this.issueRow(to, parentId)
+    private async moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string], actor: Actor): Promise<string> {
+        await this.projectRow(to)
+        const parentId = parent ? await this.issueId(to, String(parent)) : null
+        const chunkId = chunk ? await this.chunkId(to, String(chunk)) : null
+        if (parentId) await this.issueRow(to, parentId)
         if (parentId && chunkId) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
-        if (chunkId) this.chunkRow(to, chunkId)
-        const subtree = this.subtree(from, id)
+        if (chunkId) await this.chunkRow(to, chunkId)
+        const subtree = await this.subtree(from, id)
         const marks = subtree.map(() => '?').join(', ')
-        const moved = transaction(this.db, () => {
+        const moved = await this.db.transaction(async () => {
             // Rows move first and get their new ids and links after, so the foreign keys wait for the commit.
-            this.db.exec('PRAGMA defer_foreign_keys = ON')
-            const names = new Map(subtree.map(old => [old, this.nextId(to, 'issue')]))
-            const links = this.all<{id: string, parent: string | null}>(`SELECT id, parent FROM issues WHERE project = ? AND id IN (${marks})`, from, ...subtree)
-            const comments = this.all<{id: number, issue: string}>(`SELECT id, issue FROM comments WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
-            const aliases = this.all<{alias: string, issue: string}>(`SELECT alias, issue FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
-            const position = this.nextPosition('issues', to)
+            await this.db.exec('PRAGMA defer_foreign_keys = ON')
+            const names = new Map<string, string>()
+            for (const old of subtree) names.set(old, await this.nextId(to, 'issue'))
+            const links = await this.all<{id: string, parent: string | null}>(`SELECT id, parent FROM issues WHERE project = ? AND id IN (${marks})`, from, ...subtree)
+            const comments = await this.all<{id: number, issue: string}>(`SELECT id, issue FROM comments WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
+            const aliases = await this.all<{alias: string, issue: string}>(`SELECT alias, issue FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
+            const position = await this.nextPosition('issues', to)
             for (const link of links) {
                 const next = names.get(link.id)!
-                this.run('UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, position = position + ? WHERE project = ? AND id = ?',
+                await this.run('UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, position = position + ? WHERE project = ? AND id = ?',
                     to, next, link.id === id ? parentId : names.get(link.parent!) ?? null, link.id === id && !parentId ? chunkId : null, position, from, link.id)
             }
-            for (const comment of comments) this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, names.get(comment.issue)!, comment.id)
-            for (const [old, next] of names) this.run('UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, from, old)
-            this.record(to, names.get(id)!, actor, [['project', from, to]])
-            this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
-            for (const {alias, issue} of aliases) this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, alias, names.get(issue)!)
-            for (const [old, next] of names) this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, old, next)
-            this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', stamp(), to, names.get(id)!)
-            this.touchProject(from)
-            this.touchProject(to)
+            for (const comment of comments) await this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, names.get(comment.issue)!, comment.id)
+            for (const [old, next] of names) await this.run('UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, from, old)
+            await this.record(to, names.get(id)!, actor, [['project', from, to]])
+            await this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
+            for (const {alias, issue} of aliases) await this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, alias, names.get(issue)!)
+            for (const [old, next] of names) await this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, old, next)
+            await this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', stamp(), to, names.get(id)!)
+            await this.touchProject(from)
+            await this.touchProject(to)
             return names.get(id)!
         })
         this.onChange(from)
@@ -790,62 +791,63 @@ export class Store {
     }
 
     /** The issue's id and every id under it. */
-    private subtree(project: string, id: string): string[] {
-        return [id, ...this.all<{id: string}>('SELECT id FROM issues WHERE project = ? AND parent = ?', project, id).flatMap(c => this.subtree(project, c.id))]
+    private async subtree(project: string, id: string): Promise<string[]> {
+        const children = await this.all<{id: string}>('SELECT id FROM issues WHERE project = ? AND parent = ?', project, id)
+        return [id, ...(await Promise.all(children.map(c => this.subtree(project, c.id)))).flat()]
     }
 
     // Comments
 
-    listComments(project: string, issue: string): Comment[] {
-        issue = this.issueId(project, issue)
-        this.issueRow(project, issue)
-        return this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue = ? ORDER BY created_at, id`, project, issue).map(commentOf)
+    async listComments(project: string, issue: string): Promise<Comment[]> {
+        issue = await this.issueId(project, issue)
+        await this.issueRow(project, issue)
+        return (await this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue = ? ORDER BY created_at, id`, project, issue)).map(commentOf)
     }
 
     /** Who changed what on the issue, and when, oldest first. */
-    listActivity(project: string, issue: string): IssueEvent[] {
-        issue = this.issueId(project, issue)
-        this.issueRow(project, issue)
-        return this.all<EventRow>('SELECT * FROM issue_events WHERE project = ? AND issue = ? ORDER BY created_at, id', project, issue).map(eventOf)
+    async listActivity(project: string, issue: string): Promise<IssueEvent[]> {
+        issue = await this.issueId(project, issue)
+        await this.issueRow(project, issue)
+        return (await this.all<EventRow>('SELECT * FROM issue_events WHERE project = ? AND issue = ? ORDER BY created_at, id', project, issue)).map(eventOf)
     }
 
-    comment(project: string, issue: string, id: number): Comment {
-        issue = this.issueId(project, issue)
-        return commentOf(this.commentRow(project, issue, id))
+    async comment(project: string, issue: string, id: number): Promise<Comment> {
+        issue = await this.issueId(project, issue)
+        return commentOf(await this.commentRow(project, issue, id))
     }
 
     /** An agent's ask assigns the issue to the owner; the owner's answer gives it back to the agent who asked. */
-    createComment(project: string, issue: string, body: unknown, actor = AGENT): Comment {
-        issue = this.issueId(project, issue)
-        const row = this.issueRow(project, issue)
+    async createComment(project: string, issue: string, body: unknown, actor = AGENT): Promise<Comment> {
+        issue = await this.issueId(project, issue)
+        const row = await this.issueRow(project, issue)
         const input = checkInput(body, COMMENT_FIELDS)
         const now = stamp()
-        const asker = actor.owner && row.assignee === this.owner
-            ? this.get<{created_by: string}>(`SELECT c.created_by FROM comments c WHERE c.project = ? AND c.issue = ? AND c.asks IS NOT NULL AND c.owned = 0
+        const asker = actor.owner && row.assignee === (await this.ownerId())
+            ? (await this.get<{created_by: string}>(`SELECT c.created_by FROM comments c WHERE c.project = ? AND c.issue = ? AND c.asks IS NOT NULL AND c.owned = 0
                 AND NOT EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)
-                ORDER BY c.id DESC LIMIT 1`, project, issue)?.created_by
+                ORDER BY c.id DESC LIMIT 1`, project, issue))?.created_by
             : undefined
-        const assignee = !actor.owner && input.asks ? this.owner : asker
-        const id = transaction(this.db, () => {
-            const {lastInsertRowid} = this.run('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        const assignee = !actor.owner && input.asks ? (await this.ownerId()) : asker
+        const id = await this.db.transaction(async () => {
+            const {lastInsertRowid} = await this.run('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now)
             if (assignee) {
-                this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
-                this.record(project, issue, actor, [['assignee', row.assignee, assignee]])
+                await this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
+                await this.record(project, issue, actor, [['assignee', row.assignee, assignee]])
             }
-            this.touchIssue(project, issue)
+            await this.touchIssue(project, issue)
             return Number(lastInsertRowid)
         })
         this.onChange(project)
-        if (actor.owner) this.carryComment(project, issue, String(input.body), actor)
-        else this.onNotice({...this.comment(project, issue, id), project, title: this.issueRow(project, issue).title})
-        return this.comment(project, issue, id)
+        if (actor.owner) await this.carryComment(project, issue, String(input.body), actor)
+        else this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
+        return await this.comment(project, issue, id)
     }
 
     /** The owner's comments in the project that no agent has answered and no session has had yet,
      * sent to `session` (just connected) to catch up on. Says how many. */
-    carryUnanswered(project: string, session: string): number {
-        const waiting = this.all<{issue: string, body: string, created_by: string}>(`
+    async carryUnanswered(project: string, session: string): Promise<number> {
+        const waiting = await this.all<{issue: string, body: string, created_by: string}>(`
             SELECT c.issue, c.body, c.created_by FROM comments c
             WHERE c.project = ? AND c.owned = 1
               AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.id > c.id)
@@ -853,111 +855,111 @@ export class Store {
                               AND s.created_at >= c.created_at AND s.delivered_to != '[]')
             ORDER BY c.created_at LIMIT 10`, project)
         for (const comment of waiting) {
-            const {lastInsertRowid} = this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            const {lastInsertRowid} = await this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 project, comment.issue, 'comment', comment.body, session, comment.created_by, 1, stamp())
-            this.onSignal(signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!))
+            this.onSignal(signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!))
         }
         return waiting.length
     }
 
     /** The owner's comment goes to the session last asked to focus on the issue (or, if none was,
      * every session on the project), so it can answer. */
-    private carryComment(project: string, issue: string, body: string, actor: Actor) {
-        const target = this.get<{target: string}>("SELECT target FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND target IS NOT NULL ORDER BY id DESC LIMIT 1", project, issue)?.target ?? null
-        const {lastInsertRowid} = this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    private async carryComment(project: string, issue: string, body: string, actor: Actor) {
+        const target = (await this.get<{target: string}>("SELECT target FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND target IS NOT NULL ORDER BY id DESC LIMIT 1", project, issue))?.target ?? null
+        const {lastInsertRowid} = await this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             project, issue, 'comment', body, target, actor.name, 1, stamp())
-        this.onSignal(signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!))
+        this.onSignal(signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!))
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */
-    updateComment(project: string, issue: string, id: number, body: unknown, actor = AGENT): Comment {
-        issue = this.issueId(project, issue)
-        const row = this.commentRow(project, issue, id)
+    async updateComment(project: string, issue: string, id: number, body: unknown, actor = AGENT): Promise<Comment> {
+        issue = await this.issueId(project, issue)
+        const row = await this.commentRow(project, issue, id)
         this.refuse(actor, `Editing comment ${id}`, row.owned ? [`comment ${id}`] : [])
         const input = checkInput(body, COMMENT_FIELDS, true)
-        transaction(this.db, () => {
-            this.update('comments', 'id = ?', [id], {body: input.body, asks: input.asks})
-            this.touchIssue(project, issue)
+        await this.db.transaction(async () => {
+            await this.update('comments', 'id = ?', [id], {body: input.body, asks: input.asks})
+            await this.touchIssue(project, issue)
         })
         this.onChange(project)
-        return this.comment(project, issue, id)
+        return await this.comment(project, issue, id)
     }
 
-    deleteComment(project: string, issue: string, id: number, actor = AGENT) {
-        issue = this.issueId(project, issue)
-        const row = this.commentRow(project, issue, id)
+    async deleteComment(project: string, issue: string, id: number, actor = AGENT) {
+        issue = await this.issueId(project, issue)
+        const row = await this.commentRow(project, issue, id)
         this.refuse(actor, `Deleting comment ${id}`, row.owned ? [`comment ${id}`] : [])
-        transaction(this.db, () => {
-            this.run('DELETE FROM comments WHERE id = ?', id)
-            this.touchIssue(project, issue)
+        await this.db.transaction(async () => {
+            await this.run('DELETE FROM comments WHERE id = ?', id)
+            await this.touchIssue(project, issue)
         })
         this.onChange(project)
     }
 
     // Docs
 
-    listDocs(project: string): DocSummary[] {
-        this.projectRow(project)
-        return this.docSummaries(project)
+    async listDocs(project: string): Promise<DocSummary[]> {
+        await this.projectRow(project)
+        return await this.docSummaries(project)
     }
 
-    doc(project: string, id: string): Doc {
-        return docOf(this.docRow(project, id))
+    async doc(project: string, id: string): Promise<Doc> {
+        return docOf(await this.docRow(project, id))
     }
 
-    createDoc(project: string, body: unknown, actor = AGENT): Doc {
-        this.projectRow(project)
+    async createDoc(project: string, body: unknown, actor = AGENT): Promise<Doc> {
+        await this.projectRow(project)
         const input = checkInput(body, DOC_FIELDS)
         const title = String(input.title).trim()
         let id = input.id ? String(input.id) : slugify(title) || 'doc'
         if (input.id) {
-            if (this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) throw conflict(`There is already a doc "${id}" in ${project}`)
+            if (await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) throw conflict(`There is already a doc "${id}" in ${project}`)
         } else {
             const base = id
-            for (let n = 2; this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id); n++) id = `${base}-${n}`
+            for (let n = 2; await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id); n++) id = `${base}-${n}`
         }
         const now = stamp()
-        transaction(this.db, () => {
-            this.run('INSERT INTO docs (project, id, title, body, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                project, id, title, String(input.body ?? ''), Number(input.position ?? this.nextPosition('docs', project)), actor.name, Number(actor.owner), now, now)
-            this.touchProject(project)
+        await this.db.transaction(async () => {
+            await this.run('INSERT INTO docs (project, id, title, body, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, id, title, String(input.body ?? ''), Number(input.position ?? await this.nextPosition('docs', project)), actor.name, Number(actor.owner), now, now)
+            await this.touchProject(project)
         })
         this.onChange(project)
-        return this.doc(project, id)
+        return await this.doc(project, id)
     }
 
     /** Creates the doc at `id` or replaces its title and text: how a repo's Markdown file is kept in sync. */
-    putDoc(project: string, id: string, body: unknown, actor = AGENT): {doc: Doc, created: boolean} {
-        this.projectRow(project)
+    async putDoc(project: string, id: string, body: unknown, actor = AGENT): Promise<{doc: Doc, created: boolean}> {
+        await this.projectRow(project)
         if (!SLUG.test(id)) throw badRequest(`"${id}" isn't a doc id; use lowercase letters, digits and dashes`)
         const input = checkInput(body, DOC_FIELDS)
         if (input.id !== undefined && input.id !== id) throw badRequest(`The body's id "${input.id}" isn't the URL's "${id}"`)
-        if (!this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) return {doc: this.createDoc(project, {...input, id}, actor), created: true}
-        return {doc: this.updateDoc(project, id, {title: input.title, body: input.body ?? '', position: input.position}), created: false}
+        if (!await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) return {doc: await this.createDoc(project, {...input, id}, actor), created: true}
+        return {doc: await this.updateDoc(project, id, {title: input.title, body: input.body ?? '', position: input.position}), created: false}
     }
 
-    updateDoc(project: string, id: string, body: unknown): Doc {
-        this.docRow(project, id)
+    async updateDoc(project: string, id: string, body: unknown): Promise<Doc> {
+        await this.docRow(project, id)
         const input = checkInput(body, DOC_FIELDS, true)
         if (input.id !== undefined && input.id !== id) throw badRequest("A doc's id can't change")
-        transaction(this.db, () => {
-            this.update('docs', 'project = ? AND id = ?', [project, id], {
+        await this.db.transaction(async () => {
+            await this.update('docs', 'project = ? AND id = ?', [project, id], {
                 title: input.title === undefined ? undefined : String(input.title).trim(),
                 body: input.body,
                 position: input.position,
             })
-            this.touchProject(project)
+            await this.touchProject(project)
         })
         this.onChange(project)
-        return this.doc(project, id)
+        return await this.doc(project, id)
     }
 
-    deleteDoc(project: string, id: string, actor = AGENT) {
-        const row = this.docRow(project, id)
+    async deleteDoc(project: string, id: string, actor = AGENT) {
+        const row = await this.docRow(project, id)
         this.refuse(actor, `Deleting doc "${id}"`, row.owned ? [`doc "${id}"`] : [])
-        transaction(this.db, () => {
-            this.run('DELETE FROM docs WHERE project = ? AND id = ?', project, id)
-            this.touchProject(project)
+        await this.db.transaction(async () => {
+            await this.run('DELETE FROM docs WHERE project = ? AND id = ?', project, id)
+            await this.touchProject(project)
         })
         this.onChange(project)
     }
@@ -965,81 +967,81 @@ export class Store {
     // Signals
 
     /** Asks the sessions on the project to focus on the issue (`{note?}` says what for). */
-    focus(project: string, issue: string, body: unknown, actor = AGENT): Signal {
-        issue = this.issueId(project, issue)
-        this.issueRow(project, issue)
+    async focus(project: string, issue: string, body: unknown, actor = AGENT): Promise<Signal> {
+        issue = await this.issueId(project, issue)
+        await this.issueRow(project, issue)
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
-        const instructions = JSON.stringify(this.instructionsFor(project, input.instructions))
-        const {lastInsertRowid} = this.run('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
+        const {lastInsertRowid} = await this.run('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             project, issue, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
+        const signal = signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!)
         this.onSignal(signal)
         return signal
     }
 
     /** Asks the sessions (or `session`) to work through the chunk's open issues now, or (`status`) its issues of
      * that status; `none` is the issues in no chunk. */
-    focusChunk(project: string, chunk: string, body: unknown, actor = AGENT): Signal {
-        this.projectRow(project)
+    async focusChunk(project: string, chunk: string, body: unknown, actor = AGENT): Promise<Signal> {
+        await this.projectRow(project)
         if (chunk !== 'none') {
-            chunk = this.chunkId(project, chunk)
-            this.chunkRow(project, chunk)
+            chunk = await this.chunkId(project, chunk)
+            await this.chunkRow(project, chunk)
         }
         const input = checkInput(body ?? {}, CHUNK_SIGNAL_FIELDS)
         if (input.status) {
             const status = String(input.status)
-            const ids = this.statusIds(status)
-            const statuses = this.statuses().filter(s => ids.includes(s.id))
+            const ids = await this.statusIds(status)
+            const statuses = (await this.statuses()).filter(s => ids.includes(s.id))
             if (!statuses.length || statuses.some(s => CLOSED.includes(s.kind))) {
-                throw badRequest(`"status" is "${status}", not an open status (${this.statuses().filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
+                throw badRequest(`"status" is "${status}", not an open status (${(await this.statuses()).filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
             }
         }
-        const instructions = JSON.stringify(this.instructionsFor(project, input.instructions))
-        const {lastInsertRowid} = this.run('INSERT INTO signals (project, chunk, status, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
+        const {lastInsertRowid} = await this.run('INSERT INTO signals (project, chunk, status, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             project, chunk, nullable(input.status), 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
+        const signal = signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!)
         this.onSignal(signal)
         return signal
     }
 
     /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a chunk. */
-    listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, chunk?: string}): Signal[] {
-        this.projectRow(project)
+    async listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, chunk?: string}): Promise<Signal[]> {
+        await this.projectRow(project)
         if (about?.issue || about?.chunk) {
-            const [column, id] = about.issue ? ['issue', this.issueId(project, about.issue)] : ['chunk', this.chunkId(project, about.chunk!)]
-            return this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND ${column} = ? ORDER BY id DESC LIMIT ?`, project, id, limit)
+            const [column, id] = about.issue ? ['issue', await this.issueId(project, about.issue)] : ['chunk', await this.chunkId(project, about.chunk!)]
+            return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND ${column} = ? ORDER BY id DESC LIMIT ?`, project, id, limit))
                 .reverse().map(signalOf)
         }
-        return this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit).map(signalOf)
+        return (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit)).map(signalOf)
     }
 
     /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */
-    message(project: string, schedule: number, text: string, actor = AGENT): Signal {
-        this.projectRow(project)
-        const {lastInsertRowid} = this.run('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    async message(project: string, schedule: number, text: string, actor = AGENT): Promise<Signal> {
+        await this.projectRow(project)
+        const {lastInsertRowid} = await this.run('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
             project, schedule, 'message', text, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
+        const signal = signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!)
         this.onSignal(signal)
         return signal
     }
 
     /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next
      * one to connect gets them. */
-    unheardScheduled(project: string): Signal[] {
+    async unheardScheduled(project: string): Promise<Signal[]> {
         const since = new Date(Date.now() - 86_400_000).toISOString()
-        return this.all<SignalRow>(`
+        return (await this.all<SignalRow>(`
             SELECT s.* FROM signals s LEFT JOIN issues i ON i.project = s.project AND i.id = s.issue
             WHERE s.project = ? AND s.owned = 1 AND s.delivered_to = '[]' AND s.created_at >= ?
               AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))) OR s.kind = 'message')
-            ORDER BY s.id`, project, since).map(signalOf)
+            ORDER BY s.id`, project, since)).map(signalOf)
     }
 
     /** Notes that a session got the signal. */
-    delivered(project: string, id: number, to: string): Signal {
-        const row = this.get<SignalRow>('SELECT * FROM signals WHERE project = ? AND id = ?', project, id)
+    async delivered(project: string, id: number, to: string): Promise<Signal> {
+        const row = await this.get<SignalRow>('SELECT * FROM signals WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No signal ${id} in ${project}`)
         const names = [...new Set([...JSON.parse(row.delivered_to) as string[], to])]
-        this.run('UPDATE signals SET delivered_to = ? WHERE id = ?', JSON.stringify(names), id)
+        await this.run('UPDATE signals SET delivered_to = ? WHERE id = ?', JSON.stringify(names), id)
         const signal = signalOf({...row, delivered_to: JSON.stringify(names)})
         this.onSignal(signal)
         return signal
@@ -1049,47 +1051,47 @@ export class Store {
 
     /** Loads a roadmap in `docs/roadmap.json`'s format; `replace` first clears the project's chunks and issues.
      * Everything gets the project's ids (chunks 1, 2, …, issues KEY-1, …), the file's ids becoming aliases. */
-    importRoadmap(project: string, roadmap: RoadmapFile, replace = false, actor = AGENT): Project {
-        this.projectRow(project)
-        if (replace) this.refuse(actor, `Replacing ${project}'s roadmap`, this.ownedIn(project).filter(what => !what.startsWith('project ') && !what.startsWith('doc ')))
-        const has = this.get('SELECT 1 FROM issues WHERE project = ? UNION SELECT 1 FROM chunks WHERE project = ?', project, project)
+    async importRoadmap(project: string, roadmap: RoadmapFile, replace = false, actor = AGENT): Promise<Project> {
+        await this.projectRow(project)
+        if (replace) this.refuse(actor, `Replacing ${project}'s roadmap`, (await this.ownedIn(project)).filter(what => !what.startsWith('project ') && !what.startsWith('doc ')))
+        const has = await this.get('SELECT 1 FROM issues WHERE project = ? UNION SELECT 1 FROM chunks WHERE project = ?', project, project)
         if (has && !replace) throw conflict(`${project} already has chunks or issues; import with ?replace=true to replace them`)
 
         const now = stamp()
         let position = 0
-        const insert = (task: TaskFile, parent: string | null, chunk: string | null) => {
-            this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, parent, chunk, position,
+        const insert = async (task: TaskFile, parent: string | null, chunk: string | null) => {
+            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, parent, chunk, position,
                                           created_by, owned, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                project, task.id, task.title, this.resolveStatus(legacyStatus(task.status, task.plan)), task.priority ?? null, task.assignee ?? null, JSON.stringify(task.labels),
+                project, task.id, task.title, await this.resolveStatus(legacyStatus(task.status, task.plan)), task.priority ?? null, task.assignee ?? null, JSON.stringify(task.labels),
                 task.notes ?? null, parent, chunk, position++, actor.name, Number(actor.owner), now, now)
-            task.tasks.forEach(sub => insert(sub, task.id, null))
+            for (const sub of task.tasks) await insert(sub, task.id, null)
         }
-        transaction(this.db, () => {
-            this.db.exec('PRAGMA defer_foreign_keys = ON')
+        await this.db.transaction(async () => {
+            await this.db.exec('PRAGMA defer_foreign_keys = ON')
             if (replace) {
-                this.run('DELETE FROM comments WHERE project = ?', project)
-                this.run('UPDATE issues SET parent = NULL, chunk = NULL WHERE project = ?', project)
-                this.run('DELETE FROM issues WHERE project = ?', project)
-                this.run('DELETE FROM chunks WHERE project = ?', project)
-                this.run('DELETE FROM issue_aliases WHERE project = ?', project)
-                this.run('DELETE FROM chunk_aliases WHERE project = ?', project)
+                await this.run('DELETE FROM comments WHERE project = ?', project)
+                await this.run('UPDATE issues SET parent = NULL, chunk = NULL WHERE project = ?', project)
+                await this.run('DELETE FROM issues WHERE project = ?', project)
+                await this.run('DELETE FROM chunks WHERE project = ?', project)
+                await this.run('DELETE FROM issue_aliases WHERE project = ?', project)
+                await this.run('DELETE FROM chunk_aliases WHERE project = ?', project)
             }
-            roadmap.chunks.forEach((chunk, i) => {
-                this.run('INSERT INTO chunks (project, id, title, summary, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            for (const [i, chunk] of roadmap.chunks.entries()) {
+                await this.run('INSERT INTO chunks (project, id, title, summary, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     project, chunk.id, chunk.title, chunk.summary || null, i, actor.name, Number(actor.owner), now, now)
-                chunk.tasks.forEach(task => insert(task, null, chunk.id))
-            })
-            renumber(this.db, project)
-            this.touchProject(project)
+                for (const task of chunk.tasks) await insert(task, null, chunk.id)
+            }
+            await renumber(this.db, project)
+            await this.touchProject(project)
         })
         this.onChange(project)
-        return this.project(project)
+        return await this.project(project)
     }
 
     // Reading
 
-    private projectOf(row: ProjectRow): Project {
+    private async projectOf(row: ProjectRow): Promise<Project> {
         return {
             id: row.id,
             name: row.name,
@@ -1105,30 +1107,30 @@ export class Store {
             protected: !!row.owned,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
-            board: this.board(row.id),
-            docs: this.docSummaries(row.id),
+            board: await this.board(row.id),
+            docs: await this.docSummaries(row.id),
         }
     }
 
-    private docSummaries(project: string): DocSummary[] {
-        return this.all<DocRow>('SELECT * FROM docs WHERE project = ? ORDER BY position, created_at', project)
+    private async docSummaries(project: string): Promise<DocSummary[]> {
+        return (await this.all<DocRow>('SELECT * FROM docs WHERE project = ? ORDER BY position, created_at', project))
             .map(row => ({id: row.id, title: row.title, createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at, updatedAt: row.updated_at}))
     }
 
-    private board(project: string): Board {
-        const chunks = this.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project)
-        const issues = this.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
-        const comments = new Map(this.all<{issue: string, n: number}>('SELECT issue, count(*) AS n FROM comments WHERE project = ? GROUP BY issue', project)
+    private async board(project: string): Promise<Board> {
+        const chunks = await this.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project)
+        const issues = await this.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
+        const comments = new Map((await this.all<{issue: string, n: number}>('SELECT issue, count(*) AS n FROM comments WHERE project = ? GROUP BY issue', project))
             .map(r => [r.issue, r.n]))
-        const aliases = (table: 'issue_aliases' | 'chunk_aliases', column: 'issue' | 'chunk') => {
+        const aliases = async (table: 'issue_aliases' | 'chunk_aliases', column: 'issue' | 'chunk') => {
             const found = new Map<string, string[]>()
-            for (const row of this.all<{alias: string, of: string}>(`SELECT alias, ${column} AS of FROM ${table} WHERE project = ? ORDER BY alias`, project)) {
+            for (const row of await this.all<{alias: string, of: string}>(`SELECT alias, ${column} AS of FROM ${table} WHERE project = ? ORDER BY alias`, project)) {
                 found.set(row.of, [...found.get(row.of) ?? [], row.alias])
             }
             return found
         }
-        const issueAliases = aliases('issue_aliases', 'issue')
-        const chunkAliases = aliases('chunk_aliases', 'chunk')
+        const issueAliases = await aliases('issue_aliases', 'issue')
+        const chunkAliases = await aliases('chunk_aliases', 'chunk')
         const children = new Map<string | null, IssueRow[]>()
         for (const row of issues) children.set(row.parent, [...children.get(row.parent) ?? [], row])
 
@@ -1160,7 +1162,7 @@ export class Store {
         }))
         const loose = top.filter(t => !t.chunk)
         if (loose.length) grouped.push({id: '', title: 'No chunk', summary: '', priority: undefined, aliases: [], createdBy: '', protected: false, tasks: loose.map(input)})
-        return buildBoard({chunks: grouped}, this.statuses())
+        return buildBoard({chunks: grouped}, await this.statuses())
     }
 
     private issueRecords(project: Project): IssueRecord[] {
@@ -1197,64 +1199,64 @@ export class Store {
     }
 
     /** The issue's id, from its id or an id it had before (an alias). */
-    private issueId(project: string, id: string): string {
-        if (this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', project, id)) return id
-        return this.get<{issue: string}>('SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?', project, id)?.issue ?? id
+    private async issueId(project: string, id: string): Promise<string> {
+        if (await this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', project, id)) return id
+        return (await this.get<{issue: string}>('SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?', project, id))?.issue ?? id
     }
 
     /** The chunk's id, from its number or a name it had before (an alias). */
-    private chunkId(project: string, id: string): string {
-        if (this.get('SELECT 1 FROM chunks WHERE project = ? AND id = ?', project, id)) return id
-        return this.get<{chunk: string}>('SELECT chunk FROM chunk_aliases WHERE project = ? AND alias = ?', project, id)?.chunk ?? id
+    private async chunkId(project: string, id: string): Promise<string> {
+        if (await this.get('SELECT 1 FROM chunks WHERE project = ? AND id = ?', project, id)) return id
+        return (await this.get<{chunk: string}>('SELECT chunk FROM chunk_aliases WHERE project = ? AND alias = ?', project, id))?.chunk ?? id
     }
 
     /** Hands out the project's next id: KEY-n for an issue, n for a chunk. Run inside the write's transaction. */
-    private nextId(project: string, kind: 'issue' | 'chunk'): string {
-        const row = this.projectRow(project)
+    private async nextId(project: string, kind: 'issue' | 'chunk'): Promise<string> {
+        const row = await this.projectRow(project)
         const [column, table] = kind === 'issue' ? ['next_number', 'issues'] as const : ['next_chunk', 'chunks'] as const
         const name = (n: number) => kind === 'issue' ? `${row.key}-${n}` : String(n)
         let n = kind === 'issue' ? row.next_number : row.next_chunk
-        while (this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ?`, project, name(n))) n++
-        this.run(`UPDATE projects SET ${column} = ? WHERE id = ?`, n + 1, project)
+        while (await this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ?`, project, name(n))) n++
+        await this.run(`UPDATE projects SET ${column} = ? WHERE id = ?`, n + 1, project)
         return name(n)
     }
 
-    private rootOf(project: string, row: IssueRow): IssueRow {
+    private async rootOf(project: string, row: IssueRow): Promise<IssueRow> {
         let root = row
-        while (root.parent) root = this.issueRow(project, root.parent)
+        while (root.parent) root = await this.issueRow(project, root.parent)
         return root
     }
 
-    private projectRow(id: string): ProjectRow {
-        const row = this.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', id)
+    private async projectRow(id: string): Promise<ProjectRow> {
+        const row = await this.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', id)
         if (!row) throw notFound(`No project "${id}"`)
         return row
     }
 
-    private chunkRow(project: string, id: string): ChunkRow {
-        this.projectRow(project)
-        const row = this.get<ChunkRow>('SELECT * FROM chunks WHERE project = ? AND id = ?', project, id)
+    private async chunkRow(project: string, id: string): Promise<ChunkRow> {
+        await this.projectRow(project)
+        const row = await this.get<ChunkRow>('SELECT * FROM chunks WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No chunk "${id}" in ${project}`)
         return row
     }
 
-    private issueRow(project: string, id: string): IssueRow {
-        this.projectRow(project)
-        const row = this.get<IssueRow>('SELECT * FROM issues WHERE project = ? AND id = ?', project, id)
+    private async issueRow(project: string, id: string): Promise<IssueRow> {
+        await this.projectRow(project)
+        const row = await this.get<IssueRow>('SELECT * FROM issues WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No issue ${id} in ${project}`)
         return row
     }
 
-    private docRow(project: string, id: string): DocRow {
-        this.projectRow(project)
-        const row = this.get<DocRow>('SELECT * FROM docs WHERE project = ? AND id = ?', project, id)
+    private async docRow(project: string, id: string): Promise<DocRow> {
+        await this.projectRow(project)
+        const row = await this.get<DocRow>('SELECT * FROM docs WHERE project = ? AND id = ?', project, id)
         if (!row) throw notFound(`No doc "${id}" in ${project}`)
         return row
     }
 
-    private commentRow(project: string, issue: string, id: number): CommentRow {
-        this.issueRow(project, issue)
-        const row = this.get<CommentRow>('SELECT * FROM comments WHERE project = ? AND issue = ? AND id = ?', project, issue, id)
+    private async commentRow(project: string, issue: string, id: number): Promise<CommentRow> {
+        await this.issueRow(project, issue)
+        const row = await this.get<CommentRow>('SELECT * FROM comments WHERE project = ? AND issue = ? AND id = ?', project, issue, id)
         if (!row) throw notFound(`No comment ${id} on ${issue}`)
         return row
     }
@@ -1269,23 +1271,23 @@ export class Store {
     }
 
     /** What the owner made in the project, the project included. */
-    private ownedIn(project: string): string[] {
-        const row = this.projectRow(project)
+    private async ownedIn(project: string): Promise<string[]> {
+        const row = await this.projectRow(project)
         return [
             ...row.owned ? [`project "${project}"`] : [],
-            ...this.all<{id: string}>('SELECT id FROM chunks WHERE project = ? AND owned = 1', project).map(c => `chunk "${c.id}"`),
-            ...this.all<{id: string}>('SELECT id FROM docs WHERE project = ? AND owned = 1', project).map(d => `doc "${d.id}"`),
-            ...this.ownedUnder(project, this.all<{id: string}>('SELECT id FROM issues WHERE project = ?', project).map(i => i.id)),
+            ...(await this.all<{id: string}>('SELECT id FROM chunks WHERE project = ? AND owned = 1', project)).map(c => `chunk "${c.id}"`),
+            ...(await this.all<{id: string}>('SELECT id FROM docs WHERE project = ? AND owned = 1', project)).map(d => `doc "${d.id}"`),
+            ...await this.ownedUnder(project, (await this.all<{id: string}>('SELECT id FROM issues WHERE project = ?', project)).map(i => i.id)),
         ]
     }
 
     /** The owner's issues and comments among these issues. */
-    private ownedUnder(project: string, issues: string[]): string[] {
+    private async ownedUnder(project: string, issues: string[]): Promise<string[]> {
         if (!issues.length) return []
         const marks = issues.map(() => '?').join(', ')
         return [
-            ...this.all<{id: string}>(`SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN (${marks})`, project, ...issues).map(i => i.id),
-            ...this.all<{id: number, issue: string}>(`SELECT id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN (${marks})`, project, ...issues)
+            ...(await this.all<{id: string}>(`SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN (${marks})`, project, ...issues)).map(i => i.id),
+            ...(await this.all<{id: number, issue: string}>(`SELECT id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN (${marks})`, project, ...issues))
                 .map(c => `comment ${c.id} on ${c.issue}`),
         ]
     }
@@ -1294,47 +1296,47 @@ export class Store {
 
     /** Notes the fields that change: `after` undefined is left as it is, and a value equal to `before` is no
      * change. `created` is always noted. Notes keep no values, only that they changed. */
-    private record(project: string, issue: string, actor: Actor, changes: [ActivityField, string | null, Input[string]][]) {
+    private async record(project: string, issue: string, actor: Actor, changes: [ActivityField, string | null, Input[string]][]) {
         const now = stamp()
         for (const [field, before, after] of changes) {
             if (field !== 'created' && (after === undefined || (after ?? null) === before)) continue
             const [from, to] = field === 'notes' ? [null, null] : [before, nullable(after)]
-            this.run('INSERT INTO issue_events (project, issue, field, before, after, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            await this.run('INSERT INTO issue_events (project, issue, field, before, after, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 project, issue, field, from, to, actor.name, Number(actor.owner), now)
         }
     }
 
     /** Sets the given fields (undefined ones are left as they are) and the update time. */
-    private update(table: string, where: string, keys: SQLInputValue[], fields: Input) {
+    private async update(table: string, where: string, keys: Value[], fields: Input) {
         const set = Object.entries(fields).filter(([, value]) => value !== undefined)
         const columns = [...set.map(([column]) => `${column} = ?`), 'updated_at = ?']
-        this.run(`UPDATE ${table} SET ${columns.join(', ')} WHERE ${where}`, ...set.map(([, value]) => value as SQLInputValue), stamp(), ...keys)
+        await this.run(`UPDATE ${table} SET ${columns.join(', ')} WHERE ${where}`, ...set.map(([, value]) => value as Value), stamp(), ...keys)
     }
 
-    private touchProject(project: string) {
-        this.run('UPDATE projects SET updated_at = ? WHERE id = ?', stamp(), project)
+    private async touchProject(project: string) {
+        await this.run('UPDATE projects SET updated_at = ? WHERE id = ?', stamp(), project)
     }
 
-    private touchIssue(project: string, issue: string) {
+    private async touchIssue(project: string, issue: string) {
         const now = stamp()
-        this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', now, project, issue)
-        this.run('UPDATE projects SET updated_at = ? WHERE id = ?', now, project)
+        await this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', now, project, issue)
+        await this.run('UPDATE projects SET updated_at = ? WHERE id = ?', now, project)
     }
 
-    private nextPosition(table: 'chunks' | 'issues' | 'docs', project: string): number {
-        return (this.get<{n: number | null}>(`SELECT max(position) AS n FROM ${table} WHERE project = ?`, project)?.n ?? -1) + 1
+    private async nextPosition(table: 'chunks' | 'issues' | 'docs', project: string): Promise<number> {
+        return ((await this.get<{n: number | null}>(`SELECT max(position) AS n FROM ${table} WHERE project = ?`, project))?.n ?? -1) + 1
     }
 
-    private run(sql: string, ...params: SQLInputValue[]) {
-        return this.db.prepare(sql).run(...params)
+    private run(sql: string, ...params: Value[]) {
+        return this.db.run(sql, ...params)
     }
 
-    private get<T>(sql: string, ...params: SQLInputValue[]): T | undefined {
-        return this.db.prepare(sql).get(...params) as T | undefined
+    private get<T>(sql: string, ...params: Value[]) {
+        return this.db.get<T>(sql, ...params)
     }
 
-    private all<T>(sql: string, ...params: SQLInputValue[]): T[] {
-        return this.db.prepare(sql).all(...params) as T[]
+    private all<T>(sql: string, ...params: Value[]) {
+        return this.db.all<T>(sql, ...params)
     }
 }
 

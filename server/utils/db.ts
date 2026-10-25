@@ -2,7 +2,8 @@
 // `node:sqlite` is synchronous, so writes from several sessions never interleave.
 import {mkdirSync} from 'node:fs'
 import {restoreBackup} from './backup'
-import {renumber} from './renumber'
+import {renumberSync} from './renumber'
+import {SqliteDb} from './database'
 import {dirname, resolve} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 
@@ -129,7 +130,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     ALTER TABLE projects ADD COLUMN next_chunk INTEGER NOT NULL DEFAULT 1;
 `, db => {
-    for (const {id} of db.prepare('SELECT id FROM projects').all() as {id: string}[]) renumber(db, id)
+    for (const {id} of db.prepare('SELECT id FROM projects').all() as {id: string}[]) renumberSync(db, id)
 }, `
     -- Signals to the Claude sessions working on a project, e.g. "focus on MSH-42", in the order sent.
     CREATE TABLE signals (
@@ -420,10 +421,20 @@ export function useDb(): DatabaseSync {
     return db
 }
 
+/** The open database as the store awaits it. */
+export function useDatabase(): SqliteDb {
+    const raw = useDb()
+    if (database?.raw !== raw) database = new SqliteDb(raw)
+    return database
+}
+
+let database: SqliteDb | null = null
+
 /** Lets go of the file, e.g. as `nuxt dev` swaps in a reloaded server; the next `useDb` opens it again. */
 export function closeDb() {
     db?.close()
     db = null
+    database = null
 }
 
 /** Opens the file and brings its schema up to date (or only `upTo` steps, for tests). */
