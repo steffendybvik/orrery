@@ -3,7 +3,8 @@ import type {Priority} from '#shared/roadmap'
 import {PRIORITIES} from '#shared/roadmap'
 
 // A chunk's page: its summary, priority and progress, the Claude sessions to point at it, and its issues
-// by status, each status with a button to point the sessions at just those. Esc goes back to the roadmap.
+// by status, each status with a button to point the sessions at just those. Its title and summary edit
+// in place and it can be removed, as the owner. Esc goes back to the roadmap.
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -23,18 +24,76 @@ const shown = computed(() => {
 const share = computed(() => chunk.value ? progress(chunk.value.kinds) : null)
 const {look} = useStatuses()
 
-// How much it matters, set by the owner; the board updates live once it's saved.
+// Changes, as the owner; the page catches up live once they're saved. `failed` holds why the last didn't.
 const {load} = useOwner()
-const savingPriority = ref(false)
-async function setPriority(priority: Priority | '') {
-    if (!project.value || !chunk.value?.id) return
-    savingPriority.value = true
+const saving = ref(false)
+const failed = ref('')
+const api = computed(() => project.value && chunk.value?.id ? `/api/projects/${encodeURIComponent(project.value.id)}/chunks/${encodeURIComponent(chunk.value.id)}` : '')
+async function save(body: Record<string, unknown>): Promise<boolean> {
+    if (!api.value) return false
+    saving.value = true
+    failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/chunks/${encodeURIComponent(chunk.value.id)}`, {
-            method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: {priority: priority || null},
-        })
+        await $fetch(api.value, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body})
+        return true
+    } catch (error) {
+        failed.value = errorMessage(error)
+        return false
     } finally {
-        savingPriority.value = false
+        saving.value = false
+    }
+}
+
+// How much it matters.
+const setPriority = (priority: Priority | '') => save({priority: priority || null})
+
+// The title, edited in place: Enter saves, Esc puts it back.
+const editingTitle = ref(false)
+const title = ref('')
+const titleInput = ref<HTMLInputElement | null>(null)
+function editTitle() {
+    if (!chunk.value?.id) return
+    title.value = chunk.value.title
+    editingTitle.value = true
+    nextTick(() => titleInput.value?.select())
+}
+async function saveTitle() {
+    if (!editingTitle.value) return
+    const next = title.value.trim()
+    if (next && next !== chunk.value?.title && !await save({title: next})) return
+    editingTitle.value = false
+}
+
+// The summary, in Markdown: ⌘↵ saves, Esc leaves it as it was.
+const editingSummary = ref(false)
+const summary = ref('')
+const summaryInput = ref<HTMLTextAreaElement | null>(null)
+function editSummary() {
+    summary.value = chunk.value?.summary ?? ''
+    editingSummary.value = true
+    nextTick(() => summaryInput.value?.focus())
+}
+async function saveSummary() {
+    const next = summary.value.trim()
+    if (next !== (chunk.value?.summary ?? '') && !await save({summary: next || null})) return
+    editingSummary.value = false
+}
+watch(() => chunk.value?.id, () => editingTitle.value = editingSummary.value = false)
+
+// Removing it leaves its issues in no chunk.
+const confirmingRemove = ref(false)
+async function remove() {
+    if (!api.value || !project.value) return
+    saving.value = true
+    failed.value = ''
+    try {
+        await $fetch(api.value, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        router.push(`/p/${project.value.id}/roadmap`)
+    } catch (error) {
+        failed.value = errorMessage(error, 'remove')
+    } finally {
+        saving.value = false
+        confirmingRemove.value = false
     }
 }
 
@@ -86,16 +145,81 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
                 :value="chunk.priority ?? ''"
                 aria-label="Priority"
                 class="h-7 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:opacity-50"
-                :disabled="savingPriority"
+                :disabled="saving"
                 @change="setPriority(($event.target as HTMLSelectElement).value as Priority | '')"
             >
               <option value="">No priority</option>
               <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
             </select>
           </label>
+          <span v-if="chunk.id" class="ml-auto flex items-center gap-2">
+            <template v-if="confirmingRemove">
+              <span class="text-muted">Remove chunk {{ chunk.id }}? Its {{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue stays' : 'issues stay' }}, in no chunk.</span>
+              <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="remove">{{ saving ? 'Removing…' : 'Remove' }}</button>
+              <button type="button" class="h-7 rounded-md px-2 text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="confirmingRemove = false">Cancel</button>
+            </template>
+            <button
+                v-else
+                type="button"
+                class="rounded-md p-1 text-faint hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400"
+                title="Remove this chunk"
+                aria-label="Remove this chunk"
+                @click="confirmingRemove = true"
+            >
+              <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+            </button>
+          </span>
         </div>
-        <h1 class="text-xl font-semibold tracking-tight text-fg sm:text-2xl" :class="!chunk.id && 'text-muted italic'">{{ chunk.title }}</h1>
-        <MarkdownView v-if="chunk.summary" :source="chunk.summary" />
+        <input
+            v-if="editingTitle"
+            ref="titleInput"
+            v-model="title"
+            aria-label="Title"
+            class="-mx-2 rounded-lg bg-well px-2 py-0.5 text-xl font-semibold tracking-tight text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none sm:text-2xl"
+            :disabled="saving"
+            @keydown.enter.prevent="saveTitle"
+            @keydown.esc.stop.prevent="editingTitle = false"
+            @blur="saveTitle"
+        >
+        <h1
+            v-else
+            class="-mx-2 rounded-lg px-2 py-0.5 text-xl font-semibold tracking-tight text-fg sm:text-2xl"
+            :class="chunk.id ? 'cursor-text hover:bg-hover' : 'text-muted italic'"
+            :title="chunk.id ? 'Click to edit' : undefined"
+            @click="editTitle"
+        >{{ chunk.title }}</h1>
+        <section v-if="editingSummary" class="flex flex-col gap-2" @keydown.esc.stop.prevent="editingSummary = false">
+          <textarea
+              ref="summaryInput"
+              v-model="summary"
+              aria-label="Summary"
+              placeholder="What it's for, in Markdown"
+              rows="5"
+              class="field-sizing-content min-h-28 w-full resize-y rounded-xl bg-well px-4 py-3 font-mono text-[13px] leading-6 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              :disabled="saving"
+              @keydown.meta.enter.prevent="saveSummary"
+              @keydown.ctrl.enter.prevent="saveSummary"
+          />
+          <div class="flex items-center justify-end gap-2">
+            <span class="mr-auto text-xs text-faint">Markdown</span>
+            <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="editingSummary = false">Cancel <KeyHint>esc</KeyHint></button>
+            <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="saveSummary">
+              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+            </button>
+          </div>
+        </section>
+        <section v-else-if="chunk.id" class="group relative">
+          <button
+              v-if="chunk.summary"
+              type="button"
+              class="absolute -top-1 right-0 flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted opacity-0 ring-1 ring-line transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg focus:opacity-100"
+              @click="editSummary"
+          >Edit</button>
+          <MarkdownView v-if="chunk.summary" :source="chunk.summary" />
+          <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editSummary">No summary. Add one</button>
+        </section>
+        <MarkdownView v-else-if="chunk.summary" :source="chunk.summary" />
+        <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-faint">
           <ProgressRing :kinds="chunk.kinds" :size="16" />
           <span>{{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue' : 'issues' }}<template v-if="share.total !== chunk.tasks.length"> · {{ share.total }} with sub-issues</template></span>
@@ -107,7 +231,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
         <span class="label">Issues</span>
         <template #end>
           <FilterBar />
-          <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id, chunk.id || undefined)">
+          <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs whitespace-nowrap font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id, chunk.id || undefined)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
             New issue
           </button>

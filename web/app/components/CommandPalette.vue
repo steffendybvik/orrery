@@ -82,6 +82,7 @@ const here = computed<Entry[]>(() => {
     }
     if (p) {
         entries.push({key: 'issue:new', group: 'Issue', label: `New issue in ${p.name}`, hint: 'c', run: () => useNewIssue().open(p.id, route.name === 'p-project-roadmap-chunk' && route.params.chunk !== 'none' ? String(route.params.chunk) : undefined)})
+        entries.push({key: 'chunk:new', group: 'Chunk', label: `New chunk in ${p.name}`, run: () => useNewChunk().open(p.id)})
         for (const section of sectionsOf(p, route.path).filter(s => !s.active)) {
             entries.push({key: `here:${section.id}`, group: 'Go to', label: `${p.name} ${section.label.toLowerCase()}`, run: () => router.push(section.to)})
         }

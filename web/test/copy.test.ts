@@ -1,9 +1,16 @@
 import {describe, expect, it} from 'vitest'
-import {copy} from '../scripts/copy'
+import {TABLES, copy} from '../scripts/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
+import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+
+/** A 1×1 PNG, base64. */
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+/** The secrets of an Orrery, under one key; their calls all answer 200. */
+const secretsOf = (store: Store) => new Secrets(store, () => 'a long random test key', () => {}, (async () => new Response('{}')) as typeof fetch)
 
 /** An Orrery with a bit of everything in it. */
 async function filled() {
@@ -20,6 +27,9 @@ async function filled() {
     await store.putDoc('larder', 'readme', {title: 'Readme', body: '# Larder'})
     await store.focus('larder', child.id, {session: 'window-a'}, owner)
     await store.updateSettings({tint: 'teal'}, owner)
+    await secretsOf(store).set('STRIPE_KEY', {value: 'sk_live_abcdef123456', hosts: ['api.stripe.com']}, owner)
+    await secretsOf(store).egress({url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}})
+    await store.createUpload({data: PNG, name: 'shelf.png'}, owner)
     return store
 }
 
@@ -27,6 +37,8 @@ const everything = async (store: Store) => ({
     projects: await store.listBoards(), statuses: await store.statuses(), settings: await store.settings(), owner: await store.ownerOf(),
     comments: await store.listComments('larder', 'LAR-2'), activity: (await store.listActivity('larder', 'LAR-2')).map(({id, ...e}) => e),
     doc: await store.doc('larder', 'readme'), signals: await store.listSignals('larder'),
+    secret: await secretsOf(store).get('STRIPE_KEY'),
+    uploads: await Promise.all((await store.db.all<{id: string}>('SELECT id FROM uploads')).map(({id}) => store.upload(id))),
 })
 
 describe('copying an Orrery', () => {
@@ -34,7 +46,7 @@ describe('copying an Orrery', () => {
         const source = await filled()
         const target = new Store(testDb())
         const copied = await copy(source.db, target.db)
-        expect(copied).toMatchObject({projects: 1, issues: 2, comments: 2, statuses: 7, docs: 1, signals: 2})
+        expect(copied).toMatchObject({projects: 1, issues: 2, comments: 2, statuses: 7, docs: 1, signals: 2, secrets: 1, secret_uses: 1, uploads: 1})
         expect(await everything(target)).toEqual(await everything(source))
         // New things get ids after the copied ones.
         expect((await target.createIssue('larder', {title: 'Next'})).id).toBe('LAR-3')
@@ -48,6 +60,12 @@ describe('copying an Orrery', () => {
         const back = new Store(new SqliteDb(openDb(':memory:')))
         await copy(middle.db, back.db)
         expect(await everything(back)).toEqual(await everything(source))
+    })
+
+    it("leaves out no table the migrations make, so a new one can't be forgotten", async () => {
+        const db = openDb(':memory:')
+        const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as {name: string}[]
+        expect(tables.map(t => t.name).sort()).toEqual([...TABLES].sort())
     })
 
     it('refuses a target that already has projects', async () => {

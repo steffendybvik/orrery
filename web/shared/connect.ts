@@ -1,6 +1,8 @@
 // What a Claude session in an app's repo needs to keep that app's roadmap in Orrery: the brief (served
 // at /connect/<project>.md and shown on the Connect page) and the pieces it sets up. Built in one
-// place, so the page and the URL say the same.
+// place, so the page and the URL say the same. A project's name and a session's come from the URL, so
+// nothing in them reaches a shell command unquoted or adds a line to the brief.
+import {keyFor, slugify} from './roadmap'
 
 export interface ConnectTarget {
     /** Where Orrery runs, as the agent should reach it. */
@@ -35,8 +37,9 @@ export interface ConnectPieces {
 const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'Notification', 'SessionEnd']
 
 export function connectPieces(target: ConnectTarget): ConnectPieces {
-    const {origin, repoDir, id, name, key, isNew} = target
-    const session = target.session?.trim().replace(/\s+/g, '-')
+    const {origin, repoDir, id, key, isNew} = target
+    const name = target.name.replace(/\s+/g, ' ').trim()
+    const session = sessionName(target.session ?? '') || undefined
     const server = id
 
     const mcpJson = JSON.stringify({
@@ -68,7 +71,7 @@ First read how to use it:
 ${isNew ? `
 The project doesn't exist yet. Create it:
 
-    curl -s -X POST ${origin}/api/projects -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d '{"name": "${name}", "id": "${id}", "key": "${key}"}'
+    curl -s -X POST ${origin}/api/projects -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d ${shellQuote(JSON.stringify({name, id, key}))}
 ` : ''}
 ## While you work
 
@@ -107,10 +110,17 @@ Tell the owner what's in progress and what's urgent, and ask them to restart you
     return {brief, claudeMd, mcpJson, settingsJson, server, launch, monitor, prompt, url}
 }
 
-/** A name's id and prefix, as Orrery would make them. */
+/** A name's id and prefix, as Orrery would make them (`app` for an id when the name makes none). */
 export function idsFor(name: string): {id: string, key: string} {
-    return {
-        id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'app',
-        key: name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '').slice(0, 3) || 'APP',
-    }
+    return {id: slugify(name) || 'app', key: keyFor(name)}
+}
+
+/** A window's name as ORRERY_SESSION takes it: lowercase letters, digits and dashes, safe in a shell. */
+export function sessionName(text: string): string {
+    return slugify(text)
+}
+
+/** `text` as one word for a POSIX shell: single-quoted, any `'` closed, escaped and reopened. */
+export function shellQuote(text: string): string {
+    return `'${text.replace(/'/g, `'\\''`)}'`
 }

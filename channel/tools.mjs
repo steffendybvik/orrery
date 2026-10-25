@@ -30,6 +30,7 @@ const FIELDS = {
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
     chunk: {type: ['string', 'null'], description: "A chunk's id (a number) or its old name"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
+    release: {type: ['string', 'null'], description: "The version of the release it ships in (see releases); null takes it out"},
     choices: CHOICES,
 }
 
@@ -41,6 +42,7 @@ export const TOOLS = [
             status: STATUS,
             assignee: {type: 'string', description: 'A name, or "none"'},
             chunk: {type: 'string', description: 'A chunk id, or "none"'},
+            release: {type: 'string', description: 'A release\'s version, or "none"'},
             label: {type: 'string'},
             q: {type: 'string', description: 'Text in the id or title'},
             open: {type: 'boolean', description: 'Only issues not done or canceled (default true)'},
@@ -73,6 +75,7 @@ export const TOOLS = [
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
     },
     {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'releases', description: "Lists the project's releases (those being prepared first), with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
     {name: 'docs', description: "Lists the project's docs: decisions, how things work.", inputSchema: {type: 'object', properties: {}}},
     {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
@@ -113,7 +116,7 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
 
     const run = {
         async issues(args) {
-            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'label', 'q']))
+            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'q']))
             let issues = await call('GET', `/issues?${query}`)
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             return issues.length ? issues.map(line).join('\n') : 'No issues match.'
@@ -147,6 +150,11 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
         async chunks() {
             const chunks = await call('GET', '/chunks')
             return chunks.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done`).join('\n') || 'No chunks yet.'
+        },
+        async releases() {
+            const releases = await call('GET', '/releases')
+            return releases.map(r => `${r.version}${r.shippedOn ? ` (shipped ${r.shippedOn})` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
+                || 'No releases yet.'
         },
         async docs() {
             const docs = await call('GET', '/docs')

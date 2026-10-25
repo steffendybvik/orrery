@@ -2,8 +2,9 @@
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Settings, Signal} from '#shared/roadmap'
-import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS} from '#shared/roadmap'
+import {randomBytes} from 'node:crypto'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Release, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS, emptyKinds, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
@@ -64,6 +65,8 @@ export interface IssueFilter {
     assignee?: string
     label?: string
     chunk?: string
+    /** A release's version, or `none` for issues set for none. */
+    release?: string
     /** An issue id, or `none` for top-level issues. */
     parent?: string
     /** Where a proposal stands, or `none` for committed work (nothing proposed, nor under a proposal). */
@@ -75,7 +78,7 @@ export interface IssueFilter {
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 interface ProjectRow extends Made {
     id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
-    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string
+    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null
 }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
@@ -83,17 +86,20 @@ interface IssueRow extends Made {
     assignee: string | null, labels: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
-    choices: string, picks: string | null, explore: string | null
+    choices: string, picks: string | null, explore: string | null, ships_in: string | null
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
 interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
+interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, shipped_on: string | null }
 interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
+/** A release's version: `1.0.0`, `1.0.0-rc.2`, `2026.10`, `v2`; it goes in URLs as it is. */
+const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 
 export const PROJECT_FIELDS: Record<string, Field> = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
@@ -108,10 +114,23 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     /** Ids of the Orrery's standing instructions the project switches off. */
     muted: {type: 'strings', nullable: true},
+    /** The owner's: `{limit, minutes}` lets Orrery start sessions for it; null stops that. */
+    starts: {type: 'json', nullable: true, parse: parseStarts},
+    repo: {type: 'string', nullable: true, pattern: /^https?:\/\/\S+[^/\s]$/, hint: 'use the web address of its code, e.g. https://github.com/you/shop'},
 }
 
-/** What a project's sessions are told: only the owner changes it. */
-const PROMPT_FIELDS = ['focusPrompt', 'chunkPrompt', 'instructions', 'muted']
+/** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
+function parseStarts(value: unknown): string {
+    const {limit, minutes, ...rest} = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
+    const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
+    if (Object.keys(rest).length || !whole(limit, 20) || !whole(minutes, 24 * 60)) {
+        throw new Error(`should be {limit, minutes}: at most 20 sessions at once, each for 1 to 1440 minutes, not ${JSON.stringify(value)}`)
+    }
+    return JSON.stringify({limit, minutes})
+}
+
+/** What a project's sessions are told, and whether Orrery starts them: only the owner changes these. */
+const PROMPT_FIELDS = ['focusPrompt', 'chunkPrompt', 'instructions', 'muted', 'starts']
 
 // No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
 export const CHUNK_FIELDS: Record<string, Field> = {
@@ -140,7 +159,17 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     project: {type: 'string', pattern: SLUG, hint: "use the other project's id"},
     parent: {type: 'string', nullable: true},
     chunk: {type: 'string', nullable: true},
+    /** The version of a release it ships in; null takes it out of one. */
+    release: {type: 'string', nullable: true},
     position: {type: 'number'},
+}
+
+// A release's version is its id, given when it's made, and doesn't change.
+export const RELEASE_FIELDS: Record<string, Field> = {
+    version: {type: 'string', required: true, pattern: VERSION, hint: 'use letters, digits, dots and dashes, e.g. 1.0.0-rc.2'},
+    branch: {type: 'string', nullable: true},
+    notes: {type: 'string', nullable: true},
+    shippedOn: {type: 'string', nullable: true, pattern: /^\d{4}-\d{2}-\d{2}$/, hint: 'use a day, YYYY-MM-DD'},
 }
 
 export const DOC_FIELDS: Record<string, Field> = {
@@ -222,6 +251,24 @@ export const COMMENT_FIELDS: Record<string, Field> = {
     asks: {type: 'string', values: ASKS, nullable: true},
 }
 
+export const UPLOAD_FIELDS: Record<string, Field> = {
+    /** The image, base64 (a `data:` URL works too). */
+    data: {type: 'string', required: true},
+    /** The file's name, for the Markdown's alt text. */
+    name: {type: 'string', nullable: true},
+}
+
+/** How big an image can be, in bytes. */
+export const UPLOAD_LIMIT = 10 * 1024 * 1024
+
+/** The images Orrery takes, told by their first bytes rather than what the sender says (no SVG: it can run script). */
+const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
+    ['image/png', b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
+    ['image/jpeg', b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
+    ['image/gif', b => /^GIF8[79]a/.test(b.subarray(0, 6).toString('latin1'))],
+    ['image/webp', b => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
+]
+
 /** Whether the owner has commented on the issue since comment `c`. */
 const ANSWERED = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id) AS answered'
 
@@ -245,6 +292,27 @@ export class Store {
         issue = await this.issueId(project, issue)
         await this.run(`INSERT INTO issue_sessions (project, issue, session, at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?)
             ON CONFLICT (project, issue) DO UPDATE SET session = excluded.session, at = excluded.at`, project, issue, session, stamp(), project, issue)
+    }
+
+    /** The issues in progress (a started status) that one of `sessions` worked last, with their latest comment. */
+    async workingOn(project: string, sessions: string[]): Promise<(IssueRecord & {last?: Comment})[]> {
+        if (!sessions.length) return []
+        const worked = new Set((await this.all<{issue: string}>(`SELECT issue FROM issue_sessions WHERE project = ? AND session IN (${sessions.map(() => '?').join(', ')})`,
+            project, ...sessions)).map(r => r.issue))
+        const issues = (await this.listIssues(project)).filter(r => worked.has(r.id) && r.kind === 'started')
+        if (!issues.length) return []
+        // Their comments in one query, not one each: the hook asking for this waits on it.
+        const last = new Map<string, Comment>()
+        for (const row of await this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue IN (${issues.map(() => '?').join(', ')}) ORDER BY created_at, id`,
+            project, ...issues.map(i => i.id))) last.set(row.issue, commentOf(row))
+        return issues.map(issue => ({...issue, last: last.get(issue.id)}))
+    }
+
+    /** A session's new id (after a `/clear`) takes over what its old one worked and was sent, so none of it
+     * hangs on the server remembering the old id. */
+    async renameSession(project: string, from: string, to: string) {
+        await this.run('UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?', to, project, from)
+        await this.run('UPDATE signals SET target = ? WHERE project = ? AND target = ?', to, project, from)
     }
 
     /** The owner's id: what waits on them (a proposal, an agent's ask) is assigned to it. */
@@ -275,6 +343,8 @@ export class Store {
         const name = actorId(display)
         if (!name) throw badRequest('The name needs a letter or a digit in it')
         if (name === AGENT.name) throw badRequest(`"${AGENT.name}" is what requests without Orrery-Actor are; pick another name`)
+        // Every agent sends this one, as the guide tells it to: as the owner's name it would make them all the owner.
+        if (name === 'claude') throw badRequest('"claude" is what agents send as Orrery-Actor; pick another name')
         await this.db.transaction(async () => {
             await this.run("INSERT INTO settings (key, value) VALUES ('owner', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(display))
             if (name === before.name) return
@@ -344,6 +414,11 @@ export class Store {
         return await this.projectOf(await this.projectRow(id))
     }
 
+    /** The project's id, or a 404 when there's none, without building its board. */
+    async projectId(id: string): Promise<string> {
+        return (await this.projectRow(id)).id
+    }
+
     async createProject(body: unknown, actor = AGENT): Promise<Project> {
         const input = checkInput(body, PROJECT_FIELDS)
         this.promptsAreTheOwners(input, actor)
@@ -353,8 +428,8 @@ export class Store {
         if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
         const now = stamp()
-        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.iconColor), actor.name, Number(actor.owner), now, now)
+        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, repo, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.iconColor), nullable(input.repo), actor.name, Number(actor.owner), now, now)
         await this.update('projects', 'id = ?', [id], this.promptColumns(input))
         this.onChange(id)
         return await this.project(id)
@@ -371,6 +446,7 @@ export class Store {
             description: input.description,
             icon: input.icon,
             icon_color: input.iconColor,
+            repo: input.repo,
             ...this.promptColumns(input),
         })
         this.onChange(id)
@@ -379,14 +455,23 @@ export class Store {
 
     private promptsAreTheOwners(input: Input, actor: Actor) {
         const sent = PROMPT_FIELDS.filter(key => input[key] !== undefined)
-        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told (${sent.join(', ')}); send Orrery-Actor: <owner>`)
+        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told, and whether Orrery starts them (${sent.join(', ')}); send Orrery-Actor: <owner>`)
     }
 
     /** The prompt fields as columns: an empty template is none (the Orrery's). */
     private promptColumns(input: Input): Input {
         const template = (value: Input[string]) => value === undefined ? undefined : String(value ?? '').trim() || null
         const list = (value: Input[string]) => value === undefined ? undefined : JSON.stringify(value ?? [])
-        return {focus_prompt: template(input.focusPrompt), chunk_prompt: template(input.chunkPrompt), instructions: list(input.instructions), muted: list(input.muted)}
+        return {
+            focus_prompt: template(input.focusPrompt), chunk_prompt: template(input.chunkPrompt), instructions: list(input.instructions), muted: list(input.muted),
+            starts: input.starts === undefined ? undefined : input.starts ?? null,
+        }
+    }
+
+    /** Whether Orrery may start sessions for the project, and within what; none while the owner hasn't let it. */
+    async starts(project: string): Promise<Starts | undefined> {
+        const row = await this.projectRow(project)
+        return row.starts ? JSON.parse(row.starts) as Starts : undefined
     }
 
     /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
@@ -420,6 +505,7 @@ export class Store {
             await this.run('DELETE FROM issues WHERE project = ?', id)
             await this.run('DELETE FROM chunks WHERE project = ?', id)
             await this.run('DELETE FROM docs WHERE project = ?', id)
+            await this.run('DELETE FROM releases WHERE project = ?', id)
             await this.run('DELETE FROM issue_aliases WHERE project = ?', id)
             await this.run('DELETE FROM chunk_aliases WHERE project = ?', id)
             await this.run('DELETE FROM signals WHERE project = ?', id)
@@ -635,6 +721,7 @@ export class Store {
     async listIssues(project: string, filter: IssueFilter = {}): Promise<IssueRecord[]> {
         const records = this.issueRecords(await this.project(project))
         if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: await this.chunkId(project, filter.chunk)}
+        if (filter.release && filter.release !== 'none') await this.releaseRow(project, filter.release)
         const q = filter.q?.toLowerCase()
         const statuses = filter.status ? await this.statusIds(filter.status) : []
         const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? await this.statusIds(filter.column) : []
@@ -646,6 +733,7 @@ export class Store {
             && (!filter.assignee || (filter.assignee === 'none' ? !r.assignee : r.assignee === assignee))
             && (!filter.label || r.labels.includes(filter.label))
             && (!filter.chunk || (filter.chunk === 'none' ? !r.chunk : r.chunk === filter.chunk))
+            && (!filter.release || (filter.release === 'none' ? !r.release : r.release === filter.release))
             && (!filter.parent || (filter.parent === 'none' ? !r.parent : r.parent === filter.parent))
             && (!filter.proposal || (filter.proposal === 'none' ? r.column !== 'proposed' : r.proposal === filter.proposal))
             && (!q || r.id.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)))
@@ -658,7 +746,8 @@ export class Store {
         return {...found.issue, project, parent: found.parent, chunk: found.chunk || null}
     }
 
-    async createIssue(project: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
+    /** `urgent: false` leaves a P0 issue's push to the caller, which asks the sessions itself. */
+    async createIssue(project: string, body: unknown, actor = AGENT, {urgent = true} = {}): Promise<IssueDetail> {
         await this.projectRow(project)
         const input = checkInput(body, ISSUE_FIELDS)
         if (input.project !== undefined && input.project !== project) throw badRequest(`Create the issue in its project: POST /api/projects/${input.project}/issues`)
@@ -669,23 +758,25 @@ export class Store {
             if (chunk) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
         }
         if (chunk) await this.chunkRow(project, chunk)
+        const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
 
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
-            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, proposal, choices, parent, chunk, position,
+            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, proposal, choices, parent, chunk, ships_in, position,
                                           created_by, owned, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), await this.resolveStatus(input.status, input.plan), nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
                 input.proposal === 'pending' ? (await this.ownerId()) : nullable(await this.assigneeOf(input.assignee)),
                 JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
-                parent, chunk, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
+                parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
             await this.record(project, id, actor, [['created', null, null]])
             await this.touchProject(project)
             return id
         })
         this.onChange(project)
+        if (urgent) await this.urgent(project, null, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
     }
 
@@ -719,6 +810,7 @@ export class Store {
             chunk = (await this.rootOf(project, row)).chunk
         }
         if (chunk) await this.chunkRow(project, chunk)
+        const release = input.release === undefined ? undefined : input.release === null ? null : (await this.releaseRow(project, String(input.release))).version
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
         const status = input.status === undefined && input.plan === undefined ? undefined : await this.resolveStatus(input.status, input.plan)
@@ -736,6 +828,7 @@ export class Store {
                 ['proposal', row.proposal, input.proposal],
                 // A sub-issue is in its parent's chunk, so a new parent says it all.
                 moved ? ['parent', row.parent, parent] : ['chunk', row.chunk, chunk],
+                ['release', row.ships_in, release],
             ])
             await this.update('issues', 'project = ? AND id = ?', [project, id], {
                 title,
@@ -750,12 +843,34 @@ export class Store {
                 ...input.proposal === 'pending' ? {decided_by: null, decided_at: null, decision_note: null, picks: null, explore: null} : {},
                 parent: input.parent === undefined ? undefined : parent,
                 chunk,
+                ships_in: release,
                 position: input.position,
             })
             await this.touchProject(project)
         })
         this.onChange(project)
+        await this.urgent(project, row, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
+    }
+
+    /** An issue the owner's write just made urgent open work (P0, and committed and not closed, which it wasn't
+     * before) goes to the sessions as a focus, without their asking: to the session working it while it can hear,
+     * else to every session on the project. The write is saved by now, so a push that fails is only logged. */
+    private async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
+        try {
+            const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal
+                && !CLOSED.includes((await this.statuses()).find(s => s.id === row.status)?.kind as Kind)
+            if (!actor.owner || !await urgentWork(after) || (before && await urgentWork(before))) return
+            await this.sendFocus(project, after.id, {note: 'It was just made urgent (P0).', session: await this.listeningWorker(project, after.id)}, actor)
+        } catch (error) {
+            console.error(`[orrery] pushing urgent ${after.id} in ${project}:`, error)
+        }
+    }
+
+    /** The session that last worked the issue, while it's there to hear; null (every session) otherwise. */
+    private async listeningWorker(project: string, issue: string): Promise<string | null> {
+        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
+        return worker && this.hears(project, worker) ? worker : null
     }
 
     /** Deletes its sub-issues and comments too. */
@@ -836,7 +951,8 @@ export class Store {
             const position = await this.nextPosition('issues', to)
             for (const link of links) {
                 const next = names.get(link.id)!
-                await this.run('UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, position = position + ? WHERE project = ? AND id = ?',
+                // A release is the project's own, so the issue leaves it behind.
+                await this.run('UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, ships_in = NULL, position = position + ? WHERE project = ? AND id = ?',
                     to, next, link.id === id ? parentId : names.get(link.parent!) ?? null, link.id === id && !parentId ? chunkId : null, position, from, link.id)
             }
             for (const comment of comments) await this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, names.get(comment.issue)!, comment.id)
@@ -930,8 +1046,7 @@ export class Store {
     /** The owner's comment goes to the session that last worked the issue, so one session answers it; to every
      * session on the project when none has, or that one isn't there to hear it. */
     private async carryComment(project: string, issue: string, body: string, actor: Actor) {
-        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
-        const target = worker && this.hears(project, worker) ? worker : null
+        const target = await this.listeningWorker(project, issue)
         const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'comment', body, target, actor.name, 1, stamp())
         this.onSignal(signalOf(row!))
@@ -1030,12 +1145,103 @@ export class Store {
         this.onChange(project)
     }
 
+    // Releases
+
+    async listReleases(project: string): Promise<Release[]> {
+        return (await this.project(project)).releases
+    }
+
+    /** The release with its issues: those set for it (a sub-issue's when its parent isn't), each with its sub-issues. */
+    async release(project: string, version: string): Promise<Release & {project: string, tasks: Issue[]}> {
+        await this.releaseRow(project, version)
+        const board = await this.project(project)
+        const tasks: Issue[] = []
+        const walk = (issues: Issue[]) => issues.forEach(issue => issue.release === version ? tasks.push(issue) : walk(issue.tasks))
+        board.board.chunks.forEach(c => walk(c.tasks))
+        return {...board.releases.find(r => r.version === version)!, project, tasks}
+    }
+
+    async createRelease(project: string, body: unknown, actor = AGENT): Promise<Release & {project: string, tasks: Issue[]}> {
+        await this.projectRow(project)
+        const input = checkInput(body, RELEASE_FIELDS)
+        const version = String(input.version)
+        if (await this.get('SELECT 1 FROM releases WHERE project = ? AND version = ?', project, version)) throw conflict(`There is already a release ${version} in ${project}`)
+        const now = stamp()
+        await this.db.transaction(async () => {
+            await this.run('INSERT INTO releases (project, version, branch, notes, shipped_on, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.shippedOn), actor.name, Number(actor.owner), now, now)
+            await this.touchProject(project)
+        })
+        this.onChange(project)
+        return await this.release(project, version)
+    }
+
+    async updateRelease(project: string, version: string, body: unknown): Promise<Release & {project: string, tasks: Issue[]}> {
+        await this.releaseRow(project, version)
+        const input = checkInput(body, RELEASE_FIELDS, true)
+        if (input.version !== undefined && input.version !== version) throw badRequest("A release's version can't change: make one with the new version and move its issues to it")
+        await this.db.transaction(async () => {
+            await this.update('releases', 'project = ? AND version = ?', [project, version], {
+                branch: input.branch === undefined ? undefined : String(input.branch ?? '').trim() || null,
+                notes: input.notes,
+                shipped_on: input.shippedOn,
+            })
+            await this.touchProject(project)
+        })
+        this.onChange(project)
+        return await this.release(project, version)
+    }
+
+    /** Its issues stay, set for no release. */
+    async deleteRelease(project: string, version: string, actor = AGENT) {
+        const row = await this.releaseRow(project, version)
+        this.refuse(actor, `Deleting release ${version}`, row.owned ? [`release ${version}`] : [])
+        await this.db.transaction(async () => {
+            await this.run('UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in = ?', project, version)
+            await this.run('DELETE FROM releases WHERE project = ? AND version = ?', project, version)
+            await this.touchProject(project)
+        })
+        this.onChange(project)
+    }
+
     // Signals
 
     /** Asks the sessions on the project to focus on the issue (`{note?}` says what for). */
+    /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. */
+    async createUpload(body: unknown, actor = AGENT): Promise<Upload> {
+        const input = checkInput(body, UPLOAD_FIELDS)
+        const base64 = String(input.data).replace(/^data:[^,]*;base64,/, '')
+        if (!/^[A-Za-z0-9+/\s]*={0,2}\s*$/.test(base64)) throw badRequest('"data" should be the image in base64')
+        const bytes = Buffer.from(base64, 'base64')
+        if (!bytes.length) throw badRequest('"data" is empty')
+        if (bytes.length > UPLOAD_LIMIT) throw badRequest(`The image is ${(bytes.length / 1024 / 1024).toFixed(1)} MB; ${UPLOAD_LIMIT / 1024 / 1024} MB at most`)
+        const type = IMAGE_TYPES.find(([, test]) => test(bytes))?.[0]
+        if (!type) throw badRequest('That isn\'t a PNG, JPEG, GIF or WebP image')
+        const name = input.name ? String(input.name).trim().slice(0, 200) || null : null
+        const id = randomBytes(12).toString('hex')
+        await this.run('INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            id, type, name, bytes.length, bytes, actor.name, Number(actor.owner), stamp())
+        const url = `/api/uploads/${id}`
+        // Brackets would end the alt text early.
+        const alt = (name ?? 'image').replace(/\.[a-z0-9]+$/i, '').replace(/[[\]\\]/g, '')
+        return {id, type, size: bytes.length, url, markdown: `![${alt}](${url})`}
+    }
+
+    /** An image's bytes and type, as kept. */
+    async upload(id: string): Promise<{type: string, data: Buffer}> {
+        const row = /^[0-9a-f]{24}$/.test(id) ? await this.get<{type: string, data: Uint8Array}>('SELECT type, data FROM uploads WHERE id = ?', id) : undefined
+        if (!row) throw notFound(`No image ${id}`)
+        return {type: row.type, data: Buffer.from(row.data)}
+    }
+
     async focus(project: string, issue: string, body: unknown, actor = AGENT): Promise<Signal> {
         issue = await this.issueId(project, issue)
         await this.issueRow(project, issue)
+        return await this.sendFocus(project, issue, body, actor)
+    }
+
+    /** `focus` for an issue id already resolved and checked. */
+    private async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
         const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
@@ -1071,6 +1277,12 @@ export class Store {
         return signal
     }
 
+    /** The id of the project's latest signal, 0 before its first. */
+    async lastSignal(project: string): Promise<number> {
+        await this.projectRow(project)
+        return Number((await this.get<{id: number | null}>('SELECT MAX(id) AS id FROM signals WHERE project = ?', project))?.id ?? 0)
+    }
+
     /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a chunk. */
     async listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, chunk?: string}): Promise<Signal[]> {
         await this.projectRow(project)
@@ -1080,6 +1292,24 @@ export class Store {
                 .reverse().map(signalOf)
         }
         return (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit)).map(signalOf)
+    }
+
+    /** What each of the project's sessions is on, for its Sessions page: the open issues it worked last (newest
+     * first), and the last `signals` signals that went to it, by its id or, sent to every session, by its name.
+     * `ids` are every id a session has gone by (it gets a new one on a `/clear`), its own when left out. */
+    async sessionWork(project: string, sessions: {id: string, name: string, ids?: string[]}[], signals = 5): Promise<Record<string, SessionWork>> {
+        await this.projectRow(project)
+        const open = new Map((await this.listIssues(project)).filter(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)).map(i => [i.id, i]))
+        const worked = await this.all<{issue: string, session: string}>('SELECT issue, session FROM issue_sessions WHERE project = ? ORDER BY at DESC', project)
+        const recent = (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? ORDER BY id DESC LIMIT 200', project)).map(signalOf)
+        return Object.fromEntries(sessions.map(session => {
+            const ids = session.ids ?? [session.id]
+            const issues = new Set(worked.filter(w => ids.includes(w.session) && open.has(w.issue)).map(w => w.issue))
+            return [session.id, {
+                issues: [...issues].map(issue => open.get(issue)!).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
+                signals: recent.filter(s => (s.target && ids.includes(s.target)) || (!s.target && s.deliveredTo.includes(session.name))).slice(0, signals),
+            }]
+        }))
     }
 
     /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */
@@ -1159,6 +1389,7 @@ export class Store {
     // Reading
 
     private async projectOf(row: ProjectRow): Promise<Project> {
+        const board = await this.board(row.id)
         return {
             id: row.id,
             name: row.name,
@@ -1170,13 +1401,36 @@ export class Store {
             chunkPrompt: row.chunk_prompt ?? undefined,
             instructions: JSON.parse(row.instructions) as Instruction[],
             muted: JSON.parse(row.muted) as string[],
+            starts: row.starts ? JSON.parse(row.starts) as Starts : undefined,
+            repo: row.repo ?? undefined,
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
-            board: await this.board(row.id),
+            board,
             docs: await this.docSummaries(row.id),
+            releases: await this.releasesOf(row.id, board),
         }
+    }
+
+    /** The project's releases, those being prepared first, then the shipped ones, latest first; each with how far its issues are: an issue set for it counts
+     * with its sub-issues, and a sub-issue set for it on its own counts when its parent isn't. */
+    private async releasesOf(project: string, board: Board): Promise<Release[]> {
+        const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC', project)
+        const tally = new Map(rows.map(r => [r.version, {issues: 0, kinds: emptyKinds()}]))
+        const walk = (issues: Issue[]) => {
+            for (const issue of issues) {
+                const into = issue.release ? tally.get(issue.release) : undefined
+                if (!into) {
+                    walk(issue.tasks)
+                    continue
+                }
+                into.issues++
+                for (const kind of Object.keys(into.kinds) as (keyof Kinds)[]) into.kinds[kind] += issue.kinds[kind]
+            }
+        }
+        board.chunks.forEach(c => walk(c.tasks))
+        return rows.map(row => ({...releaseOf(row), ...tally.get(row.version)!}))
     }
 
     private async docSummaries(project: string): Promise<DocSummary[]> {
@@ -1219,6 +1473,7 @@ export class Store {
             comments: comments.get(row.id) ?? 0,
             aliases: issueAliases.get(row.id) ?? [],
             schedule: row.schedule ?? undefined,
+            release: row.ships_in ?? undefined,
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,
@@ -1326,6 +1581,13 @@ export class Store {
         return row
     }
 
+    private async releaseRow(project: string, version: string): Promise<ReleaseRow> {
+        await this.projectRow(project)
+        const row = await this.get<ReleaseRow>('SELECT * FROM releases WHERE project = ? AND version = ?', project, version)
+        if (!row) throw notFound(`No release ${version} in ${project}; make it with POST /api/projects/${project}/releases`)
+        return row
+    }
+
     private async commentRow(project: string, issue: string, id: number): Promise<CommentRow> {
         await this.issueRow(project, issue)
         const row = await this.get<CommentRow>('SELECT * FROM comments WHERE project = ? AND issue = ? AND id = ?', project, issue, id)
@@ -1349,6 +1611,7 @@ export class Store {
             ...row.owned ? [`project "${project}"`] : [],
             ...(await this.all<{id: string}>('SELECT id FROM chunks WHERE project = ? AND owned = 1', project)).map(c => `chunk "${c.id}"`),
             ...(await this.all<{id: string}>('SELECT id FROM docs WHERE project = ? AND owned = 1', project)).map(d => `doc "${d.id}"`),
+            ...(await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? AND owned = 1', project)).map(r => `release ${r.version}`),
             ...await this.ownedUnder(project, (await this.all<{id: string}>('SELECT id FROM issues WHERE project = ?', project)).map(i => i.id)),
         ]
     }
@@ -1433,6 +1696,13 @@ function signalOf(row: SignalRow): Signal {
     }
 }
 
+function releaseOf(row: ReleaseRow): Omit<Release, 'issues' | 'kinds'> {
+    return {
+        version: row.version, branch: row.branch ?? undefined, notes: row.notes ?? undefined, shippedOn: row.shipped_on ?? undefined,
+        createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at, updatedAt: row.updated_at,
+    }
+}
+
 function docOf(row: DocRow): Doc {
     return {
         id: row.id, project: row.project, title: row.title, body: row.body,
@@ -1446,14 +1716,4 @@ function nullable(value: Input[string]): string | null {
 
 function stamp() {
     return new Date().toISOString()
-}
-
-export function slugify(text: string): string {
-    return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
-}
-
-/** Three capitals from the name, e.g. `LAR` for Larder. */
-function keyFor(name: string): string {
-    const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
-    return letters.slice(0, 3) || 'ISS'
 }

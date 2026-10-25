@@ -2,7 +2,9 @@
 // Orrery's Claude Code hook: tells Orrery what this session is doing, so the owner can see it and
 // point work at an idle one, and which issues it writes to. Registered for SessionStart, UserPromptSubmit,
 // PreToolUse, Stop, Notification and SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT
-// (and ORRERY_URL) set. It prints nothing (a hook's output would go to Claude) and never fails the hook.
+// (and ORRERY_URL) set. It never fails the hook, and prints nothing (a hook's output goes to Claude) but
+// after a `/clear`, a compaction or a resume: then Orrery's brief of what the session was working on, which
+// Claude Code adds to the fresh context so the work carries on.
 import {basename} from 'node:path'
 import {claudeWindow} from './session.mjs'
 
@@ -12,7 +14,7 @@ for await (const chunk of process.stdin) input += chunk
 try {
     const hook = JSON.parse(input || '{}')
     const window = claudeWindow()
-    await fetch(`${base}/api/sessions`, {
+    const response = await fetch(`${base}/api/sessions`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         signal: AbortSignal.timeout(1500),
@@ -24,10 +26,16 @@ try {
             cwd: hook.cwd,
             event: hook.hook_event_name ?? 'idle',
             message: hook.message,
+            // `clear` on SessionEnd keeps the window; SessionStart's `source` says if the context was cleared.
+            reason: hook.reason,
+            source: hook.source,
             // Which issues it's about to write to: an owner's comment on one goes to this session.
             command: hook.hook_event_name === 'PreToolUse' && hook.tool_name === 'Bash' ? String(hook.tool_input?.command ?? '').slice(0, 4000) : undefined,
         }),
     })
+    const {brief} = response.ok ? await response.json() ?? {} : {}
+    // stdout to a pipe can still be writing: exit once the brief is out.
+    if (brief) await new Promise(resolve => process.stdout.write(`${brief}\n`, resolve))
 } catch {
     // Orrery not running, or slow: the session carries on regardless.
 }

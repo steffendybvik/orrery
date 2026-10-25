@@ -35,7 +35,8 @@ session may do on your machine.
 A website open in your browser can't write to Orrery: a write from another site's page (its `Origin`)
 is refused, and a write's body must be JSON, which another site can't send without the browser
 asking first. Orrery never says yes, and sets no CORS headers, so another site can't read its answers
-either.
+either. A session's stream changes who's listening just by being opened, so a browser can't open one
+at all, not even as a picture in Orrery's own page; only the channel, the launcher and curl can.
 
 ## Secrets
 

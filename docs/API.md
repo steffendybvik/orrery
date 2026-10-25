@@ -18,7 +18,7 @@ had before (`MOT-5`, the chunk slug `joints`) are kept as **aliases**: every rou
 ## Who can delete what
 
 There's no auth. The owner is whoever gave their name when the Orrery was first opened (`GET /api/owner`
-→ `{name, display, named}`; `PUT /api/owner {name}` gives it, anyone the first time, then the owner only).
+→ `{name, display, named}`; `PUT /api/owner {name}` gives it, anyone the first time, then the owner only; not `agent` or `claude`, which agents send).
 Their `Orrery-Actor` is that name in lowercase snake case: `Sköll Fenrisson` is `skoll_fenrisson`
 (`owner` until a name is given; renaming moves what was theirs to the new id). Don't guess it from
 a git name: read it from `GET /api/owner`, or assign to `owner` (below), which always means them. What the owner makes is
@@ -31,9 +31,9 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | | |
 |---|---|
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
-| `POST /projects` | `{name, id?, key?, description?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
-| `GET /projects/:project` | the project with its board |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?, focusPrompt?, chunkPrompt?, instructions?, muted?}` (the last four the owner's, see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `null` clears either |
+| `POST /projects` | `{name, id?, key?, description?, repo?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
+| `GET /projects/:project` | the project with its board, docs and releases |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?, repo?, focusPrompt?, chunkPrompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `null` clears any of them |
 | `DELETE /projects/:project` | with its chunks, issues and comments |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there |
 
@@ -47,12 +47,26 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `PATCH /projects/:project/chunks/:chunk` | `{title?, summary?, priority?, position?}`; `priority` is `P0`–`P3` (P0 urgent) or `null` |
 | `DELETE /projects/:project/chunks/:chunk` | its issues stay, in no chunk |
 
+## Releases
+
+The versions a project ships, and which issues go out in each. Chunks are themes; a release cuts across
+them. An issue says which release it ships in with `release` (a version); a sub-issue set for none goes
+out with its parent.
+
+| | |
+|---|---|
+| `GET /projects/:project/releases` | those being prepared first, then the shipped ones, latest first: `{version, branch?, notes?, shippedOn?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included |
+| `POST /projects/:project/releases` | `{version, branch?, notes?, shippedOn?}`: `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shippedOn` the day it shipped (`YYYY-MM-DD`; none while it's being prepared) |
+| `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues) |
+| `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shippedOn?}`; the version doesn't change; `null` clears |
+| `DELETE /projects/:project/releases/:release` | its issues stay, set for none |
+
 ## Issues
 
 | | |
 |---|---|
-| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?chunk= ?parent= ?proposal= ?q=` (`none` for unset; `status` and `column` take a status's id or a kind; `?proposal=none` is committed work only) |
-| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, notes?, proposal?, parent?, chunk?, position?}`; gets the next `KEY-n` |
+| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?chunk= ?release= ?parent= ?proposal= ?q=` (`none` for unset; `status` and `column` take a status's id or a kind; `?proposal=none` is committed work only) |
+| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, notes?, proposal?, parent?, chunk?, release?, position?}`; gets the next `KEY-n` |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and chunk |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |
 | `DELETE /projects/:project/issues/:issue` | with its sub-issues and comments |
@@ -65,6 +79,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
   (stored as their id, so it shows under their My issues; `?assignee=owner` finds theirs too)
 - A top-level issue is in a `chunk`; a sub-issue (`parent`) is in its parent's chunk, so it takes no `chunk`
 - `parent: null` lifts a sub-issue to the top, into the chunk it was in
+- `release`: the version of a release of the project (see [Releases](#releases)); moving the issue to another project takes it out
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `notes` may use inline `` `code` `` and `**bold**`
 
@@ -134,9 +149,24 @@ instead of `done` when it won't ship.
 | `GET /projects/:project/issues/:issue/comments` | oldest first |
 | `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
-| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, createdBy, createdAt}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal` or `project` (moved in from `before`) |
+| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, createdBy, createdAt}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release` or `project` (moved in from `before`) |
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell). `?list=waiting` is every one still waiting; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
 | `POST /notices/clear` | `{ids}` or `{before}` → `{cleared}`: the owner takes them out of the bell; they stay on their issues |
+
+### Images
+
+A comment (or any Markdown: notes, docs) shows an image Orrery keeps: send it, then put the `markdown`
+that comes back in the text. Orrery keeps it in its database, so backups and `orrery:copy` take it along.
+
+| | |
+|---|---|
+| `POST /uploads` | `{data, name?}`: `data` is a PNG, JPEG, GIF or WebP in base64 (a `data:` URL works too), 10 MB at most; no SVG. → `{id, type, size, url, markdown}`, where `url` is `/api/uploads/<id>` and `markdown` is `![name](url)`. A picture whose alt text starts with `Before`, followed by nothing but one starting with `After` (on the next line, or in the next paragraph), shows as a slider between the two |
+| `GET /uploads/:id` | the image |
+
+```bash
+curl -s -X POST $ORRERY_URL/api/uploads -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' \
+  -d "{\"name\": \"board.png\", \"data\": \"$(base64 < board.png | tr -d '\n')\"}"
+```
 
 ## Schedules
 
@@ -153,8 +183,8 @@ while the last run's issue isn't done. Missed runs while Orrery was down run onc
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
 | `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skipOpen?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
-| `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be deleted by agents |
-| `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}` |
+| `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
+| `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}`; the owner's, only by the owner |
 
 Each schedule carries `nextRun` and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why).
 
@@ -172,16 +202,22 @@ without Docker), which encrypts them; without it these routes answer 503.
 | `GET /secrets/:name` | the secret with its latest `uses` |
 | `PUT /secrets/:name` | `{value, hosts, projects?}`, the owner only: sets it, new (201) or replacing. `name` is capitals, digits and `_` (`STRIPE_KEY`); `hosts` the host names it may go to (`api.stripe.com`, with a port if not 443); `projects` the projects that may use it (none: every one) |
 | `PATCH /secrets/:name` | `{hosts?, projects?}`, the owner only: only narrows them. Letting it go somewhere new takes the value again (`PUT`), so whoever doesn't know it can't send it elsewhere |
-| `DELETE /secrets/:name` | the owner only; its uses stay on record |
+| `DELETE /secrets/:name` | the owner only; its uses go with it |
 | `POST /egress` | `{url, method?, headers?, body?, project?, issue?}` → `{status, headers, body, truncated?, secrets}`: the request made with each `{{secret:NAME}}` filled in (in the url, a header or the body) |
 
 - **Only to its hosts.** Every secret in a request must allow the url's host, and it must be https;
   anything else is a 403 and nothing is sent. A secret kept to some `projects` needs the `project` it's for.
+  That keeps a key from being used in the wrong project by mistake; it isn't a boundary, as any caller
+  can name any project. The hosts are the boundary.
+- **Escaped where it goes.** In the url the value is percent-encoded; in a body sent as JSON it's
+  JSON-escaped, and in a form body (`application/x-www-form-urlencoded`) form-encoded. In a header, or a
+  text body of any other type, it goes as it is.
 - **Only with a secret.** A request with no `{{secret:NAME}}` is refused: egress isn't a general proxy.
 - **What comes back.** The status, the headers (no `set-cookie`) and the body as text, cut at 1 MB.
-  The value is scrubbed out wherever it shows (as it is, URL-encoded, or in base64), back to its
-  placeholder. Redirects aren't followed: a 3xx comes back with its `location`. A `body` that isn't text
-  goes as JSON. 30 seconds at most.
+  The value is scrubbed out wherever it shows (as it is, URL- or form-encoded, JSON-escaped, or inside
+  base64, as in Basic auth with a user name), back to its placeholder, before the answer is cut. Only
+  that much of the body is read. Redirects aren't followed: a 3xx comes back with its `location`. A `body` that isn't text
+  goes as JSON. 30 seconds at most. An answer that breaks off is a 502, recorded like any use.
 - **Every use is recorded:** the secret, method, host, path (placeholders and all), project, issue,
   who sent it, and the status or why it failed. Never the value.
 
@@ -196,6 +232,11 @@ The owner's comment on an issue becomes a `comment` signal for the session worki
 whose hook saw it write to the issue (a curl that PATCHes it, comments on it, …), or that was asked to
 focus on it. While that session is listening it alone gets the comment; with none known, or that one
 gone, every session does.
+
+An issue the owner makes urgent (`P0`, created as one or raised to it) goes out as a `focus` the same way,
+without their pressing anything: to the session working it, else to every session. It goes when a `P0`
+issue becomes open work, so also when a `P0` proposal is committed or a closed `P0` issue reopened; not for
+an agent's P0. A schedule that asks the sessions sends its one focus, saying the issue is urgent.
 
 | | |
 |---|---|
@@ -215,13 +256,40 @@ the text stream with the Monitor tool. The Connect page at `/connect` hands out 
 The Claude sessions working on a project, live (not stored): their name, what they're doing and
 whether they're listening. Hooks report state (`channel/orrery-hook.mjs` on `SessionStart`,
 `UserPromptSubmit`, `Stop`, `Notification`, `SessionEnd`); the channel's connection says it's
-listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION` names it.
+listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION` names it. A `/clear`
+gives the window a new id while its channel stays connected: the session keeps its name and listening,
+and its old ids still find it.
 
 | | |
 |---|---|
 | `GET /sessions` | every session |
-| `GET /projects/:project/sessions` | the project's, each `{id, name, state, since, listening}`; `state` is `idle`, `working`, `waiting` (needs the owner) or `starting` |
-| `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?}`: what a hook sends |
+| `GET /projects/:project/sessions` | the project's, each `{id, name, state, since, listening, reachable}`; `state` is `idle`, `working`, `waiting` (needs the owner) or `starting`; `reachable` when its channel is open and knows to end it, so it can be stopped |
+| `POST /projects/:project/sessions/:session/stop` | the session: the owner stopping it, one Orrery started through its launcher, any other through its channel, which ends its claude process; 409 when it has no channel running |
+| `GET /projects/:project/sessions/work` | `{<session id>: {issues, signals}}`: what each is on, for its Sessions page: the open issues it worked last (newest first, each `{id, title, column, kind, priority}`) and the last five signals that went to it |
+| `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?, command?, reason?, source?}`: what a hook sends. A `SessionEnd` with `reason: "clear"` keeps the session, and the next `SessionStart` with `source: "clear"` in its `cwd` takes it over when no pid ties them; a `SessionStart` with `source` `clear`, `compact` or `resume` answers with `brief` too, the issues it has in progress, for the hook to hand the fresh context |
+
+### Starting sessions
+
+A project whose owner set `starts: {limit, minutes}` gets sessions started for it, with no terminal: when
+the owner's signal (a focus, a comment, a schedule's) finds nobody listening on it, Orrery asks the
+project's launcher (`channel/orrery-launcher.mjs`, on the host, installed as a service with `--install`) to start one in a detached tmux session.
+At most `limit` run at once on the project, each stopped after `minutes`; it's set per project, with no
+cap over every project. Several signals at once start one
+session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
+signal it was started for. The owner can also start one by hand (`POST .../launches`, Start session on the
+Sessions tab), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stopsAt}`, and count toward
+the limits while their channel is connected.
+
+| | |
+|---|---|
+| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}` and `extend` `{id, stopsAt}` |
+| `POST /projects/:project/launches` | 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; 409 without the project's opt-in, a launcher or room under its limit |
+| `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
+| `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
+| `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
+| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stopsAt}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again |
+| `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
+| `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped |
 
 `POST …/focus` takes `{session}` to reach one session; without it, every session gets
 it. Each signal lists the sessions it reached in `deliveredTo`

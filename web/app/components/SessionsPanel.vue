@@ -93,6 +93,7 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
         <span class="text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
           {{ STATE[session.state] }} · {{ ago(session.since) }}
         </span>
+        <StartedSession :session="session" />
         <button
             v-if="session.listening"
             type="button"
@@ -120,7 +121,7 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">
         <template v-if="signal.kind === 'comment'">
-          <span class="text-muted">{{ who(signal.createdBy) }}</span>'s comment went to
+          <span><span class="text-muted">{{ who(signal.createdBy) }}</span>'s comment went to</span>
           <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
         </template>
         <template v-else>

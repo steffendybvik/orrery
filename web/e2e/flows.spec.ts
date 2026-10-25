@@ -3,7 +3,8 @@ import {expect, test} from '@playwright/test'
 
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
 // them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
-// issues starting on the open ones.
+// issues starting on the open ones; then a chunk made, edited and removed from its page, and an image
+// in a new issue and a comment; then a changed doc and what changed in it; then a release.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -87,6 +88,20 @@ test("an agent's proposal waits until the owner approves it", async ({page, requ
     expect((await api(request, 'get', `/issues/${proposal.id}/comments`)).at(-1)).toMatchObject({body: 'Approved this proposal.', createdBy: 'ada_lovelace'})
 })
 
+test("the owner's picks on a proposal survive a live update before they approve", async ({page, request}) => {
+    const choices = [{key: 'store', question: 'Where do the dates live?', pick: 'one', recommended: ['jar'], options: [{key: 'jar', title: 'On each jar'}, {key: 'sheet', title: 'On one sheet'}]}]
+    const proposal = await api(request, 'post', '/issues', {title: 'Track expiry dates', proposal: 'pending', choices})
+    const other = await api(request, 'post', '/issues', {title: 'Restock flour'})
+    await page.goto(`/p/larder/issues/${proposal.id}`)
+    await page.getByLabel('On one sheet').check()
+    // An agent's comment elsewhere in the project brings a new copy of the proposal down the live stream.
+    await api(request, 'post', `/issues/${other.id}/comments`, {body: 'Ordered two bags'})
+    await page.waitForTimeout(500)
+    await expect(page.getByLabel('On one sheet')).toBeChecked()
+    await page.getByRole('button', {name: 'Approve'}).click()
+    await expect.poll(async () => (await api(request, 'get', `/issues/${proposal.id}`)).picks).toEqual({store: ['sheet']})
+})
+
 test('a change shows up live in another tab', async ({page, context, request}) => {
     await page.goto('/p/larder')
     const other = await context.newPage()
@@ -114,4 +129,140 @@ test('the issues start on the open ones, Done and Canceled a tick away', async (
     await page.keyboard.press('Escape')
     await page.getByRole('button', {name: 'Clear'}).click()
     await expect(page.getByText('Shipped pantry export')).toBeHidden()
+})
+
+test("marks what changed since the owner last looked, but not the owner's own changes", async ({page, request}) => {
+    const unseen = (title: string) => page.locator('[data-issue]', {hasText: title}).getByTitle('Changed since you last opened it')
+    // What was there before the first visit counts as seen; an agent's issue arriving live doesn't.
+    await page.goto('/p/larder?view=list')
+    await expect(page.getByText('Live', {exact: true})).toBeVisible()
+    const issue = await api(request, 'post', '/issues', {title: 'Label the jars'})
+    await expect(unseen('Label the jars')).toBeVisible()
+    // Opening it is seeing it.
+    await page.locator('[data-issue]', {hasText: 'Label the jars'}).click()
+    await expect(page).toHaveURL(new RegExp(`/issues/${issue.id}$`))
+    await page.goBack()
+    await expect(page.locator('[data-issue]', {hasText: 'Label the jars'})).toBeVisible()
+    await expect(unseen('Label the jars')).toBeHidden()
+    // The owner's own change from the page stays seen; an agent's comment is news again.
+    await page.evaluate(id => $fetch(`/api/projects/larder/issues/${id}`, {method: 'PATCH', body: {priority: 'P1'}, headers: {'Orrery-Actor': 'ada_lovelace'}}), issue.id)
+    await expect.poll(async () => (await api(request, 'get', `/issues/${issue.id}`)).priority).toBe('P1')
+    await page.waitForTimeout(500)
+    await expect(unseen('Label the jars')).toBeHidden()
+    await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Done the top shelf'})
+    await expect(unseen('Label the jars')).toBeVisible()
+    await page.getByRole('button', {name: /Mark \d+ seen/}).click()
+    await expect(unseen('Label the jars')).toBeHidden()
+})
+
+test('makes a chunk from the roadmap, renames it, gives it a summary and removes it', async ({page, request}) => {
+    await page.goto('/p/larder/roadmap')
+    await page.getByRole('button', {name: 'New chunk'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'New chunk'})
+    await dialog.getByLabel('Title').fill('Shelves')
+    await dialog.getByLabel('Summary').fill('Where things go')
+    await dialog.getByRole('button', {name: /Create chunk/}).click()
+    await expect(page).toHaveURL(/\/p\/larder\/roadmap\/\d+$/)
+    const id = page.url().split('/').at(-1)!
+    expect(await api(request, 'get', `/chunks/${id}`)).toMatchObject({title: 'Shelves', summary: 'Where things go', createdBy: 'ada_lovelace'})
+
+    await page.getByRole('heading', {name: 'Shelves'}).click()
+    await page.getByLabel('Title', {exact: true}).fill('Shelving')
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('heading', {name: 'Shelving'})).toBeVisible()
+
+    await page.getByRole('button', {name: 'Edit'}).click()
+    await page.getByLabel('Summary', {exact: true}).fill('Where **everything** goes')
+    await page.keyboard.press('ControlOrMeta+Enter')
+    await expect(page.locator('.doc strong', {hasText: 'everything'})).toBeVisible()
+    expect(await api(request, 'get', `/chunks/${id}`)).toMatchObject({title: 'Shelving', summary: 'Where **everything** goes'})
+
+    await page.getByRole('button', {name: 'Remove this chunk'}).click()
+    await page.getByRole('button', {name: 'Remove', exact: true}).click()
+    await expect(page).toHaveURL(/\/p\/larder\/roadmap$/)
+    expect((await request.get(`/api/projects/larder/chunks/${id}`)).status()).toBe(404)
+})
+
+test('puts a picked image in a new issue, and in a comment on it', async ({page, request}) => {
+    // A 1×1 PNG.
+    const png = {name: 'shelf.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')}
+    await page.goto('/p/larder')
+    await page.getByRole('button', {name: 'New issue'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'New issue'})
+    await dialog.getByLabel('Title').fill('Label the top shelf')
+    await dialog.locator('input[type="file"]').setInputFiles(png)
+    await expect(dialog.getByLabel('Description')).toHaveValue(/^!\[shelf\]\(\/api\/uploads\/[0-9a-f]{24}\)\n$/)
+    await dialog.getByRole('button', {name: /Create issue/}).click()
+    await expect(page).toHaveURL(/\/p\/larder\/issues\/LAR-\d+/)
+    const id = page.url().split('/').at(-1)!
+    const image = page.locator('.doc img[alt="shelf"]').first()
+    await expect(image).toBeVisible()
+    expect(await image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1)
+
+    await page.locator('form').filter({has: page.getByRole('textbox', {name: 'Comment'})}).locator('input[type="file"]').setInputFiles(png)
+    await expect(page.getByRole('textbox', {name: 'Comment'})).toHaveValue(/!\[shelf\]/)
+    await page.getByRole('button', {name: 'Comment', exact: true}).click()
+    await expect.poll(async () => (await api(request, 'get', `/issues/${id}/comments`)).at(-1)?.body).toMatch(/^!\[shelf\]\(\/api\/uploads\//)
+})
+
+test('turns a Before and an After picture into a slider between them', async ({page, request}) => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    const [before, after] = await Promise.all(['before', 'after'].map(name => request.post('/api/uploads', {data: {data: png, name}, headers: AGENT}).then(r => r.json())))
+    const {id} = await api(request, 'post', '/issues', {title: 'Relabel the jars'})
+    await api(request, 'post', `/issues/${id}/comments`, {body: `The jars:\n\n![Before: the jars](${before.url})\n![After: the jars](${after.url})\n\n![A lone picture](${after.url})`})
+    await page.goto(`/p/larder/issues/${id}`)
+    const slider = page.locator('.doc .compare')
+    await expect(slider).toHaveCount(1)
+    await expect(slider.getByRole('link', {name: 'Before'})).toHaveAttribute('href', before.url)
+    await expect(slider.getByRole('link', {name: 'After'})).toHaveAttribute('href', after.url)
+    // A picture on its own stays one.
+    await expect(page.locator('.doc a > img[alt="A lone picture"]')).toBeVisible()
+    const range = slider.getByRole('slider', {name: /Before: the jars/})
+    await range.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(slider).toHaveAttribute('style', /--split: 51%/)
+})
+
+test("tints a doc an agent changed, and in it the parts that changed since the owner read it", async ({page, request}) => {
+    const put = (id: string, body: string) => request.put(`/api/projects/larder/docs/${id}`, {data: {title: id === 'pantry' ? 'Pantry' : 'Shelves', body}, headers: AGENT})
+        .then(r => expect(r.ok()).toBeTruthy())
+    await put('pantry', 'Keep flour dry.\n\nLabel the jars.')
+    await put('shelves', 'Top shelf for tins.')
+    await page.goto('/p/larder/docs/pantry')
+    await expect(page.getByText('Label the jars.')).toBeVisible()
+    await expect(page.locator('.doc .changed')).toHaveCount(0)
+
+    // Reading another doc while an agent changes this one.
+    await page.goto('/p/larder/docs/shelves')
+    await expect(page.getByText('Top shelf for tins.')).toBeVisible()
+    await put('pantry', 'Keep flour dry.\n\nLabel every jar with its date.\n\nRestock on Fridays.')
+    const row = page.getByRole('link', {name: /^Pantry/})
+    await expect(row).toHaveClass(/unseen-row/)
+    await row.click()
+    await expect(page.locator('.doc .changed')).toHaveText(['Label every jar with its date.', 'Restock on Fridays.'])
+    await expect(page.getByText('2 parts changed since you last read it, tinted below')).toBeVisible()
+})
+
+test('makes a release, sets an issue for it from its page, and drafts its changelog', async ({page, request}) => {
+    await api(request, 'patch', '', {repo: 'https://github.com/you/larder'})
+    const issue = await api(request, 'post', '/issues', {title: 'Label the jars', status: 'done'})
+    await page.goto('/p/larder/releases')
+    await page.getByRole('button', {name: 'New release'}).click()
+    await page.getByLabel('Version').fill('1.0.0')
+    await expect(page.getByLabel('Branch its work gathers on')).toHaveValue('v1.0.0')
+    await page.getByRole('button', {name: 'Make it'}).click()
+    await expect(page).toHaveURL(/\/p\/larder\/releases\/1\.0\.0$/)
+    await expect(page.getByRole('link', {name: 'PRs into it'})).toHaveAttribute('href', 'https://github.com/you/larder/pulls?q=is%3Apr%20base%3Av1.0.0')
+
+    await page.goto(`/p/larder/issues/${issue.id}`)
+    await page.getByRole('button', {name: 'Release'}).click()
+    await page.getByRole('option', {name: '1.0.0'}).click()
+    await expect.poll(async () => (await api(request, 'get', `/issues/${issue.id}`)).release).toBe('1.0.0')
+
+    await page.getByRole('link', {name: 'Open the release'}).click()
+    await expect(page.getByText('Label the jars')).toBeVisible()
+    await page.getByText('Changelog draft').click()
+    await expect(page.locator('pre', {hasText: `## 1.0.0 (unreleased)`})).toContainText(`- Label the jars (${issue.id})`)
+    await page.getByRole('button', {name: 'Mark shipped today'}).click()
+    await expect(page.getByText(/^Shipped \d{4}-\d{2}-\d{2}$/)).toBeVisible()
 })

@@ -457,6 +457,41 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         created_at TEXT NOT NULL
     );
     CREATE INDEX secret_uses_secret ON secret_uses(secret, id);
+`, `
+    -- Whether Orrery may start sessions for the project itself, without a terminal: a JSON {limit, minutes}
+    -- (at most \`limit\` running at once, each stopped after \`minutes\`), none while the owner hasn't let it.
+    ALTER TABLE projects ADD COLUMN starts TEXT;
+`, `
+    -- Images put in comments (and any Markdown): the bytes, kept in the database so its backups and
+    -- orrery:copy take them along. The id is random, and the Markdown points at /api/uploads/<id>.
+    CREATE TABLE uploads (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        name TEXT,
+        size INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    );
+`, `
+    -- Releases: the versions a project ships (\`1.0.0-rc.2\`), each with the branch its work gathers on, notes,
+    -- and the day it shipped (none while it's being prepared). An issue says which one it ships in
+    -- (\`ships_in\`; \`release\` is a word SQL keeps), and a project where its code is, to link branches and PRs.
+    CREATE TABLE releases (
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        version TEXT NOT NULL,
+        branch TEXT,
+        notes TEXT,
+        shipped_on TEXT,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project, version)
+    );
+    ALTER TABLE issues ADD COLUMN ships_in TEXT;
+    ALTER TABLE projects ADD COLUMN repo TEXT;
 `]
 
 let db: DatabaseSync | null = null

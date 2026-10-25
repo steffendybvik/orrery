@@ -36,15 +36,17 @@ async function send(path: string, method: 'POST' | 'PATCH', body: Record<string,
         busy.value = false
     }
 }
-// What's ticked: the decision's picks once there is one, else the agent's recommendation.
+// What's ticked: the decision's picks once there is one, over the agent's recommendation (which fills a
+// choice the decision didn't reach, so one an option reveals shows what approving would send). Each source
+// is watched on its own, by value: a new issue object from a live update leaves the owner's ticks alone.
 const picks = ref<Picks>({})
-watch(() => [props.issue.id, JSON.stringify(props.issue.choices), JSON.stringify(props.issue.picks)], () => {
-    picks.value = props.issue.picks ?? Object.fromEntries(props.issue.choices.map(c => [c.key, c.recommended]))
+watch([() => props.issue.id, () => JSON.stringify(props.issue.choices), () => JSON.stringify(props.issue.picks)], () => {
+    picks.value = {...Object.fromEntries(props.issue.choices.map(c => [c.key, c.recommended])), ...props.issue.picks}
 }, {immediate: true})
 // Decided (approved, changes asked for, rejected), it shows as a summary: what was decided and picked,
 // with Change decision to bring the controls back. Waiting on the owner, it's all there.
 const reopened = ref(false)
-watch(() => [props.issue.id, props.issue.proposal, props.issue.decidedAt], () => reopened.value = false)
+watch([() => props.issue.id, () => props.issue.proposal, () => props.issue.decidedAt], () => reopened.value = false)
 const deciding = computed(() => props.issue.proposal === 'pending' || reopened.value)
 /** What was picked, as the lines the summary shows: the question, then the options' titles. */
 const picked = computed(() => props.issue.picks ? props.issue.choices.filter(c => props.issue.picks![c.key]).map(c => ({
@@ -79,7 +81,7 @@ const commit = () => send('', 'PATCH', {proposal: null})
     <ul v-if="!deciding && picked.length" class="flex flex-col gap-1 text-[13px]">
       <li v-for="p in picked" :key="p.key" class="text-muted">{{ p.question }} → <span class="font-medium text-fg">{{ p.titles.join(', ') || 'none' }}</span></li>
     </ul>
-    <ProposalChoices v-if="deciding && issue.choices.length" v-model="picks" :issue="issue" :open="deciding" @explore="explore" />
+    <ProposalChoices v-if="deciding && issue.choices.length" v-model="picks" :issue="issue" @explore="explore" />
     <p class="text-xs text-muted">
       It's a proposal, not work yet: it sits in Proposed, out of the progress.
       <template v-if="issue.proposal === 'approved'">Commit it to put it on the roadmap.</template>

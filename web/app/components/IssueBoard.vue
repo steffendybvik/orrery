@@ -6,6 +6,7 @@ import {total} from '#shared/roadmap'
 // sub-issues. Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu).
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()
+const {issueUnseen} = useUnseen()
 const {open: openMenu} = useIssueMenu()
 const {columns: order, look} = useStatuses()
 const unfolded = ref<Column[]>([])
@@ -54,18 +55,19 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             tabindex="0"
             role="button"
             class="flex cursor-pointer flex-col gap-2 rounded-xl border bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
-            :class="isLast(project, issue.id) ? 'border-faint/50' : 'border-line'"
+            :class="[isLast(project, issue.id) ? 'border-faint/50' : 'border-line', issueUnseen(project, issue) && 'unseen-row']"
             @click="open(project, issue.id)"
             @contextmenu="openMenu($event, project, issue.id)"
         >
           <div class="flex items-center gap-2 text-[11px] text-faint">
+            <span v-if="issueUnseen(project, issue)" class="unseen-dot" title="Changed since you last opened it" />
             <span class="font-mono">{{ issue.id }}</span>
             <span class="min-w-0 flex-1 truncate"><NuxtLink :to="chunkPath(project, chunk.id)" class="hover:text-fg hover:underline" @click.stop>{{ chunk.title }}</NuxtLink></span>
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />
           </div>
           <div class="flex items-start gap-2">
             <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" class="mt-0.5" />
-            <p class="line-clamp-3 min-w-0 flex-1 text-[13px] leading-snug" :class="isClosed(issue.kind) ? 'text-muted' : 'text-fg'"><InlineText :text="issue.title" /></p>
+            <p class="line-clamp-3 min-w-0 flex-1 text-[13px] leading-snug" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', issueUnseen(project, issue) ? 'font-semibold' : '']"><InlineText :text="issue.title" /></p>
           </div>
           <div class="flex flex-wrap items-center gap-1.5">
             <span class="grid size-5 place-items-center rounded ring-1 ring-line"><PriorityIcon :priority="issue.priority" :size="12" /></span>

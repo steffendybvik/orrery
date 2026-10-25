@@ -22,6 +22,11 @@ watch(found, f => {
     if (f && f.issue.id !== issueId.value) router.replace(`/p/${route.params.project}/issues/${encodeURIComponent(f.issue.id)}`)
 }, {immediate: true})
 const issue = computed(() => found.value?.issue)
+// Open, it's seen, and stays seen as it changes in front of you.
+const {seeIssue} = useUnseen()
+watch(() => issue.value?.updatedAt, () => {
+    if (project.value && issue.value) seeIssue(project.value.id, issue.value)
+}, {immediate: true})
 const order = computed(() => project.value ? allIssues(project.value).map(i => i.issue.id) : [])
 const at = computed(() => order.value.indexOf(issueId.value))
 
@@ -135,12 +140,15 @@ async function saveTitle() {
 const editingNotes = ref(false)
 const notes = ref('')
 const notesInput = ref<HTMLTextAreaElement | null>(null)
+// An image pasted, dropped or picked goes in as Markdown where the cursor is.
+const {uploading, failed: uploadError, dragging, upload, onPaste, onDrop} = useImageUpload(notes, notesInput)
 function editNotes() {
     notes.value = issue.value?.notes ?? ''
     editingNotes.value = true
     nextTick(() => notesInput.value?.focus())
 }
 async function saveNotes() {
+    if (uploading.value) return
     const next = notes.value.trim()
     if (next !== (issue.value?.notes ?? '') && !await save({notes: next || null})) return
     editingNotes.value = false
@@ -268,22 +276,34 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
         <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" />
 
-        <section v-if="editingNotes" class="flex flex-col gap-2" @keydown.esc.stop.prevent="editingNotes = false">
+        <section
+            v-if="editingNotes"
+            class="flex flex-col gap-2"
+            @keydown.esc.stop.prevent="editingNotes = false"
+            @dragover.prevent="dragging = true"
+            @dragleave="dragging = false"
+            @drop.prevent="onDrop"
+        >
           <textarea
               ref="notesInput"
               v-model="notes"
               aria-label="Description"
-              placeholder="Describe it, in Markdown"
+              placeholder="Describe it, in Markdown (paste or drop an image)"
               rows="10"
               class="field-sizing-content min-h-40 w-full resize-y rounded-xl bg-well px-4 py-3 font-mono text-[13px] leading-6 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              :class="dragging && 'ring-accent-500/50'"
               :disabled="saving"
+              @paste="onPaste"
               @keydown.meta.enter.prevent="saveNotes"
               @keydown.ctrl.enter.prevent="saveNotes"
           />
           <div class="flex items-center justify-end gap-2">
-            <span class="mr-auto text-xs text-faint">Markdown</span>
+            <ImageButton @picked="upload" />
+            <span v-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
+            <span v-else-if="uploadError" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
+            <span v-else class="mr-auto text-xs text-faint">Markdown</span>
             <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></button>
-            <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="saveNotes">
+            <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving || !!uploading" @click="saveNotes">
               {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
             </button>
           </div>
@@ -329,7 +349,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
                   >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
                   <CopyButton :text="entry.comment.body" name="the comment" class="ml-auto pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100" />
                 </div>
-                <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[13px] leading-6" /></div>
+                <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[14px] leading-6" /></div>
               </li>
             </template>
           </ol>

@@ -3,7 +3,7 @@ import type {Issue, Notice, Project, Schedule, Secret, Session, Settings, Signal
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
 // project in place, without a reload. After a dropped connection it loads them all again.
 export default defineNuxtPlugin(() => {
-    const {projects, ready, live, changed, listeners, sessions, signals} = useRoadmaps()
+    const {projects, ready, live, changed, listeners, launchers, sessions, signals} = useRoadmaps()
 
     async function load() {
         const app = useAppSettings()
@@ -52,12 +52,17 @@ export default defineNuxtPlugin(() => {
             const project = JSON.parse((event as MessageEvent).data) as Project
             const index = projects.value.findIndex(p => p.id === project.id)
             markChanged(projects.value[index], project)
+            useUnseen().ownChanges(project)
             if (index < 0) projects.value = [...projects.value, project].sort((a, b) => a.name.localeCompare(b.name))
             else projects.value = projects.value.map(p => p.id === project.id ? project : p)
         })
         events.addEventListener('listeners', event => {
             const {project, count} = JSON.parse((event as MessageEvent).data) as {project: string, count: number}
             listeners.value = {...listeners.value, [project]: count}
+        })
+        events.addEventListener('launchers', event => {
+            const {project, count} = JSON.parse((event as MessageEvent).data) as {project: string, count: number}
+            launchers.value = {...launchers.value, [project]: count}
         })
         events.addEventListener('sessions', event => {
             const {project, sessions: now} = JSON.parse((event as MessageEvent).data) as {project: string, sessions: Session[]}

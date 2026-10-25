@@ -64,6 +64,15 @@ export interface Choice {
 /** The owner's picks: for each choice, the options they ticked. */
 export type Picks = Record<string, string[]>
 
+/** The choices that count for these picks: those at the top, and those going further down a picked option. */
+export function liveChoices(choices: Choice[], picks: Picks): Choice[] {
+    const live: Choice[] = []
+    for (const choice of choices) {
+        if (!choice.from || (live.some(c => c.key === choice.from!.choice) && (picks[choice.from.choice] ?? []).includes(choice.from.option))) live.push(choice)
+    }
+    return live
+}
+
 /** P0 is urgent. */
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
 export type Priority = (typeof PRIORITIES)[number]
@@ -106,6 +115,8 @@ export interface Issue {
     aliases: string[]
     /** The schedule that made it, if one did. */
     schedule?: number
+    /** The version it ships in (a release's), if it's set for one. */
+    release?: string
     createdBy: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
@@ -136,6 +147,24 @@ export interface Board {
     chunks: Chunk[]
     counts: Counts
     kinds: Kinds
+}
+
+/** A version the project ships (`1.0.0-rc.2`) and how far the issues going out in it are. */
+export interface Release {
+    version: string
+    /** The branch its work gathers on before it ships, e.g. `v1.0.0-rc.2`. */
+    branch?: string
+    /** What it's about, in Markdown. */
+    notes?: string
+    /** The day it shipped (`YYYY-MM-DD`); none while it's being prepared. */
+    shippedOn?: string
+    /** Its issues: those set for it, each with its sub-issues. */
+    issues: number
+    kinds: Kinds
+    createdBy: string
+    protected: boolean
+    createdAt: string
+    updatedAt: string
 }
 
 /** A doc without its text, as a project lists it. */
@@ -171,17 +200,35 @@ export interface Project {
     /** Its own standing instructions, and the ids of the Orrery's it switches off. */
     instructions: Instruction[]
     muted: string[]
+    /** Whether Orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
+     * within what; none while the owner hasn't let it. */
+    starts?: Starts
+    /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
+    repo?: string
     createdBy: string
     protected: boolean
     createdAt: string
     updatedAt: string
     board: Board
     docs: DocSummary[]
+    /** Those being prepared first, then the shipped ones, latest first. */
+    releases: Release[]
 }
 
 /** What an agent's comment waits on the owner for. */
 export const ASKS = ['decision', 'feedback'] as const
 export type Asks = (typeof ASKS)[number]
+
+/** An image kept for Markdown to show (`POST /api/uploads`). */
+export interface Upload {
+    id: string
+    type: string
+    size: number
+    /** Where it's served: /api/uploads/<id>. */
+    url: string
+    /** `![name](url)`, to put in a comment. */
+    markdown: string
+}
 
 export interface Comment {
     id: number
@@ -198,7 +245,7 @@ export interface Comment {
 
 /** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
  * moved in from another project. */
-export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'notes', 'chunk', 'parent', 'proposal', 'project'] as const
+export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'notes', 'chunk', 'parent', 'proposal', 'project', 'release'] as const
 export type ActivityField = (typeof ACTIVITY_FIELDS)[number]
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
@@ -303,6 +350,12 @@ export interface Owner {
     named: boolean
 }
 
+/** The sessions Orrery may start for a project: at most `limit` running at once, each stopped after `minutes`. */
+export interface Starts {
+    limit: number
+    minutes: number
+}
+
 export interface Settings {
     /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
     tint: string | null
@@ -334,6 +387,24 @@ export interface Session {
     startedAt: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
+    /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from Orrery. */
+    reachable?: boolean
+    /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
+    started?: StartedSession
+}
+
+/** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, and
+ * the last signals that went to it. */
+export interface SessionWork {
+    issues: Pick<Issue, 'id' | 'title' | 'column' | 'kind' | 'priority'>[]
+    signals: Signal[]
+}
+
+/** A session Orrery started, as its launch made it. */
+export interface StartedSession {
+    launch: string
+    tmux: string
+    stopsAt: string
 }
 
 /** An agent's comment, as the notification bell and page list it. */
@@ -378,4 +449,15 @@ export interface SecretUse {
     error: string | null
     createdBy: string
     createdAt: string
+}
+
+/** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */
+export function slugify(text: string): string {
+    return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
+}
+
+/** Three capitals from the name, e.g. `LAR` for Larder. */
+export function keyFor(name: string): string {
+    const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
+    return letters.slice(0, 3) || 'ISS'
 }

@@ -85,3 +85,34 @@ owner's comment on one goes to the session working it rather than to every sessi
 
 The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
 project; without one, it's `shop`.
+
+With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
+Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the
+issues it had in progress and their latest comment, so it carries on with them.
+
+## 4. Optionally, let Orrery start sessions
+
+Orrery can start a session itself when you send the project work and nobody is listening, or when you
+press **Start session** on its Sessions tab, so nobody has to open a terminal. Turn it on at the top of that
+Sessions tab (how many at once, how many minutes each), then install the launcher once, in the repo:
+
+```bash
+node /path/to/orrery/channel/orrery-launcher.mjs --install
+```
+
+It runs in the background from then on (launchd on macOS, systemd on Linux), starts at login, and serves
+every project installed this way; run `--install` again in another repo to add its project, and
+`--uninstall` to take one off. It finds the project and the Orrery in the repo's `.mcp.json` (or
+`ORRERY_PROJECT` and `ORRERY_URL`), and keeps its list in `~/.config/orrery/launcher.json`. Its log is
+`~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
+stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
+terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`.
+
+It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
+watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
+are up, when you press **Stop** beside it (in the sessions panel or the project's settings, with **+30 min**
+to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
+(`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
+flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
+The limits are per project, on its Sessions tab. The cap is time, not cost:
+Claude Code only caps spend for non-interactive runs.

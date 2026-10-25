@@ -86,9 +86,11 @@ export class Schedules {
         return await this.get(project, id)
     }
 
-    /** Changing when it runs, or turning it back on, works out its next run again. */
-    async update(project: string, id: number, body: unknown): Promise<Schedule> {
+    /** Changing when it runs, or turning it back on, works out its next run again. The owner's schedules are
+     * theirs: what one says runs as them, so only they change it. */
+    async update(project: string, id: number, body: unknown, actor = AGENT): Promise<Schedule> {
         const row = await this.row(project, id)
+        if (row.owned && !actor.owner) throw forbidden(`Changing schedule ${id}: it's the owner's; only they can change it`)
         const input = checkInput(body, SCHEDULE_FIELDS, true)
         const timing = input.cron !== undefined || input.at !== undefined || input.timezone !== undefined
         const when = this.when({
@@ -146,9 +148,11 @@ export class Schedules {
         return ran
     }
 
-    /** Runs it now, whatever its time, and even while the last run's issue is open. */
-    async runNow(project: string, id: number): Promise<ScheduleRun> {
-        return await this.run(await this.row(project, id), new Date(), true)
+    /** Runs it now, whatever its time, and even while the last run's issue is open; the owner's, only by them. */
+    async runNow(project: string, id: number, actor = AGENT): Promise<ScheduleRun> {
+        const row = await this.row(project, id)
+        if (row.owned && !actor.owner) throw forbidden(`Running schedule ${id}: it's the owner's; only they can run it`)
+        return await this.run(row, new Date(), true)
     }
 
     /** Makes the issue and asks the sessions; the run is recorded whatever happens. */
@@ -178,12 +182,12 @@ export class Schedules {
                 ...row.priority ? {priority: row.priority} : {},
                 ...row.labels !== '[]' ? {labels: JSON.parse(row.labels) as string[]} : {},
                 status: row.place,
-            }, actor)
+            }, actor, {urgent: !row.ask})
             await this.db.run('UPDATE issues SET schedule = ? WHERE project = ? AND id = ?', row.id, row.project, issue.id)
             this.store.changed(row.project)
             let note: string | null = null
             if (row.ask) {
-                await this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}`}, actor)
+                await this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}${row.priority === 'P0' ? ". It's urgent (P0)." : ''}`}, actor)
                 note = actor.owner ? `asked the sessions (${this.listening(row.project)} listening)` : "made by an agent, so it didn't ask the sessions"
             }
             return await record('made', issue.id, note)

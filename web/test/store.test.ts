@@ -8,7 +8,7 @@ import {backup, restoreBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
 import {readRoadmap} from '../server/utils/roadmap'
-import {Store} from '../server/utils/store'
+import {Store, UPLOAD_LIMIT} from '../server/utils/store'
 import {onPostgres, testDb} from './db'
 import type {Actor} from '../server/utils/store'
 
@@ -42,7 +42,14 @@ describe('projects', () => {
 
     it('refuses unknown fields', async () => {
         expect(await failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted, starts, repo'})
+    })
+
+    it('keep where their code is', async () => {
+        expect((await store.updateProject('larder', {repo: 'https://github.com/you/larder'})).repo).toBe('https://github.com/you/larder')
+        expect((await failure(() => store.updateProject('larder', {repo: 'github.com/you/larder'}))).status).toBe(400)
+        expect((await store.updateProject('larder', {repo: null})).repo).toBeUndefined()
+        expect((await store.createProject({name: 'pantry', repo: 'https://git.example/pantry'})).repo).toBe('https://git.example/pantry')
     })
 
     it('keep an icon to set and clear', async () => {
@@ -391,6 +398,7 @@ describe("the owner's name", () => {
     it('needs a letter or a digit, and not the name requests without one get', async () => {
         expect((await failure(() => store.nameOwner({name: '!!'}))).status).toBe(400)
         expect((await failure(() => store.nameOwner({name: 'Agent'}))).status).toBe(400)
+        expect((await failure(() => store.nameOwner({name: 'Claude'}))).status).toBe(400)
     })
 })
 
@@ -428,6 +436,7 @@ describe('chunks', () => {
         expect(signal.issue).toBeUndefined()
         expect(sent).toEqual(['focus:-:1:joints-window'])
         expect((await local.listSignals('larder', 0, 50, {chunk: '1'})).map(s => s.id)).toEqual([signal.id])
+        expect(await local.lastSignal('larder')).toBe(signal.id)
         expect((await failure(() => local.focusChunk('larder', '9', {}))).status).toBe(404)
         expect((await local.focusChunk('larder', 'none', {})).chunk).toBe('none')
     })
@@ -440,6 +449,82 @@ describe('chunks', () => {
         expect((await local.focusChunk('larder', '1', {})).status).toBeUndefined()
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'done'}))).status).toBe(400)
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'soon'}))).status).toBe(400)
+    })
+})
+
+describe('releases', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it('are made by version and refuse a second of the same', async () => {
+        const made = await store.createRelease('larder', {version: '1.0.0-rc.2', branch: ' v1.0.0-rc.2 '})
+        expect(made).toMatchObject({version: '1.0.0-rc.2', branch: 'v1.0.0-rc.2', issues: 0, tasks: [], project: 'larder'})
+        expect((await failure(() => store.createRelease('larder', {version: '1.0.0-rc.2'}))).status).toBe(409)
+        expect((await failure(() => store.createRelease('larder', {version: 'one two'}))).status).toBe(400)
+        expect((await failure(() => store.createRelease('larder', {version: '1.0.0', shippedOn: 'today'}))).status).toBe(400)
+    })
+
+    it('count their issues, a parent with its sub-issues; those being prepared first', async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        await store.createRelease('larder', {version: '1.1.0'})
+        await store.createRelease('larder', {version: '0.8.0', shippedOn: '2026-09-01'})
+        await store.createRelease('larder', {version: '0.9.0', shippedOn: '2026-10-01'})
+        const parent = await store.createIssue('larder', {title: 'Hinges', chunk: '1', release: '1.0.0'})
+        await store.createIssue('larder', {title: 'Pin', parent: parent.id, status: 'done'})
+        await store.createIssue('larder', {title: 'Socket', parent: parent.id, release: '1.0.0'})
+        const loose = await store.createIssue('larder', {title: 'Ball joint', chunk: '1'})
+        await store.createIssue('larder', {title: 'Its socket', parent: loose.id, release: '1.1.0', status: 'done'})
+
+        const [newer, older, ...shipped] = (await store.project('larder')).releases
+        expect(shipped.map(r => r.version)).toEqual(['0.9.0', '0.8.0'])
+        expect(newer).toMatchObject({version: '1.1.0', issues: 1, kinds: {done: 1}})
+        expect(older).toMatchObject({version: '1.0.0', issues: 1, kinds: {done: 1, backlog: 1}})
+        expect((await store.release('larder', '1.0.0')).tasks.map(t => t.id)).toEqual([parent.id])
+        expect((await store.listIssues('larder', {release: '1.0.0'})).map(i => i.title)).toEqual(['Hinges', 'Socket'])
+        expect((await store.listIssues('larder', {release: 'none'})).map(i => i.title)).toEqual(['Pin', 'Ball joint'])
+        expect((await failure(() => store.listIssues('larder', {release: '9.9'}))).status).toBe(404)
+    })
+
+    it('are set on an issue and taken off, as its activity says', async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        const issue = await store.createIssue('larder', {title: 'Hinges'})
+        expect((await store.updateIssue('larder', issue.id, {release: '1.0.0'})).release).toBe('1.0.0')
+        expect((await failure(() => store.updateIssue('larder', issue.id, {release: '2.0.0'}))).status).toBe(404)
+        expect((await store.updateIssue('larder', issue.id, {release: null})).release).toBeUndefined()
+        expect((await store.listActivity('larder', issue.id)).filter(e => e.field === 'release').map(e => [e.before, e.after]))
+            .toEqual([[undefined, '1.0.0'], ['1.0.0', undefined]])
+    })
+
+    it('change all but their version, and go leaving their issues in none', async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        const issue = await store.createIssue('larder', {title: 'Hinges', release: '1.0.0'})
+        expect(await store.updateRelease('larder', '1.0.0', {notes: 'Joints.', shippedOn: '2026-10-25', branch: ''})).toMatchObject({notes: 'Joints.', shippedOn: '2026-10-25'})
+        expect((await store.release('larder', '1.0.0')).branch).toBeUndefined()
+        expect((await failure(() => store.updateRelease('larder', '1.0.0', {version: '1.0.1'}))).status).toBe(400)
+        await store.deleteRelease('larder', '1.0.0')
+        expect((await store.issue('larder', issue.id)).release).toBeUndefined()
+        expect((await store.project('larder')).releases).toEqual([])
+    })
+
+    it("are the owner's to delete when the owner made them", async () => {
+        await store.createRelease('larder', {version: '1.0.0'}, owner)
+        expect((await failure(() => store.deleteRelease('larder', '1.0.0'))).status).toBe(403)
+        await store.deleteRelease('larder', '1.0.0', owner)
+    })
+
+    it('stay behind when their issue moves to another project', async () => {
+        await store.createProject({name: 'pantry', key: 'PAN'})
+        await store.createRelease('larder', {version: '1.0.0'})
+        const issue = await store.createIssue('larder', {title: 'Hinges', release: '1.0.0'})
+        const moved = await store.updateIssue('larder', issue.id, {project: 'pantry'})
+        expect(moved.release).toBeUndefined()
+        expect((await store.project('larder')).releases[0]!.issues).toBe(0)
+    })
+
+    it('go with their project', async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        await store.deleteProject('larder')
+        await store.createProject({name: 'larder', key: 'LAR'})
+        expect((await store.project('larder')).releases).toEqual([])
     })
 })
 
@@ -569,6 +654,106 @@ describe("an owner's comment", () => {
     })
 })
 
+describe('starting sessions', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it("is the owner's to allow, as {limit, minutes}, and to stop with null", async () => {
+        expect((await store.project('larder')).starts).toBeUndefined()
+        expect((await failure(() => store.updateProject('larder', {starts: {limit: 1, minutes: 30}}))).status).toBe(403)
+        expect((await store.updateProject('larder', {starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
+        for (const wrong of [{limit: 0, minutes: 30}, {limit: 2}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
+            expect((await failure(() => store.updateProject('larder', {starts: wrong}, owner))).status).toBe(400)
+        }
+        expect((await store.updateProject('larder', {starts: null}, owner)).starts).toBeUndefined()
+    })
+
+    it('reads without building the board', async () => {
+        await store.updateProject('larder', {starts: {limit: 1, minutes: 45}}, owner)
+        expect(await store.starts('larder')).toEqual({limit: 1, minutes: 45})
+        expect((await failure(() => store.starts('nope'))).status).toBe(404)
+    })
+})
+
+describe("what a project's sessions are on", () => {
+    it('is the open issues each worked last, newest first, and the last signals that went to it', async () => {
+        const owner = {name: 'skoll', owner: true}
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        const lids = (await store.createIssue('larder', {title: 'Lids', status: 'done'})).id
+        await store.workedBy('larder', shelves, 'a')
+        await store.workedBy('larder', lids, 'a')
+        await store.workedBy('larder', jars, 'a')
+        await store.focus('larder', shelves, {session: 'b'}, owner)
+        const everyone = await store.focus('larder', jars, {}, owner)
+        await store.delivered('larder', everyone.id, 'pantry')
+        const work = await store.sessionWork('larder', [{id: 'a', name: 'larder 1'}, {id: 'b', name: 'pantry'}])
+        expect(work.a!.issues.map(i => i.id)).toEqual([jars])
+        expect(work.a!.signals).toEqual([])
+        // b was asked to focus on Shelves, which makes it Shelves' worker; and it heard the focus on Jars sent to all.
+        expect(work.b!.issues.map(i => i.id)).toEqual([shelves])
+        expect(work.b!.signals.map(s => s.issue)).toEqual([jars, shelves])
+        // After a /clear, b goes by a new id and keeps what it did under the old one, each issue once.
+        await store.workedBy('larder', shelves, 'b2')
+        const cleared = await store.sessionWork('larder', [{id: 'b2', name: 'pantry', ids: ['b2', 'b']}])
+        expect(cleared.b2!.issues.map(i => i.id)).toEqual([shelves])
+        expect(cleared.b2!.signals.map(s => s.issue)).toEqual([jars, shelves])
+    })
+})
+
+describe('an urgent issue', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it("goes to the sessions when the owner makes it P0: to its worker while it can hear, else to every one", async () => {
+        const sent: string[] = []
+        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.issue}:${signal.target ?? 'all'}:${signal.note}`))
+        let listening = ['window-a']
+        local.hears = (_project, session) => listening.includes(session)
+        await local.createProject({name: 'larder', key: 'LAR'})
+        const fire = (await local.createIssue('larder', {title: 'Fire', priority: 'P0'}, owner)).id
+        const leak = (await local.createIssue('larder', {title: 'Leak', priority: 'P2'}, owner)).id
+        await local.workedBy('larder', leak, 'window-a')
+        await local.updateIssue('larder', leak, {priority: 'P0'}, owner)
+        // Already urgent, or not by the owner, or not work (a proposal, a closed issue): nothing goes.
+        await local.updateIssue('larder', leak, {priority: 'P0', title: 'Big leak'}, owner)
+        await local.createIssue('larder', {title: "An agent's", priority: 'P0'})
+        await local.createIssue('larder', {title: 'An idea', priority: 'P0', proposal: 'pending'}, owner)
+        await local.createIssue('larder', {title: 'Gone', priority: 'P0', status: 'done'}, owner)
+        listening = []
+        await local.updateIssue('larder', leak, {priority: 'P1'}, owner)
+        await local.updateIssue('larder', leak, {priority: 'P0'}, owner)
+        const note = 'It was just made urgent (P0).'
+        expect(sent).toEqual([`focus:${fire}:all:${note}`, `focus:${leak}:window-a:${note}`, `focus:${leak}:all:${note}`])
+    })
+
+    it('goes when a P0 issue becomes open work: a proposal committed, a closed one reopened', async () => {
+        const sent: string[] = []
+        const local = new Store(testDb(), () => {}, signal => sent.push(String(signal.issue)))
+        await local.createProject({name: 'larder', key: 'LAR'})
+        const idea = (await local.createIssue('larder', {title: 'An idea', priority: 'P0', proposal: 'pending'}, owner)).id
+        const gone = (await local.createIssue('larder', {title: 'Gone', priority: 'P0', status: 'done'}, owner)).id
+        await local.updateIssue('larder', idea, {proposal: null}, owner)
+        await local.updateIssue('larder', gone, {status: 'todo'}, owner)
+        // Judged on its own status: a parent closed with a child still open isn't work any more.
+        const parent = (await local.createIssue('larder', {title: 'Parent', priority: 'P2'}, owner)).id
+        await local.createIssue('larder', {title: 'Child', parent}, owner)
+        await local.updateIssue('larder', parent, {priority: 'P0', status: 'done'}, owner)
+        // An agent's raise, and a caller that asks the sessions itself, send nothing.
+        await local.updateIssue('larder', (await local.createIssue('larder', {title: 'Theirs', priority: 'P2'})).id, {priority: 'P0'})
+        await local.createIssue('larder', {title: 'Scheduled', priority: 'P0'}, owner, {urgent: false})
+        expect(sent).toEqual([idea, gone])
+    })
+
+    it("doesn't fail the saved write when the push fails", async () => {
+        const local = new Store(testDb(), () => {}, () => {})
+        local.hears = () => { throw new Error('no line') }
+        await local.createProject({name: 'larder', key: 'LAR'})
+        const leak = (await local.createIssue('larder', {title: 'Leak', priority: 'P2'}, owner)).id
+        await local.workedBy('larder', leak, 'window-a')
+        await local.updateIssue('larder', leak, {priority: 'P0'}, owner)
+        expect((await local.issue('larder', leak)).priority).toBe('P0')
+    })
+})
+
 describe('statuses', () => {
     const owner = {name: 'skoll', owner: true}
 
@@ -638,6 +823,7 @@ describe('removing', () => {
         await store.focus('larder', id, {}, {name: 'skoll', owner: true})
         await store.deleteIssue('larder', id, {name: 'skoll', owner: true})
         expect(await store.listSignals('larder')).toEqual([])
+        expect(await store.lastSignal('larder')).toBe(0)
     })
 })
 
@@ -655,6 +841,33 @@ describe('a session that connects', () => {
         sent.length = 0
         expect(await local.carryUnanswered('larder', 'new-window')).toBe(1)
         expect(sent).toEqual([`${a}:new-window:answer me`])
+    })
+})
+
+describe('what a session is working on', () => {
+    it('is the started issues any of its ids worked last, with their latest comment', async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
+        const jars = (await store.createIssue('larder', {title: 'Jars', status: 'in-review'})).id
+        const lids = (await store.createIssue('larder', {title: 'Lids', status: 'done'})).id
+        const theirs = (await store.createIssue('larder', {title: 'Theirs', status: 'in-progress'})).id
+        for (const issue of [shelves, lids]) await store.workedBy('larder', issue, 'before-clear')
+        await store.workedBy('larder', jars, 'after-clear')
+        await store.workedBy('larder', theirs, 'other-window')
+        await store.createComment('larder', shelves, {body: 'first'})
+        await store.createComment('larder', shelves, {body: 'halfway'})
+        const working = await store.workingOn('larder', ['after-clear', 'before-clear'])
+        expect(working.map(i => [i.id, i.last?.body])).toEqual([[shelves, 'halfway'], [jars, undefined]])
+        expect(await store.workingOn('larder', [])).toEqual([])
+    })
+
+    it("moves to a session's new id: what it worked and the signals sent to it", async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
+        await store.workedBy('larder', shelves, 'before-clear')
+        await store.focus('larder', shelves, {session: 'before-clear'})
+        await store.renameSession('larder', 'before-clear', 'after-clear')
+        expect((await store.workingOn('larder', ['after-clear'])).map(i => i.id)).toEqual([shelves])
+        expect(await store.workingOn('larder', ['before-clear'])).toEqual([])
+        expect((await store.listSignals('larder')).map(s => s.target)).toEqual(['after-clear'])
     })
 })
 
@@ -680,6 +893,37 @@ describe('docs', () => {
         expect((await failure(() => store.deleteProject('larder'))).status).toBe(403)
         await store.deleteDoc('larder', 'mine', {name: 'skoll', owner: true})
         expect(await store.listDocs('larder')).toEqual([])
+    })
+})
+
+describe('images', () => {
+    // A 1×1 PNG.
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+    it('keeps one, and hands back where it is and the Markdown that shows it', async () => {
+        const image = await store.createUpload({data: `data:image/png;base64,${png}`, name: 'Shelf [left].png'})
+        expect(image).toMatchObject({type: 'image/png', size: 70, url: `/api/uploads/${image.id}`, markdown: `![Shelf left](/api/uploads/${image.id})`})
+        const kept = await store.upload(image.id)
+        expect(kept.type).toBe('image/png')
+        expect(kept.data.equals(Buffer.from(png, 'base64'))).toBe(true)
+    })
+
+    it('tells the type by the bytes, and takes no SVG or anything else', async () => {
+        const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>').toString('base64')
+        expect(await failure(() => store.createUpload({data: `data:image/png;base64,${svg}`})))
+            .toEqual({status: 400, message: "That isn't a PNG, JPEG, GIF or WebP image"})
+        expect((await failure(() => store.createUpload({data: 'not base64!'}))).status).toBe(400)
+        expect((await failure(() => store.createUpload({data: ''}))).status).toBe(400)
+    })
+
+    it('refuses one over the limit', async () => {
+        const big = Buffer.concat([Buffer.from(png, 'base64'), Buffer.alloc(UPLOAD_LIMIT)]).toString('base64')
+        expect((await failure(() => store.createUpload({data: big}))).message).toMatch(/MB at most/)
+    })
+
+    it("answers 404 for one that isn't there", async () => {
+        expect((await failure(() => store.upload('0'.repeat(24)))).status).toBe(404)
+        expect((await failure(() => store.upload('../etc'))).status).toBe(404)
     })
 })
 

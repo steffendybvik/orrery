@@ -15,6 +15,7 @@ import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
 import {claudeWindow} from './session.mjs'
+import {follow} from './sse.mjs'
 import {TOOLS, orreryTools} from './tools.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
@@ -23,13 +24,16 @@ const api = `${base}/api/projects/${encodeURIComponent(project)}`
 const log = (...parts) => console.error('[orrery channel]', ...parts)
 // Which window this is, so Orrery can list it, aim a signal at it and know who got one.
 const window = claudeWindow()
-const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name}).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
+// A session Orrery started (channel/orrery-launcher.mjs) says which launch it is, and catches up from the signal it's for.
+// `stops`: it ends the session when the owner stops it from Orrery, which takes knowing its claude process.
+const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, started: process.env.ORRERY_STARTED, stops: window.pid && 'yes'})
+    .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
 
 const server = new Server({name: 'orrery', version: '1.0.0'}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {}},
     instructions: [
         `Orrery (${base}) keeps this repo's roadmap as project "${project}", and this server's tools read and write it`,
-        '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, docs, doc, write_doc): use them instead of curl.',
+        '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, releases, docs, doc, write_doc): use them instead of curl.',
         'Its messages arrive as <channel ...> blocks and come from the owner through Orrery.',
         'When one asks you to focus on an issue: read it (issue), start it (start_issue), comment as the work moves (comment), and finish it when it ships (finish_issue).',
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
@@ -128,33 +132,31 @@ async function deliver(signal) {
     await fetch(`${api}/signals/${signal.id}/delivered?${who}`, {method: 'POST'}).catch(() => {})
 }
 
-// Listens to the project's signal stream, and after a drop picks up from the last one it saw.
-let last = 0
-for (let wait = 1000; ; wait = Math.min(wait * 2, 30_000)) {
+/** The owner stopped this session from Orrery: ends its claude process, which takes this server with it. */
+function quit() {
+    if (!window.pid) return log("asked to stop, but can't tell which claude process this is")
+    log(`stopping the session (claude, pid ${window.pid}), as the owner asked`)
     try {
+        process.kill(window.pid, 'SIGTERM')
+    } catch (error) {
+        log(`couldn't stop it: ${error.message}`)
+    }
+}
+
+// Listens to the project's signal stream, and after a drop picks up from the last one it saw.
+let last = Number(process.env.ORRERY_AFTER) || 0
+await follow({
+    url: () => {
         const query = new URLSearchParams(who)
         if (last) query.set('after', String(last))
-        const response = await fetch(`${api}/signals/stream?${query}`, {headers: {Accept: 'text/event-stream'}})
-        if (!response.ok || !response.body) throw new Error(`${response.status} ${response.statusText}`)
-        log(`listening for ${project}'s signals at ${base}`)
-        wait = 1000
-        let buffer = ''
-        for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
-            buffer += chunk
-            let end
-            while ((end = buffer.indexOf('\n\n')) >= 0) {
-                const block = buffer.slice(0, end)
-                buffer = buffer.slice(end + 2)
-                const field = name => block.split('\n').filter(l => l.startsWith(`${name}:`)).map(l => l.slice(name.length + 1).trimStart()).join('\n')
-                if (field('event') !== 'signal') continue
-                const signal = JSON.parse(field('data'))
-                last = Math.max(last, Number(field('id')) || 0)
-                await deliver(signal)
-            }
-        }
-        log('the stream ended; reconnecting')
-    } catch (error) {
-        log(`can't reach Orrery (${error.message}); trying again in ${wait / 1000}s`)
-    }
-    await new Promise(resolve => setTimeout(resolve, wait))
-}
+        return `${api}/signals/stream?${query}`
+    },
+    onOpen: () => log(`listening for ${project}'s signals at ${base}`),
+    onEvent: async ({event, data, id}) => {
+        if (event === 'stop') return quit()
+        if (event !== 'signal') return
+        last = Math.max(last, Number(id) || 0)
+        await deliver(JSON.parse(data))
+    },
+    log,
+})

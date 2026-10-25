@@ -2,7 +2,7 @@
 import type {Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
-// One issue as a row (id, title, labels, status, column, priority, assignee); a parent shows its
+// One issue as a row (id, title, labels, status, priority, assignee); a parent shows its
 // sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines.
 // Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`).
 //
@@ -21,7 +21,11 @@ const {changed} = useRoadmaps()
 
 const isParent = computed(() => props.issue.tasks.length > 0)
 const flash = computed(() => Date.now() - (changed.value[`${props.project}/${props.issue.id}`] ?? 0) < 1500)
+const {issueUnseen} = useUnseen()
+const unseen = computed(() => issueUnseen(props.project, props.issue))
 const {look} = useStatuses()
+// The status in words once: the issue's own, or for a parent the column its sub-issues put it in.
+const shown = computed(() => isParent.value ? props.issue.column : props.issue.status)
 </script>
 
 <template>
@@ -31,7 +35,7 @@ const {look} = useStatuses()
       tabindex="0"
       role="button"
       class="group relative flex h-11 cursor-pointer items-center gap-3 border-b border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
-      :class="[isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '']"
+      :class="[isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '', unseen ? 'unseen-row' : '']"
       :style="{paddingLeft: `${12 + depth * INDENT}px`}"
       @click="open(project, issue.id)"
       @contextmenu="openMenu($event, project, issue.id)"
@@ -47,7 +51,8 @@ const {look} = useStatuses()
     <span class="w-16 shrink-0 truncate font-mono text-[11px] text-faint">{{ issue.id }}</span>
     <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
     <span class="flex min-w-0 flex-1 items-center gap-2">
-      <span class="min-w-0 truncate" :class="isClosed(issue.kind) ? 'text-muted' : 'text-fg'"><InlineText :text="issue.title" /></span>
+      <span v-if="unseen" class="unseen-dot" title="Changed since you last opened it" />
+      <span class="min-w-0 truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-semibold' : '']"><InlineText :text="issue.title" /></span>
       <span v-if="issue.schedule" class="shrink-0 text-faint" title="Made by a schedule"><SectionIcon section="schedules" class="size-3" /></span>
       <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line" :title="`${issue.kinds.done} of ${total(issue.kinds)} sub-issues done`"><ProgressRing :kinds="issue.kinds" :size="13" /></span>
     </span>
@@ -70,8 +75,7 @@ const {look} = useStatuses()
     <span v-if="issue.comments" class="hidden shrink-0 items-center gap-1 text-[11px] text-faint sm:flex" :title="`${issue.comments} comments`">
       <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5Z" /></svg>{{ issue.comments }}
     </span>
-    <span v-if="!isParent" class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: look(issue.status).color}">{{ look(issue.status).label }}</span>
-    <span class="hidden w-20 shrink-0 truncate text-right text-xs md:inline" :style="{color: look(issue.column).color}">{{ look(issue.column).label }}</span>
+    <span class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: look(shown).color}">{{ look(shown).label }}</span>
     <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
     <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/50" title="No assignee" />
   </div>
