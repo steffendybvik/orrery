@@ -138,6 +138,21 @@ instead of `done` when it won't ship.
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell). `?list=waiting` is every one still waiting; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
 | `POST /notices/clear` | `{ids}` or `{before}` → `{cleared}`: the owner takes them out of the bell; they stay on their issues |
 
+### Images
+
+A comment (or any Markdown: notes, docs) shows an image Orrery keeps: send it, then put the `markdown`
+that comes back in the text. Orrery keeps it in its database, so backups and `orrery:copy` take it along.
+
+| | |
+|---|---|
+| `POST /uploads` | `{data, name?}`: `data` is a PNG, JPEG, GIF or WebP in base64 (a `data:` URL works too), 10 MB at most; no SVG. → `{id, type, size, url, markdown}`, where `url` is `/api/uploads/<id>` and `markdown` is `![name](url)` |
+| `GET /uploads/:id` | the image |
+
+```bash
+curl -s -X POST $ORRERY_URL/api/uploads -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' \
+  -d "{\"name\": \"board.png\", \"data\": \"$(base64 < board.png | tr -d '\n')\"}"
+```
+
 ## Schedules
 
 Recurring work in a project. A `message` schedule sends its message (`notes`) to the project's

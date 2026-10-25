@@ -238,6 +238,17 @@ const STEPS: string[] = [`
     CREATE INDEX secret_uses_secret ON secret_uses(secret, id);
 `, `
     ALTER TABLE projects ADD COLUMN starts text;
+`, `
+    CREATE TABLE uploads (
+        id text PRIMARY KEY,
+        type text NOT NULL,
+        name text,
+        size integer NOT NULL,
+        data bytea NOT NULL,
+        created_by text NOT NULL,
+        owned integer NOT NULL DEFAULT 0,
+        created_at text NOT NULL
+    );
 `]
 
 /** The transaction the code running now is part of, if any: its connection, and the database it's on. */

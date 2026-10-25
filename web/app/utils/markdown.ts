@@ -32,5 +32,15 @@ export function renderMarkdown(source: string, title?: string): {html: string, h
         link.target = '_blank'
         link.rel = 'noopener noreferrer'
     })
+    // An image Orrery keeps opens at full size, as a screenshot shrunk to a comment's width is hard to read.
+    page.querySelectorAll<HTMLImageElement>('img[src^="/api/uploads/"]').forEach(image => {
+        if (image.closest('a')) return
+        const link = page.createElement('a')
+        link.href = image.getAttribute('src')!
+        link.target = '_blank'
+        link.rel = 'noopener'
+        image.replaceWith(link)
+        link.append(image)
+    })
     return {html: page.body.firstElementChild!.innerHTML, headings}
 }
