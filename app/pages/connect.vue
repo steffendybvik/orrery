@@ -108,7 +108,7 @@ const pieces = computed(() => {
           <CopyBlock title="CLAUDE.md section" :text="pieces.claudeMd" />
           <CopyBlock title=".mcp.json" hint="Needs Node and the Orrery repo's packages (pnpm install there)." :text="pieces.mcpJson" />
           <CopyBlock title=".claude/settings.json" hint="Merge into the file if it exists." :text="pieces.settingsJson" />
-          <CopyBlock title="Start the session with" hint="Claude asks once to approve the orrery server; say yes." :text="pieces.launch" />
+          <CopyBlock title="Start the session with" :hint="`Claude asks once to approve the ${pieces.server} server; say yes.`" :text="pieces.launch" />
           <CopyBlock title="Without the preview: ask the session to watch" hint="Uses the Monitor tool; a watch lasts up to 30 minutes, then the session restarts it." :text="pieces.monitor" />
         </div>
       </details>

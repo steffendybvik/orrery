@@ -131,8 +131,9 @@ signal has `chunk` instead of `issue`, and the stream adds its open `issues`, mo
 | `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up); `?format=text` gives one line each, for the Monitor tool |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
 
-A session listens through the `orrery` channel (`channel/orrery-channel.mjs` in this repo, an MCP
-server; start Claude with `--dangerously-load-development-channels server:orrery`), or by watching
+A session listens through Orrery's channel (`channel/orrery-channel.mjs` in this repo, an MCP
+server registered in the repo's `.mcp.json` under the project's id; start Claude with
+`--dangerously-load-development-channels server:<project>`), or by watching
 the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 
 ## Sessions
