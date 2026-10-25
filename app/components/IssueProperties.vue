@@ -13,6 +13,7 @@ const {save, saving, failed} = useIssueSave(() => props.project.id, () => props.
 const hasSubs = computed(() => props.issue.tasks.length > 0)
 const isSub = computed(() => !!props.sub)
 
+const {places} = useStatuses()
 const column = computed({
     get: () => props.issue.column,
     set: (next: Column) => save(columnPatch(next, props.issue.proposal)),
@@ -54,9 +55,9 @@ const field = 'h-7 w-full min-w-0 cursor-pointer rounded-md bg-transparent px-1.
     <dt class="label">Status</dt>
     <dd class="flex min-w-0 flex-col">
       <label class="flex items-center gap-2">
-        <StatusIcon :column="issue.column" :progress="progress(issue.counts).share" />
+        <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
         <select v-model="column" :class="field" :disabled="hasSubs || saving" aria-label="Status">
-          <option v-for="place in PLACES" :key="place" :value="place">{{ COLUMN_STYLE[place].label }}</option>
+          <option v-for="place in places" :key="place.id" :value="place.id">{{ place.label }}</option>
         </select>
       </label>
       <span v-if="hasSubs" class="text-xs text-faint">from its sub-issues</span>
@@ -115,7 +116,7 @@ const field = 'h-7 w-full min-w-0 cursor-pointer rounded-md bg-transparent px-1.
 
     <template v-if="hasSubs">
       <dt class="label">Progress</dt>
-      <dd class="flex items-center gap-3"><ProgressRing :counts="issue.counts" /><ColumnBar :counts="issue.counts" class="max-w-32" /></dd>
+      <dd class="flex items-center gap-3"><ProgressRing :kinds="issue.kinds" /><ColumnBar :counts="issue.counts" class="max-w-32" /></dd>
     </template>
     <dt class="label">Created by</dt>
     <dd class="flex flex-wrap items-center gap-x-2 text-muted">

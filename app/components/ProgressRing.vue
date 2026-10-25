@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type {Counts} from '#shared/roadmap'
+import type {Kinds} from '#shared/roadmap'
 
-// Done leaves out of all, as a ring and (unless `bare`) "12/20".
-const props = withDefaults(defineProps<{counts: Counts, bare?: boolean, size?: number}>(), {size: 16})
-const share = computed(() => progress(props.counts))
+// Done leaves out of all (canceled ones left out), as a ring and (unless `bare`) "12/20".
+const props = withDefaults(defineProps<{kinds: Kinds, bare?: boolean, size?: number}>(), {size: 16})
+const share = computed(() => progress(props.kinds))
 const circumference = 2 * Math.PI * 6
 </script>
 

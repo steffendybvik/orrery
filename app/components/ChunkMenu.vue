@@ -142,7 +142,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
         </div>
 
         <div class="flex flex-col border-t border-line pt-1">
-          <button v-if="listening && chunk.column !== 'done'" type="button" :class="item" :disabled="busy" @click="focus">
+          <button v-if="listening && !isClosed(chunk.kind)" type="button" :class="item" :disabled="busy" @click="focus">
             <svg class="size-3.5 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
             Ask {{ listening === 1 ? 'the session' : `all ${listening} sessions` }} to work through it
           </button>

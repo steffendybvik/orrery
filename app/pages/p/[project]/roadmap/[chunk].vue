@@ -20,7 +20,8 @@ const shown = computed(() => {
     if (!chunk.value) return []
     return [active.value ? {...chunk.value, tasks: filterTree(chunk.value.tasks, matches)} : chunk.value]
 })
-const share = computed(() => chunk.value ? progress(chunk.value.counts) : null)
+const share = computed(() => chunk.value ? progress(chunk.value.kinds) : null)
+const {look} = useStatuses()
 
 // How much it matters, set by the owner; the board updates live once it's saved.
 const {load} = useOwner()
@@ -71,9 +72,9 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
     <template v-if="project && chunk && share">
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
         <div class="flex items-center gap-3 text-xs">
-          <span class="flex items-center gap-2" :class="COLUMN_STYLE[chunk.column].text">
+          <span class="flex items-center gap-2" :style="{color: look(chunk.column).color}">
             <StatusIcon :column="chunk.column" :progress="share.share" />
-            {{ COLUMN_STYLE[chunk.column].label }}
+            {{ look(chunk.column).label }}
           </span>
           <span v-if="chunk.id" class="flex items-center gap-1.5">
             <span class="font-mono text-faint">{{ chunk.id }}</span>
@@ -96,11 +97,11 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
         <h1 class="text-xl font-semibold tracking-tight text-fg sm:text-2xl" :class="!chunk.id && 'text-muted italic'">{{ chunk.title }}</h1>
         <MarkdownView v-if="chunk.summary" :source="chunk.summary" />
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-faint">
-          <ProgressRing :counts="chunk.counts" :size="16" />
+          <ProgressRing :kinds="chunk.kinds" :size="16" />
           <span>{{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue' : 'issues' }}<template v-if="share.total !== chunk.tasks.length"> · {{ share.total }} with sub-issues</template></span>
           <ColumnBar :counts="chunk.counts" class="max-w-64 flex-1" />
         </div>
-        <SessionsPanel v-if="chunk.column !== 'done'" :project="project.id" :chunk="chunk.id || 'none'" />
+        <SessionsPanel v-if="!isClosed(chunk.kind)" :project="project.id" :chunk="chunk.id || 'none'" />
       </header>
       <ViewToolbar>
         <span class="label">Issues</span>

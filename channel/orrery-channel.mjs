@@ -27,7 +27,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
     instructions: [
         `Orrery (${base}) keeps this repo's roadmap as project "${project}".`,
         'Its messages arrive as <channel ...> blocks and come from the owner through Orrery.',
-        `When one asks you to focus on an issue: read it (curl ${api}/issues/<id>), set it to doing and assign it to claude`,
+        `When one asks you to focus on an issue: read it (curl ${api}/issues/<id>), set it to in-progress and assign it to claude`,
         `(PATCH with header "Orrery-Actor: claude"), comment as the work moves, and set it to done when it ships.`,
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
         'When one brings the owner\'s comment on an issue, answer it with a comment on that issue (POST .../comments, same header), writing the JSON body from a file so Markdown survives the shell.',
@@ -88,7 +88,7 @@ async function deliver(signal) {
             signal.issues.length
                 ? `Its ${signal.status ?? 'open'} issues, most urgent first:\n${signal.issues.map(i => `- ${i.id}: ${i.title} [${[i.column, i.priority].filter(Boolean).join(', ')}]`).join('\n')}`
                 : `It has no ${signal.status ?? 'open'} issues left.`,
-            `Take them one at a time as you would a focus on each (doing, comments, done). Read ${signal.chunk === 'none' ? `them with: curl '${api}/issues?chunk=none'` : `the chunk with: curl ${api}/chunks/${encodeURIComponent(signal.chunk)}`}`,
+            `Take them one at a time as you would a focus on each (in-progress, comments, done). Read ${signal.chunk === 'none' ? `them with: curl '${api}/issues?chunk=none'` : `the chunk with: curl ${api}/chunks/${encodeURIComponent(signal.chunk)}`}`,
         ].filter(Boolean).join('\n')
         : signal.kind === 'comment'
         ? [

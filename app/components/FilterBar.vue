@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
-import {COLUMNS, PRIORITIES} from '#shared/roadmap'
+import {PRIORITIES} from '#shared/roadmap'
 
 // Search (`/`; Esc clears it, as the browser does a search field, which only says so with `search`),
 // then the priority, column, assignee and label filters, shared by every view. The assignees and labels
@@ -20,7 +20,8 @@ const assignees = computed(() => [
 ])
 const labels = computed(() => sorted(issues.value.flatMap(i => i.labels)).map(label => ({value: label, label})))
 const priorities = [...PRIORITIES.map(p => ({value: p as string, label: `${p} · ${PRIORITY_LABEL[p]}`})), {value: 'none', label: 'No priority'}]
-const columns = COLUMNS.map(c => ({value: c as Column, label: COLUMN_STYLE[c].label}))
+const {columns: order} = useStatuses()
+const columns = computed(() => order.value.map(c => ({value: c.id as Column, label: c.label})))
 </script>
 
 <template>

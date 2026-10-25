@@ -215,7 +215,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
         <ProposalPanel :project="project.id" :issue="issue" />
 
-        <SessionsPanel v-if="issue.column !== 'done'" :project="project.id" :issue="issue.id" />
+        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" />
 
         <section v-if="editingNotes" class="flex flex-col gap-2" @keydown.esc.stop.prevent="editingNotes = false">
           <textarea
@@ -248,7 +248,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         </section>
 
         <section v-if="issue.tasks.length" class="flex flex-col gap-2">
-          <h2 class="label flex items-center gap-2">Sub-issues <span class="font-mono normal-case">{{ issue.counts.done }}/{{ total(issue.counts) }}</span></h2>
+          <h2 class="label flex items-center gap-2">Sub-issues <span class="font-mono normal-case">{{ issue.kinds.done }}/{{ total(issue.kinds) }}</span></h2>
           <div class="overflow-hidden rounded-xl border border-line">
             <IssueRow v-for="sub in issue.tasks" :key="sub.id" :issue="sub" :project="project.id" nested class="last:border-b-0" />
           </div>

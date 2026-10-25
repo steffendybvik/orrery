@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
 
-// The column as an icon: a dashed ring (backlog), a ring (later, next), a ring with a dot
-// (now), a pie filling up with progress (doing), a check (done); and a diamond for a proposal.
+// The column as an icon, by what it means: a dashed ring (backlog), a ring (todo), a pie filling up with
+// progress (started), a check (done), a cross (canceled); and a diamond for a proposal. In its status's colour.
 const props = withDefaults(defineProps<{column: Column, progress?: number, size?: number}>(), {progress: 0.5, size: 14})
+const {look} = useStatuses()
+const status = computed(() => look(props.column))
 
 const pie = computed(() => {
     const share = Math.min(Math.max(props.progress, 0.12), 0.88)
@@ -14,17 +16,20 @@ const pie = computed(() => {
 </script>
 
 <template>
-  <svg :width="size" :height="size" viewBox="0 0 14 14" fill="none" class="shrink-0" :class="COLUMN_STYLE[column].text" :aria-label="COLUMN_STYLE[column].label" role="img">
-    <template v-if="column === 'done'">
+  <svg :width="size" :height="size" viewBox="0 0 14 14" fill="none" class="shrink-0" :style="{color: status.color}" :aria-label="status.label" role="img">
+    <template v-if="status.kind === 'done'">
       <circle cx="7" cy="7" r="6" fill="currentColor" />
       <path d="m4.4 7.2 1.8 1.8 3.5-3.7" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
     </template>
-    <path v-else-if="column === 'proposed'" d="M7 1.6 12.4 7 7 12.4 1.6 7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-    <circle v-else-if="column === 'backlog'" cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="1.5 1.8" />
+    <template v-else-if="status.kind === 'canceled'">
+      <circle cx="7" cy="7" r="6" fill="currentColor" />
+      <path d="m4.9 4.9 4.2 4.2m0-4.2-4.2 4.2" stroke="white" stroke-width="1.6" stroke-linecap="round" />
+    </template>
+    <path v-else-if="status.kind === 'proposed'" d="M7 1.6 12.4 7 7 12.4 1.6 7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+    <circle v-else-if="status.kind === 'backlog'" cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="1.5 1.8" />
     <template v-else>
       <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5" />
-      <path v-if="column === 'doing'" :d="pie" fill="currentColor" />
-      <circle v-else-if="column === 'now'" cx="7" cy="7" r="2" fill="currentColor" />
+      <path v-if="status.kind === 'started'" :d="pie" fill="currentColor" />
     </template>
   </svg>
 </template>

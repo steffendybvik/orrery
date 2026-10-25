@@ -21,11 +21,7 @@ const {changed} = useRoadmaps()
 
 const isParent = computed(() => props.issue.tasks.length > 0)
 const flash = computed(() => Date.now() - (changed.value[`${props.project}/${props.issue.id}`] ?? 0) < 1500)
-const STATUS_PILL = {
-    todo: 'text-muted ring-line',
-    doing: 'text-accent-600 ring-accent-500/40 bg-accent-500/10 dark:text-accent-300',
-    done: 'text-emerald-600 ring-emerald-500/30 bg-emerald-500/10 dark:text-emerald-300',
-}
+const {look} = useStatuses()
 </script>
 
 <template>
@@ -49,11 +45,11 @@ const STATUS_PILL = {
     </template>
     <PriorityIcon :priority="issue.priority" class="hidden sm:block" />
     <span class="w-16 shrink-0 truncate font-mono text-[11px] text-faint">{{ issue.id }}</span>
-    <StatusIcon :column="issue.column" :progress="progress(issue.counts).share" />
+    <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
     <span class="flex min-w-0 flex-1 items-center gap-2">
-      <span class="min-w-0 truncate" :class="issue.column === 'done' ? 'text-muted' : 'text-fg'"><InlineText :text="issue.title" /></span>
+      <span class="min-w-0 truncate" :class="isClosed(issue.kind) ? 'text-muted' : 'text-fg'"><InlineText :text="issue.title" /></span>
       <span v-if="issue.schedule" class="shrink-0 text-faint" title="Made by a schedule"><SectionIcon section="schedules" class="size-3" /></span>
-      <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line" :title="`${issue.counts.done} of ${total(issue.counts)} sub-issues done`"><ProgressRing :counts="issue.counts" :size="13" /></span>
+      <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line" :title="`${issue.kinds.done} of ${total(issue.kinds)} sub-issues done`"><ProgressRing :kinds="issue.kinds" :size="13" /></span>
     </span>
     <NuxtLink
         v-if="chunk"
@@ -74,8 +70,8 @@ const STATUS_PILL = {
     <span v-if="issue.comments" class="hidden shrink-0 items-center gap-1 text-[11px] text-faint sm:flex" :title="`${issue.comments} comments`">
       <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5Z" /></svg>{{ issue.comments }}
     </span>
-    <span v-if="!isParent" class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium capitalize ring-1 md:inline-flex" :class="STATUS_PILL[issue.status]">{{ issue.status }}</span>
-    <span class="hidden w-14 shrink-0 text-right text-xs md:inline" :class="COLUMN_STYLE[issue.column].text">{{ COLUMN_STYLE[issue.column].label }}</span>
+    <span v-if="!isParent" class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: look(issue.status).color}">{{ look(issue.status).label }}</span>
+    <span class="hidden w-20 shrink-0 truncate text-right text-xs md:inline" :style="{color: look(issue.column).color}">{{ look(issue.column).label }}</span>
     <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
     <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/50" title="No assignee" />
   </div>

@@ -5,16 +5,16 @@
 // (server/plugins/schedules.ts) calls `runDue`; a run is claimed by moving `next_run` on first, so two
 // servers (a reloading `nuxt dev`) can't run it twice, and after downtime a schedule runs once.
 import {Cron} from 'croner'
-import type {Place, Priority, Schedule, ScheduleRun} from '#shared/roadmap'
-import {PLACES, PRIORITIES} from '#shared/roadmap'
-import type {Field} from './input'
+import type {Priority, Schedule, ScheduleRun} from '#shared/roadmap'
+import {CLOSED, PRIORITIES} from '#shared/roadmap'
+import type {Field, Input} from './input'
 import {badRequest, checkInput, forbidden, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
 
 interface ScheduleRow {
     id: number, project: string, kind: 'issue' | 'message', title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
-    place: Place, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, enabled: number,
+    place: string, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, enabled: number,
     next_run: string | null, created_by: string, owned: number, created_at: string, updated_at: string
 }
 interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null }
@@ -29,7 +29,8 @@ export const SCHEDULE_FIELDS: Record<string, Field> = {
     at: {type: 'string', nullable: true},
     /** An IANA zone, e.g. `Europe/Oslo`; the server's when left out. */
     timezone: {type: 'string'},
-    column: {type: 'string', values: PLACES},
+    /** Where its issues start: an open status's id, or a kind (`todo`). */
+    column: {type: 'string'},
     chunk: {type: 'string', nullable: true},
     priority: {type: 'string', values: PRIORITIES, nullable: true},
     labels: {type: 'strings', nullable: true},
@@ -78,7 +79,7 @@ export class Schedules {
         if (kind === 'message' && !text(input.notes)?.trim()) throw badRequest('A message schedule needs its message in "notes"')
         const {lastInsertRowid} = this.db.prepare(`INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
             next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, String(input.column ?? 'now'), chunk,
+            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, this.place(input.column ?? 'todo'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skipOpen ?? true), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
         this.onChange(project)
@@ -105,7 +106,7 @@ export class Schedules {
             title: input.title === undefined ? undefined : String(input.title).trim(),
             notes: input.notes === undefined ? undefined : text(input.notes),
             cron: when.cron, at: when.at, timezone: when.timezone,
-            place: input.column,
+            place: input.column === undefined ? undefined : this.place(input.column),
             chunk: input.chunk === undefined ? undefined : this.chunk(project, input.chunk),
             priority: input.priority === undefined ? undefined : text(input.priority),
             labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
@@ -178,7 +179,7 @@ export class Schedules {
                 ...row.chunk ? {chunk: row.chunk} : {},
                 ...row.priority ? {priority: row.priority} : {},
                 ...row.labels !== '[]' ? {labels: JSON.parse(row.labels) as string[]} : {},
-                ...row.place === 'doing' ? {status: 'doing'} : row.place === 'backlog' ? {} : {plan: row.place},
+                status: row.place,
             }, actor)
             this.db.prepare('UPDATE issues SET schedule = ? WHERE project = ? AND id = ?').run(row.id, row.project, issue.id)
             this.store.changed(row.project)
@@ -198,10 +199,17 @@ export class Schedules {
         const last = this.db.prepare("SELECT issue FROM schedule_runs WHERE schedule = ? AND outcome = 'made' ORDER BY id DESC LIMIT 1").get(row.id) as {issue: string} | undefined
         if (!last?.issue) return null
         try {
-            return this.store.issue(row.project, last.issue).column === 'done' ? null : last.issue
+            return CLOSED.includes(this.store.issue(row.project, last.issue).kind as never) ? null : last.issue
         } catch {
             return null
         }
+    }
+
+    /** The open status a schedule's issues start in, from an id or a kind. */
+    private place(column: Input[string]): string {
+        const status = this.store.status(this.store.resolveStatus(column))
+        if (CLOSED.includes(status.kind)) throw badRequest(`A schedule's issues start open, not in ${status.name}`)
+        return status.id
     }
 
     private row(project: string, id: number): ScheduleRow {

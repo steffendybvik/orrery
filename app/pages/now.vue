@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type {Issue} from '#shared/roadmap'
 
-// Every issue being worked on (Doing) or up now (Now) in every project, by project. A parent
-// stands for its sub-issues, so nothing shows twice.
+// Every issue being worked on (started), or urgent or high-priority and to do, in every project, by
+// project, started first. A parent stands for its sub-issues, so nothing shows twice.
 useHead({title: 'Now · Orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -10,11 +10,11 @@ const {matches, active} = useFilters()
 
 const groups = computed(() => ordered.value.map(project => {
     const issues = project.board.chunks.flatMap(chunk => chunk.tasks
-        .filter(t => t.column === 'doing' || t.column === 'now')
+        .filter(isNow)
         .map(issue => ({issue: active.value ? {...issue, tasks: filterTree(issue.tasks, matches)} : issue, chunk})))
         .filter(({issue}) => !active.value || matches(issue) || issue.tasks.length)
-        .sort((a, b) => Number(a.issue.column === 'now') - Number(b.issue.column === 'now'))
-    return {project, issues, doing: issues.filter(i => i.issue.column === 'doing').length}
+        .sort((a, b) => Number(a.issue.kind !== 'started') - Number(b.issue.kind !== 'started'))
+    return {project, issues, doing: issues.filter(i => i.issue.kind === 'started').length}
 }).filter(g => g.issues.length))
 
 const count = (issues: {issue: Issue}[]) => issues.length
@@ -35,7 +35,7 @@ const count = (issues: {issue: Issue}[]) => issues.length
     <template v-else>
       <section v-for="group in groups" :key="group.project.id">
         <NuxtLink :to="`/p/${group.project.id}`" class="sticky top-0 z-10 flex h-9 items-center gap-2.5 border-b border-line bg-panel/90 px-3 backdrop-blur hover:bg-hover">
-          <ProgressRing :counts="group.project.board.counts" bare :size="14" />
+          <ProgressRing :kinds="group.project.board.kinds" bare :size="14" />
           <h2 class="text-[13px] font-medium">{{ group.project.name }}</h2>
           <span class="font-mono text-[11px] text-faint">{{ count(group.issues) }}</span>
           <span v-if="group.doing" class="text-xs text-accent-600 dark:text-accent-400">{{ group.doing }} doing</span>

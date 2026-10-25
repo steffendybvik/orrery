@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// A project's roadmap: its chunks as cards in the columns their issues put them in, Doing…Done.
+// A project's roadmap: its chunks as cards in the columns their issues put them in, started first.
 const route = useRoute()
 const {byId, ready} = useRoadmaps()
 const {matches, active} = useFilters()
@@ -19,7 +19,7 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
     <template v-if="project">
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
       <ProjectTabs :project="project" />
-      <ProgressRing :counts="project.board.counts" class="max-sm:hidden" />
+      <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
     </template>
   </PageHeader>
 

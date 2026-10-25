@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import type {Chunk} from '#shared/roadmap'
-import {COLUMNS} from '#shared/roadmap'
 
 // A chunk on the roadmap: its progress and where its issues are. Clicking opens its page, right-clicking
 // its menu (ChunkMenu).
 const props = defineProps<{chunk: Chunk, project: string}>()
 const {open: openMenu} = useChunkMenu()
-const share = computed(() => progress(props.chunk.counts))
-const spread = computed(() => COLUMNS.filter(c => c !== 'done' && props.chunk.counts[c]).map(c => ({column: c, n: props.chunk.counts[c]})))
+const {columns, look} = useStatuses()
+const share = computed(() => progress(props.chunk.kinds))
+// Where its open issues are (and its proposals), a dot per column.
+const spread = computed(() => columns.value.filter(c => !isClosed(c.kind) && props.chunk.counts[c.id]).map(c => ({column: c.id, n: props.chunk.counts[c.id]!})))
 </script>
 
 <template>
@@ -26,10 +27,10 @@ const spread = computed(() => COLUMNS.filter(c => c !== 'done' && props.chunk.co
     <p v-if="chunk.summary" class="line-clamp-2 text-xs leading-relaxed text-muted"><InlineText :text="chunk.summary" /></p>
     <ColumnBar :counts="chunk.counts" />
     <div class="flex items-center gap-2 text-[11px] text-faint">
-      <ProgressRing :counts="chunk.counts" :size="13" />
+      <ProgressRing :kinds="chunk.kinds" :size="13" />
       <span class="ml-auto flex items-center gap-2">
-        <span v-for="part in spread" :key="part.column" class="flex items-center gap-1" :title="`${part.n} ${COLUMN_STYLE[part.column].label}`">
-          <span class="size-1.5 rounded-full" :class="COLUMN_STYLE[part.column].fill" />{{ part.n }}
+        <span v-for="part in spread" :key="part.column" class="flex items-center gap-1" :title="`${part.n} ${look(part.column).label}`">
+          <span class="size-1.5 rounded-full" :style="{background: look(part.column).color}" />{{ part.n }}
         </span>
       </span>
     </div>

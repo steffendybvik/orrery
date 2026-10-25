@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type {Place, Priority, Schedule} from '#shared/roadmap'
-import {PLACES, PRIORITIES} from '#shared/roadmap'
+import type {Priority, Schedule} from '#shared/roadmap'
+import {PRIORITIES} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
 // Writing a schedule, or changing one, as the owner: in a project, whether each run makes an issue or
@@ -17,7 +17,9 @@ const KINDS: {value: Repeat['kind'], label: string}[] = [
     {value: 'monthly', label: 'Monthly'}, {value: 'minutes', label: 'Every N minutes'}, {value: 'hours', label: 'Every N hours'},
     {value: 'once', label: 'Once'}, {value: 'cron', label: 'Advanced (cron)'},
 ]
-const PLACE_LABEL: Record<Place, string> = {backlog: 'Backlog', later: 'Later', next: 'Next', now: 'Now', doing: 'Doing'}
+// Where its issues start: any open status.
+const {places} = useStatuses()
+const starts = computed(() => places.value.filter(p => p.kind !== 'proposed' && !isClosed(p.kind)))
 
 const project = ref('')
 const sends = ref<'issue' | 'message'>('issue')
@@ -34,7 +36,7 @@ const minute = ref(0)
 const once = ref('')
 const cron = ref('0 9 * * 1-5')
 const timezone = ref(localZone())
-const column = ref<Place>('now')
+const column = ref('todo')
 const chunk = ref('')
 const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
@@ -65,7 +67,7 @@ watch(editing, now => {
     title.value = s?.title ?? ''
     notes.value = s?.notes ?? ''
     timezone.value = s?.timezone ?? localZone()
-    column.value = s?.column ?? 'now'
+    column.value = s?.column ?? starts.value.find(p => p.kind === 'todo')?.id ?? 'todo'
     chunk.value = s?.chunk ?? ''
     priority.value = s?.priority ?? ''
     labels.value = [...s?.labels ?? []]
@@ -249,7 +251,7 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
           <span class="label">Each run makes an issue</span>
           <div class="flex flex-wrap items-center gap-2">
             <select v-model="column" aria-label="Where it starts" :class="field">
-              <option v-for="p in PLACES" :key="p" :value="p">{{ PLACE_LABEL[p] }}</option>
+              <option v-for="p in starts" :key="p.id" :value="p.id">{{ p.label }}</option>
             </select>
             <select v-model="priority" aria-label="Priority" :class="field">
               <option value="">No priority</option>

@@ -53,7 +53,7 @@ curl -sN '${origin}/api/projects/${id}/signals/stream?format=text'`
 
 The roadmap is in Orrery (${origin}), project \`${id}\`, issue ids \`${key}-n\`. How to use it: \`curl -s ${origin}/llms-full.txt\`.
 
-- Work from an issue: set it to \`doing\` (assignee \`claude\`) before starting, comment as it moves, \`done\` when it ships.
+- Work from an issue: set it to \`in-progress\` (assignee \`claude\`) before starting, comment as it moves, \`done\` when it ships (\`canceled\` when it's dropped).
 - Knowledge (decisions, how things work) goes in the project's docs.
 - Send \`Orrery-Actor: claude\` on every write. Orrery hands out ids; don't send one.`
 
@@ -71,7 +71,7 @@ The project doesn't exist yet. Create it:
 ` : ''}
 ## While you work
 
-- Before a piece of work, find its issue (\`${origin}/api/projects/${id}/issues?q=…\`) or create one; set it to \`doing\` and assign it to \`claude\`.
+- Before a piece of work, find its issue (\`${origin}/api/projects/${id}/issues?q=…\`) or create one; set it to \`in-progress\` and assign it to \`claude\`.
 - Comment on it as the work moves, and set it to \`done\` when it ships.
 - Keep decisions and how-things-work notes in the project's docs (\`PUT ${origin}/api/projects/${id}/docs/<slug>\`).
 - Send the header \`Orrery-Actor: claude\` on every write.
@@ -95,7 +95,7 @@ ${settingsJson.split('\n').map(line => `    ${line}`).join('\n')}
 
 ## Then
 
-Tell the owner what's in Doing and Now, and ask them to restart you with this, so the channel and hooks load (Claude Code asks once to approve the ${server} server):
+Tell the owner what's in progress and what's urgent, and ask them to restart you with this, so the channel and hooks load (Claude Code asks once to approve the ${server} server):
 
     ${launch}
 `

@@ -46,7 +46,7 @@ onMounted(() => nextTick(() => {
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
       <ProjectTabs :project="project" />
       <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-faint ring-1 ring-line">{{ project.key }}</span>
-      <ProgressRing :counts="project.board.counts" class="max-sm:hidden" />
+      <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
       <span v-if="project.description" class="hidden min-w-0 truncate text-xs text-faint lg:inline">{{ project.description }}</span>
     </template>
   </PageHeader>

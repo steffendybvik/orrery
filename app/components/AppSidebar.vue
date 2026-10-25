@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Issue} from '#shared/roadmap'
 
-// Every project with its progress and how many issues are being worked on; Now across projects on top.
+// Every project with its progress and how many issues are started; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const {of: schedulesOf} = useSchedules()
@@ -14,9 +14,9 @@ watch(() => route.fullPath, () => {
     open.value = false
 })
 
-/** Top-level issues in Doing or Now, as the Now page lists them. */
+/** Top-level issues on the Now page. */
 const nowCount = computed(() => projects.value.reduce((sum, p) =>
-    sum + p.board.chunks.reduce((n, c) => n + c.tasks.filter((t: Issue) => t.column === 'doing' || t.column === 'now').length, 0), 0))
+    sum + p.board.chunks.reduce((n, c) => n + c.tasks.filter((t: Issue) => isNow(t)).length, 0), 0))
 const urgentCount = computed(() => projects.value.reduce((sum, p) => sum + urgentIssues(p).length, 0))
 const {name: owner, load: loadOwner} = useOwner()
 onMounted(loadOwner)
@@ -181,12 +181,12 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
               @keydown.left.exact.prevent="setFolds([project.id], false)"
           >
             <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.iconColor" class="size-3.5" />
-            <ProgressRing v-else :counts="project.board.counts" bare :size="14" />
+            <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
-            <span v-if="project.board.counts.doing" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.counts.doing} being worked on`">
-              <span class="size-1 rounded-full bg-accent-500" />{{ project.board.counts.doing }}
+            <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
+              <span class="size-1 rounded-full bg-accent-500" />{{ project.board.kinds.started }}
             </span>
-            <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.counts.done }}/{{ progress(project.board.counts).total }}</span>
+            <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.kinds.done }}/{{ progress(project.board.kinds).total }}</span>
           </NuxtLink>
           <button
               type="button"

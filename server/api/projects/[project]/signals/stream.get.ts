@@ -1,4 +1,5 @@
 import type {Signal} from '#shared/roadmap'
+import {CLOSED} from '#shared/roadmap'
 
 // `GET /api/projects/:project/signals/stream` → the owner's signals to this project's sessions, as they're
 // sent: server-sent `signal` events (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
@@ -23,8 +24,10 @@ export default defineEventHandler(event => {
     }
 
     /** The signal with what a session needs to act on it: for a chunk, its open issues (or those of its
-     * `status`), most urgent first. */
+     * `status`), most urgent first. Columns go by their statuses' names. */
     const told = (signal: Signal) => {
+        const statuses = store.statuses()
+        const name = (column: string) => column === 'proposed' ? 'Proposed' : statuses.find(s => s.id === column)?.name ?? column
         if (signal.kind === 'message') {
             let title = 'a schedule'
             try {
@@ -37,16 +40,21 @@ export default defineEventHandler(event => {
         if (!signal.issue) {
             // `none`: the issues in no chunk, which the board keeps as a chunk without an id.
             const chunk = signal.chunk === 'none'
-                ? store.project(project).board.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done' as const, priority: undefined, tasks: []}
+                ? store.project(project).board.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done', priority: undefined, tasks: []}
                 : store.chunk(project, signal.chunk!)
-            const open = chunk.tasks.filter(t => signal.status ? t.column === signal.status : t.column !== 'done')
+            // A status, or a kind (`started`): its issues; else every open one.
+            const fits = (t: {column: string, kind: string}) => signal.status
+                ? t.column === signal.status || t.kind === signal.status
+                : t.kind !== 'proposed' && !CLOSED.includes(t.kind as never)
+            const open = chunk.tasks.filter(fits)
                 .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
-                .map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
-            return {...signal, title: chunk.title, column: chunk.column, priority: chunk.priority ?? null, chunk: chunk.title, issues: open}
+                .map(t => ({id: t.id, title: t.title, column: name(t.column), priority: t.priority ?? null}))
+            const status = signal.status ? statuses.find(s => s.id === signal.status)?.name ?? signal.status : undefined
+            return {...signal, status, title: chunk.title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: chunk.title, issues: open}
         }
         const issue = store.issue(project, signal.issue)
         const chunk = store.project(project).board.chunks.find(c => c.id === (issue.chunk ?? ''))
-        return {...signal, title: issue.title, column: issue.column, priority: issue.priority ?? null, chunk: chunk?.title ?? null}
+        return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null}
     }
     // The owner's signals for every session, or for this one; a receipt (deliveredTo) isn't news.
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.deliveredTo.length

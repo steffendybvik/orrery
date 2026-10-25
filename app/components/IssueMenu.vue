@@ -15,7 +15,7 @@ const found = computed(() => target.value ? findIssue(project.value, target.valu
 const issue = computed(() => found.value?.issue)
 const chunks = computed(() => project.value?.board.chunks.filter(c => c.id) ?? [])
 const listening = computed(() => (sessions.value[target.value?.project ?? ''] ?? []).filter(s => s.listening).length)
-const WHERE = PLACES
+const {places: WHERE} = useStatuses()
 
 const menu = ref<HTMLElement | null>(null)
 const place = ref({left: 0, top: 0})
@@ -121,16 +121,16 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
           <span class="label">Move to</span>
           <div class="flex gap-1">
             <button
-                v-for="column in WHERE"
+                v-for="{id: column, label, kind} in WHERE"
                 :key="column"
                 type="button"
                 :class="[pick, issue.column === column ? 'bg-active ring-faint/50' : 'ring-transparent']"
-                :title="COLUMN_STYLE[column].label"
-                :aria-label="`Move to ${COLUMN_STYLE[column].label}`"
+                :title="label"
+                :aria-label="`Move to ${label}`"
                 :disabled="busy"
                 @click="moveTo(column)"
             >
-              <StatusIcon :column="column" :progress="column === 'doing' ? 0.5 : 0" />
+              <StatusIcon :column="column" :progress="kind === 'started' ? 0.5 : 0" />
             </button>
           </div>
         </div>
@@ -158,7 +158,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
             <span class="flex-1">Move to chunk</span>
             <span class="max-w-24 truncate text-xs text-faint">{{ found?.chunk.id ? found.chunk.title : 'None' }}</span>
           </button>
-          <button v-if="listening && issue.column !== 'done'" type="button" :class="item" :disabled="busy" @click="focus">
+          <button v-if="listening && !isClosed(issue.kind)" type="button" :class="item" :disabled="busy" @click="focus">
             <svg class="size-3.5 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
             Ask {{ listening === 1 ? 'the session' : `all ${listening} sessions` }} to focus on it
           </button>

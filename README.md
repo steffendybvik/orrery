@@ -5,13 +5,14 @@ A roadmap board for you and your Claude Code sessions, running on your own machi
 When you work with a few Claude sessions across a few repos, the plan ends up scattered: a TODO file
 here, a half-finished checklist in a chat there, and no way to see who's doing what. Orrery gives
 every project one board. Your sessions read their work from it and write their progress back: they
-take an issue, move it to Doing, comment as they go and mark it Done. You watch the board change
+take an issue, move it to In progress, comment as they go and mark it Done. You watch the board change
 live, answer their questions in one place, and point them at what matters next.
 
 ## What it does
 
-- **One board per project.** Issues with sub-issues, grouped into chunks (milestones), in Now,
-  Next, Later and Backlog, as a list or a board. **Now** and **My issues** show every project at once.
+- **One board per project.** Issues with sub-issues, grouped into chunks (milestones), moving through
+  Backlog, Todo, In progress, In review and Done (or Canceled), as a list or a board. Add statuses of
+  your own. **Now** and **My issues** show every project at once.
 - **Agents work from it.** Sessions keep their issue's status, comments and docs current through
   [the API](docs/API.md). They can propose an issue for you to approve, or ask you to decide something;
   that waits at the top of your bell until you answer.

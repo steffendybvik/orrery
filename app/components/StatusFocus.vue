@@ -8,7 +8,8 @@ const {sessions: all} = useRoadmaps()
 const {load} = useOwner()
 
 const listening = computed(() => (all.value[props.project] ?? []).filter(s => s.listening))
-const label = computed(() => COLUMN_STYLE[props.column].label)
+const {look} = useStatuses()
+const label = computed(() => look(props.column).label)
 const open = ref(false)
 const sending = ref(false)
 const note = ref('')
@@ -38,7 +39,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 </script>
 
 <template>
-  <div v-if="listening.length && column !== 'done'" ref="root" class="relative" @click.stop @keydown.stop @keydown.esc="open = false">
+  <div v-if="listening.length && look(column).kind !== 'proposed' && !isClosed(look(column).kind)" ref="root" class="relative" @click.stop @keydown.stop @keydown.esc="open = false">
     <span v-if="note" class="text-xs text-faint">{{ note }}</span>
     <button
         v-else

@@ -68,9 +68,9 @@ describe('issues', () => {
     const add = (body: Record<string, unknown>, actor?: Actor) => store.createIssue('mesher', body, actor).id
 
     it('get the project prefix and the next number, and land in a column', () => {
-        const a = store.createIssue('mesher', {title: 'Joint editor', chunk: '1', plan: 'now', priority: 'P1'})
+        const a = store.createIssue('mesher', {title: 'Joint editor', chunk: '1', status: 'todo', priority: 'P1'})
         const b = store.createIssue('mesher', {title: 'Unplanned'})
-        expect([a.id, a.column, a.chunk]).toEqual(['MSH-1', 'now', '1'])
+        expect([a.id, a.column, a.chunk]).toEqual(['MSH-1', 'todo', '1'])
         expect([b.id, b.column, b.chunk]).toEqual(['MSH-2', 'backlog', null])
         expect(store.project('mesher').board.chunks.map(c => c.title)).toEqual(['Moving parts: joints', 'No chunk'])
         expect(changes.at(-1)).toBe('mesher')
@@ -82,14 +82,14 @@ describe('issues', () => {
     })
 
     it('nest in their parent and its chunk', () => {
-        const parent = add({title: 'Joints', chunk: '1', plan: 'later'})
-        const hinge = add({title: 'Hinge', parent, status: 'doing'})
+        const parent = add({title: 'Joints', chunk: '1', status: 'todo'})
+        const hinge = add({title: 'Hinge', parent, status: 'in-progress'})
         const slider = add({title: 'Slider', parent, status: 'done'})
 
         const shown = store.issue('mesher', parent)
-        expect(shown.column).toBe('doing')
+        expect(shown.column).toBe('in-progress')
         expect(shown.tasks.map(t => t.id)).toEqual([hinge, slider])
-        expect([shown.counts.done, total(shown.counts)]).toEqual([1, 2])
+        expect([shown.kinds.done, total(shown.kinds)]).toEqual([1, 2])
         expect(store.issue('mesher', hinge)).toMatchObject({parent, chunk: '1'})
         expect(store.listIssues('mesher', {parent: 'none'}).map(i => i.id)).toEqual([parent])
         expect(failure(() => add({title: 'x', parent, chunk: '1'})).status).toBe(400)
@@ -109,9 +109,9 @@ describe('issues', () => {
     })
 
     it('clear fields with null and go with their parent', () => {
-        const a = add({title: 'A', plan: 'now'})
+        const a = add({title: 'A', priority: 'P1'})
         add({title: 'B', parent: a})
-        expect(store.updateIssue('mesher', a, {plan: null}).plan).toBeUndefined()
+        expect(store.updateIssue('mesher', a, {priority: null}).priority).toBeUndefined()
         store.deleteIssue('mesher', a)
         expect(store.listIssues('mesher')).toEqual([])
     })
@@ -169,10 +169,10 @@ describe('proposals', () => {
 
     it('sit in Proposed with their sub-issues, out of the committed work', () => {
         const proposal = store.createIssue('mesher', {title: 'Button', proposal: 'pending', chunk: '1'})
-        store.createIssue('mesher', {title: 'Its states', parent: proposal.id, plan: 'now'})
-        store.createIssue('mesher', {title: 'Work', chunk: '1', plan: 'now'})
+        store.createIssue('mesher', {title: 'Its states', parent: proposal.id, status: 'todo'})
+        store.createIssue('mesher', {title: 'Work', chunk: '1', status: 'todo'})
         const {board} = store.project('mesher')
-        expect([store.issue('mesher', proposal.id).column, board.counts.proposed, total(board.counts)]).toEqual(['proposed', 1, 1])
+        expect([store.issue('mesher', proposal.id).column, board.kinds.proposed, total(board.kinds)]).toEqual(['proposed', 1, 1])
         expect(store.listIssues('mesher', {proposal: 'none'}).map(i => i.title)).toEqual(['Work'])
     })
 
@@ -191,8 +191,8 @@ describe('proposals', () => {
         const {id} = store.createIssue('mesher', {title: 'Button', proposal: 'pending'})
         expect(failure(() => store.updateIssue('mesher', id, {proposal: null}, claude)).status).toBe(403)
         store.decide('mesher', id, {decision: 'approved'}, owner)
-        const committed = store.updateIssue('mesher', id, {proposal: null, plan: 'next'}, claude)
-        expect([committed.proposal, committed.column, committed.decidedBy]).toEqual([undefined, 'next', 'skoll'])
+        const committed = store.updateIssue('mesher', id, {proposal: null, status: 'todo'}, claude)
+        expect([committed.proposal, committed.column, committed.decidedBy]).toEqual([undefined, 'todo', 'skoll'])
         const other = store.createIssue('mesher', {title: 'Card', proposal: 'pending'})
         expect(store.updateIssue('mesher', other.id, {proposal: null}, owner).column).toBe('backlog')
     })
@@ -312,7 +312,7 @@ describe('chunks', () => {
         const local = new Store(openDb(':memory:'), () => {})
         local.createProject({name: 'mesher', key: 'MSH'})
         local.createChunk('mesher', {title: 'Joints'})
-        expect(local.focusChunk('mesher', '1', {status: 'now'}, {name: 'skoll', owner: true}).status).toBe('now')
+        expect(local.focusChunk('mesher', '1', {status: 'todo'}, {name: 'skoll', owner: true}).status).toBe('todo')
         expect(local.focusChunk('mesher', '1', {}).status).toBeUndefined()
         expect(failure(() => local.focusChunk('mesher', '1', {status: 'done'})).status).toBe(400)
         expect(failure(() => local.focusChunk('mesher', '1', {status: 'soon'})).status).toBe(400)
@@ -369,14 +369,66 @@ describe('comments that wait on the owner', () => {
     })
 })
 
+describe('statuses', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it('start as Backlog, Todo, In progress, In review, Done and Canceled, in board order', () => {
+        expect(store.statuses().map(s => `${s.id}:${s.kind}`)).toEqual(['backlog:backlog', 'todo:todo', 'in-progress:started', 'in-review:started', 'done:done', 'canceled:canceled'])
+        expect(store.settings().statuses).toHaveLength(6)
+    })
+
+    it('take an id, a kind, or the words from before statuses', () => {
+        const status = (body: Record<string, unknown>) => store.createIssue('mesher', {title: 'x', ...body}).status
+        expect(status({status: 'in-review'})).toBe('in-review')
+        expect(status({status: 'started'})).toBe('in-progress')
+        expect(status({status: 'doing'})).toBe('in-progress')
+        expect(status({status: 'todo', plan: 'next'})).toBe('todo')
+        expect(status({status: 'todo', plan: null})).toBe('backlog')
+        expect(status({plan: 'now'})).toBe('todo')
+        expect(status({})).toBe('backlog')
+        expect(failure(() => status({status: 'soon'})).status).toBe(400)
+        const a = store.createIssue('mesher', {title: 'A', status: 'todo'}).id
+        expect(store.updateIssue('mesher', a, {status: 'canceled'}).kind).toBe('canceled')
+        expect(store.listIssues('mesher', {status: 'started'}).map(i => i.status)).toEqual(['in-review', 'in-progress', 'in-progress'])
+        expect(store.listIssues('mesher', {column: 'canceled'}).map(i => i.id)).toEqual([a])
+    })
+
+    it("are the owner's to add, change and remove, keeping one of each kind", () => {
+        const claude = {name: 'claude', owner: false}
+        expect(failure(() => store.createStatus({name: 'Blocked', kind: 'started'}, claude)).status).toBe(403)
+        const blocked = store.createStatus({name: 'Blocked', kind: 'started', color: 'rose'}, owner)
+        expect(blocked).toMatchObject({id: 'blocked', name: 'Blocked', kind: 'started', color: 'rose'})
+        expect(store.statuses().map(s => s.id)).toEqual(['backlog', 'todo', 'in-progress', 'in-review', 'blocked', 'done', 'canceled'])
+        expect(failure(() => store.createStatus({name: 'Blocked', kind: 'started'}, owner)).status).toBe(409)
+        expect(failure(() => store.createStatus({name: 'Proposed', kind: 'todo'}, owner)).status).toBe(400)
+        expect(store.updateStatus('blocked', {name: 'Stuck', color: '#ff0000'}, owner)).toMatchObject({id: 'blocked', name: 'Stuck', color: '#ff0000'})
+        expect(failure(() => store.updateStatus('todo', {kind: 'started'}, owner)).status).toBe(409)
+
+        const id = store.createIssue('mesher', {title: 'Stuck', status: 'blocked'}).id
+        expect(failure(() => store.deleteStatus('blocked', undefined, owner)).status).toBe(409)
+        store.deleteStatus('blocked', 'in-progress', owner)
+        expect(store.issue('mesher', id).status).toBe('in-progress')
+        expect(failure(() => store.deleteStatus('todo', 'backlog', owner)).status).toBe(409)
+        expect(failure(() => store.status('blocked')).status).toBe(404)
+    })
+
+    it('narrow a chunk focus to an open one, by id or kind', () => {
+        const signal = (status: string) => store.focusChunk('mesher', '1', {status}, owner).status
+        expect(signal('in-review')).toBe('in-review')
+        expect(signal('started')).toBe('started')
+        expect(failure(() => signal('done')).status).toBe(400)
+        expect(failure(() => signal('canceled')).status).toBe(400)
+    })
+})
+
 describe('settings', () => {
     it('keep a tint, the owner’s to change', () => {
-        expect(store.settings()).toEqual({tint: null})
-        expect(store.updateSettings({tint: 'blue'}, {name: 'skoll', owner: true})).toEqual({tint: 'blue'})
+        expect(store.settings().tint).toBeNull()
+        expect(store.updateSettings({tint: 'blue'}, {name: 'skoll', owner: true}).tint).toBe('blue')
         expect(store.updateSettings({tint: '#123abc'}, {name: 'skoll', owner: true}).tint).toBe('#123abc')
         expect(failure(() => store.updateSettings({tint: 'red; background: url(x)'}, {name: 'skoll', owner: true})).status).toBe(400)
         expect(failure(() => store.updateSettings({tint: null}, {name: 'claude', owner: false})).status).toBe(403)
-        expect(store.updateSettings({tint: null}, {name: 'skoll', owner: true})).toEqual({tint: null})
+        expect(store.updateSettings({tint: null}, {name: 'skoll', owner: true}).tint).toBeNull()
     })
 })
 
@@ -477,7 +529,7 @@ describe('import', () => {
         expect(failure(() => store.importRoadmap('mesher', roadmap)).status).toBe(409)
         const {board} = store.importRoadmap('mesher', roadmap, true)
         expect(board.chunks).toHaveLength(16)
-        expect(total(board.counts)).toBe(139)
+        expect(total(board.kinds)).toBe(139)
         expect(board.chunks.map(c => c.id)).toEqual(Array.from({length: 16}, (_, i) => String(i + 1)))
         expect(board.chunks[0]!.tasks[0]).toMatchObject({id: 'MSH-1', aliases: ['FIX-1']})
         expect(store.issue('mesher', 'MOT-5').aliases).toEqual(['MOT-5'])

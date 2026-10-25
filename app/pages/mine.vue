@@ -42,7 +42,7 @@ const lists = computed(() => [
         </h2>
         <section v-for="group in list.groups" :key="group.project.id">
           <NuxtLink :to="`/p/${group.project.id}`" class="sticky top-0 z-10 flex h-9 items-center gap-2.5 border-y border-line bg-panel/90 px-3 backdrop-blur hover:bg-hover">
-            <ProgressRing :counts="group.project.board.counts" bare :size="14" />
+            <ProgressRing :kinds="group.project.board.kinds" bare :size="14" />
             <h3 class="text-[13px] font-medium">{{ group.project.name }}</h3>
             <span class="font-mono text-[11px] text-faint">{{ group.issues.length }}</span>
           </NuxtLink>

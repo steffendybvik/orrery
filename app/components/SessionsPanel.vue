@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Column, Session, Signal} from '#shared/roadmap'
+import type {Session, Signal} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
 // a button to point one (or all) at this issue, or at working through this chunk. Under them, the focus
@@ -9,6 +9,7 @@ const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
 const {sessions: all, signals: live} = useRoadmaps()
 const {load, who} = useOwner()
+const {look} = useStatuses()
 
 const sessions = computed(() => all.value[props.project] ?? [])
 const listening = computed(() => sessions.value.filter(s => s.listening))
@@ -106,7 +107,7 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
         <template v-else>
           <span class="text-muted">{{ who(signal.createdBy) }}</span> asked
           <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
-          {{ signal.status ? `to work through its ${COLUMN_STYLE[signal.status as Column]?.label ?? signal.status} issues` : 'to focus on this' }}
+          {{ signal.status ? `to work through its ${look(signal.status).label} issues` : 'to focus on this' }}
         </template>
         · {{ ago(signal.createdAt) }} ·
         <span v-if="signal.deliveredTo.length" class="text-emerald-600 dark:text-emerald-400">delivered to {{ signal.deliveredTo.join(', ') }}</span>

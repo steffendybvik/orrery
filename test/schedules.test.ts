@@ -34,7 +34,7 @@ const at = (iso: string) => new Date(iso)
 describe('schedules', () => {
     it('work out their next run in their timezone', () => {
         const s = schedules.create('mesher', {title: 'Groom', cron: '0 9 * * 1-5', timezone: 'Europe/Oslo'}, me)
-        expect(s).toMatchObject({column: 'now', enabled: true, skipOpen: true, ask: false, protected: true, runs: []})
+        expect(s).toMatchObject({column: 'todo', enabled: true, skipOpen: true, ask: false, protected: true, runs: []})
         // 09:00 in Oslo is 07:00 or 08:00 UTC, depending on the season.
         expect(new Date(s.nextRun!).getUTCHours()).toBeGreaterThanOrEqual(7)
         expect(new Date(s.nextRun!).getUTCMinutes()).toBe(0)
@@ -50,7 +50,7 @@ describe('schedules', () => {
     })
 
     it('make an issue when due, placed and marked, and run once after downtime', () => {
-        const s = schedules.create('mesher', {title: 'Groom', cron: '0 9 * * *', timezone: 'UTC', chunk: '1', priority: 'P2', labels: ['upkeep'], column: 'next'}, me)
+        const s = schedules.create('mesher', {title: 'Groom', cron: '0 9 * * *', timezone: 'UTC', chunk: '1', priority: 'P2', labels: ['upkeep'], column: 'in-review'}, me)
         // A week late: it runs once, then waits for its next time.
         const late = new Date(new Date(s.nextRun!).getTime() + 7 * 86_400_000 + 60_000)
         expect(schedules.runDue(late)).toBe(1)
@@ -58,7 +58,7 @@ describe('schedules', () => {
         const run = schedules.get('mesher', s.id).runs[0]!
         expect(run.outcome).toBe('made')
         const issue = store.issue('mesher', run.issue!)
-        expect(issue).toMatchObject({chunk: '1', priority: 'P2', labels: ['upkeep'], plan: 'next', schedule: s.id, createdBy: 'skoll', protected: true})
+        expect(issue).toMatchObject({chunk: '1', priority: 'P2', labels: ['upkeep'], status: 'in-review', schedule: s.id, createdBy: 'skoll', protected: true})
         expect(issue.title).toMatch(/^Groom · \w{3} \d+ \w{3}$/)
         expect(new Date(schedules.get('mesher', s.id).nextRun!).getTime()).toBeGreaterThan(late.getTime())
     })

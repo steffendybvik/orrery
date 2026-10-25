@@ -110,6 +110,17 @@ async function pick(tint: string | null) {
         </div>
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       </section>
+
+      <section class="flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Issue statuses</h2>
+          <p class="text-xs text-muted">
+            The columns every project's issues move through. Each belongs to a kind, which is what Orrery and your agents go by:
+            add a status to a kind (In review, Blocked) and it counts, shows and signals like the rest of its kind.
+          </p>
+        </header>
+        <StatusSettings />
+      </section>
     </div>
   </div>
 </template>

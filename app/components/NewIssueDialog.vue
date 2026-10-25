@@ -17,7 +17,7 @@ const notes = ref('')
 const chunk = ref('')
 const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
-const column = ref<Exclude<Column, 'done'>>('backlog')
+const column = ref<Column>('backlog')
 const ask = ref(false)
 // The kinds of issue, always offered, and the labels already in the project
 const KINDS = ['bug', 'improvement', 'migration', 'feature request']
@@ -25,10 +25,9 @@ const known = computed(() => [...new Set([...KINDS, ...project.value ? allIssues
 const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
-const WHERE: {value: Exclude<Column, 'done'>, label: string}[] = [
-    {value: 'proposed', label: 'Proposed'}, {value: 'backlog', label: 'Backlog'}, {value: 'later', label: 'Later'}, {value: 'next', label: 'Next'},
-    {value: 'now', label: 'Now'}, {value: 'doing', label: 'Doing'},
-]
+// Where it starts: Proposed or any open status.
+const {places} = useStatuses()
+const WHERE = computed(() => places.value.filter(p => !isClosed(p.kind)))
 
 watch(target, now => {
     if (!now) return
@@ -37,7 +36,7 @@ watch(target, now => {
     chunk.value = now.chunk ?? ''
     priority.value = ''
     labels.value = []
-    column.value = 'backlog'
+    column.value = WHERE.value.find(w => w.kind === 'backlog')?.id ?? 'backlog'
     ask.value = false
     failed.value = ''
     nextTick(() => titleInput.value?.focus())
@@ -48,7 +47,6 @@ async function create() {
     saving.value = true
     failed.value = ''
     try {
-        const plan = column.value === 'backlog' || column.value === 'doing' || column.value === 'proposed' ? undefined : column.value
         const owner = await load()
         const issue = await $fetch<{id: string}>(`/api/projects/${encodeURIComponent(project.value.id)}/issues`, {
             method: 'POST',
@@ -59,9 +57,7 @@ async function create() {
                 ...notes.value.trim() ? {notes: notes.value.trim()} : {},
                 ...chunk.value ? {chunk: chunk.value} : {},
                 ...priority.value ? {priority: priority.value} : {},
-                ...plan ? {plan} : {},
-                ...column.value === 'doing' ? {status: 'doing'} : {},
-                ...column.value === 'proposed' ? {proposal: 'pending'} : {},
+                ...columnPatch(column.value),
             },
         })
         const id = project.value.id
@@ -95,7 +91,7 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
         <textarea v-model="notes" rows="5" placeholder="Add a description… (Markdown works)" aria-label="Description" class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none" />
         <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
           <select v-model="column" aria-label="Where" :class="field">
-            <option v-for="w in WHERE" :key="w.value" :value="w.value">{{ w.label }}</option>
+            <option v-for="w in WHERE" :key="w.id" :value="w.id">{{ w.label }}</option>
           </select>
           <select v-model="priority" aria-label="Priority" :class="field">
             <option value="">No priority</option>

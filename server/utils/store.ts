@@ -3,18 +3,19 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
-import type {Asks, Board, Chunk, Comment, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Proposal, Signal, Status} from '#shared/roadmap'
-import {ASKS, COLUMNS, DECISIONS, PLANS, PRIORITIES, STATUSES, TINTS} from '#shared/roadmap'
+import type {Asks, Board, Chunk, Comment, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, IssueStatus, Kind, Kinds, Notice, Priority, Project, Proposal, Signal} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
-import {buildBoard} from './roadmap'
+import {LEGACY_PLANS, buildBoard, legacyStatus} from './roadmap'
 import {transaction} from './db'
 import {renumber} from './renumber'
 
 /** A project without its board, as `GET /api/projects` lists it. */
 export interface ProjectSummary extends Omit<Project, 'board'> {
     counts: Counts
+    kinds: Kinds
     chunks: number
 }
 
@@ -52,9 +53,10 @@ export interface Actor {
 export const AGENT: Actor = {name: 'agent', owner: false}
 
 export interface IssueFilter {
+    /** A status's id, or a kind (`started`): what the issue says. */
     status?: string
-    plan?: string
     priority?: string
+    /** A status's id, or a kind, or `proposed`: where the board puts it. */
     column?: string
     /** A name, or `none` for unassigned issues. */
     assignee?: string
@@ -72,7 +74,7 @@ interface Made { created_by: string, owned: number, created_at: string, updated_
 interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
-    project: string, id: string, title: string, status: Status, plan: Plan | null, priority: Priority | null,
+    project: string, id: string, title: string, status: string, priority: Priority | null,
     assignee: string | null, labels: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null
@@ -105,8 +107,10 @@ export const CHUNK_FIELDS: Record<string, Field> = {
 
 export const ISSUE_FIELDS: Record<string, Field> = {
     title: {type: 'string', required: true},
-    status: {type: 'string', values: STATUSES},
-    plan: {type: 'string', values: PLANS, nullable: true},
+    /** A status's id, or a kind (`started` picks its first status); `doing` still means started. */
+    status: {type: 'string'},
+    /** Before statuses: with `status: "todo"` (or none), a plan puts it in Todo and null in Backlog. */
+    plan: {type: 'string', values: LEGACY_PLANS, nullable: true},
     priority: {type: 'string', values: PRIORITIES, nullable: true},
     assignee: {type: 'string', nullable: true},
     labels: {type: 'strings', nullable: true},
@@ -142,11 +146,22 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
     session: {type: 'string', nullable: true},
 }
 
-/** A chunk's focus can be narrowed to its issues of one status: `{status: 'now'}`. */
+/** A chunk's focus can be narrowed to its issues of one open status: `{status: 'todo'}` (an id or a kind). */
 export const CHUNK_SIGNAL_FIELDS: Record<string, Field> = {
     ...SIGNAL_FIELDS,
-    status: {type: 'string', nullable: true, values: COLUMNS.filter(c => c !== 'done')},
+    status: {type: 'string', nullable: true},
 }
+
+export const STATUS_FIELDS: Record<string, Field> = {
+    id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
+    name: {type: 'string', required: true},
+    kind: {type: 'string', values: KINDS, required: true},
+    color: {...TINT, nullable: false},
+    position: {type: 'number'},
+}
+
+/** What agents sent before statuses, and what they mean now. */
+const LEGACY_KINDS: Record<string, Kind> = {doing: 'started', now: 'todo', next: 'todo', later: 'todo'}
 
 export const SETTINGS_FIELDS: Record<string, Field> = {
     tint: TINT,
@@ -244,7 +259,7 @@ export class Store {
     listProjects(): ProjectSummary[] {
         return this.all<ProjectRow>('SELECT * FROM projects ORDER BY name COLLATE NOCASE').map(row => {
             const {board, ...project} = this.projectOf(row)
-            return {...project, counts: board.counts, chunks: board.chunks.filter(c => c.id).length}
+            return {...project, counts: board.counts, kinds: board.kinds, chunks: board.chunks.filter(c => c.id).length}
         })
     }
 
@@ -310,7 +325,105 @@ export class Store {
             const row = rows.find(r => r.key === key)
             return row ? JSON.parse(row.value) as unknown : undefined
         }
-        return {tint: (value('tint') as string | undefined) ?? null}
+        return {tint: (value('tint') as string | undefined) ?? null, statuses: this.statuses()}
+    }
+
+    // Statuses
+
+    /** The issue statuses, in board order: by kind, then as arranged. */
+    statuses(): IssueStatus[] {
+        const rows = this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses ORDER BY position, id')
+        return KINDS.flatMap(kind => rows.filter(r => r.kind === kind))
+    }
+
+    /** A new status, the owner's to add: `{name, kind, color?, id?, position?}`. */
+    createStatus(body: unknown, actor = AGENT): IssueStatus {
+        this.ownerOnly(actor, 'statuses')
+        const input = checkInput(body, {...STATUS_FIELDS, color: {...STATUS_FIELDS.color!, required: false}})
+        const name = String(input.name).trim()
+        const id = input.id ? String(input.id) : slugify(name)
+        if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
+        if (id === 'proposed') throw badRequest('"proposed" is where proposals sit; give the status another id')
+        if (this.get('SELECT 1 FROM statuses WHERE id = ?', id)) throw conflict(`There is already a status "${id}"`)
+        const position = input.position ?? (this.get<{n: number | null}>('SELECT max(position) AS n FROM statuses')?.n ?? 0) + 1
+        this.run('INSERT INTO statuses (id, name, kind, color, position) VALUES (?, ?, ?, ?, ?)', id, name, String(input.kind), String(input.color ?? 'slate'), Number(position))
+        this.statusesChanged()
+        return this.status(id)
+    }
+
+    /** Renames, recolours or moves a status, or gives it another kind (not the last of its kind). */
+    updateStatus(id: string, body: unknown, actor = AGENT): IssueStatus {
+        this.ownerOnly(actor, 'statuses')
+        const before = this.status(id)
+        const input = checkInput(body, STATUS_FIELDS, true)
+        if (input.id !== undefined && input.id !== id) throw badRequest("A status's id can't change; rename it with \"name\"")
+        if (input.kind !== undefined && input.kind !== before.kind) this.keepOneOf(before)
+        this.run('UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = coalesce(?, position) WHERE id = ?',
+            input.name === undefined ? null : String(input.name).trim(), nullable(input.kind), nullable(input.color), input.position === undefined ? null : Number(input.position), id)
+        this.statusesChanged()
+        return this.status(id)
+    }
+
+    /** Removes a status; its issues and schedules move to `into` (another status), which it needs when it has any. */
+    deleteStatus(id: string, into: string | undefined, actor = AGENT) {
+        this.ownerOnly(actor, 'statuses')
+        const status = this.status(id)
+        this.keepOneOf(status)
+        const used = this.get<{n: number}>('SELECT (SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ?) AS n', id, id)!.n
+        if (into !== undefined) this.status(into)
+        if (into === id) throw badRequest('Move its issues to another status')
+        if (used && !into) throw conflict(`${used} issues or schedules are in ${status.name}; say which status they move to with ?into=`)
+        transaction(this.db, () => {
+            if (into) {
+                this.run('UPDATE issues SET status = ? WHERE status = ?', into, id)
+                this.run('UPDATE schedules SET place = ? WHERE place = ?', into, id)
+                this.run('UPDATE signals SET status = ? WHERE status = ?', into, id)
+            }
+            this.run('DELETE FROM statuses WHERE id = ?', id)
+        })
+        this.statusesChanged()
+    }
+
+    status(id: string): IssueStatus {
+        const found = this.statuses().find(s => s.id === id)
+        if (!found) throw notFound(`No status "${id}"`)
+        return found
+    }
+
+    /** The status an issue gets from what was sent: a status's id, a kind (its first status), or the words
+     * from before statuses (`doing`; `todo` with a `plan`). */
+    resolveStatus(status: Input[string], plan?: Input[string]): string {
+        const statuses = this.statuses()
+        const first = (kind: Kind) => statuses.find(s => s.kind === kind)!.id
+        if (plan !== undefined && (status === undefined || status === 'todo')) return first(plan ? 'todo' : 'backlog')
+        if (status === undefined) return first('backlog')
+        const text = String(status)
+        if (statuses.some(s => s.id === text)) return text
+        if (KINDS.includes(text as Kind)) return first(text as Kind)
+        if (LEGACY_KINDS[text]) return first(LEGACY_KINDS[text])
+        throw badRequest(`"status" is "${text}", not one of ${statuses.map(s => s.id).join(', ')} (or a kind: ${KINDS.join(', ')})`)
+    }
+
+    /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */
+    private statusIds(status: string): string[] {
+        const statuses = this.statuses()
+        if (statuses.some(s => s.id === status)) return [status]
+        const kind = (KINDS.includes(status as Kind) ? status : LEGACY_KINDS[status]) as Kind | undefined
+        return kind ? statuses.filter(s => s.kind === kind).map(s => s.id) : []
+    }
+
+    private keepOneOf(status: IssueStatus) {
+        if (this.statuses().filter(s => s.kind === status.kind).length === 1) throw conflict(`${status.name} is the only ${status.kind} status; add another before it goes`)
+    }
+
+    private ownerOnly(actor: Actor, what: string) {
+        if (!actor.owner) throw forbidden(`Only the owner changes the ${what}; send Orrery-Actor: <owner>`)
+    }
+
+    /** Every board is drawn again with them, and the page gets the new list with the settings. */
+    private statusesChanged() {
+        this.onSettings(this.settings())
+        for (const {id} of this.all<{id: string}>('SELECT id FROM projects')) this.onChange(id)
     }
 
     /** The owner's to change: they're how the Orrery looks to them. */
@@ -404,11 +517,12 @@ export class Store {
         const records = this.issueRecords(this.project(project))
         if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: this.chunkId(project, filter.chunk)}
         const q = filter.q?.toLowerCase()
+        const statuses = filter.status ? this.statusIds(filter.status) : []
+        const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? this.statusIds(filter.column) : []
         return records.filter(r =>
-            (!filter.status || r.status === filter.status)
-            && (!filter.plan || (filter.plan === 'none' ? !r.plan : r.plan === filter.plan))
+            (!filter.status || statuses.includes(r.status))
             && (!filter.priority || (filter.priority === 'none' ? !r.priority : r.priority === filter.priority))
-            && (!filter.column || r.column === filter.column)
+            && (!filter.column || columns.includes(r.column))
             && (!filter.assignee || (filter.assignee === 'none' ? !r.assignee : r.assignee === filter.assignee))
             && (!filter.label || r.labels.includes(filter.label))
             && (!filter.chunk || (filter.chunk === 'none' ? !r.chunk : r.chunk === filter.chunk))
@@ -439,10 +553,10 @@ export class Store {
         const id = transaction(this.db, () => {
             const id = this.nextId(project, 'issue')
             const now = stamp()
-            this.run(`INSERT INTO issues (project, id, title, status, plan, priority, assignee, labels, notes, proposal, parent, chunk, position,
+            this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, proposal, parent, chunk, position,
                                           created_by, owned, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                project, id, String(input.title).trim(), String(input.status ?? 'todo'), nullable(input.plan), nullable(input.priority),
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                project, id, String(input.title).trim(), this.resolveStatus(input.status, input.plan), nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs unless it says whose it is.
                 input.assignee === undefined && input.proposal === 'pending' ? this.owner : nullable(input.assignee),
                 JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
@@ -488,8 +602,7 @@ export class Store {
         transaction(this.db, () => {
             this.update('issues', 'project = ? AND id = ?', [project, id], {
                 title: input.title === undefined ? undefined : String(input.title).trim(),
-                status: input.status,
-                plan: input.plan,
+                status: input.status === undefined && input.plan === undefined ? undefined : this.resolveStatus(input.status, input.plan),
                 priority: input.priority,
                 assignee: input.assignee === undefined && input.proposal === 'pending' ? this.owner : input.assignee,
                 labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
@@ -764,6 +877,14 @@ export class Store {
             this.chunkRow(project, chunk)
         }
         const input = checkInput(body ?? {}, CHUNK_SIGNAL_FIELDS)
+        if (input.status) {
+            const status = String(input.status)
+            const ids = this.statusIds(status)
+            const statuses = this.statuses().filter(s => ids.includes(s.id))
+            if (!statuses.length || statuses.some(s => CLOSED.includes(s.kind))) {
+                throw badRequest(`"status" is "${status}", not an open status (${this.statuses().filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
+            }
+        }
         const {lastInsertRowid} = this.run('INSERT INTO signals (project, chunk, status, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             project, chunk, nullable(input.status), 'focus', nullable(input.note), nullable(input.session), actor.name, Number(actor.owner), stamp())
         const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
@@ -799,7 +920,7 @@ export class Store {
         return this.all<SignalRow>(`
             SELECT s.* FROM signals s LEFT JOIN issues i ON i.project = s.project AND i.id = s.issue
             WHERE s.project = ? AND s.owned = 1 AND s.delivered_to = '[]' AND s.created_at >= ?
-              AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status != 'done') OR s.kind = 'message')
+              AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))) OR s.kind = 'message')
             ORDER BY s.id`, project, since).map(signalOf)
     }
 
@@ -827,10 +948,10 @@ export class Store {
         const now = stamp()
         let position = 0
         const insert = (task: TaskFile, parent: string | null, chunk: string | null) => {
-            this.run(`INSERT INTO issues (project, id, title, status, plan, priority, assignee, labels, notes, parent, chunk, position,
+            this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, parent, chunk, position,
                                           created_by, owned, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                project, task.id, task.title, task.status, task.plan ?? null, task.priority ?? null, task.assignee ?? null, JSON.stringify(task.labels),
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                project, task.id, task.title, this.resolveStatus(legacyStatus(task.status, task.plan)), task.priority ?? null, task.assignee ?? null, JSON.stringify(task.labels),
                 task.notes ?? null, parent, chunk, position++, actor.name, Number(actor.owner), now, now)
             task.tasks.forEach(sub => insert(sub, task.id, null))
         }
@@ -904,7 +1025,6 @@ export class Store {
             assignee: row.assignee ?? undefined,
             labels: JSON.parse(row.labels) as string[],
             status: row.status,
-            plan: row.plan ?? undefined,
             notes: row.notes ?? undefined,
             proposal: row.proposal ?? undefined,
             decidedBy: row.decided_by ?? undefined,
@@ -926,7 +1046,7 @@ export class Store {
         }))
         const loose = top.filter(t => !t.chunk)
         if (loose.length) grouped.push({id: '', title: 'No chunk', summary: '', priority: undefined, aliases: [], createdBy: '', protected: false, tasks: loose.map(input)})
-        return buildBoard({chunks: grouped})
+        return buildBoard({chunks: grouped}, this.statuses())
     }
 
     private issueRecords(project: Project): IssueRecord[] {

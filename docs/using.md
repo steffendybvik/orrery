@@ -18,7 +18,7 @@ The "ask the session" items only show when a Claude session is listening on that
 
 - **An issue**: right-click it, or open its page. The **Claude sessions** panel there lists each session on the project, with **Focus on this** next to each and **Focus all on this** when more than one is listening. Under it are the focus signals already sent, and who got them.
 - **A chunk**: right-click its card on the roadmap, or open the chunk's page (`/p/<project>/roadmap/<chunk>`) for the same sessions panel.
-- **A chunk's issues of one status**: on the chunk's page, each status group has **Focus on all Now** (or Next, Doing, …). Pick one session or all, and they work through just those issues, most urgent first.
+- **A chunk's issues of one status**: on the chunk's page, each status group has **Focus on all Todo** (or In progress, Backlog, …). Pick one session or all, and they work through just those issues, most urgent first.
 - **A new issue**: the new-issue dialog (`c`) has a checkbox that sends it to the listening sessions as it's made.
 - The sidebar lists every Claude session at the bottom, with the ones waiting on you first.
 
@@ -26,7 +26,7 @@ The "ask the session" items only show when a Claude session is listening on that
 
 | Page | What's there |
 |---|---|
-| **Now** (`/now`) | Everything in Doing or Now, across projects |
+| **Now** (`/now`) | Everything started, and urgent or high-priority Todo, across projects |
 | **My issues** (`/mine`) | Open urgent (P0) issues anywhere on top, then what's assigned to you, proposals first |
 | A project's **Issues** | A list (grouped by status or chunk) or a board, with search and filters for priority, column, assignee and label |
 | An **issue's page** | Its title and description edit in place. Status, priority, assignee, labels and chunk change on the right. Also sub-issues, activity, comments and the sessions panel |
@@ -34,7 +34,7 @@ The "ask the session" items only show when a Claude session is listening on that
 | **Docs** | The project's Markdown pages, with contents beside them |
 | **Schedules** | Work Orrery starts on its own: each run makes an issue or messages the sessions |
 | A project's **Settings** | Name, sidebar icon and colour, deleting the project (type its id to confirm) |
-| **App settings** (`/settings`) | Your name and the tint that tells one Orrery (personal, work) from another |
+| **App settings** (`/settings`) | Your name, the tint that tells one Orrery (personal, work) from another, and the issue statuses: add, rename, recolour, reorder or remove them |
 | **Connect** (`/connect`) | The line that sets a Claude session up in an app's repo |
 
 ## The bell

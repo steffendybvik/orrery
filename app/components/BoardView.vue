@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import type {Chunk, Column} from '#shared/roadmap'
-import {COLUMNS} from '#shared/roadmap'
 
-// The columns Doing…Done with the chunks in them. Done starts folded to a count.
+// The columns, started first and closed last, with the chunks in them. Closed ones start folded to a count.
 const props = defineProps<{chunks: Chunk[], project: string}>()
-const showDone = ref(false)
+const {columns: order, look} = useStatuses()
+const unfolded = ref<Column[]>([])
 
-const columns = computed(() => COLUMNS.map(column => ({column, chunks: props.chunks.filter(c => c.column === column)})))
+const columns = computed(() => order.value.map(({id}) => ({column: id, chunks: props.chunks.filter(c => c.column === id)})))
 
-const folded = (column: Column) => column === 'done' && !showDone.value
+const folded = (column: Column) => isClosed(look(column).kind) && !unfolded.value.includes(column)
+const fold = (column: Column) => unfolded.value = unfolded.value.includes(column) ? unfolded.value.filter(c => c !== column) : [...unfolded.value, column]
 </script>
 
 <template>
@@ -21,10 +22,10 @@ const folded = (column: Column) => column === 'done' && !showDone.value
     >
       <header class="mb-2 flex h-7 items-center gap-2 px-1">
         <StatusIcon :column="column" />
-        <h2 class="text-[13px] font-medium">{{ COLUMN_STYLE[column].label }}</h2>
+        <h2 class="text-[13px] font-medium">{{ look(column).label }}</h2>
         <span class="font-mono text-[11px] text-faint tabular-nums">{{ inColumn.length }}</span>
-        <button v-if="column === 'done' && inColumn.length" type="button" class="ml-auto rounded-md px-1.5 py-0.5 text-[11px] text-faint hover:bg-hover hover:text-fg" @click="showDone = !showDone">
-          {{ showDone ? 'Fold' : 'Show' }}
+        <button v-if="isClosed(look(column).kind) && inColumn.length" type="button" class="ml-auto rounded-md px-1.5 py-0.5 text-[11px] text-faint hover:bg-hover hover:text-fg" @click="fold(column)">
+          {{ folded(column) ? 'Show' : 'Fold' }}
         </button>
       </header>
       <button
@@ -32,10 +33,10 @@ const folded = (column: Column) => column === 'done' && !showDone.value
           type="button"
           data-nav
           class="flex flex-col items-start gap-1 rounded-xl border border-dashed border-line p-3 text-left text-xs text-muted outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent-500/50"
-          @click="showDone = true"
+          @click="fold(column)"
       >
-        <span class="font-mono text-lg font-medium text-emerald-600 tabular-nums dark:text-emerald-400">{{ inColumn.length }}</span>
-        {{ inColumn.length === 1 ? 'chunk' : 'chunks' }} done
+        <span class="font-mono text-lg font-medium tabular-nums" :style="{color: look(column).color}">{{ inColumn.length }}</span>
+        {{ inColumn.length === 1 ? 'chunk' : 'chunks' }} {{ look(column).label.toLowerCase() }}
       </button>
       <div v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4">
         <ChunkCard

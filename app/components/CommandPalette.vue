@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
-import {COLUMNS, PRIORITIES} from '#shared/roadmap'
+import {PRIORITIES} from '#shared/roadmap'
 
 // ⌘K: every command and place. With nothing typed it offers what fits the page first (the issue's
 // commands on an issue, the views on Issues), then the places; typing narrows it all, issues
@@ -14,6 +14,7 @@ const {open: openIssue, pathOf} = useIssueLink()
 const {filters, active: filtering, clear} = useFilters()
 const {view, group} = useLastView()
 const {set: setTheme} = useTheme()
+const {columns} = useStatuses()
 const route = useRoute()
 const router = useRouter()
 
@@ -54,7 +55,7 @@ const here = computed<Entry[]>(() => {
             {key: 'issue:id', group: 'Copy', label: 'Copy the id', detail: found.issue.id, run: () => copy(found.issue.id, 'id')},
             {key: 'issue:link', group: 'Copy', label: 'Copy the link', run: () => copy(`${location.origin}${path}`, 'link')},
             {key: 'issue:curl', group: 'Copy', label: 'Copy a curl to update it', detail: 'for an agent', run: () => copy(
-                `curl -X PATCH ${location.origin}/api/projects/${p.id}/issues/${found.issue.id} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d '{"status": "doing"}'`, 'curl')},
+                `curl -X PATCH ${location.origin}/api/projects/${p.id}/issues/${found.issue.id} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d '{"status": "in-progress"}'`, 'curl')},
         )
     }
     if (p && route.name === 'p-project') {
@@ -90,9 +91,9 @@ const everywhere = computed<Entry[]>(() => [
         label: `${filters.value.priorities.includes(p) ? 'Stop filtering' : 'Filter'} by priority: ${p === 'none' ? 'none' : `${p} ${PRIORITY_LABEL[p]}`}`,
         run: () => filters.value.priorities = toggle(filters.value.priorities, p),
     })),
-    ...COLUMNS.map(c => ({
+    ...columns.value.map(({id: c, label}) => ({
         key: `filter:column:${c}`, group: 'Filter',
-        label: `${filters.value.columns.includes(c) ? 'Stop filtering' : 'Filter'} by column: ${COLUMN_STYLE[c].label}`,
+        label: `${filters.value.columns.includes(c) ? 'Stop filtering' : 'Filter'} by column: ${label}`,
         run: () => filters.value.columns = toggle<Column>(filters.value.columns, c),
     })),
     {key: 'filter:search', group: 'Filter', label: 'Filter by id or title', hint: '/', run: () => nextTick(() => document.getElementById('search')?.focus())},
@@ -102,7 +103,7 @@ const everywhere = computed<Entry[]>(() => [
 ])
 
 const places = computed<Entry[]>(() => projects.value.flatMap(p => [
-    ...sectionsOf(p, '').map(s => ({key: `p:${p.id}:${s.id}`, group: s.id === 'issues' ? 'Project' : s.label, label: s.id === 'issues' ? p.name : `${p.name} ${s.label.toLowerCase()}`, detail: s.id === 'issues' ? `${p.board.counts.done}/${progress(p.board.counts).total}` : undefined, run: () => router.push(s.to)})),
+    ...sectionsOf(p, '').map(s => ({key: `p:${p.id}:${s.id}`, group: s.id === 'issues' ? 'Project' : s.label, label: s.id === 'issues' ? p.name : `${p.name} ${s.label.toLowerCase()}`, detail: s.id === 'issues' ? `${p.board.kinds.done}/${progress(p.board.kinds).total}` : undefined, run: () => router.push(s.to)})),
     ...p.board.chunks.map(c => ({key: `c:${p.id}/${c.id}`, group: 'Chunk', label: c.title, detail: p.name, run: () => router.push(chunkPath(p.id, c.id))})),
     ...p.docs.map(d => ({key: `d:${p.id}/${d.id}`, group: 'Doc', label: d.title, detail: p.name, run: () => router.push(`/p/${p.id}/docs/${d.id}`)})),
 ]))
