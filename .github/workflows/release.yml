@@ -1,5 +1,6 @@
 # The production image on GitHub's container registry, on a release tag (`v1.0.0`):
-# ghcr.io/<owner>/orrery:1.0.0, :1.0, :1 and :latest, for Intel and Apple silicon.
+# ghcr.io/<owner>/orrery:1.0.0, :1.0, :1 and :latest, for Intel and Apple silicon. Only once CI passes
+# on the tag, so a red tag never publishes an image.
 name: Release
 
 on:
@@ -11,7 +12,13 @@ permissions:
   packages: write
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   image:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

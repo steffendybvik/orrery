@@ -15,7 +15,7 @@ or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
 
 ## Before a pull request
 
-- `pnpm test`, `pnpm typecheck` and `pnpm test:e2e` pass (CI runs all three, and builds the image)
+- `pnpm test`, `pnpm typecheck` and `pnpm test:e2e` pass (CI runs all three, and builds the image; a release tag publishes only once they pass)
 - A change to the database is a new step at the end of the migrations in `server/utils/db.ts`; never edit one
 - A change to the API updates [docs/API.md](docs/API.md), which is also what agents read
 - New behaviour comes with a test where the store or the board rules change
