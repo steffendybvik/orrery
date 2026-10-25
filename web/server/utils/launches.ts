@@ -66,6 +66,21 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     return launch
 }
 
+/** The owner starting a session on the project by hand, though nobody's work is waiting: it catches up from the
+ * project's latest signal. Needs the project's opt-in and a launcher, and counts the sessions on their way
+ * against the limit, as it doesn't stand in for them the way a signal's launch does. */
+export async function startLaunch(project: string): Promise<Launch> {
+    const starts = await useStore().starts(project)
+    if (!starts) throw conflict(`${project} doesn't let Orrery start sessions; turn it on in its settings`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: start one in its repo with ORRERY_PROJECT=${project} node channel/orrery-launcher.mjs`)
+    if (startedSessions(project) + pendingOn(project) >= starts.limit) throw conflict(`${project} already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
+    const id = randomBytes(6).toString('hex')
+    const launch = {id, project, after: await useStore().lastSignal(project), minutes: starts.minutes, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')}
+    pending.set(id, {...launch, at: Date.now(), claimed: false})
+    emit({type: 'launch', launch})
+    return launch
+}
+
 /** The minutes a new session on the project gets; none when the owner hasn't let it have sessions started,
  * or its limit is reached. */
 async function allowedMinutes(project: string): Promise<number | null> {

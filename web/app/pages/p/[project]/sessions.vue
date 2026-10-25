@@ -3,7 +3,8 @@ import type {Session, SessionWork} from '#shared/roadmap'
 
 // A project's Claude sessions, to browse: what each is doing and since when, whether it can hear signals, where
 // it runs, the issues it's on and what it was last sent. One Orrery started has its time left, Watch, +30 min
-// and Stop. A sidebar row opens its session here (`#session-<id>`), lit up for a moment.
+// and Stop; Start session has the project's launcher start one, when the project lets Orrery. A sidebar row
+// opens its session here (`#session-<id>`), lit up for a moment.
 const route = useRoute()
 const {byId, ready, sessions: all} = useRoadmaps()
 const {who} = useOwner()
@@ -55,9 +56,10 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
           <h2 class="text-[15px] font-semibold text-fg">Sessions</h2>
           <p class="text-xs text-muted">
             The Claude sessions working on {{ project.name }}, as their hooks and channels last said.
-            <template v-if="project.starts">Orrery starts more when your work finds nobody listening (<NuxtLink :to="`/p/${project.id}/settings#starts`" class="underline underline-offset-2 hover:text-fg">settings</NuxtLink>).</template>
+            <template v-if="project.starts">Orrery starts more when your work finds nobody listening, or when you start one (<NuxtLink :to="`/p/${project.id}/settings#starts`" class="underline underline-offset-2 hover:text-fg">settings</NuxtLink>).</template>
           </p>
         </div>
+        <StartSession :project="project" />
       </header>
 
       <ul v-if="sessions.length" class="flex flex-col gap-3">

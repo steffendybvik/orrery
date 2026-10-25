@@ -26,8 +26,9 @@ beforeEach(async () => {
     vi.stubGlobal('sessionOfLaunch', () => session)
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stopsAt: string) => ({...session, started: {...session!.started!, stopsAt}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
+    vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
     // A tick for reading the project, as the database gives, so signals can overlap.
-    vi.stubGlobal('useStore', () => ({starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0))}))
+    vi.stubGlobal('useStore', () => ({starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)), lastSignal: async () => 41}))
     vi.resetModules()
     launches = await import('../server/utils/launches')
 })
@@ -94,6 +95,27 @@ describe('starting a session', () => {
         expect(await launches.considerLaunch(signal(2))).toBeNull()
         vi.useFakeTimers({now: Date.now() + 3 * 60 * 1000 + 1000, toFake: ['Date']})
         expect(await launches.considerLaunch(signal(3))).not.toBeNull()
+    })
+})
+
+describe('the owner starting a session by hand', () => {
+    it("catches up from the latest signal, given the project's opt-in, a launcher and room under its limit", async () => {
+        starts = undefined
+        await expect(launches.startLaunch('larder')).rejects.toThrow("doesn't let Orrery start sessions")
+        starts = {limit: 2, minutes: 30}
+        await expect(launches.startLaunch('larder')).rejects.toThrow('No launcher is running')
+        launches.addLauncher('larder')
+        const launch = await launches.startLaunch('larder')
+        expect(launch).toMatchObject({project: 'larder', after: 41, minutes: 30, tmux: `orrery-larder-${launch.id}`})
+        expect(sent).toEqual([{type: 'launch', after: 41, minutes: 30}])
+        expect(launches.claim('larder', launch.id)).toBe(true)
+        // The one on its way counts toward the limit, with those running.
+        started = {larder: 1, all: 1}
+        await expect(launches.startLaunch('larder')).rejects.toThrow('already has its 2 sessions at once')
+        // Someone listening doesn't stop the owner starting another.
+        listeners = 1
+        launches.launched(launch.id)
+        expect(await launches.startLaunch('larder')).toMatchObject({after: 41})
     })
 })
 

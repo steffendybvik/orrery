@@ -232,12 +232,14 @@ project's launcher (`channel/orrery-launcher.mjs`, on the host) to start one in 
 At most `limit` run at once on the project, each stopped after `minutes`; it's set per project, with no
 cap over every project. Several signals at once start one
 session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
-signal it was started for. Those sessions list with `started: {launch, tmux, stopsAt}`, and count toward
+signal it was started for. The owner can also start one by hand (`POST .../launches`, Start session on the
+Sessions tab), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stopsAt}`, and count toward
 the limits while their channel is connected.
 
 | | |
 |---|---|
 | `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}` and `extend` `{id, stopsAt}` |
+| `POST /projects/:project/launches` | 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; 409 without the project's opt-in, a launcher or room under its limit |
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |

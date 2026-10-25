@@ -1092,6 +1092,12 @@ export class Store {
         return signal
     }
 
+    /** The id of the project's latest signal, 0 before its first. */
+    async lastSignal(project: string): Promise<number> {
+        await this.projectRow(project)
+        return Number((await this.get<{id: number | null}>('SELECT MAX(id) AS id FROM signals WHERE project = ?', project))?.id ?? 0)
+    }
+
     /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a chunk. */
     async listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, chunk?: string}): Promise<Signal[]> {
         await this.projectRow(project)

@@ -428,6 +428,7 @@ describe('chunks', () => {
         expect(signal.issue).toBeUndefined()
         expect(sent).toEqual(['focus:-:1:joints-window'])
         expect((await local.listSignals('larder', 0, 50, {chunk: '1'})).map(s => s.id)).toEqual([signal.id])
+        expect(await local.lastSignal('larder')).toBe(signal.id)
         expect((await failure(() => local.focusChunk('larder', '9', {}))).status).toBe(404)
         expect((await local.focusChunk('larder', 'none', {})).chunk).toBe('none')
     })
@@ -679,6 +680,7 @@ describe('removing', () => {
         await store.focus('larder', id, {}, {name: 'skoll', owner: true})
         await store.deleteIssue('larder', id, {name: 'skoll', owner: true})
         expect(await store.listSignals('larder')).toEqual([])
+        expect(await store.lastSignal('larder')).toBe(0)
     })
 })
 

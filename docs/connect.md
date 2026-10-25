@@ -88,8 +88,8 @@ project; without one, it's `shop`.
 
 ## 4. Optionally, let Orrery start sessions
 
-Orrery can start a session itself when you send the project work and nobody is listening, so nobody has
-to open a terminal. Turn it on under **Starting sessions** on the project's Settings tab (how many at once,
+Orrery can start a session itself when you send the project work and nobody is listening, or when you
+press **Start session** on its Sessions tab, so nobody has to open a terminal. Turn it on under **Starting sessions** on the project's Settings tab (how many at once,
 how many minutes each), then run the launcher on your machine, in the repo, and leave it running:
 
 ```bash
