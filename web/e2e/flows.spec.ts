@@ -222,5 +222,5 @@ test("tints a doc an agent changed, and in it the parts that changed since the o
     await expect(row).toHaveClass(/unseen-row/)
     await row.click()
     await expect(page.locator('.doc .changed')).toHaveText(['Label every jar with its date.', 'Restock on Fridays.'])
-    await expect(page.getByText('2 parts changed since you last read it')).toBeVisible()
+    await expect(page.getByText('2 parts changed since you last read it, tinted below')).toBeVisible()
 })
