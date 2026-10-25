@@ -108,7 +108,8 @@ export function report(input: Report): Session | null {
     } else {
         // A session first heard of by its pid gets its real id when a hook brings it, and one cleared
         // its new one; the old id stays an alias, as its channel and the issues it worked still use it.
-        if (input.id && session.id !== input.id) {
+        // An id it had before isn't a new one: its channel still reports with the id it started under.
+        if (input.id && !sessionIds(session.id).includes(input.id)) {
             sessions.delete(session.id)
             for (const [from, to] of aliases) if (to === session.id) aliases.set(from, input.id)
             aliases.set(session.id, input.id)
@@ -190,12 +191,12 @@ export function attend(project: string, id: string | undefined, pid: number | un
 /** The owner stopping a session: one Orrery started, through its launcher; any other through its channel,
  * which ends its claude process. One with no channel open is out of reach (only its terminal closes it). */
 export function stopSession(project: string, id: string): Session {
-    const session = sessions.get(id)
+    const session = sessions.get(currentId(id))
     if (!session || session.project !== project) throw notFound(`No session ${id} in ${project}`)
     if (session.started) return stopLaunch(project, session.started.launch)
     if (!session.stoppable) throw conflict(`${session.name} has no Orrery channel running that can stop it (an older channel needs the session restarted): close it in its terminal`)
     session.stopping = true
-    projectEvents.emit('session-stop', {project, id})
+    projectEvents.emit('session-stop', {project, id: session.id})
     return publicOf(session)
 }
 

@@ -48,7 +48,9 @@ function emit(event: LaunchEvent) {
  * held from the first check, so signals that come together start one session, not one each. */
 export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const {project} = signal
-    if (!signal.protected || listening(project) || !launchersOf(project) || pendingOn(project)) return null
+    // One aimed at a session only that session hears, and a delivered one has been heard.
+    if (!signal.protected || signal.target || signal.deliveredTo.length) return null
+    if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
     const id = randomBytes(6).toString('hex')
     const held = {id, project, after: signal.id - 1, minutes: 0, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
     pending.set(id, held)
@@ -101,6 +103,11 @@ export function launched(id: string): {launch: string, tmux: string, stopsAt: st
     const launch = pending.get(id)
     pending.delete(id)
     return launch && {launch: id, tmux: launch.tmux, stopsAt: new Date(Date.now() + launch.minutes * 60_000).toISOString()}
+}
+
+/** The launch has ended, whether or not its session ever connected: it no longer holds the project's place. */
+export function launchGone(id: string) {
+    pending.delete(id)
 }
 
 /** The owner stopping a session Orrery started: its launcher kills it, and says when it's gone. */

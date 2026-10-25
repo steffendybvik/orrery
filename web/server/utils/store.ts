@@ -1146,17 +1146,21 @@ export class Store {
     }
 
     /** What each of the project's sessions is on, for its Sessions page: the open issues it worked last (newest
-     * first), and the last `signals` signals that went to it, by its id or, sent to every session, by its name. */
-    async sessionWork(project: string, sessions: {id: string, name: string}[], signals = 5): Promise<Record<string, SessionWork>> {
+     * first), and the last `signals` signals that went to it, by its id or, sent to every session, by its name.
+     * `ids` are every id a session has gone by (it gets a new one on a `/clear`), its own when left out. */
+    async sessionWork(project: string, sessions: {id: string, name: string, ids?: string[]}[], signals = 5): Promise<Record<string, SessionWork>> {
         await this.projectRow(project)
         const open = new Map((await this.listIssues(project)).filter(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)).map(i => [i.id, i]))
         const worked = await this.all<{issue: string, session: string}>('SELECT issue, session FROM issue_sessions WHERE project = ? ORDER BY at DESC', project)
         const recent = (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? ORDER BY id DESC LIMIT 200', project)).map(signalOf)
-        return Object.fromEntries(sessions.map(session => [session.id, {
-            issues: worked.filter(w => w.session === session.id && open.has(w.issue))
-                .map(w => open.get(w.issue)!).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
-            signals: recent.filter(s => s.target === session.id || (!s.target && s.deliveredTo.includes(session.name))).slice(0, signals),
-        }]))
+        return Object.fromEntries(sessions.map(session => {
+            const ids = session.ids ?? [session.id]
+            const issues = new Set(worked.filter(w => ids.includes(w.session) && open.has(w.issue)).map(w => w.issue))
+            return [session.id, {
+                issues: [...issues].map(issue => open.get(issue)!).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
+                signals: recent.filter(s => (s.target && ids.includes(s.target)) || (!s.target && s.deliveredTo.includes(session.name))).slice(0, signals),
+            }]
+        }))
     }
 
     /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */

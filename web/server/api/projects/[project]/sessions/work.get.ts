@@ -3,5 +3,5 @@
 // the last five that went to it.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
-    return await useStore().sessionWork(project, listSessions(project))
+    return await useStore().sessionWork(project, listSessions(project).map(s => ({...s, ids: sessionIds(s.id)})))
 })

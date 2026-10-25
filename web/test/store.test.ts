@@ -608,6 +608,11 @@ describe("what a project's sessions are on", () => {
         // b was asked to focus on Shelves, which makes it Shelves' worker; and it heard the focus on Jars sent to all.
         expect(work.b!.issues.map(i => i.id)).toEqual([shelves])
         expect(work.b!.signals.map(s => s.issue)).toEqual([jars, shelves])
+        // After a /clear, b goes by a new id and keeps what it did under the old one, each issue once.
+        await store.workedBy('larder', shelves, 'b2')
+        const cleared = await store.sessionWork('larder', [{id: 'b2', name: 'pantry', ids: ['b2', 'b']}])
+        expect(cleared.b2!.issues.map(i => i.id)).toEqual([shelves])
+        expect(cleared.b2!.signals.map(s => s.issue)).toEqual([jars, shelves])
     })
 })
 

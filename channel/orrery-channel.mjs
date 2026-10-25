@@ -25,8 +25,8 @@ const log = (...parts) => console.error('[orrery channel]', ...parts)
 // Which window this is, so Orrery can list it, aim a signal at it and know who got one.
 const window = claudeWindow()
 // A session Orrery started (channel/orrery-launcher.mjs) says which launch it is, and catches up from the signal it's for.
-// `stops`: it ends the session when the owner stops it from Orrery.
-const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, started: process.env.ORRERY_STARTED, stops: 'yes'})
+// `stops`: it ends the session when the owner stops it from Orrery, which takes knowing its claude process.
+const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, started: process.env.ORRERY_STARTED, stops: window.pid && 'yes'})
     .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
 
 const server = new Server({name: 'orrery', version: '1.0.0'}, {
