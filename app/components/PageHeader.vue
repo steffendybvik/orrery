@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The top bar of a page: the menu button (phones), the title, the page's controls, and the theme
-// button at the right end. On a phone the controls take a row of their own under the title.
+// The top bar of a page: the menu button (phones), the title, the page's controls, and the bell, the
+// theme button and App settings at the right end. On a phone the controls take a row of their own under the title.
 const sidebar = useState('sidebar-open', () => false)
+const route = useRoute()
 </script>
 
 <template>
@@ -17,5 +18,14 @@ const sidebar = useState('sidebar-open', () => false)
     </div>
     <NotificationBell />
     <ThemeToggle />
+    <NuxtLink
+        to="/settings"
+        class="grid size-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-hover hover:text-fg"
+        :class="route.path === '/settings' ? 'bg-active text-fg' : 'text-muted'"
+        title="App settings"
+        aria-label="App settings"
+    >
+      <SectionIcon section="settings" class="size-4" />
+    </NuxtLink>
   </header>
 </template>
