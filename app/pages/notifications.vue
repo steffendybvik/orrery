@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type {Notice} from '#shared/roadmap'
 
-// The bell, larger: every agent's comment with its whole body, those waiting on the owner first. The
-// cleared ones stay readable here under Cleared. Leaving the page marks them read, as closing the bell does.
+// The bell, larger: every agent's comment with its whole body, those waiting on the owner first; a card
+// opens its issue. The cleared ones stay readable here under Cleared. Leaving the page marks them read,
+// as closing the bell does.
 useHead({title: 'Notifications · Orrery'})
 type Show = 'inbox' | 'waiting' | 'cleared'
 const ASKS = {decision: 'Needs your decision', feedback: 'Needs your feedback'}
@@ -45,6 +46,12 @@ async function drop(ids?: number[]) {
     await clear(ids)
     await load()
 }
+
+/** A card opens its issue, unless the click was on a link or button in it, or ended a text selection. */
+function openCard(notice: Notice, event: MouseEvent) {
+    if ((event.target as HTMLElement).closest('a, button') || window.getSelection()?.toString()) return
+    openIssue(notice.project, notice.issue)
+}
 </script>
 
 <template>
@@ -57,6 +64,7 @@ async function drop(ids?: number[]) {
     <SegmentedControl v-model="show" :options="options" />
     <template #end>
       <button v-if="read && show !== 'cleared'" type="button" class="rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg" :title="`Clear the ${read} read`" @click="drop()">Clear read</button>
+      <button v-if="show !== 'cleared' && shown.length" type="button" class="rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg" :title="`Clear all ${shown.length}; they stay under Cleared`" @click="drop(shown.map(n => n.id))">Clear all</button>
     </template>
   </ViewToolbar>
 
@@ -65,18 +73,23 @@ async function drop(ids?: number[]) {
       <li
           v-for="notice in shown"
           :key="notice.id"
-          class="group relative rounded-xl bg-panel ring-1 transition-colors"
-          :class="isWaiting(notice) && !notice.cleared ? 'ring-accent-500/40' : 'ring-line'"
+          class="group relative cursor-pointer rounded-xl bg-panel ring-1 transition-colors hover:bg-hover focus-visible:ring-accent-500/60 focus-visible:outline-none"
+          :class="isWaiting(notice) && !notice.cleared ? 'ring-accent-500/40' : 'ring-line hover:ring-faint/50'"
+          tabindex="0"
+          role="link"
+          :aria-label="`${notice.issue}: ${notice.title}`"
+          @click="openCard(notice, $event)"
+          @keydown.enter.self="openIssue(notice.project, notice.issue)"
       >
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-2.5 pr-12 text-[13px]">
           <span v-if="isNew(notice)" class="size-2 shrink-0 rounded-full bg-accent-500" />
           <PersonAvatar :name="notice.createdBy" :size="20" />
           <span class="font-medium text-fg">{{ who(notice.createdBy) }}</span>
           <span class="text-faint">on</span>
-          <button type="button" class="flex min-w-0 items-center gap-2 rounded-md px-1 text-left hover:bg-hover" @click="openIssue(notice.project, notice.issue)">
+          <span class="flex min-w-0 items-center gap-2 px-1">
             <span class="font-mono text-xs text-faint">{{ notice.issue }}</span>
-            <span class="truncate text-fg">{{ notice.title }}</span>
-          </button>
+            <span class="truncate text-fg group-hover:underline">{{ notice.title }}</span>
+          </span>
           <span class="text-xs text-faint">in {{ projectName(notice.project) }}</span>
           <span class="ml-auto shrink-0 text-xs text-faint" :title="when(notice.createdAt)">{{ ago(notice.createdAt) }}</span>
         </div>
