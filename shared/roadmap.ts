@@ -161,6 +161,24 @@ export interface Comment {
     updatedAt: string
 }
 
+/** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
+ * moved in from another project. */
+export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'notes', 'chunk', 'parent', 'proposal', 'project'] as const
+export type ActivityField = (typeof ACTIVITY_FIELDS)[number]
+
+/** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
+ * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */
+export interface IssueEvent {
+    id: number
+    issue: string
+    field: ActivityField
+    before?: string
+    after?: string
+    createdBy: string
+    protected: boolean
+    createdAt: string
+}
+
 export const emptyKinds = (): Kinds => ({proposed: 0, backlog: 0, todo: 0, started: 0, done: 0, canceled: 0})
 
 /** The committed issues: every kind but proposed and canceled (what progress is out of). */

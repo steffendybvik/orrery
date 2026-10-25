@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Comment, Issue} from '#shared/roadmap'
+import type {Comment, Issue, IssueEvent} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, sub-issues and activity, with its
@@ -30,10 +30,62 @@ watch(() => [project.value?.id, issueId.value] as const, ([p, i]) => {
 }, {immediate: true})
 
 const comments = ref<Comment[]>([])
+const activity = ref<IssueEvent[]>([])
 watch(() => [project.value?.id, issueId.value, issue.value?.updatedAt] as const, async ([p, i]) => {
     if (!p || !i || !issue.value) return
-    comments.value = await $fetch<Comment[]>(`/api/projects/${encodeURIComponent(p)}/issues/${encodeURIComponent(i)}/comments`).catch(() => [])
+    const base = `/api/projects/${encodeURIComponent(p)}/issues/${encodeURIComponent(i)}`
+    ;[comments.value, activity.value] = await Promise.all([
+        $fetch<Comment[]>(`${base}/comments`).catch(() => []),
+        $fetch<IssueEvent[]>(`${base}/activity`).catch(() => []),
+    ])
 }, {immediate: true})
+
+const {look} = useStatuses()
+const PROPOSAL_SAID: Record<string, string> = {pending: 'put it up as a proposal', approved: 'approved the proposal', changes: 'asked for changes to the proposal', rejected: 'rejected the proposal'}
+
+/** One change as words: "moved it to In progress", "assigned Claude". */
+function said(event: IssueEvent): string[] {
+    const {field, before, after} = event
+    if (field === 'status') return [`moved it to ${look(after ?? '').label}`]
+    if (field === 'priority') return [after ? `set the priority to ${PRIORITY_LABEL[after] ?? after}` : 'took the priority off']
+    if (field === 'assignee') return [after ? `assigned ${who(after)}` : 'unassigned it']
+    if (field === 'title') return [`renamed it from “${before ?? ''}”`]
+    if (field === 'notes') return ['edited the description']
+    if (field === 'parent') return [after ? `made it a sub-issue of ${after}` : 'made it a top-level issue']
+    if (field === 'project') return [`moved it here from ${before}`]
+    if (field === 'proposal') return [after ? PROPOSAL_SAID[after] ?? after : 'committed it']
+    if (field === 'chunk') {
+        const title = project.value?.board.chunks.find(c => c.id === after)?.title ?? after
+        return [after ? `put it in ${title}` : 'took it out of its chunk']
+    }
+    if (field === 'labels') {
+        const [was, now] = [before, after].map(l => JSON.parse(l ?? '[]') as string[])
+        return [
+            ...now!.filter(l => !was!.includes(l)).map(l => `added the label ${l}`),
+            ...was!.filter(l => !now!.includes(l)).map(l => `took off the label ${l}`),
+        ]
+    }
+    return []
+}
+
+/** Comments, and between them the changes, each write's changes as one line ("claude moved it to
+ * In progress and assigned Claude"). Made is the line at the top, so `created` isn't repeated. */
+const timeline = computed(() => {
+    type Entry = {key: string, at: string, comment?: Comment, by?: string, words?: string[]}
+    const lines: Entry[] = []
+    for (const event of activity.value) {
+        const words = event.field === 'created' ? [] : said(event)
+        if (!words.length) continue
+        const last = lines.at(-1)
+        if (last && last.at === event.createdAt && last.by === event.createdBy) last.words!.push(...words)
+        else lines.push({key: `e${event.id}`, at: event.createdAt, by: event.createdBy, words})
+    }
+    const all: (Entry & {text?: string})[] = [
+        ...lines.map(l => ({...l, text: l.words!.length > 1 ? `${l.words!.slice(0, -1).join(', ')} and ${l.words!.at(-1)}` : l.words![0]})),
+        ...comments.value.map(c => ({key: `c${c.id}`, at: c.createdAt, comment: c})),
+    ]
+    return all.sort((a, b) => a.at.localeCompare(b.at))
+})
 
 /** Back to the board or list it was opened from, else the project. */
 function back() {
@@ -261,19 +313,25 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
               <span class="text-muted">{{ who(issue.createdBy) }}</span> created the issue · <span :title="issue.createdAt">{{ ago(issue.createdAt) }}</span>
             </li>
-            <li v-for="comment in comments" :key="comment.id" class="flex flex-col gap-1.5">
-              <div class="-ml-[31px] flex items-center gap-2 text-xs">
-                <PersonAvatar :name="comment.createdBy" :size="20" />
-                <span class="font-medium text-fg">{{ who(comment.createdBy) }}</span>
-                <span class="text-faint" :title="comment.createdAt">{{ ago(comment.createdAt) }}{{ comment.updatedAt !== comment.createdAt ? ' · edited' : '' }}</span>
-                <span
-                    v-if="comment.asks"
-                    class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
-                    :class="comment.answered ? 'text-faint ring-line' : 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300'"
-                >{{ comment.answered ? `${comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
-              </div>
-              <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="comment.body" class="text-[13px] leading-6" /></div>
-            </li>
+            <template v-for="entry in timeline" :key="entry.key">
+              <li v-if="!entry.comment" class="text-xs text-faint">
+                <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
+                <span class="text-muted">{{ who(entry.by!) }}</span> {{ entry.text }} · <span :title="entry.at">{{ ago(entry.at) }}</span>
+              </li>
+              <li v-else class="flex flex-col gap-1.5">
+                <div class="-ml-[31px] flex items-center gap-2 text-xs">
+                  <PersonAvatar :name="entry.comment.createdBy" :size="20" />
+                  <span class="font-medium text-fg">{{ who(entry.comment.createdBy) }}</span>
+                  <span class="text-faint" :title="entry.comment.createdAt">{{ ago(entry.comment.createdAt) }}{{ entry.comment.updatedAt !== entry.comment.createdAt ? ' · edited' : '' }}</span>
+                  <span
+                      v-if="entry.comment.asks"
+                      class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
+                      :class="entry.comment.answered ? 'text-faint ring-line' : 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300'"
+                  >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
+                </div>
+                <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[13px] leading-6" /></div>
+              </li>
+            </template>
           </ol>
           <CommentBox :project="project.id" :issue="issue.id" @posted="c => comments = [...comments.filter(x => x.id !== c.id), c]" />
         </section>

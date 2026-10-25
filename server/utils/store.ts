@@ -3,7 +3,7 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
-import type {Asks, Board, Chunk, Comment, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, IssueStatus, Kind, Kinds, Notice, Priority, Project, Proposal, Signal} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Chunk, Comment, IssueEvent, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, IssueStatus, Kind, Kinds, Notice, Priority, Project, Proposal, Signal} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
@@ -80,6 +80,7 @@ interface IssueRow extends Made {
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null
 }
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
+interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
 interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
 
@@ -219,7 +220,7 @@ export class Store {
         transaction(this.db, () => {
             this.run("INSERT INTO settings (key, value) VALUES ('owner', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(display))
             if (name === before.name) return
-            for (const table of ['projects', 'chunks', 'issues', 'docs', 'comments', 'signals', 'schedules'])
+            for (const table of ['projects', 'chunks', 'issues', 'docs', 'comments', 'signals', 'schedules', 'issue_events'])
                 this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)
             this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)
             this.run('UPDATE issues SET decided_by = ? WHERE lower(decided_by) = ?', name, before.name)
@@ -561,6 +562,7 @@ export class Store {
                 input.assignee === undefined && input.proposal === 'pending' ? this.owner : nullable(input.assignee),
                 JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
                 parent, chunk, Number(input.position ?? this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
+            this.record(project, id, actor, [['created', null, null]])
             this.touchProject(project)
             return id
         })
@@ -577,7 +579,7 @@ export class Store {
         const input = checkInput(body, ISSUE_FIELDS, true)
         if (input.project !== undefined && input.project !== project) {
             const {project: to, parent, chunk, ...rest} = input
-            const moved = this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null)
+            const moved = this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null, actor)
             return this.updateIssue(String(to), moved, rest, actor)
         }
         const row = this.issueRow(project, id)
@@ -599,13 +601,29 @@ export class Store {
         }
         if (chunk) this.chunkRow(project, chunk)
 
+        const title = input.title === undefined ? undefined : String(input.title).trim()
+        const status = input.status === undefined && input.plan === undefined ? undefined : this.resolveStatus(input.status, input.plan)
+        const assignee = input.assignee === undefined && input.proposal === 'pending' ? this.owner : input.assignee
+        const labels = input.labels === undefined ? undefined : JSON.stringify(input.labels ?? [])
+        const moved = input.parent !== undefined && parent !== row.parent
         transaction(this.db, () => {
+            this.record(project, id, actor, [
+                ['title', row.title, title],
+                ['status', row.status, status],
+                ['priority', row.priority, input.priority],
+                ['assignee', row.assignee, assignee],
+                ['labels', row.labels, labels],
+                ['notes', row.notes, input.notes],
+                ['proposal', row.proposal, input.proposal],
+                // A sub-issue is in its parent's chunk, so a new parent says it all.
+                moved ? ['parent', row.parent, parent] : ['chunk', row.chunk, chunk],
+            ])
             this.update('issues', 'project = ? AND id = ?', [project, id], {
-                title: input.title === undefined ? undefined : String(input.title).trim(),
-                status: input.status === undefined && input.plan === undefined ? undefined : this.resolveStatus(input.status, input.plan),
+                title,
+                status,
                 priority: input.priority,
-                assignee: input.assignee === undefined && input.proposal === 'pending' ? this.owner : input.assignee,
-                labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
+                assignee,
+                labels,
                 notes: input.notes,
                 proposal: input.proposal,
                 // Put up again, it waits on a new decision.
@@ -647,15 +665,19 @@ export class Store {
         const input = checkInput(body ?? {}, DECISION_FIELDS)
         const decision = input.decision as Decision
         const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null
-        this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ?, assignee = ? WHERE project = ? AND id = ?',
-            decision, actor.name, stamp(), note, row.owned ? row.assignee : row.created_by, project, id)
+        const assignee = row.owned ? row.assignee : row.created_by
+        transaction(this.db, () => {
+            this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ?, assignee = ? WHERE project = ? AND id = ?',
+                decision, actor.name, stamp(), note, assignee, project, id)
+            this.record(project, id, actor, [['proposal', row.proposal, decision], ['assignee', row.assignee, assignee]])
+        })
         this.createComment(project, id, {body: note ? `${DECIDED[decision]}\n\n${note}` : DECIDED[decision]}, actor)
         return this.issue(project, id)
     }
 
     /** Moves an issue and everything under it to `to`, where they get its ids (KEY-n); the ids they had
      * stay as aliases there. Says the issue's new id. */
-    private moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string]): string {
+    private moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string], actor: Actor): string {
         this.projectRow(to)
         const parentId = parent ? this.issueId(to, String(parent)) : null
         const chunkId = chunk ? this.chunkId(to, String(chunk)) : null
@@ -678,6 +700,8 @@ export class Store {
                     to, next, link.id === id ? parentId : names.get(link.parent!) ?? null, link.id === id && !parentId ? chunkId : null, position, from, link.id)
             }
             for (const comment of comments) this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, names.get(comment.issue)!, comment.id)
+            for (const [old, next] of names) this.run('UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, from, old)
+            this.record(to, names.get(id)!, actor, [['project', from, to]])
             this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
             for (const {alias, issue} of aliases) this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, alias, names.get(issue)!)
             for (const [old, next] of names) this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, old, next)
@@ -704,6 +728,13 @@ export class Store {
         return this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue = ? ORDER BY created_at, id`, project, issue).map(commentOf)
     }
 
+    /** Who changed what on the issue, and when, oldest first. */
+    listActivity(project: string, issue: string): IssueEvent[] {
+        issue = this.issueId(project, issue)
+        this.issueRow(project, issue)
+        return this.all<EventRow>('SELECT * FROM issue_events WHERE project = ? AND issue = ? ORDER BY created_at, id', project, issue).map(eventOf)
+    }
+
     comment(project: string, issue: string, id: number): Comment {
         issue = this.issueId(project, issue)
         return commentOf(this.commentRow(project, issue, id))
@@ -724,7 +755,10 @@ export class Store {
         const id = transaction(this.db, () => {
             const {lastInsertRowid} = this.run('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now)
-            if (assignee) this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
+            if (assignee) {
+                this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
+                this.record(project, issue, actor, [['assignee', row.assignee, assignee]])
+            }
             this.touchIssue(project, issue)
             return Number(lastInsertRowid)
         })
@@ -1178,6 +1212,18 @@ export class Store {
 
     // Writing
 
+    /** Notes the fields that change: `after` undefined is left as it is, and a value equal to `before` is no
+     * change. `created` is always noted. Notes keep no values, only that they changed. */
+    private record(project: string, issue: string, actor: Actor, changes: [ActivityField, string | null, Input[string]][]) {
+        const now = stamp()
+        for (const [field, before, after] of changes) {
+            if (field !== 'created' && (after === undefined || (after ?? null) === before)) continue
+            const [from, to] = field === 'notes' ? [null, null] : [before, nullable(after)]
+            this.run('INSERT INTO issue_events (project, issue, field, before, after, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                project, issue, field, from, to, actor.name, Number(actor.owner), now)
+        }
+    }
+
     /** Sets the given fields (undefined ones are left as they are) and the update time. */
     private update(table: string, where: string, keys: SQLInputValue[], fields: Input) {
         const set = Object.entries(fields).filter(([, value]) => value !== undefined)
@@ -1216,6 +1262,13 @@ function commentOf(row: CommentRow): Comment {
     return {
         id: row.id, issue: row.issue, body: row.body, asks: row.asks ?? undefined, answered: row.asks ? !!row.answered : undefined,
         createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at, updatedAt: row.updated_at,
+    }
+}
+
+function eventOf(row: EventRow): IssueEvent {
+    return {
+        id: row.id, issue: row.issue, field: row.field, before: row.before ?? undefined, after: row.after ?? undefined,
+        createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at,
     }
 }
 

@@ -163,6 +163,58 @@ describe('comments', () => {
     })
 })
 
+describe('activity', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+    const claude: Actor = {name: 'claude', owner: false}
+    const changed = (issue: string, project = 'mesher') => store.listActivity(project, issue).map(e => [e.field, e.before, e.after, e.createdBy])
+
+    it('notes who changed which field, from what to what', () => {
+        const {id} = store.createIssue('mesher', {title: 'A', notes: 'first'}, owner)
+        store.updateIssue('mesher', id, {title: 'A', status: 'in-progress', assignee: 'claude', priority: 'P2'}, claude)
+        store.updateIssue('mesher', id, {notes: 'second', labels: ['ui'], chunk: '1'}, claude)
+        store.updateIssue('mesher', id, {notes: 'second', priority: null}, owner)
+        expect(changed(id)).toEqual([
+            ['created', undefined, undefined, 'skoll'],
+            ['status', 'backlog', 'in-progress', 'claude'],
+            ['priority', undefined, 'P2', 'claude'],
+            ['assignee', undefined, 'claude', 'claude'],
+            ['labels', '[]', '["ui"]', 'claude'],
+            ['notes', undefined, undefined, 'claude'],
+            ['chunk', undefined, '1', 'claude'],
+            ['priority', 'P2', undefined, 'skoll'],
+        ])
+        expect(store.listActivity('mesher', id)[0]).toMatchObject({issue: id, protected: true})
+    })
+
+    it('notes a new parent, not the chunk that comes with it', () => {
+        const parent = store.createIssue('mesher', {title: 'P', chunk: '1'}).id
+        const {id} = store.createIssue('mesher', {title: 'A', chunk: '1'})
+        store.updateIssue('mesher', id, {parent})
+        store.updateIssue('mesher', id, {parent: null})
+        expect(changed(id).slice(1)).toEqual([['parent', undefined, parent, 'agent'], ['parent', parent, undefined, 'agent']])
+    })
+
+    it('notes decisions and the assignee an ask hands over', () => {
+        const {id} = store.createIssue('mesher', {title: 'Button', proposal: 'pending'}, claude)
+        store.decide('mesher', id, {decision: 'approved'}, owner)
+        store.createComment('mesher', id, {body: 'Ship it?', asks: 'decision'}, claude)
+        expect(changed(id).slice(1)).toEqual([
+            ['proposal', 'pending', 'approved', 'skoll'],
+            ['assignee', 'owner', 'claude', 'skoll'],
+            ['assignee', 'claude', 'owner', 'claude'],
+        ])
+    })
+
+    it('moves with the issue to another project, and goes when it does', () => {
+        store.createProject({name: 'orrery', key: 'ORR'})
+        const {id} = store.createIssue('mesher', {title: 'A'})
+        const moved = store.updateIssue('mesher', id, {project: 'orrery'}, owner)
+        expect(changed(moved.id, 'orrery')).toEqual([['created', undefined, undefined, 'agent'], ['project', 'mesher', 'orrery', 'skoll']])
+        store.deleteIssue('orrery', moved.id, owner)
+        expect(store.db.prepare('SELECT count(*) AS n FROM issue_events').get()).toEqual({n: 0})
+    })
+})
+
 describe('proposals', () => {
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
