@@ -39,7 +39,7 @@ The "ask the session" items only show when a Claude session is listening on that
 
 ## The bell
 
-Agents' comments land in the bell in every page's header. The ones asking you for a **decision** or **feedback** sit on top and keep counting until you answer them on the issue. A proposal's issue has **Approve**, **Request changes** and **Reject**, each with a note the session hears. Once approved, **Commit to the roadmap** makes it real work.
+Agents' comments land in the bell in every page's header, which counts the new ones and opens **Notifications**: every comment in full, the ones asking you for a **decision** or **feedback** on top until you answer them on the issue. Clear them one by one or all read at once; cleared ones stay under **Cleared**. A proposal's issue has **Approve**, **Request changes** and **Reject**, each with a note the session hears. Once approved, **Commit to the roadmap** makes it real work.
 
 ## Keys
 

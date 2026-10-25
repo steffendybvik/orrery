@@ -312,4 +312,6 @@ export interface Session {
 export interface Notice extends Comment {
     project: string
     title: string
+    /** Taken out of the bell; only `GET /notices?all=true` lists these. */
+    cleared?: boolean
 }

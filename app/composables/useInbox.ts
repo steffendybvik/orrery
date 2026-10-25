@@ -1,6 +1,6 @@
 import type {Notice} from '#shared/roadmap'
 
-// The bell: agents' comments, newest first; those after `seenAt` (remembered in this browser) are new.
+// The bell and the notifications page: agents' comments, newest first; those after `seenAt` (remembered in this browser) are new.
 // Clearing takes them out of the bell for good (they stay on their issues). Those waiting on the owner
 // (a decision or feedback they haven't answered on the issue) count until answered.
 export function useInbox() {
