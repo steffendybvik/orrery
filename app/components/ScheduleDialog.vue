@@ -6,8 +6,9 @@ import type {Repeat} from '~/utils/schedule'
 // Writing a schedule, or changing one, as the owner: in a project, whether each run makes an issue or
 // only sends a message to the project's Claude sessions, what it says, when it runs (presets, or a cron
 // under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
-// sessions to pick it up. ⌘↵ saves, Esc closes.
-const {editing} = useSchedules()
+// sessions to pick it up. One already made can be paused or resumed from here, at once. ⌘↵ saves, Esc
+// closes.
+const {editing, pause} = useSchedules()
 const {byId} = useRoadmaps()
 const {load} = useOwner()
 
@@ -39,6 +40,8 @@ const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
 const ask = ref(false)
 const skipOpen = ref(true)
+const enabled = ref(true)
+const pausing = ref(false)
 const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
@@ -68,6 +71,7 @@ watch(editing, now => {
     labels.value = [...s?.labels ?? []]
     ask.value = s?.ask ?? false
     skipOpen.value = s?.skipOpen ?? true
+    enabled.value = s?.enabled ?? true
     const repeat: Repeat = s ? toRepeat(s) : {kind: 'weekdays', time: '09:00'}
     kind.value = repeat.kind
     if ('time' in repeat) time.value = repeat.time
@@ -136,6 +140,20 @@ async function save() {
         failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
     } finally {
         saving.value = false
+    }
+}
+
+async function togglePause() {
+    if (!existing.value || pausing.value) return
+    pausing.value = true
+    failed.value = ''
+    try {
+        await pause(existing.value, enabled.value)
+        enabled.value = !enabled.value
+    } catch (error) {
+        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+    } finally {
+        pausing.value = false
     }
 }
 
@@ -254,6 +272,14 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
         </section>
 
         <div class="flex items-center gap-2 border-t border-line pt-3">
+          <button
+              v-if="existing && !(existing.at && !existing.enabled)"
+              type="button"
+              class="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-40"
+              :disabled="pausing"
+              @click="togglePause"
+          >{{ enabled ? '❙❙ Pause' : '▶ Resume' }}</button>
+          <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>
           <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
           <button type="submit" class="ml-auto flex h-8 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="!ready">
             {{ saving ? 'Saving…' : existing ? 'Save schedule' : 'Create schedule' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>

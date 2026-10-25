@@ -1,7 +1,7 @@
 import type {Schedule} from '#shared/roadmap'
 
 // Every project's schedules, by project, kept current from `/api/events`; and the schedule dialog
-// (open for a project, and a schedule to edit) and the right-click menu.
+// (open for a project, and a schedule to edit), the right-click menu, and pausing one.
 export function useSchedules() {
     const byProject = useState<Record<string, Schedule[]>>('schedules', () => ({}))
     const of = (project: string) => byProject.value[project] ?? []
@@ -20,5 +20,12 @@ export function useSchedules() {
         menu.value = {schedule, x: event.clientX, y: event.clientY}
     }
 
-    return {byProject, of, load, editing, edit, menu, openMenu}
+    /** Pauses a schedule, or resumes it, as the owner; the list catches up from the events. */
+    async function pause(schedule: Schedule, paused: boolean) {
+        await $fetch<Schedule>(`/api/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}`, {
+            method: 'PATCH', headers: {'Orrery-Actor': await useOwner().load()}, body: {enabled: !paused},
+        })
+    }
+
+    return {byProject, of, load, editing, edit, menu, openMenu, pause}
 }

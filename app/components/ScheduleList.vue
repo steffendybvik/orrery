@@ -3,9 +3,10 @@ import type {Schedule} from '#shared/roadmap'
 
 // Schedules as an agenda, by when they run next: today, tomorrow, this week, later, then paused (and
 // one-offs that have run). A row says when it repeats, when it runs next and how its last run went;
-// clicking edits it, right-clicking opens its menu.
+// clicking edits it, right-clicking opens its menu, and its pause button (on hover, or while paused)
+// pauses or resumes it.
 const props = defineProps<{schedules: Schedule[]}>()
-const {edit, openMenu} = useSchedules()
+const {edit, openMenu, pause} = useSchedules()
 const {open: openIssue} = useIssueLink()
 
 // Ticks once a minute, so "in 5m" and the groups stay right.
@@ -36,6 +37,21 @@ const groups = computed(() => {
     }
     return named.filter(g => g.items.length)
 })
+
+// The schedules being paused or resumed, so a double click doesn't send it twice.
+const pausing = ref(new Set<number>())
+async function togglePause(s: Schedule) {
+    if (pausing.value.has(s.id)) return
+    pausing.value.add(s.id)
+    try {
+        await pause(s, s.enabled)
+    } catch {
+        // The row stays as it was.
+    } finally {
+        pausing.value.delete(s.id)
+    }
+}
+const ran = (s: Schedule) => !!s.at && !s.enabled
 
 const OUTCOME = {
     made: 'text-emerald-600 dark:text-emerald-400',
@@ -77,9 +93,19 @@ const OUTCOME = {
           <template v-else>{{ {sent: '✉ sent', skipped: '⤼ skipped', failed: '✗ failed'}[s.runs[0].outcome] }}</template>
           <span class="text-faint">· {{ ago(s.runs[0].at) }}</span>
         </span>
+        <button
+            v-if="!ran(s)"
+            type="button"
+            class="flex size-7 shrink-0 items-center justify-center rounded-md text-xs text-muted transition-opacity hover:bg-active hover:text-fg focus-visible:opacity-100 disabled:opacity-40"
+            :class="s.enabled && 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'"
+            :disabled="pausing.has(s.id)"
+            :title="s.enabled ? 'Pause' : 'Resume'"
+            :aria-label="`${s.enabled ? 'Pause' : 'Resume'} ${s.title}`"
+            @click.stop="togglePause(s)"
+        >{{ s.enabled ? '❙❙' : '▶' }}</button>
         <span class="w-36 shrink-0 text-right text-xs" :title="s.nextRun ? when(s.nextRun) : ''">
           <template v-if="s.enabled && s.nextRun"><span class="text-fg">{{ until(s.nextRun) }}</span> <span class="text-faint">· {{ when(s.nextRun).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
-          <span v-else class="text-faint">{{ s.at && !s.enabled ? 'ran' : 'paused' }}</span>
+          <span v-else class="text-faint">{{ ran(s) ? 'ran' : 'paused' }}</span>
         </span>
       </div>
     </section>
