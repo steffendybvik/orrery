@@ -107,11 +107,11 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
         <input
             v-model="form.name"
             :disabled="!!editing"
-            placeholder="STRIPE_KEY"
+            placeholder="api_key"
             aria-label="Name"
             maxlength="64"
             autocomplete="off"
-            :class="[input, 'w-44 font-mono uppercase disabled:opacity-60']"
+            :class="[input, 'w-44 font-mono uppercase placeholder:normal-case disabled:opacity-60']"
         >
         <input
             v-model="form.value"
@@ -122,7 +122,7 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
             :class="[input, 'w-72 max-w-full font-mono']"
         >
       </div>
-      <input v-model="form.hosts" placeholder="Hosts it may go to: api.stripe.com, …" aria-label="Hosts" autocomplete="off" :class="[input, 'w-full font-mono']">
+      <input v-model="form.hosts" placeholder="Hosts it may go to: api.example.com, …" aria-label="Hosts" autocomplete="off" :class="[input, 'w-full font-mono']">
       <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
         For
         <button
