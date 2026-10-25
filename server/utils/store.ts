@@ -162,6 +162,8 @@ export class Store {
         private readonly onSignal: (signal: Signal) => void = () => {},
         private readonly onNotice: (notice: Notice) => void = () => {},
         private readonly onSettings: (settings: Settings) => void = () => {},
+        /** The owner's name: what waits on them (a proposal, an agent's ask) is assigned to it. */
+        private readonly owner = 'owner',
     ) {}
 
     /** Agents' latest comments across projects (what the bell shows), newest first, after the ones still
@@ -394,7 +396,9 @@ export class Store {
                                           created_by, owned, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), String(input.status ?? 'todo'), nullable(input.plan), nullable(input.priority),
-                nullable(input.assignee), JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
+                // A proposal waits on the owner, so it's theirs unless it says whose it is.
+                input.assignee === undefined && input.proposal === 'pending' ? this.owner : nullable(input.assignee),
+                JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal),
                 parent, chunk, Number(input.position ?? this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
             this.touchProject(project)
             return id
@@ -440,7 +444,7 @@ export class Store {
                 status: input.status,
                 plan: input.plan,
                 priority: input.priority,
-                assignee: input.assignee,
+                assignee: input.assignee === undefined && input.proposal === 'pending' ? this.owner : input.assignee,
                 labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
                 notes: input.notes,
                 proposal: input.proposal,
@@ -473,7 +477,8 @@ export class Store {
     }
 
     /** The owner's decision on a proposal: approved (still not work until it's committed), changes asked
-     * for, or rejected. It's kept on the issue and left as their comment, so the session on it hears. */
+     * for, or rejected. It's kept on the issue and left as their comment, so the session on it hears, and
+     * the issue goes back to the agent who proposed it. */
     decide(project: string, id: string, body: unknown, actor = AGENT): IssueDetail {
         id = this.issueId(project, id)
         const row = this.issueRow(project, id)
@@ -482,8 +487,8 @@ export class Store {
         const input = checkInput(body ?? {}, DECISION_FIELDS)
         const decision = input.decision as Decision
         const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null
-        this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ? WHERE project = ? AND id = ?',
-            decision, actor.name, stamp(), note, project, id)
+        this.run('UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ?, assignee = ? WHERE project = ? AND id = ?',
+            decision, actor.name, stamp(), note, row.owned ? row.assignee : row.created_by, project, id)
         this.createComment(project, id, {body: note ? `${DECIDED[decision]}\n\n${note}` : DECIDED[decision]}, actor)
         return this.issue(project, id)
     }
@@ -544,14 +549,22 @@ export class Store {
         return commentOf(this.commentRow(project, issue, id))
     }
 
+    /** An agent's ask assigns the issue to the owner; the owner's answer gives it back to the agent who asked. */
     createComment(project: string, issue: string, body: unknown, actor = AGENT): Comment {
         issue = this.issueId(project, issue)
-        this.issueRow(project, issue)
+        const row = this.issueRow(project, issue)
         const input = checkInput(body, COMMENT_FIELDS)
         const now = stamp()
+        const asker = actor.owner && row.assignee === this.owner
+            ? this.get<{created_by: string}>(`SELECT c.created_by FROM comments c WHERE c.project = ? AND c.issue = ? AND c.asks IS NOT NULL AND c.owned = 0
+                AND NOT EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)
+                ORDER BY c.id DESC LIMIT 1`, project, issue)?.created_by
+            : undefined
+        const assignee = !actor.owner && input.asks ? this.owner : asker
         const id = transaction(this.db, () => {
             const {lastInsertRowid} = this.run('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now)
+            if (assignee) this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
             this.touchIssue(project, issue)
             return Number(lastInsertRowid)
         })

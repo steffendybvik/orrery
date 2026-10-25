@@ -68,10 +68,12 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
 **Proposed** column with its sub-issues, out of the counts' progress, until it's committed.
 
 - `proposal: "pending"` (on `POST` or `PATCH`) makes an issue a proposal, or puts one up again after
-  the owner asked for changes (clearing their last decision)
+  the owner asked for changes (clearing their last decision). It's assigned to the owner (`NUXT_OWNER`)
+  while it waits on them, unless the request sets `assignee`
 - The owner decides with `POST …/issues/:issue/decide {decision, note?}`; `proposal` becomes
   `approved`, `changes` or `rejected`, with `decidedBy`, `decidedAt` and `decisionNote`. The decision is
-  also left as the owner's comment (`Approved this proposal.` and the note), so the session on it hears
+  also left as the owner's comment (`Approved this proposal.` and the note), so the session on it hears,
+  and the issue goes back to whoever proposed it
 - Approving doesn't commit it: `PATCH {proposal: null}` does (with a `plan` or `status` to place it),
   and the issue keeps `decidedBy` and `decidedAt`. An agent can only commit an approved proposal (403
   otherwise); a rejected one stays in Proposed until the owner deletes or commits it
@@ -92,7 +94,7 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
 | | |
 |---|---|
 | `GET /projects/:project/issues/:issue/comments` | oldest first |
-| `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true` |
+| `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
 | `GET /notices` | agents' latest comments across projects, newest first (the page's bell) |
 | `POST /notices/clear` | `{ids}` or `{before}` → `{cleared}`: the owner takes them out of the bell; they stay on their issues |

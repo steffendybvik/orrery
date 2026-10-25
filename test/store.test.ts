@@ -196,6 +196,14 @@ describe('proposals', () => {
         const other = store.createIssue('mesher', {title: 'Card', proposal: 'pending'})
         expect(store.updateIssue('mesher', other.id, {proposal: null}, owner).column).toBe('backlog')
     })
+
+    it("are the owner's until decided, then back with whoever proposed them", () => {
+        const {id} = store.createIssue('mesher', {title: 'Button', proposal: 'pending'}, claude)
+        expect(store.issue('mesher', id).assignee).toBe('owner')
+        expect(store.decide('mesher', id, {decision: 'changes'}, owner).assignee).toBe('claude')
+        expect(store.updateIssue('mesher', id, {proposal: 'pending'}, claude).assignee).toBe('owner')
+        expect(store.createIssue('mesher', {title: 'Card', proposal: 'pending', assignee: 'claude'}, claude).assignee).toBe('claude')
+    })
 })
 
 describe("the owner's things", () => {
@@ -301,6 +309,22 @@ describe('comments that wait on the owner', () => {
         expect(store.notices()[0]).toMatchObject({body: 'Ship it?', answered: true})
         expect(store.listComments('mesher', id).find(c => c.id === ask.id)).toMatchObject({asks: 'decision', answered: true})
         expect(failure(() => store.createComment('mesher', id, {body: 'x', asks: 'vibes'}, agent)).status).toBe(400)
+    })
+
+    it("make the issue the owner's until they answer, then the asker's again", () => {
+        const {id} = store.createIssue('mesher', {title: 'A', assignee: 'claude'})
+        const agent = {name: 'claude', owner: false}
+        const steffen = {name: 'steffen', owner: true}
+        store.createComment('mesher', id, {body: 'note'}, agent)
+        expect(store.issue('mesher', id).assignee).toBe('claude')
+        store.createComment('mesher', id, {body: 'Ship it?', asks: 'decision'}, agent)
+        expect(store.issue('mesher', id).assignee).toBe('owner')
+        store.createComment('mesher', id, {body: 'Yes'}, steffen)
+        expect(store.issue('mesher', id).assignee).toBe('claude')
+        // Answered already, so a later word from the owner leaves it with the agent.
+        store.updateIssue('mesher', id, {assignee: 'owner'}, steffen)
+        store.createComment('mesher', id, {body: 'Mine now'}, steffen)
+        expect(store.issue('mesher', id).assignee).toBe('owner')
     })
 })
 
