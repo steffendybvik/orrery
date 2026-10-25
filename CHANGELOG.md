@@ -16,6 +16,8 @@ the database schema are the public surface, and a database always migrates forwa
 - **Signals:** an issue the owner makes urgent (`P0`, created as one or raised to it) goes out to the
   listening sessions on its own, to the session working it first. So does a `P0` proposal once committed,
   or a closed `P0` issue reopened.
+- **Sessions:** a `/clear` or a compaction keeps the session and its channel, and the fresh context is
+  told which issues it had in progress, so it carries on with them.
 
 ## 1.0.0 (unreleased)
 

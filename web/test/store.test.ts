@@ -755,6 +755,23 @@ describe('a session that connects', () => {
     })
 })
 
+describe('what a session is working on', () => {
+    it('is the started issues any of its ids worked last, with their latest comment', async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
+        const jars = (await store.createIssue('larder', {title: 'Jars', status: 'in-review'})).id
+        const lids = (await store.createIssue('larder', {title: 'Lids', status: 'done'})).id
+        const theirs = (await store.createIssue('larder', {title: 'Theirs', status: 'in-progress'})).id
+        for (const issue of [shelves, lids]) await store.workedBy('larder', issue, 'before-clear')
+        await store.workedBy('larder', jars, 'after-clear')
+        await store.workedBy('larder', theirs, 'other-window')
+        await store.createComment('larder', shelves, {body: 'first'})
+        await store.createComment('larder', shelves, {body: 'halfway'})
+        const working = await store.workingOn('larder', ['after-clear', 'before-clear'])
+        expect(working.map(i => [i.id, i.last?.body])).toEqual([[shelves, 'halfway'], [jars, undefined]])
+        expect(await store.workingOn('larder', [])).toEqual([])
+    })
+})
+
 describe('docs', () => {
     it('are listed with the project, without their text', async () => {
         const doc = await store.createDoc('larder', {title: 'How joints work', body: '# Joints\n\nA **hinge** turns.'})

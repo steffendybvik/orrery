@@ -77,10 +77,10 @@ export default defineEventHandler(async event => {
         }, signal.instructions)
         return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null, prompt}
     }
-    // The owner's signals for every session, or for this one; a receipt (deliveredTo) isn't news.
-    const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.deliveredTo.length
-        && (!signal.target || signal.target === attended?.id)
-    const missed = after ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && (!s.target || s.target === attended?.id)) : []
+    // The owner's signals for every session, or for this one (by any id it has had); a receipt (deliveredTo) isn't news.
+    const ours = (signal: Signal) => !signal.target || currentId(signal.target) === attended?.id
+    const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.deliveredTo.length && ours(signal)
+    const missed = after ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && ours(s)) : []
 
     /** Sends signals one after another, in the order they came, however long each takes to read. */
     let queue: Promise<unknown> = Promise.resolve()

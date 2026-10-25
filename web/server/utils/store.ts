@@ -259,6 +259,15 @@ export class Store {
             ON CONFLICT (project, issue) DO UPDATE SET session = excluded.session, at = excluded.at`, project, issue, session, stamp(), project, issue)
     }
 
+    /** The issues in progress (a started status) that one of `sessions` worked last, with their latest comment. */
+    async workingOn(project: string, sessions: string[]): Promise<(IssueRecord & {last?: Comment})[]> {
+        if (!sessions.length) return []
+        const worked = new Set((await this.all<{issue: string}>(`SELECT issue FROM issue_sessions WHERE project = ? AND session IN (${sessions.map(() => '?').join(', ')})`,
+            project, ...sessions)).map(r => r.issue))
+        const issues = (await this.listIssues(project)).filter(r => worked.has(r.id) && r.kind === 'started')
+        return await Promise.all(issues.map(async issue => ({...issue, last: (await this.listComments(project, issue.id)).at(-1)})))
+    }
+
     /** The owner's id: what waits on them (a proposal, an agent's ask) is assigned to it. */
     private async ownerId() {
         return (await this.ownerOf()).name
