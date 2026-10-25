@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type {Section} from '~/utils/roadmap'
 
-// A project's page, or `schedules` (its schedules, on the Settings page).
-defineProps<{section: Section | 'schedules'}>()
+// A project's page.
+defineProps<{section: Section}>()
 </script>
 
 <template>

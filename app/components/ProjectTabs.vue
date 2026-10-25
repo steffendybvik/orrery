@@ -5,7 +5,8 @@ import type {Project} from '#shared/roadmap'
 // sidebar is always there, with the same pages under each project.
 const props = defineProps<{project: Project}>()
 const route = useRoute()
-const sections = computed(() => sectionsOf(props.project, route.path))
+const {of: schedulesOf} = useSchedules()
+const sections = computed(() => sectionsOf(props.project, route.path, schedulesOf(props.project.id).length))
 </script>
 
 <template>

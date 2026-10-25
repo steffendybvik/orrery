@@ -4,6 +4,7 @@ import type {Issue} from '#shared/roadmap'
 // Every project with its progress and how many issues are being worked on; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
+const {of: schedulesOf} = useSchedules()
 const open = useState('sidebar-open', () => false)
 const palette = useState('palette-open', () => false)
 const {environment} = useRuntimeConfig().public
@@ -209,7 +210,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </div>
         <div v-if="isOpen(project.id)" class="mb-2 flex flex-col gap-0.5">
           <NuxtLink
-              v-for="section in sectionsOf(project, route.path)"
+              v-for="section in sectionsOf(project, route.path, schedulesOf(project.id).length)"
               :key="section.id"
               :to="section.to"
               class="ml-5 flex items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"

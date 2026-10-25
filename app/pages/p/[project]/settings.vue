@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import {TINTS} from '#shared/roadmap'
 
-// A project's settings: its name, its icon in the sidebar and the icon's colour, its schedules (work
-// Orrery starts on its own, each run making an issue or sending the project's Claude sessions a
-// message), and deleting the project, for good.
+// A project's settings: its name, its icon in the sidebar and the icon's colour, and deleting the
+// project, for good. Its schedules have a page of their own.
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
-const {of, edit} = useSchedules()
+const {of} = useSchedules()
 const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 
@@ -176,27 +175,6 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           </div>
           <p v-if="!shown.length" class="px-1 py-4 text-center text-xs text-faint">No icon called “{{ search }}”.</p>
           <p v-if="iconFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ iconFailed }}</p>
-        </div>
-      </section>
-
-      <section id="schedules" class="mt-4 flex flex-col gap-3">
-        <header class="flex items-start gap-3">
-          <SectionIcon section="schedules" class="mt-0.5 size-4 text-accent-500" />
-          <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-            <h2 class="text-[15px] font-semibold text-fg">Schedules</h2>
-            <p class="text-xs text-muted">Work Orrery starts on its own. Each run makes an issue in {{ project.name }} (and can ask its Claude sessions to pick it up), or just sends the sessions a message.</p>
-          </div>
-          <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" @click="edit(project.id)">
-            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-            New schedule
-          </button>
-        </header>
-        <div class="overflow-hidden rounded-xl border border-line">
-          <ScheduleList v-if="of(project.id).length" :schedules="of(project.id)" />
-          <p v-else class="px-4 py-10 text-center text-sm text-muted">
-            Nothing scheduled.
-            <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="edit(project.id)">Schedule something</button>
-          </p>
         </div>
       </section>
 
