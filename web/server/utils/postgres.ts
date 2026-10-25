@@ -236,6 +236,8 @@ const STEPS: string[] = [`
         created_at text NOT NULL
     );
     CREATE INDEX secret_uses_secret ON secret_uses(secret, id);
+`, `
+    ALTER TABLE projects ADD COLUMN starts text;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, and the database it's on. */

@@ -171,6 +171,9 @@ export interface Project {
     /** Its own standing instructions, and the ids of the Orrery's it switches off. */
     instructions: Instruction[]
     muted: string[]
+    /** Whether Orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
+     * within what; none while the owner hasn't let it. */
+    starts?: Starts
     createdBy: string
     protected: boolean
     createdAt: string
@@ -303,6 +306,12 @@ export interface Owner {
     named: boolean
 }
 
+/** The sessions Orrery may start for a project: at most `limit` running at once, each stopped after `minutes`. */
+export interface Starts {
+    limit: number
+    minutes: number
+}
+
 export interface Settings {
     /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
     tint: string | null
@@ -314,6 +323,8 @@ export interface Settings {
     chunkPrompt: string | null
     /** Lines added to every focus, such as `commit whenever a piece works`. */
     instructions: Instruction[]
+    /** At most this many sessions Orrery started running at once, over every project. */
+    sessionLimit: number
 }
 
 /** What a Claude session is doing, as its hooks last said: `waiting` is waiting on the owner. */
@@ -334,6 +345,8 @@ export interface Session {
     startedAt: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
+    /** Orrery started it (no terminal), so it stops on its own after the project's `starts.minutes`. */
+    started?: boolean
 }
 
 /** An agent's comment, as the notification bell and page list it. */

@@ -85,3 +85,21 @@ owner's comment on one goes to the session working it rather than to every sessi
 
 The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
 project; without one, it's `shop`.
+
+## 4. Optionally, let Orrery start sessions
+
+Orrery can start a session itself when you send the project work and nobody is listening, so nobody has
+to open a terminal. Turn it on under **Starting sessions** on the project's Settings tab (how many at once,
+how many minutes each), then run the launcher on your machine, in the repo, and leave it running:
+
+```bash
+ORRERY_PROJECT=shop ORRERY_URL=http://localhost:9000 node /path/to/orrery/channel/orrery-launcher.mjs
+```
+
+It needs [tmux](https://github.com/tmux/tmux): each session runs detached (`tmux attach -t <name>` to
+watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
+are up, or when the launcher stops. Nobody is there to answer a permission prompt, so it runs in `auto` mode
+(`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
+flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
+App settings caps the sessions started over every project (3 by default). The cap is time, not cost:
+Claude Code only caps spend for non-interactive runs.

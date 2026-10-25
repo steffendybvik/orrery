@@ -42,7 +42,7 @@ describe('projects', () => {
 
     it('refuses unknown fields', async () => {
         expect(await failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted, starts'})
     })
 
     it('keep an icon to set and clear', async () => {
@@ -566,6 +566,25 @@ describe("an owner's comment", () => {
         expect(sent).toEqual([undefined, 'window-a', 'window-b', undefined])
         // Noting a worker on an issue that isn't there does nothing.
         await local.workedBy('larder', 'LAR-99', 'window-a')
+    })
+})
+
+describe('starting sessions', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it("is the owner's to allow, as {limit, minutes}, and to stop with null", async () => {
+        expect((await store.project('larder')).starts).toBeUndefined()
+        expect((await failure(() => store.updateProject('larder', {starts: {limit: 1, minutes: 30}}))).status).toBe(403)
+        expect((await store.updateProject('larder', {starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
+        for (const wrong of [{limit: 0, minutes: 30}, {limit: 2}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
+            expect((await failure(() => store.updateProject('larder', {starts: wrong}, owner))).status).toBe(400)
+        }
+        expect((await store.updateProject('larder', {starts: null}, owner)).starts).toBeUndefined()
+    })
+
+    it('runs at most three over every project until the owner says otherwise', async () => {
+        expect((await store.settings()).sessionLimit).toBe(3)
+        expect((await store.updateSettings({sessionLimit: 5}, owner)).sessionLimit).toBe(5)
     })
 })
 

@@ -122,8 +122,9 @@ export function hearing(project: string, id: string): boolean {
 }
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
- * started with the channel flag, so its messages would be dropped. Says the session's id. */
-export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true): {id: string, done: () => void} {
+ * started with the channel flag, so its messages would be dropped; `started` that Orrery started it.
+ * Says the session's id. */
+export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started = false): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
@@ -131,6 +132,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
         sessions.set(session.id, session)
     }
     session.listening = heard
+    if (started) session.started = true
     if (name) session.name = name
     changed(project)
     const held = session
@@ -141,6 +143,11 @@ export function attend(project: string, id: string | undefined, pid: number | un
             changed(project)
         },
     }
+}
+
+/** How many sessions Orrery started are running, on the project or over all of them. */
+export function startedSessions(project?: string): number {
+    return listSessions(project).filter(s => s.started).length
 }
 
 export function listSessions(project?: string): Session[] {

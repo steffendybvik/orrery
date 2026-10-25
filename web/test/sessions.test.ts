@@ -69,6 +69,16 @@ describe('a session', () => {
         expect(sessions.listSessions('larder').find(s => s.id === 'b')).toMatchObject({name: 'larder 1', listening: false})
     })
 
+    it('started by Orrery says so, and counts as one it started while it lasts', () => {
+        sessions.attend('larder', 'a', undefined, undefined, true, true)
+        sessions.attend('larder', 'b', undefined, undefined)
+        sessions.attend('mesa', 'c', undefined, undefined, true, true)
+        expect(sessions.listSessions('larder').map(s => !!s.started)).toEqual([true, false])
+        expect([sessions.startedSessions('larder'), sessions.startedSessions()]).toEqual([1, 2])
+        sessions.report({id: 'a', project: 'larder', event: 'SessionEnd'})
+        expect(sessions.startedSessions()).toBe(1)
+    })
+
     it('is forgotten after six quiet hours, unless it is listening', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
         sessions.report({id: 'quiet', project: 'larder', event: 'Stop'})

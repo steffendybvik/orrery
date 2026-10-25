@@ -457,6 +457,10 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         created_at TEXT NOT NULL
     );
     CREATE INDEX secret_uses_secret ON secret_uses(secret, id);
+`, `
+    -- Whether Orrery may start sessions for the project itself, without a terminal: a JSON {limit, minutes}
+    -- (at most \`limit\` running at once, each stopped after \`minutes\`), none while the owner hasn't let it.
+    ALTER TABLE projects ADD COLUMN starts TEXT;
 `]
 
 let db: DatabaseSync | null = null

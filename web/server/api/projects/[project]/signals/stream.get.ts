@@ -17,7 +17,10 @@ export default defineEventHandler(async event => {
     // A channel in a session not started with the channel flag says so (`channel=no`): Claude Code
     // drops its messages, so the session isn't counted as listening.
     const heard = text('channel') !== 'no'
-    const attended = text('session') || text('pid') ? attend(project, text('session'), Number(text('pid')) || undefined, text('name'), heard) : null
+    // A session Orrery started says which launch it is (`started`).
+    const started = text('started')
+    const attended = text('session') || text('pid') ? attend(project, text('session'), Number(text('pid')) || undefined, text('name'), heard, !!started) : null
+    if (started) launched(started)
     const stopListening = heard ? listen(project) : () => {}
     const done = () => {
         stopListening()

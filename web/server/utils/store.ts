@@ -2,7 +2,7 @@
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Settings, Signal} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Settings, Signal, Starts} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
@@ -75,7 +75,7 @@ export interface IssueFilter {
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 interface ProjectRow extends Made {
     id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
-    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string
+    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null
 }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
@@ -94,6 +94,8 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
+/** How many sessions Orrery started may run at once over every project, until the owner says otherwise. */
+const DEFAULT_SESSION_LIMIT = 3
 
 export const PROJECT_FIELDS: Record<string, Field> = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
@@ -108,10 +110,22 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     /** Ids of the Orrery's standing instructions the project switches off. */
     muted: {type: 'strings', nullable: true},
+    /** The owner's: `{limit, minutes}` lets Orrery start sessions for it; null stops that. */
+    starts: {type: 'json', nullable: true, parse: parseStarts},
 }
 
-/** What a project's sessions are told: only the owner changes it. */
-const PROMPT_FIELDS = ['focusPrompt', 'chunkPrompt', 'instructions', 'muted']
+/** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
+function parseStarts(value: unknown): string {
+    const {limit, minutes, ...rest} = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
+    const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
+    if (Object.keys(rest).length || !whole(limit, 20) || !whole(minutes, 24 * 60)) {
+        throw new Error(`should be {limit, minutes}: at most 20 sessions at once, each for 1 to 1440 minutes, not ${JSON.stringify(value)}`)
+    }
+    return JSON.stringify({limit, minutes})
+}
+
+/** What a project's sessions are told, and whether Orrery starts them: only the owner changes these. */
+const PROMPT_FIELDS = ['focusPrompt', 'chunkPrompt', 'instructions', 'muted', 'starts']
 
 // No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
 export const CHUNK_FIELDS: Record<string, Field> = {
@@ -206,6 +220,7 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     focusPrompt: {type: 'string', nullable: true},
     chunkPrompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
+    sessionLimit: {type: 'number', nullable: true},
 }
 
 export const OWNER_FIELDS: Record<string, Field> = {
@@ -379,14 +394,17 @@ export class Store {
 
     private promptsAreTheOwners(input: Input, actor: Actor) {
         const sent = PROMPT_FIELDS.filter(key => input[key] !== undefined)
-        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told (${sent.join(', ')}); send Orrery-Actor: <owner>`)
+        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told, and whether Orrery starts them (${sent.join(', ')}); send Orrery-Actor: <owner>`)
     }
 
     /** The prompt fields as columns: an empty template is none (the Orrery's). */
     private promptColumns(input: Input): Input {
         const template = (value: Input[string]) => value === undefined ? undefined : String(value ?? '').trim() || null
         const list = (value: Input[string]) => value === undefined ? undefined : JSON.stringify(value ?? [])
-        return {focus_prompt: template(input.focusPrompt), chunk_prompt: template(input.chunkPrompt), instructions: list(input.instructions), muted: list(input.muted)}
+        return {
+            focus_prompt: template(input.focusPrompt), chunk_prompt: template(input.chunkPrompt), instructions: list(input.instructions), muted: list(input.muted),
+            starts: input.starts === undefined ? undefined : input.starts ?? null,
+        }
     }
 
     /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
@@ -442,6 +460,7 @@ export class Store {
             focusPrompt: (value('focusPrompt') as string | undefined) || null,
             chunkPrompt: (value('chunkPrompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
+            sessionLimit: Math.max(0, Math.floor(Number(value('sessionLimit') ?? DEFAULT_SESSION_LIMIT) || 0)),
         }
     }
 
@@ -1170,6 +1189,7 @@ export class Store {
             chunkPrompt: row.chunk_prompt ?? undefined,
             instructions: JSON.parse(row.instructions) as Instruction[],
             muted: JSON.parse(row.muted) as string[],
+            starts: row.starts ? JSON.parse(row.starts) as Starts : undefined,
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,
