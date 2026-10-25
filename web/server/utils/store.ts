@@ -343,6 +343,8 @@ export class Store {
         const name = actorId(display)
         if (!name) throw badRequest('The name needs a letter or a digit in it')
         if (name === AGENT.name) throw badRequest(`"${AGENT.name}" is what requests without Orrery-Actor are; pick another name`)
+        // Every agent sends this one, as the guide tells it to: as the owner's name it would make them all the owner.
+        if (name === 'claude') throw badRequest('"claude" is what agents send as Orrery-Actor; pick another name')
         await this.db.transaction(async () => {
             await this.run("INSERT INTO settings (key, value) VALUES ('owner', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(display))
             if (name === before.name) return
