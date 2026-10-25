@@ -51,6 +51,17 @@ Back it up with Postgres's own means: `pg_dump` on a schedule
 (`docker compose exec postgres pg_dump -U orrery orrery > orrery.sql`), or a managed service's
 backups.
 
+To move an Orrery between SQLite and Postgres, stop it and copy it across, ids and all, into an empty
+one (both ends are brought up to the latest schema first):
+
+```sh
+pnpm orrery:copy /path/to/orrery.db postgres://orrery:orrery@localhost:5432/orrery
+pnpm orrery:copy postgres://orrery:orrery@localhost:5432/orrery ./orrery.db   # and back
+```
+
+The bundled Postgres isn't reachable from the machine, so copy into it with the profile's port opened
+for the copy, or into a Postgres of your own.
+
 ## Two servers: personal and work
 
 Each Orrery is its own server with its own database, so work and personal projects never mix. Run

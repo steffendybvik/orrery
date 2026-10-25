@@ -17,7 +17,8 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "orrery:copy": "jiti scripts/copy.ts"
   },
   "dependencies": {
     "@heroicons/vue": "2.2.0",
@@ -32,6 +33,7 @@
     "vue-router": "^5.4.0"
   },
   "devDependencies": {
+    "jiti": "2.7.0",
     "@playwright/test": "1.56.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.0.0",
