@@ -398,6 +398,7 @@ describe("the owner's name", () => {
     it('needs a letter or a digit, and not the name requests without one get', async () => {
         expect((await failure(() => store.nameOwner({name: '!!'}))).status).toBe(400)
         expect((await failure(() => store.nameOwner({name: 'Agent'}))).status).toBe(400)
+        expect((await failure(() => store.nameOwner({name: 'Claude'}))).status).toBe(400)
     })
 })
 

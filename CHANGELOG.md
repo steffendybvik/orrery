@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## 1.0.0-rc.2 (2026-10-25)
 
+- **Fixed, the owner's protections:** an agent can no longer change or run the owner's schedules (and
+  so send its own message as theirs), or name the owner `claude`; a page can't open a session's stream
+  (not even as a picture) to mark it not listening; and a malformed `Origin` is a 403 rather than a 500.
 - **Fixed, a window with a channel per project:** only the channel of the window's own project decides
   whether it's listening and whether Stop can reach it, so the other projects' channels (skipped by
   Claude Code) no longer turn it off. A skipped one that connects first no longer files the window under
