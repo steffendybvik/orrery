@@ -94,8 +94,6 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
-/** How many sessions Orrery started may run at once over every project, until the owner says otherwise. */
-const DEFAULT_SESSION_LIMIT = 3
 
 export const PROJECT_FIELDS: Record<string, Field> = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
@@ -220,7 +218,6 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     focusPrompt: {type: 'string', nullable: true},
     chunkPrompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
-    sessionLimit: {type: 'number', nullable: true},
 }
 
 export const OWNER_FIELDS: Record<string, Field> = {
@@ -466,7 +463,6 @@ export class Store {
             focusPrompt: (value('focusPrompt') as string | undefined) || null,
             chunkPrompt: (value('chunkPrompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
-            sessionLimit: Math.max(0, Math.floor(Number(value('sessionLimit') ?? DEFAULT_SESSION_LIMIT) || 0)),
         }
     }
 
@@ -572,9 +568,6 @@ export class Store {
     async updateSettings(body: unknown, actor = AGENT): Promise<Settings> {
         if (!actor.owner) throw forbidden("Only the owner changes the Orrery's settings; send Orrery-Actor: <owner>")
         const input = checkInput(body, SETTINGS_FIELDS, true)
-        if (input.sessionLimit != null && !(Number.isInteger(input.sessionLimit) && Number(input.sessionLimit) >= 0 && Number(input.sessionLimit) <= 50)) {
-            throw badRequest(`"sessionLimit" should be a whole number from 0 to 50, not ${input.sessionLimit}`)
-        }
         await this.db.transaction(async () => {
             for (const [key, sent] of Object.entries(input)) {
                 if (sent === undefined) continue

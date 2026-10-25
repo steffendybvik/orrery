@@ -8,7 +8,6 @@ let sent: {type: string, project?: string, id?: string, after?: number, minutes?
 let listeners: number
 let started: {larder: number, all: number}
 let starts: Starts | undefined
-let sessionLimit: number
 let session: {started?: {launch: string, tmux: string, stopsAt: string}} | undefined
 
 beforeEach(async () => {
@@ -16,7 +15,6 @@ beforeEach(async () => {
     listeners = 0
     started = {larder: 0, all: 0}
     starts = {limit: 2, minutes: 30}
-    sessionLimit = 3
     session = undefined
     const events = new EventEmitter()
     events.on('launches', event => sent.push(event.type === 'launch' ? {type: 'launch', after: event.launch.after, minutes: event.launch.minutes} : event))
@@ -28,9 +26,8 @@ beforeEach(async () => {
     vi.stubGlobal('sessionOfLaunch', () => session)
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stopsAt: string) => ({...session, started: {...session!.started!, stopsAt}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
-    // A tick between reading the project and the settings, as the database gives, so signals can overlap.
-    const tick = <T>(value: T) => new Promise<T>(resolve => setTimeout(() => resolve(value), 0))
-    vi.stubGlobal('useStore', () => ({starts: () => tick(starts), settings: () => tick({sessionLimit})}))
+    // A tick for reading the project, as the database gives, so signals can overlap.
+    vi.stubGlobal('useStore', () => ({starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0))}))
     vi.resetModules()
     launches = await import('../server/utils/launches')
 })
@@ -78,17 +75,15 @@ describe('starting a session', () => {
         expect(launches.claim('larder', 'nope')).toBe(false)
     })
 
-    it("needs the owner's opt-in, and stays within the project's limit and the Orrery's", async () => {
+    it("needs the owner's opt-in, and stays within the project's limit, whatever other projects run", async () => {
         launches.addLauncher('larder')
         starts = undefined
         expect(await launches.considerLaunch(signal(1))).toBeNull()
         starts = {limit: 2, minutes: 30}
         started = {larder: 2, all: 2}
         expect(await launches.considerLaunch(signal(2))).toBeNull()
-        started = {larder: 1, all: 3}
-        expect(await launches.considerLaunch(signal(3))).toBeNull()
-        sessionLimit = 4
-        expect(await launches.considerLaunch(signal(4))).not.toBeNull()
+        started = {larder: 1, all: 9}
+        expect(await launches.considerLaunch(signal(3))).not.toBeNull()
         // A refused launch isn't left holding the project's place.
         expect(launches.launchState('larder').starting).toBe(1)
     })

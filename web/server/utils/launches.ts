@@ -1,7 +1,7 @@
 // Sessions Orrery starts itself, with no terminal. When the owner's signal reaches a project nobody is
 // listening on, and the owner lets the project have sessions started (its `starts`), Orrery asks the
-// project's launchers (channel/orrery-launcher.mjs, running on the host in the repo) to start one in tmux:
-// within the project's limit, and the Orrery's (`sessionLimit`) over every project. The first launcher to
+// project's launchers (channel/orrery-launcher.mjs, running on the host in the repo) to start one in tmux,
+// within the project's limit. The first launcher to
 // claim the launch starts it; its channel catches up from that signal, and the launcher stops the session
 // after the project's minutes, or when the owner stops it.
 import {randomBytes} from 'node:crypto'
@@ -67,13 +67,10 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
 }
 
 /** The minutes a new session on the project gets; none when the owner hasn't let it have sessions started,
- * or a limit is reached (counting the launch being held). */
+ * or its limit is reached. */
 async function allowedMinutes(project: string): Promise<number | null> {
-    const store = useStore()
-    const starts = await store.starts(project)
-    if (!starts || startedSessions(project) >= starts.limit) return null
-    if (startedSessions() + pendingOn() > (await store.settings()).sessionLimit) return null
-    return starts.minutes
+    const starts = await useStore().starts(project)
+    return starts && startedSessions(project) < starts.limit ? starts.minutes : null
 }
 
 /** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. */

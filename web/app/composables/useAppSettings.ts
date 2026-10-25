@@ -4,7 +4,7 @@ import {TINTS} from '#shared/roadmap'
 // This Orrery's own settings, kept current from `/api/events`, and the tint they give the page: the
 // colour goes on <html> (`data-tint`, `--tint`) for main.css to mix into the backgrounds.
 export function useAppSettings() {
-    const settings = useState<Settings>('app-settings', () => ({tint: null, statuses: [], focusPrompt: null, chunkPrompt: null, instructions: [], sessionLimit: 3}))
+    const settings = useState<Settings>('app-settings', () => ({tint: null, statuses: [], focusPrompt: null, chunkPrompt: null, instructions: []}))
 
     /** The tint as a colour: a named one's, or the `#rrggbb` itself. */
     const tintColor = computed(() => {

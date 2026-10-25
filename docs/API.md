@@ -228,8 +228,8 @@ listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION
 A project whose owner set `starts: {limit, minutes}` gets sessions started for it, with no terminal: when
 the owner's signal (a focus, a comment, a schedule's) finds nobody listening on it, Orrery asks the
 project's launcher (`channel/orrery-launcher.mjs`, on the host) to start one in a detached tmux session.
-At most `limit` run at once on the project, and `sessionLimit` (`PATCH /settings`, 3 by default) over every
-project, a whole number from 0 to 50; each is stopped after `minutes`. Several signals at once start one
+At most `limit` run at once on the project, each stopped after `minutes`; it's set per project, with no
+cap over every project. Several signals at once start one
 session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
 signal it was started for. Those sessions list with `started: {launch, tmux, stopsAt}`, and count toward
 the limits while their channel is connected.

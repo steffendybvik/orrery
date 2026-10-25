@@ -102,5 +102,5 @@ are up, when you press **Stop** beside it (in the sessions panel or the project'
 to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
-App settings caps the sessions started over every project (3 by default). The cap is time, not cost:
+The limits are per project, on its Settings tab. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.

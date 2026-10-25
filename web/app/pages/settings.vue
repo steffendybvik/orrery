@@ -144,17 +144,6 @@ async function pick(tint: string | null) {
         <FocusPrompts />
       </section>
 
-      <section id="starts" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
-          <p class="text-xs text-muted">
-            A project you let Orrery start sessions for (on its Settings tab) gets one when your work finds nobody listening.
-            This caps how many run at once over every project.
-          </p>
-        </header>
-        <SessionStarts />
-      </section>
-
       <section id="secrets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Secrets</h2>

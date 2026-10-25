@@ -323,8 +323,6 @@ export interface Settings {
     chunkPrompt: string | null
     /** Lines added to every focus, such as `commit whenever a piece works`. */
     instructions: Instruction[]
-    /** At most this many sessions Orrery started running at once, over every project. */
-    sessionLimit: number
 }
 
 /** What a Claude session is doing, as its hooks last said: `waiting` is waiting on the owner. */
