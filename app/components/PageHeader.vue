@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {Cog6ToothIcon} from '@heroicons/vue/24/outline'
+
 // The top bar of a page: the menu button (phones), the title, the page's controls, and the bell, the
 // theme button and App settings at the right end. On a phone the controls take a row of their own under the title.
 const sidebar = useState('sidebar-open', () => false)
@@ -25,7 +27,7 @@ const route = useRoute()
         title="App settings"
         aria-label="App settings"
     >
-      <SectionIcon section="settings" class="size-4" />
+      <Cog6ToothIcon class="size-4" />
     </NuxtLink>
   </header>
 </template>
