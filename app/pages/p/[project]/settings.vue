@@ -94,7 +94,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div v-if="project" class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-4 px-4 py-8 sm:px-8">
+    <div v-if="project" class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8">
       <section id="name" class="flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Name</h2>
@@ -113,7 +113,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         </form>
       </section>
 
-      <section id="icon" class="mt-4 flex flex-col gap-3">
+      <section id="icon" class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex items-start gap-3">
           <div class="mt-0.5 grid size-4 place-items-center text-accent-500">
             <ProjectIcon v-if="project.icon" :icon="project.icon" :color="project.iconColor" class="size-4" />
@@ -178,7 +178,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         </div>
       </section>
 
-      <section class="flex flex-col gap-3">
+      <section class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
           <p class="text-xs text-muted">
@@ -189,7 +189,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         <FocusPrompts :project="project" />
       </section>
 
-      <section id="danger" class="mt-8 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
+      <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <h2 class="text-[15px] font-semibold text-rose-600 dark:text-rose-400">Delete this project</h2>

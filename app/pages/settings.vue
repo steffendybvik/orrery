@@ -51,7 +51,7 @@ async function pick(tint: string | null) {
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-4 px-4 py-8 sm:px-8">
+    <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8">
       <section class="flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Your name</h2>
@@ -73,7 +73,7 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
-      <section class="flex flex-col gap-3">
+      <section class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Background tint</h2>
           <p class="text-xs text-muted">
@@ -111,7 +111,7 @@ async function pick(tint: string | null) {
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       </section>
 
-      <section class="flex flex-col gap-3">
+      <section class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Issue statuses</h2>
           <p class="text-xs text-muted">
@@ -122,7 +122,7 @@ async function pick(tint: string | null) {
         <StatusSettings />
       </section>
 
-      <section class="flex flex-col gap-3">
+      <section class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
           <p class="text-xs text-muted">

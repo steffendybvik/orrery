@@ -120,7 +120,7 @@ const line = 'h-8 min-w-0 flex-1 rounded-lg bg-well px-2.5 text-[13px] text-fg r
       <pre v-if="showing === kind.key" class="rounded-lg bg-well/60 px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap text-muted ring-1 ring-line">{{ preview(kind.key) }}</pre>
     </div>
 
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-2 border-t border-line/60 pt-5">
       <div class="flex flex-col gap-0.5">
         <h3 class="text-[13px] font-medium text-fg">Standing instructions</h3>
         <p class="text-xs text-muted">
