@@ -98,6 +98,9 @@ describe('a session', () => {
         expect(channel.id).toBe('after')
         expect([sessions.currentId('before'), sessions.currentId('other')]).toEqual(['after', 'other'])
         expect([sessions.hearing('larder', 'before'), sessions.sessionName('before')]).toEqual([true, 'larder 1'])
+        // Its channel goes on reporting with the old id, which doesn't take the session back to it.
+        sessions.report({id: 'before', project: 'larder', event: 'working'})
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', state: 'working'}])
         // A second clear: every id it has had leads to the newest.
         sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
         sessions.report({id: 'latest', pid: 42, project: 'larder', event: 'SessionStart'})
@@ -193,6 +196,11 @@ describe('stopping a session', () => {
         expect(() => sessions.stopSession('mesa', 'a')).toThrow('No session a in mesa')
         expect(sessions.stopSession('larder', 'a').name).toBe('larder 1')
         expect(asked).toEqual([{project: 'larder', id: 'a'}])
+        // An id it had before a /clear still reaches it.
+        sessions.report({id: 'a', pid: 7, project: 'larder', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'a2', pid: 7, project: 'larder', event: 'SessionStart'})
+        sessions.stopSession('larder', 'a')
+        expect(asked).toEqual([{project: 'larder', id: 'a'}, {project: 'larder', id: 'a2'}])
         first.done()
         expect(sessions.listSessions('larder')).toHaveLength(1)
         second.done()

@@ -61,6 +61,13 @@ describe('starting a session', () => {
         expect(launches.launchState('larder').launchers).toBe(0)
     })
 
+    it("isn't for a signal aimed at one session, or one that's been delivered", async () => {
+        launches.addLauncher('larder')
+        expect(await launches.considerLaunch(signal(1, {target: 'window-a'}))).toBeNull()
+        expect(await launches.considerLaunch(signal(1, {deliveredTo: ['larder 1']}))).toBeNull()
+        expect(sent).toEqual([])
+    })
+
     it('starts one session for signals that come together', async () => {
         launches.addLauncher('larder')
         const both = await Promise.all([launches.considerLaunch(signal(1)), launches.considerLaunch(signal(2))])
@@ -95,6 +102,14 @@ describe('starting a session', () => {
         expect(await launches.considerLaunch(signal(2))).toBeNull()
         vi.useFakeTimers({now: Date.now() + 3 * 60 * 1000 + 1000, toFake: ['Date']})
         expect(await launches.considerLaunch(signal(3))).not.toBeNull()
+    })
+
+    it('lets a launch go at once when it ends before its session connects', async () => {
+        launches.addLauncher('larder')
+        const launch = (await launches.considerLaunch(signal(1)))!
+        launches.launchGone(launch.id)
+        expect(launches.launchState('larder').starting).toBe(0)
+        expect(await launches.considerLaunch(signal(2))).not.toBeNull()
     })
 })
 
