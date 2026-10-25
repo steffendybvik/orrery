@@ -21,6 +21,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_PORT` | the port on this machine | `9000` |
 | `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts) | `127.0.0.1` |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
+| `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_ENVIRONMENT` | this Orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
 ## Backups
@@ -81,4 +82,4 @@ NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs
 ```
 
 The database file is made if it isn't there (by default `.data/orrery.db`). The other settings are
-`NUXT_BACKUP_DIR` and `NUXT_PUBLIC_ENVIRONMENT`.
+`NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS` and `NUXT_PUBLIC_ENVIRONMENT`.

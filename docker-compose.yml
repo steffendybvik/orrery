@@ -13,7 +13,8 @@
 # project with its own .env file, e.g. `docker compose --env-file .env.work up -d` with
 # COMPOSE_PROJECT_NAME=orrery-work and its own ORRERY_PORT in it.
 #
-# Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network.
+# Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network,
+# and ORRERY_ALLOWED_HOSTS names any host name it's reached by besides localhost and an IP (see SECURITY.md).
 #
 # Working on Orrery itself: docker-compose.dev.yml, on top of this.
 
@@ -26,6 +27,7 @@ services:
       NUXT_PUBLIC_ENVIRONMENT: ${ORRERY_ENVIRONMENT:-personal}
       NUXT_PUBLIC_REPO_DIR: ${PWD}
       NUXT_BACKUP_DIR: /backup
+      NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
     volumes:
       - orrery-data:/data
       - ${ORRERY_BACKUP:-orrery-backup}:/backup

@@ -19,6 +19,9 @@ export default defineNuxtConfig({
         database: '.data/orrery.db',
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
+        // Host names Orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
+        // Override with NUXT_ALLOWED_HOSTS.
+        allowedHosts: '',
         public: {
             // Where this repo is on the machine, for the channel setup the Connect page hands out.
             // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).

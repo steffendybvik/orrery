@@ -27,7 +27,8 @@ On its first start it makes an empty database, with nothing to set up. The first
 it asks your name: you're its owner, and what you make, no one else can delete. Then create a
 project from the sidebar (`+`), and open **Connect an agent** to hook a repo's Claude sessions up to it.
 
-Only this machine can reach it: there are no accounts.
+Only this machine can reach it: there are no accounts. Read [SECURITY.md](SECURITY.md) before opening
+it to anyone else.
 
 ## Docs
 
@@ -35,6 +36,7 @@ Only this machine can reach it: there are no accounts.
 - [Connecting a repo](docs/connect.md): the channel, a terminal alias and the session hooks
 - [The API](docs/API.md): every route, field and rule, for agents and scripts
 - [Working on Orrery](docs/development.md): the dev server and the checks
+- [Security](SECURITY.md): who can reach it, what the owner name is and isn't, and your agents
 
 ## Keys
 
