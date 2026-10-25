@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import {PhotoIcon} from '@heroicons/vue/24/outline'
-import type {Comment, Upload} from '#shared/roadmap'
+import type {Comment} from '#shared/roadmap'
 
 // Writing a comment on an issue, as the owner (so it's theirs: agents can't edit or delete it).
-// Markdown works; ⌘↵ posts. An image pasted, dropped or picked is kept by Orrery and goes in as Markdown
-// where the cursor is.
+// Markdown works; ⌘↵ posts. An image pasted, dropped or picked goes in as Markdown where the cursor is.
 const props = defineProps<{project: string, issue: string}>()
 const emit = defineEmits<{posted: [comment: Comment]}>()
 const {load} = useOwner()
@@ -12,10 +10,7 @@ const body = ref('')
 const posting = ref(false)
 const failed = ref(false)
 const field = ref<HTMLTextAreaElement>()
-const picker = ref<HTMLInputElement>()
-const uploading = ref(0)
-const uploadError = ref('')
-const dragging = ref(false)
+const {uploading, failed: uploadError, dragging, upload, onPaste, onDrop} = useImageUpload(body, field)
 
 async function post() {
     const text = body.value.trim()
@@ -35,67 +30,6 @@ async function post() {
     } finally {
         posting.value = false
     }
-}
-
-function images(files: FileList | null | undefined): File[] {
-    return [...files ?? []].filter(file => file.type.startsWith('image/'))
-}
-
-function readAsDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result))
-        reader.onerror = () => reject(reader.error)
-        reader.readAsDataURL(file)
-    })
-}
-
-/** Puts `text` where the cursor is (or at the end), on a line of its own. */
-function insert(text: string) {
-    const element = field.value
-    const at = element && document.activeElement === element ? element.selectionStart : body.value.length
-    const before = body.value.slice(0, at)
-    const after = body.value.slice(at)
-    const lead = before && !before.endsWith('\n') ? '\n' : ''
-    const trail = after.startsWith('\n') ? '' : '\n'
-    body.value = before + lead + text + trail + after
-    const cursor = (before + lead + text + trail).length
-    nextTick(() => element?.setSelectionRange(cursor, cursor))
-}
-
-async function upload(files: File[]) {
-    if (!files.length) return
-    uploadError.value = ''
-    uploading.value += files.length
-    for (const file of files) {
-        try {
-            const image = await $fetch<Upload>('/api/uploads', {
-                method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null},
-            })
-            insert(image.markdown)
-        } catch (error) {
-            uploadError.value = errorMessage(error, 'add')
-        } finally {
-            uploading.value--
-        }
-    }
-}
-
-function onPaste(event: ClipboardEvent) {
-    const files = images(event.clipboardData?.files)
-    if (!files.length) return
-    event.preventDefault()
-    upload(files)
-}
-
-function onDrop(event: DragEvent) {
-    dragging.value = false
-    upload(images(event.dataTransfer?.files))
-}
-
-function onPick() {
-    upload(images(picker.value?.files))
-    if (picker.value) picker.value.value = ''
 }
 </script>
 
@@ -120,14 +54,7 @@ function onPick() {
         @keydown.ctrl.enter.prevent="post"
     />
     <div class="flex items-center gap-2 px-1">
-      <button
-          type="button"
-          class="flex size-7 items-center justify-center rounded-md text-faint transition-colors hover:bg-hover hover:text-fg"
-          title="Add an image"
-          aria-label="Add an image"
-          @click="picker?.click()"
-      ><PhotoIcon class="size-4" /></button>
-      <input ref="picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple class="hidden" @change="onPick">
+      <ImageButton @picked="upload" />
       <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
       <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
       <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">Couldn't post. Is Orrery running?</span>

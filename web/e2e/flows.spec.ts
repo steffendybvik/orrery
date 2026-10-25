@@ -3,7 +3,8 @@ import {expect, test} from '@playwright/test'
 
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
 // them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
-// issues starting on the open ones; then a chunk made, edited and removed from its page.
+// issues starting on the open ones; then a chunk made, edited and removed from its page, and an image
+// in a new issue and a comment.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -180,4 +181,26 @@ test('makes a chunk from the roadmap, renames it, gives it a summary and removes
     await page.getByRole('button', {name: 'Remove', exact: true}).click()
     await expect(page).toHaveURL(/\/p\/larder\/roadmap$/)
     expect((await request.get(`/api/projects/larder/chunks/${id}`)).status()).toBe(404)
+})
+
+test('puts a picked image in a new issue, and in a comment on it', async ({page, request}) => {
+    // A 1×1 PNG.
+    const png = {name: 'shelf.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')}
+    await page.goto('/p/larder')
+    await page.getByRole('button', {name: 'New issue'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'New issue'})
+    await dialog.getByLabel('Title').fill('Label the top shelf')
+    await dialog.locator('input[type="file"]').setInputFiles(png)
+    await expect(dialog.getByLabel('Description')).toHaveValue(/^!\[shelf\]\(\/api\/uploads\/[0-9a-f]{24}\)\n$/)
+    await dialog.getByRole('button', {name: /Create issue/}).click()
+    await expect(page).toHaveURL(/\/p\/larder\/issues\/LAR-\d+/)
+    const id = page.url().split('/').at(-1)!
+    const image = page.locator('.doc img[alt="shelf"]').first()
+    await expect(image).toBeVisible()
+    expect(await image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1)
+
+    await page.locator('form').filter({has: page.getByRole('textbox', {name: 'Comment'})}).locator('input[type="file"]').setInputFiles(png)
+    await expect(page.getByRole('textbox', {name: 'Comment'})).toHaveValue(/!\[shelf\]/)
+    await page.getByRole('button', {name: 'Comment', exact: true}).click()
+    await expect.poll(async () => (await api(request, 'get', `/issues/${id}/comments`)).at(-1)?.body).toMatch(/^!\[shelf\]\(\/api\/uploads\//)
 })
