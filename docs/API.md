@@ -220,7 +220,10 @@ The owner sets them (an agent gets a 403):
 ## For agents
 
 `/llms.txt` says how to use Orrery and lists the projects; `/llms-full.txt` adds this reference;
-`/api/guide` is this reference alone.
+`/api/guide` is this reference alone. A Claude session with Orrery's server in its `.mcp.json` also
+gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
+make these calls for it. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
+to the issue, so the owner's comments on it go to that session.
 
 ## Columns
 

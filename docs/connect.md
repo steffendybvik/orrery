@@ -46,6 +46,13 @@ alias shop="cd ~/code/shop && ORRERY_PROJECT=shop claude --dangerously-load-deve
 Then `source ~/.zshrc` and start the session with `shop`. A repo with several projects (a monorepo,
 one per app) gets one server and one alias for each.
 
+The same server gives the session **tools** for its project's roadmap, so it works without curl:
+`issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
+`create_issue` (a proposal too, with choices), `update_issue`, `chunks`, `docs`, `doc` and
+`write_doc`. They write as `claude`, from that session, so your comments on an issue it worked go back
+to it. Tools work in any session with the server in `.mcp.json`, even one started without the
+channels flag; only the pushed messages need the flag.
+
 ## 3. Optionally, the hooks
 
 `channel/orrery-hook.mjs` tells Orrery what each session is doing, so the page can show it and aim

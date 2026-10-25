@@ -55,7 +55,8 @@ The roadmap is in Orrery (${origin}), project \`${id}\`, issue ids \`${key}-n\`.
 
 - Work from an issue: set it to \`in-progress\` (assignee \`claude\`) before starting, comment as it moves, \`done\` when it ships (\`canceled\` when it's dropped).
 - Knowledge (decisions, how things work) goes in the project's docs.
-- Send \`Orrery-Actor: claude\` on every write. Orrery hands out ids; don't send one.`
+- Send \`Orrery-Actor: claude\` on every write. Orrery hands out ids; don't send one.
+- With Orrery's server in \`.mcp.json\`, its tools (\`issue\`, \`start_issue\`, \`comment\`, \`finish_issue\`, …) do all of this without curl.`
 
     const brief = `# Connect ${name} to Orrery
 

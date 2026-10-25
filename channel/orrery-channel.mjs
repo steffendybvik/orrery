@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Orrery's channel for Claude Code: an MCP server that runs inside a Claude session and pushes the
-// owner's signals for one project into it ("focus on LAR-42"), even while the session is idle.
+// owner's signals for one project into it ("focus on LAR-42"), even while the session is idle. It also
+// gives the session tools for the project's roadmap (tools.mjs), so it reads and writes issues without curl.
 // Channels are a research preview: start the session with
 //   claude --dangerously-load-development-channels server:<project>
 // with this server registered under the project's id in the repo's .mcp.json (`orrery-<project>` and
@@ -12,7 +13,9 @@ import {homedir} from 'node:os'
 import {basename, join} from 'node:path'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
+import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
 import {claudeWindow} from './session.mjs'
+import {TOOLS, orreryTools} from './tools.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 const project = process.env.ORRERY_PROJECT ?? basename(process.cwd())
@@ -23,18 +26,21 @@ const window = claudeWindow()
 const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name}).filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
 
 const server = new Server({name: 'orrery', version: '1.0.0'}, {
-    capabilities: {experimental: {'claude/channel': {}}},
+    capabilities: {experimental: {'claude/channel': {}}, tools: {}},
     instructions: [
-        `Orrery (${base}) keeps this repo's roadmap as project "${project}".`,
+        `Orrery (${base}) keeps this repo's roadmap as project "${project}", and this server's tools read and write it`,
+        '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, docs, doc, write_doc): use them instead of curl.',
         'Its messages arrive as <channel ...> blocks and come from the owner through Orrery.',
-        `When one asks you to focus on an issue: read it (curl ${api}/issues/<id>), set it to in-progress and assign it to claude`,
-        `(PATCH with header "Orrery-Actor: claude"), comment as the work moves, and set it to done when it ships.`,
+        'When one asks you to focus on an issue: read it (issue), start it (start_issue), comment as the work moves (comment), and finish it when it ships (finish_issue).',
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
-        'When one brings the owner\'s comment on an issue, answer it with a comment on that issue (POST .../comments, same header), writing the JSON body from a file so Markdown survives the shell.',
-        'When you need the owner to decide something or give feedback, ask in a comment on the issue with "asks": "decision" or "asks": "feedback" in the body: it waits at the top of their bell until they answer.',
-        `The API is described at ${base}/api/guide.`,
+        'When one brings the owner\'s comment on an issue, answer it with a comment on that issue.',
+        'When you need the owner to decide something or give feedback, comment with asks "decision" or "feedback": it waits at the top of their bell until they answer.',
+        `The full API is described at ${base}/api/guide.`,
     ].join(' '),
 })
+const callTool = orreryTools({api, session: window.id})
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: TOOLS}))
+server.setRequestHandler(CallToolRequestSchema, async request => callTool(request.params.name, request.params.arguments ?? {}))
 await server.connect(new StdioServerTransport())
 // What Claude Code said about itself when it connected, so Orrery can tell a window started as a
 // channel from one that only runs this server (whose messages Claude Code would drop).

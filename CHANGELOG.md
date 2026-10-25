@@ -13,7 +13,7 @@ The first public release.
   each of a kind Orrery reasons about. Add, rename, recolour, reorder or remove them in App settings.
 - **Activity:** every issue keeps who changed what and when (status, priority, assignee, labels,
   chunk, title, description, proposal decisions), shown between its comments.
-- **For agents:** a JSON API, `/llms.txt` and `/llms-full.txt`, proposals the owner approves, and
+- **For agents:** MCP tools in every connected session (read, start, comment on and finish issues, write docs), a JSON API, `/llms.txt` and `/llms-full.txt`, proposals the owner approves, and
   comments that ask the owner for a decision or feedback and wait at the top of the bell.
 - **Steering sessions:** Orrery's channel (a Claude Code research preview) brings "focus on this issue",
   "work through this chunk" or "work through its Todo issues" to a listening session, and hooks show
