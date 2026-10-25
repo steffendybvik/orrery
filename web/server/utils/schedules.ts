@@ -178,12 +178,12 @@ export class Schedules {
                 ...row.priority ? {priority: row.priority} : {},
                 ...row.labels !== '[]' ? {labels: JSON.parse(row.labels) as string[]} : {},
                 status: row.place,
-            }, actor)
+            }, actor, {urgent: !row.ask})
             await this.db.run('UPDATE issues SET schedule = ? WHERE project = ? AND id = ?', row.id, row.project, issue.id)
             this.store.changed(row.project)
             let note: string | null = null
             if (row.ask) {
-                await this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}`}, actor)
+                await this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}${row.priority === 'P0' ? ". It's urgent (P0)." : ''}`}, actor)
                 note = actor.owner ? `asked the sessions (${this.listening(row.project)} listening)` : "made by an agent, so it didn't ask the sessions"
             }
             return await record('made', issue.id, note)

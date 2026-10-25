@@ -13,6 +13,9 @@ the database schema are the public surface, and a database always migrates forwa
   tab, terminal ones too: the channel ends its claude process.
 - **Notifications:** the Inbox lists every comment newest first; those waiting on you keep their
   mark among them instead of sitting on top.
+- **Signals:** an issue the owner makes urgent (`P0`, created as one or raised to it) goes out to the
+  listening sessions on its own, to the session working it first. So does a `P0` proposal once committed,
+  or a closed `P0` issue reopened.
 
 ## 1.0.0 (unreleased)
 
