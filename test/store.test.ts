@@ -439,8 +439,26 @@ describe('the bell', () => {
         expect(await store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})).toBe(1)
         expect(await store.notices()).toEqual([])
         expect(await store.listComments('larder', id)).toHaveLength(3)
-        expect((await store.notices(null, true)).map(n => [n.body, n.cleared])).toEqual([['two', true], ['one', true]])
+        expect((await store.notices({list: 'cleared'})).map(n => [n.body, n.cleared])).toEqual([['two', true], ['one', true]])
         expect((await failure(() => store.clearNotices({}))).status).toBe(400)
+    })
+})
+
+describe("the notifications page's lists", () => {
+    it('splits waiting from the inbox, and pages the inbox and the cleared ones newest first', async () => {
+        const {id} = await store.createIssue('larder', {title: 'A'})
+        const agent = {name: 'claude', owner: false}
+        const notes = []
+        for (const body of ['one', 'two', 'three', 'four']) notes.push(await store.createComment('larder', id, {body}, agent))
+        await store.createComment('larder', id, {body: 'Ship it?', asks: 'decision'}, agent)
+        expect((await store.notices({list: 'waiting'})).map(n => n.body)).toEqual(['Ship it?'])
+        const first = await store.notices({list: 'inbox', limit: 2})
+        expect(first.map(n => n.body)).toEqual(['four', 'three'])
+        expect((await store.notices({list: 'inbox', limit: 2, before: first.at(-1)!.id})).map(n => n.body)).toEqual(['two', 'one'])
+        await store.clearNotices({ids: [notes[0]!.id, notes[1]!.id]})
+        expect((await store.notices({list: 'inbox'})).map(n => n.body)).toEqual(['four', 'three'])
+        expect((await store.notices({list: 'cleared', limit: 1})).map(n => [n.body, n.cleared])).toEqual([['two', true]])
+        expect((await failure(() => store.notices({list: 'toString' as never}))).status).toBe(400)
     })
 })
 

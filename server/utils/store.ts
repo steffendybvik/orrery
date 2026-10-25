@@ -2,8 +2,8 @@
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
-import type {ActivityField, Asks, Board, Chunk, Comment, IssueEvent, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, IssueStatus, Kind, Kinds, Notice, Priority, Project, Proposal, Signal} from '#shared/roadmap'
-import {ASKS, CLOSED, DECISIONS, KINDS, PRIORITIES, TINTS} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Chunk, Comment, IssueEvent, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, IssueStatus, Kind, Kinds, Notice, NoticeList, Priority, Project, Proposal, Signal} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
@@ -265,16 +265,28 @@ export class Store {
         return await this.ownerOf()
     }
 
-    /** Agents' latest comments across projects (what the bell shows), newest first, after the ones still
-     * waiting on the owner (a decision or feedback they haven't answered). */
-    /** The bell's notices: the latest `limit` (all of them when null), and with `cleared` the cleared ones
-     * too (marked so), as the notifications page lists them. */
-    async notices(limit: number | null = 30, cleared = false): Promise<Notice[]> {
+    /** Agents' comments across projects. The `bell`: the latest 30 not cleared, those still waiting on the
+     * owner (a decision or feedback they haven't answered) first. The notifications page's lists, newest
+     * first: `waiting` (every one), and `inbox` (the rest) and `cleared` a page at a time, `limit` of them
+     * (50, at most 200) older than the notice `before`. */
+    async notices({list = 'bell', before, limit}: {list?: NoticeList, before?: number, limit?: number} = {}): Promise<Notice[]> {
+        const which = {
+            bell: 'cleared = 0',
+            waiting: 'cleared = 0 AND asks IS NOT NULL AND NOT answered',
+            inbox: 'cleared = 0 AND NOT (asks IS NOT NULL AND NOT answered)',
+            cleared: 'cleared = 1',
+        }[list]
+        if (!NOTICE_LISTS.includes(list)) throw badRequest(`Unknown list "${list}"; use ${NOTICE_LISTS.join(', ')}`)
+        const paged = list === 'inbox' || list === 'cleared'
+        const after = paged && before !== undefined ? 'AND (created_at, id) < (SELECT created_at, id FROM comments WHERE id = ?)' : ''
+        const count = list === 'bell' ? 30 : paged ? Math.min(Math.max(1, limit ?? 50), 200) : undefined
         return (await this.all<CommentRow & {title: string, cleared: number}>(`
             SELECT * FROM (
                 SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
-                WHERE c.owned = 0 ${cleared ? '' : 'AND c.cleared = 0'}) AS listed
-            ORDER BY (asks IS NOT NULL AND NOT answered) DESC, created_at DESC, id DESC ${limit === null ? '' : 'LIMIT ?'}`, ...limit === null ? [] : [limit]))
+                WHERE c.owned = 0) AS listed
+            WHERE ${which} ${after}
+            ORDER BY ${list === 'bell' ? '(asks IS NOT NULL AND NOT answered) DESC, ' : ''}created_at DESC, id DESC ${count ? 'LIMIT ?' : ''}`,
+        ...after ? [before!] : [], ...count ? [count] : []))
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 

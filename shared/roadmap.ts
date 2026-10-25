@@ -308,10 +308,14 @@ export interface Session {
     listening: boolean
 }
 
-/** An agent's comment, as the notification bell lists it. */
+/** An agent's comment, as the notification bell and page list it. */
 export interface Notice extends Comment {
     project: string
     title: string
-    /** Taken out of the bell; only `GET /notices?all=true` lists these. */
+    /** Taken out of the bell; only `GET /notices?list=cleared` lists these. */
     cleared?: boolean
 }
+
+/** The lists of notices: the bell's, and the notifications page's tabs. */
+export const NOTICE_LISTS = ['bell', 'waiting', 'inbox', 'cleared'] as const
+export type NoticeList = (typeof NOTICE_LISTS)[number]
