@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
 
-// The column as Linear draws it: a dashed ring (backlog), a ring (later, next), a ring with a dot
+// The column as an icon: a dashed ring (backlog), a ring (later, next), a ring with a dot
 // (now), a pie filling up with progress (doing), a check (done); and a diamond for a proposal.
 const props = withDefaults(defineProps<{column: Column, progress?: number, size?: number}>(), {progress: 0.5, size: 14})
 

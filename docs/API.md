@@ -1,6 +1,6 @@
 # Orrery API
 
-Orrery keeps every app's roadmap: projects, their chunks (groups of issues, Linear's milestones),
+Orrery keeps every app's roadmap: projects, their chunks (groups of issues: milestones),
 issues with sub-issues to any depth, comments, and docs (Markdown pages). The page at `/` only shows them; everything
 changes through this API, and open pages update live.
 
@@ -9,8 +9,8 @@ JSON. Send `Orrery-Actor: <your name>` on writes (e.g. `claude`): it's recorded 
 
 ## Ids
 
-Orrery hands ids out; you can't pick them. An issue is the project's prefix and a number, like
-Linear's: `MSH-142` (the prefix is the project's `key`). A chunk is a number in its project: `3`.
+Orrery hands ids out; you can't pick them. An issue is the project's prefix and a number:
+`MSH-142` (the prefix is the project's `key`). A chunk is a number in its project: `3`.
 Ids never change, and an issue moved to another project gets that project's next id. Ids things
 had before (`MOT-5`, the chunk slug `joints`) are kept as **aliases**: every route and every
 `parent` or `chunk` you send accepts them, and responses list them in `aliases`.

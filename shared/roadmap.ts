@@ -60,7 +60,7 @@ export interface Issue {
     tasks: Issue[]
 }
 
-/** A group of issues (Linear's project milestone). The one with an empty id holds the issues in none. */
+/** A group of issues: a milestone. The one with an empty id holds the issues in none. */
 export interface Chunk {
     id: string
     title: string

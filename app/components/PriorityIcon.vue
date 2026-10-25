@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Linear's marks: an orange square with "!" for P0 (urgent), then bars: three for P1 (high), two for P2,
+// An orange square with "!" for P0 (urgent), then bars: three for P1 (high), two for P2,
 // one for P3; three dots when there's none.
 const props = withDefaults(defineProps<{priority?: string, size?: number}>(), {priority: undefined, size: 14})
 const bars = computed(() => ({P1: 3, P2: 2, P3: 1})[props.priority ?? ''] ?? 0)

@@ -16,7 +16,7 @@ export function overview(event: H3Event): string {
     const projects = useStore().listProjects()
     return `# Orrery
 
-> A Linear-style board for every app being built. Each app's roadmap (chunks of work, issues with
+> A local roadmap board for your projects and the Claude Code sessions working on them. Each app's roadmap (chunks of work, issues with
 > sub-issues, comments, docs) lives here, kept current by the Claude sessions working in the app's repo
 > through a JSON API. The page at ${origin} shows it read-only and updates live.
 

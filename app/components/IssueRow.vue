@@ -3,7 +3,7 @@ import type {Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // One issue as a row (id, title, labels, status, column, priority, assignee); a parent shows its
-// sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines as in Linear.
+// sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines.
 // Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`).
 //
 // The tree: each level is INDENT further in, and a sub-issue's line comes down from under its

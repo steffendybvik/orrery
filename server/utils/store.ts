@@ -1,4 +1,4 @@
-// Projects, chunks, issues and comments: reading and changing them, with the rules Linear keeps.
+// Projects, chunks, issues and comments: reading and changing them, and the rules they keep.
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
@@ -375,7 +375,7 @@ export class Store {
         return this.chunk(project, id)
     }
 
-    /** Its issues stay, in no chunk (as Linear does with a deleted milestone). */
+    /** Its issues stay, in no chunk. */
     deleteChunk(project: string, id: string, actor = AGENT) {
         id = this.chunkId(project, id)
         const row = this.chunkRow(project, id)

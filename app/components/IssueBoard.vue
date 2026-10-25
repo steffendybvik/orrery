@@ -2,7 +2,7 @@
 import type {Chunk, Column, Issue} from '#shared/roadmap'
 import {COLUMNS, total} from '#shared/roadmap'
 
-// Issues as cards in their columns, Doing…Done, as Linear's board. A parent stands for its
+// Issues as cards in their columns, Doing…Done. A parent stands for its
 // sub-issues. Done starts folded to a count. Right-clicking a card opens its menu (IssueMenu).
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()

@@ -1,8 +1,19 @@
 # Orrery
 
-A Linear-style board for every app I'm building: what's being worked on, what's next, what's done.
-Apps (and the Claude sessions in their repos) keep their roadmaps here through the API in
-[docs/API.md](docs/API.md); the page shows them read-only and updates live.
+A local roadmap board for you and your Claude Code sessions. Each project's issues, milestones
+and docs live in Orrery instead of in files in the repo: the sessions read and update them
+through [an API](docs/API.md), and you watch the board change live, and steer from it.
+
+- **A board:** projects with issues and sub-issues, grouped into chunks (milestones), in Now,
+  Next, Later and Backlog; a list or a board; Now and My issues across every project.
+- **Agents work from it:** a Claude session sets its issue to Doing, comments as it goes and
+  marks it Done. It can propose an issue for you to approve, or ask you to decide something;
+  that waits at the top of your bell until you answer.
+- **You point them at work:** with Orrery's channel, "focus on this issue" from the page reaches
+  the session while it's idle, and hooks show which sessions are working, idle or need you.
+- **Recurring work:** schedules that make an issue, or send the sessions a message, on a cron.
+- **Yours, on your machine:** one SQLite file, no accounts, nothing leaves the machine. Run one
+  Orrery, or a few side by side (say personal and work), each with its own database.
 
 ## Run
 
@@ -68,6 +79,13 @@ The project name keeps them apart: each gets its own volumes (`orrery-personal_o
 `orrery-work_orrery-data`), container and port, so stopping, rebuilding or wiping one leaves the
 other alone (`docker compose --env-file .env.work down`). Give each its own backup folder, too: a
 backup folder holds one database. Env files other than `.env.example` are git-ignored.
+
+**Where each database is.** Nothing names the database directly: it's always `/data/orrery.db` in the
+container, and `/data` is the project's `orrery-data` volume, `<project>_orrery-data`. The project is
+`COMPOSE_PROJECT_NAME`, or the folder's name (`orrery`) without one. So a new project name is a new,
+empty database, and two env files with the same one (or both without one) share a container and a
+database: give every server its own. `docker compose --env-file .env.work down -v` deletes that
+server's volumes, its database with them; plain `down` keeps them.
 
 A repo's channel and hook point at the server its projects are on, by `ORRERY_URL`:
 `http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
