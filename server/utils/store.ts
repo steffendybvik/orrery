@@ -67,7 +67,7 @@ export interface IssueFilter {
 }
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
-interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, next_number: number, next_chunk: number }
+interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, icon: string | null, next_number: number, next_chunk: number }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
     project: string, id: string, title: string, status: Status, plan: Plan | null, priority: Priority | null,
@@ -86,6 +86,7 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     name: {type: 'string', required: true},
     key: {type: 'string', pattern: KEY, hint: 'use capitals and digits, starting with a capital, e.g. MSH'},
     description: {type: 'string', nullable: true},
+    icon: {type: 'string', nullable: true, pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, hint: "use a Heroicon's name, e.g. shopping-cart"},
 }
 
 // No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
@@ -197,8 +198,8 @@ export class Store {
         if (this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
         const now = stamp()
-        this.run('INSERT INTO projects (id, name, key, description, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            id, name, key, nullable(input.description), actor.name, Number(actor.owner), now, now)
+        this.run('INSERT INTO projects (id, name, key, description, icon, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            id, name, key, nullable(input.description), nullable(input.icon), actor.name, Number(actor.owner), now, now)
         this.onChange(id)
         return this.project(id)
     }
@@ -211,6 +212,7 @@ export class Store {
             name: input.name === undefined ? undefined : String(input.name).trim(),
             key: input.key,
             description: input.description,
+            icon: input.icon,
         })
         this.onChange(id)
         return this.project(id)
@@ -759,6 +761,7 @@ export class Store {
             name: row.name,
             key: row.key,
             description: row.description ?? undefined,
+            icon: row.icon ?? undefined,
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,

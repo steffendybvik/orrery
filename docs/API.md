@@ -29,7 +29,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
 | `POST /projects` | `{name, id?, key?, description?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board |
-| `PATCH /projects/:project` | `{name?, key?, description?}` |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?}`: `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `null` clears it |
 | `DELETE /projects/:project` | with its chunks, issues and comments |
 | `POST /projects/:project/import` | a roadmap in mesher's `docs/roadmap.json` format; its ids become aliases; `?replace=true` to replace what's there |
 

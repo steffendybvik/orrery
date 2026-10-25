@@ -90,6 +90,8 @@ export interface Project {
     /** The prefix of the issue ids the server hands out, e.g. `MSH` for `MSH-12`. */
     key: string
     description?: string
+    /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
+    icon?: string
     createdBy: string
     protected: boolean
     createdAt: string

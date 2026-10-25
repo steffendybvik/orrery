@@ -152,7 +152,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             @keydown.alt.up.prevent="nudge(project.id, -1, $event)"
             @keydown.alt.down.prevent="nudge(project.id, 1, $event)"
         >
-          <ProgressRing :counts="project.board.counts" bare :size="14" />
+          <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" class="size-3.5" />
+          <ProgressRing v-else :counts="project.board.counts" bare :size="14" />
           <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
           <span v-if="project.board.counts.doing" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.counts.doing} being worked on`">
             <span class="size-1 rounded-full bg-accent-500" />{{ project.board.counts.doing }}

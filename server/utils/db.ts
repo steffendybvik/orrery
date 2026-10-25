@@ -272,6 +272,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     );
+`, `
+    -- A project's icon in the sidebar: a Heroicon's name, e.g. shopping-cart.
+    ALTER TABLE projects ADD COLUMN icon TEXT;
 `]
 
 let db: DatabaseSync | null = null
