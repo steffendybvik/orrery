@@ -4,7 +4,7 @@ import {expect, test} from '@playwright/test'
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
 // them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
 // issues starting on the open ones; then a chunk made, edited and removed from its page, and an image
-// in a new issue and a comment.
+// in a new issue and a comment; then a changed doc and what changed in it.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -203,4 +203,24 @@ test('puts a picked image in a new issue, and in a comment on it', async ({page,
     await expect(page.getByRole('textbox', {name: 'Comment'})).toHaveValue(/!\[shelf\]/)
     await page.getByRole('button', {name: 'Comment', exact: true}).click()
     await expect.poll(async () => (await api(request, 'get', `/issues/${id}/comments`)).at(-1)?.body).toMatch(/^!\[shelf\]\(\/api\/uploads\//)
+})
+
+test("tints a doc an agent changed, and in it the parts that changed since the owner read it", async ({page, request}) => {
+    const put = (id: string, body: string) => request.put(`/api/projects/larder/docs/${id}`, {data: {title: id === 'pantry' ? 'Pantry' : 'Shelves', body}, headers: AGENT})
+        .then(r => expect(r.ok()).toBeTruthy())
+    await put('pantry', 'Keep flour dry.\n\nLabel the jars.')
+    await put('shelves', 'Top shelf for tins.')
+    await page.goto('/p/larder/docs/pantry')
+    await expect(page.getByText('Label the jars.')).toBeVisible()
+    await expect(page.locator('.doc .changed')).toHaveCount(0)
+
+    // Reading another doc while an agent changes this one.
+    await page.goto('/p/larder/docs/shelves')
+    await expect(page.getByText('Top shelf for tins.')).toBeVisible()
+    await put('pantry', 'Keep flour dry.\n\nLabel every jar with its date.\n\nRestock on Fridays.')
+    const row = page.getByRole('link', {name: /^Pantry/})
+    await expect(row).toHaveClass(/unseen-row/)
+    await row.click()
+    await expect(page.locator('.doc .changed')).toHaveText(['Label every jar with its date.', 'Restock on Fridays.'])
+    await expect(page.getByText('2 parts changed since you last read it')).toBeVisible()
 })

@@ -149,3 +149,22 @@ body {
 
 .doc[data-size="sm"] { @apply text-[14.5px]; }
 .doc[data-size="lg"] { @apply text-[18px]; }
+
+/* Changed since the owner last looked (useUnseen): the row tinted with the accent and barred on its left,
+   a dot with a halo, and in a doc each block that's new or different since they last read it. */
+.unseen-row {
+    background-color: color-mix(in oklab, var(--color-accent-500) 9%, transparent);
+    box-shadow: inset 2px 0 0 var(--color-accent-500);
+    &:hover { background-color: color-mix(in oklab, var(--color-accent-500) 15%, transparent); }
+}
+.unseen-dot {
+    @apply size-2 shrink-0 rounded-full bg-accent-500;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent-500) 25%, transparent);
+}
+.doc .changed {
+    --tint: color-mix(in oklab, var(--color-accent-500) 11%, transparent);
+    @apply rounded-sm;
+    background-color: var(--tint);
+    /* The tint reaches a little past the text on the left, with the accent bar beyond it. */
+    box-shadow: -10px 0 0 var(--tint), -13px 0 0 var(--color-accent-500);
+}

@@ -16,17 +16,26 @@ watch(() => summary.value?.updatedAt, () => {
 
 const doc = ref<Doc | null>(null)
 const missing = ref(false)
+// What changed since it was last read is tinted: against the text from the visit before this one, kept
+// for the whole visit, so changes coming in while it's open are tinted too.
+const {lastRead, read} = useUnseen()
+const before = ref<{key: string, body?: string} | null>(null)
 watch(() => [route.params.project, route.params.doc, summary.value?.updatedAt] as const, async ([p, d]) => {
     if (!p || !d) return
     try {
-        doc.value = await $fetch<Doc>(`/api/projects/${encodeURIComponent(String(p))}/docs/${encodeURIComponent(String(d))}`)
+        const fetched = await $fetch<Doc>(`/api/projects/${encodeURIComponent(String(p))}/docs/${encodeURIComponent(String(d))}`)
+        const key = `${fetched.project}/${fetched.id}`
+        if (before.value?.key !== key) before.value = {key, body: lastRead(fetched.project, fetched.id)}
+        read(fetched.project, fetched.id, fetched.body)
+        doc.value = fetched
         missing.value = false
     } catch {
         missing.value = true
     }
 }, {immediate: true})
 
-const headings = computed(() => doc.value ? renderMarkdown(doc.value.body, doc.value.title).headings : [])
+const rendered = computed(() => doc.value ? renderMarkdown(doc.value.body, doc.value.title, before.value?.body) : null)
+const headings = computed(() => rendered.value?.headings ?? [])
 const scroller = ref<HTMLElement | null>(null)
 const {size} = useDocSize()
 const sizes = [{value: 'sm' as const, label: 'S'}, {value: 'md' as const, label: 'M'}, {value: 'lg' as const, label: 'L'}]
@@ -58,6 +67,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
           <span class="text-muted">{{ who(doc.createdBy) }}</span>
           <span>· updated {{ ago(doc.updatedAt) }}</span>
           <span v-if="doc.protected" class="flex items-center gap-1" title="Only the owner can delete it">· protected</span>
+          <span v-if="rendered?.changed" class="flex items-center gap-1.5 text-accent-600 dark:text-accent-400"><span class="unseen-dot" />{{ rendered.changed }} {{ rendered.changed === 1 ? 'part' : 'parts' }} changed since you last read it</span>
           <span class="ml-auto flex items-center gap-2">
             <SegmentedControl v-model="size" :options="sizes" class="[&_button]:px-2 [&_button]:py-0.5" title="Text size" />
             <span class="font-mono">{{ doc.id }}</span>
@@ -65,7 +75,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
           </span>
         </div>
       </header>
-      <MarkdownView :source="doc.body" :title="doc.title" :data-size="size" />
+      <MarkdownView :source="doc.body" :title="doc.title" :before="before?.body" :data-size="size" />
       <p class="mt-12 rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PUT /api/projects/{{ doc.project }}/docs/{{ doc.id }}</p>
     </article>
     <aside v-if="headings.length" class="hidden w-56 shrink-0 xl:block">
