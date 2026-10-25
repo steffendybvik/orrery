@@ -1,641 +1,641 @@
 {
-  "$comment": "Mesher's roadmap: chunks of work with their tasks. Edit this file (not TODO.md); the app's Roadmap page shows it. status: todo | doing | done. plan (open tasks): now | next | later, none = backlog. A task may hold tasks of its own.",
+  "$comment": "Larder's roadmap, an invented app for tests: chunks of work with their tasks. status: todo | doing | done. plan (open tasks): now | next | later, none = backlog. priority: P1 | P2 | P3.",
   "chunks": [
     {
       "id": "review-fixes",
-      "title": "Review fixes (PR #1)",
-      "summary": "",
+      "title": "Review fixes",
+      "summary": "What the first review turned up.",
       "tasks": [
         {
           "id": "FIX-1",
-          "title": "Hollow STL/3MF imports filled in: every shell became its own positive solid",
+          "title": "Round shelf quantities the same way everywhere",
           "priority": "P1",
           "status": "done",
-          "notes": "`import.rs` `mesh_solid`: nest inner shells as cavities"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "FIX-2",
-          "title": "Library folders could run through a part's folder, so parts vanished on rescan",
+          "title": "Keep the search box's text after going back",
           "priority": "P1",
           "status": "done",
-          "notes": "`store.rs`: refuse folder paths inside a part folder"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "FIX-3",
-          "title": "Deleting a library part broke the parts that insert it; the route also deleted project parts",
+          "title": "Stop the expiry badge flickering on load",
           "priority": "P1",
           "status": "done",
-          "notes": "`routes.rs` / `library.rs`: library-only, refuse while inserted"
+          "notes": "Keep it working offline."
         },
         {
           "id": "FIX-4",
-          "title": "Surface-only STEP accepted into the library",
+          "title": "Show the unit next to every quantity",
           "priority": "P2",
           "status": "done",
-          "notes": "`library.rs` `convert`: require a solid"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "FIX-5",
-          "title": "Padded binary STLs (or a header starting \"solid\") refused",
+          "title": "Trim spaces from item names",
           "priority": "P2",
           "status": "done",
-          "notes": "`import.rs`: ASCII only when it reads as text starting `solid`; else binary when it holds the triangles its header counts"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "FIX-6",
-          "title": "3MF sub-model units ignored",
+          "title": "Fix the empty state on a new pantry",
           "priority": "P2",
           "status": "done",
-          "notes": "No change: the 3MF specs don't give sub-models their own unit; the root's governs, as transforms compose across files"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "FIX-7",
-          "title": "Unversioned thumbnail URL cached as immutable",
+          "title": "Sort shelves by their position, not their name",
           "priority": "P3",
           "status": "done",
-          "notes": "`library.rs`: no-cache without `version`"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "FIX-8",
-          "title": "Inserts read the store before checking the shape cache",
+          "title": "Keep the scroll position when an item is edited",
           "priority": "P3",
           "status": "done",
-          "notes": "`sources.rs`"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "FIX-9",
-          "title": "Cold builds read files under the evaluator lock; document hashed 3× per evaluate",
+          "title": "Escape markdown in recipe titles",
           "priority": "P3",
           "status": "done",
-          "notes": "`cad.rs`"
+          "notes": "Keep it working offline."
         },
         {
           "id": "FIX-10",
-          "title": "View keys: held key flips every repeat; `currentView` stale without a model or after reframing; opposite lookup copied 3×",
+          "title": "Close the item sheet on Escape",
           "priority": "P2",
           "status": "done",
-          "notes": "`design.vue`, `useKeymap.ts`"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "FIX-11",
-          "title": "Rotation pivot/quaternion maths duplicated in `cad/move.ts` (`featureAnchor` mirrors `FeatureKind::anchor`)",
+          "title": "Say which field is wrong when a save fails",
           "priority": "P2",
           "status": "done",
-          "notes": "K3: moves and turns are Rust edits (`transform.rs`); the worker's `evaluate.ts` keeps a copy of `featureAnchor` until K5 deletes it"
+          "notes": "Follows on from the item above."
         }
       ]
     },
     {
-      "id": "hierarchy",
-      "title": "Hierarchy: projects, folders, bodies, groups",
-      "summary": "Plan and decisions in [ROADMAP.md](ROADMAP.md#-phase-h-hierarchy-projects-folders-bodies-groups).",
+      "id": "pantry",
+      "title": "Pantry: items, shelves, expiry",
+      "summary": "Everything in the cupboards, where it is and when it goes off.",
       "tasks": [
         {
           "id": "HIE-0",
-          "title": "Store and API holes: \"bracket\" → \"Bracket\" gives \"Bracket (2)\" on APFS; `DELETE /documents/{id}` deletes an inserted library part; `/move` can move parts into or out of the Library and scratch; Claude edits drop `groups` and unknown fields",
+          "title": "Shelves as a list you can reorder",
           "priority": "P1",
           "status": "done",
-          "notes": "2026-10-20, with the stale-path 500s after Finder renames. Claude still can't author bodies (its schema has no `target`/`new`/`boolean`): CAD-7 with ARC-2"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "HIE-1",
-          "title": "One hierarchy module: typed `Group`, `Feature.extra` (unknown feature fields survive Rust edits), `resolve` (bodies, body of each feature, combines that used a body up) shared by edit and commands",
+          "title": "Move an item to another shelf",
           "priority": "P1",
           "status": "done",
-          "notes": "2026-10-20. `resolve` walks the timeline as the evaluator does; a test and `--example hierarchy` (59/59 of the stored parts) hold them together. The main body still moves on when a combine uses it up: fixed by HIE-5"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "HIE-2",
-          "title": "Validate and normalise on every write: repair dangling group members, singleton groups, double membership, duplicate ids, name drift; refuse cycles; warn on dangling targets/tools",
+          "title": "Expiry dates with a soon / gone badge",
           "priority": "P1",
           "status": "done",
-          "notes": "2026-10-20: `hierarchy::normalise` at every store write (repairs logged; the PATCH response lists them and the editor adopts the repaired draft), `hierarchy::warnings` for bodies that aren't there (served with the outline in HIE-3). Name drift between meta.json and part.json: HIE-9. Cycles: with nested groups (HIE-6)"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "HIE-3",
-          "title": "Outline from Rust (bodies, groups, combine tools, each feature's body and role); delete the TS derivations (`bodyChoices`, `usedBy`, `groupOf`, group cleanup watch, `operandsOf`)",
+          "title": "Quantities with units (g, ml, pieces)",
           "priority": "P1",
           "status": "done",
-          "notes": "2026-10-20: `hierarchy::outline`, `POST /cad/outline`, `useOutline`; the timeline, feature editor, combine bar and menus read it. Typechecked and served; not yet clicked through in the browser"
+          "notes": "Keep it working offline."
         },
         {
           "id": "HIE-4",
-          "title": "Structural edits as Rust commands: delete, reorder, set op/body, group/ungroup/rename, duplicate (fresh ids, one scheme), add",
+          "title": "Merge two items that are the same thing",
           "priority": "P1",
           "status": "done",
-          "notes": "2026-10-20: `edit::apply`, `POST /cad/edit`; an edit that would break the structure is refused with the reason (suppress reports it). Left in the editor: adding features (templates in `examples.ts`, ARC-4), renaming groups (a field edit). Not clicked through in a browser yet"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "HIE-5",
-          "title": "Schema v2: `bodies` list (bodies[0] is main), `op:new` upgraded, upgrade on read (drafts, versions, library sources), parity check over the store, `EVALUATOR_VERSION` bump",
+          "title": "Item photos",
           "priority": "P1",
           "status": "done",
-          "notes": "2026-10-20: `bodies` listed, the main body first for good; a join aimed at a listed body that isn't there starts it, so deleting a body's first feature keeps the body (with a warning). Upgraded on the next save (a repair), never on read; `op: new` stays as the start marker so the browser worker still reads parts. Parity: 41/43 stored parts build identically, 2 the same but a failing insert's body keeps its listed id"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "HIE-6",
-          "title": "Nested groups (`parent`, no cycles, depth ≤ 8; an outer group is one operand)",
+          "title": "Archive items you no longer buy",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-20: grouping whole groups nests them; ungroup takes the outermost apart; clicking selects the outermost group; the outliner draws the tree. Not clicked through in a browser yet"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "HIE-7",
-          "title": "Project folders: the library's folder functions generalised to any project; move takes a folder",
+          "title": "Low-stock threshold per item",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-20: one folder implementation (`create_folder`, `move_folder`, `delete_folder`, `relocate`) for projects and the Library; `/projects/{id}/folders`; the project page groups parts by folder. Not clicked through in a browser yet"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "HIE-8",
-          "title": "Conflict guard: PATCH sends the `base` revision, 409 when the draft moved on; multi-step flows atomic in the store",
+          "title": "Bulk edit several items",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-20: `revision` on every document, checked under the store lock; the editor sends it, saves one at a time, and reloads with a notice on 409. Writes to a part hold a per-part lock for their whole flow (no test: the race window is too small to hit reliably)"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "HIE-9",
-          "title": "Finder adoption: duplicated part folders get fresh ids, root folders without `project.json` become projects, folder renames rename parts",
+          "title": "Opened-on date for jars and packs",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-20: `Store::adopt`, before every scan. Copies (parts and whole projects) get ids of their own, the original keeps its; folders holding parts (or empty) become projects; a `part.json` without `meta.json` becomes a part; renamed folders rename (\"X (2)\" isn't a rename). Dry run on a copy of ~/Documents/mesher: no changes"
+          "notes": "Keep it working offline."
         },
         {
           "id": "HIE-10",
-          "title": "Extract a body cut by a `keepTools` Combine (refused today: the kept tool isn't copied)",
+          "title": "Fridge and freezer as their own shelves",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Found by the mesher-cad tests"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "HIE-11",
-          "title": "No main body: objects at the root are equal. A new solid is its own body unless joined, grouped or baked; cuts and modifiers always name what they work on (the selected object, or one picked), never an implicit main body; the first listed body is only first in the list",
+          "title": "History of an item's quantity",
           "priority": "P1",
           "status": "todo",
           "plan": "now",
-          "notes": "The user's call, 2026-10-24 (reverses \"the main body first, for good\" in AGENTS.md). Stopgap shipped: in parts with joints a new solid already starts its own body (81b62ce). Touches `hierarchy::Plan`/`resolve`, the evaluator, combine/bake, `Edit::Add`; existing parts must build identically (upgrade writes implicit targets out; run the hierarchy parity example over the store)"
+          "notes": "Follows on from the item above."
         }
       ]
     },
     {
-      "id": "joints",
-      "title": "Moving parts: joints",
-      "summary": "Hinges between bodies, for posing a part (an arm on a figure, a lid on a box) and checking it can be printed in place. The part is always built at rest; a pose moves whole bodies. Started 2026-10-24.",
+      "id": "recipes",
+      "title": "Recipes",
+      "summary": "Recipes that know what's in the pantry.",
       "tasks": [
         {
           "id": "MOT-1",
-          "title": "Joints in the part document: a hinge turns `bodies` about `origin` + `axis` within `min`…`max` (`angle` is the pose), hangs on a `parent` body; the part's `printClearance` (default 0.3 mm)",
+          "title": "Recipe editor with steps and ingredients",
           "priority": "P1",
           "status": "done",
-          "notes": "`document.rs` (`Joint`), `joints.rs`. Unknown fields kept. `joints::problems` says why a joint can't move (a body gone, a body turned twice, no axis, empty range, a chain that loops); such joints are skipped, the part still builds. In the outline as `joints`"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "MOT-2",
-          "title": "Posing in Rust: each moved body's matrix for the stored angles or ones sent while dragging; joints chain (shoulder → elbow)",
+          "title": "Scale a recipe by servings",
           "priority": "P1",
           "status": "done",
-          "notes": "`joints::pose`, `POST /cad/pose` (no build). Tested on a chained arm and hand"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "MOT-3",
-          "title": "Motion check: sweep a hinge through its range (every ≤ 3°, ≤ 61 poses), report collisions (shared volume) and spots closer than the print clearance (they'd fuse) against every other body, the smallest gap and where",
+          "title": "Link ingredients to pantry items",
           "priority": "P1",
           "status": "done",
-          "notes": "`joints::check` (OCCT `BRepExtrema_DistShapeShape`, then a common for touching bodies), `POST /documents/{id}/joints/check`. Tested free (0.5 mm gap), tight (0.1 mm) and colliding (from ~6° on)"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "MOT-4",
-          "title": "Adding a hinge from picked objects: one joined into the body it hangs on is split off into its own body; the pivot goes where the bodies meet, the axis across the direction to what it hangs on",
+          "title": "Show which ingredients are missing",
           "priority": "P1",
           "status": "done",
-          "notes": "Edits `addJoint`, `updateJoint`, `deleteJoint`, `printClearance`; the pivot is placed by `joints::contact` in `POST /documents/{id}/edits` (needs geometry)"
+          "notes": "Keep it working offline."
         },
         {
           "id": "MOT-5",
-          "title": "Editor: Add hinge (menus, palette), joints in the Objects panel, joint properties (angle slider that poses live, range, axis X/Y/Z, pivot typed or picked in the viewport, print clearance), the viewer posing bodies, Check motion with the results",
+          "title": "Tags on recipes",
           "priority": "P1",
           "status": "doing",
           "plan": "now",
-          "notes": "Built 2026-10-24 and typechecked; not clicked through in a browser yet (the Chrome extension wasn't connected). The viewer draws posed bodies from Rust's matrices over the part's buffers (picking still reports rest coordinates); posing doesn't rebuild the part. While a body is posed, its object can't be moved with the gizmo, and wireframe silhouettes, edge/face marks and the section view show it at rest"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "MOT-6",
-          "title": "Print or export in a pose (3MF/STEP of the posed bodies), e.g. arms down to print, up to display",
+          "title": "Cooking mode: one step at a time, screen stays on",
           "priority": "P2",
           "status": "todo",
           "plan": "now"
         },
         {
           "id": "MOT-7",
-          "title": "Printable joint parts in the library: print-in-place hinge and ball joint with the clearance built in",
+          "title": "Timers inside steps",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-24: Library/Joints holds a hinge (0–180°), a ball joint (±12°), a slider (±23.5 mm) and a swivel (±180°), 0.4 mm gaps, each checked free. More (snap-fit, living hinge) when needed"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "MOT-8",
-          "title": "Ball joints and sliders (cylindrical too)",
+          "title": "Substitutes for an ingredient",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-24: kinds `slider`, `ball`, `cylindrical` (`joints.rs`): poses, sweeps by track (a ball joint about X, Y, Z and X with Y), Add menu, palette, Properties per kind. Planar joints wait; playing a joint through its range is MOT-14"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "MOT-9",
-          "title": "Claude authors joints (schema, repair loop runs the motion check)",
+          "title": "Favourite recipes",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "With ARC-2"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "MOT-10",
-          "title": "Inserted parts keep their joints: inserting a library part that has joints brings its bodies in separately (not fused) and copies its joints, moved and turned with the insert, so a library hinge swings inside the part it's placed in and is checked against it",
+          "title": "Notes on a recipe after cooking it",
           "priority": "P1",
           "status": "todo",
           "plan": "now",
-          "notes": "Found 2026-10-24: the user inserted the test hinge and found no slider (an insert is one solid). Needs the insert to build one body per source body, and joints remapped onto the new body ids The user's workflow to support (2026-10-24): insert the ball joint, Join a plate into the socket's body and a cylinder into the ball's body (Shift-click + Join), then Check motion on the assembly. Needs joints to follow the kept body when bodies are joined (today a joined-away body leaves its joint with a problem) Attaching is a fixed joint: add **Attach X to Y** (right-click, the selection bar, the palette) so assemblies are built by attaching parts to each other without fusing them"
+          "notes": "Keep it working offline."
         },
         {
           "id": "MOT-11",
-          "title": "Ground and rigid groups: mark the fixed body (today: whatever no joint turns), bodies that move together without baking them (kept apart for printing in different colours), and a joints panel that shows the tree: what's static, what each joint moves, what goes along",
+          "title": "Recipe photos",
           "priority": "P1",
           "status": "todo",
           "plan": "next",
-          "notes": "Keeps the model a tree: every moving rigid group has exactly one joint to its parent"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "MOT-12",
-          "title": "Combined motion check: sweep joints together (the corners of each range, then sampling), so a wrist that clears the torso with the arm down but hits it with the arm raised is found; the result feeds PRN-1",
+          "title": "Duplicate a recipe",
           "priority": "P2",
           "status": "todo",
           "plan": "now",
-          "notes": "Today each joint is swept with the others held where they are. Printing in place makes every joint move at once, so this is the real guarantee"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "MOT-13",
-          "title": "Coupled motion: gears (one turns, the other follows at a ratio) and closed linkages (four-bar, scissors), where moving one joint drives others",
+          "title": "Print a recipe on one page",
           "priority": "P3",
           "status": "todo",
           "plan": "next",
-          "notes": "Needs a loop solver, not the joint tree; only when a part needs it"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "MOT-14",
-          "title": "Play a joint through its range in the viewport (and a sweep's collisions as it goes)",
+          "title": "Search recipes by what's in the pantry",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "The sliders pose by hand today"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "MOT-15",
-          "title": "Screw, planar and fixed joints, and a library joint for every type on the user's joints sheet",
+          "title": "Ingredient groups (for the sauce, for the dough)",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-24: kinds `screw` (pitch), `planar` (offset2), `fixed` (`joints.rs`); Library/Joints holds 13 joints, each checked free. The screw jack has a smooth bore until threads (CAD-1)"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "MOT-16",
-          "title": "Redo the library's jaw coupling: it doesn't print in place (Hub B floats on a 1 mm gap over Hub A, its jaws hang in the air) and it doesn't model the TPU spider that fills the gaps",
+          "title": "Cook a recipe and take its ingredients from the pantry",
           "priority": "P2",
           "status": "todo",
           "plan": "now",
-          "notes": "Found by the user 2026-10-24. Either model the spider and mark the coupling as separate prints, or replace it with a flexure that prints in place (a living hinge). Also: dimension labels stay at rest while a body is posed, which made the tilt look like breakage"
+          "notes": "Keep it working offline."
         }
       ]
     },
     {
-      "id": "rust-owns-logic",
-      "title": "Rust owns the logic",
-      "summary": "",
+      "id": "sync",
+      "title": "Sync between devices",
+      "summary": "One pantry on the phone and the laptop.",
       "tasks": [
         {
           "id": "ARC-1",
-          "title": "Scratch parts, undo/redo history and multi-step flows (Claude edit commit, save to project, restore) run in Rust",
+          "title": "Sync changes in the background",
           "priority": "P1",
           "status": "done",
-          "notes": "`history.rs`, `.scratch/`, `DocumentState` from every document endpoint"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "ARC-2",
-          "title": "Claude part authoring and drawing reading in Rust instead of Nitro",
+          "title": "Resolve two edits to the same item",
           "priority": "P1",
           "status": "todo",
           "plan": "now",
-          "notes": "The repair loop needs the kernel: until ARC-3, Rust calls back into a kernel check"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "ARC-3",
-          "title": "CAD kernel (OpenCascade) in Rust: evaluate, tessellate, measure, verify, pick, highlight, move, drive, exports, report",
+          "title": "Show when the last sync was",
           "priority": "P1",
           "status": "done",
-          "notes": "`mesher-cad`: own cxx shim over OCCT 7.9.3 (Homebrew locally; built from source in Docker). K0–K1 evaluating, tessellating, bodies; picking; K2 measure (`measure.rs`), verify (`verify.rs`: every build carries `verification`; `POST /cad/verify`) and drive (`drive.rs`, `POST /documents/{id}/drive`); K3 highlight (`Evaluator::highlight`; the shim reports each drawn edge's and face's index) and move (`transform.rs`: `translate`/`rotate` edits; gizmo info in the outline); K4 exports and the 2D drawing (`drawing.rs`, HLR in the shim, every body, ISO first-angle); K5 replicad, the worker and `cad-smoke.ts` deleted: variants build in Rust (`?variant=true`), Nitro's repair loop checks through `POST /cad/check` (2026-10-24)"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "ARC-4",
-          "title": "Edits sent as commands rather than whole drafts",
+          "title": "Work offline and catch up later",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-24: `POST /documents/{id}/edits` applies edits to the stored draft (one undo step per call): `add` (feature defaults moved to Rust, `defaults.rs`; `newFeature`/`insertFeature` deleted), `update`, `spec`, `rename`, `renameGroup`, `combine`, `bake`, plus the structural edits and `translate`/`rotate`. `useDocumentSync` relays typed changes as feature updates (400 ms after typing pauses) and sends actions through `edit()`; refused changes revert. A whole-draft PATCH stays as a logged fallback (`[mesher] a change with no edit for it`). Left: per-parameter undo granularity, if wanted"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "PERF-1",
-          "title": "Building large organic parts is slow: the raptor (99 features) takes ~14 s native, the Triceratops (82) ~9 s (opening is instant from the cache)",
+          "title": "Sign in with a link by email",
           "priority": "P2",
           "status": "doing",
           "plan": "next",
-          "notes": "Profiled 2026-10-20 (raptor): OCCT booleans ~7.2 s; **volume checks in the boolean guard ~2.3 s** (body volume recomputed every step, tool volumes again on retry, raw and merged measured every time); **fuzzy retry of the 30-loft fuse ~1.7 s** (first attempt wasted, see KER-1); **measuring 2.3 s** on every build (the regression from 10.6 s since K2 measuring); tessellating 0.3 s. Next: cache volumes on shapes and skip the raw/merged compare when merging changed nothing; send the mesh before dimensions and skip measuring unchanged bodies; then consider fuzzy-first for runs that need it (only with raptor parity)"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "KER-1",
-          "title": "B-rep validity in the health check: the raptor builds watertight but its final body (`torso`) fails BRepCheck (coincident/overlapping lofts)",
+          "title": "Sync photos without blocking the rest",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Confirmed 2026-10-20. It also costs speed: in the 30-loft fuse, merging faces changes the volume, the unmerged result fails BRepCheck, so the whole fuse is rebuilt with fuzzy 1e-4. Next: check validity after each timeline step to find the overlapping lofts, then ShapeFix, a Claude rule, or accept. OCCT 7.9.3 sometimes returns wrong booleans without an error; requiring BRepCheck on every result made things worse (more failures, 6× slower)"
+          "notes": "Keep it working offline."
         },
         {
           "id": "KER-2",
-          "title": "OCCT prints `Division par zero RR=nan` to stdout on degenerate intersections (server log noise)",
+          "title": "Retry a failed sync with backoff",
           "priority": "P3",
           "status": "todo",
-          "notes": "Not reproduced 2026-10-20: every stored version (21) and both big parts print nothing. Fix if it returns: redirect stdout around kernel calls"
+          "notes": "Check it on a phone as well as the desktop."
         }
       ]
     },
     {
-      "id": "verification",
-      "title": "Verification against drawings",
-      "summary": "",
+      "id": "imports",
+      "title": "Recipe imports",
+      "summary": "Getting recipes in without retyping them.",
       "tasks": [
         {
           "id": "VER-1",
-          "title": "Dimension extraction table from a drawing: value, tolerance, what it refers to",
+          "title": "Import a recipe from a web page",
           "priority": "P1",
           "status": "done",
-          "notes": "`spec` in the part; Verify tab; `/api/cad/dimensions`"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "VER-2",
-          "title": "Measurement engine on the real B-rep: overall extents, hole/cylinder diameters, hole positions and spacing, face-to-face distances, angles",
+          "title": "Import from a pasted block of text",
           "priority": "P1",
           "status": "done",
-          "notes": "`mesher-cad/src/measure.rs` (was `cad/measure.ts`). Follow-ups in VER-7"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "VER-3",
-          "title": "3D dimension annotations in the viewport, green or red against tolerance",
+          "title": "Read quantities like 1½ cups",
           "priority": "P1",
           "status": "done",
-          "notes": "Overlapping labels hide by priority (fail > pass > unchecked)"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "VER-4",
-          "title": "Verification report: expected / measured / tolerance / pass, stored with the version, exportable",
+          "title": "Map imported units to the pantry's units",
           "priority": "P1",
           "status": "done",
-          "notes": "Markdown export; PDF not done"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "VER-5",
-          "title": "Keep the source drawing with the part; side-by-side blueprint viewer in Design mode",
+          "title": "Import a whole cookbook export",
           "priority": "P2",
           "status": "done"
         },
         {
           "id": "VER-6",
-          "title": "Generated 2D drawings (front/top/side projections as SVG, with dimensions)",
+          "title": "Keep the source link on an imported recipe",
           "priority": "P3",
           "status": "done",
-          "notes": "First-angle; overall dims + hole Ø only. PDF/DXF and more dimensions would follow"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "VER-7",
-          "title": "Measurement follow-ups: geometric tolerances (flatness, position), thread pitch, positions of off-axis holes and slots, smarter matching than nearest value",
+          "title": "Preview an import before saving it",
           "priority": "P2",
           "status": "todo",
           "plan": "next"
         },
         {
           "id": "VER-8",
-          "title": "Highlight a check's feature on the model when its row is selected (and the reverse)",
+          "title": "Skip duplicates on import",
           "priority": "P3",
           "status": "todo"
         }
       ]
     },
     {
-      "id": "cad",
-      "title": "CAD modelling",
-      "summary": "",
+      "id": "planner",
+      "title": "Meal planner",
+      "summary": "What we're eating this week.",
       "tasks": [
         {
           "id": "CAD-1",
-          "title": "Threads: metric, internal/external, true helical geometry",
+          "title": "Week view with breakfast, lunch and dinner",
           "priority": "P1",
           "status": "todo",
           "plan": "now",
-          "notes": "Helical sweep in OpenCascade; FDM-friendly profile option. The M45×1 cover drawing needs it"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "CAD-4",
-          "title": "Patterns: linear and circular patterns, mirror feature",
+          "title": "Drag a recipe onto a day",
           "priority": "P1",
           "status": "todo",
           "plan": "now",
-          "notes": "e.g. four rim slots as one circular pattern; makes AI output shorter and more robust"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "CAD-8",
-          "title": "Rotation/transform for primitives (boxes are axis-aligned; cylinders only along x/y/z)",
+          "title": "Leftovers as a meal",
           "priority": "P1",
           "status": "done",
-          "notes": "`rotation` on every solid about its own centre (`FeatureKind::anchor`); gizmo Rotate mode and R. Scale is still left"
+          "notes": "Keep it working offline."
         },
         {
           "id": "CAD-5",
-          "title": "Hole feature: counterbore, countersink, standard metric clearance and tap sizes",
+          "title": "Repeat a week",
           "priority": "P2",
           "status": "todo",
           "plan": "next"
         },
         {
           "id": "CAD-2",
-          "title": "Sketcher: free-form 2D sketches (lines, arcs, constraints, dimensions) on planes and faces",
+          "title": "Plan from what expires soonest",
           "priority": "P2",
           "status": "todo",
           "plan": "later",
-          "notes": "The largest CAD gap; consider a constraint solver"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "CAD-3",
-          "title": "Viewport picking: click edges to fillet/chamfer, faces to shell or sketch on",
+          "title": "Servings per meal",
           "priority": "P2",
           "status": "doing",
           "plan": "next",
-          "notes": "Done: Objects / Faces / Edges modes, picked edges (fillet/chamfer) and faces (shell) stored as points. Left: sketch on a face, push/pull a face, stable naming that survives geometry moves | Needs stable topological naming. Feature-level picking exists (click selects the feature behind a surface, `cad/pick.ts`; selection is highlighted, `cad/highlight.ts`); picking individual edges/faces as feature inputs does not"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "CAD-7",
-          "title": "Multi-body parts and assemblies (lid + base), visibility, per-body export; a Boolean tool",
+          "title": "Mark a meal as cooked",
           "priority": "P1",
           "status": "doing",
           "plan": "next",
-          "notes": "**Done:** op `new` starts a body, `target` picks a body, `boolean` feature (join/cut/intersect, keep tools) in `mesher-cad`; Combine tool, body pickers, Shift-click bodies + Combine bar; groups count as one object in booleans and **Bake** (Ctrl+J) makes objects one body. **Left:** per-body visibility (export of a chosen body is done), dimensions/picking/highlights of non-main bodies (the worker sees only the main body until K2/K3), Claude can't author bodies yet (schema unchanged until ARC-2 moves the repair loop onto the Rust kernel)"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "CAD-9",
-          "title": "Named parameters and expressions (`wall = 2`, `width = 80`) referenced by features",
+          "title": "Notes on a day",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Also makes AI edits more precise"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "CAD-10",
-          "title": "In-session undo/redo in the editor (versions exist, keystroke-level undo doesn't)",
+          "title": "Copy a meal to another day",
           "priority": "P2",
           "status": "done",
-          "notes": "`useEditHistory`: ⌘Z / ⇧⌘Z (Ctrl+Y), toolbar buttons"
+          "notes": "Keep it working offline."
         },
         {
           "id": "CAD-11",
-          "title": "Measure tool in the viewport (distance, diameter, angle)",
+          "title": "Plan for guests",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Measurements exist (VER-2); needs picking (CAD-3) to measure between chosen faces"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "CAD-14",
-          "title": "Driving dimensions: edit a measured value to change the model",
+          "title": "A month view",
           "priority": "P1",
           "status": "done",
-          "notes": "Direct parameters; Claude fallback for positions/spacing. Next: drive positions deterministically"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "CAD-6",
-          "title": "Sweep along a path, variable fillets, draft angles, offset faces",
+          "title": "Suggest a week from favourites",
           "priority": "P3",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "CAD-12",
-          "title": "Repair the shell-after-fillet tessellation gaps (currently only flagged)",
+          "title": "Skip a meal",
           "priority": "P3",
           "status": "todo",
           "plan": "next",
-          "notes": "Try converting offset surfaces or ShapeFix before meshing"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "CAD-13",
-          "title": "Section view / clipping plane",
+          "title": "Show the week's prep the night before",
           "priority": "P3",
           "status": "done",
-          "notes": "One axis-aligned plane with hatched caps (stencil) and ghost outlines of the cut-away half; viewer only. Later: a plane at any angle, several planes, a section in the 2D drawing"
+          "notes": "Needs a decision on the details first."
         }
       ]
     },
     {
-      "id": "ai",
-      "title": "AI",
-      "summary": "",
+      "id": "shopping",
+      "title": "Shopping list",
+      "summary": "The list that writes itself.",
       "tasks": [
         {
           "id": "AI-7",
-          "title": "Eval set for blueprint → part accuracy across many real drawings",
+          "title": "Shopping list from the week's plan",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Measure before tuning prompts; pairs with VER-2"
+          "notes": "Keep it working offline."
         },
         {
           "id": "AI-1",
-          "title": "Self-critique loop: render views, show Claude its model next to the drawing, iterate",
+          "title": "Group the list by aisle",
           "priority": "P2",
           "status": "todo",
           "plan": "next"
         },
         {
           "id": "AI-2",
-          "title": "Images → Claude in Sculpt mode (photo → sculpted scene); images only go to the relief generator today",
+          "title": "Tick items off in the shop",
           "priority": "P2",
           "status": "todo",
           "plan": "later",
-          "notes": "stream-json image input is already proven"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "AI-3",
-          "title": "Hosted mesh provider (Meshy/Tripo) behind `MeshGenerator` for realistic organic models",
+          "title": "Add bought items to the pantry",
           "priority": "P2",
           "status": "todo",
           "plan": "later",
-          "notes": "Paid per generation; needs mesh repair (PRN-5)"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "AI-4",
-          "title": "Anthropic API provider alongside the CLI, for non-local or multi-user use",
+          "title": "Share the list with the household",
           "priority": "P2",
           "status": "todo",
           "plan": "later",
-          "notes": "Required before any deployment (see LIC-1)"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "AI-5",
-          "title": "Streamed progress from Claude instead of an elapsed timer",
+          "title": "Add an item by voice",
           "priority": "P3",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "AI-8",
-          "title": "Variations: several takes on a prompt, pick one, spin off further rounds",
+          "title": "Remember usual quantities",
           "priority": "P1",
           "status": "done",
-          "notes": "Design mode. Follow-ups in AI-9"
+          "notes": "Keep it working offline."
         },
         {
           "id": "AI-9",
-          "title": "Variations follow-ups: keep rounds across reloads (store with the part), variations in Sculpt mode, compare two variants side by side",
+          "title": "Several lists (market, supermarket)",
           "priority": "P2",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "AI-6",
-          "title": "Conversation memory per part (follow-up edits that know earlier prompts)",
+          "title": "Clear ticked items",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Version messages are a start"
+          "notes": "Follows on from the item above."
         }
       ]
     },
     {
-      "id": "sculpt",
-      "title": "Sculpt",
-      "summary": "",
+      "id": "barcode",
+      "title": "Barcode scanning",
+      "summary": "Scan it in instead of typing.",
       "tasks": [
         {
           "id": "SCU-1",
-          "title": "Save sculpt results into projects (only CAD parts are stored)",
+          "title": "Scan a barcode to add an item",
           "priority": "P1",
           "status": "todo",
           "plan": "later",
-          "notes": "New document kind `sculpt` (scene JSON + mesh)"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "SCU-2",
-          "title": "Persist sculpt jobs (in memory now, lost on restart)",
+          "title": "Look up a product's name and size",
           "priority": "P2",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "SCU-3",
-          "title": "Raise the SDF quality ceiling (detail tools, better style prompts)",
+          "title": "Scan to take an item out",
           "priority": "P3",
           "status": "todo",
           "plan": "later"
@@ -643,261 +643,261 @@
       ]
     },
     {
-      "id": "print",
-      "title": "Print pipeline",
-      "summary": "",
+      "id": "nutrition",
+      "title": "Nutrition",
+      "summary": "Rough numbers, not a diet app.",
       "tasks": [
         {
           "id": "PRN-1",
-          "title": "Printability analysis: overhangs, thin walls, H2D build-volume fit",
+          "title": "Calories per recipe serving",
           "priority": "P1",
           "status": "todo",
           "plan": "now",
-          "notes": "Confirm the H2D's exact build volume first"
+          "notes": "Keep it working offline."
         },
         {
           "id": "PRN-5",
-          "title": "Real mesh repair (hole filling, self-intersections) for imported or AI meshes",
+          "title": "Protein, carbs and fat per serving",
           "priority": "P2",
           "status": "todo",
           "plan": "next"
         },
         {
           "id": "PRN-6",
-          "title": "Import existing STL / STEP / 3MF files",
+          "title": "Nutrition per pantry item",
           "priority": "P2",
           "status": "done",
-          "notes": "Into the parts library or a part (`mesher-cad/src/import.rs`). Meshes must be closed (repair is PRN-5) and ≤ 200k triangles"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "PRN-2",
-          "title": "Auto-orientation and flat-base suggestions for CAD parts",
+          "title": "Weekly totals in the planner",
           "priority": "P2",
           "status": "todo",
           "plan": "next"
         },
         {
           "id": "PRN-3",
-          "title": "Bambu project 3MF (plates, settings); sending to the printer",
+          "title": "Allergens on items and recipes",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Sending is outward-facing: needs explicit user confirmation"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "PRN-4",
-          "title": "Multi-material / colour 3MF for the dual nozzle",
+          "title": "Warn about an allergen in a planned meal",
           "priority": "P3",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "PRN-8",
-          "title": "Assign materials and colours to objects: pick a material (and a colour, defaulting to the material's) for the whole part, a body, a group or a picked object; the viewport draws each in its colour, and the Objects panel shows a swatch",
+          "title": "Show where the numbers come from",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Asked for 2026-10-24. Saved in the part document (a `material` on the part as the default, overrides on bodies/objects; `extra` keeps it on older readers) and set through `POST /documents/{id}/edits` (a new edit kind, one undo step). Rust owns the material list (name, density, default colour, printable filament or not) and serves it; builds return each body's material and colour with its triangle range, so the frontend only paints. Feeds PRN-7 (weight per body), PRN-4 (filament per body in the 3MF for the H2D's two nozzles) and MOT-16 (the TPU spider). Teach Claude the field"
+          "notes": "Keep it working offline."
         },
         {
           "id": "PRN-7",
-          "title": "Filament needed, and weight by material: the main question is *how much filament does this print take*: the Part panel shows it in grams and metres of 1.75 mm filament for the chosen material (as printed: walls plus infill), per body and in total, and what share of a 1 kg spool that is. Beside it the solid weight (cast, machined, or 100% infill: metals, wood, resin) and the surface area",
+          "title": "Hide nutrition for those who don't want it",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Asked for 2026-10-24. The volume is already measured (`PartMesh::volume_mm3`, per body in `BodySummary`); add the surface area (`BRepGProp::SurfaceProperties`, as `measure.rs` does per face). Rust owns the material presets (g/cm³: PLA 1.24, PETG 1.27, ABS 1.04, ASA 1.07, TPU 1.21, PA 1.14, PC 1.20; aluminium 2.70, steel 7.85, stainless 8.00, brass 8.50, copper 8.96, titanium 4.43; resin 1.15, oak 0.75) and the estimate (printed ≈ area × wall thickness + the rest × infill; defaults 0.8 mm walls, 15% infill, both editable; length = grams ÷ density ÷ 0.02405 cm² (the 1.75 mm cross-section); supports, brim and purge aren't counted, so it says so; the slicer has the exact figure). Uses the materials assigned by PRN-8: each body's weight and the total (a part-wide pick works before PRN-8 lands). A custom density covers anything not listed. Measured, never read from feature parameters"
+          "notes": "Check it on a phone as well as the desktop."
         }
       ]
     },
     {
-      "id": "library",
-      "title": "Parts library",
-      "summary": "",
+      "id": "sharing",
+      "title": "Household sharing",
+      "summary": "One pantry, several people.",
       "tasks": [
         {
           "id": "LIB-1",
-          "title": "Parts library: keep parts (modelled or imported STEP/STL/3MF) with a category and tags, insert them pinned to a version, update explicitly",
+          "title": "Invite someone to the household",
           "priority": "P1",
           "status": "done",
-          "notes": "Requested 2026-10-20. `Library/` in the store, `insert`/`import` features, `Sources` seam in the evaluator (`api-server/src/sources.rs`)"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "LIB-2",
-          "title": "Thumbnails in the library list",
+          "title": "Roles: can edit, can view",
           "priority": "P2",
           "status": "done",
-          "notes": "`mesher-core/src/thumbnail.rs`: a CPU z-buffer render (isometric, 3× supersampled) to PNG, `GET /library/{id}/thumbnail`, cached per version. Parts and projects (DAT-3) could use the same"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "LIB-3",
-          "title": "Claude keeps and places library parts: inserts/imports (and Combine) in `cad/schema.ts`, the library listed in its prompt (\"add four M3 nuts\")",
+          "title": "See who changed an item",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Until then a Claude edit of a part with inserts can drop them"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "LIB-4",
-          "title": "Re-import a newer file as a new version of an import part",
+          "title": "Leave a household",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Today: import again, or edit the part"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "LIB-5",
-          "title": "Save the selected objects (not the whole part) to the library",
+          "title": "Several households per person",
           "priority": "P2",
           "status": "doing",
           "plan": "next",
-          "notes": "API done: `POST /library` with `objects` or `group` (`Evaluator::extract`, volume-checked). Left: a UI entry (right-click › Add selection to library)"
+          "notes": "Keep it working offline."
         },
         {
           "id": "LIB-7",
-          "title": "In-app Claude creates library entries (\"make an M3 nut and a 20 mm standoff for the library\")",
+          "title": "Notify when the list changes",
           "priority": "P1",
           "status": "todo",
           "plan": "next",
-          "notes": "Requested 2026-10-20. Plan: the author schema gains optional `libraryParts: [{name, folder, tags, part}]`, the app relays them to `POST /library`. Claude inserting library parts (LIB-3) needs the kernel check in Rust (ARC-2), since the replicad check can't build inserts"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "LIB-8",
-          "title": "Library folders",
+          "title": "Assign a meal to a cook",
           "priority": "P2",
           "status": "done",
-          "notes": "Nested folders on disk (any folder without a meta.json), tree panel, drag to move, folder create/rename/move/delete (empty only), categories migrated once"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "LIB-9",
-          "title": "Lock library parts (read-only) so they can't be changed by accident",
+          "title": "Remove a member",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-24: `locked` in meta.json; the store refuses any draft change to a locked part except its joints' poses (`refuse_if_locked`, compared as Rust reads the drafts); a switch under ⋯ in the Library, a lock on the row, **Locked · Unlock** in the top bar"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "LIB-6",
-          "title": "Electronics insets: library parts that carry ports (USB-C opening, LED window), keep-outs (antenna, vents), mounting holes and a fit clearance; inserting one cuts the pocket and openings",
+          "title": "Household name and picture",
           "priority": "P2",
           "status": "todo",
           "plan": "later",
-          "notes": "Discussed 2026-10-20: sindr stays the circuit analyser; physical data lives in this library. First target: an ESP32-C6 devkit enclosure"
+          "notes": "Small; the kind of thing a review catches."
         }
       ]
     },
     {
       "id": "ux",
       "title": "UX",
-      "summary": "",
+      "summary": "Small things that make it pleasant.",
       "tasks": [
         {
           "id": "UX-9",
-          "title": "Feature tree: objects (bodies) as parents with the features that shape them as children (joins, cuts, modifiers; Combine with its tool bodies nested), inside their groups; the plain timeline stays as a second view",
+          "title": "Dark mode",
           "priority": "P1",
           "status": "done",
-          "notes": "2026-10-21: `hierarchy::tree` in the outline (groups › bodies › features; a combine holds the bodies it used up; one-feature bodies are plain rows; members outside their group's bodies are links), `OutlineTree` + `FeatureRow`, Tree / Timeline switch; the separate Groups section is gone. Typechecked, served from Docker; not clicked through yet"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "UX-10",
-          "title": "Console button in the sidenav: a panel showing the operation log (builds, combines, exports, errors) with copy",
+          "title": "Keyboard shortcuts on the desktop",
           "priority": "P2",
           "status": "todo",
-          "notes": "Needs `GET /api/v1/oplog?limit=` over `.debug/operations.jsonl`"
+          "notes": "Keep it working offline."
         },
         {
           "id": "UX-11",
-          "title": "Keys to switch the gizmo between move and rotate (Blender's Shift+Space menu, or Industry Compatible W/E)",
+          "title": "Undo the last change",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Asked the user which they use"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "UX-12",
-          "title": "Lock objects so they can't be moved, turned, changed or deleted by accident",
+          "title": "Larger text setting",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-24: `locked` on a feature; `edit::apply` refuses any edit that changes a locked object other than its name or the lock (moves, turns, parameters, deletes, combines, bakes); right-click › Lock, the palette (Lock / unlock), a Locked box in Properties (its fields go read-only), no gizmo while locked. Not clicked through in a browser yet"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "UX-13",
-          "title": "Dock the Properties panel like the Objects panel (flush to the right edge, full height, the viewport insets for it) instead of floating over the viewport",
+          "title": "Pull to refresh",
           "priority": "P2",
           "status": "todo",
           "plan": "now",
-          "notes": "Asked 2026-10-24. Sits left of the Claude panel; `useDesignLayout` edges need a properties width"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "UX-14",
-          "title": "Drag and drop in the Objects panel: reorder objects, drop one into or out of a group, and take an object out of a joint (\"unparent\" what a hinge moves)",
+          "title": "Haptics on tick-off",
           "priority": "P2",
           "status": "todo",
           "plan": "now",
-          "notes": "Asked 2026-10-24: a box added to a joint's bodies can't be taken out from the panel today; needs edits to move a body between joints and to drop a body from one"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "UX-15",
-          "title": "Empty group nodes in the Objects tree (like a Blender collection): Add › Group makes an empty, named group; right-click › Move to group › puts objects in (drag with UX-14); a group of one or none is kept",
+          "title": "Empty states with a next step",
           "priority": "P2",
           "status": "todo",
           "plan": "now",
-          "notes": "Asked 2026-10-24. Today `hierarchy::normalise` and `prune_groups` remove groups with fewer than two members, and grouping only makes new groups (Ctrl+G); both change, with the hierarchy parity example over the store kept clean. Do with HIE-11 (same rules)"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "UX-16",
-          "title": "Reload reopens the part (and what was selected in it) instead of a fresh scratch part",
+          "title": "Onboarding with a sample pantry",
           "priority": "P1",
           "status": "done",
-          "notes": "2026-10-24 (`f0e4add`): the part's id stays in the URL and is loaded in the browser; the selected feature, objects or joint, the selection mode and the panel tab come back from sessionStorage (`useSessionView`)"
+          "notes": "Keep it working offline."
         },
         {
           "id": "UX-17",
-          "title": "Booleans in a part with joints don't run",
+          "title": "Quick add from anywhere",
           "priority": "P1",
           "status": "todo",
           "plan": "now",
-          "notes": "Reported 2026-10-24 without a repro: nothing reached the kernel (no combine in the operation log), so the app stopped it. Ask for the steps; suspects: the combine bar with an inserted (fused) jointed part, or a join that would use up a jointed body (see MOT-10)"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "UX-1",
-          "title": "Browser e2e tests (Playwright) for Sculpt, Design, Projects and the AI flows",
+          "title": "Swipe to delete with undo",
           "priority": "P1",
           "status": "todo",
           "plan": "next",
-          "notes": "Nothing is browser-automated yet"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "UX-6",
-          "title": "Keymaps: Blender-style keys (default) and Mesher's, swappable (`app/keymap`); G move with axis constraints; menu bar",
+          "title": "Remember the last view",
           "priority": "P1",
           "status": "done",
-          "notes": "Left: S once features scale, E extrude once push/pull exists, box select (Blender's left-drag), H hide (needs per-body visibility, CAD-7)"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "UX-7",
-          "title": "Native desktop shell (Tauri, Rust): frees browser-reserved shortcuts (⌘W/⌘N/⌘S…), native menus, direct file access; the Axum backend can run inside it",
+          "title": "Show units the way the household prefers",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Decided 2026-10-20: later. System shortcuts (⌘Space Spotlight, ⌘Tab) stay the OS's even in a native app; freeing ⌘Space means remapping Spotlight in System Settings. Firefox has no Keyboard Lock API"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "UX-2",
-          "title": "Mobile layout polish",
+          "title": "Smoother list animations",
           "priority": "P3",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "UX-3",
-          "title": "Keyboard shortcuts / command palette",
+          "title": "Command palette",
           "priority": "P3",
           "status": "doing",
           "plan": "later",
-          "notes": "Design has `[` `]` `P` `F` `D` `Delete` `Esc`; no command palette yet"
+          "notes": "Keep it working offline."
         },
         {
           "id": "UX-4",
-          "title": "Inch units",
+          "title": "Settings page tidy-up",
           "priority": "P3",
           "status": "todo",
           "plan": "later"
@@ -906,220 +906,220 @@
     },
     {
       "id": "data",
-      "title": "Data and projects",
-      "summary": "",
+      "title": "Data and backups",
+      "summary": "It's their data: get it out, put it back.",
       "tasks": [
         {
           "id": "DAT-4",
-          "title": "Attachments: store drawings and verification reports with a part",
+          "title": "Export everything as JSON",
           "priority": "P1",
           "status": "done",
-          "notes": "Drawings as attachments; reports on versions"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "DAT-1",
-          "title": "Version diff: what changed between versions, visual compare",
+          "title": "Import a JSON export",
           "priority": "P2",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "DAT-3",
-          "title": "Thumbnails for parts and projects",
+          "title": "Nightly backup",
           "priority": "P2",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "DAT-2",
-          "title": "Duplicate a part; branch from a version",
+          "title": "Restore a backup",
           "priority": "P3",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "DAT-5",
-          "title": "Export/backup a project (all parts and versions as a zip)",
+          "title": "Delete the account and its data",
           "priority": "P3",
           "status": "done",
-          "notes": "Projects are plain folders in `~/Documents/mesher`: copy, zip, sync or git them"
+          "notes": "Keep it working offline."
         },
         {
           "id": "DAT-6",
-          "title": "Scratch parts autosave into an \"Inbox\" project, so nothing is lost before *Save to project*",
+          "title": "Export recipes as Markdown",
           "priority": "P2",
           "status": "todo",
           "plan": "later"
         },
         {
           "id": "DAT-7",
-          "title": "Delete a version (e.g. a restore made by mistake)",
+          "title": "Check a backup can be read",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-24, the user's call (history was append-only): `DELETE /versions/{id}` to `.trash/`; refused for the only version, a locked part's, or one an insert pins"
+          "notes": "Follows on from the item above."
         }
       ]
     },
     {
       "id": "interfaces",
-      "title": "Interfaces: CLI, MCP, API",
-      "summary": "",
+      "title": "Interfaces: CLI and API",
+      "summary": "For people who'd rather script it.",
       "tasks": [
         {
           "id": "API-1",
-          "title": "CAD build endpoint `POST /api/v1/cad/build`: part JSON → STEP / 3MF / STL, server-side, with no part id",
+          "title": "Read-only HTTP API",
           "priority": "P1",
           "status": "todo",
           "plan": "later",
-          "notes": "The Rust kernel already exports a sent document through `POST /documents/{id}/export/{format}` (ARC-3); left is a route that doesn't need a part id"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "API-2",
-          "title": "`mesher` CLI (Rust): `mesher sculpt`, `mesher design`, exports",
+          "title": "API tokens per household",
           "priority": "P2",
           "status": "todo",
           "plan": "later",
-          "notes": "Wraps the HTTP APIs, hides job polling"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "API-3",
-          "title": "MCP server exposing sculpt/design/export/verify as tools",
+          "title": "CLI to add items",
           "priority": "P2",
           "status": "todo",
           "plan": "later",
-          "notes": "Lets Claude Code and other agents drive mesher"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "API-4",
-          "title": "OpenAPI spec generated from the Rust types (`utoipa`), served at `/api/v1/openapi.json` and committed; frontend types generated from it (`openapi-typescript`) so docs and types can't drift",
+          "title": "Webhook when stock runs low",
           "priority": "P1",
           "status": "todo",
           "plan": "later",
-          "notes": "Requested 2026-10-20. Until then docs/API.md is kept by hand; the binary build format stays documented there"
+          "notes": "Keep it working offline."
         },
         {
           "id": "API-5",
-          "title": "One API surface: `/api/cad` (Nitro) and `/api/v1` (Rust) are split today",
+          "title": "Document the API",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Document, or route consistently"
+          "notes": "Check it on a phone as well as the desktop."
         }
       ]
     },
     {
-      "id": "rust-tidy",
-      "title": "Code health: Rust tidy",
-      "summary": "Reviewed 2026-10-24: the four-crate split is sound (one-way dependencies, the OCCT FFI private behind `kernel.rs`, no TODO/FIXMEs, clippy clean), but `store.rs` has outgrown one file and the HTTP layer is mostly untyped. Every step changes **no behaviour**: no route, JSON shape or file on disk changes, `docs/API.md` stays as it is, and each step is its own commit with `cargo test --release`, `cargo clippy --all-targets` and `nuxt typecheck` green.",
+      "id": "tidy",
+      "title": "Code health",
+      "summary": "Keeping it easy to change.",
       "tasks": [
         {
           "id": "RST-1",
-          "title": "Split `api-server/src/store.rs` (2,060 lines, 124 functions in one `impl Store`) into `store/`: `mod.rs` (Store, open, index, lock, errors, shared types), `adopt.rs` (scan and Finder adoption), `projects.rs` (projects, folders), `parts.rs` (documents, scratch, move, delete, trash), `versions.rs`, `files.rs` (attachments, exports, previews), `library.rs`, `legacy.rs` (the SQLite import entry points), plus `disk.rs` (atomic writes, unique names) and `validate.rs` (cleaning names, tags, reports)",
+          "title": "Split the item store into its own module",
           "priority": "P2",
           "status": "done",
-          "notes": "2026-10-24. One `impl Store` across the files, so callers didn't change; helpers private unless another store file needs them. Largest file 377 lines (`mod.rs`); the tests stay together in `store/tests.rs` (516)"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "RST-2",
-          "title": "Remove the 4 `#[allow(clippy::too_many_arguments)]` in the store (`insert_attachment`, `import_*`) with small argument structs",
+          "title": "Remove the old shelf migration",
           "priority": "P3",
           "status": "done",
-          "notes": "2026-10-24. `Upload` for an attachment's file; `ImportedDocument`/`ImportedVersion`/`ImportedAttachment` for the SQLite rows. No `#[allow]` left in the workspace"
+          "notes": "Nice to have, not urgent."
         },
         {
           "id": "RST-3",
-          "title": "Name `api-server` modules by what they serve: `routes/` holding `mod.rs` (the router, today's `routes.rs`), `sculpt.rs` (today's `handlers.rs`), `projects.rs`, `cad.rs`, `library.rs`, `claude.rs`; storage and state (`store`, `history`, `sources`, `oplog`, `jobs`, `legacy`) stay at the top level. `api_types.rs` goes next to the handlers that use it",
+          "title": "Typed API client",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "After MOT-5: the joints work is editing `cad.rs`"
+          "notes": "Small; the kind of thing a review catches."
         },
         {
           "id": "RST-4",
-          "title": "Typed request bodies: one `JsonBody<T>` extractor in place of the ~29 handlers that take `Bytes` and call `serde_json::from_slice`, keeping today's 400 messages",
+          "title": "Drop the unused date library",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "After RST-3. The api-server tests pin the error texts"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "RST-5",
-          "title": "Typed responses: `Serialize` structs in place of the 14 `Json<Value>` handlers built with `json!` (combine, bake, pick, verify, drive, check, pose, check_joints…), same JSON",
+          "title": "One place for unit conversion",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Unblocks API-4 (OpenAPI from the Rust types). Compare responses before/after with the api-server tests"
+          "notes": "Keep it working offline."
         },
         {
           "id": "RST-6",
-          "title": "Split `mesher-cad/tests/evaluate.rs` (1,630 lines) by topic: features, bodies and booleans, picking and highlights, edits and hierarchy, measuring/verify/drive/drawing, imports and inserts",
+          "title": "Tests for the expiry rules",
           "priority": "P3",
           "status": "done",
-          "notes": "2026-10-24. Still one test binary (`tests/evaluate/main.rs` holds the shared helpers; `features`, `bodies`, `picking`, `hierarchy`, `queries`, `sources`), so OCCT links once. Largest module 416 lines"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "RST-7",
-          "title": "The evaluator cache in `cad.rs` (`evaluator_for`, the LRU) becomes its own module with one `lock()` helper instead of `.expect(\"evaluator lock\")` at every call",
+          "title": "Lint the CSS",
           "priority": "P3",
           "status": "todo",
           "plan": "next",
-          "notes": "With RST-3"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "RST-8",
-          "title": "Guard rails: `[workspace.lints]` in `backend/Cargo.toml` (deny `unwrap_used` outside tests, warn on `too_many_lines`), unused dependencies checked (`cargo machete`), both in CI",
+          "title": "Rename quantity fields consistently",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Lands with OPS-1"
+          "notes": "Nice to have, not urgent."
         }
       ]
     },
     {
       "id": "ops",
       "title": "Ops and quality",
-      "summary": "",
+      "summary": "Running it without surprises.",
       "tasks": [
         {
           "id": "OPS-1",
-          "title": "CI: cargo test + clippy, nuxt typecheck, CAD smoke script",
+          "title": "Error reporting",
           "priority": "P2",
           "status": "todo",
           "plan": "next"
         },
         {
           "id": "OPS-2",
-          "title": "Upgrade Node to ≥ 22.21 (or 24 LTS)",
+          "title": "Health check endpoint",
           "priority": "P2",
           "status": "todo",
           "plan": "next",
-          "notes": "Nuxt warns on 22.18"
+          "notes": "Needs a decision on the details first."
         },
         {
           "id": "OPS-6",
-          "title": "Frontend unit tests (vitest) for composables",
+          "title": "CI on every push",
           "priority": "P2",
           "status": "todo",
           "plan": "next"
         },
         {
           "id": "OPS-3",
-          "title": "Docker compose for both services",
+          "title": "Release notes per version",
           "priority": "P3",
           "status": "done",
-          "notes": "`docker-compose.yml` (+ `docker-compose.override.yml`: source mounted, live rebuilds); Claude logs in from the Claude panel (`/claude/login`, kept in the `claude-config` volume) or takes `CLAUDE_CODE_OAUTH_TOKEN` from `.env`"
+          "notes": "Check it on a phone as well as the desktop."
         },
         {
           "id": "OPS-4",
-          "title": "Authentication / multi-user, before any deployment",
+          "title": "Load test the sync",
           "priority": "P3",
           "status": "todo",
           "plan": "later",
-          "notes": "Local single-user by design today"
+          "notes": "Follows on from the item above."
         },
         {
           "id": "OPS-5",
-          "title": "Remove the `legacy-peer-deps` npm workaround once npm's resolver is fixed",
+          "title": "Uptime alerts",
           "priority": "P3",
           "status": "todo"
         }
@@ -1132,11 +1132,11 @@
       "tasks": [
         {
           "id": "LIC-1",
-          "title": "Licensing review before any commercial release",
+          "title": "Privacy policy",
           "priority": "P2",
           "status": "todo",
           "plan": "later",
-          "notes": "OpenCascade WASM is LGPL-2.1 (shipped unmodified as a separate file); a personal Claude subscription via CLI isn't for multi-user products (use AI-4)"
+          "notes": "Small; the kind of thing a review catches."
         }
       ]
     }
