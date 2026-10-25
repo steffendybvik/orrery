@@ -5,6 +5,10 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Fixed, a window with a channel per project:** only the channel of the window's own project decides
+  whether it's listening and whether Stop can reach it, so the other projects' channels (skipped by
+  Claude Code) no longer turn it off. A skipped one that connects first no longer files the window under
+  the wrong project.
 - **Phones:** the header no longer carries a project's page tabs (they ran under the bell); the menu
   opens a full-screen drawer with bigger rows instead.
 - **Easier to read:** an issue row says its status once, as a pill, rather than three times; comments

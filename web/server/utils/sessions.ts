@@ -2,15 +2,18 @@
 // session's hooks say who it is and what it's doing (POST /api/sessions); its channel, while
 // connected, says it's there to hear signals. Both name the window by Claude Code's session id,
 // falling back to the claude process's pid. A `/clear` gives the window a new session id while its
-// channel carries on under the old one, so the ids a session had before stay aliases of it.
+// channel carries on under the old one, so the ids a session had before stay aliases of it. A window
+// can run a channel for every project in its repo's `.mcp.json`, only the flagged one heard, so it
+// listens (and can be stopped) through its own project's channel only.
 import type {Session, SessionState, StartedSession} from '#shared/roadmap'
 
 interface Known extends Session {
     pid?: number
     /** When a hook last spoke. */
     seenAt: number
-    /** How many of its channel's streams are open, and how many of those channels know to quit when asked. */
-    streams?: number
+    /** Its channels' open streams, by project: how many, how many of them are heard, and how many know to quit
+     * when asked. Its own project's say whether it's listening (`listening`) and can be stopped (`stoppable`). */
+    channels?: Map<string, {streams: number, heard: number, stops: number}>
     stoppable?: number
     /** The owner asked it to quit: it's dropped once its channel goes. */
     stopping?: boolean
@@ -194,30 +197,47 @@ export function attend(project: string, id: string | undefined, pid: number | un
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
-        session = {id: id ?? `pid-${pid ?? Math.random().toString(36).slice(2)}`, pid, project, name: name || nameFor(project), state: 'idle', since: now, startedAt: now, listening: heard, seenAt: Date.now()}
+        session = {id: id ?? `pid-${pid ?? Math.random().toString(36).slice(2)}`, pid, project, name: name || nameFor(project), state: 'idle', since: now, startedAt: now, listening: false, seenAt: Date.now()}
         add(session)
     }
-    session.listening = heard
-    session.streams = (session.streams ?? 0) + 1
-    if (stops) session.stoppable = (session.stoppable ?? 0) + 1
-    if (started) session.started = started
-    if (launch) session.launch = launch
-    if (name) session.name = name
-    changed(project)
     const held = session
+    if (heard && held.project !== project) {
+        // A skipped channel that connected before the hook spoke filed the window under its project.
+        changed(held.project)
+        if (held.name.startsWith(`${held.project} `)) held.name = nameFor(project)
+        held.project = project
+    }
+    held.channels ??= new Map()
+    const count = held.channels.get(project) ?? {streams: 0, heard: 0, stops: 0}
+    held.channels.set(project, {streams: count.streams + 1, heard: count.heard + Number(heard), stops: count.stops + Number(stops)})
+    tally(held)
+    if (started) held.started = started
+    if (launch) held.launch = launch
+    if (name) held.name = name
+    changed(held.project)
+    let open = true
     return {
         get id() {
             return held.id
         },
         done: () => {
-            held.streams = Math.max(0, (held.streams ?? 1) - 1)
-            if (stops) held.stoppable = Math.max(0, (held.stoppable ?? 1) - 1)
-            if (held.streams) return
-            held.listening = false
-            if (held.stopping) forget(held)
-            changed(project)
+            if (!open) return
+            open = false
+            const count = held.channels!.get(project)!
+            if (count.streams > 1) held.channels!.set(project, {streams: count.streams - 1, heard: count.heard - Number(heard), stops: count.stops - Number(stops)})
+            else held.channels!.delete(project)
+            tally(held)
+            if (!held.channels!.size && held.stopping) forget(held)
+            changed(held.project)
         },
     }
+}
+
+/** Listening and stoppable as its own project's channels say: another project's (skipped) don't count. */
+function tally(session: Known) {
+    const own = session.channels?.get(session.project)
+    session.listening = !!own?.heard
+    session.stoppable = own?.stops ?? 0
 }
 
 /** The owner stopping a session: one Orrery started, through its launcher; any other through its channel,
@@ -282,6 +302,6 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, streams: _streams, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
+function publicOf({pid: _pid, seenAt: _seen, channels: _channels, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
     return {...session, reachable: !!stoppable}
 }
