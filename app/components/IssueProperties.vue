@@ -3,7 +3,7 @@ import type {Chunk, Column, Issue, Project} from '#shared/roadmap'
 import {PRIORITIES} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
-// chunk change in place, as the owner, and save at once.
+// chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once.
 /** `sub`: it's a sub-issue, in its parent's chunk. */
 const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean}>()
 const {who, name: owner} = useOwner()
@@ -27,6 +27,9 @@ const chunkId = computed({
     set: (next: string) => save({chunk: next || null}),
 })
 const chunks = computed(() => props.project.board.chunks.filter(c => c.id))
+const statusOptions = computed(() => places.value.map(p => ({value: p.id, label: p.label})))
+const priorityOptions = [{value: '', label: 'No priority'}, ...PRIORITIES.map(p => ({value: p, label: `${p} · ${PRIORITY_LABEL[p]}`}))]
+const chunkOptions = computed(() => [{value: '', label: 'No chunk'}, ...chunks.value.map(c => ({value: c.id, label: c.title}))])
 
 // Labels: any the project uses, or a new one.
 const known = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.labels))])
@@ -35,68 +38,66 @@ const labels = computed({
     set: (next: string[]) => save({labels: next}),
 })
 
-// The assignee: the owner, an agent, or anyone already assigned in the project. Saved on Enter or leaving it.
-const assignee = ref('')
-watch(() => props.issue.assignee, now => {
-    assignee.value = now ?? ''
-}, {immediate: true})
-const people = computed(() => [...new Set([owner.value, 'claude', ...allIssues(props.project).map(({issue}) => issue.assignee)].filter((n): n is string => !!n))])
-async function saveAssignee() {
-    const next = assignee.value.trim()
-    if (next === (props.issue.assignee ?? '')) return
-    if (!await save({assignee: next || null})) assignee.value = props.issue.assignee ?? ''
-}
+const labelOptions = computed(() => [...new Set([...known.value, ...props.issue.labels])].sort((a, b) => a.localeCompare(b)).map(l => ({value: l, label: l})))
 
-const field = 'h-7 w-full min-w-0 cursor-pointer rounded-md bg-transparent px-1.5 -ml-1.5 text-[13px] text-fg hover:bg-hover focus:bg-hover focus:outline-none disabled:cursor-default disabled:hover:bg-transparent'
+// The assignee: the owner, an agent, anyone already assigned in the project, or a new name.
+const people = computed(() => [...new Set([owner.value, 'claude', ...allIssues(props.project).map(({issue}) => issue.assignee)].filter((n): n is string => !!n))])
+const assignee = computed({
+    get: () => props.issue.assignee ?? '',
+    set: (next: string) => save({assignee: next.trim() || null}),
+})
+const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...people.value.map(p => ({value: p, label: who(p)}))])
 </script>
 
 <template>
   <dl class="grid grid-cols-[6.5rem_1fr] items-center gap-x-3 gap-y-2 text-[13px]">
     <dt class="label">Status</dt>
     <dd class="flex min-w-0 flex-col">
-      <label class="flex items-center gap-2">
+      <PropertyPicker v-model="column" :options="statusOptions" label="Status" :disabled="hasSubs || saving">
         <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
-        <select v-model="column" :class="field" :disabled="hasSubs || saving" aria-label="Status">
-          <option v-for="place in places" :key="place.id" :value="place.id">{{ place.label }}</option>
-        </select>
-      </label>
+        <span class="truncate">{{ statusOptions.find(o => o.value === issue.column)?.label ?? issue.column }}</span>
+        <template #option="{option}">
+          <StatusIcon :column="option.value" />
+          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+        </template>
+      </PropertyPicker>
       <span v-if="hasSubs" class="text-xs text-faint">from its sub-issues</span>
     </dd>
 
     <dt class="label">Priority</dt>
-    <dd>
-      <label class="flex items-center gap-2">
+    <dd class="flex min-w-0">
+      <PropertyPicker v-model="priority" :options="priorityOptions" label="Priority" :disabled="saving">
         <PriorityIcon :priority="issue.priority" />
-        <select v-model="priority" :class="field" :disabled="saving" aria-label="Priority">
-          <option value="">No priority</option>
-          <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
-        </select>
-      </label>
+        <span class="truncate" :class="!issue.priority && 'text-faint'">{{ issue.priority ? `${issue.priority} · ${PRIORITY_LABEL[issue.priority]}` : 'No priority' }}</span>
+        <template #option="{option}">
+          <PriorityIcon :priority="option.value || undefined" />
+          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+        </template>
+      </PropertyPicker>
     </dd>
 
     <dt class="label">Assignee</dt>
-    <dd class="flex items-center gap-2">
-      <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
-      <input
-          v-model="assignee"
-          :class="[field, 'cursor-text']"
-          placeholder="Unassigned"
-          :title="issue.assignee ? who(issue.assignee) : 'Unassigned'"
-          list="issue-people"
-          aria-label="Assignee"
-          spellcheck="false"
-          @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
-          @keydown.esc="assignee = issue.assignee ?? ''; ($event.target as HTMLInputElement).blur()"
-          @blur="saveAssignee"
-      >
-      <datalist id="issue-people">
-        <option v-for="person in people" :key="person" :value="person">{{ who(person) }}</option>
-      </datalist>
+    <dd class="flex min-w-0">
+      <PropertyPicker v-model="assignee" :options="assigneeOptions" label="Assignee" placeholder="Find or assign someone…" creatable create-verb="Assign" :disabled="saving">
+        <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
+        <span class="truncate" :class="!issue.assignee && 'text-faint'" :title="issue.assignee ?? undefined">{{ issue.assignee ? who(issue.assignee) : 'Unassigned' }}</span>
+        <template #option="{option}">
+          <PersonAvatar v-if="option.value" :name="option.value" />
+          <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/60" />
+          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+        </template>
+      </PropertyPicker>
     </dd>
 
     <dt class="label">Labels</dt>
-    <dd class="flex min-w-0 flex-wrap items-center gap-1">
-      <LabelPicker v-model="labels" :labels="known" />
+    <dd class="flex min-w-0">
+      <PropertyPicker v-model="labels" :options="labelOptions" label="Labels" placeholder="Find or add a label…" multiple creatable :disabled="saving">
+        <span v-if="issue.labels.length" class="flex min-w-0 flex-wrap items-center gap-1">
+          <LabelChip v-for="l in issue.labels" :key="l" :label="l" />
+        </span>
+        <span v-else class="text-faint">No labels</span>
+        <template #option="{option}"><LabelChip :label="option.value" /></template>
+      </PropertyPicker>
     </dd>
 
     <dt class="label">Project</dt>
@@ -104,10 +105,9 @@ const field = 'h-7 w-full min-w-0 cursor-pointer rounded-md bg-transparent px-1.
 
     <dt class="label">Chunk</dt>
     <dd class="flex min-w-0 items-center gap-1">
-      <select v-if="!isSub" v-model="chunkId" :class="field" :disabled="saving" aria-label="Chunk">
-        <option value="">No chunk</option>
-        <option v-for="c in chunks" :key="c.id" :value="c.id">{{ c.title }}</option>
-      </select>
+      <PropertyPicker v-if="!isSub" v-model="chunkId" :options="chunkOptions" label="Chunk" :disabled="saving">
+        <span class="truncate" :class="!chunk.id && 'text-faint'">{{ chunk.id ? chunk.title : 'No chunk' }}</span>
+      </PropertyPicker>
       <NuxtLink v-else :to="chunkPath(project.id, chunk.id)" class="truncate hover:underline" :class="!chunk.id && 'text-faint'" title="A sub-issue is in its parent's chunk">{{ chunk.title }}</NuxtLink>
       <NuxtLink v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" class="shrink-0 rounded p-1 text-faint hover:bg-hover hover:text-fg" title="Open the chunk" aria-label="Open the chunk">
         <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
