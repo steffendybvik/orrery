@@ -257,13 +257,15 @@ export class Store {
 
     /** Agents' latest comments across projects (what the bell shows), newest first, after the ones still
      * waiting on the owner (a decision or feedback they haven't answered). */
-    notices(limit = 30): Notice[] {
-        return this.all<CommentRow & {title: string}>(`
+    /** The bell's notices: the latest `limit` (all of them when null), and with `cleared` the cleared ones
+     * too (marked so), as the notifications page lists them. */
+    notices(limit: number | null = 30, cleared = false): Notice[] {
+        return this.all<CommentRow & {title: string, cleared: number}>(`
             SELECT * FROM (
                 SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
-                WHERE c.owned = 0 AND c.cleared = 0)
-            ORDER BY (asks IS NOT NULL AND answered = 0) DESC, created_at DESC, id DESC LIMIT ?`, limit)
-            .map(row => ({...commentOf(row), project: row.project, title: row.title}))
+                WHERE c.owned = 0 ${cleared ? '' : 'AND c.cleared = 0'})
+            ORDER BY (asks IS NOT NULL AND answered = 0) DESC, created_at DESC, id DESC LIMIT ?`, limit ?? -1)
+            .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 
     /** Takes notices out of the bell (the comments stay on their issues): those in `ids`, or all made at

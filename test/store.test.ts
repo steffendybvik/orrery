@@ -430,6 +430,7 @@ describe('the bell', () => {
         expect(store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})).toBe(1)
         expect(store.notices()).toEqual([])
         expect(store.listComments('larder', id)).toHaveLength(3)
+        expect(store.notices(null, true).map(n => [n.body, n.cleared])).toEqual([['two', true], ['one', true]])
         expect(failure(() => store.clearNotices({})).status).toBe(400)
     })
 })
