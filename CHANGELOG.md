@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Images in comments:** paste, drop or pick an image in the comment box and it goes in as Markdown;
+  it opens full size when clicked. Orrery keeps images in its database (`POST /api/uploads`, for agents
+  too), so backups and `orrery:copy` take them along. PNG, JPEG, GIF and WebP, up to 10 MB.
 - **Fixed:** egress no longer leaks a secret at the 1 MB cut, scrubs its JSON-escaped, form-encoded and
   Basic-auth forms too, reads no more of an answer than it gives back, answers 502 when one breaks off,
   and escapes the value for the url or JSON body it goes in. A deleted secret's uses go with it. A

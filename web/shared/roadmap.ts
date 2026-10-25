@@ -195,6 +195,17 @@ export interface Project {
 export const ASKS = ['decision', 'feedback'] as const
 export type Asks = (typeof ASKS)[number]
 
+/** An image kept for Markdown to show (`POST /api/uploads`). */
+export interface Upload {
+    id: string
+    type: string
+    size: number
+    /** Where it's served: /api/uploads/<id>. */
+    url: string
+    /** `![name](url)`, to put in a comment. */
+    markdown: string
+}
+
 export interface Comment {
     id: number
     issue: string

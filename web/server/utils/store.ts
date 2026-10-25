@@ -2,7 +2,8 @@
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, SessionWork, Settings, Signal, Starts} from '#shared/roadmap'
+import {randomBytes} from 'node:crypto'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
@@ -233,6 +234,24 @@ export const COMMENT_FIELDS: Record<string, Field> = {
     /** `decision` or `feedback`: the comment waits on the owner until they comment after it. */
     asks: {type: 'string', values: ASKS, nullable: true},
 }
+
+export const UPLOAD_FIELDS: Record<string, Field> = {
+    /** The image, base64 (a `data:` URL works too). */
+    data: {type: 'string', required: true},
+    /** The file's name, for the Markdown's alt text. */
+    name: {type: 'string', nullable: true},
+}
+
+/** How big an image can be, in bytes. */
+export const UPLOAD_LIMIT = 10 * 1024 * 1024
+
+/** The images Orrery takes, told by their first bytes rather than what the sender says (no SVG: it can run script). */
+const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
+    ['image/png', b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
+    ['image/jpeg', b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
+    ['image/gif', b => /^GIF8[79]a/.test(b.subarray(0, 6).toString('latin1'))],
+    ['image/webp', b => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
+]
 
 /** Whether the owner has commented on the issue since comment `c`. */
 const ANSWERED = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id) AS answered'
@@ -1090,6 +1109,33 @@ export class Store {
     // Signals
 
     /** Asks the sessions on the project to focus on the issue (`{note?}` says what for). */
+    /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. */
+    async createUpload(body: unknown, actor = AGENT): Promise<Upload> {
+        const input = checkInput(body, UPLOAD_FIELDS)
+        const base64 = String(input.data).replace(/^data:[^,]*;base64,/, '')
+        if (!/^[A-Za-z0-9+/\s]*={0,2}\s*$/.test(base64)) throw badRequest('"data" should be the image in base64')
+        const bytes = Buffer.from(base64, 'base64')
+        if (!bytes.length) throw badRequest('"data" is empty')
+        if (bytes.length > UPLOAD_LIMIT) throw badRequest(`The image is ${(bytes.length / 1024 / 1024).toFixed(1)} MB; ${UPLOAD_LIMIT / 1024 / 1024} MB at most`)
+        const type = IMAGE_TYPES.find(([, test]) => test(bytes))?.[0]
+        if (!type) throw badRequest('That isn\'t a PNG, JPEG, GIF or WebP image')
+        const name = input.name ? String(input.name).trim().slice(0, 200) || null : null
+        const id = randomBytes(12).toString('hex')
+        await this.run('INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            id, type, name, bytes.length, bytes, actor.name, Number(actor.owner), stamp())
+        const url = `/api/uploads/${id}`
+        // Brackets would end the alt text early.
+        const alt = (name ?? 'image').replace(/\.[a-z0-9]+$/i, '').replace(/[[\]\\]/g, '')
+        return {id, type, size: bytes.length, url, markdown: `![${alt}](${url})`}
+    }
+
+    /** An image's bytes and type, as kept. */
+    async upload(id: string): Promise<{type: string, data: Buffer}> {
+        const row = /^[0-9a-f]{24}$/.test(id) ? await this.get<{type: string, data: Uint8Array}>('SELECT type, data FROM uploads WHERE id = ?', id) : undefined
+        if (!row) throw notFound(`No image ${id}`)
+        return {type: row.type, data: Buffer.from(row.data)}
+    }
+
     async focus(project: string, issue: string, body: unknown, actor = AGENT): Promise<Signal> {
         issue = await this.issueId(project, issue)
         await this.issueRow(project, issue)

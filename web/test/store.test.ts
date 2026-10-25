@@ -8,7 +8,7 @@ import {backup, restoreBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
 import {readRoadmap} from '../server/utils/roadmap'
-import {Store} from '../server/utils/store'
+import {Store, UPLOAD_LIMIT} from '../server/utils/store'
 import {onPostgres, testDb} from './db'
 import type {Actor} from '../server/utils/store'
 
@@ -799,6 +799,37 @@ describe('docs', () => {
         expect((await failure(() => store.deleteProject('larder'))).status).toBe(403)
         await store.deleteDoc('larder', 'mine', {name: 'skoll', owner: true})
         expect(await store.listDocs('larder')).toEqual([])
+    })
+})
+
+describe('images', () => {
+    // A 1×1 PNG.
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+    it('keeps one, and hands back where it is and the Markdown that shows it', async () => {
+        const image = await store.createUpload({data: `data:image/png;base64,${png}`, name: 'Shelf [left].png'})
+        expect(image).toMatchObject({type: 'image/png', size: 70, url: `/api/uploads/${image.id}`, markdown: `![Shelf left](/api/uploads/${image.id})`})
+        const kept = await store.upload(image.id)
+        expect(kept.type).toBe('image/png')
+        expect(kept.data.equals(Buffer.from(png, 'base64'))).toBe(true)
+    })
+
+    it('tells the type by the bytes, and takes no SVG or anything else', async () => {
+        const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>').toString('base64')
+        expect(await failure(() => store.createUpload({data: `data:image/png;base64,${svg}`})))
+            .toEqual({status: 400, message: "That isn't a PNG, JPEG, GIF or WebP image"})
+        expect((await failure(() => store.createUpload({data: 'not base64!'}))).status).toBe(400)
+        expect((await failure(() => store.createUpload({data: ''}))).status).toBe(400)
+    })
+
+    it('refuses one over the limit', async () => {
+        const big = Buffer.concat([Buffer.from(png, 'base64'), Buffer.alloc(UPLOAD_LIMIT)]).toString('base64')
+        expect((await failure(() => store.createUpload({data: big}))).message).toMatch(/MB at most/)
+    })
+
+    it("answers 404 for one that isn't there", async () => {
+        expect((await failure(() => store.upload('0'.repeat(24)))).status).toBe(404)
+        expect((await failure(() => store.upload('../etc'))).status).toBe(404)
     })
 })
 
