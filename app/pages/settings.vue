@@ -121,6 +121,17 @@ async function pick(tint: string | null) {
         </header>
         <StatusSettings />
       </section>
+
+      <section class="flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
+          <p class="text-xs text-muted">
+            The message a Claude session gets when you ask it to focus on an issue or work through a chunk, for every project
+            (a project can have its own on its Settings tab). Sessions started before a change hear it once they restart.
+          </p>
+        </header>
+        <FocusPrompts />
+      </section>
     </div>
   </div>
 </template>

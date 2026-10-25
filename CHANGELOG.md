@@ -18,6 +18,8 @@ The first public release.
 - **Steering sessions:** Orrery's channel (a Claude Code research preview) brings "focus on this issue",
   "work through this chunk" or "work through its Todo issues" to a listening session, and hooks show
   which sessions are working, idle or waiting.
+- **What sessions hear:** the owner edits the focus message as a template, for the Orrery or a project,
+  and adds standing instructions ("commit whenever a piece works") to tick on or off per send.
 - **Docs, schedules and more:** Markdown docs per project, schedules that make issues or message the
   sessions on a cron, a ⌘K command palette and keyboard navigation.
 - **Running it:** one Docker container with a SQLite database and automatic backups, local only by

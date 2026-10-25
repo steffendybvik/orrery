@@ -7,7 +7,8 @@ import type {Session, Signal} from '#shared/roadmap'
 const props = defineProps<{project: string, issue?: string, chunk?: string}>()
 const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.chunk})
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
-const {sessions: all, signals: live} = useRoadmaps()
+const {sessions: all, signals: live, byId} = useRoadmaps()
+const {settings} = useAppSettings()
 const {load, who} = useOwner()
 const {look} = useStatuses()
 
@@ -31,13 +32,22 @@ watch(live, now => {
     }
 })
 
+// The standing instructions that can go with it (the Orrery's the project keeps, and its own), ticked as
+// they are by default; unticking one leaves it out of this send only.
+const offered = computed(() => {
+    const project = byId(props.project)
+    return [...settings.value.instructions.filter(i => !(project?.muted ?? []).includes(i.id)), ...project?.instructions ?? []]
+})
+const ticked = ref<string[]>([])
+watch(() => offered.value.map(i => `${i.id}:${i.on}`).join(), () => ticked.value = offered.value.filter(i => i.on).map(i => i.id), {immediate: true})
+
 async function focus(session: Session | null) {
     sending.value = session?.id ?? 'all'
     failed.value = false
     try {
         const owner = await load()
         const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': owner}, body: session ? {session: session.id} : {},
+            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...session ? {session: session.id} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
     } catch {
@@ -66,6 +76,15 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
           @click="focus(null)"
       >Focus all on this</button>
     </div>
+
+    <fieldset v-if="listening.length && offered.length" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <legend class="sr-only">Standing instructions for this focus</legend>
+      <span class="text-faint">With it:</span>
+      <label v-for="i in offered" :key="i.id" class="flex items-center gap-1.5" :class="ticked.includes(i.id) ? 'text-muted' : 'text-faint'">
+        <input v-model="ticked" type="checkbox" :value="i.id" class="size-3 accent-accent-500">
+        {{ i.text }}
+      </label>
+    </fieldset>
 
     <ul v-if="sessions.length" class="flex flex-col">
       <li v-for="session in sessions" :key="session.id" class="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-hover">

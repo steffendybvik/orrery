@@ -32,7 +32,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
 | `POST /projects` | `{name, id?, key?, description?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?}`: `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `null` clears either |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?, focusPrompt?, chunkPrompt?, instructions?, muted?}` (the last four the owner's, see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `null` clears either |
 | `DELETE /projects/:project` | with its chunks, issues and comments |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there |
 
@@ -156,8 +156,8 @@ signal has `chunk` instead of `issue`, and the stream adds its open `issues`, mo
 
 | | |
 |---|---|
-| `POST /projects/:project/issues/:issue/focus` | `{note?}` → `{signal, listeners}`: sends it, and says how many sessions heard |
-| `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk); `status` (an open status's id, or `backlog`, `todo` or `started`) narrows it to those issues |
+| `POST /projects/:project/issues/:issue/focus` | `{note?, instructions?}` → `{signal, listeners}`: sends it, and says how many sessions heard |
+| `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?, instructions?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk); `status` (an open status's id, or `backlog`, `todo` or `started`) narrows it to those issues |
 | `GET /projects/:project/signals?after=` | the signals after that id, oldest first; `?issue=` or `?chunk=` for the latest about one |
 | `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up); `?format=text` gives one line each, for the Monitor tool |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
@@ -183,6 +183,23 @@ listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION
 `POST …/focus` takes `{session}` to reach one session; without it, every session gets
 it. Each signal lists the sessions it reached in `deliveredTo`
 (`POST /projects/:project/signals/:signal/delivered`, sent by the channel).
+
+### What sessions hear
+
+A focus reaches a session as its `prompt`: a template filled in, with standing instructions after it.
+The owner sets them (an agent gets a 403):
+
+- `PATCH /settings {focusPrompt?, chunkPrompt?, instructions?}`: the Orrery's. A template is text with
+  placeholders (`{issue}`, `{title}`, `{status}`, `{priority}`, `{chunk}`, `{where}`, `{note}`, `{url}`,
+  `{actor}`; a chunk's also `{issues}`), and a line whose placeholders all come out empty is left out.
+  `null` or `""` goes back to the default. `instructions` is a list of `{text, on?, id?}`, lines such as
+  "commit whenever a piece works"; `on` (true unless sent) ticks one by default. They go where
+  `{instructions}` is, or at the end.
+- `PATCH /projects/:project {focusPrompt?, chunkPrompt?, instructions?, muted?}`: the project's own
+  templates (none follows the Orrery's), its own lines, and `muted`, the ids of the Orrery's lines it
+  switches off.
+- `POST …/focus {instructions: [ids]}` picks the lines for one send (`[]` for none). Left out, it gets
+  the ones ticked by default. The signal keeps their texts in `instructions`.
 
 ## For agents
 

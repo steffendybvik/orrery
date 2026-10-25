@@ -178,6 +178,17 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         </div>
       </section>
 
+      <section class="flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
+          <p class="text-xs text-muted">
+            What {{ project.name }}'s Claude sessions get when you ask them to focus. Leave a template empty to use the
+            Orrery's (on <NuxtLink to="/settings" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>).
+          </p>
+        </header>
+        <FocusPrompts :project="project" />
+      </section>
+
       <section id="danger" class="mt-8 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">

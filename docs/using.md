@@ -33,8 +33,8 @@ The "ask the session" items only show when a Claude session is listening on that
 | **Roadmap** | Chunks as cards in their columns. A chunk's page has its summary, priority, progress, issues and the sessions panel |
 | **Docs** | The project's Markdown pages, with contents beside them |
 | **Schedules** | Work Orrery starts on its own: each run makes an issue or messages the sessions |
-| A project's **Settings** | Name, sidebar icon and colour, deleting the project (type its id to confirm) |
-| **App settings** (`/settings`) | Your name, the tint that tells one Orrery (personal, work) from another, and the issue statuses: add, rename, recolour, reorder or remove them |
+| A project's **Settings** | Name, sidebar icon and colour, what its sessions hear (its own focus templates and standing instructions, or the Orrery's switched off), deleting the project (type its id to confirm) |
+| **App settings** (`/settings`) | Your name, the tint that tells one Orrery (personal, work) from another, the issue statuses (add, rename, recolour, reorder or remove them), and what sessions hear: the focus templates, with a preview, and the standing instructions |
 | **Connect** (`/connect`) | The line that sets a Claude session up in an app's repo |
 
 ## The bell
