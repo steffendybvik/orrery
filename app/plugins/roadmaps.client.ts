@@ -68,9 +68,7 @@ export default defineNuxtPlugin(() => {
             signals.value = [signal, ...signals.value.filter(s => s.id !== signal.id)].slice(0, 200)
         })
         events.addEventListener('notice', event => {
-            const notice = JSON.parse((event as MessageEvent).data) as Notice
-            const {notices} = useInbox()
-            notices.value = [notice, ...notices.value.filter(n => n.id !== notice.id)].slice(0, 50)
+            useInbox().arrived(JSON.parse((event as MessageEvent).data) as Notice)
         })
         events.addEventListener('settings', event => {
             const app = useAppSettings()
