@@ -46,6 +46,10 @@ async function start() {
       {{ busy ? 'Starting…' : 'Start session' }}
     </button>
     <span v-if="state?.starting" class="text-xs text-faint">{{ state.starting }} on its way…</span>
+    <span v-else-if="state && (!state.launchers || full)" class="max-w-72 text-right text-xs text-faint">
+      <template v-if="!state.launchers">No launcher running: start one in its repo with <span class="font-mono">ORRERY_PROJECT={{ project.id }} node channel/orrery-launcher.mjs</span></template>
+      <template v-else>At its limit of {{ project.starts!.limit }} at once.</template>
+    </span>
     <span v-if="failed" class="max-w-64 text-right text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
   </div>
 </template>
