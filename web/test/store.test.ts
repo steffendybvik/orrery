@@ -589,6 +589,27 @@ describe('starting sessions', () => {
     })
 })
 
+describe("what a project's sessions are on", () => {
+    it('is the open issues each worked last, newest first, and the last signals that went to it', async () => {
+        const owner = {name: 'skoll', owner: true}
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        const lids = (await store.createIssue('larder', {title: 'Lids', status: 'done'})).id
+        await store.workedBy('larder', shelves, 'a')
+        await store.workedBy('larder', lids, 'a')
+        await store.workedBy('larder', jars, 'a')
+        await store.focus('larder', shelves, {session: 'b'}, owner)
+        const everyone = await store.focus('larder', jars, {}, owner)
+        await store.delivered('larder', everyone.id, 'pantry')
+        const work = await store.sessionWork('larder', [{id: 'a', name: 'larder 1'}, {id: 'b', name: 'pantry'}])
+        expect(work.a!.issues.map(i => i.id)).toEqual([jars])
+        expect(work.a!.signals).toEqual([])
+        // b was asked to focus on Shelves, which makes it Shelves' worker; and it heard the focus on Jars sent to all.
+        expect(work.b!.issues.map(i => i.id)).toEqual([shelves])
+        expect(work.b!.signals.map(s => s.issue)).toEqual([jars, shelves])
+    })
+})
+
 describe('statuses', () => {
     const owner = {name: 'skoll', owner: true}
 

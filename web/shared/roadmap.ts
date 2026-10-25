@@ -347,6 +347,13 @@ export interface Session {
     started?: StartedSession
 }
 
+/** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, and
+ * the last signals that went to it. */
+export interface SessionWork {
+    issues: Pick<Issue, 'id' | 'title' | 'column' | 'kind' | 'priority'>[]
+    signals: Signal[]
+}
+
 /** A session Orrery started, as its launch made it. */
 export interface StartedSession {
     launch: string

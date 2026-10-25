@@ -2,7 +2,7 @@
 // Issues nest (a parent holds sub-issues, to any depth); only a top-level issue is in a chunk, its
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Settings, Signal, Starts} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, SessionWork, Settings, Signal, Starts} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
@@ -1101,6 +1101,20 @@ export class Store {
                 .reverse().map(signalOf)
         }
         return (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?', project, after, limit)).map(signalOf)
+    }
+
+    /** What each of the project's sessions is on, for its Sessions page: the open issues it worked last (newest
+     * first), and the last `signals` signals that went to it, by its id or, sent to every session, by its name. */
+    async sessionWork(project: string, sessions: {id: string, name: string}[], signals = 5): Promise<Record<string, SessionWork>> {
+        await this.projectRow(project)
+        const open = new Map((await this.listIssues(project)).filter(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)).map(i => [i.id, i]))
+        const worked = await this.all<{issue: string, session: string}>('SELECT issue, session FROM issue_sessions WHERE project = ? ORDER BY at DESC', project)
+        const recent = (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? ORDER BY id DESC LIMIT 200', project)).map(signalOf)
+        return Object.fromEntries(sessions.map(session => [session.id, {
+            issues: worked.filter(w => w.session === session.id && open.has(w.issue))
+                .map(w => open.get(w.issue)!).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
+            signals: recent.filter(s => s.target === session.id || (!s.target && s.deliveredTo.includes(session.name))).slice(0, signals),
+        }]))
     }
 
     /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */

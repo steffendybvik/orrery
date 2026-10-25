@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type {Project} from '#shared/roadmap'
 
-// Issues | Roadmap | Docs | Settings, next to a project's name: on phones only. From `md` up the
+// Issues | Roadmap | Docs | Schedules | Sessions | Settings, next to a project's name: on phones only. From `md` up the
 // sidebar is always there, with the same pages under each project.
 const props = defineProps<{project: Project}>()
 const route = useRoute()
 const {of: schedulesOf} = useSchedules()
-const sections = computed(() => sectionsOf(props.project, route.path, schedulesOf(props.project.id).length))
+const {sessions} = useRoadmaps()
+const sections = computed(() => sectionsOf(props.project, route.path, schedulesOf(props.project.id).length, sessions.value[props.project.id]?.length ?? 0))
 </script>
 
 <template>
