@@ -13,16 +13,16 @@ docker compose up -d --build        # http://localhost:9000
 ```
 
 That's the built app. On its first start it makes an empty SQLite database in the `orrery-data`
-volume, with nothing to set up; create your first project from the page's sidebar (`+`) or as in
-[Connect a repo](#connect-a-repo). Everything below is optional, in a `.env` beside
+volume, with nothing to set up. The first time you open it, it asks your name: you're its owner,
+and what you make no one else can delete. Your `Orrery-Actor` header is that name in lowercase snake
+case (`Steffen Dybvik` is `steffen_dybvik`); change it in Settings. Then create your first project from
+the sidebar (`+`) or as in [Connect a repo](#connect-a-repo). Everything below is optional, in a `.env` beside
 `docker-compose.yml` (see `.env.example`):
 
 | Variable | What it does | Default |
 |---|---|---|
 | `ORRERY_PORT` | the port on this machine | `9000` |
 | `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts) | `127.0.0.1` |
-| `ORRERY_OWNER` | your name in the `Orrery-Actor` header: the owner's things no one else can delete | `owner` |
-| `ORRERY_OWNER_NAME` | the name the page shows for the owner | the owner's name |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
 | `ORRERY_ENVIRONMENT` | this Orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
@@ -35,8 +35,8 @@ synced SQLite file gets corrupted, a snapshot doesn't.
 
 Without Docker (Node 24.22.1, pnpm 10.14.0): `pnpm install && pnpm build`, then
 `NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs`. The database file is
-made if it isn't there (by default `.data/orrery.db`). The same settings are `NUXT_OWNER`,
-`NUXT_OWNER_NAME`, `NUXT_BACKUP_DIR` and `NUXT_PUBLIC_ENVIRONMENT`.
+made if it isn't there (by default `.data/orrery.db`). The same settings are
+`NUXT_BACKUP_DIR` and `NUXT_PUBLIC_ENVIRONMENT`.
 
 ### Two servers: personal and work
 

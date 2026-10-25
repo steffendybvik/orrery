@@ -210,6 +210,15 @@ export interface Schedule {
 export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green: '#22c55e', amber: '#f59e0b', rose: '#f43f5e', violet: '#8b5cf6'} as const
 
 /** This Orrery's own settings, not a project's. */
+/** Whose Orrery it is: their name as the page shows it, and the `Orrery-Actor` id it makes. */
+export interface Owner {
+    /** The id: the name in lowercase snake case (`steffen_dybvik`); `owner` until they give one. */
+    name: string
+    display: string
+    /** Whether they've given their name (the page asks on first open). */
+    named: boolean
+}
+
 export interface Settings {
     /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
     tint: string | null

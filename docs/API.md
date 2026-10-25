@@ -17,7 +17,10 @@ had before (`MOT-5`, the chunk slug `joints`) are kept as **aliases**: every rou
 
 ## Who can delete what
 
-There's no auth. What the owner makes (requests with `Orrery-Actor` set to `NUXT_OWNER`) is
+There's no auth. The owner is whoever gave their name when the Orrery was first opened (`GET /api/owner`
+→ `{name, display, named}`; `PUT /api/owner {name}` gives it, anyone the first time, then the owner only).
+Their `Orrery-Actor` is that name in lowercase snake case: `Steffen Dybvik` is `steffen_dybvik`
+(`owner` until a name is given; renaming moves what was theirs to the new id). What the owner makes is
 `protected`: no one else can delete it, directly or by deleting what holds it (a parent issue,
 the project, a replacing import), and no one else can edit the owner's comments. That's a 403.
 Docs the owner wrote can still be edited by agents (they keep them current), not deleted.
@@ -68,7 +71,7 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
 **Proposed** column with its sub-issues, out of the counts' progress, until it's committed.
 
 - `proposal: "pending"` (on `POST` or `PATCH`) makes an issue a proposal, or puts one up again after
-  the owner asked for changes (clearing their last decision). It's assigned to the owner (`NUXT_OWNER`)
+  the owner asked for changes (clearing their last decision). It's assigned to the owner (their id)
   while it waits on them, unless the request sets `assignee`
 - The owner decides with `POST …/issues/:issue/decide {decision, note?}`; `proposal` becomes
   `approved`, `changes` or `rejected`, with `decidedBy`, `decidedAt` and `decisionNote`. The decision is

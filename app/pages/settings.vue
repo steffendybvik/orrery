@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {TINTS} from '#shared/roadmap'
 
-// This Orrery's own settings (a project's are on its Settings tab). For now its tint: a colour the
-// backgrounds take on, so one Orrery (personal, work) looks unlike another at a glance.
+// This Orrery's own settings (a project's are on its Settings tab): whose it is, and its tint, a colour
+// the backgrounds take on, so one Orrery (personal, work) looks unlike another at a glance.
 useHead({title: 'App settings · Orrery'})
 const {settings, tintColor, save} = useAppSettings()
 const {environment} = useRuntimeConfig().public
@@ -11,6 +11,28 @@ const custom = ref('#3b82f6')
 watch(tintColor, now => {
     if (now) custom.value = now
 }, {immediate: true})
+
+// The owner's name, saved on Enter or on leaving the field; Esc puts it back. Their id follows it.
+const {owner, load: loadOwner, rename} = useOwner()
+onMounted(loadOwner)
+const ownerName = ref('')
+const ownerFailed = ref('')
+watch(() => owner.value?.display, now => {
+    ownerName.value = owner.value?.named ? now ?? '' : ''
+}, {immediate: true})
+async function saveOwner() {
+    const next = ownerName.value.trim()
+    if (!next || next === owner.value?.display) {
+        ownerName.value = owner.value?.named ? owner.value.display : ''
+        return
+    }
+    ownerFailed.value = ''
+    try {
+        await rename(next)
+    } catch (error) {
+        ownerFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+    }
+}
 
 async function pick(tint: string | null) {
     failed.value = ''
@@ -30,6 +52,27 @@ async function pick(tint: string | null) {
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-4 px-4 py-8 sm:px-8">
+      <section class="flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Your name</h2>
+          <p class="text-xs text-muted">
+            You own this Orrery: what you make, no one else can delete. Your <span class="font-mono">Orrery-Actor</span> header is
+            <span class="font-mono">{{ owner?.name }}</span>; renaming moves what's yours to the new one.
+          </p>
+        </header>
+        <form class="flex items-center gap-2" @submit.prevent="saveOwner">
+          <input
+              v-model="ownerName"
+              aria-label="Your name"
+              maxlength="60"
+              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              @blur="saveOwner"
+              @keydown.esc="ownerName = owner?.named ? owner.display : ''; ($event.target as HTMLInputElement).blur()"
+          >
+          <span v-if="ownerFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ ownerFailed }}</span>
+        </form>
+      </section>
+
       <section class="flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Background tint</h2>

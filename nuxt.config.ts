@@ -17,11 +17,6 @@ export default defineNuxtConfig({
     runtimeConfig: {
         // Where the projects, chunks, issues and comments live. Override with NUXT_DATABASE.
         database: '.data/orrery.db',
-        // Whose things agents can't delete: requests sent with `Orrery-Actor: <owner>` make them.
-        // Override with NUXT_OWNER.
-        owner: 'owner',
-        // The name the page shows for the owner (e.g. `Skoll`); the owner's name if empty. Override with NUXT_OWNER_NAME.
-        ownerName: '',
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
         public: {

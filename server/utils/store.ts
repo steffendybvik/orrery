@@ -3,7 +3,7 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
-import type {Asks, Board, Chunk, Comment, Settings, Counts, Decision, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Proposal, Signal, Status} from '#shared/roadmap'
+import type {Asks, Board, Chunk, Comment, Owner, Settings, Counts, Decision, Doc, DocSummary, Issue, Notice, Plan, Priority, Project, Proposal, Signal, Status} from '#shared/roadmap'
 import {ASKS, DECISIONS, PLANS, PRIORITIES, STATUSES, TINTS} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
@@ -146,6 +146,14 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     tint: TINT,
 }
 
+export const OWNER_FIELDS: Record<string, Field> = {
+    name: {type: 'string', required: true},
+}
+
+/** An actor's id from a name: lowercase snake case, `Steffen Dybvik` → `steffen_dybvik`. */
+export const actorId = (name: string) => name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+
 export const COMMENT_FIELDS: Record<string, Field> = {
     body: {type: 'string', required: true},
     /** `decision` or `feedback`: the comment waits on the owner until they comment after it. */
@@ -162,9 +170,42 @@ export class Store {
         private readonly onSignal: (signal: Signal) => void = () => {},
         private readonly onNotice: (notice: Notice) => void = () => {},
         private readonly onSettings: (settings: Settings) => void = () => {},
-        /** The owner's name: what waits on them (a proposal, an agent's ask) is assigned to it. */
-        private readonly owner = 'owner',
+        /** The owner's id until they give their name (what Orrery used before it asked). */
+        private readonly unnamed = 'owner',
     ) {}
+
+    /** The owner's id: what waits on them (a proposal, an agent's ask) is assigned to it. */
+    private get owner() {
+        return this.ownerOf().name
+    }
+
+    /** The owner: their name as the page shows it, their `Orrery-Actor` id, and whether they've given it. */
+    ownerOf(): Owner {
+        const row = this.get<{value: string}>("SELECT value FROM settings WHERE key = 'owner'")
+        const display = row ? String(JSON.parse(row.value)) : ''
+        return display ? {name: actorId(display), display, named: true} : {name: this.unnamed, display: this.unnamed, named: false}
+    }
+
+    /** Names the owner: anyone may the first time (the page asks on first open), then only the owner. What
+     * was theirs under the old id (what they made, what's assigned to them, their decisions) moves to the new one. */
+    nameOwner(body: unknown, actor = AGENT): Owner {
+        const before = this.ownerOf()
+        if (before.named && !actor.owner) throw forbidden("Only the owner renames the owner; send Orrery-Actor: <owner>")
+        const display = String(checkInput(body, OWNER_FIELDS).name).trim().slice(0, 60)
+        const name = actorId(display)
+        if (!name) throw badRequest('The name needs a letter or a digit in it')
+        if (name === AGENT.name) throw badRequest(`"${AGENT.name}" is what requests without Orrery-Actor are; pick another name`)
+        transaction(this.db, () => {
+            this.run("INSERT INTO settings (key, value) VALUES ('owner', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(display))
+            if (name === before.name) return
+            for (const table of ['projects', 'chunks', 'issues', 'docs', 'comments', 'signals', 'schedules'])
+                this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)
+            this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)
+            this.run('UPDATE issues SET decided_by = ? WHERE lower(decided_by) = ?', name, before.name)
+        })
+        if (name !== before.name) for (const {id} of this.all<{id: string}>('SELECT id FROM projects')) this.onChange(id)
+        return this.ownerOf()
+    }
 
     /** Agents' latest comments across projects (what the bell shows), newest first, after the ones still
      * waiting on the owner (a decision or feedback they haven't answered). */

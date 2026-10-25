@@ -239,6 +239,37 @@ describe("the owner's things", () => {
     })
 })
 
+describe("the owner's name", () => {
+    const owner: Actor = {name: 'owner', owner: true}
+    const claude: Actor = {name: 'claude', owner: false}
+
+    it("is unset until it's given, with the id it had before", () => {
+        expect(store.ownerOf()).toEqual({name: 'owner', display: 'owner', named: false})
+    })
+
+    it('makes a lowercase snake-case id, and moves what was theirs to it', () => {
+        const mine = store.createIssue('mesher', {title: 'Mine'}, owner)
+        const proposed = store.createIssue('mesher', {title: 'A', proposal: 'pending'}, claude)
+        expect(store.issue('mesher', proposed.id).assignee).toBe('owner')
+
+        expect(store.nameOwner({name: 'Steffen Dybvík'}, claude)).toEqual({name: 'steffen_dybvik', display: 'Steffen Dybvík', named: true})
+        expect(store.issue('mesher', mine.id).createdBy).toBe('steffen_dybvik')
+        expect(store.issue('mesher', proposed.id).assignee).toBe('steffen_dybvik')
+        expect(store.issue('mesher', mine.id).protected).toBe(true)
+    })
+
+    it('is only the owner\'s to change once given', () => {
+        store.nameOwner({name: 'Skoll'})
+        expect(failure(() => store.nameOwner({name: 'Hati'}, claude)).status).toBe(403)
+        expect(store.nameOwner({name: 'Hati'}, {name: 'skoll', owner: true}).name).toBe('hati')
+    })
+
+    it('needs a letter or a digit, and not the name requests without one get', () => {
+        expect(failure(() => store.nameOwner({name: '!!'})).status).toBe(400)
+        expect(failure(() => store.nameOwner({name: 'Agent'})).status).toBe(400)
+    })
+})
+
 describe("the owner's comments", () => {
     it('go to the session last asked to focus on the issue, or to all', () => {
         const sent: string[] = []

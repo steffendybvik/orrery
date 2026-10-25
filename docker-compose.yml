@@ -6,8 +6,8 @@
 # (one that syncs off the machine is best; the live file stays out of it, a synced SQLite file gets
 # corrupted).
 #
-# ORRERY_OWNER is the name whose things no one else can delete: send it as the `Orrery-Actor`
-# header on your own requests. ORRERY_OWNER_NAME is the name the page shows for them instead.
+# The first time it's opened, it asks your name, and keeps it in the database: what you make, no one
+# else can delete. Your `Orrery-Actor` header is it in lowercase snake case (`steffen_dybvik`).
 # ORRERY_ENVIRONMENT names this Orrery (`personal` by default; e.g. `work`): a chip by its name and
 # the start of every tab's title. Each is its own server with its own database: another compose
 # project with its own .env file, e.g. `docker compose --env-file .env.work up -d` with
@@ -23,8 +23,6 @@ services:
     ports:
       - "${ORRERY_HOST:-127.0.0.1}:${ORRERY_PORT:-9000}:9000"
     environment:
-      NUXT_OWNER: ${ORRERY_OWNER:-owner}
-      NUXT_OWNER_NAME: ${ORRERY_OWNER_NAME:-}
       NUXT_PUBLIC_ENVIRONMENT: ${ORRERY_ENVIRONMENT:-personal}
       NUXT_PUBLIC_REPO_DIR: ${PWD}
       NUXT_BACKUP_DIR: /backup
