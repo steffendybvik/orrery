@@ -8,6 +8,27 @@ const {of, edit} = useSchedules()
 const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 
+// Its name, saved on Enter or on leaving the field; Esc puts it back.
+const name = ref('')
+const nameFailed = ref('')
+watch(() => project.value?.name, now => {
+    name.value = now ?? ''
+}, {immediate: true})
+async function rename() {
+    if (!project.value) return
+    const next = name.value.trim()
+    if (!next || next === project.value.name) {
+        name.value = project.value.name
+        return
+    }
+    nameFailed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {name: next}, headers: {'Orrery-Actor': await load()}})
+    } catch (error) {
+        nameFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+    }
+}
+
 // Its icon: any Heroicon, found by name. The sidebar shows it in place of the progress ring.
 const search = ref('')
 const iconFailed = ref('')
@@ -67,7 +88,25 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div v-if="project" class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-4 px-4 py-8 sm:px-8">
-      <section id="icon" class="flex flex-col gap-3">
+      <section id="name" class="flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Name</h2>
+          <p class="text-xs text-muted">How it's shown everywhere. Its id (<span class="font-mono">{{ project.id }}</span>) and issue ids (<span class="font-mono">{{ project.key }}-n</span>) stay as they are, so links and agents keep working.</p>
+        </header>
+        <form class="flex items-center gap-2" @submit.prevent="rename">
+          <input
+              v-model="name"
+              aria-label="Project name"
+              spellcheck="false"
+              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              @blur="rename"
+              @keydown.esc="name = project.name; ($event.target as HTMLInputElement).blur()"
+          >
+          <span v-if="nameFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ nameFailed }}</span>
+        </form>
+      </section>
+
+      <section id="icon" class="mt-4 flex flex-col gap-3">
         <header class="flex items-start gap-3">
           <div class="mt-0.5 grid size-4 place-items-center text-accent-500">
             <ProjectIcon v-if="project.icon" :icon="project.icon" class="size-4" />
