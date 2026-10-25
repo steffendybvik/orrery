@@ -20,9 +20,16 @@ live, answer their questions in one place, and point them at what matters next.
   that waits at the top of your bell until you answer.
 - **You steer from it.** Right-click an issue and ask the listening sessions to focus on it, or a chunk
   to work through it. The message reaches an idle session straight away, and the sidebar shows which
-  sessions are working, idle or waiting on you.
+  sessions are working, idle or waiting on you. Your P0 issues reach them on their own, and a session
+  stays one session across a `/clear`.
+- **It starts sessions for you.** Let a project start its own sessions, a few at a time for as long as
+  you say, and start or stop one from its Sessions tab. They run in tmux through a small launcher on
+  your machine, so no one has to keep a terminal open.
+- **Releases.** Each version a project ships, the branch its work gathers on and which issues go out
+  in it, with its changelog drafted from those issues.
 - **Docs live beside the work.** Each project keeps its decisions and how-tos as Markdown pages
-  that the agents keep up to date.
+  that the agents keep up to date. Comments, descriptions and docs take pasted images, and a Before and
+  After pair shows as a slider.
 - **Recurring work.** Schedules that make an issue, or send the sessions a message, on a cron.
 - **Keyboard first.** `⌘K` jumps anywhere, `j`/`k` move, `c` writes an issue.
 - **Yours.** One SQLite file with automatic backups, no accounts, nothing leaves the machine. Run one
@@ -65,12 +72,15 @@ that repo, and the session sets the repo up to use Orrery itself.
 
   Without it, everything else still works; you just can't nudge a session from the page.
   [Connecting a repo](docs/connect.md) has the server setup.
+- **Starting sessions needs tmux 3.2+** and the launcher, installed once from each repo with
+  `node /path/to/orrery/channel/orrery-launcher.mjs --install`; see
+  [Connecting a repo](docs/connect.md#4-optionally-let-orrery-start-sessions).
 
 ## Docs
 
 - [Using Orrery](docs/using.md): right-click menus, pointing sessions at work, every page, the keys
 - [Running Orrery](docs/running.md): settings, backups, Postgres, two servers side by side, where each database lives, without Docker
-- [Connecting a repo](docs/connect.md): the channel, a terminal alias and the session hooks
+- [Connecting a repo](docs/connect.md): the channel, a terminal alias, the session hooks and the launcher
 - [The API](docs/API.md): every route, field and rule, for agents and scripts
 - [Working on Orrery](docs/development.md): the dev server and the checks
 - [Security](SECURITY.md): who can reach it, what the owner name is and isn't, and your agents
