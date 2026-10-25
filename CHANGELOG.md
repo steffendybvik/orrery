@@ -5,6 +5,8 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Starting sessions on the Sessions tab:** whether Orrery may start a project's sessions, and how
+  many at once for how long, moved from its Settings to its Sessions tab, next to Start session.
 - **Starting sessions, across restarts:** a session Orrery started keeps counting against the limit, with
   its time left and +30 min, after Orrery restarts; a launcher that dies takes its sessions back when it
   starts again; and Stop goes through the session's channel when no launcher is there to stop it.
