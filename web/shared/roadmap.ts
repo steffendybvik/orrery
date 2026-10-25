@@ -115,6 +115,8 @@ export interface Issue {
     aliases: string[]
     /** The schedule that made it, if one did. */
     schedule?: number
+    /** The version it ships in (a release's), if it's set for one. */
+    release?: string
     createdBy: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
@@ -145,6 +147,24 @@ export interface Board {
     chunks: Chunk[]
     counts: Counts
     kinds: Kinds
+}
+
+/** A version the project ships (`1.0.0-rc.2`) and how far the issues going out in it are. */
+export interface Release {
+    version: string
+    /** The branch its work gathers on before it ships, e.g. `v1.0.0-rc.2`. */
+    branch?: string
+    /** What it's about, in Markdown. */
+    notes?: string
+    /** The day it shipped (`YYYY-MM-DD`); none while it's being prepared. */
+    shippedOn?: string
+    /** Its issues: those set for it, each with its sub-issues. */
+    issues: number
+    kinds: Kinds
+    createdBy: string
+    protected: boolean
+    createdAt: string
+    updatedAt: string
 }
 
 /** A doc without its text, as a project lists it. */
@@ -183,12 +203,16 @@ export interface Project {
     /** Whether Orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
      * within what; none while the owner hasn't let it. */
     starts?: Starts
+    /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
+    repo?: string
     createdBy: string
     protected: boolean
     createdAt: string
     updatedAt: string
     board: Board
     docs: DocSummary[]
+    /** Those being prepared first, then the shipped ones, latest first. */
+    releases: Release[]
 }
 
 /** What an agent's comment waits on the owner for. */
@@ -221,7 +245,7 @@ export interface Comment {
 
 /** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
  * moved in from another project. */
-export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'notes', 'chunk', 'parent', 'proposal', 'project'] as const
+export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'notes', 'chunk', 'parent', 'proposal', 'project', 'release'] as const
 export type ActivityField = (typeof ACTIVITY_FIELDS)[number]
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a

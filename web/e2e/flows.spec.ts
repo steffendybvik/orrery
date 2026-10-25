@@ -4,7 +4,7 @@ import {expect, test} from '@playwright/test'
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
 // them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
 // issues starting on the open ones; then a chunk made, edited and removed from its page, and an image
-// in a new issue and a comment; then a changed doc and what changed in it.
+// in a new issue and a comment; then a changed doc and what changed in it; then a release.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -241,4 +241,28 @@ test("tints a doc an agent changed, and in it the parts that changed since the o
     await row.click()
     await expect(page.locator('.doc .changed')).toHaveText(['Label every jar with its date.', 'Restock on Fridays.'])
     await expect(page.getByText('2 parts changed since you last read it, tinted below')).toBeVisible()
+})
+
+test('makes a release, sets an issue for it from its page, and drafts its changelog', async ({page, request}) => {
+    await api(request, 'patch', '', {repo: 'https://github.com/you/larder'})
+    const issue = await api(request, 'post', '/issues', {title: 'Label the jars', status: 'done'})
+    await page.goto('/p/larder/releases')
+    await page.getByRole('button', {name: 'New release'}).click()
+    await page.getByLabel('Version').fill('1.0.0')
+    await expect(page.getByLabel('Branch its work gathers on')).toHaveValue('v1.0.0')
+    await page.getByRole('button', {name: 'Make it'}).click()
+    await expect(page).toHaveURL(/\/p\/larder\/releases\/1\.0\.0$/)
+    await expect(page.getByRole('link', {name: 'PRs into it'})).toHaveAttribute('href', 'https://github.com/you/larder/pulls?q=is%3Apr%20base%3Av1.0.0')
+
+    await page.goto(`/p/larder/issues/${issue.id}`)
+    await page.getByRole('button', {name: 'Release'}).click()
+    await page.getByRole('option', {name: '1.0.0'}).click()
+    await expect.poll(async () => (await api(request, 'get', `/issues/${issue.id}`)).release).toBe('1.0.0')
+
+    await page.getByRole('link', {name: 'Open the release'}).click()
+    await expect(page.getByText('Label the jars')).toBeVisible()
+    await page.getByText('Changelog draft').click()
+    await expect(page.locator('pre', {hasText: `## 1.0.0 (unreleased)`})).toContainText(`- Label the jars (${issue.id})`)
+    await page.getByRole('button', {name: 'Mark shipped today'}).click()
+    await expect(page.getByText(/^Shipped \d{4}-\d{2}-\d{2}$/)).toBeVisible()
 })
