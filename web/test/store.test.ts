@@ -611,6 +611,32 @@ describe("what a project's sessions are on", () => {
     })
 })
 
+describe('an urgent issue', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it("goes to the sessions when the owner makes it P0: to its worker while it can hear, else to every one", async () => {
+        const sent: string[] = []
+        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.issue}:${signal.target ?? 'all'}:${signal.note}`))
+        let listening = ['window-a']
+        local.hears = (_project, session) => listening.includes(session)
+        await local.createProject({name: 'larder', key: 'LAR'})
+        const fire = (await local.createIssue('larder', {title: 'Fire', priority: 'P0'}, owner)).id
+        const leak = (await local.createIssue('larder', {title: 'Leak', priority: 'P2'}, owner)).id
+        await local.workedBy('larder', leak, 'window-a')
+        await local.updateIssue('larder', leak, {priority: 'P0'}, owner)
+        // Already urgent, or not by the owner, or not work (a proposal, a closed issue): nothing goes.
+        await local.updateIssue('larder', leak, {priority: 'P0', title: 'Big leak'}, owner)
+        await local.createIssue('larder', {title: "An agent's", priority: 'P0'})
+        await local.createIssue('larder', {title: 'An idea', priority: 'P0', proposal: 'pending'}, owner)
+        await local.createIssue('larder', {title: 'Gone', priority: 'P0', status: 'done'}, owner)
+        listening = []
+        await local.updateIssue('larder', leak, {priority: 'P1'}, owner)
+        await local.updateIssue('larder', leak, {priority: 'P0'}, owner)
+        const note = 'It was just made urgent (P0).'
+        expect(sent).toEqual([`focus:${fire}:all:${note}`, `focus:${leak}:window-a:${note}`, `focus:${leak}:all:${note}`])
+    })
+})
+
 describe('statuses', () => {
     const owner = {name: 'skoll', owner: true}
 

@@ -197,6 +197,10 @@ whose hook saw it write to the issue (a curl that PATCHes it, comments on it, â€
 focus on it. While that session is listening it alone gets the comment; with none known, or that one
 gone, every session does.
 
+An issue the owner makes urgent (`P0`, created as one or raised to it) goes out as a `focus` the same way,
+without their pressing anything: to the session working it, else to every session. Not a proposal, a
+closed issue, or an agent's P0.
+
 | | |
 |---|---|
 | `POST /projects/:project/issues/:issue/focus` | `{note?, instructions?}` â†’ `{signal, listeners}`: sends it, and says how many sessions heard |

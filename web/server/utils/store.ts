@@ -707,7 +707,9 @@ export class Store {
             return id
         })
         this.onChange(project)
-        return await this.issue(project, id)
+        const issue = await this.issue(project, id)
+        if (input.priority === 'P0') await this.urgent(project, issue, actor)
+        return issue
     }
 
     /** `parent: null` lifts a sub-issue to the top, into the chunk it was in unless `chunk` says otherwise.
@@ -776,7 +778,17 @@ export class Store {
             await this.touchProject(project)
         })
         this.onChange(project)
-        return await this.issue(project, id)
+        const issue = await this.issue(project, id)
+        if (input.priority === 'P0' && row.priority !== 'P0') await this.urgent(project, issue, actor)
+        return issue
+    }
+
+    /** An issue the owner just made urgent (P0) goes to the sessions as a focus, without their asking: to the
+     * session working it while it can hear, else to every session on the project. Not a proposal or a closed one. */
+    private async urgent(project: string, issue: IssueDetail, actor: Actor) {
+        if (!actor.owner || issue.kind === 'proposed' || CLOSED.includes(issue.kind as Kind)) return
+        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue.id))?.session
+        await this.focus(project, issue.id, {note: 'It was just made urgent (P0).', session: worker && this.hears(project, worker) ? worker : null}, actor)
     }
 
     /** Deletes its sub-issues and comments too. */
