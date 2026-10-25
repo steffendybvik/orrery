@@ -2,6 +2,7 @@
 // recommendation ticked. Checked as they come in, resolved into the owner's picks when they approve, and
 // put into words for the comment the session hears.
 import type {Choice, Picks} from '#shared/roadmap'
+import {liveChoices} from '#shared/roadmap'
 
 const KEY = /^[A-Za-z0-9][A-Za-z0-9_-]{0,29}$/
 
@@ -45,15 +46,6 @@ export function parseChoices(value: unknown): string {
         choices.push({key, question: text(raw.question, `${key}'s "question"`), pick, options, recommended: recommended as string[], ...from ? {from} : {}})
     }
     return JSON.stringify(choices)
-}
-
-/** The choices that count for these picks: those at the top, and those going further down a picked option. */
-export function liveChoices(choices: Choice[], picks: Picks): Choice[] {
-    const live: Choice[] = []
-    for (const choice of choices) {
-        if (!choice.from || (live.some(c => c.key === choice.from!.choice) && (picks[choice.from.choice] ?? []).includes(choice.from.option))) live.push(choice)
-    }
-    return live
 }
 
 /** The owner's picks for approving: what they sent, else the recommendation, for every choice that counts.
