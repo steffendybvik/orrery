@@ -21,6 +21,8 @@ const {changed} = useRoadmaps()
 
 const isParent = computed(() => props.issue.tasks.length > 0)
 const flash = computed(() => Date.now() - (changed.value[`${props.project}/${props.issue.id}`] ?? 0) < 1500)
+const {issueUnseen} = useUnseen()
+const unseen = computed(() => issueUnseen(props.project, props.issue))
 const {look} = useStatuses()
 </script>
 
@@ -47,7 +49,8 @@ const {look} = useStatuses()
     <span class="w-16 shrink-0 truncate font-mono text-[11px] text-faint">{{ issue.id }}</span>
     <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
     <span class="flex min-w-0 flex-1 items-center gap-2">
-      <span class="min-w-0 truncate" :class="isClosed(issue.kind) ? 'text-muted' : 'text-fg'"><InlineText :text="issue.title" /></span>
+      <span v-if="unseen" class="size-1.5 shrink-0 rounded-full bg-accent-500" title="Changed since you last opened it" />
+      <span class="min-w-0 truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-medium' : '']"><InlineText :text="issue.title" /></span>
       <span v-if="issue.schedule" class="shrink-0 text-faint" title="Made by a schedule"><SectionIcon section="schedules" class="size-3" /></span>
       <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line" :title="`${issue.kinds.done} of ${total(issue.kinds)} sub-issues done`"><ProgressRing :kinds="issue.kinds" :size="13" /></span>
     </span>

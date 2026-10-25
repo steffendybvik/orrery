@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Unseen changes:** issues and docs that changed since the owner last opened them carry a quiet accent
+  dot and a bolder title, on rows, board cards, the docs list and the project in the sidebar, until
+  opened or cleared with Mark seen. The owner's own changes from the page don't count.
 - **Starting sessions:** a project can let Orrery start sessions itself, in tmux through a launcher on
   the host, when the owner's work finds nobody listening or the owner starts one from the Sessions tab,
   within limits on how many run and for how long. The launcher installs once as a background service
