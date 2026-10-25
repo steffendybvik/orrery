@@ -8,6 +8,12 @@ the database schema are the public surface, and a database always migrates forwa
 - **Starting sessions, across restarts:** a session Orrery started keeps counting against the limit, with
   its time left and +30 min, after Orrery restarts; a launcher that dies takes its sessions back when it
   starts again; and Stop goes through the session's channel when no launcher is there to stop it.
+- **Fixed, sessions across a `/clear`:** `claude --resume` with a cleared window's old id is a session of
+  its own instead of taking that window over. A window whose `claude` pid Orrery can't find (an npm
+  install) stays one session across a clear, and the pid is now found for those too. What a session
+  worked and was sent moves to its new id, so a restart of Orrery doesn't lose it. The resume brief no
+  longer goes missing on a big project or gets cut short, and it says what happened (cleared, compacted
+  or resumed).
 
 ## 1.0.0-rc.2 (2026-10-25)
 

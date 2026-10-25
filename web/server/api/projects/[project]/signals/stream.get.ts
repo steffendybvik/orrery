@@ -37,7 +37,7 @@ export default defineEventHandler(async event => {
         const statuses = await store.statuses()
         const templates = await store.prompts(project)
         const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
-        const name = (column: string) => column === 'proposed' ? 'Proposed' : statuses.find(s => s.id === column)?.name ?? column
+        const name = (column: string) => columnName(column, statuses)
         if (signal.kind === 'message') {
             let title = 'a schedule'
             try {
@@ -58,15 +58,15 @@ export default defineEventHandler(async event => {
                 : t.kind !== 'proposed' && !CLOSED.includes(t.kind as never)
             const open = chunk.tasks.filter(fits)
                 .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
-                .map(t => ({id: t.id, title: t.title, column: name(t.column), priority: t.priority ?? null}))
+                .map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
             const status = signal.status ? statuses.find(s => s.id === signal.status)?.name ?? signal.status : undefined
             const prompt = renderPrompt(templates.chunk, {
                 actor: signal.createdBy, chunk: signal.chunk, title: chunk.title, status: status ?? 'open', priority: chunk.priority,
                 where: where(name(chunk.column), chunk.priority), note: signal.note,
-                issues: open.map(i => `- ${i.id}: ${i.title} [${where(i.column, i.priority)}]`).join('\n') || '- none left',
+                issues: open.map(i => issueLine(i, statuses)).join('\n') || '- none left',
                 url: signal.chunk === 'none' ? `'${api}/issues?chunk=none'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
             }, signal.instructions)
-            return {...signal, status, title: chunk.title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: chunk.title, issues: open, prompt}
+            return {...signal, status, title: chunk.title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: chunk.title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
         }
         const issue = await store.issue(project, signal.issue)
         const chunk = (await store.project(project)).board.chunks.find(c => c.id === (issue.chunk ?? ''))

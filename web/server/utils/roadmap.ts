@@ -292,3 +292,13 @@ function jsonProblem(text: string, error: unknown): string {
     const before = text.slice(0, Number(position[1])).split('\n')
     return `${message} (line ${before.length}, column ${before.at(-1)!.length + 1})`
 }
+
+/** A column as a session reads it: its status's name, or Proposed. */
+export function columnName(column: string, statuses: IssueStatus[]): string {
+    return column === 'proposed' ? 'Proposed' : statuses.find(s => s.id === column)?.name ?? column
+}
+
+/** An issue in a list told to a session: `- ORR-1: Its title [In progress, P1]`. */
+export function issueLine(issue: {id: string, title: string, column: string, priority?: string | null}, statuses: IssueStatus[]): string {
+    return `- ${issue.id}: ${issue.title} [${[columnName(issue.column, statuses), issue.priority].filter(Boolean).join(', ')}]`
+}

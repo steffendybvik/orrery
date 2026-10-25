@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest'
 import type {IssueStatus} from '#shared/roadmap'
 import {DEFAULT_STATUSES, total} from '#shared/roadmap'
 import type {BoardInput, IssueInput, TaskFile} from '../server/utils/roadmap'
-import {RoadmapError, buildBoard, checkRoadmap, legacyStatus, readRoadmap} from '../server/utils/roadmap'
+import {RoadmapError, buildBoard, checkRoadmap, issueLine, legacyStatus, readRoadmap} from '../server/utils/roadmap'
 
 const STATUSES: IssueStatus[] = DEFAULT_STATUSES.map((s, position) => ({...s, position}))
 const first = (kind: string) => STATUSES.find(s => s.kind === kind)!.id
@@ -130,5 +130,12 @@ describe("larder's roadmap", () => {
         expect(chunks.reduce((sum, c) => sum + total(c.kinds), 0)).toBe(139)
         expect(fromFile({chunks: [{id: 'c', title: 'C', tasks: [{id: 'A', title: 'A', plan: 'now'}, {id: 'B', title: 'B'}, {id: 'D', title: 'D', status: 'doing'}]}]})
             .chunks[0]!.tasks.map(t => t.status)).toEqual(['todo', 'backlog', 'in-progress'])
+    })
+})
+
+describe('an issue told to a session', () => {
+    it('is one line: id, title, then its column by name and its priority', () => {
+        expect(issueLine({id: 'LAR-1', title: 'Shelves', column: 'in-progress', priority: 'P1'}, STATUSES)).toBe('- LAR-1: Shelves [In progress, P1]')
+        expect(issueLine({id: 'LAR-2', title: 'Jars', column: 'proposed', priority: null}, STATUSES)).toBe('- LAR-2: Jars [Proposed]')
     })
 })

@@ -775,6 +775,16 @@ describe('what a session is working on', () => {
         expect(working.map(i => [i.id, i.last?.body])).toEqual([[shelves, 'halfway'], [jars, undefined]])
         expect(await store.workingOn('larder', [])).toEqual([])
     })
+
+    it("moves to a session's new id: what it worked and the signals sent to it", async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
+        await store.workedBy('larder', shelves, 'before-clear')
+        await store.focus('larder', shelves, {session: 'before-clear'})
+        await store.renameSession('larder', 'before-clear', 'after-clear')
+        expect((await store.workingOn('larder', ['after-clear'])).map(i => i.id)).toEqual([shelves])
+        expect(await store.workingOn('larder', ['before-clear'])).toEqual([])
+        expect((await store.listSignals('larder')).map(s => s.target)).toEqual(['after-clear'])
+    })
 })
 
 describe('docs', () => {
