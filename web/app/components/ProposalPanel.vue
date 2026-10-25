@@ -41,7 +41,15 @@ const picks = ref<Picks>({})
 watch(() => [props.issue.id, JSON.stringify(props.issue.choices), JSON.stringify(props.issue.picks)], () => {
     picks.value = props.issue.picks ?? Object.fromEntries(props.issue.choices.map(c => [c.key, c.recommended]))
 }, {immediate: true})
-const deciding = computed(() => props.issue.proposal === 'pending' || props.issue.proposal === 'changes')
+// Decided (approved, changes asked for, rejected), it shows as a summary: what was decided and picked,
+// with Change decision to bring the controls back. Waiting on the owner, it's all there.
+const reopened = ref(false)
+watch(() => [props.issue.id, props.issue.proposal, props.issue.decidedAt], () => reopened.value = false)
+const deciding = computed(() => props.issue.proposal === 'pending' || reopened.value)
+/** What was picked, as the lines the summary shows: the question, then the options' titles. */
+const picked = computed(() => props.issue.picks ? props.issue.choices.filter(c => props.issue.picks![c.key]).map(c => ({
+    key: c.key, question: c.question, titles: c.options.filter(o => props.issue.picks![c.key]!.includes(o.key)).map(o => o.title),
+})) : [])
 const explored = computed(() => {
     const {explore, choices} = props.issue
     const choice = explore && choices.find(c => c.key === explore.choice)
@@ -68,23 +76,32 @@ const commit = () => send('', 'PATCH', {proposal: null})
     <p v-if="explored && issue.proposal === 'changes'" class="text-[13px] text-muted">
       You asked to explore <span class="font-mono text-xs">{{ explored.option?.key }}</span> {{ explored.option?.title }}: the agent adds a choice down it, then puts it up again.
     </p>
-    <ProposalChoices v-if="issue.choices.length" v-model="picks" :issue="issue" :open="deciding" @explore="explore" />
+    <ul v-if="!deciding && picked.length" class="flex flex-col gap-1 text-[13px]">
+      <li v-for="p in picked" :key="p.key" class="text-muted">{{ p.question }} → <span class="font-medium text-fg">{{ p.titles.join(', ') || 'none' }}</span></li>
+    </ul>
+    <ProposalChoices v-if="deciding && issue.choices.length" v-model="picks" :issue="issue" :open="deciding" @explore="explore" />
     <p class="text-xs text-muted">
       It's a proposal, not work yet: it sits in Proposed, out of the progress.
       <template v-if="issue.proposal === 'approved'">Commit it to put it on the roadmap.</template>
     </p>
-    <textarea
-        v-model="note"
-        rows="2"
-        :placeholder="issue.choices.length ? 'A note with your decision (optional): why, or what to look at when exploring' : 'A note with your decision (optional): what to change, or why'"
-        aria-label="A note with your decision"
-        class="min-h-14 resize-y rounded-lg bg-panel px-2.5 py-2 text-[13px] leading-relaxed text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
-    />
-    <div class="flex flex-wrap items-center gap-2">
-      <button type="button" class="h-8 rounded-lg bg-emerald-600 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="busy || issue.proposal === 'approved'" @click="decide('approved')">Approve</button>
-      <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-fg ring-1 ring-line hover:bg-hover disabled:opacity-40" :disabled="busy" @click="decide('changes')">Request changes</button>
-      <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-rose-600 ring-1 ring-rose-500/40 hover:bg-rose-500/10 disabled:opacity-40 dark:text-rose-400" :disabled="busy || issue.proposal === 'rejected'" @click="decide('rejected')">Reject</button>
-      <button v-if="issue.proposal === 'approved'" type="button" class="ml-auto h-8 rounded-lg bg-accent-500 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="busy" title="Make it work: it leaves Proposed for its column" @click="commit">Commit to the roadmap</button>
+    <template v-if="deciding">
+      <textarea
+          v-model="note"
+          rows="2"
+          :placeholder="issue.choices.length ? 'A note with your decision (optional): why, or what to look at when exploring' : 'A note with your decision (optional): what to change, or why'"
+          aria-label="A note with your decision"
+          class="min-h-14 resize-y rounded-lg bg-panel px-2.5 py-2 text-[13px] leading-relaxed text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+      />
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="h-8 rounded-lg bg-emerald-600 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="busy" @click="decide('approved')">Approve</button>
+        <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-fg ring-1 ring-line hover:bg-hover disabled:opacity-40" :disabled="busy" @click="decide('changes')">Request changes</button>
+        <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-rose-600 ring-1 ring-rose-500/40 hover:bg-rose-500/10 disabled:opacity-40 dark:text-rose-400" :disabled="busy" @click="decide('rejected')">Reject</button>
+        <button v-if="reopened" type="button" class="h-8 rounded-lg px-2 text-[13px] text-faint hover:text-fg" @click="reopened = false">Cancel</button>
+      </div>
+    </template>
+    <div v-else class="flex flex-wrap items-center gap-2">
+      <button v-if="issue.proposal === 'approved'" type="button" class="h-8 rounded-lg bg-accent-500 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="busy" title="Make it work: it leaves Proposed for its column" @click="commit">Commit to the roadmap</button>
+      <button type="button" class="h-8 rounded-lg px-2 text-[13px] text-faint hover:text-fg" @click="reopened = true">Change decision</button>
     </div>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
   </section>
