@@ -30,7 +30,7 @@
     "jiti": "2.7.0",
     "@playwright/test": "1.56.1",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.5",
     "@types/pg": "8.15.5",
     "@vitest/coverage-v8": "5.0.5",
     "tailwindcss": "^4.3.3",
