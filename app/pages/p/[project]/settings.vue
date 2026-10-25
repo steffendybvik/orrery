@@ -1,6 +1,9 @@
 <script setup lang="ts">
-// A project's settings: its icon in the sidebar, its schedules (work Orrery starts on its own, each run
-// making an issue or sending the project's Claude sessions a message), and deleting the project, for good.
+import {TINTS} from '#shared/roadmap'
+
+// A project's settings: its name, its icon in the sidebar and the icon's colour, its schedules (work
+// Orrery starts on its own, each run making an issue or sending the project's Claude sessions a
+// message), and deleting the project, for good.
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -29,18 +32,23 @@ async function rename() {
     }
 }
 
-// Its icon: any Heroicon, found by name. The sidebar shows it in place of the progress ring.
+// Its icon: any Heroicon, found by name, in a colour (or the text's). The sidebar shows it in place of
+// the progress ring.
 const search = ref('')
+const custom = ref('#3b82f6')
+watch(() => project.value?.iconColor, now => {
+    if (now?.startsWith('#')) custom.value = now
+}, {immediate: true})
 const iconFailed = ref('')
 const shown = computed(() => {
     const words = search.value.trim().toLowerCase().split(/[\s-]+/).filter(Boolean)
     return HEROICONS.filter(name => words.every(word => name.includes(word)))
 })
-async function pickIcon(icon: string | null) {
+async function saveIcon(change: {icon?: string | null, iconColor?: string | null}) {
     if (!project.value) return
     iconFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {icon}, headers: {'Orrery-Actor': await load()}})
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: change, headers: {'Orrery-Actor': await load()}})
     } catch (error) {
         iconFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
     }
@@ -109,16 +117,47 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
       <section id="icon" class="mt-4 flex flex-col gap-3">
         <header class="flex items-start gap-3">
           <div class="mt-0.5 grid size-4 place-items-center text-accent-500">
-            <ProjectIcon v-if="project.icon" :icon="project.icon" class="size-4" />
+            <ProjectIcon v-if="project.icon" :icon="project.icon" :color="project.iconColor" class="size-4" />
             <ProgressRing v-else :counts="project.board.counts" bare :size="14" />
           </div>
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <h2 class="text-[15px] font-semibold text-fg">Icon</h2>
             <p class="text-xs text-muted">Shows by {{ project.name }} in the sidebar, in place of its progress ring, so you can spot it among the rest. Any of the <a href="https://heroicons.com" target="_blank" rel="noopener" class="underline underline-offset-2 hover:text-fg">Heroicons</a>.</p>
           </div>
-          <button v-if="project.icon" type="button" class="h-7 shrink-0 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="pickIcon(null)">Use the ring</button>
+          <button v-if="project.icon" type="button" class="h-7 shrink-0 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="saveIcon({icon: null})">Use the ring</button>
         </header>
         <div class="flex flex-col gap-2 rounded-xl border border-line p-3">
+          <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Icon colour">
+            <span class="mr-1 text-xs text-muted">Colour</span>
+            <button
+                type="button"
+                class="flex h-7 items-center rounded-lg px-2.5 text-xs ring-1 transition-colors"
+                :class="!project.iconColor ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line hover:bg-hover'"
+                :aria-pressed="!project.iconColor"
+                title="Follows the text, as the sidebar's other icons do"
+                @click="saveIcon({iconColor: null})"
+            >None</button>
+            <button
+                v-for="(color, tint) in TINTS"
+                :key="tint"
+                type="button"
+                class="grid size-7 place-items-center rounded-lg ring-1 transition-colors"
+                :class="project.iconColor === tint ? 'bg-active ring-faint/60' : 'ring-line hover:bg-hover'"
+                :title="tint"
+                :aria-label="tint"
+                :aria-pressed="project.iconColor === tint"
+                @click="saveIcon({iconColor: tint})"
+            >
+              <span class="size-3.5 rounded-full ring-1 ring-black/10" :style="{background: color}" />
+            </button>
+            <label
+                class="flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs ring-1"
+                :class="project.iconColor?.startsWith('#') ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line'"
+            >
+              <input v-model="custom" type="color" aria-label="Custom icon colour" class="size-4 cursor-pointer rounded border-0 bg-transparent p-0" @change="saveIcon({iconColor: custom})">
+              Custom
+            </label>
+          </div>
           <input v-model="search" type="search" placeholder="Find an icon: cart, lock, bolt…" aria-label="Find an icon" spellcheck="false" class="h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
           <div class="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1 overflow-y-auto">
             <button
@@ -130,9 +169,9 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
                 :title="name"
                 :aria-label="name"
                 :aria-pressed="project.icon === name"
-                @click="pickIcon(name)"
+                @click="saveIcon({icon: name})"
             >
-              <ProjectIcon :icon="name" class="size-4" />
+              <ProjectIcon :icon="name" :color="project.icon === name ? project.iconColor : null" class="size-4" />
             </button>
           </div>
           <p v-if="!shown.length" class="px-1 py-4 text-center text-xs text-faint">No icon called “{{ search }}”.</p>

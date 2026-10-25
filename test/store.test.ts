@@ -39,13 +39,20 @@ describe('projects', () => {
 
     it('refuses unknown fields', () => {
         expect(failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor'})
     })
 
     it('keep an icon to set and clear', () => {
         expect(store.updateProject('mesher', {icon: 'shopping-cart'}).icon).toBe('shopping-cart')
         expect(failure(() => store.updateProject('mesher', {icon: 'Cart Icon'})).status).toBe(400)
         expect(store.updateProject('mesher', {icon: null}).icon).toBeUndefined()
+    })
+
+    it("keep an icon colour, a tint's name or a #rrggbb", () => {
+        expect(store.updateProject('mesher', {iconColor: 'teal'}).iconColor).toBe('teal')
+        expect(store.updateProject('mesher', {iconColor: '#123abc'}).iconColor).toBe('#123abc')
+        expect(failure(() => store.updateProject('mesher', {iconColor: 'red; background: url(x)'})).status).toBe(400)
+        expect(store.updateProject('mesher', {iconColor: null}).iconColor).toBeUndefined()
     })
 
     it('deletes everything in it', () => {

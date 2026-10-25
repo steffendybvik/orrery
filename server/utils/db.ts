@@ -282,6 +282,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE issues ADD COLUMN decided_by TEXT;
     ALTER TABLE issues ADD COLUMN decided_at TEXT;
     ALTER TABLE issues ADD COLUMN decision_note TEXT;
+`, `
+    -- The colour of a project's icon: a tint's name or a #rrggbb; none follows the text.
+    ALTER TABLE projects ADD COLUMN icon_color TEXT;
 `]
 
 let db: DatabaseSync | null = null

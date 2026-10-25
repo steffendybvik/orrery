@@ -69,7 +69,7 @@ export interface IssueFilter {
 }
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
-interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, icon: string | null, next_number: number, next_chunk: number }
+interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
     project: string, id: string, title: string, status: Status, plan: Plan | null, priority: Priority | null,
@@ -82,6 +82,8 @@ interface DocRow extends Made { project: string, id: string, title: string, body
 interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
+/** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
+const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
 const KEY = /^[A-Z][A-Z0-9]{0,9}$/
 
 export const PROJECT_FIELDS: Record<string, Field> = {
@@ -90,6 +92,7 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     key: {type: 'string', pattern: KEY, hint: 'use capitals and digits, starting with a capital, e.g. MSH'},
     description: {type: 'string', nullable: true},
     icon: {type: 'string', nullable: true, pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, hint: "use a Heroicon's name, e.g. shopping-cart"},
+    iconColor: TINT,
 }
 
 // No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
@@ -140,7 +143,7 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
 }
 
 export const SETTINGS_FIELDS: Record<string, Field> = {
-    tint: {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`},
+    tint: TINT,
 }
 
 export const COMMENT_FIELDS: Record<string, Field> = {
@@ -212,8 +215,8 @@ export class Store {
         if (this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
         const now = stamp()
-        this.run('INSERT INTO projects (id, name, key, description, icon, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            id, name, key, nullable(input.description), nullable(input.icon), actor.name, Number(actor.owner), now, now)
+        this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.iconColor), actor.name, Number(actor.owner), now, now)
         this.onChange(id)
         return this.project(id)
     }
@@ -227,6 +230,7 @@ export class Store {
             key: input.key,
             description: input.description,
             icon: input.icon,
+            icon_color: input.iconColor,
         })
         this.onChange(id)
         return this.project(id)
@@ -800,6 +804,7 @@ export class Store {
             key: row.key,
             description: row.description ?? undefined,
             icon: row.icon ?? undefined,
+            iconColor: row.icon_color ?? undefined,
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,

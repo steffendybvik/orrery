@@ -106,6 +106,8 @@ export interface Project {
     description?: string
     /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
     icon?: string
+    /** Its icon's colour: a tint's name (`teal`) or a `#rrggbb`; none follows the text. */
+    iconColor?: string
     createdBy: string
     protected: boolean
     createdAt: string
