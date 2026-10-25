@@ -2,13 +2,11 @@
 import type {Project} from '#shared/roadmap'
 
 // Whether Orrery may start Claude sessions for the project itself, with no terminal: the owner's opt-in (how
-// many at once, how long each runs), whether its launcher is there, and the sessions it has started.
+// many at once, how long each runs) and whether its launcher is there. On the Sessions page, whose list has the sessions it started.
 const props = defineProps<{project: Project}>()
 const {load} = useOwner()
-const {sessions} = useRoadmaps()
 // Whether a launcher is there to start them, asked again as its launchers or sessions change.
-const {state, install} = useLaunchState(() => props.project.id)
-const started = computed(() => (sessions.value[props.project.id] ?? []).filter(s => s.started))
+const {state} = useLaunchState(() => props.project.id)
 const failed = ref('')
 const field = 'h-8 w-20 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
 
@@ -48,15 +46,8 @@ function saveStarts(on = !!props.project.starts) {
     </div>
     <p v-if="state" class="text-xs text-faint">
       <template v-if="state.launchers">Its launcher is running{{ state.started ? `, with ${state.started} session${state.started === 1 ? '' : 's'} it started` : '' }}.</template>
-      <template v-else>No launcher is running for it: install one, once, in its repo with <span class="font-mono break-all">{{ install }}</span> <CopyButton :text="install" label="Copy" /></template>
+      <template v-else>No launcher is running for it yet: install it as step 2 below says.</template>
     </p>
-    <ul v-if="started.length" class="flex flex-col border-t border-line pt-2">
-      <li v-for="session in started" :key="session.id" class="flex flex-wrap items-center gap-2 py-1">
-        <SessionDot :session="session" />
-        <span class="min-w-0 truncate text-fg">{{ session.name }}</span>
-        <StartedSession :session="session" class="ml-auto" />
-      </li>
-    </ul>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

@@ -19,7 +19,6 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
   <PageHeader>
     <template v-if="project">
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
-      <ProjectTabs :project="project" />
       <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
     </template>
   </PageHeader>
@@ -28,7 +27,7 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
     <span class="text-xs text-faint">Chunks in the column their issues put them in</span>
     <template #end>
       <FilterBar />
-      <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" @click="useNewChunk().open(project.id)">
+      <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs whitespace-nowrap font-medium text-white hover:opacity-90" @click="useNewChunk().open(project.id)">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         New chunk
       </button>

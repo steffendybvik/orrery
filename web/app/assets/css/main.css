@@ -116,35 +116,41 @@ body {
     scrollbar-color: var(--active) transparent;
 }
 
-/* A doc's Markdown; `data-size` (sm, lg) is the reader's pick on the doc page */
-.doc {
-    @apply text-[16px] leading-[1.75] text-zinc-700 dark:text-zinc-300;
+/* A doc's Markdown; `data-size` (sm, lg) is the reader's pick on the doc page.
+   It's in the components layer, so a size given where it's used (`text-[14px]` on a comment) wins. */
+@layer components {
+    .doc {
+        @apply text-[16px] leading-[1.75] text-zinc-700 dark:text-zinc-300;
 
-    & > * + * { @apply mt-5; }
-    & h1, & h2, & h3, & h4 { @apply font-semibold tracking-tight text-fg; }
-    & h1 { @apply mt-12 text-2xl; }
-    & h2 { @apply mt-12 border-b border-line pb-2 text-xl; }
-    & h3 { @apply mt-9 text-lg; }
-    & h4 { @apply mt-7 text-base; }
-    & > :first-child { @apply mt-0; }
-    /* A long link or path breaks rather than running out of its column (comments on a phone). */
-    & a, & :not(pre) > code { overflow-wrap: anywhere; }
-    & a { @apply text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
-    & strong { @apply font-semibold text-fg; }
-    & ul { @apply list-disc pl-5; }
-    & ol { @apply list-decimal pl-5; }
-    & li + li { @apply mt-1; }
-    & li::marker { @apply text-faint; }
-    & blockquote { @apply border-l-2 border-accent-500/60 pl-4 text-muted italic; }
-    & hr { @apply my-8 border-line; }
-    & :not(pre) > code { @apply rounded bg-well px-1 py-px font-mono text-[0.88em] text-fg ring-1 ring-line; }
-    & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[13.5px] leading-relaxed text-fg ring-1 ring-line; }
-    & table { @apply block w-full overflow-x-auto border-collapse text-[14.5px]; }
-    & th, & td { @apply border border-line px-3 py-1.5 text-left; }
-    & th { @apply bg-well font-medium text-fg; }
-    & img { @apply max-w-full rounded-lg; }
-    & h2, & h3 { @apply scroll-mt-6; }
-    & input[type="checkbox"] { @apply mr-1.5 accent-accent-500; }
+        & > * + * { @apply mt-5; }
+        & h1, & h2, & h3, & h4 { @apply font-semibold tracking-tight text-fg; }
+        & h1 { @apply mt-12 text-2xl; }
+        & h2 { @apply mt-12 border-b border-line pb-2 text-xl; }
+        & h3 { @apply mt-9 text-lg; }
+        & h4 { @apply mt-7 text-base; }
+        & > :first-child { @apply mt-0; }
+        /* A long link or path breaks rather than running out of its column (comments on a phone). */
+        & a, & :not(pre) > code { overflow-wrap: anywhere; }
+        & a { @apply text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
+        & strong { @apply font-semibold text-fg; }
+        & ul { @apply list-disc pl-5; }
+        & ol { @apply list-decimal pl-5; }
+        & li + li { @apply mt-1; }
+        & li::marker { @apply text-faint; }
+        & blockquote { @apply border-l-2 border-accent-500/60 pl-4 text-muted italic; }
+        & hr { @apply my-8 border-line; }
+        & :not(pre) > code { @apply rounded bg-well px-1 py-px font-mono text-[0.88em] text-fg ring-1 ring-line; }
+        & pre { @apply overflow-x-auto rounded-xl bg-well p-4 font-mono text-[13.5px] leading-relaxed text-fg ring-1 ring-line; }
+        & table { @apply block w-full overflow-x-auto border-collapse text-[14.5px]; }
+        & th, & td { @apply border border-line px-3 py-1.5 text-left; }
+        & th { @apply bg-well font-medium text-fg; }
+        & img { @apply max-w-full rounded-lg; }
+        & h2, & h3 { @apply scroll-mt-6; }
+        & input[type="checkbox"] { @apply mr-1.5 accent-accent-500; }
+    }
+
+    .doc[data-size="sm"] { @apply text-[14.5px]; }
+    .doc[data-size="lg"] { @apply text-[18px]; }
 }
 
 /* A before/after slider (renderMarkdown's `compare`): the after picture, and the before one over it up to
@@ -176,9 +182,6 @@ body {
     & .compare-label-before { @apply left-2; }
     & .compare-label-after { @apply right-2; }
 }
-
-.doc[data-size="sm"] { @apply text-[14.5px]; }
-.doc[data-size="lg"] { @apply text-[18px]; }
 
 /* Changed since the owner last looked (useUnseen): the row tinted with the accent and barred on its left,
    a dot with a halo, and in a doc each block that's new or different since they last read it. */

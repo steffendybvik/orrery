@@ -23,8 +23,7 @@ const ready = computed(() => !!props.project.starts && !!running.value)
         <div class="flex min-w-0 flex-col gap-0.5">
           <span class="font-medium text-fg">Let Orrery start sessions for {{ project.name }}</span>
           <span>
-            Under <NuxtLink :to="`/p/${project.id}/settings#starts`" class="underline underline-offset-2 hover:text-fg">Starting sessions</NuxtLink> in its settings:
-            how many may run at once, and how many minutes each gets before it's stopped.
+            Tick it above, then say how many may run at once and how many minutes each gets before it's stopped.
           </span>
         </div>
       </li>
