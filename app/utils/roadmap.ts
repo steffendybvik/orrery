@@ -14,6 +14,17 @@ export const COLUMN_STYLE: Record<Column, {label: string, text: string, fill: st
 
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}
 
+/** The columns an issue can be put in, in board order. */
+export const PLACES: Column[] = ['proposed', 'backlog', 'later', 'next', 'now', 'doing', 'done']
+
+/** Putting an issue in a column, as its own status and plan. Into Proposed makes it a proposal; a
+ * proposal put anywhere else is committed. */
+export function columnPatch(column: Column, proposal?: string): Record<string, unknown> {
+    if (column === 'proposed') return {proposal: 'pending'}
+    const body = column === 'done' || column === 'doing' ? {status: column} : {status: 'todo', plan: column === 'backlog' ? null : column}
+    return proposal ? {...body, proposal: null} : body
+}
+
 /** Open issues assigned to `owner` anywhere in the project, sub-issues included; the proposals waiting
  * on them first. */
 export function myIssues(project: Project, owner: string | null) {

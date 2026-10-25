@@ -3,7 +3,8 @@ import type {Comment, Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, sub-issues and activity, with its
-// properties beside them. j/k go to the next and previous issue in the project, Esc goes back.
+// properties beside them. The title and description edit in place, as the owner. j/k go to the next
+// and previous issue in the project, Esc goes back.
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -60,6 +61,42 @@ async function remove() {
         removeFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't remove it. Is Orrery running?"
     }
 }
+// The title, edited in place: Enter saves, Esc puts it back.
+const {save, saving, failed: saveFailed} = useIssueSave(() => project.value?.id ?? '', issueId)
+const editingTitle = ref(false)
+const title = ref('')
+const titleInput = ref<HTMLInputElement | null>(null)
+function editTitle() {
+    if (!issue.value) return
+    title.value = issue.value.title
+    editingTitle.value = true
+    nextTick(() => titleInput.value?.select())
+}
+async function saveTitle() {
+    if (!editingTitle.value) return
+    const next = title.value.trim()
+    if (next && next !== issue.value?.title && !await save({title: next})) return
+    editingTitle.value = false
+}
+
+// The description, as Markdown: ⌘↵ saves, Esc leaves it as it was.
+const editingNotes = ref(false)
+const notes = ref('')
+const notesInput = ref<HTMLTextAreaElement | null>(null)
+function editNotes() {
+    notes.value = issue.value?.notes ?? ''
+    editingNotes.value = true
+    nextTick(() => notesInput.value?.focus())
+}
+async function saveNotes() {
+    const next = notes.value.trim()
+    if (next !== (issue.value?.notes ?? '') && !await save({notes: next || null})) return
+    editingNotes.value = false
+}
+watch(issueId, () => {
+    editingTitle.value = editingNotes.value = false
+})
+
 const under = (tasks: Issue[]): number => tasks.reduce((n, t) => n + 1 + under(t.tasks), 0)
 const subCount = computed(() => issue.value ? under(issue.value.tasks) : 0)
 
@@ -152,20 +189,62 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             </span>
           </div>
           <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
-          <h1 class="text-xl leading-snug font-semibold tracking-tight text-fg sm:text-2xl"><InlineText :text="issue.title" /></h1>
+          <input
+              v-if="editingTitle"
+              ref="titleInput"
+              v-model="title"
+              aria-label="Title"
+              class="-mx-2 rounded-lg bg-well px-2 py-0.5 text-xl leading-snug font-semibold tracking-tight text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none sm:text-2xl"
+              :disabled="saving"
+              @keydown.enter.prevent="saveTitle"
+              @keydown.esc.stop.prevent="editingTitle = false"
+              @blur="saveTitle"
+          >
+          <h1
+              v-else
+              class="-mx-2 cursor-text rounded-lg px-2 py-0.5 text-xl leading-snug font-semibold tracking-tight text-fg hover:bg-hover sm:text-2xl"
+              title="Click to edit"
+              @click="editTitle"
+          ><InlineText :text="issue.title" /></h1>
+          <p v-if="saveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</p>
         </header>
 
         <div class="lg:hidden">
-          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" />
+          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" />
         </div>
 
         <ProposalPanel :project="project.id" :issue="issue" />
 
         <SessionsPanel v-if="issue.column !== 'done'" :project="project.id" :issue="issue.id" />
 
-        <section>
+        <section v-if="editingNotes" class="flex flex-col gap-2" @keydown.esc.stop.prevent="editingNotes = false">
+          <textarea
+              ref="notesInput"
+              v-model="notes"
+              aria-label="Description"
+              placeholder="Describe it, in Markdown"
+              rows="10"
+              class="field-sizing-content min-h-40 w-full resize-y rounded-xl bg-well px-4 py-3 font-mono text-[13px] leading-6 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              :disabled="saving"
+              @keydown.meta.enter.prevent="saveNotes"
+              @keydown.ctrl.enter.prevent="saveNotes"
+          />
+          <div class="flex items-center justify-end gap-2">
+            <span class="mr-auto text-xs text-faint">Markdown</span>
+            <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></button>
+            <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="saveNotes">
+              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+            </button>
+          </div>
+        </section>
+        <section v-else class="group relative">
+          <button
+              type="button"
+              class="absolute -top-1 right-0 flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted opacity-0 ring-1 ring-line transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg focus:opacity-100"
+              @click="editNotes"
+          >Edit</button>
           <MarkdownView v-if="issue.notes" :source="issue.notes" />
-          <p v-else class="text-sm text-faint italic">No description.</p>
+          <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No description. Add one</button>
         </section>
 
         <section v-if="issue.tasks.length" class="flex flex-col gap-2">
@@ -204,7 +283,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
       <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block">
         <div class="sticky top-6">
-          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" />
+          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" />
         </div>
       </aside>
     </div>

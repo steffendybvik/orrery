@@ -15,7 +15,7 @@ const found = computed(() => target.value ? findIssue(project.value, target.valu
 const issue = computed(() => found.value?.issue)
 const chunks = computed(() => project.value?.board.chunks.filter(c => c.id) ?? [])
 const listening = computed(() => (sessions.value[target.value?.project ?? ''] ?? []).filter(s => s.listening).length)
-const WHERE: Column[] = ['proposed', 'backlog', 'later', 'next', 'now', 'doing', 'done']
+const WHERE = PLACES
 
 const menu = ref<HTMLElement | null>(null)
 const place = ref({left: 0, top: 0})
@@ -62,14 +62,7 @@ async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Re
     }
 }
 
-/** A column as the issue's own status and plan. Into Proposed makes it a proposal; a proposal moved
- * anywhere else is committed. */
-function moveTo(column: Column) {
-    if (column === 'proposed') return send('', 'PATCH', {proposal: 'pending'})
-    const body = column === 'done' || column === 'doing' ? {status: column}
-        : {status: 'todo', plan: column === 'backlog' ? null : column}
-    send('', 'PATCH', issue.value?.proposal ? {...body, proposal: null} : body)
-}
+const moveTo = (column: Column) => send('', 'PATCH', columnPatch(column, issue.value?.proposal))
 const setPriority = (priority: Priority | null) => send('', 'PATCH', {priority})
 const setChunk = (chunk: string | null) => send('', 'PATCH', {chunk})
 const focus = () => send('/focus', 'POST', {}, () => {
