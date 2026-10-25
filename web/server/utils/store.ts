@@ -679,7 +679,8 @@ export class Store {
         return {...found.issue, project, parent: found.parent, chunk: found.chunk || null}
     }
 
-    async createIssue(project: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
+    /** `urgent: false` leaves a P0 issue's push to the caller, which asks the sessions itself. */
+    async createIssue(project: string, body: unknown, actor = AGENT, {urgent = true} = {}): Promise<IssueDetail> {
         await this.projectRow(project)
         const input = checkInput(body, ISSUE_FIELDS)
         if (input.project !== undefined && input.project !== project) throw badRequest(`Create the issue in its project: POST /api/projects/${input.project}/issues`)
@@ -707,9 +708,8 @@ export class Store {
             return id
         })
         this.onChange(project)
-        const issue = await this.issue(project, id)
-        if (input.priority === 'P0') await this.urgent(project, issue, actor)
-        return issue
+        if (urgent) await this.urgent(project, null, await this.issueRow(project, id), actor)
+        return await this.issue(project, id)
     }
 
     /** `parent: null` lifts a sub-issue to the top, into the chunk it was in unless `chunk` says otherwise.
@@ -778,17 +778,28 @@ export class Store {
             await this.touchProject(project)
         })
         this.onChange(project)
-        const issue = await this.issue(project, id)
-        if (input.priority === 'P0' && row.priority !== 'P0') await this.urgent(project, issue, actor)
-        return issue
+        await this.urgent(project, row, await this.issueRow(project, id), actor)
+        return await this.issue(project, id)
     }
 
-    /** An issue the owner just made urgent (P0) goes to the sessions as a focus, without their asking: to the
-     * session working it while it can hear, else to every session on the project. Not a proposal or a closed one. */
-    private async urgent(project: string, issue: IssueDetail, actor: Actor) {
-        if (!actor.owner || issue.kind === 'proposed' || CLOSED.includes(issue.kind as Kind)) return
-        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue.id))?.session
-        await this.focus(project, issue.id, {note: 'It was just made urgent (P0).', session: worker && this.hears(project, worker) ? worker : null}, actor)
+    /** An issue the owner's write just made urgent open work (P0, and committed and not closed, which it wasn't
+     * before) goes to the sessions as a focus, without their asking: to the session working it while it can hear,
+     * else to every session on the project. The write is saved by now, so a push that fails is only logged. */
+    private async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
+        try {
+            const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal
+                && !CLOSED.includes((await this.statuses()).find(s => s.id === row.status)?.kind as Kind)
+            if (!actor.owner || !await urgentWork(after) || (before && await urgentWork(before))) return
+            await this.sendFocus(project, after.id, {note: 'It was just made urgent (P0).', session: await this.listeningWorker(project, after.id)}, actor)
+        } catch (error) {
+            console.error(`[orrery] pushing urgent ${after.id} in ${project}:`, error)
+        }
+    }
+
+    /** The session that last worked the issue, while it's there to hear; null (every session) otherwise. */
+    private async listeningWorker(project: string, issue: string): Promise<string | null> {
+        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
+        return worker && this.hears(project, worker) ? worker : null
     }
 
     /** Deletes its sub-issues and comments too. */
@@ -963,8 +974,7 @@ export class Store {
     /** The owner's comment goes to the session that last worked the issue, so one session answers it; to every
      * session on the project when none has, or that one isn't there to hear it. */
     private async carryComment(project: string, issue: string, body: string, actor: Actor) {
-        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
-        const target = worker && this.hears(project, worker) ? worker : null
+        const target = await this.listeningWorker(project, issue)
         const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'comment', body, target, actor.name, 1, stamp())
         this.onSignal(signalOf(row!))
@@ -1069,6 +1079,11 @@ export class Store {
     async focus(project: string, issue: string, body: unknown, actor = AGENT): Promise<Signal> {
         issue = await this.issueId(project, issue)
         await this.issueRow(project, issue)
+        return await this.sendFocus(project, issue, body, actor)
+    }
+
+    /** `focus` for an issue id already resolved and checked. */
+    private async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
         const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',

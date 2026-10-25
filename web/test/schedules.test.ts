@@ -93,6 +93,12 @@ describe('schedules', () => {
         expect(signals.filter(s => s.kind === 'focus').map(s => [s.issue, s.protected])).toEqual([[await made(mine.id), true], [await made(theirs.id), false]])
     })
 
+    it('ask once for an urgent issue, saying so', async () => {
+        const s = await schedules.create('larder', {title: 'Fire drill', cron: '0 9 * * *', timezone: 'UTC', priority: 'P0', ask: true}, me)
+        await schedules.runNow('larder', s.id)
+        expect(signals.filter(s => s.kind === 'focus').map(s => s.note)).toEqual(["Scheduled: Fire drill. It's urgent (P0)."])
+    })
+
     it("wait for a session when nobody heard the ask", async () => {
         const s = await schedules.create('larder', {title: 'Mine', cron: '0 9 * * *', timezone: 'UTC', ask: true}, me)
         await schedules.runNow('larder', s.id)
