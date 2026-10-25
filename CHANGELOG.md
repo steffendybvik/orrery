@@ -21,6 +21,8 @@ the database schema are the public surface, and a database always migrates forwa
   or a closed `P0` issue reopened.
 - **Sessions:** a `/clear` or a compaction keeps the session and its channel, and the fresh context is
   told which issues it had in progress, so it carries on with them.
+- **Fixed:** a proposal keeps the owner's picks when a live update comes in before they approve, and a
+  choice an option reveals shows its recommendation ticked, as approving sends it.
 - **Fixed:** `pnpm orrery:copy` takes secrets and their uses across too.
 - **Fixed:** a cleared session keeps its new id when its channel reports with the old one, can be stopped
   by either, and shows its work under both. A launch that ends before its session connects frees its place

@@ -64,6 +64,15 @@ export interface Choice {
 /** The owner's picks: for each choice, the options they ticked. */
 export type Picks = Record<string, string[]>
 
+/** The choices that count for these picks: those at the top, and those going further down a picked option. */
+export function liveChoices(choices: Choice[], picks: Picks): Choice[] {
+    const live: Choice[] = []
+    for (const choice of choices) {
+        if (!choice.from || (live.some(c => c.key === choice.from!.choice) && (picks[choice.from.choice] ?? []).includes(choice.from.option))) live.push(choice)
+    }
+    return live
+}
+
 /** P0 is urgent. */
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
 export type Priority = (typeof PRIORITIES)[number]
