@@ -7,10 +7,22 @@ export interface Heading {
     level: 2 | 3
 }
 
+/** The blocks a change is marked on: the smallest that hold text of their own. */
+const BLOCKS = 'p, li, h1, h2, h3, h4, pre, blockquote, tr'
+
+/** Each block's tag and text, as a change is told by. */
+function blocksOf(root: ParentNode): {element: Element, key: string}[] {
+    return [...root.querySelectorAll(BLOCKS)]
+        .filter(element => !element.querySelector(BLOCKS))
+        .map(element => ({element, key: `${element.tagName}:${element.textContent?.replace(/\s+/g, ' ').trim()}`}))
+}
+
 /** Markdown as HTML, cleaned of anything that could run, with links to the web opening in a new tab
  * and the h2/h3 headings given ids (listed in `headings`, for a table of contents). A leading
- * `# Heading` that repeats `title` is left out, as the page already shows it. */
-export function renderMarkdown(source: string, title?: string): {html: string, headings: Heading[]} {
+ * `# Heading` that repeats `title` is left out, as the page already shows it. Given `before` (the
+ * Markdown as last read), each block that's new or different since gets the `changed` class; `changed`
+ * counts them. */
+export function renderMarkdown(source: string, title?: string, before?: string): {html: string, headings: Heading[], changed: number} {
     const first = /^\s*#\s+(.+)\n/.exec(source)
     const body = first && first[1]!.trim().toLowerCase() === title?.trim().toLowerCase() ? source.slice(first[0].length) : source
     const clean = DOMPurify.sanitize(marked.parse(body, {async: false, gfm: true}), {USE_PROFILES: {html: true}})
@@ -42,5 +54,19 @@ export function renderMarkdown(source: string, title?: string): {html: string, h
         image.replaceWith(link)
         link.append(image)
     })
-    return {html: page.body.firstElementChild!.innerHTML, headings}
+    let changed = 0
+    if (before !== undefined && before !== source) {
+        const old = new DOMParser().parseFromString(`<div>${renderMarkdown(before, title).html}</div>`, 'text/html')
+        const left = new Map<string, number>()
+        for (const {key} of blocksOf(old)) left.set(key, (left.get(key) ?? 0) + 1)
+        for (const {element, key} of blocksOf(page)) {
+            const n = left.get(key) ?? 0
+            if (n) left.set(key, n - 1)
+            else {
+                element.classList.add('changed')
+                changed++
+            }
+        }
+    }
+    return {html: page.body.firstElementChild!.innerHTML, headings, changed}
 }

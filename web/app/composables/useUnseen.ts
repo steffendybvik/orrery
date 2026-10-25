@@ -4,6 +4,7 @@ import type {DocSummary, Issue, Project} from '#shared/roadmap'
 // is past when they last opened it, remembered in this browser. Rows mark it with a quiet accent dot until
 // it's opened. The owner's own changes don't count: what they made starts seen, and a write from this page
 // marks what it wrote to as seen once the change comes back. Everything from before the first visit is seen.
+// A doc's text is kept as read too, so opening it again tints what changed in it since.
 interface Seen {
     since: string
     /** Each issue's or doc's `updatedAt` when it was last seen, by its key. */
@@ -11,6 +12,10 @@ interface Seen {
 }
 
 const STORAGE = 'orrery-seen'
+/** Each doc's text as the owner last read it, by its key, so what changed since can be shown in it. */
+const READ = 'orrery-read-docs'
+/** Longer docs aren't kept: the browser's storage is small. */
+const READ_LIMIT = 200_000
 /** How long a write from this page waits for the change it brings back (one that changed nothing brings none). */
 const OWN_FOR = 10_000
 
@@ -57,6 +62,27 @@ export function useUnseen() {
     const seeIssue = (project: string, issue: Issue) => mark([[issueKey(project, issue.id), issue.updatedAt]])
     const seeDoc = (project: string, doc: DocSummary) => mark([[docKey(project, doc.id), doc.updatedAt]])
 
+    /** The doc's text as last read here, if it was. */
+    function lastRead(project: string, id: string): string | undefined {
+        try {
+            return (JSON.parse(localStorage.getItem(READ) ?? '{}') as Record<string, string>)[docKey(project, id)]
+        } catch {
+            return undefined
+        }
+    }
+
+    /** Keeps the doc's text as read now. */
+    function read(project: string, id: string, body: string) {
+        try {
+            const all = JSON.parse(localStorage.getItem(READ) ?? '{}') as Record<string, string>
+            if (body.length > READ_LIMIT) delete all[docKey(project, id)]
+            else all[docKey(project, id)] = body
+            localStorage.setItem(READ, JSON.stringify(all))
+        } catch {
+            // Full or refused: the next visit shows no changes, as on a first one.
+        }
+    }
+
     /** Everything in the project marked seen. */
     function seeAll(project: Project) {
         mark([
@@ -93,5 +119,5 @@ export function useUnseen() {
         wrote.value = left
     }
 
-    return {issueUnseen, docUnseen, seeIssue, seeDoc, seeAll, unseenIn, wroteTo, ownChanges}
+    return {issueUnseen, docUnseen, seeIssue, seeDoc, seeAll, unseenIn, wroteTo, ownChanges, lastRead, read}
 }

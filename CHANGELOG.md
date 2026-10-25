@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Unseen changes, louder:** a changed issue or doc now tints its row with an accent bar, and its dot is
+  bigger; and opening a doc tints the parts that are new or changed since you last read it, with a count
+  under its title.
 - **Images in issues:** the New issue dialog and an issue's description take pasted, dropped or picked
   images too, as the comment box does.
 - **Chunks from the page:** New chunk on the roadmap (and in ⌘K) makes one with a title and summary; on
