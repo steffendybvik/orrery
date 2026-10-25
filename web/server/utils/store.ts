@@ -365,6 +365,11 @@ export class Store {
         return await this.projectOf(await this.projectRow(id))
     }
 
+    /** The project's id, or a 404 when there's none, without building its board. */
+    async projectId(id: string): Promise<string> {
+        return (await this.projectRow(id)).id
+    }
+
     async createProject(body: unknown, actor = AGENT): Promise<Project> {
         const input = checkInput(body, PROJECT_FIELDS)
         this.promptsAreTheOwners(input, actor)

@@ -172,16 +172,22 @@ without Docker), which encrypts them; without it these routes answer 503.
 | `GET /secrets/:name` | the secret with its latest `uses` |
 | `PUT /secrets/:name` | `{value, hosts, projects?}`, the owner only: sets it, new (201) or replacing. `name` is capitals, digits and `_` (`STRIPE_KEY`); `hosts` the host names it may go to (`api.stripe.com`, with a port if not 443); `projects` the projects that may use it (none: every one) |
 | `PATCH /secrets/:name` | `{hosts?, projects?}`, the owner only: only narrows them. Letting it go somewhere new takes the value again (`PUT`), so whoever doesn't know it can't send it elsewhere |
-| `DELETE /secrets/:name` | the owner only; its uses stay on record |
+| `DELETE /secrets/:name` | the owner only; its uses go with it |
 | `POST /egress` | `{url, method?, headers?, body?, project?, issue?}` → `{status, headers, body, truncated?, secrets}`: the request made with each `{{secret:NAME}}` filled in (in the url, a header or the body) |
 
 - **Only to its hosts.** Every secret in a request must allow the url's host, and it must be https;
   anything else is a 403 and nothing is sent. A secret kept to some `projects` needs the `project` it's for.
+  That keeps a key from being used in the wrong project by mistake; it isn't a boundary, as any caller
+  can name any project. The hosts are the boundary.
+- **Escaped where it goes.** In the url the value is percent-encoded; in a body sent as JSON it's
+  JSON-escaped, and in a form body (`application/x-www-form-urlencoded`) form-encoded. In a header, or a
+  text body of any other type, it goes as it is.
 - **Only with a secret.** A request with no `{{secret:NAME}}` is refused: egress isn't a general proxy.
 - **What comes back.** The status, the headers (no `set-cookie`) and the body as text, cut at 1 MB.
-  The value is scrubbed out wherever it shows (as it is, URL-encoded, or in base64), back to its
-  placeholder. Redirects aren't followed: a 3xx comes back with its `location`. A `body` that isn't text
-  goes as JSON. 30 seconds at most.
+  The value is scrubbed out wherever it shows (as it is, URL- or form-encoded, JSON-escaped, or inside
+  base64, as in Basic auth with a user name), back to its placeholder, before the answer is cut. Only
+  that much of the body is read. Redirects aren't followed: a 3xx comes back with its `location`. A `body` that isn't text
+  goes as JSON. 30 seconds at most. An answer that breaks off is a 502, recorded like any use.
 - **Every use is recorded:** the secret, method, host, path (placeholders and all), project, issue,
   who sent it, and the status or why it failed. Never the value.
 
