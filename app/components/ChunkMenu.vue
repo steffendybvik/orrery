@@ -52,7 +52,7 @@ async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Re
         if (then) then()
         else close()
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
     } finally {
         busy.value = false
     }

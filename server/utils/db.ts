@@ -423,7 +423,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 
 let db: DatabaseSync | null = null
 
-export function useDb(): DatabaseSync {
+function useDb(): DatabaseSync {
     if (db) return db
     const config = useRuntimeConfig()
     const path = resolve(String(config.database))

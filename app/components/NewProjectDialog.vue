@@ -48,7 +48,7 @@ async function create() {
         shown.value = false
         router.push(`/p/${id.value}`)
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't create it. Is Orrery running?"
+        failed.value = errorMessage(error, 'create')
     } finally {
         saving.value = false
     }

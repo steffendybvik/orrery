@@ -35,7 +35,7 @@ async function save(change: Record<string, unknown>) {
             await saveSettings(change as Partial<typeof settings.value>)
         }
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
     }
 }
 

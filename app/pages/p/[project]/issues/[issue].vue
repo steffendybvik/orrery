@@ -110,7 +110,7 @@ async function remove() {
         back()
     } catch (error) {
         removing.value = 'ask'
-        removeFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't remove it. Is Orrery running?"
+        removeFailed.value = errorMessage(error, 'remove')
     }
 }
 // The title, edited in place: Enter saves, Esc puts it back.
@@ -158,9 +158,8 @@ function step(by: number) {
 }
 
 function onKey(event: KeyboardEvent) {
-    const target = event.target as HTMLElement | null
     if (event.metaKey || event.ctrlKey || event.altKey || useState('palette-open').value) return
-    if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return
+    if (isTyping(event.target)) return
     if (event.key === 'j') step(1)
     else if (event.key === 'k') step(-1)
     else if (event.key === 'Escape') back()
@@ -302,7 +301,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         <section v-if="issue.tasks.length" class="flex flex-col gap-2">
           <h2 class="label flex items-center gap-2">Sub-issues <span class="font-mono normal-case">{{ issue.kinds.done }}/{{ total(issue.kinds) }}</span></h2>
           <div class="overflow-hidden rounded-xl border border-line">
-            <IssueRow v-for="sub in issue.tasks" :key="sub.id" :issue="sub" :project="project.id" nested class="last:border-b-0" />
+            <IssueRow v-for="sub in issue.tasks" :key="sub.id" :issue="sub" :project="project.id" nested />
           </div>
         </section>
 

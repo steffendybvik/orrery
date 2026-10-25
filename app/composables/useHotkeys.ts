@@ -9,7 +9,6 @@ export function useHotkeys() {
     const sidebar = useState('sidebar-open', () => false)
     let g = 0
 
-    const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 
     function move(step: number) {
         const items = [...document.querySelectorAll<HTMLElement>('main [data-nav]')].filter(el => el.offsetParent !== null)
@@ -28,11 +27,11 @@ export function useHotkeys() {
         }
         if (palette.value || useNewIssue().target.value || event.metaKey || event.ctrlKey || event.altKey) return
         if (event.key === 'Escape') {
-            if (typing(event.target)) (event.target as HTMLElement).blur()
+            if (isTyping(event.target)) (event.target as HTMLElement).blur()
             else if (sidebar.value) sidebar.value = false
             return
         }
-        if (typing(event.target)) return
+        if (isTyping(event.target)) return
 
         const {view: lastView} = useLastView()
         const view = (v: View) => {

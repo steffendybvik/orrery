@@ -22,7 +22,7 @@ async function save() {
     try {
         await rename(display.value.trim())
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
     } finally {
         saving.value = false
     }

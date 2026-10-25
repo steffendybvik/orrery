@@ -69,7 +69,7 @@ async function create() {
         close()
         openIssue(id, issue.id)
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't create it. Is Orrery running?"
+        failed.value = errorMessage(error, 'create')
     } finally {
         saving.value = false
     }

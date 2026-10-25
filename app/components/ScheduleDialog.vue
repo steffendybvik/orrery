@@ -139,7 +139,7 @@ async function save() {
         else await $fetch<Schedule>(base, {method: 'POST', headers, body})
         close()
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
     } finally {
         saving.value = false
     }
@@ -153,7 +153,7 @@ async function togglePause() {
         await pause(existing.value, enabled.value)
         enabled.value = !enabled.value
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
     } finally {
         pausing.value = false
     }

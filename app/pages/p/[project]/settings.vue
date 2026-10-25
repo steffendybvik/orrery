@@ -27,7 +27,7 @@ async function rename() {
     try {
         await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {name: next}, headers: {'Orrery-Actor': await load()}})
     } catch (error) {
-        nameFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        nameFailed.value = errorMessage(error)
     }
 }
 
@@ -49,7 +49,7 @@ async function saveIcon(change: {icon?: string | null, iconColor?: string | null
     try {
         await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: change, headers: {'Orrery-Actor': await load()}})
     } catch (error) {
-        iconFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        iconFailed.value = errorMessage(error)
     }
 }
 
@@ -77,7 +77,7 @@ async function remove() {
         await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
         router.push('/now')
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't delete it. Is Orrery running?"
+        failed.value = errorMessage(error, 'delete')
     } finally {
         removing.value = false
     }

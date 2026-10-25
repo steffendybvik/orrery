@@ -39,7 +39,7 @@ async function send<T>(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?:
         const data: unknown = await $fetch<unknown>(url, {method, headers: {'Orrery-Actor': await load()}, body})
         return data as T
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
     } finally {
         busy.value = false
     }

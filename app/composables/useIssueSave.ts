@@ -13,7 +13,7 @@ export function useIssueSave(project: MaybeRefOrGetter<string>, issue: MaybeRefO
             })
             return true
         } catch (error) {
-            failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+            failed.value = errorMessage(error)
             return false
         } finally {
             saving.value = false

@@ -30,7 +30,7 @@ async function send(path: string, method: 'POST' | 'PATCH', body: Record<string,
         await $fetch(`${api.value}${path}`, {method, headers: {'Orrery-Actor': await load()}, body})
         note.value = ''
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
     } finally {
         busy.value = false
     }

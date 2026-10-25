@@ -30,7 +30,7 @@ async function saveOwner() {
     try {
         await rename(next)
     } catch (error) {
-        ownerFailed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        ownerFailed.value = errorMessage(error)
     }
 }
 
@@ -39,7 +39,7 @@ async function pick(tint: string | null) {
     try {
         await save({tint})
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
     }
 }
 </script>

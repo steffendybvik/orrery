@@ -26,7 +26,7 @@ async function call(path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: Re
         await $fetch(`/api/statuses${path}`, {method: method as 'POST', headers: {'Orrery-Actor': await load()}, body, query})
         return true
     } catch (error) {
-        failed.value = (error as {data?: {message?: string}}).data?.message ?? "Couldn't save it. Is Orrery running?"
+        failed.value = errorMessage(error)
         return false
     } finally {
         busy.value = false
