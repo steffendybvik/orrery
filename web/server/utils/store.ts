@@ -4,7 +4,7 @@
 // turns into a server-sent event, so open pages update.
 import {randomBytes} from 'node:crypto'
 import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
-import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
@@ -1579,14 +1579,4 @@ function nullable(value: Input[string]): string | null {
 
 function stamp() {
     return new Date().toISOString()
-}
-
-export function slugify(text: string): string {
-    return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
-}
-
-/** Three capitals from the name, e.g. `LAR` for Larder. */
-function keyFor(name: string): string {
-    const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
-    return letters.slice(0, 3) || 'ISS'
 }

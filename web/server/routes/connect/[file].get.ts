@@ -9,7 +9,7 @@ export default defineEventHandler(async event => {
     const query = getQuery(event)
     const id = file.slice(0, -3)
     const project = (await useStore().listProjects()).find(p => p.id === id)
-    const name = project?.name ?? (typeof query.name === 'string' && query.name ? query.name : id)
+    const name = project?.name ?? (typeof query.name === 'string' && query.name.trim() ? query.name.slice(0, 100) : id)
     const {brief} = connectPieces({
         origin: originOf(event),
         repoDir: String(useRuntimeConfig().public.repoDir || '/path/to/orrery'),
