@@ -221,6 +221,7 @@ listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION
 |---|---|
 | `GET /sessions` | every session |
 | `GET /projects/:project/sessions` | the project's, each `{id, name, state, since, listening}`; `state` is `idle`, `working`, `waiting` (needs the owner) or `starting` |
+| `GET /projects/:project/sessions/work` | `{<session id>: {issues, signals}}`: what each is on, for its Sessions page: the open issues it worked last (newest first, each `{id, title, column, kind, priority}`) and the last five signals that went to it |
 | `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?}`: what a hook sends |
 
 ### Starting sessions
