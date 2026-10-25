@@ -131,6 +131,17 @@ async function deliver(signal) {
     await fetch(`${api}/signals/${signal.id}/delivered?${who}`, {method: 'POST'}).catch(() => {})
 }
 
+/** The owner stopped this session from Orrery: ends its claude process, which takes this server with it. */
+function quit() {
+    if (!window.pid) return log("asked to stop, but can't tell which claude process this is")
+    log(`stopping the session (claude, pid ${window.pid}), as the owner asked`)
+    try {
+        process.kill(window.pid, 'SIGTERM')
+    } catch (error) {
+        log(`couldn't stop it: ${error.message}`)
+    }
+}
+
 // Listens to the project's signal stream, and after a drop picks up from the last one it saw.
 let last = Number(process.env.ORRERY_AFTER) || 0
 await follow({
@@ -141,6 +152,7 @@ await follow({
     },
     onOpen: () => log(`listening for ${project}'s signals at ${base}`),
     onEvent: async ({event, data, id}) => {
+        if (event === 'stop') return quit()
         if (event !== 'signal') return
         last = Math.max(last, Number(id) || 0)
         await deliver(JSON.parse(data))

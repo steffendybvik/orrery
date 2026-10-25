@@ -4,7 +4,7 @@ import {renderPrompt} from '#shared/prompt'
 
 // `GET /api/projects/:project/signals/stream` → the owner's signals to this project's sessions, as they're
 // sent: server-sent `signal` events (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
-// what it missed), or with `?format=text` one plain line each, for Claude Code's Monitor tool. Each
+// what it missed), and `stop` when the owner stops the session; or with `?format=text` one plain line each, for Claude Code's Monitor tool. Each
 // open stream counts as a listening session.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
@@ -116,6 +116,10 @@ export default defineEventHandler(async event => {
     }
 
     const stream = createEventStream(event)
+    // The owner stopping this session: its channel ends it.
+    const stopped = (asked: {project: string, id: string}) => asked.project === project && asked.id === attended?.id
+        && stream.push({event: 'stop', data: JSON.stringify(asked)})
+    projectEvents.on('session-stop', stopped)
     const push = (signal: Signal) => inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(await told(signal))}))
     const send = (signal: Signal) => wanted(signal) && push(signal)
     projectEvents.on('signal', send)
@@ -132,6 +136,7 @@ export default defineEventHandler(async event => {
     stream.onClosed(async () => {
         clearInterval(ping)
         projectEvents.off('signal', send)
+        projectEvents.off('session-stop', stopped)
         done()
         await stream.close()
     })

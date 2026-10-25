@@ -136,3 +136,36 @@ describe('the issues a session writes to', () => {
         expect(worked).toEqual(['larder/LAR-7:a'])
     })
 })
+
+describe('stopping a session', () => {
+    beforeEach(() => {
+        vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+    })
+
+    it("asks its channel to end it, and drops it once the channel's gone", () => {
+        const asked: unknown[] = []
+        projectEvents.on('session-stop', event => asked.push(event))
+        expect(() => sessions.stopSession('larder', 'a')).toThrow('No session a in larder')
+        sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})
+        expect(() => sessions.stopSession('larder', 'a')).toThrow("has no Orrery channel running")
+        expect(sessions.listSessions('larder')[0]!.reachable).toBe(false)
+        // A channel without the flag can't hear signals, but can still be stopped.
+        const first = sessions.attend('larder', 'a', undefined, undefined, false)
+        const second = sessions.attend('larder', 'a', undefined, undefined, false)
+        expect(sessions.listSessions('larder')[0]!.reachable).toBe(true)
+        expect(() => sessions.stopSession('mesa', 'a')).toThrow('No session a in mesa')
+        expect(sessions.stopSession('larder', 'a').name).toBe('larder 1')
+        expect(asked).toEqual([{project: 'larder', id: 'a'}])
+        first.done()
+        expect(sessions.listSessions('larder')).toHaveLength(1)
+        second.done()
+        expect(sessions.listSessions('larder')).toEqual([])
+    })
+
+    it("goes through the launcher for one Orrery started", () => {
+        vi.stubGlobal('stopLaunch', (project: string, launch: string) => ({project, launch}))
+        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stopsAt: '2999-01-01T00:00:00.000Z'})
+        expect(sessions.stopSession('larder', 'b')).toEqual({project: 'larder', launch: 'abc'})
+    })
+})

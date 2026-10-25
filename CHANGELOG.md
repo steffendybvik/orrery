@@ -9,6 +9,8 @@ the database schema are the public surface, and a database always migrates forwa
   the host, when the owner's work finds nobody listening or the owner starts one from the Sessions tab,
   within limits on how many run and for how long. The launcher installs once as a background service
   (`--install`) and serves every project.
+- **Stopping sessions:** the owner can stop any session with the Orrery channel running from its Sessions
+  tab, terminal ones too: the channel ends its claude process.
 
 ## 1.0.0 (unreleased)
 

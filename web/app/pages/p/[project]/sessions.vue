@@ -3,8 +3,9 @@ import type {Session, SessionWork} from '#shared/roadmap'
 
 // A project's Claude sessions, to browse: what each is doing and since when, whether it can hear signals, where
 // it runs, the issues it's on and what it was last sent. One Orrery started has its time left, Watch, +30 min
-// and Stop; Start session has the project's launcher start one, when the project lets Orrery. A sidebar row
-// opens its session here (`#session-<id>`), lit up for a moment. Below the header, how starting sessions works.
+// and Stop; any other with its channel running, a Stop that ends it through the channel. Start session has
+// the project's launcher start one, when the project lets Orrery. A sidebar row opens its session here
+// (`#session-<id>`), lit up for a moment. Below the header, how starting sessions works.
 const route = useRoute()
 const {byId, ready, sessions: all} = useRoadmaps()
 const {who} = useOwner()
@@ -83,6 +84,7 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
               <CopyButton :text="restart(session)" label="Restart command" />
             </span>
             <StartedSession :session="session" class="ml-auto" />
+            <StopSession v-if="!session.started && session.reachable" :session="session" class="ml-auto" />
           </div>
           <p class="text-xs text-faint">
             Up since {{ ago(session.startedAt) }}<template v-if="session.cwd"> · in <span class="font-mono">{{ session.cwd }}</span></template>

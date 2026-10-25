@@ -8,6 +8,10 @@ interface Known extends Session {
     pid?: number
     /** When a hook last spoke. */
     seenAt: number
+    /** How many of its channel's streams are open: through one, the owner can ask it to quit. */
+    streams?: number
+    /** The owner asked it to quit: it's dropped once its channel goes. */
+    stopping?: boolean
 }
 
 const sessions = new Map<string, Known>()
@@ -132,6 +136,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
         sessions.set(session.id, session)
     }
     session.listening = heard
+    session.streams = (session.streams ?? 0) + 1
     if (started) session.started = started
     if (name) session.name = name
     changed(project)
@@ -139,10 +144,25 @@ export function attend(project: string, id: string | undefined, pid: number | un
     return {
         id: held.id,
         done: () => {
+            held.streams = Math.max(0, (held.streams ?? 1) - 1)
+            if (held.streams) return
             held.listening = false
+            if (held.stopping) sessions.delete(held.id)
             changed(project)
         },
     }
+}
+
+/** The owner stopping a session: one Orrery started, through its launcher; any other through its channel,
+ * which ends its claude process. One with no channel open is out of reach (only its terminal closes it). */
+export function stopSession(project: string, id: string): Session {
+    const session = sessions.get(id)
+    if (!session || session.project !== project) throw notFound(`No session ${id} in ${project}`)
+    if (session.started) return stopLaunch(project, session.started.launch)
+    if (!session.streams) throw conflict(`${session.name} has no Orrery channel running, so Orrery can't reach it: close it in its terminal`)
+    session.stopping = true
+    projectEvents.emit('session-stop', {project, id})
+    return publicOf(session)
 }
 
 /** How many sessions Orrery started are running, on the project or over all of them: one whose channel
@@ -185,6 +205,6 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(id)?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, ...session}: Known): Session {
-    return {...session}
+function publicOf({pid: _pid, seenAt: _seen, streams, stopping: _stopping, ...session}: Known): Session {
+    return {...session, reachable: !!streams}
 }
