@@ -8,10 +8,7 @@ every project one board. Your sessions read their work from it and write their p
 take an issue, move it to In progress, comment as they go and mark it Done. You watch the board change
 live, answer their questions in one place, and point them at what matters next.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/board-dark.png">
-  <img alt="A project's board in Orrery: issues in In progress, In review, Todo, Backlog and Proposed columns, with sub-issue progress, labels, assignees and comment counts" src="docs/images/board-light.png">
-</picture>
+<img alt="A project's board in Orrery: issues in In progress, In review, Todo, Backlog and Proposed columns, with sub-issue progress, labels, assignees and comment counts, and the Claude sessions working on them in the sidebar" src="docs/images/board-light.png">
 
 ## What it does
 
