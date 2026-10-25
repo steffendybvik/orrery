@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Orrery's Claude Code hook: tells Orrery what this session is doing, so the owner can see it and
-// point work at an idle one. Registered for SessionStart, UserPromptSubmit, Stop, Notification and
-// SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT (and ORRERY_URL) set. It prints
-// nothing (a hook's output would go to Claude) and never fails the hook.
+// point work at an idle one, and which issues it writes to. Registered for SessionStart, UserPromptSubmit,
+// PreToolUse, Stop, Notification and SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT
+// (and ORRERY_URL) set. It prints nothing (a hook's output would go to Claude) and never fails the hook.
 import {basename} from 'node:path'
 import {claudeWindow} from './session.mjs'
 
@@ -24,6 +24,8 @@ try {
             cwd: hook.cwd,
             event: hook.hook_event_name ?? 'idle',
             message: hook.message,
+            // Which issues it's about to write to: an owner's comment on one goes to this session.
+            command: hook.hook_event_name === 'PreToolUse' && hook.tool_name === 'Bash' ? String(hook.tool_input?.command ?? '').slice(0, 4000) : undefined,
         }),
     })
 } catch {

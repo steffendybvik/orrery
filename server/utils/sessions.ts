@@ -33,6 +33,8 @@ export interface Report {
     event: string
     /** For `Notification`: what Claude Code is waiting for. */
     message?: string
+    /** For `PreToolUse` on Bash: the command it's about to run, to see which issues it writes to. */
+    command?: string
 }
 
 function find(id?: string, pid?: number): Known | undefined {
@@ -89,7 +91,34 @@ export function report(input: Report): Session | null {
         session.seenAt = Date.now()
     }
     changed(session.project)
+    if (input.command) {
+        const {id, project} = session
+        for (const write of issueWrites(input.command, project)) {
+            useStore().workedBy(write.project, write.issue, id).catch(() => {})
+        }
+    }
     return publicOf(session)
+}
+
+/** The issues a shell command writes to: a curl that sends a body or says PATCH, POST or PUT to an
+ * issue's address, `…/projects/<project>/issues/<KEY-n>` (a comment on it too). One whose project isn't
+ * spelled out (`$ISSUES/ORR-12`) is in `project`, the session's. */
+export function issueWrites(command: string, project: string): {project: string, issue: string}[] {
+    const found = new Map<string, {project: string, issue: string}>()
+    for (const part of command.split(/&&|\|\||;|\n|\|/)) {
+        if (!/\bcurl\b/.test(part) || !/-X\s*['"]?(PATCH|POST|PUT)\b|(^|\s)(-d|--data(-\w+)?)(\s|=|$)/.test(part)) continue
+        for (const match of part.matchAll(/(?:\/projects\/([\w.-]+)\/issues)?\/([A-Z][A-Z0-9]*-\d+)\b/g)) {
+            const write = {project: match[1] ? decodeURIComponent(match[1]) : project, issue: match[2]!}
+            found.set(`${write.project}/${write.issue}`, write)
+        }
+    }
+    return [...found.values()]
+}
+
+/** Whether the session is on the project with its channel connected, there to hear a signal now. */
+export function hearing(project: string, id: string): boolean {
+    const session = sessions.get(id)
+    return !!session && session.project === project && session.listening
 }
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't

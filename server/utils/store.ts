@@ -214,6 +214,17 @@ export class Store {
         private readonly unnamed = 'owner',
     ) {}
 
+    /** Whether a session on the project is there to hear a signal now; the server sets it from its sessions. */
+    hears: (project: string, session: string) => boolean = () => true
+
+    /** Notes that `session` is working the issue (it wrote to it, or was asked to focus on it): the owner's
+     * comments on it go to that session from now on. An issue that isn't there (any more) is let be. */
+    async workedBy(project: string, issue: string, session: string) {
+        issue = await this.issueId(project, issue)
+        await this.run(`INSERT INTO issue_sessions (project, issue, session, at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?)
+            ON CONFLICT (project, issue) DO UPDATE SET session = excluded.session, at = excluded.at`, project, issue, session, stamp(), project, issue)
+    }
+
     /** The owner's id: what waits on them (a proposal, an agent's ask) is assigned to it. */
     private async ownerId() {
         return (await this.ownerOf()).name
@@ -862,10 +873,11 @@ export class Store {
         return waiting.length
     }
 
-    /** The owner's comment goes to the session last asked to focus on the issue (or, if none was,
-     * every session on the project), so it can answer. */
+    /** The owner's comment goes to the session that last worked the issue, so one session answers it; to every
+     * session on the project when none has, or that one isn't there to hear it. */
     private async carryComment(project: string, issue: string, body: string, actor: Actor) {
-        const target = (await this.get<{target: string}>("SELECT target FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND target IS NOT NULL ORDER BY id DESC LIMIT 1", project, issue))?.target ?? null
+        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
+        const target = worker && this.hears(project, worker) ? worker : null
         const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'comment', body, target, actor.name, 1, stamp())
         this.onSignal(signalOf(row!))
@@ -975,6 +987,7 @@ export class Store {
         const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row!)
+        if (signal.target) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
         return signal
     }

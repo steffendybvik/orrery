@@ -49,7 +49,8 @@ one per app) gets one server and one alias for each.
 ## 3. Optionally, the hooks
 
 `channel/orrery-hook.mjs` tells Orrery what each session is doing, so the page can show it and aim
-work at an idle one. Register it in the repo's `.claude/settings.json` for `SessionStart`,
+work at an idle one. Before a Bash command it also says which issues the command writes to, so the
+owner's comment on one goes to the session working it rather than to every session. Register it in the repo's `.claude/settings.json` for `SessionStart`,
 `UserPromptSubmit`, `PreToolUse` (with `"async": true`), `Stop`, `Notification` and `SessionEnd`:
 
 ```json

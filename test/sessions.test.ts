@@ -96,3 +96,24 @@ describe('listeners', () => {
         expect(heard).toEqual(['larder', 'larder', 'larder', 'larder'])
     })
 })
+
+describe('the issues a session writes to', () => {
+    it('are the ones its curls send a body or a PATCH, POST or PUT to', () => {
+        const writes = (command: string) => sessions.issueWrites(command, 'larder').map(w => `${w.project}/${w.issue}`)
+        expect(writes(`curl -s -X PATCH http://localhost:9000/api/projects/larder/issues/LAR-12 -d '{"status":"done"}'`)).toEqual(['larder/LAR-12'])
+        expect(writes(`curl -s -X POST $ISSUES/LAR-3/comments -H "$H" --data @reply.json && curl -s $ISSUES/LAR-4`)).toEqual(['larder/LAR-3'])
+        expect(writes(`curl -X PUT http://x/api/projects/pantry/issues/PAN-1 -d '{}'`)).toEqual(['pantry/PAN-1'])
+        expect(writes('curl -s http://localhost:9000/api/projects/larder/issues/LAR-12')).toEqual([])
+        expect(writes('git commit -m "fix LAR-12" -d')).toEqual([])
+        expect(writes(`curl -X DELETE $ISSUES/LAR-9`)).toEqual([])
+    })
+
+    it("note the session as the issue's worker, from its hook", async () => {
+        const worked: string[] = []
+        vi.stubGlobal('useStore', () => ({workedBy: async (project: string, issue: string, session: string) => worked.push(`${project}/${issue}:${session}`)}))
+        sessions.report({id: 'a', project: 'larder', event: 'PreToolUse', command: `curl -X PATCH $ISSUES/LAR-7 -d '{"status":"in-progress"}'`})
+        sessions.report({id: 'b', project: 'larder', event: 'PreToolUse', command: 'ls'})
+        await Promise.resolve()
+        expect(worked).toEqual(['larder/LAR-7:a'])
+    })
+})

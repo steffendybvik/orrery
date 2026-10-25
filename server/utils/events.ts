@@ -16,6 +16,7 @@ export function useStore(): Store {
     store ??= new Store(useDatabase(), id => {
         store!.project(id).then(project => projectEvents.emit('project', project), () => projectEvents.emit('removed', id))
     }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
+    store.hears = hearing
     return store
 }
 

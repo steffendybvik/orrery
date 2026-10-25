@@ -477,6 +477,29 @@ describe('comments that wait on the owner', () => {
     })
 })
 
+describe("an owner's comment", () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it('goes to the session that last worked the issue, while it can hear; else to every session', async () => {
+        const sent: (string | undefined)[] = []
+        const local = new Store(new SqliteDb(openDb(':memory:')), () => {}, signal => signal.kind === 'comment' && sent.push(signal.target))
+        let listening = ['window-a', 'window-b']
+        local.hears = (_project, session) => listening.includes(session)
+        await local.createProject({name: 'larder', key: 'LAR'})
+        const {id} = await local.createIssue('larder', {title: 'Shelves'})
+        await local.createComment('larder', id, {body: 'nobody yet'}, owner)
+        await local.workedBy('larder', id, 'window-a')
+        await local.createComment('larder', id, {body: 'a has it'}, owner)
+        await local.focus('larder', id, {session: 'window-b'}, owner)
+        await local.createComment('larder', id, {body: 'b was asked'}, owner)
+        listening = ['window-a']
+        await local.createComment('larder', id, {body: 'b is gone'}, owner)
+        expect(sent).toEqual([undefined, 'window-a', 'window-b', undefined])
+        // Noting a worker on an issue that isn't there does nothing.
+        await local.workedBy('larder', 'LAR-99', 'window-a')
+    })
+})
+
 describe('statuses', () => {
     const owner = {name: 'skoll', owner: true}
 
