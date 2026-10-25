@@ -91,6 +91,52 @@ describe('a session', () => {
         expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T12:00:00.000Z')).toBeUndefined()
     })
 
+    it("listens on its project's channel only, whatever the window's other channels say", () => {
+        sessions.report({id: 'w', project: 'docs', event: 'SessionStart'})
+        const docs = sessions.attend('docs', 'w', undefined, undefined)
+        const hub = sessions.attend('hub', 'w', undefined, undefined, false)
+        sessions.attend('pos', 'w', undefined, undefined, false).done()
+        expect(sessions.listSessions('docs')).toMatchObject([{id: 'w', listening: true}])
+        expect(sessions.hearing('docs', 'w')).toBe(true)
+        hub.done()
+        expect(sessions.hearing('docs', 'w')).toBe(true)
+        docs.done()
+        docs.done()
+        expect(sessions.hearing('docs', 'w')).toBe(false)
+    })
+
+    it('stays listening while a reconnect overlaps the stream it replaces', () => {
+        const before = sessions.attend('docs', 'w', undefined, undefined)
+        const after = sessions.attend('docs', 'w', undefined, undefined)
+        before.done()
+        before.done()
+        expect(sessions.hearing('docs', 'w')).toBe(true)
+        after.done()
+        expect(sessions.hearing('docs', 'w')).toBe(false)
+    })
+
+    it("moves to the heard channel's project when a skipped one connected first", () => {
+        sessions.attend('hub', 'w', undefined, undefined, false)
+        expect(sessions.listSessions('hub')).toMatchObject([{id: 'w', name: 'hub 1', listening: false}])
+        sessions.attend('docs', 'w', undefined, undefined)
+        expect(sessions.listSessions('hub')).toEqual([])
+        expect(sessions.listSessions('docs')).toMatchObject([{id: 'w', name: 'docs 1', listening: true}])
+    })
+
+    it("can be stopped only through its own project's channel, which hears the stop", () => {
+        sessions.attend('docs', 'w', 42, undefined, true, undefined, true)
+        const hub = sessions.attend('hub', 'w', 42, undefined, false, undefined, true)
+        expect(sessions.listSessions('docs')).toMatchObject([{reachable: true}])
+        sessions.attend('docs', 'w', 42, undefined, true).done()
+        hub.done()
+        expect(sessions.listSessions('docs')).toMatchObject([{reachable: true, listening: true}])
+        const old = sessions.attend('pos', 'v', 7, undefined, true)
+        sessions.attend('docs', 'v', 7, undefined, false, undefined, true)
+        // Its skipped docs channel can't stop it: the stop goes out on its own project's stream.
+        expect(sessions.listSessions('pos')).toMatchObject([{id: 'v', reachable: false, listening: true}])
+        old.done()
+    })
+
     it('outlives a /clear: the new id takes it over by its pid, and the old one stays an alias', () => {
         const channel = sessions.attend('larder', 'before', 42, undefined)
         sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
