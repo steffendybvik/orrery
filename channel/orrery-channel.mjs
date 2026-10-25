@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Orrery's channel for Claude Code: an MCP server that runs inside a Claude session and pushes the
-// owner's signals for one project into it ("focus on MSH-42"), even while the session is idle.
+// owner's signals for one project into it ("focus on LAR-42"), even while the session is idle.
 // Channels are a research preview: start the session with
 //   claude --dangerously-load-development-channels server:<project>
 // with this server registered under the project's id in the repo's .mcp.json (`orrery-<project>` and

@@ -7,7 +7,7 @@
     --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
     --font-mono: "Geist Mono", ui-monospace, monospace;
 
-    /* mesher's orange */
+    /* The accent: orange */
     --color-accent-300: oklch(0.86 0.12 70);
     --color-accent-400: oklch(0.80 0.15 65);
     --color-accent-500: oklch(0.74 0.17 55);
@@ -91,7 +91,7 @@
     --raised: color-mix(in oklab, var(--tint) 8%, #18181b);
 }
 
-/* The panel for everything floating over the page (mesher's `glass`). Solid, not frosted: most of them
+/* The panel for everything floating over the page (`glass`). Solid, not frosted: most of them
    open inside something with its own backdrop-filter (the header, a dialog's scrim), which a blur
    can't see past, so a see-through panel only showed grey. */
 @utility glass {

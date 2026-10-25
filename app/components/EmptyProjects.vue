@@ -5,7 +5,7 @@ const newProject = useState('new-project', () => false)
 const command = computed(() => `curl -X POST ${origin.value}/api/projects \\
   -H 'Content-Type: application/json' \\
   -H 'Orrery-Actor: claude' \\
-  -d '{"name": "mesher", "key": "MSH"}'`)
+  -d '{"name": "Larder", "key": "LAR"}'`)
 </script>
 
 <template>
@@ -25,6 +25,6 @@ const command = computed(() => `curl -X POST ${origin.value}/api/projects \\
       <pre class="overflow-x-auto rounded-xl bg-well p-4 pr-24 font-mono text-xs leading-relaxed text-muted ring-1 ring-line">{{ command }}</pre>
       <CopyButton :text="command" class="absolute top-3 right-3" />
     </div>
-    <p class="text-xs text-faint">Then chunks, issues and comments under <span class="font-mono">/api/projects/mesher/…</span>. The whole API is listed in <span class="font-mono">docs/API.md</span>.</p>
+    <p class="text-xs text-faint">Then chunks, issues and comments under <span class="font-mono">/api/projects/larder/…</span>. The whole API is listed in <span class="font-mono">docs/API.md</span>.</p>
   </div>
 </template>

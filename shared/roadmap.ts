@@ -129,7 +129,7 @@ export interface Doc extends DocSummary {
 export interface Project {
     id: string
     name: string
-    /** The prefix of the issue ids the server hands out, e.g. `MSH` for `MSH-12`. */
+    /** The prefix of the issue ids the server hands out, e.g. `LAR` for `LAR-12`. */
     key: string
     description?: string
     /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */

@@ -1,14 +1,14 @@
-// The column rules, first ported from mesher's `roadmap.rs`: every leaf issue goes where its status puts
-// it, and parents and chunks follow their leaves. Also checks a roadmap in mesher's `docs/roadmap.json`
-// format, which `POST /api/projects/:project/import` takes.
+// The column rules: every leaf issue goes where its status puts it, and parents and chunks follow their
+// leaves. Also checks a roadmap in the `roadmap.json` format (chunks of tasks with a status and a plan),
+// which `POST /api/projects/:project/import` takes.
 import type {Board, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Place, Priority, Proposal} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 
-/** The statuses and plans of mesher's format (and of Orrery before it had statuses of its own). */
+/** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
 export const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
 export const LEGACY_PLANS = ['now', 'next', 'later'] as const
 
-/** A roadmap in `docs/roadmap.json`'s format, once checked. */
+/** A roadmap in the `roadmap.json` format, once checked. */
 export interface RoadmapFile {
     comment: string
     chunks: ChunkFile[]
@@ -158,7 +158,7 @@ export function checkRoadmap(data: unknown): RoadmapFile {
     return roadmap
 }
 
-/** The status a task in mesher's format becomes: done → Done, doing → In progress, todo → Todo with a plan,
+/** The status a task in the `roadmap.json` format becomes: done → Done, doing → In progress, todo → Todo with a plan,
  * Backlog without one. */
 export function legacyStatus(status: TaskFile['status'], plan?: TaskFile['plan']): Place {
     if (status === 'done') return 'done'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Starting a project, as the owner (so agents can't delete it): its name, the key its issue ids start
-// with (MSH-1) and its id in addresses, both suggested from the name until changed, and a line about
+// with (LAR-1) and its id in addresses, both suggested from the name until changed, and a line about
 // it. ⌘↵ creates it and opens it, Esc closes.
 const shown = useState('new-project', () => false)
 const {load} = useOwner()
@@ -65,7 +65,7 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
           <span>New project</span>
           <KeyHint class="ml-auto">esc</KeyHint>
         </div>
-        <input ref="nameInput" v-model="name" placeholder="Project name, e.g. mesher" aria-label="Name" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
+        <input ref="nameInput" v-model="name" placeholder="Project name, e.g. Larder" aria-label="Name" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
         <input v-model="description" placeholder="What it is, in a line (optional)" aria-label="Description" class="bg-transparent text-[14px] text-fg placeholder:text-faint focus:outline-none">
         <div class="flex flex-wrap items-end gap-3 border-t border-line pt-3">
           <label class="flex flex-col gap-1 text-xs text-muted">
@@ -80,7 +80,7 @@ const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-lin
             Issues will be <span class="font-mono text-muted">{{ keyOk ? key : 'KEY' }}-1</span>, at <span class="font-mono text-muted">/p/{{ idOk ? id : 'id' }}</span>
           </p>
         </div>
-        <p v-if="key && !keyOk" class="text-xs text-rose-600 dark:text-rose-400">The key is capitals and digits, starting with a capital (up to 10), e.g. MSH.</p>
+        <p v-if="key && !keyOk" class="text-xs text-rose-600 dark:text-rose-400">The key is capitals and digits, starting with a capital (up to 10), e.g. LAR.</p>
         <p v-if="id && !idOk" class="text-xs text-rose-600 dark:text-rose-400">The id is lowercase letters, digits and dashes, e.g. my-app.</p>
         <div class="flex items-center gap-2">
           <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>

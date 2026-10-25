@@ -10,7 +10,7 @@ JSON. Send `Orrery-Actor: <your name>` on writes (e.g. `claude`): it's recorded 
 ## Ids
 
 Orrery hands ids out; you can't pick them. An issue is the project's prefix and a number:
-`MSH-142` (the prefix is the project's `key`). A chunk is a number in its project: `3`.
+`LAR-142` (the prefix is the project's `key`). A chunk is a number in its project: `3`.
 Ids never change, and an issue moved to another project gets that project's next id. Ids things
 had before (`MOT-5`, the chunk slug `joints`) are kept as **aliases**: every route and every
 `parent` or `chunk` you send accepts them, and responses list them in `aliases`.
@@ -34,7 +34,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `GET /projects/:project` | the project with its board |
 | `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?}`: `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `null` clears either |
 | `DELETE /projects/:project` | with its chunks, issues and comments |
-| `POST /projects/:project/import` | a roadmap in mesher's `docs/roadmap.json` format; its ids become aliases; `?replace=true` to replace what's there |
+| `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there |
 
 ## Chunks
 
@@ -211,9 +211,9 @@ so typos show), 403 for the owner's things, 404, 409 for a taken id.
 
 ```sh
 H='Content-Type: application/json'; A='Orrery-Actor: claude'; O=http://localhost:9000/api
-curl -X POST $O/projects -H "$H" -H "$A" -d '{"name": "mesher", "key": "MSH"}'
-curl -X POST $O/projects/mesher/import -H "$H" -H "$A" --data @docs/roadmap.json
-curl -X PATCH $O/projects/mesher/issues/MSH-42 -H "$H" -H "$A" -d '{"status": "in-progress", "assignee": "claude"}'
-curl -X POST $O/projects/mesher/issues/MSH-42/comments -H "$H" -H "$A" -d '{"body": "Started on `joints.rs`"}'
-jq -Rs '{title: "README", body: .}' README.md | curl -X PUT $O/projects/mesher/docs/readme -H "$H" -H "$A" --data @-
+curl -X POST $O/projects -H "$H" -H "$A" -d '{"name": "Larder", "id": "larder", "key": "LAR"}'
+curl -X POST $O/projects/larder/import -H "$H" -H "$A" --data @docs/roadmap.json
+curl -X PATCH $O/projects/larder/issues/LAR-42 -H "$H" -H "$A" -d '{"status": "in-progress", "assignee": "claude"}'
+curl -X POST $O/projects/larder/issues/LAR-42/comments -H "$H" -H "$A" -d '{"body": "Started on `shelf.ts`"}'
+jq -Rs '{title: "README", body: .}' README.md | curl -X PUT $O/projects/larder/docs/readme -H "$H" -H "$A" --data @-
 ```
