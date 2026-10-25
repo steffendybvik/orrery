@@ -3,7 +3,7 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## Unreleased
+## 1.0.0-rc.2 (unreleased)
 
 - **Fixed, a window with a channel per project:** only the channel of the window's own project decides
   whether it's listening and whether Stop can reach it, so the other projects' channels (skipped by
@@ -33,9 +33,6 @@ the database schema are the public surface, and a database always migrates forwa
   worked and was sent moves to its new id, so a restart of Orrery doesn't lose it. The resume brief no
   longer goes missing on a big project or gets cut short, and it says what happened (cleared, compacted
   or resumed).
-
-## 1.0.0-rc.2 (2026-10-25)
-
 - **Unseen changes, louder:** a changed issue or doc now tints its row with an accent bar, and its dot is
   bigger; and opening a doc tints the parts that are new or changed since you last read it, with a count
   under its title.
