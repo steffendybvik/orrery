@@ -3,7 +3,7 @@
     "orrery": {
       "command": "node",
       "args": ["channel/orrery-channel.mjs"],
-      "env": {"ORRERY_URL": "http://localhost:9010", "ORRERY_PROJECT": "orrery"}
+      "env": {"ORRERY_URL": "${ORRERY_URL:-http://localhost:9000}", "ORRERY_PROJECT": "orrery"}
     }
   }
 }
