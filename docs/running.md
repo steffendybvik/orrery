@@ -9,20 +9,6 @@ volume, with nothing to set up. The first time you open it, it asks your name: y
 and what you make no one else can delete. Your `Orrery-Actor` header is that name in lowercase snake
 case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings.
 
-### Without building
-
-Each release is also an image, `ghcr.io/steffendybvik/orrery` (`:latest`, or a version like `:1.0.0`),
-for Intel and Apple silicon:
-
-```sh
-docker run -d --name orrery --restart unless-stopped -p 127.0.0.1:9000:9000 \
-  -v orrery-data:/data -v orrery-backup:/backup -e NUXT_BACKUP_DIR=/backup \
-  ghcr.io/steffendybvik/orrery:latest
-```
-
-The channel and hooks a Claude session runs (`channel/`) come from a clone of this repo all the same,
-so keep one for **Connect an agent**; set `NUXT_PUBLIC_REPO_DIR` to its path for the page to fill it in.
-
 After pulling a new version, `docker compose up -d --build` again; the database moves to the new
 schema by itself.
 
