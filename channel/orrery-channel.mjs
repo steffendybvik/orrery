@@ -54,7 +54,7 @@ await new Promise(resolve => setTimeout(resolve, 300))
  * which this server can't see, so it reads the newest log under any name it might have. */
 function registered() {
     try {
-        const cache = join(homedir(), 'Library', 'Caches', 'claude-cli-nodejs', process.cwd().replace(/[^a-zA-Z0-9]/g, '-'))
+        const cache = join(claudeCache(), process.cwd().replace(/[^a-zA-Z0-9]/g, '-'))
         const dirs = [...new Set([project, `orrery-${project}`, 'orrery'])].map(name => join(cache, `mcp-logs-${name}`))
         const newest = dirs.flatMap(dir => {
             try {
@@ -67,9 +67,16 @@ function registered() {
         if (text.includes('Channel notifications registered')) return 'yes'
         if (text.includes('Channel notifications skipped')) return 'no'
     } catch {
-        // Not on a Mac, or Claude Code keeps its logs elsewhere now.
+        // Claude Code keeps its logs elsewhere now.
     }
     return 'unknown'
+}
+
+/** Claude Code's cache folder, where its MCP logs are: the usual cache place on each system. */
+function claudeCache() {
+    if (process.platform === 'darwin') return join(homedir(), 'Library', 'Caches', 'claude-cli-nodejs')
+    if (process.platform === 'win32') return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'claude-cli-nodejs', 'Cache')
+    return join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'claude-cli-nodejs')
 }
 await new Promise(resolve => setTimeout(resolve, 1200))
 const channel = registered()
