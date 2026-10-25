@@ -1,19 +1,50 @@
-# The production image on GitHub's container registry, on a release tag (`v1.0.0`):
-# ghcr.io/<owner>/orrery:1.0.0, :1.0, :1 and :latest, for Intel and Apple silicon. Only once CI passes
-# on the tag, so a red tag never publishes an image. A release candidate (`v1.0.0-rc.1`) gets only its
-# own tag, so :latest stays on the last release.
-name: Release
+# Publishes the production image to GitHub's container registry, by hand only: nothing here runs on a
+# push, a tag or a merge, so tagging a release stays a git/GitHub thing. To publish, run it from the
+# Actions tab with "Use workflow from" set to the release's tag (`v1.0.0`), the same version typed in
+# (`1.0.0`) and `publish` typed to confirm. The job then waits in the `ghcr` environment for the owner's
+# approval, and only after CI passes on that tag.
+#
+# It pushes ghcr.io/<owner>/orrery:1.0.0, :1.0, :1 and :latest, for Intel and Apple silicon. A release
+# candidate (`v1.0.0-rc.1`) gets only its own tag, so :latest stays on the last release.
+name: Publish image
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to publish, without the v (1.0.0, 1.0.0-rc.2); run this from its tag'
+        required: true
+        type: string
+      confirm:
+        description: 'Type publish to confirm'
+        required: true
+        type: string
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: publish-image
+  cancel-in-progress: false
 
 jobs:
+  # Refuses a run that isn't from the version's tag, or isn't confirmed, before anything is built.
+  confirm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the tag and the confirmation
+        env:
+          VERSION: ${{ inputs.version }}
+          CONFIRM: ${{ inputs.confirm }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$CONFIRM" != "publish" ]; then echo "::error::Type publish to confirm"; exit 1; fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then echo "::error::$VERSION isn't a version like 1.0.0 or 1.0.0-rc.2"; exit 1; fi
+          if [ "$REF_TYPE" != "tag" ] || [ "$REF_NAME" != "v$VERSION" ]; then echo "::error::Run this from the tag v$VERSION (Use workflow from), not $REF_TYPE $REF_NAME"; exit 1; fi
+
   checks:
+    needs: confirm
     uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
@@ -21,6 +52,11 @@ jobs:
   image:
     needs: checks
     runs-on: ubuntu-latest
+    # The owner approves each run here (Settings → Environments → ghcr → Required reviewers).
+    environment: ghcr
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -35,10 +71,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/orrery
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=v${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }}
+            type=semver,pattern={{major}},value=v${{ inputs.version }}
+            type=raw,value=latest,enable=${{ !contains(inputs.version, '-') }}
       - uses: docker/build-push-action@v6
         with:
           context: .

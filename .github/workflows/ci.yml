@@ -1,5 +1,5 @@
-# Tests, typecheck and the production image, on every push and pull request; also the gate a release
-# tag has to pass before `release.yml` publishes anything.
+# Tests, typecheck and the production image, on every push and pull request; also the gate a tag has
+# to pass before `release.yml` publishes its image (by hand, see there).
 name: CI
 
 on:

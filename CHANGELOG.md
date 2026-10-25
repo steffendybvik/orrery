@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Publishing the image is by hand only:** a tag no longer publishes to GHCR. The Publish image
+  workflow runs from the Actions tab, from the release's tag, with its version and `publish` typed in,
+  and waits for the owner's approval in the `ghcr` environment.
 - **Phones:** the header no longer carries a project's page tabs (they ran under the bell); the menu
   opens a full-screen drawer with bigger rows instead.
 - **Easier to read:** an issue row says its status once, as a pill, rather than three times; comments
