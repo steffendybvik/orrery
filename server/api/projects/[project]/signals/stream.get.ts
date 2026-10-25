@@ -1,5 +1,6 @@
 import type {Signal} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
+import {renderPrompt} from '#shared/prompt'
 
 // `GET /api/projects/:project/signals/stream` → the owner's signals to this project's sessions, as they're
 // sent: server-sent `signal` events (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
@@ -23,10 +24,16 @@ export default defineEventHandler(event => {
         attended?.done()
     }
 
+    // The API as the session reaches it, for the addresses in a focus.
+    const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(project)}`
+
     /** The signal with what a session needs to act on it: for a chunk, its open issues (or those of its
-     * `status`), most urgent first. Columns go by their statuses' names. */
+     * `status`), most urgent first. Columns go by their statuses' names. A focus comes with its `prompt`:
+     * the project's (or the Orrery's) template filled in, with the standing instructions picked for it. */
     const told = (signal: Signal) => {
         const statuses = store.statuses()
+        const templates = store.prompts(project)
+        const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
         const name = (column: string) => column === 'proposed' ? 'Proposed' : statuses.find(s => s.id === column)?.name ?? column
         if (signal.kind === 'message') {
             let title = 'a schedule'
@@ -50,11 +57,22 @@ export default defineEventHandler(event => {
                 .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
                 .map(t => ({id: t.id, title: t.title, column: name(t.column), priority: t.priority ?? null}))
             const status = signal.status ? statuses.find(s => s.id === signal.status)?.name ?? signal.status : undefined
-            return {...signal, status, title: chunk.title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: chunk.title, issues: open}
+            const prompt = renderPrompt(templates.chunk, {
+                actor: signal.createdBy, chunk: signal.chunk, title: chunk.title, status: status ?? 'open', priority: chunk.priority,
+                where: where(name(chunk.column), chunk.priority), note: signal.note,
+                issues: open.map(i => `- ${i.id}: ${i.title} [${where(i.column, i.priority)}]`).join('\n') || '- none left',
+                url: signal.chunk === 'none' ? `'${api}/issues?chunk=none'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
+            }, signal.instructions)
+            return {...signal, status, title: chunk.title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: chunk.title, issues: open, prompt}
         }
         const issue = store.issue(project, signal.issue)
         const chunk = store.project(project).board.chunks.find(c => c.id === (issue.chunk ?? ''))
-        return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null}
+        if (signal.kind !== 'focus') return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null}
+        const prompt = renderPrompt(templates.focus, {
+            actor: signal.createdBy, issue: issue.id, title: issue.title, status: name(issue.column), priority: issue.priority, chunk: chunk?.title,
+            where: where(name(issue.column), issue.priority, chunk?.title), note: signal.note, url: `${api}/issues/${encodeURIComponent(issue.id)}`,
+        }, signal.instructions)
+        return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null, prompt}
     }
     // The owner's signals for every session, or for this one; a receipt (deliveredTo) isn't news.
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.deliveredTo.length
@@ -66,8 +84,7 @@ export default defineEventHandler(event => {
             const s = told(signal)
             if (s.kind === 'message') return `${s.createdBy}'s schedule "${s.title}": ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             if (s.kind === 'comment') return `${s.createdBy} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
-            if ('issues' in s) return `${s.createdBy} asks you to work through ${s.status ? `the ${s.status} issues in ` : ''}chunk ${signal.chunk}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}], ${s.status ?? 'open'}: ${s.issues.map(i => i.id).join(', ') || 'none'}${s.note ? ` — ${s.note}` : ''}\n`
-            return `${s.createdBy} asks you to focus on ${s.issue}: ${s.title} [${s.column}${s.priority ? `, ${s.priority}` : ''}${s.chunk ? `, ${s.chunk}` : ''}]${s.note ? ` — ${s.note}` : ''}\n`
+            return `${'prompt' in s ? s.prompt.replace(/\s*\n+\s*/g, ' ') : s.title}\n`
         }
         let send: (signal: Signal) => void = () => {}
         const stream = new ReadableStream<string>({

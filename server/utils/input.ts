@@ -1,10 +1,13 @@
 // Checks a request's JSON body against the fields a route takes. Unknown fields are refused, as in
 // the roadmap file, so a typo comes back as a 400 that names it instead of being dropped.
+import {randomBytes} from 'node:crypto'
 import {createError} from 'h3'
+import type {Instruction} from '#shared/prompt'
 
 export interface Field {
-    /** `strings` is a list of strings, such as labels. */
-    type: 'string' | 'number' | 'boolean' | 'strings'
+    /** `strings` is a list of strings, such as labels; `lines` a list of `{id?, text, on?}`, such as standing
+     * instructions (a new one gets an id, and is on unless it says not). */
+    type: 'string' | 'number' | 'boolean' | 'strings' | 'lines'
     required?: boolean
     /** Null clears the field (a plan, a parent). */
     nullable?: boolean
@@ -14,7 +17,7 @@ export interface Field {
     hint?: string
 }
 
-export type Input = Record<string, string | number | boolean | string[] | null | undefined>
+export type Input = Record<string, string | number | boolean | string[] | Instruction[] | null | undefined>
 
 /** `partial` is an update: nothing is required. */
 export function checkInput(body: unknown, spec: Record<string, Field>, partial = false): Input {
@@ -33,6 +36,16 @@ export function checkInput(body: unknown, spec: Record<string, Field>, partial =
         if (value === null) {
             if (field.nullable) input[key] = null
             else problems.push(`"${key}" can't be null`)
+            continue
+        }
+        if (field.type === 'lines') {
+            const lines = Array.isArray(value) ? value.map(line => {
+                if (typeof line !== 'object' || line === null || typeof line.text !== 'string' || !line.text.trim()) return null
+                if ((line.id !== undefined && typeof line.id !== 'string') || (line.on !== undefined && typeof line.on !== 'boolean')) return null
+                return {id: line.id || randomBytes(4).toString('hex'), text: line.text.trim(), on: line.on ?? true}
+            }) : [null]
+            if (lines.every(line => line)) input[key] = lines as Instruction[]
+            else problems.push(`"${key}" should be a list of {text, on?, id?}, not ${JSON.stringify(value)}`)
             continue
         }
         if (field.type === 'strings') {

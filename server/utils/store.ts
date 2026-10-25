@@ -10,6 +10,8 @@ import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
 import {LEGACY_PLANS, buildBoard, legacyStatus} from './roadmap'
 import {transaction} from './db'
+import type {Instruction} from '#shared/prompt'
+import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
 import {renumber} from './renumber'
 
 /** A project without its board, as `GET /api/projects` lists it. */
@@ -71,7 +73,10 @@ export interface IssueFilter {
 }
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
-interface ProjectRow extends Made { id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number }
+interface ProjectRow extends Made {
+    id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
+    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string
+}
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
     project: string, id: string, title: string, status: string, priority: Priority | null,
@@ -82,7 +87,7 @@ interface IssueRow extends Made {
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
 interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
-interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, created_by: string, owned: number, created_at: string }
+interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
@@ -96,7 +101,16 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     description: {type: 'string', nullable: true},
     icon: {type: 'string', nullable: true, pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, hint: "use a Heroicon's name, e.g. shopping-cart"},
     iconColor: TINT,
+    /** The owner's: what the project's sessions hear when asked to focus (none is the Orrery's). */
+    focusPrompt: {type: 'string', nullable: true},
+    chunkPrompt: {type: 'string', nullable: true},
+    instructions: {type: 'lines', nullable: true},
+    /** Ids of the Orrery's standing instructions the project switches off. */
+    muted: {type: 'strings', nullable: true},
 }
+
+/** What a project's sessions are told: only the owner changes it. */
+const PROMPT_FIELDS = ['focusPrompt', 'chunkPrompt', 'instructions', 'muted']
 
 // No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
 export const CHUNK_FIELDS: Record<string, Field> = {
@@ -145,6 +159,8 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
     note: {type: 'string', nullable: true},
     /** A session id; left out, every session on the project gets it. */
     session: {type: 'string', nullable: true},
+    /** The standing instructions to add, by id (the Orrery's or the project's); left out, those ticked by default. */
+    instructions: {type: 'strings', nullable: true},
 }
 
 /** A chunk's focus can be narrowed to its issues of one open status: `{status: 'todo'}` (an id or a kind). */
@@ -166,6 +182,9 @@ const LEGACY_KINDS: Record<string, Kind> = {doing: 'started', now: 'todo', next:
 
 export const SETTINGS_FIELDS: Record<string, Field> = {
     tint: TINT,
+    focusPrompt: {type: 'string', nullable: true},
+    chunkPrompt: {type: 'string', nullable: true},
+    instructions: {type: 'lines', nullable: true},
 }
 
 export const OWNER_FIELDS: Record<string, Field> = {
@@ -274,6 +293,7 @@ export class Store {
 
     createProject(body: unknown, actor = AGENT): Project {
         const input = checkInput(body, PROJECT_FIELDS)
+        this.promptsAreTheOwners(input, actor)
         const name = String(input.name).trim()
         const id = input.id ? String(input.id) : slugify(name)
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
@@ -282,13 +302,15 @@ export class Store {
         const now = stamp()
         this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             id, name, key, nullable(input.description), nullable(input.icon), nullable(input.iconColor), actor.name, Number(actor.owner), now, now)
+        this.update('projects', 'id = ?', [id], this.promptColumns(input))
         this.onChange(id)
         return this.project(id)
     }
 
-    updateProject(id: string, body: unknown): Project {
+    updateProject(id: string, body: unknown, actor = AGENT): Project {
         this.projectRow(id)
         const input = checkInput(body, PROJECT_FIELDS, true)
+        this.promptsAreTheOwners(input, actor)
         if (input.id !== undefined && input.id !== id) throw badRequest("A project's id can't change")
         this.update('projects', 'id = ?', [id], {
             name: input.name === undefined ? undefined : String(input.name).trim(),
@@ -296,9 +318,44 @@ export class Store {
             description: input.description,
             icon: input.icon,
             icon_color: input.iconColor,
+            ...this.promptColumns(input),
         })
         this.onChange(id)
         return this.project(id)
+    }
+
+    private promptsAreTheOwners(input: Input, actor: Actor) {
+        const sent = PROMPT_FIELDS.filter(key => input[key] !== undefined)
+        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told (${sent.join(', ')}); send Orrery-Actor: <owner>`)
+    }
+
+    /** The prompt fields as columns: an empty template is none (the Orrery's). */
+    private promptColumns(input: Input): Input {
+        const template = (value: Input[string]) => value === undefined ? undefined : String(value ?? '').trim() || null
+        const list = (value: Input[string]) => value === undefined ? undefined : JSON.stringify(value ?? [])
+        return {focus_prompt: template(input.focusPrompt), chunk_prompt: template(input.chunkPrompt), instructions: list(input.instructions), muted: list(input.muted)}
+    }
+
+    /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
+    prompts(project: string): {focus: string, chunk: string} {
+        const row = this.projectRow(project)
+        const settings = this.settings()
+        return {
+            focus: row.focus_prompt ?? settings.focusPrompt ?? DEFAULT_FOCUS_PROMPT,
+            chunk: row.chunk_prompt ?? settings.chunkPrompt ?? DEFAULT_CHUNK_PROMPT,
+        }
+    }
+
+    /** The texts of the standing instructions for a focus: those named by id, or else the ones ticked by default. */
+    private instructionsFor(project: string, ids: Input[string]): string[] {
+        const row = this.projectRow(project)
+        const global = this.settings().instructions
+        const own = JSON.parse(row.instructions) as Instruction[]
+        if (ids === undefined || ids === null) return defaultInstructions(global, own, JSON.parse(row.muted) as string[]).map(i => i.text)
+        const all = [...global, ...own]
+        const unknown = (ids as string[]).filter(id => !all.some(i => i.id === id))
+        if (unknown.length) throw badRequest(`No standing instruction ${unknown.join(', ')}; the Orrery's and ${project}'s are ${all.map(i => i.id).join(', ') || 'none'}`)
+        return all.filter(i => (ids as string[]).includes(i.id)).map(i => i.text)
     }
 
     deleteProject(id: string, actor = AGENT) {
@@ -326,7 +383,13 @@ export class Store {
             const row = rows.find(r => r.key === key)
             return row ? JSON.parse(row.value) as unknown : undefined
         }
-        return {tint: (value('tint') as string | undefined) ?? null, statuses: this.statuses()}
+        return {
+            tint: (value('tint') as string | undefined) ?? null,
+            statuses: this.statuses(),
+            focusPrompt: (value('focusPrompt') as string | undefined) || null,
+            chunkPrompt: (value('chunkPrompt') as string | undefined) || null,
+            instructions: (value('instructions') as Instruction[] | undefined) ?? [],
+        }
     }
 
     // Statuses
@@ -432,8 +495,10 @@ export class Store {
         if (!actor.owner) throw forbidden("Only the owner changes the Orrery's settings; send Orrery-Actor: <owner>")
         const input = checkInput(body, SETTINGS_FIELDS, true)
         transaction(this.db, () => {
-            for (const [key, value] of Object.entries(input)) {
-                if (value === undefined) continue
+            for (const [key, sent] of Object.entries(input)) {
+                if (sent === undefined) continue
+                // An empty template is none: the default.
+                const value = (key === 'focusPrompt' || key === 'chunkPrompt') && typeof sent === 'string' ? sent.trim() || null : sent
                 this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
             }
         })
@@ -895,8 +960,9 @@ export class Store {
         issue = this.issueId(project, issue)
         this.issueRow(project, issue)
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
-        const {lastInsertRowid} = this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            project, issue, 'focus', nullable(input.note), nullable(input.session), actor.name, Number(actor.owner), stamp())
+        const instructions = JSON.stringify(this.instructionsFor(project, input.instructions))
+        const {lastInsertRowid} = this.run('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            project, issue, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
         this.onSignal(signal)
         return signal
@@ -919,8 +985,9 @@ export class Store {
                 throw badRequest(`"status" is "${status}", not an open status (${this.statuses().filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
             }
         }
-        const {lastInsertRowid} = this.run('INSERT INTO signals (project, chunk, status, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            project, chunk, nullable(input.status), 'focus', nullable(input.note), nullable(input.session), actor.name, Number(actor.owner), stamp())
+        const instructions = JSON.stringify(this.instructionsFor(project, input.instructions))
+        const {lastInsertRowid} = this.run('INSERT INTO signals (project, chunk, status, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            project, chunk, nullable(input.status), 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid))!)
         this.onSignal(signal)
         return signal
@@ -1021,6 +1088,10 @@ export class Store {
             description: row.description ?? undefined,
             icon: row.icon ?? undefined,
             iconColor: row.icon_color ?? undefined,
+            focusPrompt: row.focus_prompt ?? undefined,
+            chunkPrompt: row.chunk_prompt ?? undefined,
+            instructions: JSON.parse(row.instructions) as Instruction[],
+            muted: JSON.parse(row.muted) as string[],
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,
@@ -1275,7 +1346,7 @@ function eventOf(row: EventRow): IssueEvent {
 function signalOf(row: SignalRow): Signal {
     return {
         id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined,
-        target: row.target ?? undefined, deliveredTo: JSON.parse(row.delivered_to) as string[], createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at,
+        target: row.target ?? undefined, deliveredTo: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at,
     }
 }
 

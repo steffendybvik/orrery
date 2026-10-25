@@ -1,5 +1,6 @@
 // A project's roadmap as the board draws it: the server reads it from the database, places every
 // issue in a column and rolls the columns up into parents and chunks, so the page only draws.
+import type {Instruction} from './prompt'
 
 /** What a status means, whatever it's called: Orrery's counts, progress and pages reason about kinds,
  * never names. In board order. */
@@ -136,6 +137,12 @@ export interface Project {
     icon?: string
     /** Its icon's colour: a tint's name (`teal`) or a `#rrggbb`; none follows the text. */
     iconColor?: string
+    /** What its sessions hear when asked to focus on an issue or a chunk, when not the Orrery's (`Settings`). */
+    focusPrompt?: string
+    chunkPrompt?: string
+    /** Its own standing instructions, and the ids of the Orrery's it switches off. */
+    instructions: Instruction[]
+    muted: string[]
     createdBy: string
     protected: boolean
     createdAt: string
@@ -206,6 +213,8 @@ export interface Signal {
     target?: string
     /** The names of the sessions it reached. */
     deliveredTo: string[]
+    /** The standing instructions picked for a focus, as said. */
+    instructions: string[]
     createdBy: string
     /** Sent by the owner. Sessions only act on these. */
     protected: boolean
@@ -271,6 +280,12 @@ export interface Settings {
     tint: string | null
     /** The issue statuses, in board order. */
     statuses: IssueStatus[]
+    /** What a session hears when asked to focus on an issue, or to work through a chunk; none is the default
+     * (`DEFAULT_FOCUS_PROMPT`, `DEFAULT_CHUNK_PROMPT`). A project can have its own. */
+    focusPrompt: string | null
+    chunkPrompt: string | null
+    /** Lines added to every focus, such as `commit whenever a piece works`. */
+    instructions: Instruction[]
 }
 
 /** What a Claude session is doing, as its hooks last said: `waiting` is waiting on the owner. */

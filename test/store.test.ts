@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
+import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
 import {backup, restoreBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
 import {readRoadmap} from '../server/utils/roadmap'
@@ -39,7 +40,7 @@ describe('projects', () => {
 
     it('refuses unknown fields', () => {
         expect(failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted'})
     })
 
     it('keep an icon to set and clear', () => {
@@ -368,6 +369,40 @@ describe('chunks', () => {
         expect(local.focusChunk('larder', '1', {}).status).toBeUndefined()
         expect(failure(() => local.focusChunk('larder', '1', {status: 'done'})).status).toBe(400)
         expect(failure(() => local.focusChunk('larder', '1', {status: 'soon'})).status).toBe(400)
+    })
+})
+
+describe('what sessions are told', () => {
+    const owner: Actor = {name: 'skoll', owner: true}
+
+    it("uses the project's templates, else the Orrery's, else the defaults", () => {
+        expect(store.prompts('larder')).toEqual({focus: DEFAULT_FOCUS_PROMPT, chunk: DEFAULT_CHUNK_PROMPT})
+        store.updateSettings({focusPrompt: 'Look at {issue}.'}, owner)
+        store.updateProject('larder', {chunkPrompt: 'Do chunk {chunk}.'}, owner)
+        expect(store.prompts('larder')).toEqual({focus: 'Look at {issue}.', chunk: 'Do chunk {chunk}.'})
+        store.updateProject('larder', {chunkPrompt: '  '}, owner)
+        store.updateSettings({focusPrompt: ''}, owner)
+        expect(store.prompts('larder')).toEqual({focus: DEFAULT_FOCUS_PROMPT, chunk: DEFAULT_CHUNK_PROMPT})
+    })
+
+    it("are the owner's to change", () => {
+        expect(failure(() => store.updateProject('larder', {focusPrompt: 'x'}, {name: 'claude', owner: false})).status).toBe(403)
+        expect(failure(() => store.updateSettings({instructions: []}, {name: 'claude', owner: false})).status).toBe(403)
+        expect(store.updateProject('larder', {description: 'still fine'}).description).toBe('still fine')
+    })
+
+    it('add the standing instructions ticked by default, or those picked for the send', () => {
+        const {instructions: [commit, branch]} = store.updateSettings({instructions: [{text: 'Commit whenever a piece works'}, {text: 'Make a branch', on: false}]}, owner)
+        expect([commit!.on, branch!.on, commit!.id]).toEqual([true, false, expect.stringMatching(/^[0-9a-f]{8}$/)])
+        const {instructions: [tests]} = store.updateProject('larder', {instructions: [{text: 'Run the tests'}]}, owner)
+        const {id} = store.createIssue('larder', {title: 'A'})
+        expect(store.focus('larder', id, {}, owner).instructions).toEqual(['Commit whenever a piece works', 'Run the tests'])
+        store.updateProject('larder', {muted: [commit!.id]}, owner)
+        expect(store.focus('larder', id, {}, owner).instructions).toEqual(['Run the tests'])
+        expect(store.focusChunk('larder', '1', {instructions: [branch!.id, tests!.id]}, owner).instructions).toEqual(['Make a branch', 'Run the tests'])
+        expect(store.focus('larder', id, {instructions: []}, owner).instructions).toEqual([])
+        expect(failure(() => store.focus('larder', id, {instructions: ['nope']}, owner)).status).toBe(400)
+        expect(failure(() => store.updateSettings({instructions: [{text: ''}]}, owner)).status).toBe(400)
     })
 })
 

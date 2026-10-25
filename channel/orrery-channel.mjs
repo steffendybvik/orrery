@@ -73,7 +73,10 @@ who.set('channel', channel)
 async function deliver(signal) {
     const where = [signal.column, signal.priority, signal.chunk].filter(Boolean).join(', ')
     const issue = `${api}/issues/${encodeURIComponent(signal.issue)}`
-    const content = signal.kind === 'message'
+    // A focus comes with what to say (the owner's template, filled in); an older Orrery's doesn't.
+    const content = signal.prompt
+        ? signal.prompt
+        : signal.kind === 'message'
         ? [
             `${signal.createdBy}'s schedule "${signal.title}" says:`,
             '',
