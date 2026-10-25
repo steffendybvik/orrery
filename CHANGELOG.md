@@ -11,6 +11,8 @@ the database schema are the public surface, and a database always migrates forwa
   (`--install`) and serves every project.
 - **Stopping sessions:** the owner can stop any session with the Orrery channel running from its Sessions
   tab, terminal ones too: the channel ends its claude process.
+- **Notifications:** the Inbox lists every comment newest first; those waiting on you keep their
+  mark among them instead of sitting on top.
 
 ## 1.0.0 (unreleased)
 

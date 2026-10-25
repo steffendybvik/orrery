@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Notice} from '#shared/roadmap'
 
-// The bell, larger: every agent's comment with its whole body, those waiting on the owner first; a card
+// The bell, larger: every agent's comment with its whole body, newest first; a card
 // opens its issue. The cleared ones stay readable here under Cleared. Opening the page marks them read;
 // the ones that were new keep their dot until you leave.
 useHead({title: 'Notifications · Orrery'})
@@ -26,7 +26,10 @@ watch(show, now => {
     if (!lists.value[now].loaded) load(now)
 })
 
-const shown = computed(() => show.value === 'inbox' ? [...lists.value.waiting.items, ...lists.value.inbox.items] : lists.value[show.value].items)
+// Newest first, the waiting ones among the rest by time; their ring marks them.
+const shown = computed(() => show.value === 'inbox'
+    ? [...lists.value.waiting.items, ...lists.value.inbox.items].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+    : lists.value[show.value].items)
 const loaded = computed(() => lists.value[show.value].loaded && (show.value !== 'inbox' || lists.value.waiting.loaded))
 const options = computed(() => [
     {value: 'inbox' as const, label: 'Inbox'},
@@ -105,7 +108,7 @@ function openCard(notice: Notice, event: MouseEvent) {
     </div>
     <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center">
       <p class="text-sm text-muted">{{ {inbox: 'No comments from agents.', waiting: 'Nothing waiting on you.', cleared: 'Nothing cleared yet.'}[show] }}</p>
-      <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; questions for you stay on top until you answer them on the issue.</p>
+      <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; questions for you wait under Waiting on you until you answer them on the issue.</p>
     </div>
   </div>
 </template>
