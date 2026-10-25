@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {TINTS} from '#shared/roadmap'
 
-// A project's settings: its name, its icon in the sidebar and the icon's colour, and deleting the
-// project, for good. Its schedules have a page of their own, and so does starting its sessions (Sessions).
+// A project's settings: its name, where its code is, its icon in the sidebar and the icon's colour, and deleting
+// the project, for good. Its schedules have a page of their own, and so does starting its sessions (Sessions).
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -28,6 +28,24 @@ async function rename() {
         await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {name: next}, headers: {'Orrery-Actor': await load()}})
     } catch (error) {
         nameFailed.value = errorMessage(error)
+    }
+}
+
+// Where its code is, so a release links its branch and PRs; saved like the name.
+const repo = ref('')
+const repoFailed = ref('')
+watch(() => project.value?.repo, now => {
+    repo.value = now ?? ''
+}, {immediate: true})
+async function saveRepo() {
+    if (!project.value) return
+    const next = repo.value.trim().replace(/\/+$/, '')
+    if (next === (project.value.repo ?? '')) return
+    repoFailed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {repo: next || null}, headers: {'Orrery-Actor': await load()}})
+    } catch (error) {
+        repoFailed.value = errorMessage(error)
     }
 }
 
@@ -109,6 +127,26 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
               @keydown.esc="name = project.name; ($event.target as HTMLInputElement).blur()"
           >
           <span v-if="nameFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ nameFailed }}</span>
+        </form>
+      </section>
+
+      <section id="repo" class="flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Code</h2>
+          <p class="text-xs text-muted">Where {{ project.name }}'s code is, so a release links its branch and the PRs into it.</p>
+        </header>
+        <form class="flex items-center gap-2" @submit.prevent="saveRepo">
+          <input
+              v-model="repo"
+              type="url"
+              aria-label="Where its code is"
+              placeholder="https://github.com/you/shop"
+              spellcheck="false"
+              class="h-8 w-96 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+              @blur="saveRepo"
+              @keydown.esc="repo = project.repo ?? ''; ($event.target as HTMLInputElement).blur()"
+          >
+          <span v-if="repoFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ repoFailed }}</span>
         </form>
       </section>
 

@@ -180,6 +180,7 @@ export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> 
     comments?: number
     aliases?: string[]
     schedule?: number
+    release?: string
     createdBy?: string
     protected?: boolean
     createdAt?: string
@@ -234,8 +235,8 @@ class Rules {
             kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
         }
         const column = this.columnOf(counts, kinds)
-        const {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, choices = [], picks, explore, comments = 0, aliases = [], schedule, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
-        return {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, createdBy, protected: owned, createdAt, updatedAt, tasks}
+        const {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, choices = [], picks, explore, comments = 0, aliases = [], schedule, release, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
+        return {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, release, createdBy, protected: owned, createdAt, updatedAt, tasks}
     }
 
     /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.

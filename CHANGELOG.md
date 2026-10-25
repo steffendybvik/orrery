@@ -9,6 +9,15 @@ the database schema are the public surface, and a database always migrates forwa
   whether it's listening and whether Stop can reach it, so the other projects' channels (skipped by
   Claude Code) no longer turn it off. A skipped one that connects first no longer files the window under
   the wrong project.
+- **Before and after, on a slider:** in a comment, description or doc, a picture whose alt text starts with
+  "Before", followed by one starting with "After", shows as one picture at full width with a handle to
+  drag between the two (arrow keys too). The labels open each one full size; anywhere else the Markdown
+  is still two pictures.
+- **Releases:** a project's Releases tab lists the versions it ships, each with the branch its work
+  gathers on, how far its issues are and whether it shipped; an issue's Release says which one it goes out
+  in. A release's page links its branch and PRs (once Settings says where the code is) and drafts its
+  changelog from its issues. `GET/POST /projects/:project/releases`, `?release=` on issues, and a
+  `releases` tool for sessions.
 - **Phones:** the header no longer carries a project's page tabs (they ran under the bell); the menu
   opens a full-screen drawer with bigger rows instead.
 - **Easier to read:** an issue row says its status once, as a pill, rather than three times; comments
