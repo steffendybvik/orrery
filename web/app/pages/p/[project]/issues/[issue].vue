@@ -317,7 +317,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
                 <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
                 <span class="text-muted">{{ who(entry.by!) }}</span> {{ entry.text }} · <span :title="entry.at">{{ ago(entry.at) }}</span>
               </li>
-              <li v-else class="flex flex-col gap-1.5">
+              <li v-else class="group flex flex-col gap-1.5">
                 <div class="-ml-[31px] flex items-center gap-2 text-xs">
                   <PersonAvatar :name="entry.comment.createdBy" :size="20" />
                   <span class="font-medium text-fg">{{ who(entry.comment.createdBy) }}</span>
@@ -327,6 +327,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
                       class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
                       :class="entry.comment.answered ? 'text-faint ring-line' : 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300'"
                   >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
+                  <CopyButton :text="entry.comment.body" name="the comment" class="ml-auto pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100" />
                 </div>
                 <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[13px] leading-6" /></div>
               </li>

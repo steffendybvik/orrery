@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// "Copy", then "Copied" with a tick for a moment.
-const props = withDefaults(defineProps<{text: string, label?: string}>(), {label: 'Copy'})
+// "Copy", then "Copied" with a tick for a moment. `name` says what it copies, where the text is too long to.
+const props = withDefaults(defineProps<{text: string, label?: string, name?: string}>(), {label: 'Copy'})
 const copied = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -18,8 +18,8 @@ onBeforeUnmount(() => clearTimeout(timer))
       type="button"
       class="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] ring-1 transition-colors"
       :class="copied ? 'text-emerald-600 ring-emerald-500/40 dark:text-emerald-400' : 'text-faint ring-line hover:bg-hover hover:text-fg'"
-      :title="`Copy ${text}`"
-      :aria-label="`Copy ${text}`"
+      :title="`Copy ${name ?? text}`"
+      :aria-label="`Copy ${name ?? text}`"
       @click="copy"
   >
     <svg v-if="copied" class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
