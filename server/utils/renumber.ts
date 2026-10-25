@@ -5,6 +5,11 @@
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
 import type {Db} from './database'
 
+/** An id an issue had, pointed at its id now (replacing where it pointed before). */
+export const UPSERT_ISSUE_ALIAS = 'INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?) ON CONFLICT (project, alias) DO UPDATE SET issue = excluded.issue'
+/** The same for a chunk. */
+export const UPSERT_CHUNK_ALIAS = 'INSERT INTO chunk_aliases (project, alias, chunk) VALUES (?, ?, ?) ON CONFLICT (project, alias) DO UPDATE SET chunk = excluded.chunk'
+
 // Marks ids mid-rename, so a new id never meets an old one in a primary key.
 const MOVING = '\u0001'
 
@@ -68,8 +73,8 @@ function plan(project: string, key: string, chunks: {id: string}[], issues: Issu
     run(`UPDATE comments SET issue = ${strip.replace('%', 'issue')} WHERE project = ? AND substr(issue, 1, 1) = ?`, project, MOVING)
     run(`UPDATE issue_aliases SET issue = ${strip.replace('%', 'issue')} WHERE project = ? AND substr(issue, 1, 1) = ?`, project, MOVING)
 
-    for (const [from, to] of chunkIds) if (from !== to) run('INSERT OR REPLACE INTO chunk_aliases (project, alias, chunk) VALUES (?, ?, ?)', project, from, to)
-    for (const [from, to] of issueIds) if (from !== to) run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', project, from, to)
+    for (const [from, to] of chunkIds) if (from !== to) run(UPSERT_CHUNK_ALIAS, project, from, to)
+    for (const [from, to] of issueIds) if (from !== to) run(UPSERT_ISSUE_ALIAS, project, from, to)
     // An alias that is now some thing's own id would only mislead.
     run('DELETE FROM chunk_aliases WHERE project = ? AND alias IN (SELECT id FROM chunks WHERE project = ?)', project, project)
     run('DELETE FROM issue_aliases WHERE project = ? AND alias IN (SELECT id FROM issues WHERE project = ?)', project, project)

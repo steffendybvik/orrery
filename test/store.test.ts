@@ -69,6 +69,12 @@ describe('projects', () => {
 describe('issues', () => {
     const add = async (body: Record<string, unknown>, actor?: Actor) => (await store.createIssue('larder', body, actor)).id
 
+    it('get distinct numbers when made at the same time', async () => {
+        const made = await Promise.all(Array.from({length: 8}, (_, i) => store.createIssue('larder', {title: `At once ${i}`})))
+        expect(new Set(made.map(i => i.id)).size).toBe(8)
+        expect((await store.createIssue('larder', {title: 'After'})).id).toBe('LAR-9')
+    })
+
     it('get the project prefix and the next number, and land in a column', async () => {
         const a = await store.createIssue('larder', {title: 'Joint editor', chunk: '1', status: 'todo', priority: 'P1'})
         const b = await store.createIssue('larder', {title: 'Unplanned'})

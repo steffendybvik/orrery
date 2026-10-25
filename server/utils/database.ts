@@ -11,9 +11,11 @@ export interface Db {
     readonly dialect: 'sqlite' | 'postgres'
     all<T>(sql: string, ...params: Value[]): Promise<T[]>
     get<T>(sql: string, ...params: Value[]): Promise<T | undefined>
-    /** `lastInsertRowid` until inserts say `RETURNING id` (ORR-80). */
-    run(sql: string, ...params: Value[]): Promise<{changes: number, lastInsertRowid: number}>
+    /** `changes`: how many rows it touched. An insert that needs its id says `RETURNING id` and goes through `get`. */
+    run(sql: string, ...params: Value[]): Promise<{changes: number}>
     exec(sql: string): Promise<void>
+    /** Holds the foreign keys until the transaction commits, for writes that change ids rows point at. */
+    deferConstraints(): Promise<void>
     /** Runs `work` in one transaction: all of it lands, or none of it. One inside another is part of it. */
     transaction<T>(work: () => Promise<T>): Promise<T>
 }
@@ -40,13 +42,16 @@ export class SqliteDb implements Db {
 
     async run(sql: string, ...params: Value[]) {
         return this.turn(() => {
-            const {changes, lastInsertRowid} = this.raw.prepare(sql).run(...params)
-            return {changes: Number(changes), lastInsertRowid: Number(lastInsertRowid)}
+            return {changes: Number(this.raw.prepare(sql).run(...params).changes)}
         })
     }
 
     async exec(sql: string) {
         return this.turn(() => this.raw.exec(sql))
+    }
+
+    async deferConstraints() {
+        return this.exec('PRAGMA defer_foreign_keys = ON')
     }
 
     async transaction<T>(work: () => Promise<T>): Promise<T> {

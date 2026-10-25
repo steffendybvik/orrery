@@ -2,6 +2,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import type {ConnectTarget} from '#shared/connect'
 import {connectPieces, idsFor} from '#shared/connect'
 import {openDb} from '../server/utils/db'
+import {SqliteDb} from '../server/utils/database'
 import {Store} from '../server/utils/store'
 
 const larder: ConnectTarget = {origin: 'http://localhost:9000', repoDir: '/src/orrery', id: 'larder', name: 'Larder', key: 'LAR', isNew: false}
@@ -47,10 +48,10 @@ describe('connecting a repo', () => {
 })
 
 describe('a name', () => {
-    it("makes the id and prefix Orrery's store would", () => {
-        const store = new Store(openDb(':memory:'))
+    it("makes the id and prefix Orrery's store would", async () => {
+        const store = new Store(new SqliteDb(openDb(':memory:')))
         for (const name of ['Fitness App', 'larder', 'Mesa 2', 'Q3 roadmap']) {
-            const made = store.createProject({name})
+            const made = await store.createProject({name})
             expect(idsFor(name)).toEqual({id: made.id, key: made.key})
         }
     })
@@ -65,15 +66,15 @@ describe('the overview agents read', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('lists the projects with their progress, at the address it was reached on', async () => {
-        const store = new Store(openDb(':memory:'))
+        const store = new Store(new SqliteDb(openDb(':memory:')))
         vi.stubGlobal('useStore', () => store)
         vi.stubGlobal('getRequestURL', () => new URL('http://orrery.lan:9000/llms.txt'))
         const {overview} = await import('../server/utils/guide')
-        expect(overview({} as never)).toContain('- none yet: create one with POST /api/projects')
-        store.createProject({name: 'larder', key: 'LAR'})
-        store.createIssue('larder', {title: 'Pantry', status: 'done'})
-        store.createIssue('larder', {title: 'Shelves'})
-        const text = overview({} as never)
+        expect(await overview({} as never)).toContain('- none yet: create one with POST /api/projects')
+        await store.createProject({name: 'larder', key: 'LAR'})
+        await store.createIssue('larder', {title: 'Pantry', status: 'done'})
+        await store.createIssue('larder', {title: 'Shelves'})
+        const text = await overview({} as never)
         expect(text).toContain('- larder: id `larder`, prefix `LAR`, 1/2 done (http://orrery.lan:9000/api/projects/larder)')
         expect(text).toContain('[API reference](http://orrery.lan:9000/api/guide)')
     })
@@ -83,8 +84,8 @@ describe('who is asking', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('is the Orrery-Actor header, the owner when it is their id, agent without one', async () => {
-        const store = new Store(openDb(':memory:'))
-        store.nameOwner({name: 'Sköll Fenrisson'})
+        const store = new Store(new SqliteDb(openDb(':memory:')))
+        await store.nameOwner({name: 'Sköll Fenrisson'})
         let header: string | undefined
         vi.stubGlobal('useStore', () => store)
         vi.stubGlobal('getHeader', () => header)
@@ -93,10 +94,10 @@ describe('who is asking', () => {
             header = value
             return actorOf({} as never)
         }
-        expect(asking('claude')).toEqual({name: 'claude', owner: false})
-        expect(asking(' Skoll_Fenrisson ')).toEqual({name: 'Skoll_Fenrisson', owner: true})
-        expect(asking(undefined)).toEqual({name: 'agent', owner: false})
-        expect(asking('   ')).toEqual({name: 'agent', owner: false})
-        expect(asking('x'.repeat(80)).name).toHaveLength(60)
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false})
+        expect(await asking(' Skoll_Fenrisson ')).toEqual({name: 'Skoll_Fenrisson', owner: true})
+        expect(await asking(undefined)).toEqual({name: 'agent', owner: false})
+        expect(await asking('   ')).toEqual({name: 'agent', owner: false})
+        expect((await asking('x'.repeat(80))).name).toHaveLength(60)
     })
 })

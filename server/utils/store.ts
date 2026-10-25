@@ -11,7 +11,7 @@ import {LEGACY_PLANS, buildBoard, legacyStatus} from './roadmap'
 import type {Db, Value} from './database'
 import type {Instruction} from '#shared/prompt'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
-import {renumber} from './renumber'
+import {UPSERT_ISSUE_ALIAS, renumber} from './renumber'
 
 /** A project without its board, as `GET /api/projects` lists it. */
 export interface ProjectSummary extends Omit<Project, 'board'> {
@@ -263,7 +263,7 @@ export class Store {
             SELECT * FROM (
                 SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
                 WHERE c.owned = 0 ${cleared ? '' : 'AND c.cleared = 0'})
-            ORDER BY (asks IS NOT NULL AND answered = 0) DESC, created_at DESC, id DESC LIMIT ?`, limit ?? -1))
+            ORDER BY (asks IS NOT NULL AND NOT answered) DESC, created_at DESC, id DESC ${limit === null ? '' : 'LIMIT ?'}`, ...limit === null ? [] : [limit]))
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 
@@ -285,14 +285,14 @@ export class Store {
     // Projects
 
     async listProjects(): Promise<ProjectSummary[]> {
-        return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY name COLLATE NOCASE')).map(async row => {
+        return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY lower(name), name')).map(async row => {
             const {board, ...project} = await this.projectOf(row)
             return {...project, counts: board.counts, kinds: board.kinds, chunks: board.chunks.filter(c => c.id).length}
         }))
     }
 
     async listBoards(): Promise<Project[]> {
-        return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY name COLLATE NOCASE')).map(row => this.projectOf(row)))
+        return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY lower(name), name')).map(row => this.projectOf(row)))
     }
 
     async project(id: string): Promise<Project> {
@@ -762,7 +762,7 @@ export class Store {
         const marks = subtree.map(() => '?').join(', ')
         const moved = await this.db.transaction(async () => {
             // Rows move first and get their new ids and links after, so the foreign keys wait for the commit.
-            await this.db.exec('PRAGMA defer_foreign_keys = ON')
+            await this.db.deferConstraints()
             const names = new Map<string, string>()
             for (const old of subtree) names.set(old, await this.nextId(to, 'issue'))
             const links = await this.all<{id: string, parent: string | null}>(`SELECT id, parent FROM issues WHERE project = ? AND id IN (${marks})`, from, ...subtree)
@@ -778,8 +778,8 @@ export class Store {
             for (const [old, next] of names) await this.run('UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, from, old)
             await this.record(to, names.get(id)!, actor, [['project', from, to]])
             await this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
-            for (const {alias, issue} of aliases) await this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, alias, names.get(issue)!)
-            for (const [old, next] of names) await this.run('INSERT OR REPLACE INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', to, old, next)
+            for (const {alias, issue} of aliases) await this.run(UPSERT_ISSUE_ALIAS, to, alias, names.get(issue)!)
+            for (const [old, next] of names) await this.run(UPSERT_ISSUE_ALIAS, to, old, next)
             await this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', stamp(), to, names.get(id)!)
             await this.touchProject(from)
             await this.touchProject(to)
@@ -829,14 +829,14 @@ export class Store {
             : undefined
         const assignee = !actor.owner && input.asks ? (await this.ownerId()) : asker
         const id = await this.db.transaction(async () => {
-            const {lastInsertRowid} = await this.run('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now)
+            const {id} = (await this.get<{id: number}>('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+                project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now))!
             if (assignee) {
                 await this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
                 await this.record(project, issue, actor, [['assignee', row.assignee, assignee]])
             }
             await this.touchIssue(project, issue)
-            return Number(lastInsertRowid)
+            return id
         })
         this.onChange(project)
         if (actor.owner) await this.carryComment(project, issue, String(input.body), actor)
@@ -855,9 +855,9 @@ export class Store {
                               AND s.created_at >= c.created_at AND s.delivered_to != '[]')
             ORDER BY c.created_at LIMIT 10`, project)
         for (const comment of waiting) {
-            const {lastInsertRowid} = await this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
                 project, comment.issue, 'comment', comment.body, session, comment.created_by, 1, stamp())
-            this.onSignal(signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!))
+            this.onSignal(signalOf(row!))
         }
         return waiting.length
     }
@@ -866,9 +866,9 @@ export class Store {
      * every session on the project), so it can answer. */
     private async carryComment(project: string, issue: string, body: string, actor: Actor) {
         const target = (await this.get<{target: string}>("SELECT target FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND target IS NOT NULL ORDER BY id DESC LIMIT 1", project, issue))?.target ?? null
-        const {lastInsertRowid} = await this.run('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'comment', body, target, actor.name, 1, stamp())
-        this.onSignal(signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!))
+        this.onSignal(signalOf(row!))
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */
@@ -972,9 +972,9 @@ export class Store {
         await this.issueRow(project, issue)
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const {lastInsertRowid} = await this.run('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!)
+        const signal = signalOf(row!)
         this.onSignal(signal)
         return signal
     }
@@ -997,9 +997,9 @@ export class Store {
             }
         }
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const {lastInsertRowid} = await this.run('INSERT INTO signals (project, chunk, status, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        const row = await this.get<SignalRow>('INSERT INTO signals (project, chunk, status, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, chunk, nullable(input.status), 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!)
+        const signal = signalOf(row!)
         this.onSignal(signal)
         return signal
     }
@@ -1018,9 +1018,9 @@ export class Store {
     /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */
     async message(project: string, schedule: number, text: string, actor = AGENT): Promise<Signal> {
         await this.projectRow(project)
-        const {lastInsertRowid} = await this.run('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        const row = await this.get<SignalRow>('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, schedule, 'message', text, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf((await this.get<SignalRow>('SELECT * FROM signals WHERE id = ?', Number(lastInsertRowid)))!)
+        const signal = signalOf(row!)
         this.onSignal(signal)
         return signal
     }
@@ -1068,7 +1068,7 @@ export class Store {
             for (const sub of task.tasks) await insert(sub, task.id, null)
         }
         await this.db.transaction(async () => {
-            await this.db.exec('PRAGMA defer_foreign_keys = ON')
+            await this.db.deferConstraints()
             if (replace) {
                 await this.run('DELETE FROM comments WHERE project = ?', project)
                 await this.run('UPDATE issues SET parent = NULL, chunk = NULL WHERE project = ?', project)
@@ -1210,15 +1210,17 @@ export class Store {
         return (await this.get<{chunk: string}>('SELECT chunk FROM chunk_aliases WHERE project = ? AND alias = ?', project, id))?.chunk ?? id
     }
 
-    /** Hands out the project's next id: KEY-n for an issue, n for a chunk. Run inside the write's transaction. */
+    /** Hands out the project's next id: KEY-n for an issue, n for a chunk. */
     private async nextId(project: string, kind: 'issue' | 'chunk'): Promise<string> {
-        const row = await this.projectRow(project)
+        const {key} = await this.projectRow(project)
         const [column, table] = kind === 'issue' ? ['next_number', 'issues'] as const : ['next_chunk', 'chunks'] as const
-        const name = (n: number) => kind === 'issue' ? `${row.key}-${n}` : String(n)
-        let n = kind === 'issue' ? row.next_number : row.next_chunk
-        while (await this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ?`, project, name(n))) n++
-        await this.run(`UPDATE projects SET ${column} = ? WHERE id = ?`, n + 1, project)
-        return name(n)
+        const name = (n: number) => kind === 'issue' ? `${key}-${n}` : String(n)
+        // Each number is taken in one statement, so two writers never get the same one; one an import
+        // already used is skipped.
+        for (;;) {
+            const {n} = (await this.get<{n: number}>(`UPDATE projects SET ${column} = ${column} + 1 WHERE id = ? RETURNING ${column} - 1 AS n`, project))!
+            if (!await this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ?`, project, name(n))) return name(n)
+        }
     }
 
     private async rootOf(project: string, row: IssueRow): Promise<IssueRow> {

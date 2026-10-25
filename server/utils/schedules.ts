@@ -77,13 +77,13 @@ export class Schedules {
         const enabled = input.enabled ?? true
         const kind = String(input.kind ?? 'issue')
         if (kind === 'message' && !text(input.notes)?.trim()) throw badRequest('A message schedule needs its message in "notes"')
-        const {lastInsertRowid} = await this.db.run(`INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
-            next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+        const {id} = (await this.db.get<{id: number}>(`INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
+            next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
             project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, await this.place(input.column ?? 'todo'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skipOpen ?? true), Number(enabled),
-            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
+            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now))!
         this.onChange(project)
-        return await this.get(project, Number(lastInsertRowid))
+        return await this.get(project, id)
     }
 
     /** Changing when it runs, or turning it back on, works out its next run again. */
