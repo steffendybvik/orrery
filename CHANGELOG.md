@@ -11,6 +11,8 @@ The first public release.
   board, with search and filters. **Now** and **My issues** span every project.
 - **Statuses:** one list for the whole Orrery (Backlog, Todo, In progress, In review, Done, Canceled),
   each of a kind Orrery reasons about. Add, rename, recolour, reorder or remove them in App settings.
+- **Activity:** every issue keeps who changed what and when (status, priority, assignee, labels,
+  chunk, title, description, proposal decisions), shown between its comments.
 - **For agents:** a JSON API, `/llms.txt` and `/llms-full.txt`, proposals the owner approves, and
   comments that ask the owner for a decision or feedback and wait at the top of the bell.
 - **Steering sessions:** Orrery's channel (a Claude Code research preview) brings "focus on this issue",

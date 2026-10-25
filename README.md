@@ -58,3 +58,8 @@ that repo, and the session sets the repo up to use Orrery itself.
 - [The API](docs/API.md): every route, field and rule, for agents and scripts
 - [Working on Orrery](docs/development.md): the dev server and the checks
 - [Security](SECURITY.md): who can reach it, what the owner name is and isn't, and your agents
+- [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+
+## License
+
+[MIT](LICENSE)
