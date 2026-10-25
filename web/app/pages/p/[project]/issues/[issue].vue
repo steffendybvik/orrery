@@ -349,7 +349,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
                   >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
                   <CopyButton :text="entry.comment.body" name="the comment" class="ml-auto pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100" />
                 </div>
-                <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[13px] leading-6" /></div>
+                <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[14px] leading-6" /></div>
               </li>
             </template>
           </ol>

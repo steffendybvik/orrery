@@ -2,7 +2,7 @@
 import type {Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
-// One issue as a row (id, title, labels, status, column, priority, assignee); a parent shows its
+// One issue as a row (id, title, labels, status, priority, assignee); a parent shows its
 // sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines.
 // Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`).
 //
@@ -24,6 +24,8 @@ const flash = computed(() => Date.now() - (changed.value[`${props.project}/${pro
 const {issueUnseen} = useUnseen()
 const unseen = computed(() => issueUnseen(props.project, props.issue))
 const {look} = useStatuses()
+// The status in words once: the issue's own, or for a parent the column its sub-issues put it in.
+const shown = computed(() => isParent.value ? props.issue.column : props.issue.status)
 </script>
 
 <template>
@@ -73,8 +75,7 @@ const {look} = useStatuses()
     <span v-if="issue.comments" class="hidden shrink-0 items-center gap-1 text-[11px] text-faint sm:flex" :title="`${issue.comments} comments`">
       <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5Z" /></svg>{{ issue.comments }}
     </span>
-    <span v-if="!isParent" class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: look(issue.status).color}">{{ look(issue.status).label }}</span>
-    <span class="hidden w-20 shrink-0 truncate text-right text-xs md:inline" :style="{color: look(issue.column).color}">{{ look(issue.column).label }}</span>
+    <span class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: look(shown).color}">{{ look(shown).label }}</span>
     <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
     <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/50" title="No assignee" />
   </div>
