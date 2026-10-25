@@ -153,6 +153,36 @@ body {
     .doc[data-size="lg"] { @apply text-[18px]; }
 }
 
+/* A before/after slider (renderMarkdown's `compare`): the after picture, and the before one over it up to
+   `--split`, which the range across the whole picture moves (plugins/compare). */
+.doc .compare {
+    --split: 50%;
+    @apply relative isolate w-full overflow-hidden rounded-lg ring-1 ring-line select-none;
+    & img { @apply block w-full max-w-none rounded-none; }
+    & .compare-before {
+        @apply absolute inset-0 h-full object-cover object-left-top;
+        clip-path: inset(0 calc(100% - var(--split)) 0 0);
+    }
+    & .compare-line {
+        @apply pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_0_1px_rgb(0_0_0/0.25)];
+        left: var(--split);
+        /* The handle: a round grip in the middle of the line. */
+        &::after {
+            content: '⇔';
+            @apply absolute top-1/2 left-1/2 grid size-8 -translate-1/2 place-items-center rounded-full bg-white text-[15px] text-zinc-700 shadow-md ring-1 ring-black/10;
+        }
+    }
+    & .compare-range {
+        @apply absolute inset-0 m-0 size-full cursor-ew-resize opacity-0;
+    }
+    & .compare-range:focus-visible ~ .compare-line::after { @apply ring-2 ring-accent-500; }
+    & .compare-label {
+        @apply absolute top-2 z-10 rounded-md bg-black/60 px-2 py-0.5 text-[12px] font-medium text-white no-underline ring-1 ring-white/25 backdrop-blur-sm hover:bg-black/75 dark:text-white;
+    }
+    & .compare-label-before { @apply left-2; }
+    & .compare-label-after { @apply right-2; }
+}
+
 /* Changed since the owner last looked (useUnseen): the row tinted with the accent and barred on its left,
    a dot with a halo, and in a doc each block that's new or different since they last read it. */
 .unseen-row {

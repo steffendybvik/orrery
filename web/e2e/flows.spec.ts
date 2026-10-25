@@ -205,6 +205,24 @@ test('puts a picked image in a new issue, and in a comment on it', async ({page,
     await expect.poll(async () => (await api(request, 'get', `/issues/${id}/comments`)).at(-1)?.body).toMatch(/^!\[shelf\]\(\/api\/uploads\//)
 })
 
+test('turns a Before and an After picture into a slider between them', async ({page, request}) => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    const [before, after] = await Promise.all(['before', 'after'].map(name => request.post('/api/uploads', {data: {data: png, name}, headers: AGENT}).then(r => r.json())))
+    const {id} = await api(request, 'post', '/issues', {title: 'Relabel the jars'})
+    await api(request, 'post', `/issues/${id}/comments`, {body: `The jars:\n\n![Before: the jars](${before.url})\n![After: the jars](${after.url})\n\n![A lone picture](${after.url})`})
+    await page.goto(`/p/larder/issues/${id}`)
+    const slider = page.locator('.doc .compare')
+    await expect(slider).toHaveCount(1)
+    await expect(slider.getByRole('link', {name: 'Before'})).toHaveAttribute('href', before.url)
+    await expect(slider.getByRole('link', {name: 'After'})).toHaveAttribute('href', after.url)
+    // A picture on its own stays one.
+    await expect(page.locator('.doc a > img[alt="A lone picture"]')).toBeVisible()
+    const range = slider.getByRole('slider', {name: /Before: the jars/})
+    await range.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(slider).toHaveAttribute('style', /--split: 51%/)
+})
+
 test("tints a doc an agent changed, and in it the parts that changed since the owner read it", async ({page, request}) => {
     const put = (id: string, body: string) => request.put(`/api/projects/larder/docs/${id}`, {data: {title: id === 'pantry' ? 'Pantry' : 'Shelves', body}, headers: AGENT})
         .then(r => expect(r.ok()).toBeTruthy())

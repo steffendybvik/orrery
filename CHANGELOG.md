@@ -5,6 +5,10 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Before and after, on a slider:** in a comment, description or doc, a picture whose alt text starts with
+  "Before", followed by one starting with "After", shows as one picture at full width with a handle to
+  drag between the two (arrow keys too). The labels open each one full size; anywhere else the Markdown
+  is still two pictures.
 - **Releases:** a project's Releases tab lists the versions it ships, each with the branch its work
   gathers on, how far its issues are and whether it shipped; an issue's Release says which one it goes out
   in. A release's page links its branch and PRs (once Settings says where the code is) and drafts its
