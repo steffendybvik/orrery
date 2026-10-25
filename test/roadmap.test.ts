@@ -8,7 +8,7 @@ import {RoadmapError, buildBoard, checkRoadmap, legacyStatus, readRoadmap} from 
 const STATUSES: IssueStatus[] = DEFAULT_STATUSES.map((s, position) => ({...s, position}))
 const first = (kind: string) => STATUSES.find(s => s.kind === kind)!.id
 
-/** A roadmap in mesher's format, its statuses as Orrery's import makes them. */
+/** A roadmap in larder's format, its statuses as Orrery's import makes them. */
 const legacy = (tasks: TaskFile[]): IssueInput[] => tasks.map(({plan, ...t}) => ({...t, status: first(legacyStatus(t.status, plan)), tasks: legacy(t.tasks)}))
 const fromFile = (data: unknown): BoardInput => ({chunks: checkRoadmap(data).chunks.map(c => ({...c, tasks: legacy(c.tasks)}))})
 
@@ -120,8 +120,8 @@ describe('checking the file', () => {
     })
 })
 
-describe("mesher's roadmap", () => {
-    const roadmap = readRoadmap(readFileSync(new URL('./fixtures/mesher-roadmap.json', import.meta.url), 'utf8'))
+describe("larder's roadmap", () => {
+    const roadmap = readRoadmap(readFileSync(new URL('./fixtures/larder-roadmap.json', import.meta.url), 'utf8'))
 
     it('reads as a roadmap, todo with a plan in Todo, without one in Backlog and doing in In progress', () => {
         const {chunks, kinds} = buildBoard({chunks: roadmap.chunks.map(c => ({...c, tasks: legacy(c.tasks)}))}, STATUSES)
