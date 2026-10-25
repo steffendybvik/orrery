@@ -284,7 +284,19 @@ export class Store {
         const worked = new Set((await this.all<{issue: string}>(`SELECT issue FROM issue_sessions WHERE project = ? AND session IN (${sessions.map(() => '?').join(', ')})`,
             project, ...sessions)).map(r => r.issue))
         const issues = (await this.listIssues(project)).filter(r => worked.has(r.id) && r.kind === 'started')
-        return await Promise.all(issues.map(async issue => ({...issue, last: (await this.listComments(project, issue.id)).at(-1)})))
+        if (!issues.length) return []
+        // Their comments in one query, not one each: the hook asking for this waits on it.
+        const last = new Map<string, Comment>()
+        for (const row of await this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue IN (${issues.map(() => '?').join(', ')}) ORDER BY created_at, id`,
+            project, ...issues.map(i => i.id))) last.set(row.issue, commentOf(row))
+        return issues.map(issue => ({...issue, last: last.get(issue.id)}))
+    }
+
+    /** A session's new id (after a `/clear`) takes over what its old one worked and was sent, so none of it
+     * hangs on the server remembering the old id. */
+    async renameSession(project: string, from: string, to: string) {
+        await this.run('UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?', to, project, from)
+        await this.run('UPDATE signals SET target = ? WHERE project = ? AND target = ?', to, project, from)
     }
 
     /** The owner's id: what waits on them (a proposal, an agent's ask) is assigned to it. */

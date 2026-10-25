@@ -14,6 +14,9 @@ interface Known extends Session {
     stoppable?: number
     /** The owner asked it to quit: it's dropped once its channel goes. */
     stopping?: boolean
+    /** When a `/clear` ended it: the next session to start after a clear on its project and folder is its
+     * window, under a new id, when no pid says so. */
+    cleared?: number
     /** The launch its channel says Orrery started it for, kept for when Orrery doesn't know that launch yet
      * (Orrery restarted): the launcher's report of it then marks the session started again. */
     launch?: string
@@ -24,6 +27,8 @@ const sessions = new Map<string, Known>()
 const aliases = new Map<string, string>()
 // A session nothing has heard from in this long, and that isn't listening, is dropped.
 const FORGET_AFTER = 6 * 60 * 60 * 1000
+// How long a cleared session waits for the one that takes it over.
+const CLEARED_FOR = 60 * 1000
 
 /** What each hook event means for the session's state; `end` drops it. */
 const STATES: Record<string, SessionState | 'end'> = {
@@ -48,6 +53,8 @@ export interface Report {
     command?: string
     /** For `SessionEnd`: why (`clear` keeps the window, which starts again under a new id). */
     reason?: string
+    /** For `SessionStart`: what started it (`clear` after one). */
+    source?: string
 }
 
 /** The id the session goes by now, for one it had before a `/clear`; any other id as it is. */
@@ -62,9 +69,24 @@ export function sessionIds(id: string): string[] {
 }
 
 function find(id?: string, pid?: number): Known | undefined {
-    if (id && sessions.has(currentId(id))) return sessions.get(currentId(id))
+    const byId = id ? sessions.get(currentId(id)) : undefined
+    // `claude --resume` takes an id up again in another window: a session with another pid is another window.
+    if (byId && (!pid || !byId.pid || byId.pid === pid)) return byId
     if (pid) return [...sessions.values()].find(s => s.pid === pid)
     return undefined
+}
+
+/** The session a `/clear` just ended on the project and in the folder, waiting for its window's next id. */
+function clearedIn(project: string, cwd: string | undefined): Known | undefined {
+    const since = Date.now() - CLEARED_FOR
+    return [...sessions.values()].filter(s => s.project === project && s.cwd === cwd && (s.cleared ?? 0) > since)
+        .sort((a, b) => b.cleared! - a.cleared!)[0]
+}
+
+/** A session new to Orrery under an id another one had before: that id is its own now. */
+function add(session: Known) {
+    aliases.delete(session.id)
+    sessions.set(session.id, session)
 }
 
 /** "<project> <n>", the lowest n no session on the project has. */
@@ -88,6 +110,8 @@ function changed(project: string) {
 export function report(input: Report): Session | null {
     const now = new Date().toISOString()
     let session = find(input.id, input.pid)
+    // With no pid to tie them, the session after a clear is the window's that a clear just ended.
+    if (!session && input.event === 'SessionStart' && input.source === 'clear') session = clearedIn(input.project, input.cwd)
     const event = input.event === 'Notification'
         ? (/permission|approv|allow/i.test(input.message ?? '') ? 'waiting' : 'idle')
         : STATES[input.event] ?? input.event
@@ -107,19 +131,23 @@ export function report(input: Report): Session | null {
             id: input.id ?? `pid-${input.pid}`, pid: input.pid, project: input.project, name: input.name || nameFor(input.project),
             cwd: input.cwd, state, since: now, startedAt: now, listening: false, seenAt: Date.now(),
         }
-        sessions.set(session.id, session)
+        add(session)
     } else {
         // A session first heard of by its pid gets its real id when a hook brings it, and one cleared
         // its new one; the old id stays an alias, as its channel and the issues it worked still use it.
-        // An id it had before isn't a new one: its channel still reports with the id it started under.
-        if (input.id && !sessionIds(session.id).includes(input.id)) {
-            sessions.delete(session.id)
-            for (const [from, to] of aliases) if (to === session.id) aliases.set(from, input.id)
-            aliases.set(session.id, input.id)
+        // An id it had before isn't a new one: its channel still reports with the id it started under, even
+        // once another window has resumed under it.
+        if (input.id && !sessionIds(session.id).includes(input.id) && !sessions.has(input.id)) {
+            const {id: from, project} = session
+            sessions.delete(from)
+            for (const [old, to] of aliases) if (to === from) aliases.set(old, input.id)
+            aliases.set(from, input.id)
             aliases.delete(input.id)
             session.id = input.id
             sessions.set(session.id, session)
+            useStore().renameSession(project, from, input.id).catch(error => console.error(`[orrery] moving session ${from} to ${input.id}:`, error))
         }
+        session.cleared = event === 'end' ? Date.now() : undefined
         if (input.name) session.name = input.name
         session.pid ??= input.pid
         session.cwd ??= input.cwd
@@ -167,7 +195,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     if (!session) {
         const now = new Date().toISOString()
         session = {id: id ?? `pid-${pid ?? Math.random().toString(36).slice(2)}`, pid, project, name: name || nameFor(project), state: 'idle', since: now, startedAt: now, listening: heard, seenAt: Date.now()}
-        sessions.set(session.id, session)
+        add(session)
     }
     session.listening = heard
     session.streams = (session.streams ?? 0) + 1
@@ -254,6 +282,6 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, streams: _streams, stoppable, stopping: _stopping, ...session}: Known): Session {
+function publicOf({pid: _pid, seenAt: _seen, streams: _streams, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
     return {...session, reachable: !!stoppable}
 }

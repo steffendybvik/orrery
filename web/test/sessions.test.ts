@@ -4,12 +4,15 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 // The sessions live in the module, so each test gets a fresh one; `projectEvents` is a Nitro auto-import.
 let sessions: typeof import('../server/utils/sessions')
 let changed: string[]
+let renamed: string[]
 
 beforeEach(async () => {
     changed = []
     const events = new EventEmitter()
     events.on('sessions', project => changed.push(project))
     vi.stubGlobal('projectEvents', events)
+    renamed = []
+    vi.stubGlobal('useStore', () => ({workedBy: async () => {}, renameSession: async (project: string, from: string, to: string) => renamed.push(`${project}:${from}>${to}`)}))
     vi.resetModules()
     sessions = await import('../server/utils/sessions')
 })
@@ -111,6 +114,47 @@ describe('a session', () => {
         expect(sessions.currentId('before')).toBe('before')
         // A clear of a session Orrery never heard of starts nothing.
         expect(sessions.report({id: 'stranger', project: 'larder', event: 'SessionEnd', reason: 'clear'})).toBeNull()
+    })
+
+    it('moves what its old id worked and was sent to the new one, so a restart loses none of it', () => {
+        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionStart'})
+        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart', source: 'clear'})
+        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'working'})
+        expect(renamed).toEqual(['larder:before>after'])
+    })
+
+    it('resumed by its old id in another window is another session', () => {
+        const channel = sessions.attend('larder', 'before', 42, undefined)
+        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart', source: 'clear'})
+        // `claude --resume before` in another terminal.
+        sessions.report({id: 'before', pid: 99, project: 'larder', event: 'SessionStart', source: 'resume'})
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder 1', listening: true}, {id: 'before', name: 'larder 2', listening: false}])
+        expect(sessions.currentId('before')).toBe('before')
+        // The first window's channel, still on the old id, reaches its own session by its pid.
+        sessions.attend('larder', 'before', 42, undefined).done()
+        expect(channel.id).toBe('after')
+        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'working'})
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', state: 'working'}, {id: 'before', state: 'idle'}])
+    })
+
+    it('outlives a /clear with no pid: the next session after a clear in its folder takes it over', () => {
+        vi.useFakeTimers()
+        sessions.attend('larder', 'before', undefined, undefined)
+        sessions.report({id: 'before', project: 'larder', cwd: '/src/larder', event: 'SessionStart'})
+        sessions.report({id: 'before', project: 'larder', cwd: '/src/larder', event: 'SessionEnd', reason: 'clear'})
+        // A fresh window, or a clear in another folder, isn't it.
+        sessions.report({id: 'fresh', project: 'larder', cwd: '/src/larder', event: 'SessionStart', source: 'startup'})
+        sessions.report({id: 'elsewhere', project: 'larder', cwd: '/src/other', event: 'SessionStart', source: 'clear'})
+        sessions.report({id: 'after', project: 'larder', cwd: '/src/larder', event: 'SessionStart', source: 'clear'})
+        expect(sessions.listSessions('larder').map(s => s.id).sort()).toEqual(['after', 'elsewhere', 'fresh'])
+        expect([sessions.currentId('before'), sessions.hearing('larder', 'after')]).toEqual(['after', true])
+        // It waits a minute at most: a clear after that is a session of its own.
+        sessions.report({id: 'fresh', project: 'larder', cwd: '/src/larder', event: 'SessionEnd', reason: 'clear'})
+        vi.advanceTimersByTime(61_000)
+        sessions.report({id: 'late', project: 'larder', cwd: '/src/larder', event: 'SessionStart', source: 'clear'})
+        expect(sessions.listSessions('larder').map(s => s.id).sort()).toEqual(['after', 'elsewhere', 'fresh', 'late'])
     })
 
     it('started by Orrery keeps its launch across a /clear', () => {

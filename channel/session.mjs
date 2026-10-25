@@ -8,8 +8,8 @@ export function claudeWindow() {
     if (!pid) {
         try {
             for (let at = process.ppid, hops = 0; at > 1 && hops < 8; hops++) {
-                const [parent, ...name] = execFileSync('ps', ['-o', 'ppid=,comm=', '-p', String(at)], {encoding: 'utf8'}).trim().split(/\s+/)
-                if (/(^|\/)claude$/.test(name.join(' '))) {
+                const [parent, ...command] = execFileSync('ps', ['-o', 'ppid=,args=', '-p', String(at)], {encoding: 'utf8'}).trim().split(/\s+/)
+                if (isClaude(command)) {
                     pid = at
                     break
                 }
@@ -20,4 +20,10 @@ export function claudeWindow() {
         }
     }
     return {id, pid, name: process.env.ORRERY_SESSION || undefined}
+}
+
+/** Whether a process's command line is Claude Code's: `claude` itself, or node running it (an npm install). */
+export function isClaude([program = '', script = '']) {
+    return /(^|\/)claude$/.test(program)
+        || (/(^|\/)node$/.test(program) && /(^|\/)claude$|@anthropic-ai\/claude-code\//.test(script))
 }

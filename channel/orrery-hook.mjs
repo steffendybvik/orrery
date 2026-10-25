@@ -34,7 +34,8 @@ try {
         }),
     })
     const {brief} = response.ok ? await response.json() ?? {} : {}
-    if (brief) process.stdout.write(`${brief}\n`)
+    // stdout to a pipe can still be writing: exit once the brief is out.
+    if (brief) await new Promise(resolve => process.stdout.write(`${brief}\n`, resolve))
 } catch {
     // Orrery not running, or slow: the session carries on regardless.
 }
