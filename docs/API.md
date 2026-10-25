@@ -272,6 +272,7 @@ the limits while their channel is connected.
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
+| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stopsAt}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again |
 | `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
 | `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped |
 

@@ -5,9 +5,9 @@ import type {Project} from '#shared/roadmap'
 // many at once, how long each runs), whether its launcher is there, and the sessions it has started.
 const props = defineProps<{project: Project}>()
 const {load} = useOwner()
-/** What installs the launcher, run in the project's repo: this Orrery's checkout, where it knows it. */
-const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
-const {launchers, sessions} = useRoadmaps()
+const {sessions} = useRoadmaps()
+// Whether a launcher is there to start them, asked again as its launchers or sessions change.
+const {state, install} = useLaunchState(() => props.project.id)
 const started = computed(() => (sessions.value[props.project.id] ?? []).filter(s => s.started))
 const failed = ref('')
 const field = 'h-8 w-20 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
@@ -18,13 +18,6 @@ watch(() => props.project.starts, starts => {
     limit.value = starts?.limit ?? 1
     minutes.value = starts?.minutes ?? 60
 }, {immediate: true})
-
-// Whether a launcher is there to start them, asked again as the project, its launchers or its sessions change.
-const state = ref<{launchers: number, started: number, starting: number} | null>(null)
-async function refresh() {
-    state.value = await $fetch<typeof state.value>(`/api/projects/${encodeURIComponent(props.project.id)}/launches`).catch(() => null)
-}
-watch(() => [props.project, launchers.value[props.project.id], sessions.value[props.project.id]], refresh, {immediate: true})
 
 async function save(change: Record<string, unknown>) {
     failed.value = ''

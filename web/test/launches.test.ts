@@ -9,6 +9,7 @@ let listeners: number
 let started: {larder: number, all: number}
 let starts: Starts | undefined
 let session: {started?: {launch: string, tmux: string, stopsAt: string}} | undefined
+let adopted: string[]
 
 beforeEach(async () => {
     sent = []
@@ -16,6 +17,7 @@ beforeEach(async () => {
     started = {larder: 0, all: 0}
     starts = {limit: 2, minutes: 30}
     session = undefined
+    adopted = []
     const events = new EventEmitter()
     events.on('launches', event => sent.push(event.type === 'launch' ? {type: 'launch', after: event.launch.after, minutes: event.launch.minutes} : event))
     vi.stubGlobal('projectEvents', events)
@@ -24,6 +26,7 @@ beforeEach(async () => {
     vi.stubGlobal('listening', () => listeners)
     vi.stubGlobal('startedSessions', (project?: string) => project ? started.larder : started.all)
     vi.stubGlobal('sessionOfLaunch', () => session)
+    vi.stubGlobal('adoptLaunch', (_project: string, started: {launch: string}) => adopted.push(started.launch))
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stopsAt: string) => ({...session, started: {...session!.started!, stopsAt}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
@@ -141,5 +144,27 @@ describe('a session Orrery started', () => {
         launches.stopLaunch('larder', 'abc')
         expect(launches.extendLaunchBy('larder', 'abc', 30).started!.stopsAt).toBe('2999-01-01T10:30:00.000Z')
         expect(sent).toEqual([{type: 'stop', project: 'larder', id: 'abc'}, {type: 'extend', project: 'larder', id: 'abc', stopsAt: '2999-01-01T10:30:00.000Z'}])
+    })
+})
+
+describe('a launcher reporting the sessions it runs', () => {
+    const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', stopsAt: '2026-10-25T20:00:00.000Z'}
+
+    it('has Orrery know them again after it restarted, whichever of the session and the report comes first', () => {
+        // Before the report, a channel claiming the launch isn't known as started.
+        expect(launches.launched(running.id)).toBeUndefined()
+        launches.reportRunning('larder', [running])
+        expect(adopted).toEqual([running.id])
+        expect(launches.launched(running.id)).toEqual({launch: running.id, tmux: running.tmux, stopsAt: running.stopsAt})
+    })
+
+    it('keeps the stop time the owner moves, and forgets the launch once it has ended', () => {
+        launches.reportRunning('larder', [running])
+        session = {started: {launch: running.id, tmux: running.tmux, stopsAt: running.stopsAt}}
+        vi.useFakeTimers({now: Date.parse('2026-10-25T19:00:00.000Z')})
+        launches.extendLaunchBy('larder', running.id, 30)
+        expect(launches.launched(running.id)?.stopsAt).toBe('2026-10-25T20:30:00.000Z')
+        launches.launchGone(running.id)
+        expect(launches.launched(running.id)).toBeUndefined()
     })
 })
