@@ -426,3 +426,14 @@ export interface SecretUse {
     createdBy: string
     createdAt: string
 }
+
+/** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */
+export function slugify(text: string): string {
+    return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
+}
+
+/** Three capitals from the name, e.g. `LAR` for Larder. */
+export function keyFor(name: string): string {
+    const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
+    return letters.slice(0, 3) || 'ISS'
+}

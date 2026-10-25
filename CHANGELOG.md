@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Fixed:** the Connect brief quotes a project's name for the shell, keeps a window's session name to
+  letters, digits and dashes, and keeps a name on one line, so a crafted `?name=` or `?session=` can't
+  run a command or add to the brief. A new project's id and prefix now match what the store makes.
 - **Images in comments:** paste, drop or pick an image in the comment box and it goes in as Markdown;
   it opens full size when clicked. Orrery keeps images in its database (`POST /api/uploads`, for agents
   too), so backups and `orrery:copy` take them along. PNG, JPEG, GIF and WebP, up to 10 MB.
