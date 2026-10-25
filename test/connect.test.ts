@@ -4,6 +4,7 @@ import {connectPieces, idsFor} from '#shared/connect'
 import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
 import {Store} from '../server/utils/store'
+import {testDb} from './db'
 
 const larder: ConnectTarget = {origin: 'http://localhost:9000', repoDir: '/src/orrery', id: 'larder', name: 'Larder', key: 'LAR', isNew: false}
 
@@ -49,7 +50,7 @@ describe('connecting a repo', () => {
 
 describe('a name', () => {
     it("makes the id and prefix Orrery's store would", async () => {
-        const store = new Store(new SqliteDb(openDb(':memory:')))
+        const store = new Store(testDb())
         for (const name of ['Fitness App', 'larder', 'Mesa 2', 'Q3 roadmap']) {
             const made = await store.createProject({name})
             expect(idsFor(name)).toEqual({id: made.id, key: made.key})
@@ -66,7 +67,7 @@ describe('the overview agents read', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('lists the projects with their progress, at the address it was reached on', async () => {
-        const store = new Store(new SqliteDb(openDb(':memory:')))
+        const store = new Store(testDb())
         vi.stubGlobal('useStore', () => store)
         vi.stubGlobal('getRequestURL', () => new URL('http://orrery.lan:9000/llms.txt'))
         const {overview} = await import('../server/utils/guide')
@@ -84,7 +85,7 @@ describe('who is asking', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('is the Orrery-Actor header, the owner when it is their id, agent without one', async () => {
-        const store = new Store(new SqliteDb(openDb(':memory:')))
+        const store = new Store(testDb())
         await store.nameOwner({name: 'Sköll Fenrisson'})
         let header: string | undefined
         vi.stubGlobal('useStore', () => store)

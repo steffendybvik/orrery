@@ -273,7 +273,7 @@ export class Store {
         return (await this.all<CommentRow & {title: string, cleared: number}>(`
             SELECT * FROM (
                 SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
-                WHERE c.owned = 0 ${cleared ? '' : 'AND c.cleared = 0'})
+                WHERE c.owned = 0 ${cleared ? '' : 'AND c.cleared = 0'}) AS listed
             ORDER BY (asks IS NOT NULL AND NOT answered) DESC, created_at DESC, id DESC ${limit === null ? '' : 'LIMIT ?'}`, ...limit === null ? [] : [limit]))
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }

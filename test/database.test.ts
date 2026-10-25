@@ -50,3 +50,10 @@ describe('the SQLite driver', () => {
         expect(seen).toEqual([1])
     })
 })
+
+describe('the Postgres driver', () => {
+    it('numbers the placeholders, leaving quoted text alone', async () => {
+        const {numbered} = await import('../server/utils/postgres')
+        expect(numbered("SELECT * FROM t WHERE a = ? AND b IN (?, ?) AND c = '?' AND d = ?")).toBe("SELECT * FROM t WHERE a = $1 AND b IN ($2, $3) AND c = '?' AND d = $4")
+    })
+})

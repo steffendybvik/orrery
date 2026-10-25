@@ -3,7 +3,9 @@
 import {mkdirSync} from 'node:fs'
 import {restoreBackup} from './backup'
 import {renumberSync} from './renumber'
+import type {Db} from './database'
 import {SqliteDb} from './database'
+import {PostgresDb, isPostgres} from './postgres'
 import {dirname, resolve} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 
@@ -432,19 +434,23 @@ function useDb(): DatabaseSync {
     return db
 }
 
-/** The open database as the store awaits it. */
-export function useDatabase(): SqliteDb {
+/** The open database as the store awaits it: Postgres when the setting is a `postgres://` URL, else the
+ * SQLite file. */
+export function useDatabase(): Db {
+    const setting = String(useRuntimeConfig().database)
+    if (isPostgres(setting)) return database ??= new PostgresDb(setting)
     const raw = useDb()
-    if (database?.raw !== raw) database = new SqliteDb(raw)
+    if (!(database instanceof SqliteDb) || database.raw !== raw) database = new SqliteDb(raw)
     return database
 }
 
-let database: SqliteDb | null = null
+let database: SqliteDb | PostgresDb | null = null
 
-/** Lets go of the file, e.g. as `nuxt dev` swaps in a reloaded server; the next `useDb` opens it again. */
-export function closeDb() {
+/** Lets go of the database, e.g. as `nuxt dev` swaps in a reloaded server; the next use opens it again. */
+export async function closeDb() {
     db?.close()
     db = null
+    if (database instanceof PostgresDb) await database.close()
     database = null
 }
 

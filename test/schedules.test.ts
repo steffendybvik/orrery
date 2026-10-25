@@ -4,6 +4,7 @@ import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
+import {testDb} from './db'
 
 const me = {name: 'skoll', owner: true}
 const agent = {name: 'claude', owner: false}
@@ -13,7 +14,7 @@ let signals: Signal[]
 
 beforeEach(async () => {
     signals = []
-    store = new Store(new SqliteDb(openDb(':memory:')), () => {}, signal => signals.push(signal))
+    store = new Store(testDb(), () => {}, signal => signals.push(signal))
     await store.createProject({name: 'larder', key: 'LAR'})
     await store.createChunk('larder', {title: 'Upkeep'})
     schedules = new Schedules(store)

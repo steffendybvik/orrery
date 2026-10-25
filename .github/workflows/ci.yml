@@ -16,6 +16,15 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: orrery
+          POSTGRES_PASSWORD: orrery
+          POSTGRES_DB: orrery
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       # The pnpm version comes from `packageManager` in package.json.
@@ -26,6 +35,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+      # The store's tests again, on Postgres.
+      - run: pnpm vitest run test/store.test.ts test/schedules.test.ts test/connect.test.ts
+        env:
+          TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
       - run: pnpm typecheck
 
   # The main flows in a real browser, against `nuxt dev` with a fresh database.

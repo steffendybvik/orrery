@@ -9,6 +9,7 @@ import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
 import {readRoadmap} from '../server/utils/roadmap'
 import {Store} from '../server/utils/store'
+import {onPostgres, testDb} from './db'
 import type {Actor} from '../server/utils/store'
 
 let store: Store
@@ -16,7 +17,7 @@ let changes: string[]
 
 beforeEach(async () => {
     changes = []
-    store = new Store(new SqliteDb(openDb(':memory:')), project => changes.push(project))
+    store = new Store(testDb(), project => changes.push(project))
     await store.createProject({name: 'larder', key: 'LAR'})
     await store.createChunk('larder', {title: 'Moving parts: joints'})
 })
@@ -346,7 +347,7 @@ describe("the owner's name", () => {
 describe("the owner's comments", () => {
     it('go to the session last asked to focus on the issue, or to all', async () => {
         const sent: string[] = []
-        const local = new Store(new SqliteDb(openDb(':memory:')), () => {}, signal => sent.push(`${signal.kind}:${signal.target ?? 'all'}:${signal.note}`))
+        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.target ?? 'all'}:${signal.note}`))
         await local.createProject({name: 'larder', key: 'LAR'})
         const me = {name: 'skoll', owner: true}
         const {id} = await local.createIssue('larder', {title: 'A'})
@@ -369,7 +370,7 @@ describe('chunks', () => {
 
     it('can be focused on, by their id or a name they had', async () => {
         const sent: string[] = []
-        const local = new Store(new SqliteDb(openDb(':memory:')), () => {}, signal => sent.push(`${signal.kind}:${signal.issue ?? '-'}:${signal.chunk}:${signal.target ?? 'all'}`))
+        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.kind}:${signal.issue ?? '-'}:${signal.chunk}:${signal.target ?? 'all'}`))
         await local.createProject({name: 'larder', key: 'LAR'})
         await local.createChunk('larder', {title: 'Joints'})
         const signal = await local.focusChunk('larder', '1', {session: 'joints-window', note: 'urgent'}, {name: 'skoll', owner: true})
@@ -382,7 +383,7 @@ describe('chunks', () => {
     })
 
     it('can be focused on for their issues of one status', async () => {
-        const local = new Store(new SqliteDb(openDb(':memory:')), () => {})
+        const local = new Store(testDb(), () => {})
         await local.createProject({name: 'larder', key: 'LAR'})
         await local.createChunk('larder', {title: 'Joints'})
         expect((await local.focusChunk('larder', '1', {status: 'todo'}, {name: 'skoll', owner: true})).status).toBe('todo')
@@ -482,7 +483,7 @@ describe("an owner's comment", () => {
 
     it('goes to the session that last worked the issue, while it can hear; else to every session', async () => {
         const sent: (string | undefined)[] = []
-        const local = new Store(new SqliteDb(openDb(':memory:')), () => {}, signal => signal.kind === 'comment' && sent.push(signal.target))
+        const local = new Store(testDb(), () => {}, signal => signal.kind === 'comment' && sent.push(signal.target))
         let listening = ['window-a', 'window-b']
         local.hears = (_project, session) => listening.includes(session)
         await local.createProject({name: 'larder', key: 'LAR'})
@@ -575,7 +576,7 @@ describe('removing', () => {
 describe('a session that connects', () => {
     it("gets the owner's comments that no agent has answered", async () => {
         const sent: string[] = []
-        const local = new Store(new SqliteDb(openDb(':memory:')), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
+        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
         await local.createProject({name: 'larder', key: 'LAR'})
         const me = {name: 'skoll', owner: true}
         const a = (await local.createIssue('larder', {title: 'A'})).id
@@ -642,7 +643,8 @@ describe('the database', () => {
         expect((await upgraded.updateIssue('larder', 'LAR-4', {priority: 'P0'})).priority).toBe('P0')
     })
 
-    it('is backed up to a folder and restored from it', async () => {
+    // Postgres is backed up by its own means.
+    it.skipIf(onPostgres)('is backed up to a folder and restored from it', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
         const {id} = await store.createIssue('larder', {title: 'saved'})
         backup((store.db as SqliteDb).raw, join(dir, 'cloud'))

@@ -15,7 +15,7 @@ export default defineNuxtConfig({
     },
 
     runtimeConfig: {
-        // Where the projects, chunks, issues and comments live. Override with NUXT_DATABASE.
+        // Where the projects, chunks, issues and comments live: a SQLite file, or a postgres:// URL. Override with NUXT_DATABASE.
         database: '.data/orrery.db',
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
