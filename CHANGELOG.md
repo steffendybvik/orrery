@@ -5,6 +5,8 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Images in issues:** the New issue dialog and an issue's description take pasted, dropped or picked
+  images too, as the comment box does.
 - **Chunks from the page:** New chunk on the roadmap (and in ⌘K) makes one with a title and summary; on
   a chunk's page the title edits in place, the summary has Edit, and the bin removes it (its issues stay,
   in no chunk).
