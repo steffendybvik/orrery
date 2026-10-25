@@ -285,6 +285,12 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- The colour of a project's icon: a tint's name or a #rrggbb; none follows the text.
     ALTER TABLE projects ADD COLUMN icon_color TEXT;
+`, `
+    -- Which environment a project is in (personal, work, …): the page can show one at a time.
+    ALTER TABLE projects ADD COLUMN environment TEXT NOT NULL DEFAULT 'personal';
+`, `
+    -- Environments are servers after all, each with its own database (NUXT_PUBLIC_ENVIRONMENT names it).
+    ALTER TABLE projects DROP COLUMN environment;
 `]
 
 let db: DatabaseSync | null = null

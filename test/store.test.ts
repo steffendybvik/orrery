@@ -164,7 +164,7 @@ describe('comments', () => {
 })
 
 describe('proposals', () => {
-    const owner: Actor = {name: 'steffen', owner: true}
+    const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
 
     it('sit in Proposed with their sub-issues, out of the committed work', () => {
@@ -180,7 +180,7 @@ describe('proposals', () => {
         const {id} = store.createIssue('mesher', {title: 'Button', proposal: 'pending'}, claude)
         expect(failure(() => store.decide('mesher', id, {decision: 'approved'}, claude)).status).toBe(403)
         const decided = store.decide('mesher', id, {decision: 'changes', note: 'Rounder corners'}, owner)
-        expect([decided.proposal, decided.decidedBy, decided.decisionNote, decided.column]).toEqual(['changes', 'steffen', 'Rounder corners', 'proposed'])
+        expect([decided.proposal, decided.decidedBy, decided.decisionNote, decided.column]).toEqual(['changes', 'skoll', 'Rounder corners', 'proposed'])
         expect(store.listComments('mesher', id).at(-1)?.body).toBe('Asked for changes to this proposal.\n\nRounder corners')
         // Put up again, it waits on a new decision.
         expect(store.updateIssue('mesher', id, {proposal: 'pending'}, claude).decidedBy).toBeUndefined()
@@ -192,7 +192,7 @@ describe('proposals', () => {
         expect(failure(() => store.updateIssue('mesher', id, {proposal: null}, claude)).status).toBe(403)
         store.decide('mesher', id, {decision: 'approved'}, owner)
         const committed = store.updateIssue('mesher', id, {proposal: null, plan: 'next'}, claude)
-        expect([committed.proposal, committed.column, committed.decidedBy]).toEqual([undefined, 'next', 'steffen'])
+        expect([committed.proposal, committed.column, committed.decidedBy]).toEqual([undefined, 'next', 'skoll'])
         const other = store.createIssue('mesher', {title: 'Card', proposal: 'pending'})
         expect(store.updateIssue('mesher', other.id, {proposal: null}, owner).column).toBe('backlog')
     })
@@ -207,12 +207,12 @@ describe('proposals', () => {
 })
 
 describe("the owner's things", () => {
-    const me: Actor = {name: 'steffen', owner: true}
+    const me: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
     const add = (body: Record<string, unknown>, actor: Actor) => store.createIssue('mesher', body, actor).id
 
     it('record who made them', () => {
-        expect(store.createIssue('mesher', {title: 'A'}, me)).toMatchObject({createdBy: 'steffen', protected: true})
+        expect(store.createIssue('mesher', {title: 'A'}, me)).toMatchObject({createdBy: 'skoll', protected: true})
         expect(store.createIssue('mesher', {title: 'B'}, claude)).toMatchObject({createdBy: 'claude', protected: false})
     })
 
@@ -244,7 +244,7 @@ describe("the owner's comments", () => {
         const sent: string[] = []
         const local = new Store(openDb(':memory:'), () => {}, signal => sent.push(`${signal.kind}:${signal.target ?? 'all'}:${signal.note}`))
         local.createProject({name: 'mesher', key: 'MSH'})
-        const me = {name: 'steffen', owner: true}
+        const me = {name: 'skoll', owner: true}
         const {id} = local.createIssue('mesher', {title: 'A'})
         local.createComment('mesher', id, {body: 'first'}, me)
         local.focus('mesher', id, {session: 'joints-window'}, me)
@@ -268,7 +268,7 @@ describe('chunks', () => {
         const local = new Store(openDb(':memory:'), () => {}, signal => sent.push(`${signal.kind}:${signal.issue ?? '-'}:${signal.chunk}:${signal.target ?? 'all'}`))
         local.createProject({name: 'mesher', key: 'MSH'})
         local.createChunk('mesher', {title: 'Joints'})
-        const signal = local.focusChunk('mesher', '1', {session: 'joints-window', note: 'urgent'}, {name: 'steffen', owner: true})
+        const signal = local.focusChunk('mesher', '1', {session: 'joints-window', note: 'urgent'}, {name: 'skoll', owner: true})
         expect(signal).toMatchObject({chunk: '1', kind: 'focus', note: 'urgent', protected: true})
         expect(signal.issue).toBeUndefined()
         expect(sent).toEqual(['focus:-:1:joints-window'])
@@ -284,7 +284,7 @@ describe('the bell', () => {
         const agent = {name: 'claude', owner: false}
         const first = store.createComment('mesher', id, {body: 'one'}, agent)
         store.createComment('mesher', id, {body: 'two'}, agent)
-        store.createComment('mesher', id, {body: 'mine'}, {name: 'steffen', owner: true})
+        store.createComment('mesher', id, {body: 'mine'}, {name: 'skoll', owner: true})
         expect(store.clearNotices({ids: [first.id]})).toBe(1)
         expect(store.notices().map(n => n.body)).toEqual(['two'])
         expect(store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})).toBe(1)
@@ -305,7 +305,7 @@ describe('comments that wait on the owner', () => {
         expect(store.notices().map(n => [n.body, n.answered])).toEqual([['Ship it?', false], ['later note', undefined], ['note', undefined]])
         store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})
         expect(store.notices().map(n => n.body)).toEqual(['Ship it?'])
-        store.createComment('mesher', id, {body: 'Yes'}, {name: 'steffen', owner: true})
+        store.createComment('mesher', id, {body: 'Yes'}, {name: 'skoll', owner: true})
         expect(store.notices()[0]).toMatchObject({body: 'Ship it?', answered: true})
         expect(store.listComments('mesher', id).find(c => c.id === ask.id)).toMatchObject({asks: 'decision', answered: true})
         expect(failure(() => store.createComment('mesher', id, {body: 'x', asks: 'vibes'}, agent)).status).toBe(400)
@@ -314,16 +314,16 @@ describe('comments that wait on the owner', () => {
     it("make the issue the owner's until they answer, then the asker's again", () => {
         const {id} = store.createIssue('mesher', {title: 'A', assignee: 'claude'})
         const agent = {name: 'claude', owner: false}
-        const steffen = {name: 'steffen', owner: true}
+        const skoll = {name: 'skoll', owner: true}
         store.createComment('mesher', id, {body: 'note'}, agent)
         expect(store.issue('mesher', id).assignee).toBe('claude')
         store.createComment('mesher', id, {body: 'Ship it?', asks: 'decision'}, agent)
         expect(store.issue('mesher', id).assignee).toBe('owner')
-        store.createComment('mesher', id, {body: 'Yes'}, steffen)
+        store.createComment('mesher', id, {body: 'Yes'}, skoll)
         expect(store.issue('mesher', id).assignee).toBe('claude')
         // Answered already, so a later word from the owner leaves it with the agent.
-        store.updateIssue('mesher', id, {assignee: 'owner'}, steffen)
-        store.createComment('mesher', id, {body: 'Mine now'}, steffen)
+        store.updateIssue('mesher', id, {assignee: 'owner'}, skoll)
+        store.createComment('mesher', id, {body: 'Mine now'}, skoll)
         expect(store.issue('mesher', id).assignee).toBe('owner')
     })
 })
@@ -331,19 +331,19 @@ describe('comments that wait on the owner', () => {
 describe('settings', () => {
     it('keep a tint, the owner’s to change', () => {
         expect(store.settings()).toEqual({tint: null})
-        expect(store.updateSettings({tint: 'blue'}, {name: 'steffen', owner: true})).toEqual({tint: 'blue'})
-        expect(store.updateSettings({tint: '#123abc'}, {name: 'steffen', owner: true}).tint).toBe('#123abc')
-        expect(failure(() => store.updateSettings({tint: 'red; background: url(x)'}, {name: 'steffen', owner: true})).status).toBe(400)
+        expect(store.updateSettings({tint: 'blue'}, {name: 'skoll', owner: true})).toEqual({tint: 'blue'})
+        expect(store.updateSettings({tint: '#123abc'}, {name: 'skoll', owner: true}).tint).toBe('#123abc')
+        expect(failure(() => store.updateSettings({tint: 'red; background: url(x)'}, {name: 'skoll', owner: true})).status).toBe(400)
         expect(failure(() => store.updateSettings({tint: null}, {name: 'claude', owner: false})).status).toBe(403)
-        expect(store.updateSettings({tint: null}, {name: 'steffen', owner: true})).toEqual({tint: null})
+        expect(store.updateSettings({tint: null}, {name: 'skoll', owner: true})).toEqual({tint: null})
     })
 })
 
 describe('removing', () => {
     it('an issue takes its signals with it', () => {
         const {id} = store.createIssue('mesher', {title: 'A'})
-        store.focus('mesher', id, {}, {name: 'steffen', owner: true})
-        store.deleteIssue('mesher', id, {name: 'steffen', owner: true})
+        store.focus('mesher', id, {}, {name: 'skoll', owner: true})
+        store.deleteIssue('mesher', id, {name: 'skoll', owner: true})
         expect(store.listSignals('mesher')).toEqual([])
     })
 })
@@ -353,7 +353,7 @@ describe('a session that connects', () => {
         const sent: string[] = []
         const local = new Store(openDb(':memory:'), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
         local.createProject({name: 'mesher', key: 'MSH'})
-        const me = {name: 'steffen', owner: true}
+        const me = {name: 'skoll', owner: true}
         const a = local.createIssue('mesher', {title: 'A'}).id
         const b = local.createIssue('mesher', {title: 'B'}).id
         local.createComment('mesher', a, {body: 'answer me'}, me)
@@ -382,10 +382,10 @@ describe('docs', () => {
     })
 
     it("are the owner's to delete when the owner wrote them", () => {
-        store.createDoc('mesher', {id: 'mine', title: 'Mine'}, {name: 'steffen', owner: true})
+        store.createDoc('mesher', {id: 'mine', title: 'Mine'}, {name: 'skoll', owner: true})
         expect(failure(() => store.deleteDoc('mesher', 'mine')).status).toBe(403)
         expect(failure(() => store.deleteProject('mesher')).status).toBe(403)
-        store.deleteDoc('mesher', 'mine', {name: 'steffen', owner: true})
+        store.deleteDoc('mesher', 'mine', {name: 'skoll', owner: true})
         expect(store.listDocs('mesher')).toEqual([])
     })
 })

@@ -25,7 +25,7 @@ RUN pnpm build
 
 FROM node:24.22.1-bookworm-slim AS prod
 COPY --from=build /src/.output /app
-RUN mkdir /data && chown node:node /data
+RUN mkdir /data /backup && chown node:node /data /backup
 USER node
 ENV HOST=0.0.0.0 PORT=9000 NODE_ENV=production NUXT_DATABASE=/data/orrery.db
 VOLUME /data

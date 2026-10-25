@@ -5,7 +5,7 @@
 //   claude --dangerously-load-development-channels server:<project>
 // with this server registered under the project's id in the repo's .mcp.json (`orrery-<project>` and
 // `orrery` work too, as older setups named it). ORRERY_PROJECT names the project
-// (the folder's name by default); ORRERY_URL is where Orrery runs (http://localhost:9010 by default).
+// (the folder's name by default); ORRERY_URL is where Orrery runs (http://localhost:9000 by default).
 // Only stderr is for logs: stdout is the MCP connection.
 import {readdirSync, readFileSync, statSync} from 'node:fs'
 import {homedir} from 'node:os'
@@ -14,7 +14,7 @@ import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {claudeWindow} from './session.mjs'
 
-const base = (process.env.ORRERY_URL ?? 'http://localhost:9010').replace(/\/+$/, '')
+const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 const project = process.env.ORRERY_PROJECT ?? basename(process.cwd())
 const api = `${base}/api/projects/${encodeURIComponent(project)}`
 const log = (...parts) => console.error('[orrery channel]', ...parts)

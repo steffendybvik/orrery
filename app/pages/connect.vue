@@ -10,7 +10,7 @@ const router = useRouter()
 const {ordered} = useProjectOrder()
 const config = useRuntimeConfig()
 
-const origin = import.meta.client ? location.origin : 'http://localhost:9010'
+const origin = import.meta.client ? location.origin : 'http://localhost:9000'
 const picked = computed({
     get: () => (route.query.project as string | undefined) ?? ordered.value[0]?.id ?? 'new',
     set: id => router.replace({query: {project: id}}),

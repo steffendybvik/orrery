@@ -6,36 +6,87 @@ Apps (and the Claude sessions in their repos) keep their roadmaps here through t
 
 ## Run
 
-```sh
-docker compose up -d                # http://localhost:9000, data in the orrery-data volume
-ORRERY_PORT=9010 docker compose up -d   # if 9000 is taken (or set it in .env)
-```
-
-That runs the repo with `nuxt dev`: it's mounted into the container, so a saved change shows on the
-page straight away and the server reloads itself, with no rebuild. Only this Mac can reach it. The
-container has its own `node_modules` and `.nuxt` (volumes), and installs packages as it starts, so
-after a `pnpm-lock.yaml` change, `docker compose restart orrery`. Change the Dockerfile and it's
-`docker compose up -d --build`.
-
-The built app, for when nothing's being worked on (same port and database, so one at a time):
+You need Docker. From the repo:
 
 ```sh
-docker compose stop orrery && docker compose --profile prod up -d --build orrery-prod
+docker compose up -d --build        # http://localhost:9000
 ```
 
-A second Orrery for work runs beside it, apart in everything: `orrery-work` on http://localhost:9020
-(`ORRERY_WORK_PORT`), the built app, with its own database (the `orrery-work-data` volume) and its
-own backups on this Mac (`~/Library/Application Support/Orrery Work`, or `ORRERY_WORK_BACKUP`), not
-in iCloud. It's badged **Work**. A repo's sessions use it when its `.mcp.json` sets
-`ORRERY_URL=http://localhost:9020`. It changes only when rebuilt: `docker compose up -d --build orrery-work`.
+That's the built app. On its first start it makes an empty SQLite database in the `orrery-data`
+volume, with nothing to set up; create your first project from the page's sidebar (`+`) or as in
+[Connect a repo](#connect-a-repo). Everything below is optional, in a `.env` beside
+`docker-compose.yml` (see `.env.example`):
 
-Locally (Node 24.22.1, pnpm 10.14.0): `pnpm install`, then `pnpm dev` on http://localhost:9000.
-The database is `.data/orrery.db` (`NUXT_DATABASE`).
+| Variable | What it does | Default |
+|---|---|---|
+| `ORRERY_PORT` | the port on this machine | `9000` |
+| `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts) | `127.0.0.1` |
+| `ORRERY_OWNER` | your name in the `Orrery-Actor` header: the owner's things no one else can delete | `owner` |
+| `ORRERY_OWNER_NAME` | the name the page shows for the owner | the owner's name |
+| `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
+| `ORRERY_ENVIRONMENT` | this Orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
-The container keeps a copy of the database in iCloud Drive's `Orrery` folder (`ORRERY_BACKUP`), a few
-seconds after each change plus one a day for two weeks, and a new volume starts from it. The live
-file stays out of iCloud: a synced SQLite file gets corrupted, a snapshot doesn't. `NUXT_OWNER` (`ORRERY_OWNER` in compose) is the
-name whose things no one else can delete.
+After pulling a new version, `docker compose up -d --build` again; the database moves to the new
+schema by itself.
+
+The backups are a copy a few seconds after each change, `orrery.db`, plus one a day for two weeks.
+A new, empty volume starts from the latest one. The live file never goes in the backup folder: a
+synced SQLite file gets corrupted, a snapshot doesn't.
+
+Without Docker (Node 24.22.1, pnpm 10.14.0): `pnpm install && pnpm build`, then
+`NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs`. The database file is
+made if it isn't there (by default `.data/orrery.db`). The same settings are `NUXT_OWNER`,
+`NUXT_OWNER_NAME`, `NUXT_BACKUP_DIR` and `NUXT_PUBLIC_ENVIRONMENT`.
+
+### Two servers: personal and work
+
+Each Orrery is its own server with its own database, so work and personal projects never mix. Run
+each as its own compose project with its own env file:
+
+```sh
+# .env.personal
+COMPOSE_PROJECT_NAME=orrery-personal
+ORRERY_ENVIRONMENT=personal
+ORRERY_PORT=9010
+ORRERY_BACKUP=/path/to/backups/personal
+```
+
+```sh
+# .env.work
+COMPOSE_PROJECT_NAME=orrery-work
+ORRERY_ENVIRONMENT=work
+ORRERY_PORT=9020
+ORRERY_BACKUP=/path/to/backups/work
+```
+
+```sh
+docker compose --env-file .env.personal up -d --build   # http://localhost:9010, chip: personal
+docker compose --env-file .env.work up -d --build       # http://localhost:9020, chip: work
+```
+
+The project name keeps them apart: each gets its own volumes (`orrery-personal_orrery-data`,
+`orrery-work_orrery-data`), container and port, so stopping, rebuilding or wiping one leaves the
+other alone (`docker compose --env-file .env.work down`). Give each its own backup folder, too: a
+backup folder holds one database. Env files other than `.env.example` are git-ignored.
+
+A repo's channel and hook point at the server its projects are on, by `ORRERY_URL`:
+`http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
+
+### Working on Orrery
+
+`docker-compose.dev.yml` runs the repo with `nuxt dev` in place of the built app, on the same port
+and database: a saved change shows on the page straight away and the server reloads itself, with no
+rebuild. It's this machine's only.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+Or put `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` so plain `docker compose`
+commands use it. The container has its own `node_modules` and `.nuxt` (volumes), and installs
+packages as it starts, so after a `pnpm-lock.yaml` change, `docker compose restart orrery`. Change
+the Dockerfile and it's `docker compose up -d --build`. Locally instead: `pnpm install`, then
+`pnpm dev` on http://localhost:9000.
 
 ## Connect a repo
 

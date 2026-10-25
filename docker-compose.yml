@@ -1,70 +1,38 @@
-# Orrery on http://localhost:9000 (or ORRERY_PORT): `docker compose up -d`.
+# Orrery, the built app, on http://localhost:9000 (or ORRERY_PORT): `docker compose up -d --build`.
 #
-# `orrery` runs the repo with `nuxt dev`: the repo is mounted, so a saved change shows on the page
-# straight away (the server reloads itself), with no rebuild. The built app is `orrery-prod`, for when
-# nothing's being worked on: `docker compose stop orrery && docker compose --profile prod up -d --build orrery-prod`.
-# Both use the same port and database, so run one at a time.
+# The database is made on the first start, in the orrery-data volume, so it outlasts the container.
+# A copy goes to /backup a few seconds after each change, plus one a day for two weeks, and a new
+# volume starts from that copy: the orrery-backup volume, or a folder of yours with ORRERY_BACKUP
+# (one that syncs off the machine is best; the live file stays out of it, a synced SQLite file gets
+# corrupted).
 #
-# `orrery-work` is a second Orrery for work, the built app (so it only changes when it's rebuilt:
-# `docker compose up -d --build orrery-work`), with nothing shared: its own database (orrery-work-data),
-# its own backups (ORRERY_WORK_BACKUP, on this Mac by default, not in iCloud), on ORRERY_WORK_PORT
-# (9020), this Mac only, badged "Work".
+# ORRERY_OWNER is the name whose things no one else can delete: send it as the `Orrery-Actor`
+# header on your own requests. ORRERY_OWNER_NAME is the name the page shows for them instead.
+# ORRERY_ENVIRONMENT names this Orrery (`personal` by default; e.g. `work`): a chip by its name and
+# the start of every tab's title. Each is its own server with its own database: another compose
+# project with its own .env file, e.g. `docker compose --env-file .env.work up -d` with
+# COMPOSE_PROJECT_NAME=orrery-work and its own ORRERY_PORT in it.
 #
-# The live database is in the orrery-data volume. A copy goes to ORRERY_BACKUP (iCloud Drive's
-# Orrery folder by default) a few seconds after each change, plus one a day for two weeks; a new
-# volume starts from that copy. ORRERY_OWNER (in .env) is the name whose things no one else can
-# delete; send it as the `Orrery-Actor` header on your own requests. ORRERY_OWNER_NAME is the name the
-# page shows for them instead.
-
-x-orrery: &orrery
-  environment:
-    NUXT_OWNER: ${ORRERY_OWNER:-owner}
-    NUXT_OWNER_NAME: ${ORRERY_OWNER_NAME:-}
-    NUXT_BACKUP_DIR: /backup
-    NUXT_PUBLIC_REPO_DIR: ${PWD}
-  restart: unless-stopped
+# Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network.
+#
+# Working on Orrery itself: docker-compose.dev.yml, on top of this.
 
 services:
   orrery:
-    <<: *orrery
-    build: {context: ., target: dev}
-    # This Mac only: the dev server hands out the source and its build errors to whoever can reach it.
-    ports:
-      - "127.0.0.1:${ORRERY_PORT:-9000}:9000"
-    volumes:
-      - .:/src
-      - orrery-node-modules:/src/node_modules
-      - orrery-nuxt:/src/.nuxt
-      - orrery-data:/data
-      - ${ORRERY_BACKUP:-${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Orrery}:/backup
-
-  orrery-work:
-    <<: *orrery
     build: {context: ., target: prod}
     ports:
-      - "127.0.0.1:${ORRERY_WORK_PORT:-9020}:9000"
+      - "${ORRERY_HOST:-127.0.0.1}:${ORRERY_PORT:-9000}:9000"
     environment:
       NUXT_OWNER: ${ORRERY_OWNER:-owner}
       NUXT_OWNER_NAME: ${ORRERY_OWNER_NAME:-}
-      NUXT_BACKUP_DIR: /backup
+      NUXT_PUBLIC_ENVIRONMENT: ${ORRERY_ENVIRONMENT:-personal}
       NUXT_PUBLIC_REPO_DIR: ${PWD}
-      NUXT_PUBLIC_LABEL: Work
-    volumes:
-      - orrery-work-data:/data
-      - ${ORRERY_WORK_BACKUP:-${HOME}/Library/Application Support/Orrery Work}:/backup
-
-  orrery-prod:
-    <<: *orrery
-    profiles: [prod]
-    build: {context: ., target: prod}
-    ports:
-      - "${ORRERY_PORT:-9000}:9000"
+      NUXT_BACKUP_DIR: /backup
     volumes:
       - orrery-data:/data
-      - ${ORRERY_BACKUP:-${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Orrery}:/backup
+      - ${ORRERY_BACKUP:-orrery-backup}:/backup
+    restart: unless-stopped
 
 volumes:
   orrery-data:
-  orrery-work-data:
-  orrery-node-modules:
-  orrery-nuxt:
+  orrery-backup:

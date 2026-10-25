@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// A labelled Orrery (a second one, e.g. Work) says so at the start of every tab's title.
-const {label} = useRuntimeConfig().public
-if (label) useHead({titleTemplate: title => `${label} · ${title ?? 'Orrery'}`})
+// Every tab's title starts with which Orrery this is (personal, work, …).
+const {environment} = useRuntimeConfig().public
+if (environment) useHead({titleTemplate: title => `${environment} · ${title ?? 'Orrery'}`})
 </script>
 
 <template>

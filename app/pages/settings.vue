@@ -5,7 +5,7 @@ import {TINTS} from '#shared/roadmap'
 // backgrounds take on, so one Orrery (personal, work) looks unlike another at a glance.
 useHead({title: 'App settings · Orrery'})
 const {settings, tintColor, save} = useAppSettings()
-const {label} = useRuntimeConfig().public
+const {environment} = useRuntimeConfig().public
 const failed = ref('')
 const custom = ref('#3b82f6')
 watch(tintColor, now => {
@@ -34,7 +34,7 @@ async function pick(tint: string | null) {
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Background tint</h2>
           <p class="text-xs text-muted">
-            Colours this Orrery<template v-if="label"> ({{ label }})</template> so you can tell it from another at a glance. It's this Orrery's own: each keeps its tint.
+            Colours this Orrery<template v-if="environment"> ({{ environment }})</template> so you can tell it from another at a glance. It's this Orrery's own: each keeps its tint.
           </p>
         </header>
         <div class="flex flex-wrap items-center gap-2">

@@ -6,7 +6,7 @@
 import {basename} from 'node:path'
 import {claudeWindow} from './session.mjs'
 
-const base = (process.env.ORRERY_URL ?? 'http://localhost:9010').replace(/\/+$/, '')
+const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 let input = ''
 for await (const chunk of process.stdin) input += chunk
 try {

@@ -4,7 +4,7 @@ import {openDb} from '../server/utils/db'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 
-const me = {name: 'steffen', owner: true}
+const me = {name: 'skoll', owner: true}
 const agent = {name: 'claude', owner: false}
 let store: Store
 let schedules: Schedules
@@ -58,7 +58,7 @@ describe('schedules', () => {
         const run = schedules.get('mesher', s.id).runs[0]!
         expect(run.outcome).toBe('made')
         const issue = store.issue('mesher', run.issue!)
-        expect(issue).toMatchObject({chunk: '1', priority: 'P2', labels: ['upkeep'], plan: 'next', schedule: s.id, createdBy: 'steffen', protected: true})
+        expect(issue).toMatchObject({chunk: '1', priority: 'P2', labels: ['upkeep'], plan: 'next', schedule: s.id, createdBy: 'skoll', protected: true})
         expect(issue.title).toMatch(/^Groom · \w{3} \d+ \w{3}$/)
         expect(new Date(schedules.get('mesher', s.id).nextRun!).getTime()).toBeGreaterThan(late.getTime())
     })

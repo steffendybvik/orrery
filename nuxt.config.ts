@@ -20,7 +20,7 @@ export default defineNuxtConfig({
         // Whose things agents can't delete: requests sent with `Orrery-Actor: <owner>` make them.
         // Override with NUXT_OWNER.
         owner: 'owner',
-        // The name the page shows for the owner (e.g. `Steffen`); the owner's name if empty. Override with NUXT_OWNER_NAME.
+        // The name the page shows for the owner (e.g. `Skoll`); the owner's name if empty. Override with NUXT_OWNER_NAME.
         ownerName: '',
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
@@ -28,9 +28,9 @@ export default defineNuxtConfig({
             // Where this repo is on the machine, for the channel setup the Connect page hands out.
             // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).
             repoDir: '',
-            // Which Orrery this is when there's more than one (e.g. `Work`): a badge by the name, and
-            // the start of every tab's title. Override with NUXT_PUBLIC_LABEL.
-            label: '',
+            // Which Orrery this is, each its own server and database (`personal`, `work`, …): a chip by
+            // the name, and the start of every tab's title. Override with NUXT_PUBLIC_ENVIRONMENT.
+            environment: 'personal',
         },
     },
 
