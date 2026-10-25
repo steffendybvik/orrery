@@ -45,6 +45,15 @@ function onDragEnd() {
     dropAt.value = null
 }
 
+// A project's pages fold away under it (→ / ← on its name), so a long list stays short.
+const {isOpen, set: setFolds, toggle} = useProjectFolds()
+const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p => isOpen(p.id)))
+
+// Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged.
+const allSessions = computed(() => ordered.value
+    .flatMap(project => (sessions.value[project.id] ?? []).map(session => ({session, project})))
+    .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))
+
 function nudge(id: string, by: number, event: KeyboardEvent) {
     const from = ordered.value.findIndex(p => p.id === id)
     move(id, from + by)
@@ -126,59 +135,106 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
+        <button
+            v-if="projects.length"
+            type="button"
+            class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg"
+            :title="allOpen ? 'Fold every project' : 'Open every project'"
+            :aria-label="allOpen ? 'Fold every project' : 'Open every project'"
+            @click="setFolds(ordered.map(p => p.id), !allOpen)"
+        >
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path :d="allOpen ? 'm7 4 5 5 5-5M7 20l5-5 5 5' : 'm7 9 5-5 5 5M7 15l5 5 5-5'" /></svg>
+        </button>
         <button type="button" class="grid size-5 place-items-center rounded text-faint hover:bg-hover hover:text-fg" title="New project" aria-label="New project" @click="newProject = true">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
       </div>
-      <!-- Every project with its pages under it: Issues, Roadmap, Docs. -->
+      <!-- Every project, with its pages under it when it's open: Issues, Roadmap, Docs, Settings. -->
       <div
           v-for="(project, index) in ordered"
           :key="project.id"
-          class="relative mb-2 flex flex-col gap-0.5 transition-opacity"
+          class="relative flex flex-col gap-0.5 transition-opacity"
           :class="dragging === project.id && 'opacity-40'"
           @dragover="onDragOver($event, index)"
           @drop.prevent="onDrop"
       >
         <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-500" />
         <span v-if="dropAt === index + 1 && index === ordered.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-500" />
-        <NuxtLink
-            :to="`/p/${project.id}`"
-            draggable="true"
-            title="Drag to rearrange (or ⌥↑ / ⌥↓)"
-            class="flex cursor-grab items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors hover:bg-hover active:cursor-grabbing"
-            :class="route.params.project === project.id ? 'font-medium text-fg' : 'text-muted hover:text-fg'"
-            @dragstart="dragging = project.id; $event.dataTransfer?.setData('text/plain', project.id)"
-            @dragend="onDragEnd"
-            @keydown.alt.up.prevent="nudge(project.id, -1, $event)"
-            @keydown.alt.down.prevent="nudge(project.id, 1, $event)"
-        >
-          <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" class="size-3.5" />
-          <ProgressRing v-else :counts="project.board.counts" bare :size="14" />
-          <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
-          <span v-if="project.board.counts.doing" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.counts.doing} being worked on`">
-            <span class="size-1 rounded-full bg-accent-500" />{{ project.board.counts.doing }}
-          </span>
-          <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.counts.done }}/{{ progress(project.board.counts).total }}</span>
-        </NuxtLink>
-        <NuxtLink
-            v-for="section in sectionsOf(project, route.path)"
-            :key="section.id"
-            :to="section.to"
-            class="ml-5 flex items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"
-            :class="section.active ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-        >
-          <SectionIcon :section="section.id" class="text-faint" />
-          <span class="flex-1">{{ section.label }}</span>
-          <span v-if="section.count" class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ section.count }}</span>
-        </NuxtLink>
-        <div v-for="session in sessions[project.id] ?? []" :key="session.id" class="ml-5 flex items-center gap-2 px-2 py-1 text-[12px] text-muted" :title="session.cwd">
-          <SessionDot :session="session" />
-          <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
-          <span class="text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
+        <div class="group flex items-center rounded-lg transition-colors hover:bg-hover">
+          <NuxtLink
+              :to="`/p/${project.id}`"
+              draggable="true"
+              title="Drag to rearrange (or ⌥↑ / ⌥↓)"
+              class="flex min-w-0 flex-1 cursor-grab items-center gap-2 rounded-lg py-1.5 pl-2 text-[13px] active:cursor-grabbing"
+              :class="route.params.project === project.id ? 'font-medium text-fg' : 'text-muted hover:text-fg'"
+              :aria-expanded="isOpen(project.id)"
+              @dragstart="dragging = project.id; $event.dataTransfer?.setData('text/plain', project.id)"
+              @dragend="onDragEnd"
+              @keydown.alt.up.prevent="nudge(project.id, -1, $event)"
+              @keydown.alt.down.prevent="nudge(project.id, 1, $event)"
+              @keydown.right.exact.prevent="setFolds([project.id], true)"
+              @keydown.left.exact.prevent="setFolds([project.id], false)"
+          >
+            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" class="size-3.5" />
+            <ProgressRing v-else :counts="project.board.counts" bare :size="14" />
+            <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
+            <span v-if="project.board.counts.doing" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.counts.doing} being worked on`">
+              <span class="size-1 rounded-full bg-accent-500" />{{ project.board.counts.doing }}
+            </span>
+            <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.counts.done }}/{{ progress(project.board.counts).total }}</span>
+          </NuxtLink>
+          <button
+              type="button"
+              class="mr-1 ml-0.5 grid size-5 shrink-0 place-items-center rounded text-faint hover:text-fg"
+              :title="isOpen(project.id) ? 'Fold its pages (←)' : 'Show its pages (→)'"
+              :aria-label="isOpen(project.id) ? `Fold ${project.name}` : `Open ${project.name}`"
+              :aria-expanded="isOpen(project.id)"
+              @click="toggle(project.id)"
+          >
+            <svg class="size-3 transition-transform duration-150" :class="isOpen(project.id) && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+          </button>
+        </div>
+        <div v-if="isOpen(project.id)" class="mb-2 flex flex-col gap-0.5">
+          <NuxtLink
+              v-for="section in sectionsOf(project, route.path)"
+              :key="section.id"
+              :to="section.to"
+              class="ml-5 flex items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"
+              :class="section.active ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+          >
+            <SectionIcon :section="section.id" class="text-faint" />
+            <span class="flex-1">{{ section.label }}</span>
+            <span v-if="section.count" class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ section.count }}</span>
+          </NuxtLink>
         </div>
       </div>
       <p v-if="ready && !projects.length" class="px-2 py-1 text-xs text-faint">None yet: start one with +.</p>
     </nav>
+
+    <!-- Every Claude session working on a project, apart from the projects so they stay short. -->
+    <div v-if="allSessions.length" class="flex max-h-56 shrink-0 flex-col border-t border-line px-2 pt-2 pb-2">
+      <div class="label mb-1 flex items-center gap-1 px-2">
+        <span class="flex-1">Sessions</span>
+        <span class="font-mono normal-case tabular-nums">{{ allSessions.length }}</span>
+      </div>
+      <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
+        <NuxtLink
+            v-for="{session, project} in allSessions"
+            :key="session.id"
+            :to="`/p/${project.id}`"
+            class="flex items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
+            :title="session.cwd ? `${project.name} · ${session.cwd}` : project.name"
+        >
+          <SessionDot :session="session" />
+          <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
+          <span class="flex min-w-0 max-w-[40%] items-center gap-1 text-[11px] text-faint">
+            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" class="size-3" />
+            <span class="truncate">{{ project.name }}</span>
+          </span>
+          <span class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
+        </NuxtLink>
+      </div>
+    </div>
 
     <div class="hidden border-t border-line p-2 md:block">
       <div class="flex items-center justify-between px-1 text-[11px] text-faint">
