@@ -89,7 +89,7 @@ function openCard(notice: Notice, event: MouseEvent) {
         <div class="px-4 py-3">
           <span v-if="isWaiting(notice)" class="mb-2 inline-block rounded-full bg-accent-500/10 px-2 py-0.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">{{ ASKS[notice.asks!] }}</span>
           <span v-else-if="notice.asks" class="mb-2 inline-block rounded-full px-2 py-0.5 text-[11px] text-faint ring-1 ring-line">{{ notice.answered ? 'Answered' : 'Cleared unanswered' }}</span>
-          <MarkdownView :source="notice.body" />
+          <MarkdownView :source="notice.body" class="text-[14px] leading-6" />
         </div>
         <button
             v-if="!notice.cleared"

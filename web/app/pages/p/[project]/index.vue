@@ -45,7 +45,6 @@ onMounted(() => nextTick(() => {
   <PageHeader>
     <template v-if="project">
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
-      <ProjectTabs :project="project" />
       <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] text-faint ring-1 ring-line">{{ project.key }}</span>
       <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
       <span v-if="project.description" class="hidden min-w-0 truncate text-xs text-faint lg:inline">{{ project.description }}</span>
@@ -67,12 +66,12 @@ onMounted(() => nextTick(() => {
       <button
           v-if="unseenIn(project)"
           type="button"
-          class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg"
+          class="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs whitespace-nowrap text-muted ring-1 ring-line hover:bg-hover hover:text-fg"
           title="Clear the dots on what changed since you last looked"
           @click="seeAll(project)"
       ><span class="unseen-dot" />Mark {{ unseenIn(project) }} seen</button>
       <FilterBar />
-      <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id)">
+      <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 whitespace-nowrap text-xs font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id)">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         New issue
       </button>

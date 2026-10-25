@@ -45,7 +45,6 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
   <PageHeader>
     <template v-if="project">
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
-      <ProjectTabs :project="project" />
     </template>
   </PageHeader>
 

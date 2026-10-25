@@ -231,7 +231,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
         <span class="label">Issues</span>
         <template #end>
           <FilterBar />
-          <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id, chunk.id || undefined)">
+          <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs whitespace-nowrap font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id, chunk.id || undefined)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
             New issue
           </button>

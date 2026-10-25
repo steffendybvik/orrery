@@ -68,10 +68,10 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
 </script>
 
 <template>
-  <div v-if="open" class="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] md:hidden" @click="open = false" />
+  <!-- On a phone it's a drawer over the whole screen (the menu button in PageHeader), with bigger rows to tap. -->
   <aside
-      class="fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col border-r border-line bg-panel transition-transform duration-200 md:static md:z-auto md:translate-x-0"
-      :class="open ? 'translate-x-0 shadow-2xl' : '-translate-x-full'"
+      class="fixed inset-0 z-50 flex w-full shrink-0 flex-col bg-panel transition-transform duration-200 max-md:[&_nav_a]:py-2.5 max-md:[&_nav_a]:text-[15px] md:static md:z-auto md:w-64 md:translate-x-0 md:border-r md:border-line"
+      :class="open ? 'translate-x-0' : '-translate-x-full'"
   >
     <div class="flex h-12 items-center gap-2 px-3">
       <NuxtLink to="/now" class="flex min-w-0 flex-1 items-center gap-2">
@@ -88,6 +88,9 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </span>
         {{ LIVE[live] }}
       </span>
+      <button type="button" class="-mr-1 grid size-8 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg md:hidden" aria-label="Close the menu" @click="open = false">
+        <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+      </button>
     </div>
 
     <div class="px-2 pb-2">
