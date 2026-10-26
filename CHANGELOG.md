@@ -19,9 +19,10 @@ the database schema are the public surface, and a database always migrates forwa
   `releases_from`), so a monorepo's apps ship in one release. Their issues are set for it, and its page
   shows each project's issues in a section with its progress; a project drawing on it shows its own part
   and links the whole. `GET …/releases/:release` adds `projects`.
-- **Approving a proposal puts it on the roadmap:** no separate Commit. It goes to Todo, keeping who
-  approved it, the note and the picks, and the panel offers Put it up again while it's open. Proposals
-  approved before are committed into Todo as the database migrates.
+- **Approving a proposal puts it on the roadmap:** no separate Commit. One still in the backlog goes to
+  Todo, and one whose work has started or finished keeps its status. It keeps who approved it, the note
+  and the picks, and the panel offers Put it up again while it's open. Proposals approved before are
+  committed the same way as the database migrates.
 - **Team tasks:** an issue links to its tasks on the team's tracker (`external`: `CIR-1567`, or a URL),
   editable under its properties and opening there through App settings → Team tracker
   (`https://linear.app/your-team/issue/{id}`). `?external=` finds the issues linked to a task, and
