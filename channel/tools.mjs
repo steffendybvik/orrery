@@ -121,7 +121,13 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
     async function call(method, path, body, base) {
         const response = await fetch(`${base}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})
         const text = await response.text()
-        const data = text ? JSON.parse(text) : null
+        // Not JSON is something in front of Orrery talking (a proxy's 502 page): its status says more.
+        let data = null
+        try {
+            data = text ? JSON.parse(text) : null
+        } catch {
+            throw new Error(`${[response.status, response.statusText].filter(Boolean).join(' ')}, not an answer from Orrery`)
+        }
         if (!response.ok) throw new Error(data?.message ?? data?.statusMessage ?? `${response.status} ${response.statusText}`)
         return data
     }
@@ -178,8 +184,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async finish_issue({id, comment, status = 'done'}) {
             const base = at(await projectOf({id}))
+            // The status first: refused, it leaves no "shipped" comment on an open issue for a retry to repeat.
+            const issue = await call('PATCH', issuePath(id), {status}, base)
             await call('POST', `${issuePath(id)}/comments`, {body: comment}, base)
-            return `${status === 'done' ? 'Done' : status === 'canceled' ? 'Canceled' : 'In review'}: ${line(await call('PATCH', issuePath(id), {status}, base))}`
+            return `${status === 'done' ? 'Done' : status === 'canceled' ? 'Canceled' : 'In review'}: ${line(issue)}`
         },
         async comment({id, body, asks}) {
             const posted = await call('POST', `${issuePath(id)}/comments`, {body, ...asks ? {asks} : {}}, at(await projectOf({id})))

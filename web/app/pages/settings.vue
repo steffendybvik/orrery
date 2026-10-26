@@ -8,7 +8,7 @@ useHead({title: 'App settings · Orrery'})
 const {settings, tintColor, save} = useAppSettings()
 const {environment} = useRuntimeConfig().public
 const failed = ref('')
-// The sections, listed beside them on a wide screen.
+// The sections, listed beside them on a wide screen; each section's heading is its title here.
 const headings: Heading[] = [
     {id: 'name', text: 'Your name', level: 2},
     {id: 'handle', text: 'Your handle', level: 2},
@@ -18,6 +18,7 @@ const headings: Heading[] = [
     {id: 'sessions', text: 'What sessions hear', level: 2},
     {id: 'secrets', text: 'Secrets', level: 2},
 ]
+const title = Object.fromEntries(headings.map(h => [h.id, h.text]))
 const scroller = ref<HTMLElement | null>(null)
 const custom = ref('#3b82f6')
 watch(tintColor, now => {
@@ -101,7 +102,7 @@ async function pick(tint: string | null) {
     <div class="flex min-w-0 max-w-3xl flex-1 flex-col gap-8">
       <section id="name" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Your name</h2>
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.name }}</h2>
           <p class="text-xs text-muted">
             You own this Orrery: what you make, no one else can delete. Your <span class="font-mono">Orrery-Actor</span> header is
             <span class="font-mono">{{ owner?.name }}</span>; renaming moves what's yours to the new one.
@@ -122,7 +123,7 @@ async function pick(tint: string | null) {
 
       <section id="handle" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Your handle</h2>
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.handle }}</h2>
           <p class="text-xs text-muted">
             Says whose board an issue is on, once colleagues have boards of their own: an issue's reference is
             <span class="font-mono">{{ issueRef(handle.trim() || owner?.name || 'owner', 'DOC-132') }}</span>, for commit bodies and PR descriptions.
@@ -146,7 +147,7 @@ async function pick(tint: string | null) {
 
       <section id="tracker" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Team tracker</h2>
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.tracker }}</h2>
           <p class="text-xs text-muted">
             This board is yours; the team's tasks live on its tracker (Linear, Jira). An issue's Team tasks link there:
             give a task's web address with <span class="font-mono">{id}</span> where its id goes.
@@ -169,7 +170,7 @@ async function pick(tint: string | null) {
 
       <section id="tint" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Background tint</h2>
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.tint }}</h2>
           <p class="text-xs text-muted">
             Colours this Orrery<template v-if="environment"> ({{ environment }})</template> so you can tell it from another at a glance. It's this Orrery's own: each keeps its tint.
           </p>
@@ -207,7 +208,7 @@ async function pick(tint: string | null) {
 
       <section id="statuses" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Issue statuses</h2>
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.statuses }}</h2>
           <p class="text-xs text-muted">
             The columns every project's issues move through. Each belongs to a kind, which is what Orrery and your agents go by:
             add a status to a kind (In review, Blocked) and it counts, shows and signals like the rest of its kind.
@@ -218,7 +219,7 @@ async function pick(tint: string | null) {
 
       <section id="sessions" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.sessions }}</h2>
           <p class="text-xs text-muted">
             The message a Claude session gets when you ask it to focus on an issue or work through a chunk, for every project
             (a project can have its own on its Settings tab). Sessions started before a change hear it once they restart.
@@ -229,7 +230,7 @@ async function pick(tint: string | null) {
 
       <section id="secrets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Secrets</h2>
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.secrets }}</h2>
           <p class="text-xs text-muted">
             Keys your agents use to call outside services without ever seeing them. An agent puts
             <span class="font-mono">{{ '{' + '{secret:NAME}' + '}' }}</span> in a request, and Orrery fills it in and sends it, over https, only to the hosts you allow.

@@ -6,7 +6,7 @@ import {randomBytes} from 'node:crypto'
 import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
-import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
+import {badRequest, checkInput, conflict, forbidden, isObject, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
 import {LEGACY_PLANS, buildBoard, legacyStatus} from './roadmap'
@@ -150,7 +150,7 @@ export const PROJECT_FIELDS: Record<string, Field> = {
 
 /** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
 function parseStarts(value: unknown): string {
-    const {limit, minutes, ...rest} = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
+    const {limit, minutes, ...rest} = (isObject(value) ? value : {})
     const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
     if (Object.keys(rest).length || !whole(limit, 20) || !whole(minutes, 24 * 60)) {
         throw new Error(`should be {limit, minutes}: at most 20 sessions at once, each for 1 to 1440 minutes, not ${JSON.stringify(value)}`)
@@ -222,7 +222,7 @@ export const DECISION_FIELDS: Record<string, Field> = {
 }
 
 function parsePicks(value: unknown): string {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('should be {choice: [options]}')
+    if (!isObject(value)) throw new Error('should be {choice: [options]}')
     for (const [key, picked] of Object.entries(value)) {
         if (!Array.isArray(picked) || picked.some(p => typeof p !== 'string')) throw new Error(`${key} should be a list of option keys`)
     }
@@ -230,7 +230,8 @@ function parsePicks(value: unknown): string {
 }
 
 function parseExplore(value: unknown): string {
-    const {choice, option} = (value ?? {}) as {choice?: unknown, option?: unknown}
+    if (!isObject(value)) throw new Error('should be {choice, option}')
+    const {choice, option} = value
     if (typeof choice !== 'string' || typeof option !== 'string') throw new Error('should be {choice, option}')
     return JSON.stringify({choice, option})
 }
