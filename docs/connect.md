@@ -102,7 +102,7 @@ issues it had in progress and their latest comment, so it carries on with them.
 
 Orrery can start a session itself when you send the project work and nobody is listening, or when you
 press **Start session** on the Sessions page, so nobody has to open a terminal. Turn it on once, for every
-project, under App settings → Starting sessions (how many at once, how many minutes each), then install the
+project, under Starting sessions at the top of the Sessions page (how many at once, how many minutes each), then install the
 launcher once, in the repo:
 
 ```bash
@@ -129,5 +129,5 @@ are up, when you press **Stop** beside it (in the sessions panel or the project'
 to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
-The limits are the Orrery's, under App settings, and apply to each project. The cap is time, not cost:
+The limits are the Orrery's, on the Sessions page, and apply to each project. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.

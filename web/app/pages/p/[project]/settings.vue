@@ -267,7 +267,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
           <p class="text-xs text-muted">
             What {{ project.name }}'s Claude sessions get when you ask them to focus. Leave a template empty to use the
-            Orrery's (on <NuxtLink to="/settings" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>).
+            Orrery's (on <NuxtLink to="/sessions#hear" class="underline underline-offset-2 hover:text-fg">Sessions</NuxtLink>).
           </p>
         </header>
         <FocusPrompts :project="project" />
@@ -278,7 +278,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
           <p class="text-xs text-muted">
             Saved context to give {{ project.name }}'s sessions as you start them, beside the Orrery's (on
-            <NuxtLink to="/settings#presets" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>).
+            <NuxtLink to="/sessions#presets" class="underline underline-offset-2 hover:text-fg">Sessions</NuxtLink>).
           </p>
         </header>
         <PresetSettings :project="project" />

@@ -1626,20 +1626,24 @@ export class Store {
             await this.chunkRow(project, chunk)
         }
         const input = checkInput(body ?? {}, CHUNK_SIGNAL_FIELDS)
+        let status: string | null = null
         if (input.status) {
-            const status = String(input.status)
-            for (const one of status.split(',').map(s => s.trim())) {
+            const all = await this.statuses()
+            const words = String(input.status).split(',').map(s => s.trim())
+            for (const one of words) {
                 const ids = await this.statusIds(one)
-                const statuses = (await this.statuses()).filter(s => ids.includes(s.id))
+                const statuses = all.filter(s => ids.includes(s.id))
                 if (!statuses.length || statuses.some(s => CLOSED.includes(s.kind))) {
-                    throw badRequest(`"status" has "${one}", not an open status (${(await this.statuses()).filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
+                    throw badRequest(`"status" has "${one}", not an open status (${all.filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
                 }
             }
+            // An old word (`doing`) is kept as the kind it means now, which is what the scope matches.
+            status = words.map(one => all.some(s => s.id === one) ? one : LEGACY_KINDS[one] ?? one).join(',')
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
         const row = await this.get<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, chunk, nullable(input.status), release, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
+            project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row!)
         this.onSignal(signal)
         return signal
@@ -1730,7 +1734,9 @@ export class Store {
             if (!row) throw notFound(`No signal ${id} in ${project}`)
             names = [...new Set([...JSON.parse(row.delivered_to) as string[], to])]
             const {changes} = await this.run('UPDATE signals SET delivered_to = ? WHERE id = ? AND delivered_to = ?', JSON.stringify(names), id, row.delivered_to)
-            if (changes || tries === 9) break
+            if (changes) break
+            // Lost every race: say so, rather than a receipt that wasn't kept.
+            if (tries === 9) throw conflict(`Signal ${id} is being marked by too many sessions at once; try again`)
         }
         const signal = signalOf({...row, delivered_to: JSON.stringify(names)})
         this.onSignal(signal)
@@ -2158,9 +2164,15 @@ function nullable(value: Input[string]): string | null {
 }
 
 /** A preset's fields as sent, trimmed. */
+/** A preset's name and text, trimmed; one that's only spaces is refused, as an empty one is. */
 function presetInput(input: Input): {name?: string, text?: string} {
-    const trimmed = (value: Input[string]) => value === undefined ? undefined : String(value).trim()
-    return {name: trimmed(input.name), text: trimmed(input.text)}
+    const trimmed = (key: 'name' | 'text') => {
+        if (input[key] === undefined) return undefined
+        const value = String(input[key]).trim()
+        if (!value) throw badRequest(`"${key}" needs more than spaces`)
+        return value
+    }
+    return {name: trimmed('name'), text: trimmed('text')}
 }
 
 function stamp() {

@@ -337,7 +337,8 @@ test('makes a release, sets an issue for it from its page, and drafts its change
     await expect.poll(async () => (await api(request, 'get', `/issues/${issue.id}`)).release).toBe('1.0.0')
 
     await page.getByRole('link', {name: 'Open the release'}).click()
-    await expect(page.getByText('Label the jars')).toBeVisible()
+    // Exact: the changelog draft, folded away but in the page once the release counts the issue, has its title too.
+    await expect(page.getByText('Label the jars', {exact: true})).toBeVisible()
     await page.getByText('Changelog draft').click()
     await expect(page.locator('pre', {hasText: `## 1.0.0 (unreleased)`})).toContainText(`- Label the jars (${issue.id})`)
     await page.getByRole('button', {name: 'Mark shipped today'}).click()
@@ -357,8 +358,8 @@ test("a project drawing on another's releases shows in its release, in a section
 
 const OWNER = {'Orrery-Actor': 'ada_lovelace'}
 
-test('lets Orrery start sessions once, for every project, in App settings', async ({page, request}) => {
-    await page.goto('/settings#starts')
+test('lets Orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
+    await page.goto('/sessions#starts')
     const starts = page.locator('#starts')
     await starts.getByRole('checkbox', {name: 'Let Orrery start sessions'}).check()
     await starts.getByLabel('Sessions at once').fill('2')
@@ -409,8 +410,8 @@ test('with nobody listening and a launcher there, Focus on this starts a session
     }
 })
 
-test('keeps a preset in App settings and offers it in Start session', async ({page}) => {
-    await page.goto('/settings#presets')
+test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {
+    await page.goto('/sessions#presets')
     await page.getByLabel('New preset name').fill('Review')
     await page.getByLabel('New preset text').fill("You're reviewing: read the diff and comment, don't change code.")
     await page.getByRole('button', {name: 'Add preset'}).click()

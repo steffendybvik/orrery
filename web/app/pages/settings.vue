@@ -15,9 +15,6 @@ const headings: Heading[] = [
     {id: 'tracker', text: 'Team tracker', level: 2},
     {id: 'tint', text: 'Background tint', level: 2},
     {id: 'statuses', text: 'Issue statuses', level: 2},
-    {id: 'starts', text: 'Starting sessions', level: 2},
-    {id: 'sessions', text: 'What sessions hear', level: 2},
-    {id: 'presets', text: 'Presets', level: 2},
     {id: 'watch', text: 'Watching sessions', level: 2},
     {id: 'secrets', text: 'Secrets', level: 2},
 ]
@@ -218,39 +215,6 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <StatusSettings />
-      </section>
-
-      <section id="starts" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.starts }}</h2>
-          <p class="text-xs text-muted">
-            Orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
-            Start session. It does so for any project whose repo has its launcher installed (see <NuxtLink to="/sessions" class="text-accent-600 hover:underline dark:text-accent-400">Sessions</NuxtLink>).
-          </p>
-        </header>
-        <SessionStarts />
-      </section>
-
-      <section id="sessions" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.sessions }}</h2>
-          <p class="text-xs text-muted">
-            The message a Claude session gets when you ask it to focus on an issue or work through a chunk, for every project
-            (a project can have its own on its Settings tab). Sessions started before a change hear it once they restart.
-          </p>
-        </header>
-        <FocusPrompts />
-      </section>
-
-      <section id="presets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.presets }}</h2>
-          <p class="text-xs text-muted">
-            Saved context to give a session as you start it, for sessions on any project (a project can have its own on its
-            Settings tab). Tick any number in Start session; the session gets their text with every signal, and again after a clear.
-          </p>
-        </header>
-        <PresetSettings />
       </section>
 
       <section id="watch" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">

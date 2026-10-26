@@ -95,14 +95,15 @@ const issueLabel = computed(() => issueOptions.value.find(o => o.value === issue
 const releaseOptions = computed(() => [{value: '', label: 'Any release'}, ...releases.value.map(v => ({value: v, label: `Release ${v}`}))])
 
 /** The project's issues a session started now would work through, as the server picks them: every chunk's,
- * or with a release those set for it at any depth, of the ticked statuses (or every open one). */
+ * or with a release those set for it at any depth, of the ticked statuses (or, with none, the open work that's ready:
+ * Todo and In progress, as the server's `SCOPE_STATUSES`). */
 function scopeOf(project: Project): Issue[] {
     const tasks: Issue[] = []
     const pick = (issues: Issue[]) => issues.forEach(t => t.release === release.value ? tasks.push(t) : pick(t.tasks))
     const top = project.board.chunks.flatMap(c => c.tasks)
     if (release.value) pick(top)
     else tasks.push(...top)
-    return tasks.filter(t => statuses.value.length ? statuses.value.includes(t.column) : t.kind !== 'proposed' && !isClosed(t.kind))
+    return tasks.filter(t => statuses.value.length ? statuses.value.includes(t.column) : t.kind === 'todo' || t.kind === 'started')
 }
 
 const ready = computed(() => projects.value.length > 0 && projects.value.every(p => !why(p) && !!states.value[p.id]) && !busy.value)
@@ -168,7 +169,7 @@ const field = 'h-8 w-full field'
           <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
           <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
           <span v-if="why(p)" class="shrink-0 text-xs">
-            {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/settings#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
+            {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/sessions#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
           </span>
           <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
             <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}
@@ -231,7 +232,7 @@ const field = 'h-8 w-full field'
           class="w-full field py-2 leading-5"
       />
       <p v-if="!presets.length" class="px-1 text-xs text-faint">
-        Context you give often can be saved as a preset on <NuxtLink to="/settings#presets" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">App settings</NuxtLink>.
+        Context you give often can be saved as a preset under <NuxtLink to="/sessions#presets" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">Presets</NuxtLink> on the Sessions page.
       </p>
     </div>
 
