@@ -8,7 +8,7 @@ let sent: {type: string, project?: string, id?: string, after?: number, minutes?
 let listeners: number
 let started: {larder: number, all: number}
 let starts: Starts | undefined
-let session: {started?: {launch: string, tmux: string, stops_at: string}} | undefined
+let session: {started?: {launch: string, tmux: string, stops_at: string, context?: {presets: string[], text: string}}} | undefined
 let adopted: string[]
 let focused: {issue: string, session: string}[]
 let scoped: {chunk: string, body: Record<string, unknown>}[]
@@ -47,6 +47,7 @@ beforeEach(async () => {
             scoped.push({chunk, body})
             return {id: 43}
         },
+        presetsFor: async (_project: string, ids: number[]) => ids.map(id => ({id, name: `preset ${id}`, text: `Text ${id}.`})),
     }))
     vi.resetModules()
     launches = await import('../server/utils/launches')
@@ -173,6 +174,37 @@ describe('the owner starting a session by hand', () => {
             {chunk: 'all', body: expect.objectContaining({status: 'todo,started', release: '1.0.0'})},
         ])
         expect(launch.after).toBe(42)
+    })
+})
+
+describe('the context a session is started with', () => {
+    it('joins the presets picked, then the owner\'s own words; none when there are neither', async () => {
+        expect(await launches.contextFor('larder')).toBeUndefined()
+        expect(await launches.contextFor('larder', [], '  ')).toBeUndefined()
+        expect(await launches.contextFor('larder', [2, 1], ' Be brief. ')).toEqual({presets: ['preset 2', 'preset 1'], instructions: 'Be brief.', text: 'Text 2.\n\nText 1.\n\nBe brief.'})
+    })
+
+    it('goes with the launch to its launcher and its session, and stays known while the launch is', async () => {
+        launches.addLauncher('larder')
+        const context = {presets: ['Review'], text: "You're reviewing."}
+        const launch = await launches.startLaunch('larder', {context})
+        expect(launch.context).toEqual(context)
+        // Its hook asks before its channel has connected.
+        expect(launches.launchContext('larder', launch.id)).toEqual(context)
+        expect(launches.launchContext('pantry', launch.id)).toBeUndefined()
+        const started = launches.launched(launch.id)!
+        expect(started.context).toEqual(context)
+        session = {started}
+        expect(launches.launchContext('larder', launch.id)).toEqual(context)
+        expect(launches.contextBlock(context)).toMatch(/more context as they started it.*\n\nYou're reviewing\.$/s)
+    })
+
+    it("is taken from a launcher's report only for a launch Orrery has forgotten", () => {
+        const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', stops_at: '2026-10-25T20:00:00.000Z'}
+        launches.reportRunning('larder', [{...running, context: {presets: [], text: 'Kept by the launcher.'}}])
+        expect(launches.launched(running.id)?.context?.text).toBe('Kept by the launcher.')
+        launches.reportRunning('larder', [{...running, context: {presets: [], text: 'Something else.'}}])
+        expect(launches.launchContext('larder', running.id)?.text).toBe('Kept by the launcher.')
     })
 })
 

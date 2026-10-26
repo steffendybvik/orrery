@@ -141,7 +141,7 @@ async function deliver(project, signal, query) {
     const where = [signal.column, signal.priority, signal.chunk].filter(Boolean).join(', ')
     const issue = `${api}/issues/${encodeURIComponent(signal.issue)}`
     // A focus comes with what to say (the owner's template, filled in); an older Orrery's doesn't.
-    const content = signal.prompt
+    let content = signal.prompt
         ? signal.prompt
         : signal.kind === 'message'
         ? [
@@ -174,6 +174,8 @@ async function deliver(project, signal, query) {
             signal.note ? `Note: ${signal.note}` : '',
             `Read it with: curl ${issue}`,
         ].filter(Boolean).join('\n')
+    // What the owner gave the session as they started it goes with every signal, so it never drifts out.
+    if (signal.context) content = `${content}\n\n${signal.context}`
     const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : {schedule: String(signal.schedule)}
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind}}})
     log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : `from schedule ${signal.schedule}`)}`)

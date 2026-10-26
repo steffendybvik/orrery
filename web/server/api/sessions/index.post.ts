@@ -1,7 +1,8 @@
-// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, reason?, source?} → the session: a Claude
-// session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is the hook's event name.
-// A `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what the session was
-// working on, for the hook to hand the fresh context so the work carries on.
+// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, reason?, source?, started?} → the
+// session: a Claude session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is the
+// hook's event name. A `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what
+// the session was working on, for the hook to hand the fresh context so the work carries on. A session Orrery started
+// (`started`, its launch) with context gets that in the brief on every `SessionStart`, its first included.
 // What happened to the session, by `source`, for the brief's first line.
 const RESUMED: Record<string, string> = {
     clear: "this window's context was just cleared",
@@ -21,9 +22,14 @@ export default defineEventHandler(async event => {
     })
     if (session && body.event === 'Stop') considerClear(session.project, session.id)
     const source = text('source')
-    if (!session || body.event !== 'SessionStart' || !source || !Object.hasOwn(RESUMED, source)) return session
+    if (!session || body.event !== 'SessionStart') return session
     const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
-    return {...session, brief: await briefFor(body.project, session.id, RESUMED[source]!, api).catch(() => undefined)}
+    const work = source && Object.hasOwn(RESUMED, source) ? await briefFor(body.project, session.id, RESUMED[source]!, api).catch(() => undefined) : undefined
+    // Its launch as its hook says (before its channel has connected) or as Orrery knows it.
+    const launch = text('started') ?? session.started?.launch
+    const context = launch ? launchContext(body.project, launch) : undefined
+    if (!work && !context) return session
+    return {...session, brief: [work, context && contextBlock(context)].filter(Boolean).join('\n\n')}
 })
 
 /** What the session has in progress, told to its fresh context, and what's left of the chunk or scope it was

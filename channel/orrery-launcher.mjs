@@ -142,6 +142,8 @@ async function clear(id) {
 
 /** The tmux option a session keeps its stop time in, so a launcher that restarts can take it back. */
 const STOPS_AT = '@orrery_stops_at'
+/** And the context the owner started it with (JSON), for an Orrery that restarted to know it again. */
+const CONTEXT = '@orrery_context'
 
 /** Stops the session when `stops_at` comes (again, when the owner gives it longer). */
 function stopAt(id, stopsAt) {
@@ -185,13 +187,19 @@ function adopt(project, api) {
             continue
         }
         stopAt(id, stopsAt)
+        try {
+            running.get(id).context = JSON.parse(tmux('show-options', '-v', '-t', name, CONTEXT))
+        } catch {
+            // Started with none.
+        }
         log(`took back ${name}, running until ${new Date(stopsAt).toLocaleTimeString()}`)
     }
 }
 
 /** Tells the project's Orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
-    const launches = [...running.entries()].filter(([, s]) => s.api === api && s.stops_at).map(([id, s]) => ({id, tmux: s.tmux, stops_at: s.stops_at}))
+    const launches = [...running.entries()].filter(([, s]) => s.api === api && s.stops_at)
+        .map(([id, s]) => ({id, tmux: s.tmux, stops_at: s.stops_at, ...s.context ? {context: s.context} : {}}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
@@ -224,7 +232,8 @@ function serve({url, project, dir}) {
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after)}
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             'claude', '--dangerously-load-development-channels', `server:${channelIn(dir)?.name ?? project}`, '--permission-mode', mode)
-        running.set(launch.id, {tmux: launch.tmux, api})
+        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context})
+        if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
         stopAt(launch.id, new Date(Date.now() + launch.minutes * 60_000).toISOString())
         log(`started ${launch.tmux} for ${launch.minutes} minutes; watch it with: tmux attach -t ${launch.tmux}`)
         getPast(launch.id, dir).catch(error => log(`${launch.tmux}: ${error.message}`))

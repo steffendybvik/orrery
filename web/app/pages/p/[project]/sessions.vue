@@ -87,6 +87,7 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
           </div>
           <p class="text-xs text-faint">
             Up since {{ ago(session.started_at) }}<template v-if="session.cwd"> · in <span class="font-mono">{{ session.cwd }}</span></template>
+            <template v-if="session.started?.context"> · with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></template>
           </p>
 
           <div v-if="work[session.id]?.issues.length || work[session.id]?.signals.length" class="grid gap-4 border-t border-line pt-3 sm:grid-cols-2">

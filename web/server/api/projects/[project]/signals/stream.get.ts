@@ -139,13 +139,18 @@ export default defineEventHandler(async event => {
         done()
         await stream.close()
     })
+    /** The context the owner started this session with, which every signal to it carries, for its channel to add. */
+    const context = () => {
+        const given = attended && sessionNow(attended.id)?.started?.context
+        return given ? {context: contextBlock(given)} : {}
+    }
     /** When each repeatable message last went out on this stream. */
     const sent = new Map<string, number>()
     const push = (signal: Signal) => {
         const key = repeatKey(signal)
         if (key) sent.set(key, Date.now())
         if (attended) startRun(attended.id, signal)
-        inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(await told(signal))}))
+        inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify({...await told(signal), ...context()})}))
     }
     // A schedule's message again while the session hasn't finished a turn since the last copy (busy, or yet to
     // read it) would only pile up behind it: it counts as heard. A session whose hooks never said it went idle

@@ -5,17 +5,18 @@
 // claim the launch starts it; its channel catches up from that signal, and the launcher stops the session
 // after the project's minutes, or when the owner stops it.
 import {randomBytes} from 'node:crypto'
-import type {Session, Signal} from '#shared/roadmap'
+import type {Session, SessionContext, Signal} from '#shared/roadmap'
 import type {Actor} from './store'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
- * catch up from; `tmux` names the tmux session it runs in. */
+ * catch up from; `tmux` names the tmux session it runs in; `context` what the owner gave it to go on. */
 export interface Launch {
     id: string
     project: string
     after: number
     minutes: number
     tmux: string
+    context?: SessionContext
 }
 
 /** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer, or
@@ -32,7 +33,7 @@ const pending = new Map<string, Launch & {at: number, claimed: boolean}>()
 const PENDING_FOR = 3 * 60 * 1000
 /** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
  * each reports its sessions when it connects, so one that reconnects to a restarted Orrery is known again. */
-const reported = new Map<string, {project: string, tmux: string, stops_at: string}>()
+const reported = new Map<string, {project: string, tmux: string, stops_at: string, context?: SessionContext}>()
 /** How many launchers each project has connected. */
 const launchers = counter('launchers')
 export const launchersOf = launchers.count
@@ -83,14 +84,14 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * project's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release, actor}: {issue?: string, statuses?: string[], release?: string, actor?: Actor} = {}): Promise<Launch> {
+export async function startLaunch(project: string, {issue, statuses, release, context, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, actor?: Actor} = {}): Promise<Launch> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`${project} doesn't let Orrery start sessions; turn it on from its Sessions tab`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
     if (startedSessions(project) + pendingOn(project) >= starts.limit) throw conflict(`${project} already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     const id = randomBytes(6).toString('hex')
     // Held from here, so the limit counts it while its focus is made.
-    const held = {id, project, after: 0, minutes: starts.minutes, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
+    const held = {id, project, after: 0, minutes: starts.minutes, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...context ? {context} : {}, at: Date.now(), claimed: false}
     pending.set(id, held)
     try {
         const session = launchTarget(id)
@@ -106,6 +107,26 @@ export async function startLaunch(project: string, {issue, statuses, release, ac
     const {at: _at, claimed: _claimed, ...launch} = held
     emit({type: 'launch', launch})
     return launch
+}
+
+/** The context a session is started with: the presets picked (by id, the Orrery's or the project's own), then the
+ * owner's own words; none when there's neither. */
+export async function contextFor(project: string, presets: number[] = [], instructions = ''): Promise<SessionContext | undefined> {
+    const picked = await useStore().presetsFor(project, presets)
+    const own = instructions.trim()
+    const text = [...picked.map(p => p.text), own].filter(Boolean).join('\n\n')
+    return text ? {presets: picked.map(p => p.name), ...own ? {instructions: own} : {}, text} : undefined
+}
+
+/** The context as the session is told it, with a signal or after a `/clear`. */
+export const contextBlock = (context: SessionContext) =>
+    `The owner gave this session more context as they started it; it holds for all its work:\n\n${context.text}`
+
+/** The context the launch's session was started with, while Orrery knows the launch. */
+export function launchContext(project: string, id: string): SessionContext | undefined {
+    const known = pending.get(id) ?? reported.get(id)
+    if (known) return known.project === project ? known.context : undefined
+    return sessionOfLaunch(project, id)?.started?.context
 }
 
 /** What a session started with a scope but no statuses works through: the open work that's ready. */
@@ -130,17 +151,19 @@ export function claim(project: string, id: string): boolean {
 export function launched(id: string): {launch: string, tmux: string, stops_at: string} | undefined {
     const launch = pending.get(id)
     pending.delete(id)
-    if (launch) return {launch: id, tmux: launch.tmux, stops_at: new Date(Date.now() + launch.minutes * 60_000).toISOString()}
+    if (launch) return {launch: id, tmux: launch.tmux, stops_at: new Date(Date.now() + launch.minutes * 60_000).toISOString(), ...launch.context ? {context: launch.context} : {}}
     const known = reported.get(id)
-    return known && {launch: id, tmux: known.tmux, stops_at: known.stops_at}
+    return known && {launch: id, tmux: known.tmux, stops_at: known.stops_at, ...known.context ? {context: known.context} : {}}
 }
 
 /** A launcher saying which of the project's sessions it runs, as it connects: they count as started again,
- * with their stop times, whether their channels connected before this or connect after. */
-export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at: string}[]) {
-    for (const {id, tmux, stops_at} of launches) {
-        reported.set(id, {project, tmux, stops_at})
-        adoptLaunch(project, {launch: id, tmux, stops_at})
+ * with their stop times and context, whether their channels connected before this or connect after. The context
+ * it keeps counts only for a launch Orrery has forgotten (it restarted): what Orrery knows stands. */
+export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at: string, context?: SessionContext}[]) {
+    for (const {id, tmux, stops_at, context: kept} of launches) {
+        const context = launchContext(project, id) ?? kept
+        reported.set(id, {project, tmux, stops_at, ...context ? {context} : {}})
+        adoptLaunch(project, {launch: id, tmux, stops_at, ...context ? {context} : {}})
     }
 }
 
