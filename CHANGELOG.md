@@ -29,8 +29,10 @@ the database schema are the public surface, and a database always migrates forwa
 - **One set of UI components:** buttons, dialogs, menus and confirmations come from a small kit
   (`components/ui/`), listed with the other shared pieces in [docs/components.md](docs/components.md). Disabled
   buttons, quiet icon buttons and the red remove buttons now look the same everywhere.
+- **Pickers in New issue and the schedule dialog:** Where, Priority, Chunk and the schedule's Repeats are the
+  picker the issue page uses, with the status and priority icons: type to narrow, ↑↓ and ↵ to pick.
 - **Cleanup:** one text field style, one way menus close on an outside press, and the store split into a file per
-  domain behind the same `Store`.
+  domain behind the same `Store`. [docs/development.md](docs/development.md) maps where things live now.
 - **More e2e:** the flows cover starting sessions, the Sessions page and messaging a session, Focus on this
   starting one, presets, schedules, the bell, and Now, My issues and Connect (25 flows, from 18).
 
