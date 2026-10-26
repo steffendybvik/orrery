@@ -27,7 +27,7 @@ export function checkInput(body: unknown, spec: Record<string, Field>, partial =
     const problems: string[] = []
     const input: Input = {}
     for (const key of Object.keys(body)) {
-        if (!(key in spec)) problems.push(`unknown field "${key}"; this takes ${Object.keys(spec).join(', ')}`)
+        if (!Object.hasOwn(spec, key)) problems.push(`unknown field "${key}"; this takes ${Object.keys(spec).join(', ')}`)
     }
     for (const [key, field] of Object.entries(spec)) {
         const value = (body as Record<string, unknown>)[key]

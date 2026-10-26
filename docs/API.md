@@ -366,13 +366,19 @@ is done out of backlog, todo, started and done: proposals and canceled leaves ar
 
 ## Errors
 
-`{statusCode, message, data: {problems: […]}}`: 400 for a bad body (unknown fields are refused,
-so typos show), 403 for the owner's things, 404, 409 for a taken id.
+`{statusCode, message}`: 400 for a bad body, with `data: {problems: […]}` listing what's wrong (unknown
+fields are refused, so typos show); 403 for the owner's things; 404; 409 for a taken id.
 
 ## Live updates
 
-`GET /events` is a server-sent event stream: `project` (the whole project, after any change),
-`removed` (a deleted project's id) and `settings` (the settings with the statuses, after either changes).
+`GET /events` is a server-sent event stream, for pages to stay current without reloading:
+
+- `ready` (the server's build id) first; a page from another build reloads. `ping` every 25 seconds.
+- `project` (the whole project, after any change) and `removed` (a deleted project's id)
+- `settings` (the settings with the statuses, after either changes)
+- `listeners` and `launchers` (`{project, count}`): sessions listening for signals, and launchers that start them
+- `sessions` (`{project, sessions}`), `signal` (one sent), and `notice` (a comment for the owner's bell)
+- `schedules` (`{project, schedules}`, after a change or a run) and `secrets` (the list, never a value)
 
 ## Example
 

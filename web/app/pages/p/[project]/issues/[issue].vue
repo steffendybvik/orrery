@@ -40,13 +40,17 @@ watch(() => [project.value?.id, issueId.value] as const, ([p, i]) => {
 
 const comments = ref<Comment[]>([])
 const activity = ref<IssueEvent[]>([])
-watch(() => [project.value?.id, issueId.value, issue.value?.updated_at] as const, async ([p, i]) => {
+watch(() => [project.value?.id, issueId.value, issue.value?.updated_at] as const, async ([p, i], _, onCleanup) => {
     if (!p || !i || !issue.value) return
+    // Gone on to another issue (j/k) before these came back: they're that one's no longer.
+    let stale = false
+    onCleanup(() => stale = true)
     const base = `/api/projects/${encodeURIComponent(p)}/issues/${encodeURIComponent(i)}`
-    ;[comments.value, activity.value] = await Promise.all([
+    const loaded = await Promise.all([
         $fetch<Comment[]>(`${base}/comments`).catch(() => []),
         $fetch<IssueEvent[]>(`${base}/activity`).catch(() => []),
     ])
+    if (!stale) [comments.value, activity.value] = loaded
 }, {immediate: true})
 
 const {look} = useStatuses()
