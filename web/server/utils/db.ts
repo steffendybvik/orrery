@@ -503,6 +503,10 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- An issue's tasks on the team's tracker (Linear, Jira): a JSON list of ids or URLs.
     ALTER TABLE issues ADD COLUMN external TEXT NOT NULL DEFAULT '[]';
+`, `
+    -- Approving a proposal commits it now; those approved before wait no longer: they go on the roadmap, in Todo.
+    UPDATE issues SET proposal = NULL, status = COALESCE((SELECT id FROM statuses WHERE kind = 'todo' ORDER BY position, id LIMIT 1), status)
+        WHERE proposal = 'approved';
 `]
 
 let db: DatabaseSync | null = null

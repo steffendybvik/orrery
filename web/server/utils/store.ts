@@ -168,8 +168,8 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     /** Its tasks on the team's tracker: ids (`CIR-1567`) or full URLs. */
     external: {type: 'strings', nullable: true},
     notes: {type: 'string', nullable: true},
-    /** `pending` makes it a proposal (or puts one up again after changes); `null` commits it. The owner
-     * decides on it with `decide`. */
+    /** `pending` makes it a proposal (or puts one up again); `null` commits it, the owner's to do. The owner
+     * decides on it with `decide`, and approving commits it. */
     proposal: {type: 'string', values: ['pending'], nullable: true},
     /** A proposal's choices for the owner: `[{key, question, pick: one|any, options: [{key, title, body?}], recommended?, from?}]`. */
     choices: {type: 'json', nullable: true, parse: parseChoices},
@@ -853,7 +853,7 @@ export class Store {
 
     /** `parent: null` lifts a sub-issue to the top, into the chunk it was in unless `chunk` says otherwise.
      * `project` moves it (with its sub-issues and comments) to the top of another project. `proposal:
-     * null` commits a proposal: an agent can only commit one the owner approved. */
+     * null` commits a proposal, as the owner (approving one commits it). */
     async updateIssue(project: string, id: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
         id = await this.issueId(project, id)
         await this.issueRow(project, id)
@@ -864,7 +864,7 @@ export class Store {
             return await this.updateIssue(String(to), moved, rest, actor)
         }
         const row = await this.issueRow(project, id)
-        if (input.proposal === null && row.proposal && row.proposal !== 'approved' && !actor.owner) {
+        if (input.proposal === null && row.proposal && !actor.owner) {
             throw forbidden(`Committing ${id} is the owner's call until they approve it: it's ${row.proposal === 'pending' ? 'waiting on them' : row.proposal === 'changes' ? 'waiting on changes' : 'rejected'}`)
         }
 
@@ -963,7 +963,7 @@ export class Store {
         this.changed(project)
     }
 
-    /** The owner's decision on a proposal: approved (still not work until it's committed), changes asked
+    /** The owner's decision on a proposal: approved (which commits it, into Todo: approving means it's work), changes asked
      * for, or rejected. It's kept on the issue and left as their comment, so the session on it hears, and
      * the issue goes back to the agent who proposed it. */
     async decide(project: string, id: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
@@ -1000,6 +1000,8 @@ export class Store {
             : explored ? `Asked to explore ${explored.key} (${explored.title}) further: add a choice that goes down it, then put the proposal up again.`
             : DECIDED[decision]
         await this.createComment(project, id, {body: note ? `${said}\n\n${note}` : said}, actor)
+        // Approving is the owner saying it's work, so it goes on the roadmap now, keeping who decided and the picks.
+        if (decision === 'approved') return await this.updateIssue(project, id, {proposal: null, status: 'todo'}, actor)
         return await this.issue(project, id)
     }
 
