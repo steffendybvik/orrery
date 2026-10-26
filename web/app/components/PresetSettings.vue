@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Preset, Project} from '#shared/roadmap'
 
-// Presets: saved pieces of context to give a session as you start it, each a name and its text. On App settings
+// Presets: saved pieces of context to give a session as you start it, each a name and its text. On the Sessions page
 // they're the Orrery's, for sessions on any project; with `project`, that project's own. Edited in place (saved
 // on leaving the field), added and removed.
 const props = defineProps<{project?: Project}>()

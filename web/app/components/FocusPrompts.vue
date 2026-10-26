@@ -4,7 +4,7 @@ import type {Project} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, PLACEHOLDERS, renderPrompt} from '#shared/prompt'
 
 // What a Claude session hears when asked to focus: the two templates (an issue, a chunk's issues) and the
-// standing instructions added to every focus. On App settings they're the Orrery's; with `project`, that
+// standing instructions added to every focus. On the Sessions page they're the Orrery's; with `project`, that
 // project's own templates (empty follows the Orrery's), its own instructions, and the Orrery's it switches off.
 const props = defineProps<{project?: Project}>()
 const {settings, save: saveSettings} = useAppSettings()
@@ -125,7 +125,7 @@ const line = 'h-8 min-w-0 flex-1 rounded-lg bg-well px-2.5 text-[13px] text-fg r
         <h3 class="text-[13px] font-medium text-fg">Standing instructions</h3>
         <p class="text-xs text-muted">
           Lines added to every focus, such as "commit whenever a piece works". Ticked ones go by default; the focus panel lets you
-          change that for one send.<template v-if="project"> The Orrery's are on App settings; switch them off for this project here.</template>
+          change that for one send.<template v-if="project"> The Orrery's are on the Sessions page; switch them off for this project here.</template>
         </p>
       </div>
 
