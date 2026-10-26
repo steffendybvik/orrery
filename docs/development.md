@@ -38,7 +38,7 @@ over. The container has its own `node_modules` and `.nuxt` (volumes), and instal
 so after a `pnpm-lock.yaml` change, `docker compose --env-file .env.dev restart orrery`. Change the
 Dockerfile and it's `up -d --build`.
 
-The Orrerys you use run the built app, each its own compose project (`.env`, `.env.work`). Build them
+The Orrerys you use run the built app, each its own compose project ([Two servers](running.md#two-servers-personal-and-work)). Build them
 from a release on GitHub rather than this folder, so a switched branch never ends up in them:
 `ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main` in their `.env`, then
 `docker compose up -d --build` when a release lands on `main`.
