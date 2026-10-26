@@ -338,7 +338,8 @@ with review instructions in it.
 | `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped; a 409 for one that runs until stopped |
 
 `POST …/focus` takes `{session}` to reach one session; without it, every session gets
-it. Each signal lists the sessions it reached in `delivered_to`
+it. A focus on one session makes it the issue's session, unless another listening session has the issue started:
+then it stays with that one, and the session asked gets the 409 if it tries to start it. Each signal lists the sessions it reached in `delivered_to`
 (`POST /projects/:project/signals/:signal/delivered`, sent by the channel).
 
 ### What sessions hear
