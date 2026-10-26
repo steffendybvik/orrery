@@ -19,33 +19,33 @@ const PERSONAL = 'http://localhost:9010'
 
 // A monorepo with a channel per project on work's Orrery, and one on the personal Orrery.
 const mono = () => repo({
-    'orrery-switchboard': channel({ORRERY_URL: WORK, ORRERY_PROJECT: 'switchboard'}),
-    'orrery-hub': channel({ORRERY_URL: WORK, ORRERY_PROJECT: 'hub'}),
-    'orrery-css': channel({ORRERY_URL: `${WORK}/`, ORRERY_PROJECTS: 'css,pos'}),
+    'orrery-larder': channel({ORRERY_URL: WORK, ORRERY_PROJECT: 'larder'}),
+    'orrery-pantry': channel({ORRERY_URL: WORK, ORRERY_PROJECT: 'pantry'}),
+    'orrery-shelves': channel({ORRERY_URL: `${WORK}/`, ORRERY_PROJECTS: 'shelves,jars'}),
     'other': {command: 'npx', args: ['some-server']},
     'orrery': channel({ORRERY_URL: PERSONAL, ORRERY_PROJECT: 'orrery'}),
 })
 
 describe("a repo's channels", () => {
     it('are every server that runs the channel, in order', () => {
-        expect(channelsIn(mono()).map((c: {name: string}) => c.name)).toEqual(['orrery-switchboard', 'orrery-hub', 'orrery-css', 'orrery'])
+        expect(channelsIn(mono()).map((c: {name: string}) => c.name)).toEqual(['orrery-larder', 'orrery-pantry', 'orrery-shelves', 'orrery'])
         expect(channelsIn(mkdtempSync(join(tmpdir(), 'orrery-none-')))).toEqual([])
     })
 
     it('give every project they name, each on its own Orrery', () => {
         const dir = mono()
         expect(projectsIn(dir)).toEqual([
-            {url: WORK, project: 'switchboard', dir},
-            {url: WORK, project: 'hub', dir},
-            {url: WORK, project: 'css', dir},
-            {url: WORK, project: 'pos', dir},
+            {url: WORK, project: 'larder', dir},
+            {url: WORK, project: 'pantry', dir},
+            {url: WORK, project: 'shelves', dir},
+            {url: WORK, project: 'jars', dir},
             {url: PERSONAL, project: 'orrery', dir},
         ])
     })
 
     it('give the one ORRERY_PROJECT names, on the Orrery of its channel', () => {
         const dir = mono()
-        expect(projectsIn(dir, {project: 'pos'})).toEqual([{url: WORK, project: 'pos', dir}])
+        expect(projectsIn(dir, {project: 'jars'})).toEqual([{url: WORK, project: 'jars', dir}])
         expect(projectsIn(dir, {project: 'orrery', url: WORK})).toEqual([{url: PERSONAL, project: 'orrery', dir}])
     })
 
@@ -59,8 +59,8 @@ describe("a repo's channels", () => {
 
     it("load the channel that serves a session's project on its Orrery, not the first", () => {
         const dir = mono()
-        expect(channelFor(dir, WORK, 'hub').name).toBe('orrery-hub')
-        expect(channelFor(dir, WORK, 'pos').name).toBe('orrery-css')
+        expect(channelFor(dir, WORK, 'pantry').name).toBe('orrery-pantry')
+        expect(channelFor(dir, WORK, 'jars').name).toBe('orrery-shelves')
         expect(channelFor(dir, PERSONAL, 'orrery').name).toBe('orrery')
         // A project no channel names: one serving every project on its Orrery, else the first.
         const every = repo({
@@ -68,7 +68,7 @@ describe("a repo's channels", () => {
             'orrery-work': channel({ORRERY_URL: WORK, ORRERY_PROJECTS: '*'}),
         })
         expect(channelFor(every, WORK, 'shop').name).toBe('orrery-work')
-        expect(channelFor(mono(), WORK, 'nobody').name).toBe('orrery-switchboard')
-        expect(channelFor(mkdtempSync(join(tmpdir(), 'orrery-none-')), WORK, 'hub')).toBeUndefined()
+        expect(channelFor(mono(), WORK, 'nobody').name).toBe('orrery-larder')
+        expect(channelFor(mkdtempSync(join(tmpdir(), 'orrery-none-')), WORK, 'pantry')).toBeUndefined()
     })
 })
