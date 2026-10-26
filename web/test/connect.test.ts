@@ -9,12 +9,20 @@ import {testDb} from './db'
 const larder: ConnectTarget = {origin: 'http://localhost:9000', repoDir: '/src/orrery', id: 'larder', name: 'Larder', key: 'LAR', isNew: false}
 
 describe('connecting a repo', () => {
-    it('registers the channel under the project, pointed at this Orrery', () => {
+    it('registers one channel for the Orrery, pinned to its id, serving the project', () => {
+        const {mcpJson, server, launch, brief} = connectPieces({...larder, orrery: {id: 'orr_7f3a9c', environment: 'Work'}})
+        expect(server).toBe('orrery-work')
+        expect(JSON.parse(mcpJson)).toEqual({mcpServers: {'orrery-work': {
+            command: 'node', args: ['/src/orrery/channel/orrery-channel.mjs'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'larder'},
+        }}})
+        expect(launch).toBe('claude --dangerously-load-development-channels server:orrery-work')
+        expect(brief).toContain("add `larder` to that entry's `ORRERY_PROJECTS`")
+    })
+
+    it('names the channel after the project when the Orrery is not known', () => {
         const {mcpJson, server} = connectPieces(larder)
         expect(server).toBe('larder')
-        expect(JSON.parse(mcpJson)).toEqual({mcpServers: {larder: {
-            command: 'node', args: ['/src/orrery/channel/orrery-channel.mjs'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_PROJECT: 'larder'},
-        }}})
+        expect(JSON.parse(mcpJson).mcpServers.larder.env).toEqual({ORRERY_URL: 'http://localhost:9000', ORRERY_PROJECTS: 'larder'})
     })
 
     it('hooks every event a session state needs, PreToolUse in the background', () => {

@@ -18,6 +18,7 @@ export default defineEventHandler(async event => {
         key: project?.key ?? idsFor(name).key,
         isNew: !project,
         session: typeof query.session === 'string' ? query.session : undefined,
+        orrery: {id: (await useStore().settings()).id, environment: String(useRuntimeConfig().public.environment || 'personal')},
     })
     setResponseHeader(event, 'Content-Type', 'text/markdown; charset=utf-8')
     return brief

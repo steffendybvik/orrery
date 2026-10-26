@@ -955,6 +955,13 @@ describe('statuses', () => {
 })
 
 describe('settings', () => {
+    it('give the Orrery an id the first time, kept after', async () => {
+        const {id} = await store.settings()
+        expect(id).toMatch(/^orr_[0-9a-f]{6}$/)
+        expect((await store.settings()).id).toBe(id)
+        expect((await failure(() => store.updateSettings({id: 'orr_000000'}, {name: 'skoll', owner: true}))).status).toBe(400)
+    })
+
     it('keep a tint, the owner’s to change', async () => {
         expect((await store.settings()).tint).toBeNull()
         expect((await store.updateSettings({tint: 'blue'}, {name: 'skoll', owner: true})).tint).toBe('blue')

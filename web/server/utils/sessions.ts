@@ -186,10 +186,25 @@ export function issueWrites(command: string, project: string): {project: string,
     return [...found.values()]
 }
 
-/** Whether the session is on the project with its channel connected, there to hear a signal now. */
+/** Whether the session is on the project with its channel connected, there to hear a signal now: its own project,
+ * or another its channel also serves (one channel can serve several of a repo's projects). */
 export function hearing(project: string, id: string): boolean {
     const session = sessions.get(currentId(id))
-    return !!session && session.project === project && session.listening
+    return !!session && heardOn(session, project)
+}
+
+function heardOn(session: Known, project: string): boolean {
+    return !!session.channels?.get(project)?.heard
+}
+
+/** Whether the session belongs on the project's Sessions tab: its own, or one its channel is heard on. */
+function covers(session: Known, project: string): boolean {
+    return session.project === project || heardOn(session, project)
+}
+
+/** Its own project's Sessions tab and those of the others its channel serves, which all show it. */
+function changedAll(session: Known) {
+    for (const project of new Set([session.project, ...session.channels?.keys() ?? []])) changed(project)
 }
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
@@ -204,8 +219,9 @@ export function attend(project: string, id: string | undefined, pid: number | un
         add(session)
     }
     const held = session
-    if (heard && held.project !== project) {
-        // A skipped channel that connected before the hook spoke filed the window under its project.
+    // A skipped channel that connected before the hook spoke filed the window under its project. One channel
+    // heard on several projects keeps the first it was heard on, or the one Orrery started it for.
+    if (heard && held.project !== project && (started || !heardOn(held, held.project))) {
         changed(held.project)
         if (held.name.startsWith(`${held.project} `)) held.name = nameFor(project)
         held.project = project
@@ -221,7 +237,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
         aliases.set(launchTarget(launch), held.id)
     }
     if (name) held.name = name
-    changed(held.project)
+    changedAll(held)
     let open = true
     return {
         get id() {
@@ -235,7 +251,8 @@ export function attend(project: string, id: string | undefined, pid: number | un
             else held.channels!.delete(project)
             tally(held)
             if (!held.channels!.size && held.stopping) forget(held)
-            changed(held.project)
+            changedAll(held)
+            changed(project)
         },
     }
 }
@@ -251,7 +268,7 @@ function tally(session: Known) {
  * which ends its claude process. One with no channel open is out of reach (only its terminal closes it). */
 export function stopSession(project: string, id: string): Session {
     const session = sessions.get(currentId(id))
-    if (!session || session.project !== project) throw notFound(`No session ${id} in ${project}`)
+    if (!session || !covers(session, project)) throw notFound(`No session ${id} in ${project}`)
     // With no launcher connected to stop it, its channel can.
     if (session.started && (launchersOf(project) || !session.stoppable)) return stopLaunch(project, session.started.launch)
     if (!session.stoppable) throw conflict(`${session.name} has no Orrery channel running that can stop it (an older channel needs the session restarted): close it in its terminal`)
@@ -263,19 +280,19 @@ export function stopSession(project: string, id: string): Session {
 /** How many sessions Orrery started are running, on the project or over all of them: one whose channel
  * has gone (it crashed, or was stopped by hand) no longer counts. */
 export function startedSessions(project?: string): number {
-    return listSessions(project).filter(s => s.started && s.listening).length
+    return listSessions(project).filter(s => s.started && s.listening && (!project || s.project === project)).length
 }
 
 /** The session Orrery started for the launch, if it's still known. */
 export function sessionOfLaunch(project: string, launch: string): Session | undefined {
-    const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
+    const session = [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
     return session && publicOf(session)
 }
 
 /** A launch its launcher says it runs: the session started for it counts as started again, with its stop time,
  * if its channel connected before Orrery heard of the launch (Orrery restarted). */
 export function adoptLaunch(project: string, started: StartedSession) {
-    const session = [...sessions.values()].find(s => s.project === project && (s.started?.launch === started.launch || s.launch === started.launch))
+    const session = [...sessions.values()].find(s => covers(s, project) && (s.started?.launch === started.launch || s.launch === started.launch))
     if (!session) return
     session.started = started
     changed(project)
@@ -283,7 +300,7 @@ export function adoptLaunch(project: string, started: StartedSession) {
 
 /** The launch's session has ended (its launcher stopped it): it's dropped. */
 export function launchEnded(project: string, launch: string) {
-    const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
+    const session = [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
     if (!session) return
     forget(session)
     changed(project)
@@ -291,7 +308,7 @@ export function launchEnded(project: string, launch: string) {
 
 /** Moves the launch's stop time; says the session as it now is. */
 export function extendLaunch(project: string, launch: string, stops_at: string): Session | undefined {
-    const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
+    const session = [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
     if (!session?.started) return undefined
     session.started = {...session.started, stops_at}
     changed(project)
@@ -301,7 +318,7 @@ export function extendLaunch(project: string, launch: string, stops_at: string):
 export function listSessions(project?: string): Session[] {
     const now = Date.now()
     for (const s of [...sessions.values()]) if (!s.listening && now - s.seenAt > FORGET_AFTER) forget(s)
-    return [...sessions.values()].filter(s => !project || s.project === project)
+    return [...sessions.values()].filter(s => !project || covers(s, project))
         .sort((a, b) => a.started_at.localeCompare(b.started_at)).map(publicOf)
 }
 
@@ -314,6 +331,7 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, channels: _channels, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
-    return {...session, reachable: !!stoppable}
+function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, channels, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
+    const others = [...channels ?? []].filter(([project, c]) => c.heard && project !== session.project).map(([project]) => project)
+    return {...session, reachable: !!stoppable, ...others.length ? {also: others} : {}}
 }

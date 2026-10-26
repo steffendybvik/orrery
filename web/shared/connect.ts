@@ -16,6 +16,9 @@ export interface ConnectTarget {
     isNew: boolean
     /** ORRERY_SESSION for the window, to tell windows apart. */
     session?: string
+    /** This Orrery: its id (ORRERY_ID, which the channel checks) and environment, which names the channel's
+     * server, one per Orrery for all of a repo's projects. Without it, the server is named after the project. */
+    orrery?: {id: string, environment: string}
 }
 
 export interface ConnectPieces {
@@ -23,7 +26,7 @@ export interface ConnectPieces {
     claudeMd: string
     mcpJson: string
     settingsJson: string
-    /** The channel's server name in .mcp.json, which the launch line loads: the project's id. */
+    /** The channel's server name in .mcp.json, which the launch line loads: `orrery-<environment>`. */
     server: string
     launch: string
     monitor: string
@@ -40,10 +43,12 @@ export function connectPieces(target: ConnectTarget): ConnectPieces {
     const {origin, repoDir, id, key, isNew} = target
     const name = target.name.replace(/\s+/g, ' ').trim()
     const session = sessionName(target.session ?? '') || undefined
-    const server = id
+    const server = target.orrery ? `orrery-${slugify(target.orrery.environment) || 'orrery'}` : id
 
     const mcpJson = JSON.stringify({
-        mcpServers: {[server]: {command: 'node', args: [`${repoDir}/channel/orrery-channel.mjs`], env: {ORRERY_URL: origin, ORRERY_PROJECT: id}}},
+        mcpServers: {[server]: {command: 'node', args: [`${repoDir}/channel/orrery-channel.mjs`], env: {
+            ORRERY_URL: origin, ...target.orrery ? {ORRERY_ID: target.orrery.id} : {}, ORRERY_PROJECTS: id,
+        }}},
     }, null, 2)
     const command = `ORRERY_PROJECT=${id} ORRERY_URL=${origin} node ${repoDir}/channel/orrery-hook.mjs`
     const hook = (event: string) => [{hooks: [{type: 'command', command, timeout: 5, ...event === 'PreToolUse' ? {async: true} : {}}]}]
@@ -89,9 +94,11 @@ Merge with what's already in each file.
 
 ${claudeMd.split('\n').map(line => line ? `    ${line}` : '').join('\n')}
 
-2. Register Orrery's channel, named after the project, in \`.mcp.json\`, so Orrery can ask this session to focus on an issue:
+2. Register Orrery's channel in \`.mcp.json\`, so Orrery can ask this session to focus on an issue:
 
 ${mcpJson.split('\n').map(line => `    ${line}`).join('\n')}
+
+   One entry serves all of the repo's projects on this Orrery: if \`.mcp.json\` already runs \`orrery-channel.mjs\` for it (the same \`ORRERY_ID\`, or the same \`ORRERY_URL\`), add \`${id}\` to that entry's \`ORRERY_PROJECTS\` (comma-separated, or \`*\` for every project on it) instead, and fold any entry that serves one project (\`ORRERY_PROJECT\`) into it.
 
 3. Add these hooks to \`.claude/settings.json\`, so Orrery sees this session's name and whether it's idle, working or needs the owner:
 

@@ -5,8 +5,8 @@
 //   node /path/to/orrery/channel/orrery-launcher.mjs --install      (--uninstall takes the repo's project off)
 // or run it in a terminal for the repo's project alone, for as long as the terminal stays open:
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
-// The project is ORRERY_PROJECT, else the channel's in .mcp.json, else the folder's name; the Orrery is
-// ORRERY_URL. Orrery asks only for a project the owner lets have sessions started (its Sessions tab): when the
+// The projects are ORRERY_PROJECT, else the channel's in .mcp.json (its ORRERY_PROJECTS, each of them, or its
+// ORRERY_PROJECT), else the folder's name; the Orrery is ORRERY_URL. Orrery asks only for a project the owner lets have sessions started (its Sessions tab): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and is stopped after the
@@ -38,14 +38,17 @@ function channelIn(dir) {
     }
 }
 
-/** The repo here as the launcher serves it: its Orrery, its project, and its folder. A value in .mcp.json
- * counts only when it's plain, not `${…}`. */
+/** The repo here as the launcher serves it: for each of its projects, its Orrery, the project, and its folder.
+ * A value in .mcp.json counts only when it's plain, not `${…}`; a channel serving every project (`*`) needs
+ * ORRERY_PROJECT to say which to start sessions for. */
 function here() {
     const dir = process.cwd()
     const env = channelIn(dir)?.env ?? {}
     const plain = value => typeof value === 'string' && !value.includes('${') ? value : undefined
     const url = (process.env.ORRERY_URL ?? plain(env.ORRERY_URL) ?? 'http://localhost:9000').replace(/\/+$/, '')
-    return {url, project: process.env.ORRERY_PROJECT ?? plain(env.ORRERY_PROJECT) ?? basename(dir), dir}
+    const listed = plain(env.ORRERY_PROJECTS)?.split(',').map(p => p.trim()).filter(p => p && p !== '*')
+    const projects = process.env.ORRERY_PROJECT ? [process.env.ORRERY_PROJECT] : listed?.length ? listed : [plain(env.ORRERY_PROJECT) ?? basename(dir)]
+    return projects.map(project => ({url, project, dir}))
 }
 
 /** tmux, 3.2 or newer (`new-session -e` hands each session its launch); says what's wrong when it isn't. */
@@ -64,13 +67,14 @@ function tmuxProblem() {
 const args = process.argv.slice(2)
 const script = fileURLToPath(import.meta.url)
 if (args.includes('--install') || args.includes('--uninstall')) {
-    const entry = here()
     try {
-        if (args.includes('--uninstall')) {
-            const {config} = uninstall(entry, {script})
-            console.log(`Took ${entry.project} (${entry.url}) off the launcher.`)
-            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : 'Nothing was left on it, so the service is removed.')
-        } else {
+        for (const entry of here()) {
+            if (args.includes('--uninstall')) {
+                const {config} = uninstall(entry, {script})
+                console.log(`Took ${entry.project} (${entry.url}) off the launcher.`)
+                console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : 'Nothing was left on it, so the service is removed.')
+                continue
+            }
             const problem = tmuxProblem()
             if (problem) throw new Error(problem)
             try {
@@ -86,8 +90,8 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             console.log(`The launcher now starts sessions for ${entry.project} (${entry.url}) in ${entry.dir}, from login on.`)
             console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.`)
             console.log(`Let Orrery start sessions on the project's Sessions tab, if it doesn't yet. Its log: ${logs}`)
-            console.log(`If claude hasn't run in ${entry.dir} before, run it there once to trust the folder.`)
         }
+        if (!args.includes('--uninstall')) console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
         process.exit(0)
     } catch (error) {
         log(error.message)
@@ -241,7 +245,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 // As the service, every project on the list; in a terminal, the repo's.
-const projects = args.includes('--service') ? readConfig().projects : [here()]
+const projects = args.includes('--service') ? readConfig().projects : here()
 if (!projects.length) {
     log(`no project is on ${configFile()}: run this with --install in a project's repo`)
     process.exit(0)
