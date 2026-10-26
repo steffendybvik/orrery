@@ -23,6 +23,14 @@ the database schema are the public surface, and a database always migrates forwa
   per project (`ORRERY_PROJECT`) works as before.
 - **A near miss ticks:** a row's tick takes clicks the row's whole height and a few px either side of
   the box, and a card's a few px around it, so aiming for it no longer opens the issue.
+- **Sessions and schedules across projects in the sidebar:** under Connect an agent, Sessions opens every
+  project's sessions, and Schedules a new page with every project's schedules in one agenda, each saying
+  its project; a new one is made in the project picked.
+- **Edit and delete your own comments:** the owner's comments on an issue page have Edit and Delete. An edit
+  that changes the words goes to the session on the issue again, saying it replaces the earlier comment.
+- **Signals don't slip through a reconnect:** a session's stream hears live signals before reading what it
+  missed, so one sent in between arrives once; sessions acking a signal at the same time all count; a failed
+  re-read of a project no longer clears it from the page.
 
 ## 1.0.0-rc.3 (2026-10-26)
 
