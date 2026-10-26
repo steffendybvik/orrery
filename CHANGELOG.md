@@ -3,13 +3,6 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## Unreleased
-
-- **A dev server with a demo:** `docker-compose.dev.yml` runs as its own compose project (`.env.dev`), and
-  `ORRERY_SEED` fills its empty database with a demo on start, so working on Orrery never touches the
-  Orrerys you use. `ORRERY_BUILD_CONTEXT` builds those from a release on GitHub (`…orrery.git#main`)
-  rather than this folder.
-
 ## 1.0.0-rc.3 (2026-10-26)
 
 - **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
@@ -22,6 +15,10 @@ the database schema are the public surface, and a database always migrates forwa
   `own` or `shared` (another project's, `releases_from`), under Settings → Releases. New projects have
   none, and no Releases page, until it's turned on. Existing projects with releases, or others drawing on
   them, keep their own. A shared release's page leaves out projects with nothing in it.
+- **A dev server with a demo:** `docker-compose.dev.yml` runs as its own compose project (`.env.dev`), and
+  `ORRERY_SEED` fills its empty database with a demo on start, so working on Orrery never touches the
+  Orrerys you use. `ORRERY_BUILD_CONTEXT` builds those from a release on GitHub (`…orrery.git#main`)
+  rather than this folder.
 - **Shared releases:** a project can take its releases from another (Settings → Releases, or
   `releases_from`), so a monorepo's apps ship in one release. Their issues are set for it, and its page
   shows each project's issues in a section with its progress; a project drawing on it shows its own part
