@@ -29,23 +29,45 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
 
 ## Quick start
 
-Requires Docker.
+You need:
 
-```sh
-docker compose up -d --build        # http://localhost:9000
-```
+- **Docker**, which runs Orrery itself
+- **Node 24 and pnpm**: the channel, hooks and launcher that connect Claude sessions run from this repo on your
+  machine, outside Docker
+- **Claude Code**
+- **tmux 3.2+**, only if Orrery should start sessions itself
 
-Open it and give your name, which makes you the owner. Create a project from the sidebar (`+`), then
-open **Connect an agent** and paste the line it gives you into a Claude session in that project's
-repo. The session sets the repo up itself.
+1. Get the repo and its packages (the connected repos run the channel from here, so keep it where it is):
+
+   ```sh
+   git clone https://github.com/steffendybvik/orrery.git && cd orrery
+   pnpm install
+   ```
+
+2. Start Orrery:
+
+   ```sh
+   docker compose up -d --build        # http://localhost:9000
+   ```
+
+3. Open it, give your name (that makes you the owner) and create a project from the sidebar (`+`).
+4. Open **Connect an agent** and paste the line it gives you into a Claude session in that project's repo. The
+   session writes the repo's `.mcp.json`, hooks and `CLAUDE.md` section itself.
+5. From then on, start Claude in that repo with the channel, so Orrery can send it work:
+
+   ```sh
+   claude --dangerously-load-development-channels server:orrery-personal
+   ```
+
+   The name after `server:` is the one in the repo's `.mcp.json`; Connect shows it. A shell alias saves typing it
+   (see [Connecting a repo](docs/connect.md#2-add-the-channel)).
 
 ## Requirements and limits
 
 - **Local by default.** Only this machine can reach it. Read [SECURITY.md](SECURITY.md) before
   exposing it.
-- **Channels are a Claude Code research preview.** For Orrery to send a session messages, the session
-  has to be started with `claude --dangerously-load-development-channels server:orrery-<environment>`
-  (the server registered in the repo's `.mcp.json`). Everything else works without it.
+- **Channels are a Claude Code research preview**, hence the long flag in step 5. Without it a session still
+  has the tools and can read and update the roadmap, but Orrery can't send it work.
 - **Starting sessions** needs tmux 3.2 or newer, and the launcher installed once per repo
   (`node /path/to/orrery/channel/orrery-launcher.mjs --install`).
 
