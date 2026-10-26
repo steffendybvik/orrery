@@ -24,15 +24,11 @@ function enter() {
     query.value = ''
 }
 
-function onOutside(event: PointerEvent) {
-    if (!root.value?.contains(event.target as Node)) open.value = false
-}
+useDismiss(root, () => open.value, () => open.value = false)
 watch(open, isOpen => {
     query.value = ''
     if (isOpen) nextTick(() => input.value?.focus())
-    isOpen ? document.addEventListener('pointerdown', onOutside) : document.removeEventListener('pointerdown', onOutside)
 })
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 </script>
 
 <template>

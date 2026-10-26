@@ -9,7 +9,7 @@ import type {LaunchState} from '~/composables/useLaunchState'
 // and your own words, which go with every signal to it. Their launchers start them in tmux, for each project's
 // minutes or until stopped; the Sessions page shows them arriving.
 const {target, close} = useStartSession()
-const {launchers, sessions} = useRoadmaps()
+const {launchers, sessions, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {load} = useOwner()
 const {places} = useStatuses()
@@ -62,7 +62,7 @@ async function loadPresets() {
     presets.value = lists.flat()
     picked.value = picked.value.filter(id => presets.value.some(p => p.id === id))
 }
-const projectName = (id: string) => ordered.value.find(p => p.id === id)?.name ?? id
+const projectName = (id: string) => byId(id)?.name ?? id
 
 function pick(id: number) {
     picked.value = picked.value.includes(id) ? picked.value.filter(p => p !== id) : [...picked.value, id]
