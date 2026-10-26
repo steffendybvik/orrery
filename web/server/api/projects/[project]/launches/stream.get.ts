@@ -1,9 +1,9 @@
 import type {LaunchEvent} from '../../../../utils/launches'
 
 // `GET /api/projects/:project/launches/stream` → server-sent events for the project's launcher
-// (channel/orrery-launcher.mjs) on the host: `launch` {id, project, after, minutes, tmux, context?}, a session to start
-// once it has claimed it; `stop` {id} and `extend` {id, stops_at}, the owner stopping one of its sessions or
-// giving it longer; `clear` {id}, one of its sessions done with a piece of work, to `/clear` for a fresh context.
+// (channel/orrery-launcher.mjs) on the host: `launch` {id, project, after, minutes?, tmux, context?}, a session to start
+// once it has claimed it (no minutes: until stopped); `stop` {id}, one of its sessions to stop (the owner stopped
+// it, or it's done and its time is up or it sat idle too long); `extend` {id, stops_at}, the owner giving one longer; `clear` {id}, one of its sessions done with a piece of work, to `/clear` for a fresh context.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
     const starts = await useStore().starts(project)

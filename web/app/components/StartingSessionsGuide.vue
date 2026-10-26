@@ -23,7 +23,8 @@ const ready = computed(() => !!props.project.starts && !!running.value)
         <div class="flex min-w-0 flex-col gap-0.5">
           <span class="font-medium text-fg">Let Orrery start sessions for {{ project.name }}</span>
           <span>
-            Tick it above, then say how many may run at once and how many minutes each gets before it's stopped.
+            Tick it above, then say how many may run at once. Each runs until you stop it, unless you give it minutes,
+            or minutes it may sit idle with nothing to do.
           </span>
         </div>
       </li>
@@ -59,8 +60,8 @@ const ready = computed(() => !!props.project.starts && !!running.value)
           <span class="font-medium text-fg">Watch it, give it longer, or stop it</span>
           <span>
             It lists here like any session. <strong class="font-medium text-fg">Watch</strong> copies the command that opens it in a terminal,
-            <strong class="font-medium text-fg">+30 min</strong> gives it longer, <strong class="font-medium text-fg">Stop</strong> ends it now;
-            otherwise it stops when its minutes are up. The launcher's log is <span class="font-mono">~/Library/Logs/orrery-launcher.log</span>
+            <strong class="font-medium text-fg">Stop</strong> ends it now, and <strong class="font-medium text-fg">+30 min</strong> gives one with minutes longer.
+            One whose minutes are up, or that has sat idle too long, is stopped once it's done with what it's on. The launcher's log is <span class="font-mono">~/Library/Logs/orrery-launcher.log</span>
             on macOS, <span class="font-mono">journalctl --user -u orrery-launcher</span> on Linux.
           </span>
         </div>

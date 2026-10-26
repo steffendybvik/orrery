@@ -8,7 +8,10 @@ let sent: {type: string, project?: string, id?: string, after?: number, minutes?
 let listeners: number
 let started: {larder: number, all: number}
 let starts: Starts | undefined
-let session: {started?: {launch: string, tmux: string, stops_at: string, context?: {presets: string[], text: string}}} | undefined
+let session: {name?: string, started?: {launch: string, tmux: string, stops_at?: string, context?: {presets: string[], text: string}}} | undefined
+/** What the sessions are on, for stopping those that are done: issues in progress, and signals waiting, by session. */
+let working: Record<string, string[]>
+let waiting: string[]
 let adopted: string[]
 let focused: {issue: string, session: string}[]
 let scoped: {chunk: string, body: Record<string, unknown>}[]
@@ -20,6 +23,8 @@ beforeEach(async () => {
     starts = {limit: 2, minutes: 30}
     session = undefined
     adopted = []
+    working = {}
+    waiting = []
     const events = new EventEmitter()
     events.on('launches', event => sent.push(event.type === 'launch' ? {type: 'launch', after: event.launch.after, minutes: event.launch.minutes} : event))
     vi.stubGlobal('projectEvents', events)
@@ -48,7 +53,10 @@ beforeEach(async () => {
             return {id: 43}
         },
         presetsFor: async (_project: string, ids: number[]) => ids.map(id => ({id, name: `preset ${id}`, text: `Text ${id}.`})),
+        workingOn: async (_project: string, ids: string[]) => ids.flatMap(id => working[id] ?? []),
+        waiting: async (_project: string, ids: string[]) => ids.some(id => waiting.includes(id)),
     }))
+    vi.stubGlobal('sessionIds', (id: string) => [id])
     vi.resetModules()
     launches = await import('../server/utils/launches')
 })
@@ -216,6 +224,59 @@ describe('a session Orrery started', () => {
         expect(launches.extendLaunchBy('larder', 'abc', 30).started!.stops_at).toBe('2999-01-01T10:30:00.000Z')
         expect(sent).toEqual([{type: 'stop', project: 'larder', id: 'abc'}, {type: 'extend', project: 'larder', id: 'abc', stops_at: '2999-01-01T10:30:00.000Z'}])
     })
+
+    it('runs until stopped when the project gives no minutes, with no time to extend', async () => {
+        starts = {limit: 2}
+        launches.addLauncher('larder')
+        const launch = (await launches.considerLaunch(signal(1)))!
+        expect(launch.minutes).toBeUndefined()
+        expect(launches.launched(launch.id)).toEqual({launch: launch.id, tmux: launch.tmux})
+        session = {name: 'larder 1', started: {launch: 'abc', tmux: 'orrery-larder-abc'}}
+        expect(() => launches.extendLaunchBy('larder', 'abc', 30)).toThrow('larder 1 runs until it\'s stopped')
+    })
+})
+
+describe('stopping the sessions Orrery started that are done', () => {
+    const now = Date.parse('2026-10-26T15:00:00.000Z')
+    const minutesAgo = (n: number) => new Date(now - n * 60_000).toISOString()
+    const started = (launch: string, more: {state?: string, since?: string, stops_at?: string} = {}) =>
+        ({id: `s-${launch}`, project: 'larder', state: 'idle', since: minutesAgo(1), started: {launch, tmux: `orrery-larder-${launch}`, ...more.stops_at ? {stops_at: more.stops_at} : {}}, ...more})
+    const stopped = () => sent.filter(e => e.type === 'stop').map(e => e.id)
+
+    it("stops one whose time is up only once it's idle with nothing in progress or waiting", async () => {
+        const sessions = [
+            started('due', {stops_at: minutesAgo(1)}),
+            started('busy', {stops_at: minutesAgo(1), state: 'working'}),
+            started('holding', {stops_at: minutesAgo(1)}),
+            started('asked', {stops_at: minutesAgo(1)}),
+            started('later', {stops_at: minutesAgo(-5)}),
+            started('forever'),
+            {id: 'by-hand', project: 'larder', state: 'idle', since: minutesAgo(600)},
+        ]
+        vi.stubGlobal('listSessions', () => sessions)
+        working = {'s-holding': ['LAR-1']}
+        waiting = ['s-asked']
+        expect(await launches.stopDue(now)).toEqual(['due'])
+        // Done with its issue, the one holding it goes at the next check; the busy one once it's idle.
+        working = {}
+        sessions[1]!.state = 'idle'
+        expect(await launches.stopDue(now + 30_000)).toEqual(['busy', 'holding'])
+        expect(stopped()).toEqual(['due', 'busy', 'holding'])
+    })
+
+    it("stops one idle for the project's idle minutes, from when it went idle, and asks a slow launcher again later", async () => {
+        starts = {limit: 2, idle_minutes: 60}
+        const sessions = [started('idle', {since: minutesAgo(61)}), started('fresh', {since: minutesAgo(59)}), started('working', {state: 'working', since: minutesAgo(120)})]
+        vi.stubGlobal('listSessions', () => sessions)
+        expect(await launches.stopDue(now)).toEqual(['idle'])
+        expect(await launches.stopDue(now + 30_000)).toEqual([])
+        expect(await launches.stopDue(now + 3 * 60_000)).toEqual(['idle', 'fresh'])
+        // Without idle minutes, an idle session runs on.
+        starts = {limit: 2}
+        launches.launchGone('idle')
+        launches.launchGone('fresh')
+        expect(await launches.stopDue(now + 6 * 60_000)).toEqual([])
+    })
 })
 
 describe('a launcher reporting the sessions it runs', () => {
@@ -224,9 +285,11 @@ describe('a launcher reporting the sessions it runs', () => {
     it('has Orrery know them again after it restarted, whichever of the session and the report comes first', () => {
         // Before the report, a channel claiming the launch isn't known as started.
         expect(launches.launched(running.id)).toBeUndefined()
-        launches.reportRunning('larder', [running])
-        expect(adopted).toEqual([running.id])
+        const forever = {id: 'f1f2f3f4f5f6', tmux: 'orrery-larder-f1f2f3f4f5f6'}
+        launches.reportRunning('larder', [running, forever])
+        expect(adopted).toEqual([running.id, forever.id])
         expect(launches.launched(running.id)).toEqual({launch: running.id, tmux: running.tmux, stops_at: running.stops_at})
+        expect(launches.launched(forever.id)).toEqual({launch: forever.id, tmux: forever.tmux})
     })
 
     it('keeps the stop time the owner moves, and forgets the launch once it has ended', () => {
