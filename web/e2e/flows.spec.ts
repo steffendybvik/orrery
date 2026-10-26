@@ -337,7 +337,8 @@ test('makes a release, sets an issue for it from its page, and drafts its change
     await expect.poll(async () => (await api(request, 'get', `/issues/${issue.id}`)).release).toBe('1.0.0')
 
     await page.getByRole('link', {name: 'Open the release'}).click()
-    await expect(page.getByText('Label the jars')).toBeVisible()
+    // Exact: the changelog draft, folded away but in the page once the release counts the issue, has its title too.
+    await expect(page.getByText('Label the jars', {exact: true})).toBeVisible()
     await page.getByText('Changelog draft').click()
     await expect(page.locator('pre', {hasText: `## 1.0.0 (unreleased)`})).toContainText(`- Label the jars (${issue.id})`)
     await page.getByRole('button', {name: 'Mark shipped today'}).click()
