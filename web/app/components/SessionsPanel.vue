@@ -62,8 +62,8 @@ async function focus(session: Session | null) {
 }
 
 const nameOf = (id?: string) => sessions.value.find(s => s.id === id)?.name ?? 'a session'
-/** The command that starts the window again with the channel, keeping its name unless it was made up. */
-const restart = (session: Session) => `${session.name.startsWith(`${props.project} `) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${props.project}`
+const {environment} = useRuntimeConfig().public
+const restart = (session: Session) => restartCommand({name: session.name, project: props.project}, String(environment || 'personal'))
 </script>
 
 <template>

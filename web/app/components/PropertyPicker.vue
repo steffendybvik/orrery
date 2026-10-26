@@ -76,9 +76,7 @@ function onKey(event: KeyboardEvent) {
     event.stopPropagation()
 }
 
-function onOutside(event: PointerEvent) {
-    if (!root.value?.contains(event.target as Node)) close(false)
-}
+useDismiss(root, () => open.value, () => close(false))
 
 watch(query, () => active.value = 0)
 watch(open, isOpen => {
@@ -86,10 +84,8 @@ watch(open, isOpen => {
     // Opens on what's picked, so ↵ straight away keeps it.
     active.value = Math.max(0, props.options.findIndex(o => picked(o.value)))
     if (isOpen) nextTick(() => input.value?.focus())
-    isOpen ? document.addEventListener('pointerdown', onOutside) : document.removeEventListener('pointerdown', onOutside)
 })
 watch(active, index => nextTick(() => list.value?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({block: 'nearest'})))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 </script>
 
 <template>

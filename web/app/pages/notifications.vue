@@ -8,7 +8,7 @@ useHead({title: 'Notifications · Orrery'})
 type Show = 'inbox' | 'waiting' | 'cleared'
 const ASKS = {decision: 'Needs your decision', feedback: 'Needs your feedback'}
 const {notices, lists, seenAt, seen, load, clear} = useInbox()
-const {projects} = useRoadmaps()
+const {projects, byId} = useRoadmaps()
 const {open: openIssue} = useIssueLink()
 const {who} = useOwner()
 
@@ -37,7 +37,7 @@ const options = computed(() => [
     {value: 'cleared' as const, label: 'Cleared'},
 ])
 const isNew = (n: Notice) => !n.cleared && (n.created_at > since.value || isWaiting(n))
-const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
+const projectName = (id: string) => byId(id)?.name ?? id
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'})
 
 /** A card opens its issue, unless the click was on a link or button in it, or ended a text selection. */

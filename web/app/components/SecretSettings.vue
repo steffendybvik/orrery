@@ -6,7 +6,7 @@ import type {Secret} from '#shared/roadmap'
 // comes back); take a host off without it, since that only narrows where it goes. Saved as the owner.
 const {secrets, load: loadSecrets} = useSecretList()
 const {load} = useOwner()
-const {projects} = useRoadmaps()
+const {projects, byId} = useRoadmaps()
 const failed = ref('')
 const busy = ref(false)
 const missingKey = ref(false)
@@ -49,7 +49,7 @@ async function remove(secret: Secret) {
 }
 
 const dropHost = (secret: Secret, host: string) => call(secret.name, 'PATCH', {hosts: secret.hosts.filter(h => h !== host)})
-const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
+const projectName = (id: string) => byId(id)?.name ?? id
 
 const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
 </script>
