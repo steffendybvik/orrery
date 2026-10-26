@@ -7,6 +7,9 @@ export const colorOf = (color: string) => TINTS[color as keyof typeof TINTS] ?? 
 /** Whether a column's kind is closed (done or canceled): out of the open counts. */
 export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
 
+/** A session's state as the page says it. */
+export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
+
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}
 
 /** Putting an issue in a column: its status. Into Proposed makes it a proposal; a proposal put anywhere

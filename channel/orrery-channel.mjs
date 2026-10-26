@@ -144,11 +144,13 @@ function quit() {
 }
 
 // Listens to the project's signal stream, and after a drop picks up from the last one it saw.
+// A session Orrery started catches up from its launch's `after`, 0 included (a project's first signal).
 let last = Number(process.env.ORRERY_AFTER) || 0
+const catchUp = process.env.ORRERY_AFTER !== undefined
 await follow({
     url: () => {
         const query = new URLSearchParams(who)
-        if (last) query.set('after', String(last))
+        if (last || catchUp) query.set('after', String(last))
         return `${api}/signals/stream?${query}`
     },
     onOpen: () => log(`listening for ${project}'s signals at ${base}`),
