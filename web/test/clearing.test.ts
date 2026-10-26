@@ -101,6 +101,14 @@ describe("a session's run", () => {
         expect(await clearing.resumeRun('elsewhere', 'w')).toBe(false)
         expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
         expect(focused).toEqual([['orrery', 'all', {session: 'w', status: 'todo,started', release: '1.2', note: "Carry on with what's left of it after the clear."}, {name: 'steffen', owner: true}]])
+        // Nothing left has changed since: it isn't sent again, so a session that won't take it isn't kept going round.
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(false)
+        left = [{id: 'ORR-2', updated_at: 'later'}]
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
+        expect(focused).toHaveLength(2)
+        // A new run starts afresh.
+        clearing.startRun('w', signal({chunk: 'all', status: 'todo'}))
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
         // One someone opened themselves isn't sent on.
         session = {project: 'orrery', state: 'idle', idleAt: 1}
         expect(await clearing.resumeRun('orrery', 'w')).toBe(false)
