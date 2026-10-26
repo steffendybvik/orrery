@@ -3,12 +3,23 @@ import type {Upload} from '#shared/roadmap'
 
 // Images in a Markdown field (a comment, an issue's description): pasted, dropped or picked, each is kept
 // by Orrery and goes into `text` as Markdown where the cursor is in `field`, on a line of its own.
-// `uploading` counts those on their way; `failed` says why the last didn't make it.
+// `uploading` counts those on their way; `failed` says why the last didn't make it. `reset` drops those still on
+// their way, for a field opened afresh (another issue, a dialog opened again, an edit cancelled), so a late one
+// doesn't land in what's there now; leaving the component does the same.
 export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement | null | undefined>) {
     const {load} = useOwner()
     const uploading = ref(0)
     const failed = ref('')
     const dragging = ref(false)
+    /** Which opening of the field the uploads are for: one from an earlier one is dropped. */
+    let round = 0
+
+    function reset() {
+        round++
+        uploading.value = 0
+        failed.value = ''
+    }
+    onScopeDispose(reset)
 
     function insert(markdown: string) {
         const element = field.value
@@ -27,16 +38,18 @@ export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement
         if (!files.length) return
         failed.value = ''
         uploading.value += files.length
+        const mine = round
         for (const file of files) {
+            if (mine !== round) return
             try {
                 const image = await $fetch<Upload>('/api/uploads', {
                     method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null},
                 })
-                insert(image.markdown)
+                if (mine === round) insert(image.markdown)
             } catch (error) {
-                failed.value = errorMessage(error, 'add')
+                if (mine === round) failed.value = errorMessage(error, 'add')
             } finally {
-                uploading.value--
+                if (mine === round) uploading.value--
             }
         }
     }
@@ -53,7 +66,7 @@ export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement
         upload([...event.dataTransfer?.files ?? []])
     }
 
-    return {uploading, failed, dragging, upload, onPaste, onDrop}
+    return {uploading, failed, dragging, upload, reset, onPaste, onDrop}
 }
 
 function readAsDataUrl(file: File): Promise<string> {

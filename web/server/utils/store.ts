@@ -3,8 +3,8 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import {randomBytes} from 'node:crypto'
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Preset, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
-import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Preset, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, TerminalApp, Upload} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, isObject, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
@@ -275,6 +275,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
     /** `{limit, minutes?, idle_minutes?}` lets Orrery start sessions, for any project with a launcher; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
+    /** The terminal app Watch opens; null is Terminal. */
+    terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
 }
 
 /** A preset's name and its text, both needed. */
@@ -338,6 +340,30 @@ export class Store {
         issue = await this.issueId(project, issue)
         await this.run(`INSERT INTO issue_sessions (project, issue, session, at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?)
             ON CONFLICT (project, issue) DO UPDATE SET session = excluded.session, at = excluded.at`, project, issue, session, stamp(), project, issue)
+    }
+
+    /** Each issue's write in `claimed` under way, so the next waits for it. */
+    private readonly claiming = new Map<string, Promise<unknown>>()
+
+    /** A session's write to an issue, `status` and all, one at a time for the issue: the claim, the write and tying
+     * the session to the issue happen together, so two sessions starting it at once can't both pass the claim
+     * before either has it. The second waits, then finds the first on it. */
+    async claimed<T>(project: string, issue: string, status: Input[string], session: string, write: () => Promise<T>): Promise<T> {
+        if (status === undefined) return write()
+        const key = `${project}\n${await this.issueId(project, issue)}`
+        const run = (this.claiming.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
+            await this.claim(project, issue, status, session)
+            const written = await write()
+            // One the write moved to another project is tied there by its route.
+            await this.workedBy(project, issue, session).catch(() => {})
+            return written
+        })
+        this.claiming.set(key, run)
+        try {
+            return await run
+        } finally {
+            if (this.claiming.get(key) === run) this.claiming.delete(key)
+        }
     }
 
     /** Refuses `session` starting an issue (`status` a started one, in review too) that another session already
@@ -667,6 +693,7 @@ export class Store {
             handle: (value('handle') as string | undefined) || null,
             tracker: (value('tracker') as string | undefined) || null,
             starts: (value('starts') as Starts | null | undefined) ?? null,
+            terminal: (value('terminal') as TerminalApp | undefined) ?? 'terminal',
         }
     }
 

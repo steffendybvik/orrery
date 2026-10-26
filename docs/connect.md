@@ -101,8 +101,9 @@ issues it had in progress and their latest comment, so it carries on with them.
 ## 4. Optionally, let Orrery start sessions
 
 Orrery can start a session itself when you send the project work and nobody is listening, or when you
-press **Start session** on its Sessions tab, so nobody has to open a terminal. Turn it on at the top of that
-Sessions tab (how many at once, how many minutes each), then install the launcher once, in the repo:
+press **Start session** on its Sessions tab, so nobody has to open a terminal. Turn it on once, for every
+project, under App settings → Starting sessions (how many at once, how many minutes each), then install the
+launcher once, in the repo:
 
 ```bash
 node /path/to/orrery/channel/orrery-launcher.mjs --install
@@ -126,5 +127,5 @@ are up, when you press **Stop** beside it (in the sessions panel or the project'
 to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
-The limits are per project, on its Sessions tab. The cap is time, not cost:
+The limits are the Orrery's, under App settings, and apply to each project. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.

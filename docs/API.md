@@ -325,13 +325,14 @@ with review instructions in it.
 
 | | |
 |---|---|
-| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes?, tmux, context?}` (claim it, then start it; no `minutes`: until stopped), `stop` `{id}` (the owner stopped it, or it's done and past its time or idle too long), `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through |
+| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes?, tmux, context?}` (claim it, then start it; no `minutes`: until stopped), `stop` `{id}` (the owner stopped it, or it's done and past its time or idle too long), `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through; and `watch` `{id, terminal}`: the owner pressed Watch, so the launcher running that session opens a terminal on its machine attached to it, in that app |
 | `POST /projects/:project/launches` | `{issue?, statuses?, release?, presets?, instructions?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); with `statuses` (ids or kinds; `todo` and `started` when only `release` is sent) and `release`, from a focus made the same way on the whole project's issues in them (chunk `all`); `presets` (ids, the Orrery's or the project's) and `instructions` (text) give it context; 400 for another project's preset; 409 without the project's opt-in, a launcher or room under its limit |
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
 | `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at?, context?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again, with the context they were given (a launch Orrery still knows keeps its own) |
 | `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
+| `POST /projects/:project/launches/:launch/watch` | the session: the owner watching it; its launcher opens a terminal attached to it, in the app `GET /settings` names (`terminal`: `terminal`, `iterm`, `warp` or `ghostty`, set with `PATCH /settings {terminal}`; on Linux the system's own terminal); 409 when no launcher is running for the project |
 | `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped; a 409 for one that runs until stopped |
 
 `POST …/focus` takes `{session}` to reach one session; without it, every session gets
@@ -343,7 +344,7 @@ it. Each signal lists the sessions it reached in `delivered_to`
 A focus reaches a session as its `prompt`: a template filled in, with standing instructions after it.
 The owner sets them (an agent gets a 403):
 
-- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?}`: the Orrery's (`starts`: see [Starting sessions](#starting-sessions)). A template is text with
+- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?, terminal?}`: the Orrery's (`terminal`: the app Watch opens; `starts`: see [Starting sessions](#starting-sessions)). A template is text with
   placeholders (`{issue}`, `{title}`, `{status}`, `{priority}`, `{chunk}`, `{where}`, `{note}`, `{url}`,
   `{actor}`; a chunk's also `{issues}`), and a line whose placeholders all come out empty is left out.
   `null` or `""` goes back to the default. `instructions` is a list of `{text, on?, id?}`, lines such as
@@ -378,7 +379,8 @@ gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Con
 make these calls for it. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
 to the issue, so the owner's comments on it go to that session. Such a write that starts an issue another
 session has started (in progress or in review), while that session is still listening, is refused with a 409:
-pick another issue.
+pick another issue. Two sessions starting the same issue at once are taken one after the other, so only the first
+gets it.
 
 An issue id is only unique within its Orrery, and an Orrery is one person's board. So when a commit body
 or PR description names an issue, write its `ref` (`orrery-steffendybvik: DOC-132`) as a trailer on a

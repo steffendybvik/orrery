@@ -62,3 +62,21 @@ describe('a session’s stream', () => {
         expect(refused('GET', '/api/events', {'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'empty'})).toBeUndefined()
     })
 })
+
+describe('an upload', () => {
+    it('too big for any image is refused before its body is read', async () => {
+        const {UPLOAD_LIMIT} = await import('../server/utils/store')
+        let read = 0
+        vi.stubGlobal('UPLOAD_LIMIT', UPLOAD_LIMIT)
+        vi.stubGlobal('readBody', async () => void read++)
+        vi.stubGlobal('useStore', () => ({createUpload: async () => ({id: 'x'})}))
+        vi.stubGlobal('actorOf', async () => ({name: 'skoll', owner: true}))
+        vi.stubGlobal('created', (_event: unknown, value: unknown) => value)
+        const upload = (await import('../server/api/uploads/index.post')).default as unknown as (event: Event) => Promise<unknown>
+        const post = (length: number) => upload({method: 'POST', path: '/api/uploads', headers: {'content-length': String(length)}})
+        await expect(post(UPLOAD_LIMIT * 2)).rejects.toMatchObject({statusCode: 413})
+        expect(read).toBe(0)
+        await expect(post(UPLOAD_LIMIT)).resolves.toEqual({id: 'x'})
+        expect(read).toBe(1)
+    })
+})

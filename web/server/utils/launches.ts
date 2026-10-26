@@ -1,12 +1,12 @@
 // Sessions Orrery starts itself, with no terminal. When the owner's signal reaches a project nobody is
-// listening on, and the owner lets the project have sessions started (its `starts`), Orrery asks the
+// listening on, and the owner lets Orrery start sessions (the Orrery's `starts`), Orrery asks the
 // project's launchers (channel/orrery-launcher.mjs, running on the host in the repo) to start one in tmux,
-// within the project's limit. The first launcher to
+// within the limit on each project. The first launcher to
 // claim the launch starts it; its channel catches up from that signal. The session runs until the owner stops
-// it, or Orrery has its launcher stop it once its time is up or it has sat idle too long (the project's `minutes`
+// it, or Orrery has its launcher stop it once its time is up or it has sat idle too long (the setting's `minutes`
 // and `idle_minutes`, when set), and only while it's idle with nothing open.
 import {randomBytes} from 'node:crypto'
-import type {Session, SessionContext, Signal, StartedSession, Starts} from '#shared/roadmap'
+import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
@@ -28,6 +28,7 @@ export type LaunchEvent =
     | {type: 'stop', project: string, id: string}
     | {type: 'extend', project: string, id: string, stops_at?: string}
     | {type: 'clear', project: string, id: string}
+    | {type: 'watch', project: string, id: string, terminal: TerminalApp}
 
 /** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
  * `claimed` once a launcher has taken it on. */
@@ -84,11 +85,11 @@ export const launchTarget = (launch: string) => `launch-${launch}`
 /** The owner starting a session on the project by hand, though nobody's work is waiting: it catches up from the
  * project's latest signal; given an `issue`, from a focus on it made for this session alone; given a scope
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
- * project's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
+ * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
 export async function startLaunch(project: string, {issue, statuses, release, context, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, actor?: Actor} = {}): Promise<Launch> {
     const starts = await useStore().starts(project)
-    if (!starts) throw conflict(`${project} doesn't let Orrery start sessions; turn it on from its Sessions tab`)
+    if (!starts) throw conflict(`Orrery doesn't start sessions; turn it on in App settings`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
     if (startedSessions(project) + pendingOn(project) >= starts.limit) throw conflict(`${project} already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     const id = randomBytes(6).toString('hex')
@@ -203,6 +204,16 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         stopped.push(started.launch)
     }
     return stopped
+}
+
+/** The owner pressing Watch on a session Orrery started: its launcher opens a terminal on its machine, attached to
+ * the session, in the app the settings name. Needs a launcher there to do it. */
+export function watchLaunch(project: string, id: string, terminal: TerminalApp): Session {
+    const session = sessionOfLaunch(project, id)
+    if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to open a terminal; attach by hand with tmux attach -t ${session.started!.tmux}`)
+    emit({type: 'watch', project, id, terminal})
+    return session
 }
 
 /** The owner stopping a session Orrery started: its launcher kills it, and says when it's gone. */

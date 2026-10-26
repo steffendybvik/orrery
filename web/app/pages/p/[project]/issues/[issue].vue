@@ -168,8 +168,9 @@ const editingNotes = ref(false)
 const notes = ref('')
 const notesInput = ref<HTMLTextAreaElement | null>(null)
 // An image pasted, dropped or picked goes in as Markdown where the cursor is.
-const {uploading, failed: uploadError, dragging, upload, onPaste, onDrop} = useImageUpload(notes, notesInput)
+const {uploading, failed: uploadError, dragging, upload, reset: resetUploads, onPaste, onDrop} = useImageUpload(notes, notesInput)
 function editNotes() {
+    resetUploads()
     notes.value = issue.value?.notes ?? ''
     editingNotes.value = true
     nextTick(() => notesInput.value?.focus())
@@ -182,6 +183,7 @@ async function saveNotes() {
 }
 watch(issueId, () => {
     editingTitle.value = editingNotes.value = false
+    resetUploads()
 })
 
 // The owner's own comments edit in place, and come out after asking once more in place.

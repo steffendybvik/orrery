@@ -78,7 +78,7 @@ async function saveSummary() {
     if (next !== (chunk.value?.summary ?? '') && !await save({summary: next || null})) return
     editingSummary.value = false
 }
-watch(() => chunk.value?.id, () => editingTitle.value = editingSummary.value = false)
+watch(() => chunk.value?.id, () => editingTitle.value = editingSummary.value = confirmingRemove.value = false)
 
 // Removing it leaves its issues in no chunk.
 const confirmingRemove = ref(false)

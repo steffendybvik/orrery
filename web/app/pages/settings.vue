@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {TINTS, issueRef} from '#shared/roadmap'
+import {TERMINALS, TINTS, issueRef} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
 // This Orrery's own settings (a project's are on its Settings tab): whose it is, and its tint, a colour
@@ -18,6 +18,7 @@ const headings: Heading[] = [
     {id: 'starts', text: 'Starting sessions', level: 2},
     {id: 'sessions', text: 'What sessions hear', level: 2},
     {id: 'presets', text: 'Presets', level: 2},
+    {id: 'watch', text: 'Watching sessions', level: 2},
     {id: 'secrets', text: 'Secrets', level: 2},
 ]
 const title = Object.fromEntries(headings.map(h => [h.id, h.text]))
@@ -250,6 +251,24 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <PresetSettings />
+      </section>
+
+      <section id="watch" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.watch }}</h2>
+          <p class="text-xs text-muted">
+            Watch on a session Orrery started opens a terminal attached to it, on the machine its launcher runs on, in this app
+            (on Linux, the system's own terminal).
+          </p>
+        </header>
+        <select
+            :value="settings.terminal"
+            aria-label="Terminal app"
+            class="h-8 w-56 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+            @change="save({terminal: ($event.target as HTMLSelectElement).value as keyof typeof TERMINALS})"
+        >
+          <option v-for="(name, key) in TERMINALS" :key="key" :value="key">{{ name }}</option>
+        </select>
       </section>
 
       <section id="secrets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">

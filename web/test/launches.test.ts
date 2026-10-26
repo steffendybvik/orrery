@@ -142,9 +142,9 @@ describe('starting a session', () => {
 })
 
 describe('the owner starting a session by hand', () => {
-    it("catches up from the latest signal, given the project's opt-in, a launcher and room under its limit", async () => {
+    it("catches up from the latest signal, given the owner's opt-in, a launcher and room under its limit", async () => {
         starts = undefined
-        await expect(launches.startLaunch('larder')).rejects.toThrow("doesn't let Orrery start sessions")
+        await expect(launches.startLaunch('larder')).rejects.toThrow("Orrery doesn't start sessions")
         starts = {limit: 2, minutes: 30}
         await expect(launches.startLaunch('larder')).rejects.toThrow('No launcher is running')
         launches.addLauncher('larder')
@@ -217,6 +217,15 @@ describe('the context a session is started with', () => {
 })
 
 describe('a session Orrery started', () => {
+    it('is opened in a terminal by its launcher when the owner watches it', () => {
+        expect(() => launches.watchLaunch('larder', 'abc', 'warp')).toThrow('No session started for launch abc')
+        session = {started: {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T10:00:00.000Z'}}
+        expect(() => launches.watchLaunch('larder', 'abc', 'warp')).toThrow('attach by hand with tmux attach -t orrery-larder-abc')
+        launches.addLauncher('larder')
+        launches.watchLaunch('larder', 'abc', 'warp')
+        expect(sent).toEqual([{type: 'watch', project: 'larder', id: 'abc', terminal: 'warp'}])
+    })
+
     it('is stopped, or given longer from when it would have stopped, through its launcher', () => {
         expect(() => launches.stopLaunch('larder', 'abc')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T10:00:00.000Z'}}
