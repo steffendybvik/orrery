@@ -13,8 +13,6 @@ const {who} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 const sessions = computed<Session[]>(() => all.value[route.params.project as string] ?? [])
 
-const STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
-
 // What each is on, asked again whenever the sessions change (a hook, a channel, a signal delivered).
 const work = ref<Record<string, SessionWork>>({})
 async function loadWork() {
@@ -77,7 +75,7 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
             <SessionDot :session="session" />
             <span class="min-w-0 truncate text-[14px] font-medium text-fg">{{ session.name }}</span>
             <span class="text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
-              {{ STATE[session.state] }} · {{ ago(session.since) }}
+              {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
             </span>
             <span v-if="session.listening" class="text-xs text-emerald-600 dark:text-emerald-400">listening</span>
             <span v-else class="flex items-center gap-1.5 text-xs text-faint" :title="`${session.name} was started without the channel, so a signal can't reach it`">

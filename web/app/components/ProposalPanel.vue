@@ -2,7 +2,7 @@
 import type {Choice, Decision, Issue, Picks} from '#shared/roadmap'
 
 // A proposal's decision, as the owner: approve it, ask for changes or reject it, with a note the session
-// on it hears as their comment. Approving puts it on the roadmap, in Todo; while it's open the panel still
+// on it hears as their comment. Approving puts it on the roadmap (in Todo, unless its work has started); while it's open the panel still
 // says so, with the picks, and can put it up again. With choices, approving sends what's ticked, and Explore
 // on an option asks for changes down that option.
 const props = defineProps<{project: string, issue: Issue}>()

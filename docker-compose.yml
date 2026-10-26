@@ -30,9 +30,9 @@
 # with its own means (pg_dump on a schedule, or a managed service's backups).
 #
 # ORRERY_BUILD_CONTEXT is what the image is built from: this folder by default, or a ref on GitHub, so a
-# switched branch here never ends up in it: ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main
+# branch switched here never ends up in it: ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main
 #
-# Working on Orrery itself: docker-compose.dev.yml, on top of this, as its own compose project with a demo.
+# Working on Orrery itself: the playground (.playground/play), docker-compose.dev.yml on top of this.
 
 services:
   orrery:

@@ -264,6 +264,11 @@ describe('proposals', () => {
         expect((await failure(() => store.updateIssue('larder', id, {proposal: null}, claude))).status).toBe(403)
         const approved = await store.decide('larder', id, {decision: 'approved', note: 'Go'}, owner)
         expect([approved.proposal, approved.column, approved.decided_by, approved.decision_note]).toEqual([undefined, 'todo', 'skoll', 'Go'])
+        // One whose work went ahead while it waited keeps where it got to.
+        const done = await store.createIssue('larder', {title: 'Done already', proposal: 'pending', status: 'done'})
+        expect((await store.decide('larder', done.id, {decision: 'approved'}, owner))).toMatchObject({column: 'done', proposal: undefined})
+        const started = await store.createIssue('larder', {title: 'Started', proposal: 'pending', status: 'in-progress'})
+        expect((await store.decide('larder', started.id, {decision: 'approved'}, owner)).status).toBe('in-progress')
         expect((await store.listComments('larder', id)).at(-1)?.body).toBe('Approved this proposal.\n\nGo')
         const other = await store.createIssue('larder', {title: 'Card', proposal: 'pending'})
         expect((await store.updateIssue('larder', other.id, {proposal: null}, owner)).column).toBe('backlog')
@@ -476,6 +481,24 @@ describe('releases', () => {
         expect((await failure(() => store.updateProject('garden', {release_mode: 'paused'}))).status).toBe(400)
     })
 
+    it('are arranged by hand, a new one on top, and only where they are made', async () => {
+        for (const version of ['1.0.0', '1.1.0', '1.2.0']) await store.createRelease('larder', {version})
+        const versions = async () => (await store.project('larder')).releases.map(r => r.version)
+        expect(await versions()).toEqual(['1.2.0', '1.1.0', '1.0.0'])
+        await store.updateRelease('larder', '1.0.0', {position: 0})
+        expect(await versions()).toEqual(['1.0.0', '1.2.0', '1.1.0'])
+        await store.updateRelease('larder', '1.0.0', {position: 99})
+        expect(await versions()).toEqual(['1.2.0', '1.1.0', '1.0.0'])
+        await store.createRelease('larder', {version: '1.3.0', position: 1})
+        expect(await versions()).toEqual(['1.2.0', '1.3.0', '1.1.0', '1.0.0'])
+        // Shipping it leaves it where it is.
+        await store.updateRelease('larder', '1.3.0', {shipped_on: '2026-10-26'})
+        expect(await versions()).toEqual(['1.2.0', '1.3.0', '1.1.0', '1.0.0'])
+        await store.createProject({name: 'hub', key: 'HUB', releases_from: 'larder'})
+        expect((await store.project('hub')).releases.map(r => r.version)).toEqual(await versions())
+        expect((await failure(() => store.updateRelease('hub', '1.0.0', {position: 0}))).status).toBe(400)
+    })
+
     it('are made by version and refuse a second of the same', async () => {
         const made = await store.createRelease('larder', {version: '1.0.0-rc.2', branch: ' v1.0.0-rc.2 '})
         expect(made).toMatchObject({version: '1.0.0-rc.2', branch: 'v1.0.0-rc.2', issues: 0, tasks: [], project: 'larder'})
@@ -484,11 +507,11 @@ describe('releases', () => {
         expect((await failure(() => store.createRelease('larder', {version: '1.0.0', shipped_on: 'today'}))).status).toBe(400)
     })
 
-    it('count their issues, a parent with its sub-issues; those being prepared first', async () => {
-        await store.createRelease('larder', {version: '1.0.0'})
-        await store.createRelease('larder', {version: '1.1.0'})
+    it('count their issues, a parent with its sub-issues; the newest on top', async () => {
         await store.createRelease('larder', {version: '0.8.0', shipped_on: '2026-09-01'})
         await store.createRelease('larder', {version: '0.9.0', shipped_on: '2026-10-01'})
+        await store.createRelease('larder', {version: '1.0.0'})
+        await store.createRelease('larder', {version: '1.1.0'})
         const parent = await store.createIssue('larder', {title: 'Hinges', chunk: '1', release: '1.0.0'})
         await store.createIssue('larder', {title: 'Pin', parent: parent.id, status: 'done'})
         await store.createIssue('larder', {title: 'Socket', parent: parent.id, release: '1.0.0'})
@@ -1095,11 +1118,13 @@ describe('the database', () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 30)
         old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('larder', 'larder', 'LAR', 'agent', 'x', 'x')").run()
-        old.prepare("INSERT INTO issues (project, id, title, status, proposal, decided_by, position, created_by, created_at, updated_at) VALUES ('larder', 'LAR-1', 'A', 'backlog', 'approved', 'skoll', 0, 'agent', 'x', 'x'), ('larder', 'LAR-2', 'B', 'backlog', 'pending', NULL, 1, 'agent', 'x', 'x')").run()
+        old.prepare("INSERT INTO issues (project, id, title, status, proposal, decided_by, position, created_by, created_at, updated_at) VALUES ('larder', 'LAR-1', 'A', 'backlog', 'approved', 'skoll', 0, 'agent', 'x', 'x'), ('larder', 'LAR-2', 'B', 'backlog', 'pending', NULL, 1, 'agent', 'x', 'x'), ('larder', 'LAR-3', 'C', 'done', 'approved', 'skoll', 2, 'agent', 'x', 'x')").run()
         old.close()
         const upgraded = new Store(new SqliteDb(openDb(path)))
         expect([(await upgraded.issue('larder', 'LAR-1')).column, (await upgraded.issue('larder', 'LAR-1')).decided_by]).toEqual(['todo', 'skoll'])
         expect((await upgraded.issue('larder', 'LAR-2')).proposal).toBe('pending')
+        // One its work already finished stays done.
+        expect((await upgraded.issue('larder', 'LAR-3'))).toMatchObject({column: 'done', proposal: undefined})
     })
 
     it("keeps the Orrery's prompts through the API going snake_case", async () => {

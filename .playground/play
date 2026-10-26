@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# The playground: Orrery's dev server with a demo database of its own, to try things on (see README.md).
+#   .playground/play [up]   start it, seeding an empty database
+#   .playground/play reset  throw the database away and start over with a fresh demo
+#   .playground/play seed   seed it again (only when it has no projects)
+#   .playground/play down   stop it, keeping the database
+#   .playground/play logs   follow the server
+set -euo pipefail
+cd "$(dirname "$0")/.."
+set -a; . .playground/compose.env; set +a
+url="http://localhost:${ORRERY_PORT}"
+compose() { docker compose --env-file .playground/compose.env "$@"; }
+
+ready() {
+    printf 'Waiting for %s' "$url"
+    for _ in $(seq 1 120); do
+        curl -sf "$url/api/settings" >/dev/null && { echo; return; }
+        printf .; sleep 2
+    done
+    echo; echo "It didn't come up: .playground/play logs" >&2; exit 1
+}
+
+case "${1:-up}" in
+    up) compose up -d; ready; node .playground/seed.mjs "$url" ;;
+    seed) node .playground/seed.mjs "$url" ;;
+    reset) compose down; rm -rf .playground/data .playground/backup; compose up -d; ready; node .playground/seed.mjs "$url" ;;
+    down) compose down ;;
+    logs) compose logs -f orrery ;;
+    *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

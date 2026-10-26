@@ -218,7 +218,7 @@ export interface Project {
     updated_at: string
     board: Board
     docs: DocSummary[]
-    /** Those being prepared first, then the shipped ones, latest first. */
+    /** In the order they're arranged in, a new one on top. */
     releases: Release[]
 }
 

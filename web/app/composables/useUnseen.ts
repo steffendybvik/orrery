@@ -2,7 +2,7 @@ import type {DocSummary, Issue, Project} from '#shared/roadmap'
 
 // What changed since the owner last looked: an issue (a comment touches it too) or a doc whose `updated_at`
 // is past when they last opened it, remembered in this browser. Rows mark it with a quiet accent dot until
-// it's opened. The owner's own changes don't count: what they made starts seen, and a write from this page
+// it's opened; a done or canceled issue never is. The owner's own changes don't count: what they made starts seen, and a write from this page
 // marks what it wrote to as seen once the change comes back. Everything from before the first visit is seen.
 // A doc's text is kept as read too, so opening it again tints what changed in it since.
 interface Seen {
@@ -45,7 +45,8 @@ export function useUnseen() {
     const isNew = (key: string, item: {created_by: string, created_at: string, updated_at: string}) =>
         item.updated_at > seenAt(key) && !(item.created_by === name.value && item.updated_at === item.created_at)
 
-    const issueUnseen = (project: string, issue: Issue) => isNew(issueKey(project, issue.id), issue)
+    /** A closed (done or canceled) issue is never news: what happens to finished work can wait to be looked up. */
+    const issueUnseen = (project: string, issue: Issue) => !isClosed(issue.kind) && isNew(issueKey(project, issue.id), issue)
     const docUnseen = (project: string, doc: DocSummary) => isNew(docKey(project, doc.id), doc)
 
     function mark(entries: [string, string][]) {

@@ -69,10 +69,10 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 
 | | |
 |---|---|
-| `GET /projects/:project/releases` | those being prepared first, then the shipped ones, latest first: `{version, branch?, notes?, shipped_on?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included |
-| `POST /projects/:project/releases` | `{version, branch?, notes?, shipped_on?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shipped_on` the day it shipped (`YYYY-MM-DD`; none while it's being prepared) |
+| `GET /projects/:project/releases` | in the order they're arranged in, a new one on top: `{version, branch?, notes?, shipped_on?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included |
+| `POST /projects/:project/releases` | `{version, branch?, notes?, shipped_on?, position?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shipped_on` the day it shipped (`YYYY-MM-DD`; none while it's being prepared), `position` where it goes in the list (0 the top, the default) |
 | `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues), and by project in `projects`: `{project, name, issues, kinds, tasks}`, the project's own first, then on a source each project drawing on it |
-| `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shipped_on?}`; the version doesn't change; `null` clears |
+| `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shipped_on?, position?}`; `position` moves it in the list (0 the top); the version doesn't change; `null` clears |
 | `DELETE /projects/:project/releases/:release` | its issues stay, set for none, in every project drawing on it too |
 
 ## Issues
@@ -126,7 +126,8 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
   recommendation, a pick-one takes exactly one. The issue keeps `picks`, and the decision comment lists
   them. Or they ask for changes with `explore: {choice, option}`: add a choice `from` that option, then
   put the proposal up again with `proposal: "pending"`
-- Approving commits it: it leaves Proposed for Todo (the first status of that kind), keeping `decided_by`,
+- Approving commits it: it leaves Proposed for Todo (the first status of that kind) if it's still in a backlog
+  status, else keeps the status its work got to (started, done), keeping `decided_by`,
   `decided_at`, `decision_note` and `picks`, and `proposal` goes to none. `PATCH {proposal: "pending"}` puts it
   up again. The owner can also commit a proposal without deciding, with `PATCH {proposal: null}` (and a
   `status` to place it); an agent can't (403). A rejected one stays in Proposed until the owner deletes or commits it
@@ -306,7 +307,7 @@ the limits while their channel is connected.
 | | |
 |---|---|
 | `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}` and `extend` `{id, stops_at}` |
-| `POST /projects/:project/launches` | 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; 409 without the project's opt-in, a launcher or room under its limit |
+| `POST /projects/:project/launches` | `{issue?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); 409 without the project's opt-in, a launcher or room under its limit |
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |

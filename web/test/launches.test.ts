@@ -10,6 +10,7 @@ let started: {larder: number, all: number}
 let starts: Starts | undefined
 let session: {started?: {launch: string, tmux: string, stops_at: string}} | undefined
 let adopted: string[]
+let focused: {issue: string, session: string}[]
 
 beforeEach(async () => {
     sent = []
@@ -31,7 +32,16 @@ beforeEach(async () => {
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
     // A tick for reading the project, as the database gives, so signals can overlap.
-    vi.stubGlobal('useStore', () => ({starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)), lastSignal: async () => 41}))
+    focused = []
+    vi.stubGlobal('useStore', () => ({
+        starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
+        lastSignal: async () => 41,
+        focus: async (_project: string, issue: string, body: {session: string}) => {
+            if (issue === 'LAR-404') throw Object.assign(new Error('No issue LAR-404'), {statusCode: 404})
+            focused.push({issue, session: body.session})
+            return {id: 42}
+        },
+    }))
     vi.resetModules()
     launches = await import('../server/utils/launches')
 })
@@ -134,6 +144,18 @@ describe('the owner starting a session by hand', () => {
         listeners = 1
         launches.launched(launch.id)
         expect(await launches.startLaunch('larder')).toMatchObject({after: 41})
+    })
+
+    it('starts it focused on an issue, with a focus only that session hears', async () => {
+        launches.addLauncher('larder')
+        await expect(launches.startLaunch('larder', {issue: 'LAR-404'})).rejects.toThrow('No issue LAR-404')
+        // A refused focus doesn't hold the project's place.
+        expect(launches.launchState('larder').starting).toBe(0)
+        const launch = await launches.startLaunch('larder', {issue: 'LAR-7'})
+        expect(focused).toEqual([{issue: 'LAR-7', session: `launch-${launch.id}`}])
+        // It catches up from the focus made for it.
+        expect(launch.after).toBe(41)
+        expect(sent).toEqual([{type: 'launch', after: 41, minutes: 30}])
     })
 })
 

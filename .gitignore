@@ -14,3 +14,7 @@ coverage
 # Playwright
 /web/test-results
 /web/playwright-report
+
+# The playground's database and backups
+/.playground/data
+/.playground/backup

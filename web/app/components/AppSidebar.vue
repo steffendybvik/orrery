@@ -7,7 +7,9 @@ const route = useRoute()
 const {of: schedulesOf} = useSchedules()
 const open = useState('sidebar-open', () => false)
 const palette = useState('palette-open', () => false)
-const {environment} = useRuntimeConfig().public
+const {environment, version} = useRuntimeConfig().public
+// The dev server runs whatever is checked out, so its version says so.
+const dev = import.meta.dev
 const newProject = useState('new-project', () => false)
 
 watch(() => route.fullPath, () => {
@@ -27,7 +29,6 @@ const LIVE = {live: 'Live', connecting: 'Connecting…', offline: 'Offline'}
 // Projects are dragged by their name to rearrange them (or moved with ⌥↑/⌥↓); a line shows where one lands.
 const {ordered, move} = useProjectOrder()
 const {sessions} = useRoadmaps()
-const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 const dragging = ref<string | null>(null)
 const dropAt = ref<number | null>(null)
 
@@ -55,6 +56,9 @@ const {isOpen, set: setFolds, toggle} = useProjectFolds()
 const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p => isOpen(p.id)))
 
 // Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged.
+const {open: startSession} = useStartSession()
+/** Whether any project lets Orrery start sessions, so Start session has somewhere to go. */
+const canStart = computed(() => ordered.value.some(p => p.starts))
 const allSessions = computed(() => ordered.value
     .flatMap(project => (sessions.value[project.id] ?? []).map(session => ({session, project})))
     .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))
@@ -213,10 +217,13 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
     </nav>
 
     <!-- Every Claude session working on a project, apart from the projects so they stay short. -->
-    <div v-if="allSessions.length" class="flex max-h-56 shrink-0 flex-col border-t border-line px-2 pt-2 pb-2">
+    <div v-if="allSessions.length || canStart" class="flex max-h-56 shrink-0 flex-col border-t border-line px-2 pt-2 pb-2">
       <div class="label mb-1 flex items-center gap-1 px-2">
-        <span class="flex-1">Sessions</span>
-        <span class="font-mono normal-case tabular-nums">{{ allSessions.length }}</span>
+        <NuxtLink to="/sessions" class="flex-1 hover:text-fg">Sessions</NuxtLink>
+        <span v-if="allSessions.length" class="font-mono normal-case tabular-nums">{{ allSessions.length }}</span>
+        <button type="button" class="rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Start a session" aria-label="Start a session" @click="startSession()">
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
       </div>
       <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
         <NuxtLink
@@ -254,6 +261,10 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span><KeyHint>↵</KeyHint> open</span>
         <span><KeyHint>g</KeyHint> <KeyHint>n</KeyHint> <KeyHint>u</KeyHint></span>
       </div>
+      <p class="mt-1.5 px-2 font-mono text-[10px] text-faint">
+        <a v-if="!dev" :href="`https://github.com/steffendybvik/orrery/blob/v${version}/CHANGELOG.md`" target="_blank" rel="noopener" class="hover:text-fg hover:underline" title="What's in this version">v{{ version }}</a>
+        <span v-else title="The dev server: whatever branch is checked out">v{{ version }} · dev</span>
+      </p>
     </div>
   </aside>
 </template>

@@ -16,32 +16,18 @@ stays in the repo's `.data/`.
 
 ## The dev server
 
-`docker-compose.dev.yml` runs the repo with `nuxt dev`: a saved change shows on the page straight away
-and the server reloads itself, with no rebuild. Run it as a compose project of its own, beside the
-Orrerys you use, with a demo database, so the branch you're on never touches their data. A `.env.dev`:
+The [playground](../.playground/README.md) runs the repo with `nuxt dev`, so a saved change shows on the
+page straight away and the server reloads itself, with no rebuild. It's a compose project of its own on
+http://localhost:9001, with a demo database in `.playground/data`, so the branch you're on never touches
+the Orrerys you use:
 
 ```sh
-COMPOSE_PROJECT_NAME=orrery-dev
-COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
-ORRERY_ENVIRONMENT=dev
-ORRERY_SEED=1
+.playground/play          # start it, with a demo
+.playground/play reset    # start over with a fresh demo
 ```
 
-```sh
-docker compose --env-file .env.dev up -d
-```
-
-It's on http://localhost:9000 (this machine's only). `ORRERY_SEED` fills its empty database with a demo
-on start: a few projects, a monorepo sharing a release, proposals waiting on you and a question in the
-bell. One that has projects is left as it is; `docker compose --env-file .env.dev down -v` starts it
-over. The container has its own `node_modules` and `.nuxt` (volumes), and installs packages as it starts,
-so after a `pnpm-lock.yaml` change, `docker compose --env-file .env.dev restart orrery`. Change the
-Dockerfile and it's `up -d --build`.
-
-The Orrerys you use run the built app, each its own compose project ([Two servers](running.md#two-servers-personal-and-work)). Build them
-from a release on GitHub rather than this folder, so a switched branch never ends up in them:
-`ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main` in their `.env`, then
-`docker compose up -d --build` when a release lands on `main`.
+It's this machine's only. The container has its own `node_modules` and `.nuxt` (volumes), and installs
+packages as it starts.
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
 

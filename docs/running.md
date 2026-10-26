@@ -95,6 +95,11 @@ The project name keeps them apart: each gets its own volumes (`orrery-personal_o
 other alone (`docker compose --env-file .env.work down`). Give each its own backup folder, too: a
 backup folder holds one database. Env files other than `.env.example` are git-ignored.
 
+In a checkout you also work on Orrery in, build them from a release rather than the folder:
+`ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main` in each env file, then
+`docker compose --env-file … up -d --build` when a release lands on `main`. Try changes in the
+[playground](../.playground/README.md) instead.
+
 A repo's channel and hook point at the server its projects are on, by `ORRERY_URL`:
 `http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
 
