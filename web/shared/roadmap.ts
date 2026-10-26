@@ -370,6 +370,11 @@ export interface Starts {
 }
 
 export interface Settings {
+    /** This Orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
+     * talking to the same Orrery (ORRERY_ID), whatever its address. */
+    id: string
+    /** Which Orrery this is (`personal`, `work`), as it's run; a channel serving it is named `orrery-<environment>`. */
+    environment?: string
     /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
     tint: string | null
     /** The issue statuses, in board order. */
@@ -414,6 +419,8 @@ export interface Session {
     started_at: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
+    /** The other projects its channel is heard on, when it serves several (ORRERY_PROJECTS). */
+    also?: string[]
     /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from Orrery. */
     reachable?: boolean
     /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */

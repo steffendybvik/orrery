@@ -1,7 +1,8 @@
-// The channel's tools: what a Claude session does with its project's roadmap, as MCP tools instead of
+// The channel's tools: what a Claude session does with its projects' roadmaps, as MCP tools instead of
 // curl. Each is one or two calls to Orrery's API as `claude`, with the session's id so the owner's comments
 // on an issue it worked come back to it. They answer in short text a session reads at a glance (an issue
-// in full as JSON), and a refused call comes back as an error with Orrery's reason.
+// in full as JSON), and a refused call comes back as an error with Orrery's reason. Serving several projects,
+// a tool on an issue finds its project from the id's key (HUB-12 is hub's), and the others take `project`.
 
 const STATUS = {type: 'string', description: "A status's id (backlog, todo, in-progress, in-review, done, canceled, or one of the Orrery's own) or a kind (started, done…)"}
 const PRIORITY = {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null], description: 'P0 is urgent; null clears it'}
@@ -99,18 +100,50 @@ export const TOOLS = [
     },
 ]
 
-/** The tools against one project's API (`api`, `…/api/projects/<project>`), writing as `claude` from `session`. */
-export function orreryTools({api, session, fetch = globalThis.fetch}) {
+/** The tools that work on one project, which take `project` when the server serves several. */
+const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc']
+
+/** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. */
+export function toolsFor(projects) {
+    if (projects.length < 2) return TOOLS
+    const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}`}
+    return TOOLS.map(tool => SCOPED.includes(tool.name)
+        ? {...tool, inputSchema: {...tool.inputSchema, required: ['project', ...tool.inputSchema.required ?? []], properties: {project, ...tool.inputSchema.properties}}}
+        : tool.name === 'egress'
+            ? {...tool, inputSchema: {...tool.inputSchema, properties: {...tool.inputSchema.properties, project: {...project, description: `Which project it's for, when no issue says: ${projects.join(', ')}`}}}}
+            : tool)
+}
+
+/** The tools against an Orrery's API, writing as `claude` from `session`: on one project's (`api`,
+ * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). */
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, fetch = globalThis.fetch}) {
     const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}}
-    // The project is the last part of `api`; secrets and egress are the Orrery's, at its root.
-    const project = decodeURIComponent(api.split('/').pop())
-    const root = api.replace(/\/projects\/[^/]+$/, '')
-    async function call(method, path, body, base = api) {
+    async function call(method, path, body, base) {
         const response = await fetch(`${base}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})
         const text = await response.text()
         const data = text ? JSON.parse(text) : null
         if (!response.ok) throw new Error(data?.message ?? data?.statusMessage ?? `${response.status} ${response.statusText}`)
         return data
+    }
+    const at = project => `${root}/projects/${encodeURIComponent(project)}`
+    // The projects' keys, asked for the first time an issue's id needs one, and again for a key not yet known.
+    let keys
+    async function projectOfKey(key) {
+        if (!keys?.has(key)) keys = new Map((await call('GET', '/projects', undefined, root)).filter(p => projects.includes(p.id)).map(p => [p.key, p.id]))
+        return keys.get(key)
+    }
+    /** The project a tool's call is on: the only one; else the issue's, by its id's key; else `project`. */
+    async function projectOf({project, id, issue}) {
+        if (projects.length === 1) return projects[0]
+        const ref = id ?? issue
+        if (!project && ref && /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(ref)) {
+            const found = await projectOfKey(ref.split('-')[0].toUpperCase())
+            if (!found) throw new Error(`${ref} isn't an issue of ${projects.join(', ')}: its key is none of theirs`)
+            return found
+        }
+        if (!project) throw new Error(`Say which project: ${projects.join(', ')}`)
+        if (!projects.includes(project)) throw new Error(`This server serves ${projects.join(', ')}, not ${project}`)
+        return project
     }
     const issuePath = id => `/issues/${encodeURIComponent(id)}`
     const pick = (args, keys) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]))
@@ -119,63 +152,66 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
     const run = {
         async issues(args) {
             const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'q']))
-            let issues = await call('GET', `/issues?${query}`)
+            let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             return issues.length ? issues.map(line).join('\n') : 'No issues match.'
         },
         async issue({id}) {
-            const [issue, comments] = await Promise.all([call('GET', issuePath(id)), call('GET', `${issuePath(id)}/comments`)])
+            const base = at(await projectOf({id}))
+            const [issue, comments] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base)])
             const {tasks, counts, kinds, ...rest} = issue
             return JSON.stringify({...rest, sub_issues: tasks.map(line), comments: comments.map(c => ({by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
         },
         async create_issue(args) {
-            const {proposal, ...fields} = args
-            const issue = await call('POST', '/issues', {...fields, ...proposal ? {proposal: 'pending'} : {}})
+            const {proposal, project, ...fields} = args
+            const issue = await call('POST', '/issues', {...fields, ...proposal ? {proposal: 'pending'} : {}}, at(await projectOf({project})))
             return `Made ${line(issue)}`
         },
         async update_issue({id, ...fields}) {
-            return `Now ${line(await call('PATCH', issuePath(id), fields))}`
+            return `Now ${line(await call('PATCH', issuePath(id), fields, at(await projectOf({id}))))}`
         },
         async start_issue({id, comment}) {
-            const issue = await call('PATCH', issuePath(id), {status: 'started', assignee: 'claude'})
-            if (comment) await call('POST', `${issuePath(id)}/comments`, {body: comment})
+            const base = at(await projectOf({id}))
+            const issue = await call('PATCH', issuePath(id), {status: 'started', assignee: 'claude'}, base)
+            if (comment) await call('POST', `${issuePath(id)}/comments`, {body: comment}, base)
             return `Started ${line(issue)}`
         },
         async finish_issue({id, comment, status = 'done'}) {
-            await call('POST', `${issuePath(id)}/comments`, {body: comment})
-            return `${status === 'done' ? 'Done' : status === 'canceled' ? 'Canceled' : 'In review'}: ${line(await call('PATCH', issuePath(id), {status}))}`
+            const base = at(await projectOf({id}))
+            await call('POST', `${issuePath(id)}/comments`, {body: comment}, base)
+            return `${status === 'done' ? 'Done' : status === 'canceled' ? 'Canceled' : 'In review'}: ${line(await call('PATCH', issuePath(id), {status}, base))}`
         },
         async comment({id, body, asks}) {
-            const posted = await call('POST', `${issuePath(id)}/comments`, {body, ...asks ? {asks} : {}})
+            const posted = await call('POST', `${issuePath(id)}/comments`, {body, ...asks ? {asks} : {}}, at(await projectOf({id})))
             return `Commented on ${id} (comment ${posted.id})${asks ? `, asking the owner for ${asks === 'decision' ? 'a decision' : 'feedback'}` : ''}.`
         },
-        async chunks() {
-            const chunks = await call('GET', '/chunks')
+        async chunks(args) {
+            const chunks = await call('GET', '/chunks', undefined, at(await projectOf(args)))
             return chunks.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done`).join('\n') || 'No chunks yet.'
         },
-        async releases() {
-            const releases = await call('GET', '/releases')
+        async releases(args) {
+            const releases = await call('GET', '/releases', undefined, at(await projectOf(args)))
             return releases.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
                 || 'No releases yet.'
         },
-        async docs() {
-            const docs = await call('GET', '/docs')
+        async docs(args) {
+            const docs = await call('GET', '/docs', undefined, at(await projectOf(args)))
             return docs.map(d => `${d.id}: ${d.title}`).join('\n') || 'No docs yet.'
         },
-        async doc({id}) {
-            const doc = await call('GET', `/docs/${encodeURIComponent(id)}`)
+        async doc({id, project}) {
+            const doc = await call('GET', `/docs/${encodeURIComponent(id)}`, undefined, at(await projectOf({project})))
             return `# ${doc.title}\n\n${doc.body}`
         },
-        async write_doc({id, title, body}) {
-            await call('PUT', `/docs/${encodeURIComponent(id)}`, {title, body})
+        async write_doc({id, title, body, project}) {
+            await call('PUT', `/docs/${encodeURIComponent(id)}`, {title, body}, at(await projectOf({project})))
             return `Saved the doc ${id}.`
         },
         async secrets() {
             const secrets = await call('GET', '/secrets', undefined, root)
             return secrets.map(s => `${s.name} → ${s.hosts.join(', ')}${s.projects ? ` (only ${s.projects.join(', ')})` : ''}`).join('\n') || 'No secrets yet; the owner sets them on App settings.'
         },
-        async egress(args) {
-            const {status, headers, body, truncated} = await call('POST', '/egress', {...args, project}, root)
+        async egress({project, ...args}) {
+            const {status, headers, body, truncated} = await call('POST', '/egress', {...args, project: await projectOf({project, issue: args.issue})}, root)
             return `${status}${headers['content-type'] ? ` (${headers['content-type']})` : ''}\n\n${body}${truncated ? '\n\n(cut at 1 MB)' : ''}`
         },
     }

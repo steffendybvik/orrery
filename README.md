@@ -61,17 +61,18 @@ that repo, and the session sets the repo up to use Orrery itself.
 - **The channel is a research preview.** Sending "focus on this" to a session uses Claude Code
   channels, which are a research preview: the session has to be started with
   `claude --dangerously-load-development-channels server:<name>`, where `<name>` is the Orrery server
-  in the repo's `.mcp.json`. For a repo whose server is `orrery-shop`:
+  in the repo's `.mcp.json`: one per Orrery, `orrery-<environment>`, serving all of the repo's projects on it.
+  For a repo set up for your personal Orrery:
 
   ```sh
   cd ~/code/shop
-  claude --dangerously-load-development-channels server:orrery-shop
+  claude --dangerously-load-development-channels server:orrery-personal
   ```
 
   Or save the typing with an alias in `~/.zshrc`, then `source ~/.zshrc` and start it with `shop`:
 
   ```sh
-  alias shop="cd ~/code/shop && claude --dangerously-load-development-channels server:orrery-shop"
+  alias shop="cd ~/code/shop && claude --dangerously-load-development-channels server:orrery-personal"
   ```
 
   Without it, everything else still works; you just can't nudge a session from the page.

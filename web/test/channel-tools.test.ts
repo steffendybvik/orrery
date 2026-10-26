@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {TOOLS, orreryTools} from '../../channel/tools.mjs'
+import {TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
@@ -77,5 +77,49 @@ describe("the channel's tools", () => {
         const {call} = harness({'PATCH /issues/LAR-1': {status: 400, body: {message: '"status" is "soon"'}}})
         expect(await call('update_issue', {id: 'LAR-1', status: 'soon'})).toEqual({error: true, text: 'Orrery said no: "status" is "soon"'})
         expect((await call('nope')).error).toBe(true)
+    })
+})
+
+describe('one channel serving several projects', () => {
+    /** The tools on larder (LAR) and pantry (PAN) at a pretend Orrery: `answers` by `METHOD path` under /api. */
+    function several(answers: Record<string, unknown>) {
+        const calls: Call[] = []
+        const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
+            const path = url.replace('http://o/api', '')
+            calls.push({method: init.method, url: path, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined})
+            const body = answers[`${init.method} ${path.split('?')[0]}`]
+            return {ok: body !== undefined, status: body === undefined ? 404 : 200, statusText: '', text: async () => JSON.stringify(body ?? {message: `No ${path}`})}
+        }
+        const call = orreryTools({root: 'http://o/api', projects: ['larder', 'pantry'], session: 'abc', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        return {calls, call: async (name: string, args?: object) => {
+            const result = await call(name, args)
+            return {error: !!result.isError, text: result.content[0]!.text}
+        }}
+    }
+    const projects = [{id: 'larder', key: 'LAR'}, {id: 'pantry', key: 'PAN'}, {id: 'garden', key: 'GAR'}]
+
+    it("find an issue's project from its id's key", async () => {
+        const {call, calls} = several({'GET /projects': projects, 'PATCH /projects/pantry/issues/PAN-3': issue({id: 'PAN-3', status: 'in-review'}), 'POST /projects/pantry/issues/PAN-3/comments': {id: 1}})
+        expect((await call('finish_issue', {id: 'PAN-3', comment: 'Built', status: 'in-review'})).text).toBe('In review: PAN-3 [in-review] Shelves')
+        expect(calls.map(c => c.url)).toEqual(['/projects', '/projects/pantry/issues/PAN-3/comments', '/projects/pantry/issues/PAN-3'])
+        // A key of a project it doesn't serve is refused, saying which it does.
+        expect((await call('issue', {id: 'GAR-1'})).text).toBe("Orrery said no: GAR-1 isn't an issue of larder, pantry: its key is none of theirs")
+    })
+
+    it('take the project for the others, refusing none or one it doesn\'t serve', async () => {
+        const {call, calls} = several({'GET /projects/larder/docs': [{id: 'stack', title: 'The stack'}]})
+        expect((await call('docs', {project: 'larder'})).text).toBe('stack: The stack')
+        expect(calls[0]!.url).toBe('/projects/larder/docs')
+        expect((await call('docs')).text).toBe('Orrery said no: Say which project: larder, pantry')
+        expect((await call('docs', {project: 'garden'})).text).toBe('Orrery said no: This server serves larder, pantry, not garden')
+    })
+
+    it('list the project argument, required, on the tools that work on one project', () => {
+        const tools = toolsFor(['larder', 'pantry']) as {name: string, inputSchema: {required?: string[], properties: Record<string, {enum?: string[]}>}}[]
+        const docs = tools.find(t => t.name === 'docs')!
+        expect(docs.inputSchema.required).toEqual(['project'])
+        expect(docs.inputSchema.properties.project!.enum).toEqual(['larder', 'pantry'])
+        expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
+        expect(toolsFor(['larder'])).toBe(TOOLS)
     })
 })

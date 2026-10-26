@@ -615,12 +615,18 @@ export class Store {
 
     /** This Orrery's own settings. */
     async settings(): Promise<Settings> {
-        const rows = await this.all<{key: string, value: string}>('SELECT key, value FROM settings')
+        let rows = await this.all<{key: string, value: string}>('SELECT key, value FROM settings')
+        // Its id is made the first time it's asked for, and kept.
+        if (!rows.some(r => r.key === 'id')) {
+            await this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING', 'id', JSON.stringify(`orr_${randomBytes(3).toString('hex')}`))
+            rows = await this.all<{key: string, value: string}>('SELECT key, value FROM settings')
+        }
         const value = (key: string) => {
             const row = rows.find(r => r.key === key)
             return row ? JSON.parse(row.value) as unknown : undefined
         }
         return {
+            id: value('id') as string,
             tint: (value('tint') as string | undefined) ?? null,
             statuses: await this.statuses(),
             focus_prompt: (value('focus_prompt') as string | undefined) || null,

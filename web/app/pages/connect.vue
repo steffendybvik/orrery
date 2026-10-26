@@ -9,6 +9,7 @@ const route = useRoute()
 const router = useRouter()
 const {ordered} = useProjectOrder()
 const config = useRuntimeConfig()
+const {settings} = useAppSettings()
 
 const origin = import.meta.client ? location.origin : 'http://localhost:9000'
 const picked = computed({
@@ -29,6 +30,7 @@ const pieces = computed(() => {
         key: project.value?.key ?? idsFor(name).key,
         isNew: !project.value,
         session: sessionName.value,
+        orrery: settings.value.id ? {id: settings.value.id, environment: String(config.public.environment || 'personal')} : undefined,
     })
 })
 </script>

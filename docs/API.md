@@ -271,9 +271,12 @@ an agent's P0. A schedule that asks the sessions sends its one focus, saying the
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
 
 A session listens through Orrery's channel (`channel/orrery-channel.mjs` in this repo, an MCP
-server registered in the repo's `.mcp.json` under the project's id; start Claude with
-`--dangerously-load-development-channels server:<project>`), or by watching
-the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
+server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per Orrery for all of the repo's
+projects in `ORRERY_PROJECTS`; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),
+or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
+`GET /settings` says the Orrery's `id` (made once, when it first starts) and `environment`: a channel given
+`ORRERY_ID` refuses an Orrery with another id. A session heard on several projects is listed on each one's
+Sessions tab, with the others in `also`.
 
 ## Sessions
 

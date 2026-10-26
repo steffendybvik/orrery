@@ -125,6 +125,24 @@ describe('a session', () => {
         expect(sessions.hearing('docs', 'w')).toBe(false)
     })
 
+    it('heard on several projects by one channel, keeps its own and shows on each', () => {
+        sessions.report({id: 'w', project: 'hub', event: 'SessionStart'})
+        sessions.attend('hub', 'w', undefined, undefined)
+        const pos = sessions.attend('pos', 'w', undefined, undefined)
+        expect(sessions.listSessions('pos')).toMatchObject([{id: 'w', project: 'hub', listening: true, also: ['pos']}])
+        expect(sessions.listSessions('hub')).toHaveLength(1)
+        expect([sessions.hearing('hub', 'w'), sessions.hearing('pos', 'w'), sessions.hearing('css', 'w')]).toEqual([true, true, false])
+        pos.done()
+        expect(sessions.listSessions('pos')).toEqual([])
+    })
+
+    it('started for a project by Orrery, is on it, and counts toward its limit only', () => {
+        sessions.attend('hub', 'w', undefined, undefined)
+        sessions.attend('pos', 'w', undefined, undefined, true, {launch: 'l1', tmux: 't', stops_at: '2999-01-01T00:00:00.000Z'})
+        expect(sessions.listSessions('pos')[0]).toMatchObject({project: 'pos', also: ['hub']})
+        expect([sessions.startedSessions('pos'), sessions.startedSessions('hub')]).toEqual([1, 0])
+    })
+
     it('stays listening while a reconnect overlaps the stream it replaces', () => {
         const before = sessions.attend('docs', 'w', undefined, undefined)
         const after = sessions.attend('docs', 'w', undefined, undefined)
