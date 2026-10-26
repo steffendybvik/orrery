@@ -1,6 +1,7 @@
 // The issues ticked for a change to many at once (BulkBar), as `project/id` keys. A shift-click ticks the run
 // from the last one ticked (`anchor`), over the rows and cards on the page in their order (`data-issue`,
-// `data-project`). Esc or leaving the page clears it.
+// `data-project`); pressing a tick and dragging over others sets each the way the first went, and a group's tick
+// (GroupTick) sets all its rows. Esc or leaving the page clears it.
 export function useSelection() {
     const selected = useState<string[]>('selection', () => [])
     const anchor = useState<string | null>('selection-anchor', () => null)
@@ -29,6 +30,36 @@ export function useSelection() {
         anchor.value = k
     }
 
+    /** Ticks the issues (keys), or unticks them. */
+    function set(keys: string[], on: boolean) {
+        const rest = selected.value.filter(k => !keys.includes(k))
+        selected.value = on ? [...rest, ...keys] : rest
+    }
+
+    /** A press on a tick: ticks it, or unticks it, and so each row or card the mouse then drags over, until it's let go.
+     *  The click the press ends in is eaten, so it neither ticks twice nor opens the issue it's let go on. */
+    function drag(event: PointerEvent, project: string, id: string) {
+        if (event.button !== 0 || event.shiftKey || event.pointerType === 'touch') return
+        event.preventDefault()
+        toggle(project, id)
+        const on = isSelected(project, id)
+        const over = (e: PointerEvent) => {
+            const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('main [data-issue][data-project]')
+            if (el && isSelected(el.dataset.project!, el.dataset.issue!) !== on) set([key(el.dataset.project!, el.dataset.issue!)], on)
+        }
+        const eat = (e: MouseEvent) => (e.stopPropagation(), e.preventDefault())
+        const end = () => {
+            window.removeEventListener('pointermove', over)
+            window.removeEventListener('pointerup', end)
+            window.removeEventListener('pointercancel', end)
+            window.addEventListener('click', eat, {capture: true})
+            setTimeout(() => window.removeEventListener('click', eat, {capture: true}))
+        }
+        window.addEventListener('pointermove', over)
+        window.addEventListener('pointerup', end)
+        window.addEventListener('pointercancel', end)
+    }
+
     function selectVisible() {
         selected.value = [...new Set([...selected.value, ...visible()])]
     }
@@ -49,5 +80,5 @@ export function useSelection() {
         return out
     })
 
-    return {selected, isSelected, toggle, selectVisible, clear, byProject}
+    return {selected, key, isSelected, toggle, set, drag, selectVisible, clear, byProject}
 }

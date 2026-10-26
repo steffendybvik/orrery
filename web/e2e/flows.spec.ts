@@ -206,6 +206,39 @@ test('ticks issues and changes them together', async ({page, request}) => {
     await expect(bar.getByText('2 selected')).toBeHidden()
 })
 
+test('ticks a run by dragging over the ticks, and a whole group from its header', async ({page, request}) => {
+    const made = [await api(request, 'post', '/issues', {title: 'Wipe the shelves'}), await api(request, 'post', '/issues', {title: 'Toss the stale crackers'}), await api(request, 'post', '/issues', {title: 'Refill the salt'})]
+    await page.goto('/p/larder?view=list')
+    const tick = (id: string) => page.getByRole('checkbox', {name: `Select ${id}`})
+    const centres = await Promise.all(made.map(async ({id}) => {
+        const box = (await tick(id).boundingBox())!
+        return {x: box.x + box.width / 2, y: box.y + box.height / 2}
+    }))
+    const [top, bottom] = [centres.reduce((a, b) => a.y < b.y ? a : b), centres.reduce((a, b) => a.y > b.y ? a : b)]
+    // Pressing one tick and dragging over the others ticks them all, and doesn't open the one it's let go on.
+    await page.mouse.move(top.x, top.y)
+    await page.mouse.down()
+    await page.mouse.move(bottom.x, bottom.y, {steps: 8})
+    await page.mouse.up()
+    for (const {id} of made) await expect(tick(id)).toHaveAttribute('aria-checked', 'true')
+    await expect(page).toHaveURL(/\/p\/larder\?view=list$/)
+    const bar = page.getByRole('toolbar', {name: 'Change the ticked issues'})
+    await expect(bar.getByText(/Drag over the ticks/)).toBeVisible()
+    // Dragging back from a ticked one unticks them.
+    await page.mouse.move(bottom.x, bottom.y)
+    await page.mouse.down()
+    await page.mouse.move(top.x, top.y, {steps: 8})
+    await page.mouse.up()
+    for (const {id} of made) await expect(tick(id)).toHaveAttribute('aria-checked', 'false')
+    // A group's tick ticks every row in it, and a second click unticks them.
+    const group = page.getByRole('checkbox', {name: /^Select all in /}).first()
+    await group.click()
+    await expect(group).toHaveAttribute('aria-checked', 'true')
+    await expect(bar.getByText(/\d+ selected/)).toBeVisible()
+    await group.click()
+    await expect(bar).toBeHidden()
+})
+
 test('makes a chunk from the roadmap, renames it, gives it a summary and removes it', async ({page, request}) => {
     await page.goto('/p/larder/roadmap')
     await page.getByRole('button', {name: 'New chunk'}).first().click()
