@@ -2,8 +2,9 @@
 import type {Session, Signal} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
-// a button to point one (or all) at this issue, or at working through this chunk. Under them, the focus
-// signals sent about it and who got them.
+// a button to point one (or all) at this issue, or at working through this chunk. With nobody listening, when
+// Orrery may start sessions and the project's launcher is there, the same focus starts one. Under them, the
+// focus signals sent about it and who got them.
 const props = defineProps<{project: string, issue?: string, chunk?: string}>()
 const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.chunk})
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
@@ -14,6 +15,9 @@ const {look} = useStatuses()
 
 const sessions = computed(() => all.value[props.project] ?? [])
 const listening = computed(() => sessions.value.filter(s => s.listening))
+// Whether a focus sent with nobody listening has a session started for it.
+const {state: launch} = useLaunchState(() => props.project)
+const canStart = computed(() => !listening.value.length && !!byId(props.project)?.starts && !!launch.value?.launchers)
 const sent = ref<Signal[]>([])
 const sending = ref<string | null>(null)
 const failed = ref(false)
@@ -75,9 +79,17 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
           :disabled="!!sending"
           @click="focus(null)"
       >Focus all on this</button>
+      <button
+          v-else-if="canStart"
+          type="button"
+          class="ml-auto h-7 rounded-md bg-accent-500/10 px-2.5 text-xs font-medium text-accent-700 ring-1 ring-accent-500/40 hover:bg-accent-500/20 disabled:opacity-50 dark:text-accent-300"
+          :disabled="!!sending"
+          :title="`Orrery starts a Claude session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
+          @click="focus(null)"
+      >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
     </div>
 
-    <fieldset v-if="listening.length && offered.length" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+    <fieldset v-if="(listening.length || canStart) && offered.length" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
       <legend class="sr-only">Standing instructions for this focus</legend>
       <span class="text-faint">With it:</span>
       <label v-for="i in offered" :key="i.id" class="flex items-center gap-1.5" :class="ticked.includes(i.id) ? 'text-muted' : 'text-faint'">
@@ -111,6 +123,9 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
         </span>
       </li>
     </ul>
+    <p v-else-if="canStart" class="text-[13px] leading-relaxed text-muted">
+      No Claude session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has Orrery start one, in its repo, through the launcher.
+    </p>
     <p v-else class="text-[13px] leading-relaxed text-muted">
       No Claude session on {{ project }} has said hello yet.
       <NuxtLink :to="`/connect?project=${project}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
