@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import {connectPieces, idsFor} from '#shared/connect'
-
 // Connect an agent: one line to give a Claude session in an app's repo. It points the agent at the
 // brief (/connect/<project>.md), which says how to keep the roadmap here and has it set the repo up
 // itself. The pieces are also here, folded, to set up by hand.
@@ -8,9 +6,6 @@ useHead({title: 'Connect an agent · Orrery'})
 const route = useRoute()
 const router = useRouter()
 const {ordered} = useProjectOrder()
-const config = useRuntimeConfig()
-const {settings} = useAppSettings()
-
 const origin = import.meta.client ? location.origin : 'http://localhost:9000'
 const picked = computed({
     get: () => (route.query.project as string | undefined) ?? ordered.value[0]?.id ?? 'new',
@@ -19,20 +14,7 @@ const picked = computed({
 const newName = ref('')
 const sessionName = ref('')
 const project = computed(() => ordered.value.find(p => p.id === picked.value))
-
-const pieces = computed(() => {
-    const name = project.value?.name ?? (newName.value.trim() || 'my-app')
-    return connectPieces({
-        origin,
-        repoDir: String(config.public.repoDir || '/path/to/orrery'),
-        id: project.value?.id ?? idsFor(name).id,
-        name,
-        key: project.value?.key ?? idsFor(name).key,
-        isNew: !project.value,
-        session: sessionName.value,
-        orrery: settings.value.id ? {id: settings.value.id, environment: String(config.public.environment || 'personal')} : undefined,
-    })
-})
+const pieces = useConnect(project, {name: newName, session: sessionName})
 </script>
 
 <template>

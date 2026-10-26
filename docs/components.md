@@ -154,6 +154,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `PageHeader` | a page's top bar: title, the page's controls, the bell, theme and settings |
 | `ViewToolbar` | an issue list's toolbar (view, grouping, filters) |
 | `DocContents` | a doc's table of contents |
+| `GettingStarted` | a new Orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on Now |
 | `NotificationBell` | the bell in the header: agents' comments, and those waiting on the owner |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
 | `OrreryMark` | the logo's mark, in `currentColor` |

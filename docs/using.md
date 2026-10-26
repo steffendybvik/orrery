@@ -42,6 +42,7 @@ Tick issues (a row's box, shift-click for a run, `x`, ⌘A for the page) and a b
 | A project's **Settings** | Name, sidebar icon and colour, its repo, releases (none, its own, or another project's), what its sessions hear (its own focus templates and standing instructions, or the Orrery's switched off), its presets, deleting the project (type its id to confirm) |
 | **App settings** (`/settings`, the cog at the top right, or ⌘K) | Your name and handle, the team tracker, the tint that tells one Orrery (personal, work) from another, the issue statuses, the terminal **Watch** opens, and secrets |
 | **Connect** (`/connect`) | The line that sets a Claude session up in an app's repo |
+| **Getting started** (`/getting-started`, or ⌘K) | A new Orrery opens on it: the steps to a Claude session working from your roadmap (a project, its repo connected, Claude started with the channel, work sent), each ticked once it happens, and *Try it with a demo project* for a sample board to look around first. Until they're all done it's a card at the top of Now; **Hide** puts it away |
 
 ## The bell
 
