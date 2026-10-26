@@ -143,7 +143,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
               v-model="name"
               aria-label="Project name"
               spellcheck="false"
-              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-72 max-w-full field"
               @blur="rename"
               @keydown.esc="name = project.name; ($event.target as HTMLInputElement).blur()"
           >
@@ -163,7 +163,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
               aria-label="Where its code is"
               placeholder="https://github.com/you/shop"
               spellcheck="false"
-              class="h-8 w-96 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-96 max-w-full field"
               @blur="saveRepo"
               @keydown.esc="repo = project.repo ?? ''; ($event.target as HTMLInputElement).blur()"
           >
@@ -241,7 +241,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
               Custom
             </label>
           </div>
-          <input v-model="search" type="search" placeholder="Find an icon: cart, lock, bolt…" aria-label="Find an icon" spellcheck="false" class="h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
+          <input v-model="search" type="search" placeholder="Find an icon: cart, lock, bolt…" aria-label="Find an icon" spellcheck="false" class="h-8 field">
           <div class="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1 overflow-y-auto">
             <button
                 v-for="name in shown"
