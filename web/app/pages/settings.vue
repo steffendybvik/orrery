@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {TINTS} from '#shared/roadmap'
+import {TINTS, issueRef} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
 // This Orrery's own settings (a project's are on its Settings tab): whose it is, and its tint, a colour
@@ -11,6 +11,7 @@ const failed = ref('')
 // The sections, listed beside them on a wide screen.
 const headings: Heading[] = [
     {id: 'name', text: 'Your name', level: 2},
+    {id: 'handle', text: 'Your handle', level: 2},
     {id: 'tint', text: 'Background tint', level: 2},
     {id: 'statuses', text: 'Issue statuses', level: 2},
     {id: 'sessions', text: 'What sessions hear', level: 2},
@@ -41,6 +42,23 @@ async function saveOwner() {
         await rename(next)
     } catch (error) {
         ownerFailed.value = errorMessage(error)
+    }
+}
+
+// Your handle in issues' references, such as your GitHub login: saved like the name; empty uses your id.
+const handle = ref('')
+const handleFailed = ref('')
+watch(() => settings.value.handle, now => {
+    handle.value = now ?? ''
+}, {immediate: true})
+async function saveHandle() {
+    const next = handle.value.trim()
+    if (next === (settings.value.handle ?? '')) return
+    handleFailed.value = ''
+    try {
+        await save({handle: next || null})
+    } catch (error) {
+        handleFailed.value = errorMessage(error)
     }
 }
 
@@ -81,6 +99,30 @@ async function pick(tint: string | null) {
               @keydown.esc="ownerName = owner?.named ? owner.display : ''; ($event.target as HTMLInputElement).blur()"
           >
           <span v-if="ownerFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ ownerFailed }}</span>
+        </form>
+      </section>
+
+      <section id="handle" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Your handle</h2>
+          <p class="text-xs text-muted">
+            Says whose board an issue is on, once colleagues have boards of their own: an issue's reference is
+            <span class="font-mono">{{ issueRef(handle.trim() || owner?.name || 'owner', 'DOC-132') }}</span>, for commit bodies and PR descriptions.
+            Your GitHub login works well; left empty, it's your id.
+          </p>
+        </header>
+        <form class="flex items-center gap-2" @submit.prevent="saveHandle">
+          <input
+              v-model="handle"
+              aria-label="Your handle"
+              :placeholder="owner?.name"
+              spellcheck="false"
+              maxlength="39"
+              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+              @blur="saveHandle"
+              @keydown.esc="handle = settings.handle ?? ''; ($event.target as HTMLInputElement).blur()"
+          >
+          <span v-if="handleFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ handleFailed }}</span>
         </form>
       </section>
 
