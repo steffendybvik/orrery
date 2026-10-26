@@ -3,6 +3,13 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## Unreleased
+
+- **Shared releases:** a project can take its releases from another (Settings → Releases, or
+  `releasesFrom`), so a monorepo's apps ship in one release. Their issues are set for it, and its page
+  shows each project's issues in a section with its progress; a project drawing on it shows its own part
+  and links the whole. `GET …/releases/:release` adds `projects`.
+
 ## 1.0.0-rc.2 (2026-10-25)
 
 - **Fixed, the owner's protections:** an agent can no longer change or run the owner's schedules (and

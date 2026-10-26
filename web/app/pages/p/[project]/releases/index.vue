@@ -6,6 +6,8 @@ const router = useRouter()
 const {byId, ready} = useRoadmaps()
 const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
+// Where its releases are made, when it takes them from another project.
+const source = computed(() => project.value?.releasesFrom ? byId(project.value.releasesFrom) : undefined)
 
 const making = ref(false)
 const version = ref('')
@@ -60,12 +62,16 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
         <SectionIcon section="releases" class="mt-0.5 size-4 text-accent-500" />
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Releases</h2>
-          <p class="text-xs text-muted">
+          <p v-if="project.releasesFrom" class="text-xs text-muted">
+            {{ project.name }} ships in <NuxtLink :to="`/p/${project.releasesFrom}/releases`" class="text-fg underline underline-offset-2">{{ source?.name ?? project.releasesFrom }}'s releases</NuxtLink>,
+            made there; each counts {{ project.name }}'s issues here. Set an issue's release on its page.
+          </p>
+          <p v-else class="text-xs text-muted">
             The versions {{ project.name }} ships, and which issues go out in each. Chunks are themes; a release cuts across them.
             Set an issue's release on its page.
           </p>
         </div>
-        <button v-if="!making" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium whitespace-nowrap text-white hover:opacity-90" @click="startMaking">
+        <button v-if="!making && !project.releasesFrom" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium whitespace-nowrap text-white hover:opacity-90" @click="startMaking">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
           New release
         </button>
@@ -106,7 +112,8 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
         </li>
       </ul>
       <p v-else-if="!making" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">
-        No releases yet. Make one, then set issues for it from their pages.
+        <template v-if="project.releasesFrom">No releases in {{ source?.name ?? project.releasesFrom }} yet.</template>
+        <template v-else>No releases yet. Make one, then set issues for it from their pages.</template>
       </p>
     </div>
     <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">No project “{{ route.params.project }}”.</div>

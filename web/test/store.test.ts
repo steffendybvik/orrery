@@ -42,7 +42,7 @@ describe('projects', () => {
 
     it('refuses unknown fields', async () => {
         expect(await failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted, starts, repo'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted, starts, repo, releasesFrom'})
     })
 
     it('keep where their code is', async () => {
@@ -525,6 +525,73 @@ describe('releases', () => {
         await store.deleteProject('larder')
         await store.createProject({name: 'larder', key: 'LAR'})
         expect((await store.project('larder')).releases).toEqual([])
+    })
+    describe('shared across projects', () => {
+        beforeEach(async () => {
+            await store.createProject({name: 'repository', key: 'REP'})
+            await store.createProject({name: 'hub', key: 'HUB', releasesFrom: 'repository'})
+            await store.createProject({name: 'pos', key: 'POS'})
+            await store.updateProject('pos', {releasesFrom: 'repository'})
+            await store.createRelease('repository', {version: '2.25.0'})
+        })
+
+        it("let a project's issues ship in its source's releases, counted there across projects", async () => {
+            const own = await store.createIssue('repository', {title: 'Release PR', release: '2.25.0'})
+            const hub = await store.createIssue('hub', {title: 'Invoices', release: '2.25.0', status: 'done'})
+            const pos = await store.createIssue('pos', {title: 'Receipts'})
+            await store.updateIssue('pos', pos.id, {release: '2.25.0'})
+            await store.createIssue('pos', {title: 'Tips', parent: pos.id})
+
+            expect((await store.project('hub')).releasesFrom).toBe('repository')
+            expect((await store.project('repository')).releases[0]).toMatchObject({version: '2.25.0', issues: 3, kinds: {done: 1, backlog: 2}})
+            // A project drawing on it counts its own part.
+            expect((await store.project('pos')).releases[0]).toMatchObject({version: '2.25.0', issues: 1, kinds: {backlog: 1}})
+            const release = await store.release('repository', '2.25.0')
+            expect(release.tasks.map(t => t.id)).toEqual([own.id])
+            expect(release.projects.map(p => [p.project, p.issues, p.tasks.map(t => t.id)])).toEqual([['repository', 1, [own.id]], ['hub', 1, [hub.id]], ['pos', 1, [pos.id]]])
+            expect((await store.release('hub', '2.25.0')).projects.map(p => p.project)).toEqual(['hub'])
+            expect((await store.listIssues('hub', {release: '2.25.0'})).map(i => i.id)).toEqual([hub.id])
+            expect((await failure(() => store.createIssue('hub', {title: 'x', release: '9.9.9'}))).message).toContain('No release 9.9.9 in repository (where hub takes its releases from)')
+        })
+
+        it('are made, changed and deleted only in the source, which clears them everywhere', async () => {
+            expect(await failure(() => store.createRelease('hub', {version: '2.26.0'})))
+                .toEqual({status: 400, message: 'hub takes its releases from repository; make them there: /api/projects/repository/releases'})
+            expect((await failure(() => store.updateRelease('hub', '2.25.0', {notes: 'x'}))).status).toBe(400)
+            expect((await failure(() => store.deleteRelease('hub', '2.25.0'))).status).toBe(400)
+            const hub = await store.createIssue('hub', {title: 'Invoices', release: '2.25.0'})
+            await store.deleteRelease('repository', '2.25.0')
+            expect((await store.issue('hub', hub.id)).release).toBeUndefined()
+        })
+
+        it('go one level deep, and never merge with releases a project already has', async () => {
+            expect((await failure(() => store.updateProject('larder', {releasesFrom: 'hub'}))).message).toBe('hub takes its releases from repository; take them from repository too')
+            expect((await failure(() => store.updateProject('repository', {releasesFrom: 'larder'}))).message).toBe('hub, pos take their releases from repository, so it keeps its own')
+            expect((await failure(() => store.updateProject('larder', {releasesFrom: 'larder'}))).status).toBe(400)
+            expect((await failure(() => store.updateProject('larder', {releasesFrom: 'nowhere'}))).status).toBe(400)
+            await store.createRelease('larder', {version: '1.0.0'})
+            expect((await failure(() => store.updateProject('larder', {releasesFrom: 'repository'}))).status).toBe(409)
+        })
+
+        it("keep an issue's release when it moves within them, and when the project gets its own back, it has none", async () => {
+            const issue = await store.createIssue('hub', {title: 'Invoices', release: '2.25.0'})
+            const moved = await store.updateIssue('hub', issue.id, {project: 'pos'})
+            expect(moved.release).toBe('2.25.0')
+            expect((await store.updateIssue('pos', moved.id, {project: 'larder'})).release).toBeUndefined()
+            const other = await store.createIssue('pos', {title: 'Receipts', release: '2.25.0'})
+            await store.updateProject('pos', {releasesFrom: null})
+            expect((await store.issue('pos', other.id)).release).toBeUndefined()
+            expect((await store.project('pos')).releases).toEqual([])
+        })
+
+        it('keep their source from being deleted, and tell each other about changes', async () => {
+            expect((await failure(() => store.deleteProject('repository'))).status).toBe(409)
+            changes = []
+            await store.createIssue('hub', {title: 'Invoices'})
+            await store.updateRelease('repository', '2.25.0', {notes: 'Together.'})
+            await new Promise(resolve => setTimeout(resolve, 10))
+            expect(new Set(changes)).toEqual(new Set(['hub', 'repository', 'pos']))
+        })
     })
 })
 

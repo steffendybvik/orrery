@@ -31,10 +31,10 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | | |
 |---|---|
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
-| `POST /projects` | `{name, id?, key?, description?, repo?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
+| `POST /projects` | `{name, id?, key?, description?, repo?, releasesFrom?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board, docs and releases |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?, repo?, focusPrompt?, chunkPrompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `null` clears any of them |
-| `DELETE /projects/:project` | with its chunks, issues and comments |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?, repo?, releasesFrom?, focusPrompt?, chunkPrompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `releasesFrom` is another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
+| `DELETE /projects/:project` | with its chunks, issues and comments; a 409 while others take their releases from it |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there |
 
 ## Chunks
@@ -53,13 +53,20 @@ The versions a project ships, and which issues go out in each. Chunks are themes
 them. An issue says which release it ships in with `release` (a version); a sub-issue set for none goes
 out with its parent.
 
+A project can take its releases from another (`releasesFrom`), so a monorepo's apps go out in one shared
+release: its issues are set for that project's releases, and it has none of its own. Its `releases` list
+the source's, each counting its own issues; the source's count every project drawing on it. One level
+only: a source can't take its releases from another, and a project with releases of its own can't take
+another's until they're deleted (a 409; nothing merges). Moving an issue between projects sharing
+releases keeps its `release`; changing a project's `releasesFrom` clears those its new source hasn't.
+
 | | |
 |---|---|
 | `GET /projects/:project/releases` | those being prepared first, then the shipped ones, latest first: `{version, branch?, notes?, shippedOn?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included |
-| `POST /projects/:project/releases` | `{version, branch?, notes?, shippedOn?}`: `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shippedOn` the day it shipped (`YYYY-MM-DD`; none while it's being prepared) |
-| `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues) |
+| `POST /projects/:project/releases` | `{version, branch?, notes?, shippedOn?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shippedOn` the day it shipped (`YYYY-MM-DD`; none while it's being prepared) |
+| `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues), and by project in `projects`: `{project, name, issues, kinds, tasks}`, the project's own first, then on a source each project drawing on it |
 | `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shippedOn?}`; the version doesn't change; `null` clears |
-| `DELETE /projects/:project/releases/:release` | its issues stay, set for none |
+| `DELETE /projects/:project/releases/:release` | its issues stay, set for none, in every project drawing on it too |
 
 ## Issues
 
@@ -79,7 +86,7 @@ out with its parent.
   (stored as their id, so it shows under their My issues; `?assignee=owner` finds theirs too)
 - A top-level issue is in a `chunk`; a sub-issue (`parent`) is in its parent's chunk, so it takes no `chunk`
 - `parent: null` lifts a sub-issue to the top, into the chunk it was in
-- `release`: the version of a release of the project (see [Releases](#releases)); moving the issue to another project takes it out
+- `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `notes` may use inline `` `code` `` and `**bold**`
 

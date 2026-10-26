@@ -264,6 +264,8 @@ const STEPS: string[] = [`
     );
     ALTER TABLE issues ADD COLUMN ships_in text;
     ALTER TABLE projects ADD COLUMN repo text;
+`, `
+    ALTER TABLE projects ADD COLUMN releases_from text;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, and the database it's on. */

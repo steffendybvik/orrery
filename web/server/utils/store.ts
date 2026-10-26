@@ -22,6 +22,14 @@ export interface ProjectSummary extends Omit<Project, 'board'> {
     chunks: number
 }
 
+/** A release with its issues: `tasks` the project's own, and `projects` each project's part (those drawing on it
+ * too, when it's their source). */
+export interface ReleaseDetail extends Release {
+    project: string
+    tasks: Issue[]
+    projects: {project: string, name: string, issues: number, kinds: Kinds, tasks: Issue[]}[]
+}
+
 /** An issue on its own: where it sits, and its sub-issues by id. */
 export interface IssueRecord extends Omit<Issue, 'tasks'> {
     project: string
@@ -78,7 +86,8 @@ export interface IssueFilter {
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 interface ProjectRow extends Made {
     id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
-    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null
+    focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
+    releases_from: string | null
 }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
@@ -117,6 +126,8 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     /** The owner's: `{limit, minutes}` lets Orrery start sessions for it; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
     repo: {type: 'string', nullable: true, pattern: /^https?:\/\/\S+[^/\s]$/, hint: 'use the web address of its code, e.g. https://github.com/you/shop'},
+    /** Another project whose releases it ships in (a monorepo's apps going out together); null gives it its own. */
+    releasesFrom: {type: 'string', nullable: true, pattern: SLUG, hint: "use the other project's id"},
 }
 
 /** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
@@ -353,7 +364,7 @@ export class Store {
             await this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)
             await this.run('UPDATE issues SET decided_by = ? WHERE lower(decided_by) = ?', name, before.name)
         })
-        if (name !== before.name) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.onChange(id)
+        if (name !== before.name) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         return await this.ownerOf()
     }
 
@@ -427,30 +438,74 @@ export class Store {
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
+        if (input.releasesFrom) await this.checkReleasesFrom(id, String(input.releasesFrom))
         const now = stamp()
-        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, repo, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.iconColor), nullable(input.repo), actor.name, Number(actor.owner), now, now)
+        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, repo, releases_from, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.iconColor), nullable(input.repo), nullable(input.releasesFrom), actor.name, Number(actor.owner), now, now)
         await this.update('projects', 'id = ?', [id], this.promptColumns(input))
-        this.onChange(id)
+        this.changed(id)
         return await this.project(id)
     }
 
     async updateProject(id: string, body: unknown, actor = AGENT): Promise<Project> {
-        await this.projectRow(id)
+        const row = await this.projectRow(id)
         const input = checkInput(body, PROJECT_FIELDS, true)
         this.promptsAreTheOwners(input, actor)
         if (input.id !== undefined && input.id !== id) throw badRequest("A project's id can't change")
-        await this.update('projects', 'id = ?', [id], {
-            name: input.name === undefined ? undefined : String(input.name).trim(),
-            key: input.key,
-            description: input.description,
-            icon: input.icon,
-            icon_color: input.iconColor,
-            repo: input.repo,
-            ...this.promptColumns(input),
+        const from = input.releasesFrom === undefined ? undefined : nullable(input.releasesFrom)
+        const before = row.releases_from
+        if (from) await this.checkReleasesFrom(id, from)
+        await this.db.transaction(async () => {
+            await this.update('projects', 'id = ?', [id], {
+                name: input.name === undefined ? undefined : String(input.name).trim(),
+                key: input.key,
+                description: input.description,
+                icon: input.icon,
+                icon_color: input.iconColor,
+                repo: input.repo,
+                releases_from: from,
+                ...this.promptColumns(input),
+            })
+            // Its issues keep only the releases the new source has (none, back on its own: it has no releases yet).
+            if (from !== undefined && from !== before) {
+                await this.run('UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in IS NOT NULL AND ships_in NOT IN (SELECT version FROM releases WHERE project = ?)', id, from ?? id)
+            }
         })
-        this.onChange(id)
+        this.changed(id)
+        // The old source counted its issues, and the new one does now.
+        if (before && before !== from) this.changed(before)
         return await this.project(id)
+    }
+
+    /** Whether `id` can take its releases from `from`: one level only, and nothing of its own to merge. */
+    private async checkReleasesFrom(id: string, from: string) {
+        if (from === id) throw badRequest("A project can't take its releases from itself; send null to give it its own")
+        const source = await this.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', from)
+        if (!source) throw badRequest(`No project "${from}" to take releases from`)
+        if (source.releases_from) throw badRequest(`${from} takes its releases from ${source.releases_from}; take them from ${source.releases_from} too`)
+        const drawing = await this.drawingOn(id)
+        if (drawing.length) throw badRequest(`${drawing.join(', ')} ${drawing.length === 1 ? 'takes its' : 'take their'} releases from ${id}, so it keeps its own`)
+        const own = await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? ORDER BY version', id)
+        if (own.length) throw conflict(`${id} has releases of its own (${own.map(r => r.version).join(', ')}); delete them first, nothing merges into ${from}'s`)
+    }
+
+    /** The project its releases are: its `releasesFrom`, else its own. */
+    private async releaseSource(project: string): Promise<string> {
+        return (await this.projectRow(project)).releases_from ?? project
+    }
+
+    /** The projects taking their releases from `project`, by id. */
+    private async drawingOn(project: string): Promise<string[]> {
+        return (await this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? ORDER BY id', project)).map(r => r.id)
+    }
+
+    /** Tells the page the project changed (also after a write made outside the store, a schedule marking its
+     * issue), and the projects sharing its releases: a source counts the issues of those drawing on it, and they
+     * show its releases. */
+    changed(project: string) {
+        this.onChange(project)
+        this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
+            .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})
     }
 
     private promptsAreTheOwners(input: Input, actor: Actor) {
@@ -498,6 +553,8 @@ export class Store {
 
     async deleteProject(id: string, actor = AGENT) {
         this.refuse(actor, `Deleting ${id}`, await this.ownedIn(id))
+        const drawing = await this.drawingOn(id)
+        if (drawing.length) throw conflict(`${drawing.join(', ')} ${drawing.length === 1 ? 'takes its' : 'take their'} releases from ${id}; give ${drawing.length === 1 ? 'it its' : 'them their'} own first (releasesFrom: null)`)
         await this.db.transaction(async () => {
             // Comments and issues first: the foreign keys would refuse the project going before them.
             await this.run('DELETE FROM comments WHERE project = ?', id)
@@ -512,7 +569,7 @@ export class Store {
             await this.run('DELETE FROM schedules WHERE project = ?', id)
             await this.run('DELETE FROM projects WHERE id = ?', id)
         })
-        this.onChange(id)
+        this.changed(id)
     }
 
     /** This Orrery's own settings. */
@@ -626,7 +683,7 @@ export class Store {
     /** Every board is drawn again with them, and the page gets the new list with the settings. */
     private async statusesChanged() {
         this.onSettings(await this.settings())
-        for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.onChange(id)
+        for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
     }
 
     /** The owner's to change: they're how the Orrery looks to them. */
@@ -644,11 +701,6 @@ export class Store {
         const settings = await this.settings()
         this.onSettings(settings)
         return settings
-    }
-
-    /** Tells the page the project changed, after a write made outside the store (a schedule marking its issue). */
-    changed(project: string) {
-        this.onChange(project)
     }
 
     // Chunks
@@ -678,7 +730,7 @@ export class Store {
             await this.touchProject(project)
             return id
         })
-        this.onChange(project)
+        this.changed(project)
         return await this.chunk(project, id)
     }
 
@@ -695,7 +747,7 @@ export class Store {
             })
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
         return await this.chunk(project, id)
     }
 
@@ -713,7 +765,7 @@ export class Store {
             await this.run('DELETE FROM chunks WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
     }
 
     // Issues
@@ -775,7 +827,7 @@ export class Store {
             await this.touchProject(project)
             return id
         })
-        this.onChange(project)
+        this.changed(project)
         if (urgent) await this.urgent(project, null, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
     }
@@ -848,7 +900,7 @@ export class Store {
             })
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
         await this.urgent(project, row, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
     }
@@ -886,7 +938,7 @@ export class Store {
             await this.run('DELETE FROM issues WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
     }
 
     /** The owner's decision on a proposal: approved (still not work until it's committed), changes asked
@@ -940,6 +992,8 @@ export class Store {
         if (chunkId) await this.chunkRow(to, chunkId)
         const subtree = await this.subtree(from, id)
         const marks = subtree.map(() => '?').join(', ')
+        // Releases are the source project's, so an issue keeps its release only between projects sharing them.
+        const ships = await this.releaseSource(from) === await this.releaseSource(to) ? 'ships_in' : 'NULL'
         const moved = await this.db.transaction(async () => {
             // Rows move first and get their new ids and links after, so the foreign keys wait for the commit.
             await this.db.deferConstraints()
@@ -951,8 +1005,7 @@ export class Store {
             const position = await this.nextPosition('issues', to)
             for (const link of links) {
                 const next = names.get(link.id)!
-                // A release is the project's own, so the issue leaves it behind.
-                await this.run('UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, ships_in = NULL, position = position + ? WHERE project = ? AND id = ?',
+                await this.run(`UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, ships_in = ${ships}, position = position + ? WHERE project = ? AND id = ?`,
                     to, next, link.id === id ? parentId : names.get(link.parent!) ?? null, link.id === id && !parentId ? chunkId : null, position, from, link.id)
             }
             for (const comment of comments) await this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, names.get(comment.issue)!, comment.id)
@@ -966,8 +1019,8 @@ export class Store {
             await this.touchProject(to)
             return names.get(id)!
         })
-        this.onChange(from)
-        this.onChange(to)
+        this.changed(from)
+        this.changed(to)
         return moved
     }
 
@@ -1019,7 +1072,7 @@ export class Store {
             await this.touchIssue(project, issue)
             return id
         })
-        this.onChange(project)
+        this.changed(project)
         if (actor.owner) await this.carryComment(project, issue, String(input.body), actor)
         else this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
         return await this.comment(project, issue, id)
@@ -1062,7 +1115,7 @@ export class Store {
             await this.update('comments', 'id = ?', [id], {body: input.body, asks: input.asks})
             await this.touchIssue(project, issue)
         })
-        this.onChange(project)
+        this.changed(project)
         return await this.comment(project, issue, id)
     }
 
@@ -1074,7 +1127,7 @@ export class Store {
             await this.run('DELETE FROM comments WHERE id = ?', id)
             await this.touchIssue(project, issue)
         })
-        this.onChange(project)
+        this.changed(project)
     }
 
     // Docs
@@ -1105,7 +1158,7 @@ export class Store {
                 project, id, title, String(input.body ?? ''), Number(input.position ?? await this.nextPosition('docs', project)), actor.name, Number(actor.owner), now, now)
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
         return await this.doc(project, id)
     }
 
@@ -1131,7 +1184,7 @@ export class Store {
             })
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
         return await this.doc(project, id)
     }
 
@@ -1142,7 +1195,7 @@ export class Store {
             await this.run('DELETE FROM docs WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
     }
 
     // Releases
@@ -1151,18 +1204,36 @@ export class Store {
         return (await this.project(project)).releases
     }
 
-    /** The release with its issues: those set for it (a sub-issue's when its parent isn't), each with its sub-issues. */
-    async release(project: string, version: string): Promise<Release & {project: string, tasks: Issue[]}> {
+    /** The release with its issues: those set for it (a sub-issue's when its parent isn't), each with its sub-issues,
+     * as `tasks` (the project's own) and by project in `projects` (with those drawing on it, when it's their source). */
+    async release(project: string, version: string): Promise<ReleaseDetail> {
         await this.releaseRow(project, version)
-        const board = await this.project(project)
-        const tasks: Issue[] = []
-        const walk = (issues: Issue[]) => issues.forEach(issue => issue.release === version ? tasks.push(issue) : walk(issue.tasks))
-        board.board.chunks.forEach(c => walk(c.tasks))
-        return {...board.releases.find(r => r.version === version)!, project, tasks}
+        const own = await this.project(project)
+        const drawing = own.releasesFrom ? [] : await Promise.all((await this.drawingOn(project)).map(id => this.project(id)))
+        const parts = [own, ...drawing].map(p => {
+            const tasks: Issue[] = []
+            const walk = (issues: Issue[]) => issues.forEach(issue => issue.release === version ? tasks.push(issue) : walk(issue.tasks))
+            p.board.chunks.forEach(c => walk(c.tasks))
+            const {issues, kinds} = p.releases.find(r => r.version === version)!
+            return {project: p.id, name: p.name, issues, kinds, tasks}
+        })
+        // A source's own row counts every project; its part here is only its own issues.
+        if (drawing.length) {
+            const kinds = emptyKinds()
+            parts[0]!.tasks.forEach(issue => (Object.keys(kinds) as (keyof Kinds)[]).forEach(kind => kinds[kind] += issue.kinds[kind]))
+            parts[0] = {...parts[0]!, issues: parts[0]!.tasks.length, kinds}
+        }
+        return {...own.releases.find(r => r.version === version)!, project, tasks: parts[0]!.tasks, projects: parts}
     }
 
-    async createRelease(project: string, body: unknown, actor = AGENT): Promise<Release & {project: string, tasks: Issue[]}> {
-        await this.projectRow(project)
+    /** Refuses changing a release from a project that takes its releases from another. */
+    private async ownReleases(project: string, action: string) {
+        const source = await this.releaseSource(project)
+        if (source !== project) throw badRequest(`${project} takes its releases from ${source}; ${action} there: /api/projects/${source}/releases`)
+    }
+
+    async createRelease(project: string, body: unknown, actor = AGENT): Promise<ReleaseDetail> {
+        await this.ownReleases(project, 'make them')
         const input = checkInput(body, RELEASE_FIELDS)
         const version = String(input.version)
         if (await this.get('SELECT 1 FROM releases WHERE project = ? AND version = ?', project, version)) throw conflict(`There is already a release ${version} in ${project}`)
@@ -1172,11 +1243,12 @@ export class Store {
                 project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.shippedOn), actor.name, Number(actor.owner), now, now)
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
         return await this.release(project, version)
     }
 
-    async updateRelease(project: string, version: string, body: unknown): Promise<Release & {project: string, tasks: Issue[]}> {
+    async updateRelease(project: string, version: string, body: unknown): Promise<ReleaseDetail> {
+        await this.ownReleases(project, 'change them')
         await this.releaseRow(project, version)
         const input = checkInput(body, RELEASE_FIELDS, true)
         if (input.version !== undefined && input.version !== version) throw badRequest("A release's version can't change: make one with the new version and move its issues to it")
@@ -1188,20 +1260,21 @@ export class Store {
             })
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
         return await this.release(project, version)
     }
 
-    /** Its issues stay, set for no release. */
+    /** Its issues stay, set for no release, in every project drawing on it too. */
     async deleteRelease(project: string, version: string, actor = AGENT) {
+        await this.ownReleases(project, 'delete them')
         const row = await this.releaseRow(project, version)
         this.refuse(actor, `Deleting release ${version}`, row.owned ? [`release ${version}`] : [])
         await this.db.transaction(async () => {
-            await this.run('UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in = ?', project, version)
+            await this.run('UPDATE issues SET ships_in = NULL WHERE (project = ? OR project IN (SELECT id FROM projects WHERE releases_from = ?)) AND ships_in = ?', project, project, version)
             await this.run('DELETE FROM releases WHERE project = ? AND version = ?', project, version)
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
     }
 
     // Signals
@@ -1382,7 +1455,7 @@ export class Store {
             await renumber(this.db, project)
             await this.touchProject(project)
         })
-        this.onChange(project)
+        this.changed(project)
         return await this.project(project)
     }
 
@@ -1403,20 +1476,25 @@ export class Store {
             muted: JSON.parse(row.muted) as string[],
             starts: row.starts ? JSON.parse(row.starts) as Starts : undefined,
             repo: row.repo ?? undefined,
+            releasesFrom: row.releases_from ?? undefined,
             createdBy: row.created_by,
             protected: !!row.owned,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
             board,
             docs: await this.docSummaries(row.id),
-            releases: await this.releasesOf(row.id, board),
+            releases: await this.releasesOf(row, board),
         }
     }
 
-    /** The project's releases, those being prepared first, then the shipped ones, latest first; each with how far its issues are: an issue set for it counts
-     * with its sub-issues, and a sub-issue set for it on its own counts when its parent isn't. */
-    private async releasesOf(project: string, board: Board): Promise<Release[]> {
-        const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC', project)
+    /** The project's releases (its source's, when it takes them from another), those being prepared first, then the shipped
+     * ones, latest first; each with how far its issues are: an issue set for it counts with its sub-issues, and a sub-issue
+     * set for it on its own counts when its parent isn't. A source counts the issues of every project drawing on it; one
+     * drawing on it counts its own. */
+    private async releasesOf(project: ProjectRow, board: Board): Promise<Release[]> {
+        const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC',
+            project.releases_from ?? project.id)
+        const boards = project.releases_from ? [board] : [board, ...await Promise.all((await this.drawingOn(project.id)).map(id => this.board(id)))]
         const tally = new Map(rows.map(r => [r.version, {issues: 0, kinds: emptyKinds()}]))
         const walk = (issues: Issue[]) => {
             for (const issue of issues) {
@@ -1429,7 +1507,7 @@ export class Store {
                 for (const kind of Object.keys(into.kinds) as (keyof Kinds)[]) into.kinds[kind] += issue.kinds[kind]
             }
         }
-        board.chunks.forEach(c => walk(c.tasks))
+        boards.forEach(b => b.chunks.forEach(c => walk(c.tasks)))
         return rows.map(row => ({...releaseOf(row), ...tally.get(row.version)!}))
     }
 
@@ -1581,10 +1659,11 @@ export class Store {
         return row
     }
 
+    /** The release by its version, in the project's source when it takes its releases from another. */
     private async releaseRow(project: string, version: string): Promise<ReleaseRow> {
-        await this.projectRow(project)
-        const row = await this.get<ReleaseRow>('SELECT * FROM releases WHERE project = ? AND version = ?', project, version)
-        if (!row) throw notFound(`No release ${version} in ${project}; make it with POST /api/projects/${project}/releases`)
+        const source = await this.releaseSource(project)
+        const row = await this.get<ReleaseRow>('SELECT * FROM releases WHERE project = ? AND version = ?', source, version)
+        if (!row) throw notFound(`No release ${version} in ${source}${source === project ? '' : ` (where ${project} takes its releases from)`}; make it with POST /api/projects/${source}/releases`)
         return row
     }
 

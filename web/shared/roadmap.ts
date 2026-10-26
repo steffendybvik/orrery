@@ -158,7 +158,7 @@ export interface Release {
     notes?: string
     /** The day it shipped (`YYYY-MM-DD`); none while it's being prepared. */
     shippedOn?: string
-    /** Its issues: those set for it, each with its sub-issues. */
+    /** Its issues: those set for it, each with its sub-issues (in every project drawing on it, on its source). */
     issues: number
     kinds: Kinds
     createdBy: string
@@ -205,6 +205,9 @@ export interface Project {
     starts?: Starts
     /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
     repo?: string
+    /** The project whose releases it ships in, when it takes them from another (a monorepo's apps going out
+     * together); its `releases` are then that project's, counting its own issues. */
+    releasesFrom?: string
     createdBy: string
     protected: boolean
     createdAt: string

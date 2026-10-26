@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import {TINTS} from '#shared/roadmap'
 
-// A project's settings: its name, where its code is, its icon in the sidebar and the icon's colour, and deleting
+// A project's settings: its name, where its code is, whose releases it ships in, its icon in the sidebar and the icon's colour, and deleting
 // the project, for good. Its schedules have a page of their own, and so does starting its sessions (Sessions).
 const route = useRoute()
 const router = useRouter()
-const {byId, ready} = useRoadmaps()
+const {projects, byId, ready} = useRoadmaps()
 const {of} = useSchedules()
 const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
@@ -46,6 +46,23 @@ async function saveRepo() {
         await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {repo: next || null}, headers: {'Orrery-Actor': await load()}})
     } catch (error) {
         repoFailed.value = errorMessage(error)
+    }
+}
+
+// Whose releases it ships in: its own, or another project's (a monorepo's apps going out together). A project
+// can draw on one that has its own, while nothing draws on it and it has none of its own yet; the server says why not.
+const drawing = computed(() => projects.value.filter(p => p.releasesFrom === project.value?.id))
+const sources = computed(() => projects.value.filter(p => p.id !== project.value?.id && !p.releasesFrom))
+const releasesFailed = ref('')
+async function saveReleasesFrom(event: Event) {
+    if (!project.value) return
+    const next = (event.target as HTMLSelectElement).value || null
+    releasesFailed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {releasesFrom: next}, headers: {'Orrery-Actor': await load()}})
+    } catch (error) {
+        releasesFailed.value = errorMessage(error)
+        ;(event.target as HTMLSelectElement).value = project.value.releasesFrom ?? ''
     }
 }
 
@@ -148,6 +165,30 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           >
           <span v-if="repoFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ repoFailed }}</span>
         </form>
+      </section>
+
+      <section id="releases" class="flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Releases</h2>
+          <p class="text-xs text-muted">
+            Whose releases {{ project.name }} ships in. Take them from another project when several go out together, as a monorepo's apps do:
+            its issues are set for that project's releases, and each release counts them.
+          </p>
+        </header>
+        <div class="flex flex-wrap items-center gap-2">
+          <select
+              :value="project.releasesFrom ?? ''"
+              aria-label="Whose releases it ships in"
+              class="h-8 max-w-full rounded-lg bg-well px-2 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:opacity-60"
+              :disabled="!!drawing.length"
+              @change="saveReleasesFrom"
+          >
+            <option value="">Its own</option>
+            <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}'s</option>
+          </select>
+          <span v-if="drawing.length" class="text-xs text-faint">{{ drawing.map(p => p.name).join(', ') }} {{ drawing.length === 1 ? 'takes its' : 'take their' }} releases from {{ project.name }}.</span>
+          <span v-if="releasesFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ releasesFailed }}</span>
+        </div>
       </section>
 
       <section id="icon" class="flex flex-col gap-3 border-t border-line pt-8">
