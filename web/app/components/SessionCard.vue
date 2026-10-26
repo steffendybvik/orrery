@@ -3,10 +3,11 @@ import type {Session, SessionWork} from '#shared/roadmap'
 
 // One Claude session on the Sessions page: what it's doing and since when, whether it can hear signals, where it
 // runs, the issues it's on (`work`, on `project`) and what it was last sent. One Orrery started has its time left,
-// Watch, +30 min and Stop; any other with its channel running, a Stop that ends it through the channel. A listening
-// one takes a message. `lit` marks the one a link pointed at.
+// Watch, +30 min and Stop, and its screen to view live; any other with its channel running, a Stop that ends it through
+// the channel. A listening one takes a message. `lit` marks the one a link pointed at.
 defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean}>()
 const {who} = useOwner()
+const viewing = ref(false)
 
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
     : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message: ${s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
@@ -38,7 +39,9 @@ const restart = (session: Session) => `${session.name.startsWith(`${session.proj
     <p class="text-xs text-faint">
       Up since {{ ago(session.started_at) }}<template v-if="session.cwd"> · in <span class="font-mono">{{ session.cwd }}</span></template>
       <template v-if="session.started?.context"> · with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></template>
+      <template v-if="session.started"> · <button type="button" class="text-muted underline-offset-2 hover:text-fg hover:underline" :aria-expanded="viewing" @click="viewing = !viewing">{{ viewing ? 'Hide screen' : 'Show screen' }}</button></template>
     </p>
+    <SessionScreen v-if="viewing && session.started" :session="session" />
     <SessionMessage v-if="session.listening" :session="session" :project="project" />
 
     <div v-if="work?.issues.length || work?.signals.length" class="grid gap-4 border-t border-line pt-3 sm:grid-cols-2">
