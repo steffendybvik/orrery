@@ -89,6 +89,10 @@ const releases = computed(() => {
     return lists.length ? lists.reduce((all, list) => all.filter(v => list.includes(v))) : []
 })
 const scoped = computed(() => !issue.value && (statuses.value.length > 0 || !!release.value))
+// For the pickers, which find as you type, as on an issue's page.
+const issueOptions = computed(() => [{value: '', label: "No one issue: it works through what's below"}, ...openIssues.value.map(i => ({value: i.id, label: `${i.id} · ${i.title}`}))])
+const issueLabel = computed(() => issueOptions.value.find(o => o.value === issue.value)?.label)
+const releaseOptions = computed(() => [{value: '', label: 'Any release'}, ...releases.value.map(v => ({value: v, label: `Release ${v}`}))])
 
 /** The project's issues a session started now would work through, as the server picks them: every chunk's,
  * or with a release those set for it at any depth, of the ticked statuses (or every open one). */
@@ -175,13 +179,12 @@ const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 r
           </div>
         </div>
 
-        <label v-if="one" class="flex flex-col gap-1">
+        <div v-if="one" class="flex flex-col gap-1">
           <span class="label px-1">Focus on (optional)</span>
-          <select v-model="issue" aria-label="Issue" :class="field">
-            <option value="">No one issue: it works through what's below</option>
-            <option v-for="i in openIssues" :key="i.id" :value="i.id">{{ i.id }} · {{ i.title }}</option>
-          </select>
-        </label>
+          <PropertyPicker v-model="issue" :options="issueOptions" label="Issue" placeholder="Find an issue by id or title…" wide>
+            <span class="truncate" :class="!issue && 'text-faint'">{{ issueLabel }}</span>
+          </PropertyPicker>
+        </div>
 
         <div v-if="projects.length && !issue" class="flex flex-col gap-1.5">
           <span class="label px-1">Work through</span>
@@ -198,10 +201,9 @@ const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 r
               <StatusIcon :column="s.id" :size="12" />{{ s.label }}
             </button>
           </div>
-          <select v-if="releases.length" v-model="release" aria-label="Release" :class="field">
-            <option value="">Any release</option>
-            <option v-for="v in releases" :key="v" :value="v">Release {{ v }}</option>
-          </select>
+          <PropertyPicker v-if="releases.length" v-model="release" :options="releaseOptions" label="Release">
+            <span class="truncate" :class="!release && 'text-faint'">{{ release ? `Release ${release}` : 'Any release' }}</span>
+          </PropertyPicker>
           <p class="px-1 text-xs text-faint">
             {{ scoped ? 'It works through these issues, most urgent first, one at a time.' : 'Nothing ticked: it waits for your work.' }}
           </p>

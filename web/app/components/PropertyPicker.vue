@@ -15,6 +15,8 @@ const props = defineProps<{
     disabled?: boolean
     /** Opens above the button, as in a bar at the bottom of the page. */
     up?: boolean
+    /** Its menu as wide as the button (at least the usual), for long options such as issue titles. */
+    wide?: boolean
 }>()
 const model = defineModel<string | string[]>({required: true})
 
@@ -105,7 +107,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
     >
       <slot />
     </button>
-    <div v-if="open" class="glass absolute left-0 z-40 w-60 animate-fade-up rounded-xl p-1" :class="up ? 'bottom-full mb-1' : 'top-full mt-1'" @keydown="onKey">
+    <div v-if="open" class="glass absolute left-0 z-40 animate-fade-up rounded-xl p-1" :class="[up ? 'bottom-full mb-1' : 'top-full mt-1', wide ? 'right-0 min-w-60' : 'w-60']" @keydown="onKey">
       <input
           ref="input"
           v-model="query"
