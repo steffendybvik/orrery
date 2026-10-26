@@ -1,10 +1,11 @@
-// Fills an empty playground Orrery with a demo, through its API, as the owner (Ada Lovelace) and an agent (claude):
-// a project with releases, chunks, sub-issues and starts allowed; one sharing its releases, as a monorepo's app
-// would; one without releases; a proposal with choices, a question waiting in the bell, and a doc.
-// An Orrery that already has projects is left alone.
+// Fills an empty playground Orrery with a demo, through its API, as the owner (Skoll, the wolf who chases the sun)
+// and an agent (claude), with Skoll's brother Hate, who chases the moon, to assign to:
+// a prime-number library with releases, chunks, sub-issues and starts allowed; its command line, sharing its
+// releases as a monorepo's app would; graph algorithms with no releases; a proposal with choices, a question
+// waiting in the bell, and a doc. An Orrery that already has projects is left alone.
 //   node .playground/seed.mjs [http://localhost:9001]
 const base = (process.argv[2] ?? 'http://localhost:9001').replace(/\/+$/, '')
-const OWNER = 'ada_lovelace'
+const OWNER = 'skoll'
 
 async function call(method, path, body, actor = OWNER) {
     const response = await fetch(`${base}/api${path}`, {
@@ -21,49 +22,49 @@ if ((await call('GET', '/projects')).length) {
     process.exit(0)
 }
 
-await call('PUT', '/owner', {name: 'Ada Lovelace'})
-await call('PATCH', '/settings', {handle: 'ada', tracker: 'https://linear.app/demo/issue/{id}'})
+await call('PUT', '/owner', {name: 'Skoll'})
+await call('PATCH', '/settings', {handle: 'skoll', tracker: 'https://linear.app/demo/issue/{id}'})
 
-// Larder: its own releases, chunks, and sessions Orrery may start.
-await call('POST', '/projects', {name: 'Larder', id: 'larder', key: 'LAR', description: 'What is in the cupboards, and when it runs out'})
-await call('PATCH', '/projects/larder', {release_mode: 'own', repo: 'https://github.com/demo/larder', starts: {limit: 2, minutes: 30}})
-const larder = (path, body, actor) => call('POST', `/projects/larder${path}`, body, actor)
-const shelves = await larder('/chunks', {title: 'Shelves', summary: 'Knowing what is where.'})
-const labels = await larder('/chunks', {title: 'Labels', summary: 'Dates and contents on every jar.'})
-await larder('/releases', {version: '1.0.0', notes: 'The first one people use.'})
+// Primes: its own releases, chunks, and sessions Orrery may start.
+await call('POST', '/projects', {name: 'Primes', id: 'primes', key: 'PRM', description: 'A library for finding and testing prime numbers'})
+await call('PATCH', '/projects/primes', {release_mode: 'own', repo: 'https://github.com/demo/primes', starts: {limit: 2, minutes: 30}})
+const primes = (path, body, actor) => call('POST', `/projects/primes${path}`, body, actor)
+const sieves = await primes('/chunks', {title: 'Sieves', summary: 'Every prime up to n, fast.'})
+const tests = await primes('/chunks', {title: 'Primality tests', summary: 'Whether one number is prime, without listing the rest.'})
+await primes('/releases', {version: '1.0.0', notes: 'Sieves and a test good enough to ship.'})
 
-const sort = await larder('/issues', {title: 'Sort the spices by cuisine', status: 'done', chunk: shelves.id, release: '1.0.0'}, 'claude')
-await larder('/issues', {title: 'Measure the top shelf', status: 'done', parent: sort.id}, 'claude')
-const stock = await larder('/issues', {title: 'Count what is in stock', status: 'in-progress', priority: 'P1', assignee: 'claude', chunk: shelves.id, release: '1.0.0', external: ['DEMO-12']}, 'claude')
-await larder('/issues', {title: 'Tins', status: 'done', parent: stock.id}, 'claude')
-await larder('/issues', {title: 'Jars', status: 'in-progress', parent: stock.id}, 'claude')
-await larder('/issues', {title: 'Bags', status: 'todo', parent: stock.id}, 'claude')
-await larder('/issues', {title: 'Flour has run out', status: 'todo', priority: 'P0', chunk: shelves.id})
-await larder('/issues', {title: 'Print date labels', status: 'todo', priority: 'P2', chunk: labels.id, release: '1.0.0', labels: ['print']})
-await larder('/issues', {title: 'Label the jars', status: 'in-review', chunk: labels.id, release: '1.0.0', assignee: 'claude'}, 'claude')
-await larder('/issues', {title: 'A label printer that speaks Bluetooth', status: 'backlog', chunk: labels.id})
-await larder('/issues', {title: 'Laminate the labels', status: 'canceled', chunk: labels.id})
-await larder('/issues', {
-    title: 'Warn before something runs out',
+const eratosthenes = await primes('/issues', {title: 'Sieve of Eratosthenes', status: 'done', chunk: sieves.id, release: '1.0.0'}, 'claude')
+await primes('/issues', {title: 'Skip the even numbers', status: 'done', parent: eratosthenes.id}, 'claude')
+const segmented = await primes('/issues', {title: 'Segmented sieve for n past memory', status: 'in-progress', priority: 'P1', assignee: 'claude', chunk: sieves.id, release: '1.0.0', external: ['DEMO-12']}, 'claude')
+await primes('/issues', {title: 'Split the range into segments', status: 'done', parent: segmented.id}, 'claude')
+await primes('/issues', {title: 'Sieve each segment with the base primes', status: 'in-progress', parent: segmented.id}, 'claude')
+await primes('/issues', {title: 'Merge the segments in order', status: 'todo', parent: segmented.id}, 'claude')
+await primes('/issues', {title: 'primes_up_to(2) leaves out 2', status: 'todo', priority: 'P0', chunk: sieves.id, labels: ['bug']})
+await primes('/issues', {title: 'Miller–Rabin primality test', status: 'todo', priority: 'P2', chunk: tests.id, release: '1.0.0', labels: ['algorithm']})
+await primes('/issues', {title: 'Benchmark against primesieve', status: 'in-review', chunk: sieves.id, release: '1.0.0', assignee: 'claude'}, 'claude')
+await primes('/issues', {title: 'Sieve of Atkin', status: 'backlog', chunk: sieves.id, labels: ['algorithm']})
+await primes('/issues', {title: 'Trial division for every n', status: 'canceled', chunk: tests.id})
+await primes('/issues', {
+    title: 'Keep the primes found between runs',
     proposal: 'pending',
-    notes: 'Count down from what is used each week, and raise an issue a week before it runs out.',
+    notes: 'Most calls ask for primes below a bound already sieved. Keeping them would answer those at once.',
     choices: [
-        {key: 'when', question: 'How early?', pick: 'one', options: [{key: 'week', title: 'A week before'}, {key: 'day', title: 'The day before'}], recommended: ['week']},
-        {key: 'how', question: 'How should it tell you?', pick: 'any', options: [{key: 'issue', title: 'An issue'}, {key: 'bell', title: 'The bell'}], recommended: ['issue']},
+        {key: 'where', question: 'Where should they be kept?', pick: 'one', options: [{key: 'memory', title: 'In memory, for the process'}, {key: 'disk', title: 'On disk, across processes'}], recommended: ['memory']},
+        {key: 'limit', question: 'How many at most?', pick: 'one', options: [{key: 'million', title: 'Up to 10⁶'}, {key: 'none', title: 'No limit'}], recommended: ['million']},
     ],
 }, 'claude')
-await larder(`/issues/${stock.id}/comments`, {body: 'Tins are counted. The jars have no dates on them: count them anyway, or wait for **Label the jars**?', asks: 'decision'}, 'claude')
-await larder('/docs', {id: 'where-things-go', title: 'Where things go', body: '# Where things go\n\n- **Top shelf:** tins and jars\n- **Middle:** spices, by cuisine\n- **Bottom:** flour, rice and pasta\n'}, 'claude')
+await primes(`/issues/${segmented.id}/comments`, {body: 'Splitting works. Segments of **32 KB** fit the L1 cache; **256 KB** halves the passes over the base primes. Which should be the default?', asks: 'decision'}, 'claude')
+await primes('/docs', {id: 'how-the-sieve-works', title: 'How the sieve works', body: '# How the sieve works\n\nCross out every multiple of each prime p, starting at p², up to n. What is left is prime.\n\n- **Memory:** one bit per odd number, so n / 16 bytes\n- **Time:** O(n log log n)\n- **Past memory:** the segmented sieve does the same a segment at a time, with the primes up to √n kept\n'}, 'claude')
 
-// Pantry: an app of the same monorepo, shipping in Larder's releases.
-await call('POST', '/projects', {name: 'Pantry', id: 'pantry', key: 'PAN', description: 'The shopping list, from what the larder is missing'})
-await call('PATCH', '/projects/pantry', {release_mode: 'shared', releases_from: 'larder'})
-await call('POST', '/projects/pantry/issues', {title: 'Make the list from the stock count', status: 'in-progress', release: '1.0.0', assignee: 'claude'}, 'claude')
-await call('POST', '/projects/pantry/issues', {title: 'Share the list', status: 'todo', priority: 'P2'})
+// Primes CLI: the library's command line, in the same repo, shipping in its releases.
+await call('POST', '/projects', {name: 'Primes CLI', id: 'primes-cli', key: 'CLI', description: 'The primes library on the command line'})
+await call('PATCH', '/projects/primes-cli', {release_mode: 'shared', releases_from: 'primes'})
+await call('POST', '/projects/primes-cli/issues', {title: '`primes count <n>`', status: 'in-progress', release: '1.0.0', assignee: 'claude'}, 'claude')
+await call('POST', '/projects/primes-cli/issues', {title: 'Print as JSON with --json', status: 'todo', priority: 'P2'})
 
-// Garden: no releases, just a board.
-await call('POST', '/projects', {name: 'Garden', id: 'garden', key: 'GAR', description: 'What to sow and when'})
-await call('POST', '/projects/garden/issues', {title: 'Sow the tomatoes', status: 'todo', priority: 'P1'})
-await call('POST', '/projects/garden/issues', {title: 'Build a cold frame', status: 'backlog'})
+// Graphs: no releases, just a board.
+await call('POST', '/projects', {name: 'Graphs', id: 'graphs', key: 'GRA', description: 'Graph algorithms, one at a time'})
+await call('POST', '/projects/graphs/issues', {title: "Dijkstra's shortest paths", status: 'todo', priority: 'P1', assignee: 'hate'})
+await call('POST', '/projects/graphs/issues', {title: 'Topological sort', status: 'backlog'})
 
-console.log(`Seeded ${base}: Larder, Pantry (sharing Larder's releases) and Garden, as Ada Lovelace`)
+console.log(`Seeded ${base}: Primes, Primes CLI (sharing its releases) and Graphs, as Skoll`)

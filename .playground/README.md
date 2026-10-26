@@ -12,11 +12,13 @@ deleting a folder.
 .playground/play logs     # follow the server
 ```
 
-The demo (`seed.mjs`, through the API) is the owner **Ada Lovelace** with three projects:
+The demo (`seed.mjs`, through the API) is the owner **Skoll**, the wolf who chases the sun, and his brother **Hate**, who chases the moon
+(issues to assign him), with three projects:
 
-- **Larder:** its own releases (1.0.0), two chunks, sub-issues, issues in every status, starts allowed, a proposal with choices, a question waiting in the bell, and a doc
-- **Pantry:** ships in Larder's releases, as a monorepo's app would
-- **Garden:** no releases, just a board
+- **Primes:** a prime-number library with its own releases (1.0.0), two chunks, sub-issues, issues in every
+  status, starts allowed, a proposal with choices, a question waiting in the bell, and a doc
+- **Primes CLI:** its command line, shipping in Primes' releases, as a monorepo's app would
+- **Graphs:** graph algorithms, no releases, just a board
 
 After a `pnpm-lock.yaml` change, `docker compose --env-file .playground/compose.env restart orrery`. After a
 Dockerfile change, `docker compose --env-file .playground/compose.env up -d --build`. The settings are in
