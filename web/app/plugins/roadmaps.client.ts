@@ -16,7 +16,10 @@ export default defineNuxtPlugin(() => {
         useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
         await useSchedules().load()
         const all = await $fetch<Session[]>('/api/sessions').catch(() => [])
-        sessions.value = Object.groupBy(all, s => s.project) as Record<string, Session[]>
+        // Under each project it's on, as the `sessions` event lists them: its own and the others its channel hears.
+        const grouped: Record<string, Session[]> = {}
+        for (const s of all) for (const p of [s.project, ...s.also ?? []]) (grouped[p] ??= []).push(s)
+        sessions.value = grouped
     }
 
     /** The issues whose `updated_at` moved, so their rows can flash. */

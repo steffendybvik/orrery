@@ -4,9 +4,14 @@ import type {Session, SessionWork} from '#shared/roadmap'
 // One Claude session on the Sessions page: what it's doing and since when, whether it can hear signals, where it
 // runs, the issues it's on (`work`, on `project`) and what it was last sent. One Orrery started has its time left,
 // Watch, +30 min and Stop, and its screen to view live; any other with its channel running, a Stop that ends it through
-// the channel. A listening one takes a message. `lit` marks the one a link pointed at.
-defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean}>()
+// the channel. A listening one takes a message, and one that hears other projects too says which. `lit` marks the one a
+// link pointed at.
+const props = defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean}>()
 const {who} = useOwner()
+const {projects} = useRoadmaps()
+/** The other projects it hears, beside the one it's listed under, by name. */
+const elsewhere = computed(() => [props.session.project, ...props.session.also ?? []]
+    .filter(id => id !== props.project).map(id => projects.value.find(p => p.id === id)?.name ?? id))
 const viewing = ref(false)
 
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
@@ -29,6 +34,7 @@ const restart = (session: Session) => restartCommand(session, String(environment
         {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
       </span>
       <span v-if="session.listening" class="text-xs text-emerald-600 dark:text-emerald-400">listening</span>
+      <span v-if="elsewhere.length" class="text-xs text-faint" :title="`One session: it hears ${elsewhere.join(', ')} too`">also on {{ elsewhere.join(', ') }}</span>
       <span v-else class="flex items-center gap-1.5 text-xs text-faint" :title="`${session.name} was started without the channel, so a signal can't reach it`">
         can't hear signals
         <CopyButton :text="restart(session)" label="Restart command" />

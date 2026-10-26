@@ -136,6 +136,24 @@ describe('a session', () => {
         expect(sessions.listSessions('pos')).toEqual([])
     })
 
+    it("keeps its hooks' project as its own, whichever of its channels connects first", () => {
+        sessions.report({id: 'w', project: 'hub', event: 'SessionStart'})
+        sessions.attend('pos', 'w', undefined, undefined)
+        sessions.attend('hub', 'w', undefined, undefined)
+        expect(sessions.listSessions('hub')).toMatchObject([{id: 'w', project: 'hub', listening: true, also: ['pos']}])
+    })
+
+    it('heard on several projects before its hook speaks, takes the one the hook names', () => {
+        sessions.attend('pos', 'w', undefined, undefined)
+        sessions.attend('hub', 'w', undefined, undefined)
+        expect(sessions.listSessions('pos')).toMatchObject([{project: 'pos'}])
+        sessions.report({id: 'w', project: 'hub', event: 'SessionStart'})
+        expect(sessions.listSessions('hub')).toMatchObject([{id: 'w', project: 'hub', listening: true, also: ['pos']}])
+        // A hook naming a project none of its channels hears leaves it where it's heard.
+        sessions.report({id: 'w', project: 'css', event: 'Stop'})
+        expect(sessions.listSessions('hub')).toMatchObject([{project: 'hub'}])
+    })
+
     it('started for a project by Orrery, is on it, and counts toward its limit only', () => {
         sessions.attend('hub', 'w', undefined, undefined)
         sessions.attend('pos', 'w', undefined, undefined, true, {launch: 'l1', tmux: 't', stops_at: '2999-01-01T00:00:00.000Z'})

@@ -20,9 +20,10 @@ const only = computed({
     set: id => router.replace({query: id ? {project: id} : {}, hash: route.hash}),
 })
 const shown = computed(() => ordered.value.filter(p => !only.value || p.id === only.value))
-// Each project with sessions; the one kept to shows even with none, to say so.
+// Each project with sessions; the one kept to shows even with none, to say so. A session that hears several projects
+// is listed once, under its own, unless the page keeps to one of the others: then it's found there.
 const groups = computed(() => shown.value
-    .map(project => ({project, sessions: sessions.value[project.id] ?? []}))
+    .map(project => ({project, sessions: (sessions.value[project.id] ?? []).filter(s => s.project === project.id || only.value === project.id)}))
     .filter(g => g.sessions.length || g.project.id === only.value))
 const count = computed(() => groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
