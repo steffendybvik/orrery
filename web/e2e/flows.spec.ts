@@ -357,8 +357,8 @@ test("a project drawing on another's releases shows in its release, in a section
 
 const OWNER = {'Orrery-Actor': 'ada_lovelace'}
 
-test('lets Orrery start sessions once, for every project, in App settings', async ({page, request}) => {
-    await page.goto('/settings#starts')
+test('lets Orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
+    await page.goto('/sessions#starts')
     const starts = page.locator('#starts')
     await starts.getByRole('checkbox', {name: 'Let Orrery start sessions'}).check()
     await starts.getByLabel('Sessions at once').fill('2')
@@ -409,8 +409,8 @@ test('with nobody listening and a launcher there, Focus on this starts a session
     }
 })
 
-test('keeps a preset in App settings and offers it in Start session', async ({page}) => {
-    await page.goto('/settings#presets')
+test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {
+    await page.goto('/sessions#presets')
     await page.getByLabel('New preset name').fill('Review')
     await page.getByLabel('New preset text').fill("You're reviewing: read the diff and comment, don't change code.")
     await page.getByRole('button', {name: 'Add preset'}).click()

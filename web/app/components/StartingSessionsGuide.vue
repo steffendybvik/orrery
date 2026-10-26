@@ -30,7 +30,7 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
         <div class="flex min-w-0 flex-col gap-0.5">
           <span class="font-medium text-fg">Let Orrery start sessions</span>
           <span>
-            Once, for every project, in <NuxtLink to="/settings#starts" class="text-accent-600 hover:underline dark:text-accent-400">App settings</NuxtLink>:
+            Once, for every project, above:
             how many may run at once on each, and, if you like, how long each runs or may sit idle.
           </span>
         </div>
