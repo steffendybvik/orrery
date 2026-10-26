@@ -255,7 +255,8 @@ signal has `chunk` instead of `issue`, and the stream adds its open `issues`, mo
 The owner's comment on an issue becomes a `comment` signal for the session working it: the last one
 whose hook saw it write to the issue (a curl that PATCHes it, comments on it, …), or that was asked to
 focus on it. While that session is listening it alone gets the comment; with none known, or that one
-gone, every session does.
+gone, every session does. When the owner changes a comment's words, the new version goes the same way,
+starting `(Edited: this replaces their earlier comment.)`.
 
 An issue the owner makes urgent (`P0`, created as one or raised to it) goes out as a `focus` the same way,
 without their pressing anything: to the session working it, else to every session. It goes when a `P0`

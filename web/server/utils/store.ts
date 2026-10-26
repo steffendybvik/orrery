@@ -1268,6 +1268,10 @@ export class Store {
             await this.touchIssue(project, issue)
         })
         this.changed(project)
+        // A session may have read the first version already, so the owner's new words go to it too.
+        if (actor.owner && row.owned && input.body !== undefined && String(input.body) !== row.body) {
+            await this.carryComment(project, issue, `(Edited: this replaces their earlier comment.)\n\n${input.body}`, actor)
+        }
         return await this.comment(project, issue, id)
     }
 
