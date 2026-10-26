@@ -184,26 +184,37 @@ const ASK_AGAIN_AFTER = 2 * 60 * 1000
 
 /** Stops the sessions Orrery started whose time is up, or that have sat idle as long as their project allows
  * (`minutes`, `idle_minutes`), but only while one is idle with nothing in progress and nothing waiting for it:
- * one that's busy is stopped once it's done, never halfway. Says the launches it stopped. */
+ * one that's busy is stopped once it's done, never halfway. One still not done well past its time (stuck on a
+ * prompt, looping, never saying it's idle) is stopped anyway, `overdueAfter` its stop time. Says the launches it stopped. */
 export async function stopDue(now = Date.now()): Promise<string[]> {
     const stopped: string[] = []
     const store = useStore()
     const starts = new Map<string, Starts | undefined>()
     for (const session of listSessions()) {
         const {started} = session
-        if (!started || session.state !== 'idle' || now - (stopping.get(started.launch) ?? -Infinity) < ASK_AGAIN_AFTER) continue
+        if (!started || now - (stopping.get(started.launch) ?? -Infinity) < ASK_AGAIN_AFTER) continue
+        const stopsAt = started.stops_at ? Date.parse(started.stops_at) : Infinity
+        if (session.state !== 'idle' && stopsAt > now) continue
         if (!starts.has(session.project)) starts.set(session.project, await store.starts(session.project).catch(() => undefined))
+        const overdue = now - stopsAt >= overdueAfter(starts.get(session.project)?.minutes)
+        if (session.state !== 'idle' && !overdue) continue
         const idleFor = starts.get(session.project)?.idle_minutes
-        const timeUp = !!started.stops_at && Date.parse(started.stops_at) <= now
+        const timeUp = stopsAt <= now
         const idleTooLong = !!idleFor && now - Date.parse(session.since) >= idleFor * 60_000
         if (!timeUp && !idleTooLong) continue
         const ids = sessionIds(session.id)
-        if ((await store.workingOn(session.project, ids)).length || await store.waiting(session.project, ids)) continue
+        if (!overdue && ((await store.workingOn(session.project, ids)).length || await store.waiting(session.project, ids))) continue
         stopping.set(started.launch, now)
         emit({type: 'stop', project: session.project, id: started.launch})
         stopped.push(started.launch)
     }
     return stopped
+}
+
+/** How long past its stop time a session that isn't done is stopped anyway: its minutes again, from 15 minutes
+ * to an hour (half an hour without minutes, as when the owner gave it longer by hand). */
+export function overdueAfter(minutes?: number): number {
+    return Math.min(60, Math.max(15, minutes ?? 30)) * 60_000
 }
 
 /** The owner pressing Watch on a session Orrery started: its launcher opens a terminal on its machine, attached to
