@@ -8,7 +8,8 @@
 // The projects are ORRERY_PROJECT, else the channel's in .mcp.json (its ORRERY_PROJECTS, each of them, or its
 // ORRERY_PROJECT), else the folder's name; the Orrery is ORRERY_URL. Orrery asks only for a project the owner lets have sessions started (its Sessions tab): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
-// Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it), with the channel, in
+// Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
+// this launcher open a terminal on it), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and runs until Orrery asks
 // for it to be stopped: the owner stopping it, or, once it's idle with nothing open, its time being up or its having
 // sat idle too long (when the project sets those). Between pieces of work Orrery has it `/clear`ed, for a
@@ -19,11 +20,12 @@
 // Claude Code shows for the channel flag on every start (the channel is the repo's own); run the channel
 // command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
-import {readFileSync} from 'node:fs'
-import {basename, join} from 'node:path'
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {basename, dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {configFile, install, readConfig, uninstall} from './launcher-service.mjs'
 import {follow} from './sse.mjs'
+import {openWatch} from './terminal.mjs'
 
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
@@ -123,6 +125,25 @@ async function stop(id, why) {
         // It had ended on its own.
     }
     await fetch(`${session.api}/launches/${id}/ended`, {method: 'POST'}).catch(() => {})
+}
+
+/** Opens a terminal window on this machine attached to a session it started, as the owner pressing Watch asks, in
+ * the app the Orrery's settings name. A session another launcher runs is that one's to open. */
+function watch(id, app) {
+    const session = running.get(id)
+    if (!session) return
+    try {
+        const tmuxPath = execFileSync('sh', ['-c', 'command -v tmux'], {encoding: 'utf8'}).trim() || 'tmux'
+        const {command, args, file} = openWatch({app, tmux: tmuxPath, name: session.tmux})
+        if (file) {
+            mkdirSync(dirname(file.path), {recursive: true})
+            writeFileSync(file.path, file.text)
+        }
+        execFileSync(command, args, {stdio: 'ignore'})
+        log(`opened ${app ?? 'a terminal'} on ${session.tmux}`)
+    } catch (error) {
+        log(`couldn't open a terminal on ${session.tmux} (${error.message}); attach by hand: tmux attach -t ${session.tmux}`)
+    }
 }
 
 /** Gives a session it started a fresh context between pieces of work, as Orrery asks once it's idle: types
@@ -259,6 +280,9 @@ function serve({url, project, dir}) {
                 if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stops_at).toLocaleTimeString()}`)
             } else if (event === 'clear') {
                 await clear(JSON.parse(data).id)
+            } else if (event === 'watch') {
+                const {id, terminal} = JSON.parse(data)
+                watch(id, terminal)
             }
         },
         log: (...parts) => log(`${project}:`, ...parts),

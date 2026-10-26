@@ -3,8 +3,8 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import {randomBytes} from 'node:crypto'
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Preset, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
-import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Preset, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, TerminalApp, Upload} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, isObject, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
@@ -275,6 +275,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
     /** `{limit, minutes?, idle_minutes?}` lets Orrery start sessions, for any project with a launcher; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
+    /** The terminal app Watch opens; null is Terminal. */
+    terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
 }
 
 /** A preset's name and its text, both needed. */
@@ -667,6 +669,7 @@ export class Store {
             handle: (value('handle') as string | undefined) || null,
             tracker: (value('tracker') as string | undefined) || null,
             starts: (value('starts') as Starts | null | undefined) ?? null,
+            terminal: (value('terminal') as TerminalApp | undefined) ?? 'terminal',
         }
     }
 

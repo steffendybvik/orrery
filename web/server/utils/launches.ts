@@ -6,7 +6,7 @@
 // it, or Orrery has its launcher stop it once its time is up or it has sat idle too long (the project's `minutes`
 // and `idle_minutes`, when set), and only while it's idle with nothing open.
 import {randomBytes} from 'node:crypto'
-import type {Session, SessionContext, Signal, StartedSession, Starts} from '#shared/roadmap'
+import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
@@ -28,6 +28,7 @@ export type LaunchEvent =
     | {type: 'stop', project: string, id: string}
     | {type: 'extend', project: string, id: string, stops_at?: string}
     | {type: 'clear', project: string, id: string}
+    | {type: 'watch', project: string, id: string, terminal: TerminalApp}
 
 /** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
  * `claimed` once a launcher has taken it on. */
@@ -203,6 +204,16 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         stopped.push(started.launch)
     }
     return stopped
+}
+
+/** The owner pressing Watch on a session Orrery started: its launcher opens a terminal on its machine, attached to
+ * the session, in the app the settings name. Needs a launcher there to do it. */
+export function watchLaunch(project: string, id: string, terminal: TerminalApp): Session {
+    const session = sessionOfLaunch(project, id)
+    if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to open a terminal; attach by hand with tmux attach -t ${session.started!.tmux}`)
+    emit({type: 'watch', project, id, terminal})
+    return session
 }
 
 /** The owner stopping a session Orrery started: its launcher kills it, and says when it's gone. */

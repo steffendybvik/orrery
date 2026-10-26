@@ -1105,6 +1105,18 @@ describe('settings', () => {
     })
 })
 
+describe('the terminal Watch opens', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it("is Terminal until the owner picks another of those Watch knows", async () => {
+        expect((await store.settings()).terminal).toBe('terminal')
+        expect((await store.updateSettings({terminal: 'warp'}, owner)).terminal).toBe('warp')
+        expect((await failure(() => store.updateSettings({terminal: 'xterm'}, owner))).status).toBe(400)
+        expect((await failure(() => store.updateSettings({terminal: 'iterm'}, {name: 'claude', owner: false}))).status).toBe(403)
+        expect((await store.updateSettings({terminal: null}, owner)).terminal).toBe('terminal')
+    })
+})
+
 describe('many issues at once', () => {
     const owner = {name: 'skoll', owner: true}
 

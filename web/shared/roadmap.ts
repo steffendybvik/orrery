@@ -372,6 +372,10 @@ export interface Starts {
     idle_minutes?: number
 }
 
+/** The terminal apps Watch can open (on macOS; elsewhere the system's own terminal opens), by their setting. */
+export const TERMINALS = {terminal: 'Terminal', iterm: 'iTerm2', warp: 'Warp', ghostty: 'Ghostty'} as const
+export type TerminalApp = keyof typeof TERMINALS
+
 export interface Settings {
     /** This Orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
      * talking to the same Orrery (ORRERY_ID), whatever its address. */
@@ -396,6 +400,8 @@ export interface Settings {
     /** Whether Orrery starts sessions itself, for any project whose repo has a launcher, and within what; none
      * while the owner hasn't let it. */
     starts: Starts | null
+    /** The terminal app Watch opens a session Orrery started in, on its launcher's machine. */
+    terminal: TerminalApp
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */
