@@ -528,6 +528,21 @@ describe('releases', () => {
         expect((await failure(() => store.listIssues('larder', {release: '9.9'}))).status).toBe(404)
     })
 
+    it("count a sub-issue set for another release there, not in its parent's", async () => {
+        await store.createRelease('larder', {version: '1.0.0'})
+        await store.createRelease('larder', {version: '1.0.0-rc.2'})
+        const parent = await store.createIssue('larder', {title: 'Hinges', chunk: '1', release: '1.0.0'})
+        await store.createIssue('larder', {title: 'Pin', parent: parent.id})
+        const early = await store.createIssue('larder', {title: 'Socket', parent: parent.id, release: '1.0.0-rc.2', status: 'done'})
+        await store.createIssue('larder', {title: 'Its screw', parent: early.id, status: 'done'})
+        await store.createIssue('larder', {title: 'Its washer', parent: early.id, release: '1.0.0-rc.2'})
+
+        const [rc, final] = (await store.project('larder')).releases
+        expect(rc).toMatchObject({version: '1.0.0-rc.2', issues: 1, kinds: {done: 1, backlog: 1}})
+        expect(final).toMatchObject({version: '1.0.0', issues: 1, kinds: {done: 0, backlog: 1}})
+        expect((await store.release('larder', '1.0.0-rc.2')).tasks.map(t => t.title)).toEqual(['Socket'])
+    })
+
     it('are set on an issue and taken off, as its activity says', async () => {
         await store.createRelease('larder', {version: '1.0.0'})
         const issue = await store.createIssue('larder', {title: 'Hinges'})
