@@ -89,6 +89,8 @@ export interface Issue {
     /** Who's on it: a person, or `claude`. */
     assignee?: string
     labels: string[]
+    /** Its tasks on the team's tracker: ids (`CIR-1567`), linked through the Orrery's `tracker`, or full URLs. */
+    external: string[]
     /** A status's id, as written; a parent's own status is ignored, its issues decide its column. */
     status: string
     notes?: string
@@ -248,7 +250,7 @@ export interface Comment {
 
 /** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
  * moved in from another project. */
-export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'notes', 'chunk', 'parent', 'proposal', 'project', 'release'] as const
+export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'external', 'notes', 'chunk', 'parent', 'proposal', 'project', 'release'] as const
 export type ActivityField = (typeof ACTIVITY_FIELDS)[number]
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
@@ -373,6 +375,14 @@ export interface Settings {
     /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;
      * none uses their id. */
     handle: string | null
+    /** Where the team's tracker shows a task, with `{id}` for its id: `https://linear.app/circuly/issue/{id}`. */
+    tracker: string | null
+}
+
+/** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */
+export function taskUrl(tracker: string | null, task: string): string | undefined {
+    if (/^https?:\/\//.test(task)) return task
+    return tracker ? tracker.replace('{id}', encodeURIComponent(task)) : undefined
 }
 
 /** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-steffendybvik: DOC-132`. */

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Chunk, Column, Issue, Project} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
+import {PRIORITIES, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once.
@@ -45,6 +45,16 @@ const labels = computed({
 })
 
 const labelOptions = computed(() => [...new Set([...known.value, ...props.issue.labels])].sort((a, b) => a.localeCompare(b)).map(l => ({value: l, label: l})))
+
+// Its tasks on the team's tracker: any the project links, or a new id; each opens through the tracker's pattern.
+const {settings} = useAppSettings()
+const knownTasks = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.external))])
+const tasks = computed({
+    get: () => props.issue.external,
+    set: (next: string[]) => save({external: next}),
+})
+const taskOptions = computed(() => [...new Set([...knownTasks.value, ...props.issue.external])].sort((a, b) => a.localeCompare(b)).map(t => ({value: t, label: t})))
+const taskLinks = computed(() => props.issue.external.map(t => ({task: t, url: taskUrl(settings.value.tracker, t)})))
 
 // The assignee: the owner, an agent, anyone already assigned in the project, or a new name.
 const people = computed(() => [...new Set([owner.value, 'claude', ...allIssues(props.project).map(({issue}) => issue.assignee)].filter((n): n is string => !!n))])
@@ -104,6 +114,26 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         <span v-else class="text-faint">No labels</span>
         <template #option="{option}"><LabelChip :label="option.value" /></template>
       </PropertyPicker>
+    </dd>
+
+    <dt class="label">Team tasks</dt>
+    <dd class="flex min-w-0 flex-col items-start gap-1">
+      <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. CIR-1567…" multiple creatable :disabled="saving">
+        <span class="text-faint">{{ issue.external.length ? 'Edit' : 'None' }}</span>
+      </PropertyPicker>
+      <span v-if="taskLinks.length" class="flex min-w-0 flex-wrap gap-1">
+        <component
+            :is="link.url ? 'a' : 'span'"
+            v-for="link in taskLinks"
+            :key="link.task"
+            :href="link.url"
+            target="_blank"
+            rel="noopener"
+            class="max-w-full truncate rounded-md px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-line"
+            :class="link.url ? 'text-accent-600 hover:bg-hover dark:text-accent-400' : 'text-muted'"
+            :title="link.url ? `Open ${link.task} on the team's tracker` : 'Set the tracker in App settings to link it'"
+        >{{ link.task }}</component>
+      </span>
     </dd>
 
     <dt class="label">Project</dt>

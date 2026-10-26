@@ -27,6 +27,7 @@ const FIELDS = {
     status: STATUS,
     priority: PRIORITY,
     labels: {type: 'array', items: {type: 'string'}},
+    external: {type: 'array', items: {type: 'string'}, description: "Its tasks on the team's tracker: ids like CIR-1567, or URLs"},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
     chunk: {type: ['string', 'null'], description: "A chunk's id (a number) or its old name"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
@@ -44,6 +45,7 @@ export const TOOLS = [
             chunk: {type: 'string', description: 'A chunk id, or "none"'},
             release: {type: 'string', description: 'A release\'s version, or "none"'},
             label: {type: 'string'},
+            external: {type: 'string', description: "A team task's id: the issues linked to it"},
             q: {type: 'string', description: 'Text in the id or title'},
             open: {type: 'boolean', description: 'Only issues not done or canceled (default true)'},
         }},
@@ -116,7 +118,7 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
 
     const run = {
         async issues(args) {
-            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'q']))
+            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'q']))
             let issues = await call('GET', `/issues?${query}`)
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             return issues.length ? issues.map(line).join('\n') : 'No issues match.'

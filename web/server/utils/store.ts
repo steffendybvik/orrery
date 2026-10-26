@@ -75,6 +75,8 @@ export interface IssueFilter {
     /** A name, or `none` for unassigned issues. */
     assignee?: string
     label?: string
+    /** A team task's id or URL: the issues linked to it. */
+    external?: string
     chunk?: string
     /** A release's version, or `none` for issues set for none. */
     release?: string
@@ -95,7 +97,7 @@ interface ProjectRow extends Made {
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
     project: string, id: string, title: string, status: string, priority: Priority | null,
-    assignee: string | null, labels: string, notes: string | null,
+    assignee: string | null, labels: string, external: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
     choices: string, picks: string | null, explore: string | null, ships_in: string | null
@@ -163,6 +165,8 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     priority: {type: 'string', values: PRIORITIES, nullable: true},
     assignee: {type: 'string', nullable: true},
     labels: {type: 'strings', nullable: true},
+    /** Its tasks on the team's tracker: ids (`CIR-1567`) or full URLs. */
+    external: {type: 'strings', nullable: true},
     notes: {type: 'string', nullable: true},
     /** `pending` makes it a proposal (or puts one up again after changes); `null` commits it. The owner
      * decides on it with `decide`. */
@@ -249,6 +253,7 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     focus_prompt: {type: 'string', nullable: true},
     chunk_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
+    tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://linear.app/you/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
 }
 
@@ -590,6 +595,7 @@ export class Store {
             chunk_prompt: (value('chunk_prompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
             handle: (value('handle') as string | undefined) || null,
+            tracker: (value('tracker') as string | undefined) || null,
         }
     }
 
@@ -796,6 +802,7 @@ export class Store {
             && (!filter.column || columns.includes(r.column))
             && (!filter.assignee || (filter.assignee === 'none' ? !r.assignee : r.assignee === assignee))
             && (!filter.label || r.labels.includes(filter.label))
+            && (!filter.external || r.external.includes(filter.external))
             && (!filter.chunk || (filter.chunk === 'none' ? !r.chunk : r.chunk === filter.chunk))
             && (!filter.release || (filter.release === 'none' ? !r.release : r.release === filter.release))
             && (!filter.parent || (filter.parent === 'none' ? !r.parent : r.parent === filter.parent))
@@ -827,13 +834,13 @@ export class Store {
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
-            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, proposal, choices, parent, chunk, ships_in, position,
+            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, notes, proposal, choices, parent, chunk, ships_in, position,
                                           created_by, owned, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), await this.resolveStatus(input.status, input.plan), nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
                 input.proposal === 'pending' ? (await this.ownerId()) : nullable(await this.assigneeOf(input.assignee)),
-                JSON.stringify(input.labels ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
+                JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
                 parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, Number(actor.owner), now, now)
             await this.record(project, id, actor, [['created', null, null]])
             await this.touchProject(project)
@@ -880,6 +887,7 @@ export class Store {
         const status = input.status === undefined && input.plan === undefined ? undefined : await this.resolveStatus(input.status, input.plan)
         const assignee = input.proposal === 'pending' ? (await this.ownerId()) : await this.assigneeOf(input.assignee)
         const labels = input.labels === undefined ? undefined : JSON.stringify(input.labels ?? [])
+        const external = input.external === undefined ? undefined : JSON.stringify(tasksOf(input.external))
         const moved = input.parent !== undefined && parent !== row.parent
         await this.db.transaction(async () => {
             await this.record(project, id, actor, [
@@ -888,6 +896,7 @@ export class Store {
                 ['priority', row.priority, input.priority],
                 ['assignee', row.assignee, assignee],
                 ['labels', row.labels, labels],
+                ['external', row.external, external],
                 ['notes', row.notes, input.notes],
                 ['proposal', row.proposal, input.proposal],
                 // A sub-issue is in its parent's chunk, so a new parent says it all.
@@ -900,6 +909,7 @@ export class Store {
                 priority: input.priority,
                 assignee,
                 labels,
+                external,
                 notes: input.notes,
                 proposal: input.proposal,
                 choices: input.choices === undefined ? undefined : String(input.choices ?? '[]'),
@@ -1551,6 +1561,7 @@ export class Store {
             priority: row.priority ?? undefined,
             assignee: row.assignee ?? undefined,
             labels: JSON.parse(row.labels) as string[],
+            external: JSON.parse(row.external) as string[],
             status: row.status,
             notes: row.notes ?? undefined,
             proposal: row.proposal ?? undefined,
@@ -1799,6 +1810,11 @@ function docOf(row: DocRow): Doc {
         id: row.id, project: row.project, title: row.title, body: row.body,
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
+}
+
+/** Team tasks as stored: trimmed, each once, none empty. */
+function tasksOf(value: Input[string]): string[] {
+    return [...new Set(((value ?? []) as string[]).map(t => t.trim()).filter(Boolean))]
 }
 
 function nullable(value: Input[string]): string | null {

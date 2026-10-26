@@ -895,6 +895,20 @@ describe('settings', () => {
         expect((await failure(() => store.updateSettings({handle: 'x'}, {name: 'claude', owner: false}))).status).toBe(403)
         expect((await store.updateSettings({handle: null}, owner)).handle).toBeNull()
     })
+
+    it("link an issue to its tasks on the team's tracker, found by them, its activity saying so", async () => {
+        const owner = {name: 'skoll', owner: true}
+        const {id} = await store.createIssue('larder', {title: 'Hinges', external: [' CIR-1567 ', 'CIR-1567']})
+        expect((await store.issue('larder', id)).external).toEqual(['CIR-1567'])
+        await store.createIssue('larder', {title: 'Pins'})
+        expect((await store.updateIssue('larder', id, {external: ['CIR-1567', 'https://linear.app/x/issue/CIR-9']})).external).toEqual(['CIR-1567', 'https://linear.app/x/issue/CIR-9'])
+        expect((await store.listIssues('larder', {external: 'CIR-1567'})).map(i => i.id)).toEqual([id])
+        expect((await store.listActivity('larder', id)).filter(e => e.field === 'external').map(e => [e.before, e.after]))
+            .toEqual([['["CIR-1567"]', '["CIR-1567","https://linear.app/x/issue/CIR-9"]']])
+        expect((await store.updateIssue('larder', id, {external: null})).external).toEqual([])
+        expect((await store.updateSettings({tracker: 'https://linear.app/circuly/issue/{id}'}, owner)).tracker).toBe('https://linear.app/circuly/issue/{id}')
+        expect((await failure(() => store.updateSettings({tracker: 'https://linear.app/circuly'}, owner))).status).toBe(400)
+    })
 })
 
 describe('removing', () => {
