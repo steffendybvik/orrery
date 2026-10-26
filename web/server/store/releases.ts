@@ -43,8 +43,8 @@ export abstract class ReleaseStore extends DocStore {
         const now = stamp()
         await this.db.transaction(async () => {
             const top = (await this.get<{n: number | null}>('SELECT min(position) AS n FROM releases WHERE project = ?', project))?.n ?? 0
-            await this.run('INSERT INTO releases (project, version, branch, notes, shipped_on, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.shipped_on), top - 1, actor.name, Number(actor.owner), now, now)
+            await this.run('INSERT INTO releases (project, version, branch, notes, frozen_on, shipped_on, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.frozen_on), nullable(input.shipped_on), top - 1, actor.name, Number(actor.owner), now, now)
             if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)
         })
@@ -61,6 +61,7 @@ export abstract class ReleaseStore extends DocStore {
             await this.update('releases', 'project = ? AND version = ?', [project, version], {
                 branch: input.branch === undefined ? undefined : String(input.branch ?? '').trim() || null,
                 notes: input.notes,
+                frozen_on: input.frozen_on,
                 shipped_on: input.shipped_on,
             })
             if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))

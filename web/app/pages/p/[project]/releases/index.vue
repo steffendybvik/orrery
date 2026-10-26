@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {isFrozen} from '#shared/roadmap'
 // A project's releases, in the order they're arranged in: each with its branch, how far its issues are and whether it
 // shipped, opening its page. New release makes one from a version (and the branch its work gathers on).
 const route = useRoute()
@@ -173,8 +174,9 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
             <span class="font-mono text-[14px] font-medium text-fg">{{ release.version }}</span>
             <span
                 class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-                :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
-            >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : 'Preparing' }}</span>
+                :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : isFrozen(release) ? 'text-amber-700 ring-amber-500/30 dark:text-amber-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
+                :title="isFrozen(release) ? 'Feature freeze: fixes, tests and docs; a new feature goes on the next release' : undefined"
+            >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : isFrozen(release) ? `Frozen ${release.frozen_on}` : 'Preparing' }}</span>
             <span v-if="release.branch" class="font-mono text-xs text-faint">{{ release.branch }}</span>
             <span class="ml-auto flex items-center gap-3 text-xs text-faint">
               <span>{{ release.issues }} {{ release.issues === 1 ? 'issue' : 'issues' }}</span>

@@ -72,11 +72,17 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 
 | | |
 |---|---|
-| `GET /projects/:project/releases` | in the order they're arranged in, a new one on top: `{version, branch?, notes?, shipped_on?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included (a sub-issue set for another release counts there instead) |
-| `POST /projects/:project/releases` | `{version, branch?, notes?, shipped_on?, position?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shipped_on` the day it shipped (`YYYY-MM-DD`; none while it's being prepared), `position` where it goes in the list (0 the top, the default) |
+| `GET /projects/:project/releases` | in the order they're arranged in, a new one on top: `{version, branch?, notes?, frozen_on?, shipped_on?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included (a sub-issue set for another release counts there instead) |
+| `POST /projects/:project/releases` | `{version, branch?, notes?, frozen_on?, shipped_on?, position?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `frozen_on` the day its features froze (`YYYY-MM-DD`; see below), `shipped_on` the day it shipped (`YYYY-MM-DD`; none while it's being prepared), `position` where it goes in the list (0 the top, the default) |
 | `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues), and by project in `projects`: `{project, name, issues, kinds, tasks}`, the project's own first, then on a source each project drawing on it |
-| `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shipped_on?, position?}`; `position` moves it in the list (0 the top); the version doesn't change; `null` clears |
+| `PATCH /projects/:project/releases/:release` | `{branch?, notes?, frozen_on?, shipped_on?, position?}`; `position` moves it in the list (0 the top); the version doesn't change; `null` clears |
 | `DELETE /projects/:project/releases/:release` | its issues stay, set for none, in every project drawing on it too |
+
+A **feature freeze** (`frozen_on`) is a preference, not a lock: from that day the release would rather take
+fixes, tests and docs, and a new feature goes on the next one. Nothing is refused. It shows on the release,
+in an issue's release picker, and in what sessions hear: a focus on an issue set for it (or a sub-issue going
+out with one), or on a release's issues, gets the rule as a line after the standing instructions. It lasts
+until the release ships.
 
 ## Issues
 
@@ -358,6 +364,7 @@ The owner sets them (an agent gets a 403):
   switches off.
 - `POST …/focus {instructions: [ids]}` picks the lines for one send (`[]` for none). Left out, it gets
   the ones ticked by default. The signal keeps their texts in `instructions`.
+- A focus on work set for a release in [feature freeze](#releases) gets one more line, saying so.
 
 ### Presets
 

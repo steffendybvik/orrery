@@ -617,6 +617,15 @@ describe('releases', () => {
         expect((await store.project('larder')).releases).toEqual([])
     })
 
+    it('freeze and thaw, still taking issues while frozen', async () => {
+        await store.createRelease('larder', {version: '1.0.0', frozen_on: '2026-10-20'})
+        const issue = await store.createIssue('larder', {title: 'Hinges', release: '1.0.0'})
+        expect((await store.release('larder', '1.0.0')).frozen_on).toBe('2026-10-20')
+        expect((await failure(() => store.updateRelease('larder', '1.0.0', {frozen_on: 'now'}))).status).toBe(400)
+        expect((await store.updateRelease('larder', '1.0.0', {frozen_on: null})).frozen_on).toBeUndefined()
+        expect((await store.issue('larder', issue.id)).release).toBe('1.0.0')
+    })
+
     it("are the owner's to delete when the owner made them", async () => {
         await store.createRelease('larder', {version: '1.0.0'}, owner)
         expect((await failure(() => store.deleteRelease('larder', '1.0.0'))).status).toBe(403)

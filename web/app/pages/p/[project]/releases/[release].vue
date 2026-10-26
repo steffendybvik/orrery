@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Kinds} from '#shared/roadmap'
-import {emptyKinds} from '#shared/roadmap'
+import {emptyKinds, isFrozen} from '#shared/roadmap'
 
 // A release's page: whether it shipped (and when), the branch its work gathers on with its PRs (when the
 // project says where its code is), its notes, a changelog drafted from its issues, and every one of those
@@ -64,6 +64,9 @@ async function save(body: Record<string, unknown>): Promise<boolean> {
 const today = () => new Date().toLocaleDateString('sv')
 const ship = () => save({shipped_on: today()})
 const unship = () => save({shipped_on: null})
+// A freeze is a preference, not a lock: the release keeps taking whatever is set for it.
+const freeze = () => save({frozen_on: today()})
+const thaw = () => save({frozen_on: null})
 
 // The branch, edited in place: Enter saves, Esc puts it back.
 const editingBranch = ref(false)
@@ -149,8 +152,13 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <div class="flex flex-wrap items-center gap-3 text-xs">
           <span
               class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
-          >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : 'Preparing' }}</span>
+              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : isFrozen(release) ? 'text-amber-700 ring-amber-500/30 dark:text-amber-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
+              :title="isFrozen(release) ? 'Feature freeze: fixes, tests and docs; a new feature goes on the next release' : undefined"
+          >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : isFrozen(release) ? `Frozen ${release.frozen_on}` : 'Preparing' }}</span>
+          <template v-if="!release.shipped_on">
+            <UiButton v-if="!release.frozen_on" :disabled="saving" title="From now on it takes fixes, tests and docs; a new feature goes on the next release" @click="freeze">Freeze features</UiButton>
+            <UiButton v-else :disabled="saving" @click="thaw">Thaw</UiButton>
+          </template>
           <UiButton v-if="!release.shipped_on" :disabled="saving" @click="ship">Mark shipped today</UiButton>
           <UiButton v-else :disabled="saving" @click="unship">Not shipped yet</UiButton>
           <span class="ml-auto flex items-center gap-2">

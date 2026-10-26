@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Chunk, Column, Issue, Project} from '#shared/roadmap'
-import {taskUrl} from '#shared/roadmap'
+import {isFrozen, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once.
@@ -27,12 +27,14 @@ const chunkId = computed({
     set: (next: string) => save({chunk: next || null}),
 })
 const statusOptions = computed(() => places.value.map(p => ({value: p.id, label: p.label})))
-// The release it ships in, newest first; a shipped one says so.
+// The release it ships in, newest first; a shipped or frozen one says so.
 const release = computed({
     get: () => props.issue.release ?? '',
     set: (next: string) => save({release: next || null}),
 })
-const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shipped_on ? `${r.version} · shipped` : r.version}))])
+const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shipped_on ? `${r.version} · shipped` : isFrozen(r) ? `${r.version} · frozen` : r.version}))])
+// Only a heads-up: a frozen release still takes the issue.
+const frozen = computed(() => isFrozen(props.project.releases.find(r => r.version === props.issue.release)))
 
 // Labels: any the project uses, or a new one.
 const known = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.labels))])
@@ -157,6 +159,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
           <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
         </UiButton>
       </dd>
+      <dd v-if="frozen" class="col-start-2 -mt-1 text-xs text-faint">Frozen: fixes, tests and docs. A new feature fits the next release.</dd>
     </template>
 
     <template v-if="hasSubs">

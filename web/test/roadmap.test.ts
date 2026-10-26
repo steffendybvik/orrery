@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs'
 import {describe, expect, it} from 'vitest'
 import type {IssueStatus} from '#shared/roadmap'
-import {DEFAULT_STATUSES, total} from '#shared/roadmap'
+import {DEFAULT_STATUSES, freezeNote, total} from '#shared/roadmap'
 import type {BoardInput, IssueInput, TaskFile} from '../server/utils/roadmap'
 import {RoadmapError, buildBoard, checkRoadmap, issueLine, legacyStatus, readRoadmap} from '../server/utils/roadmap'
 
@@ -137,5 +137,14 @@ describe('an issue told to a session', () => {
     it('is one line: id, title, then its column by name and its priority', () => {
         expect(issueLine({id: 'LAR-1', title: 'Shelves', column: 'in-progress', priority: 'P1'}, STATUSES)).toBe('- LAR-1: Shelves [In progress, P1]')
         expect(issueLine({id: 'LAR-2', title: 'Jars', column: 'proposed', priority: null}, STATUSES)).toBe('- LAR-2: Jars [Proposed]')
+    })
+})
+
+describe('a release in feature freeze', () => {
+    it('tells a session to put new features on the next release, until it ships', () => {
+        expect(freezeNote({version: '1.0.0', frozen_on: '2026-10-20'})).toBe('1.0.0 is in feature freeze (since 2026-10-20): it takes fixes, tests and docs. Put a new feature on the next release instead, so this one can go out.')
+        expect(freezeNote({version: '1.0.0', frozen_on: '2026-10-20', shipped_on: '2026-10-26'})).toBeNull()
+        expect(freezeNote({version: '1.0.0'})).toBeNull()
+        expect(freezeNote(undefined)).toBeNull()
     })
 })

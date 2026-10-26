@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Decision, Issue} from '#shared/roadmap'
+import {isFrozen} from '#shared/roadmap'
 
 // The issues ticked on the page (useSelection), changed at once: decided when they're all proposals waiting on the
 // owner, else set (status, priority, assignee, labels added or taken off, and chunk or release within one project),
@@ -85,7 +86,7 @@ const assigneeOptions = computed(() => {
 const labelsKnown = computed(() => [...new Set(issues.value.flatMap(({project}) => allIssues(project).flatMap(({issue}) => issue.labels)))].sort().map(l => ({value: l, label: l})))
 const labelsOn = computed(() => [...new Set(issues.value.flatMap(({issue}) => issue.labels))].sort().map(l => ({value: l, label: l})))
 const chunks = computed(() => one.value ? chunkOptions(one.value.board.chunks) : [])
-const releaseOptions = computed(() => one.value?.releases.length ? [{value: '', label: 'No release'}, ...one.value.releases.map(r => ({value: r.version, label: r.version}))] : [])
+const releaseOptions = computed(() => one.value?.releases.length ? [{value: '', label: 'No release'}, ...one.value.releases.map(r => ({value: r.version, label: isFrozen(r) ? `${r.version} · frozen` : r.version}))] : [])
 const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg'
 </script>
 
