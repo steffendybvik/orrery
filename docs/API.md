@@ -280,7 +280,7 @@ projects in `ORRERY_PROJECTS`; start Claude with `--dangerously-load-development
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 `GET /settings` says the Orrery's `id` (made once, when it first starts) and `environment`: a channel given
 `ORRERY_ID` refuses an Orrery with another id. A session heard on several projects is listed on each one's
-Sessions tab, with the others in `also`.
+group on the Sessions page, with the others in `also`.
 
 ## Sessions
 
@@ -313,7 +313,7 @@ idle for `idle_minutes` (1 to 1440 each). Neither stops one mid-work: Orrery wai
 idle with no issue in progress and no signal waiting for it, then has its launcher stop it. Several signals at once start one
 session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
 signal it was started for. The owner can also start one by hand (`POST .../launches`, Start session on the
-Sessions tab), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at?, context?}` (no `stops_at`: until stopped), and count toward
+Sessions page), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at?, context?}` (no `stops_at`: until stopped), and count toward
 the limits while their channel is connected.
 
 One started by hand can be given more context: presets the owner picks (any number, the Orrery's and the

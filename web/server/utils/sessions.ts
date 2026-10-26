@@ -197,12 +197,12 @@ function heardOn(session: Known, project: string): boolean {
     return !!session.channels?.get(project)?.heard
 }
 
-/** Whether the session belongs on the project's Sessions tab: its own, or one its channel is heard on. */
+/** Whether the session belongs with the project on the Sessions page: its own, or one its channel is heard on. */
 function covers(session: Known, project: string): boolean {
     return session.project === project || heardOn(session, project)
 }
 
-/** Its own project's Sessions tab and those of the others its channel serves, which all show it. */
+/** Its own project and the others its channel serves, which the Sessions page all lists it under. */
 function changedAll(session: Known) {
     for (const project of new Set([session.project, ...session.channels?.keys() ?? []])) changed(project)
 }

@@ -4,7 +4,7 @@ import type {Issue} from '#shared/roadmap'
 // Every project with its progress and how many issues are started; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
-const {of: schedulesOf, byProject: schedulesByProject} = useSchedules()
+const {byProject: schedulesByProject} = useSchedules()
 /** Every project's schedules still set to run, for the Schedules entry. */
 const scheduleCount = computed(() => Object.values(schedulesByProject.value).flat().filter(s => s.enabled).length)
 const open = useState('sidebar-open', () => false)
@@ -223,7 +223,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </div>
         <div v-if="isOpen(project.id)" class="mb-2 flex flex-col gap-0.5">
           <NuxtLink
-              v-for="section in sectionsOf(project, route.path, schedulesOf(project.id).length, sessions[project.id]?.length ?? 0)"
+              v-for="section in sectionsOf(project, route.path)"
               :key="section.id"
               :to="section.to"
               class="ml-5 flex items-center gap-2 rounded-lg px-2 py-1 text-[13px] transition-colors"
@@ -251,7 +251,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <NuxtLink
             v-for="{session, project} in allSessions"
             :key="session.id"
-            :to="`/p/${project.id}/sessions#session-${session.id}`"
+            :to="`/sessions?project=${project.id}#session-${session.id}`"
             class="flex items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
             :title="session.cwd ? `${project.name} · ${session.cwd}` : project.name"
         >

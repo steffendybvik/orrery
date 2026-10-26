@@ -2,7 +2,7 @@
 import {TINTS} from '#shared/roadmap'
 
 // A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, and deleting
-// the project, for good. Its schedules have a page of their own, and so does starting its sessions (Sessions).
+// the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
