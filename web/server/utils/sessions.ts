@@ -322,6 +322,12 @@ export function listSessions(project?: string): Session[] {
         .sort((a, b) => a.started_at.localeCompare(b.started_at)).map(publicOf)
 }
 
+/** The session as it is now, with when its hooks last said it went idle; nothing for one Orrery doesn't know. */
+export function sessionNow(id: string): (Session & {idleAt?: number}) | undefined {
+    const session = sessions.get(currentId(id))
+    return session && {...publicOf(session), idleAt: session.idleAt}
+}
+
 /** When the session's hooks last said it went idle; nothing when they never have (no hooks, or none yet). */
 export function idleAt(id: string): number | undefined {
     return sessions.get(currentId(id))?.idleAt
