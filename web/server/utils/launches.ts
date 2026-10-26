@@ -21,14 +21,15 @@ export interface Launch {
     context?: SessionContext
 }
 
-/** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer, or
- * clear (`/clear`, a fresh context between pieces of work). */
+/** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer,
+ * clear (`/clear`, a fresh context between pieces of work), open a terminal on, or send its screen for a while. */
 export type LaunchEvent =
     | {type: 'launch', launch: Launch}
     | {type: 'stop', project: string, id: string}
     | {type: 'extend', project: string, id: string, stops_at?: string}
     | {type: 'clear', project: string, id: string}
     | {type: 'watch', project: string, id: string, terminal: TerminalApp}
+    | {type: 'view', project: string, id: string}
 
 /** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
  * `claimed` once a launcher has taken it on. */
@@ -176,6 +177,9 @@ export function launchGone(id: string) {
     pending.delete(id)
     reported.delete(id)
     stopping.delete(id)
+    screens.delete(id)
+    viewed.delete(id)
+    asked.delete(id)
 }
 
 /** The launches Orrery has had stopped, and when, so a launcher slow to say it's done isn't asked again each check. */
@@ -225,6 +229,42 @@ export function watchLaunch(project: string, id: string, terminal: TerminalApp):
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to open a terminal; attach by hand with tmux attach -t ${session.started!.tmux}`)
     emit({type: 'watch', project, id, terminal})
     return session
+}
+
+/** The screens of the sessions Orrery started that the owner is viewing, as their launchers last captured them, with
+ * when; when the owner last asked for each; and when its launcher was last asked to send it. */
+const screens = new Map<string, {text: string, at: number}>()
+const viewed = new Map<string, number>()
+const asked = new Map<string, number>()
+/** How long a launcher keeps sending a screen after the owner last asked for it, and how old a screen can get
+ * before its launcher is asked again (it stopped, or never got the ask). */
+export const VIEW_FOR = 5000
+const FRESH_FOR = 3000
+/** The most of a screen kept: a pane is far smaller, so more is something else. */
+const SCREEN_MAX = 64 * 1024
+
+/** The owner viewing a session Orrery started, about once a second while it's open: its screen as its launcher
+ * last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. */
+export function viewLaunch(project: string, id: string, now = Date.now()): {screen: string | null, at?: string} {
+    const session = sessionOfLaunch(project, id)
+    if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to show its screen; attach by hand with tmux attach -t ${session.started!.tmux}`)
+    viewed.set(id, now)
+    const shot = screens.get(id)
+    if ((!shot || now - shot.at > FRESH_FOR) && now - (asked.get(id) ?? -Infinity) > FRESH_FOR) {
+        asked.set(id, now)
+        emit({type: 'view', project, id})
+    }
+    return shot ? {screen: shot.text, at: new Date(shot.at).toISOString()} : {screen: null}
+}
+
+/** A launcher sending the screen of a session it started; says whether the owner is still viewing it, for the
+ * launcher to stop sending once nobody is. */
+export function keepScreen(project: string, id: string, text: string, now = Date.now()): {watching: boolean} {
+    const watching = !!sessionOfLaunch(project, id) && now - (viewed.get(id) ?? -Infinity) < VIEW_FOR
+    if (watching) screens.set(id, {text: text.slice(-SCREEN_MAX), at: now})
+    else screens.delete(id)
+    return {watching}
 }
 
 /** The owner stopping a session Orrery started: its launcher kills it, and says when it's gone. */

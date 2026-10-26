@@ -1,0 +1,6 @@
+// `POST /api/projects/:project/launches/:launch/screen` {screen} → {watching}: the launcher sending the screen of a
+// session it started, as the owner views it; it stops once `watching` is false.
+export default defineEventHandler(async event => {
+    const {screen} = checkInput(await readBody(event).catch(() => ({})) ?? {}, {screen: {type: 'string', required: true}})
+    return keepScreen(param(event, 'project'), param(event, 'launch'), String(screen))
+})
