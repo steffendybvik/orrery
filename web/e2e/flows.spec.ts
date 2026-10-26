@@ -483,7 +483,7 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
 
 test('makes a schedule, keeps to its project, pauses and removes it', async ({page, request}) => {
     await page.goto('/schedules?project=larder')
-    await page.getByRole('button', {name: 'New schedule'}).click()
+    await page.getByRole('button', {name: 'New schedule in Larder'}).click()
     const dialog = page.getByRole('dialog', {name: 'New schedule'})
     await dialog.getByLabel('Title').fill('Groom the backlog')
     await dialog.getByRole('button', {name: /Create schedule/}).click()
