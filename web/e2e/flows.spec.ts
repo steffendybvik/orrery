@@ -171,7 +171,12 @@ test('ticks issues and changes them together', async ({page, request}) => {
     const b = await api(request, 'post', '/issues', {title: 'Date the flour'})
     await page.goto('/p/larder?view=list')
     await page.getByRole('checkbox', {name: `Select ${a.id}`}).click()
-    await page.getByRole('checkbox', {name: `Select ${b.id}`}).click()
+    // A click that just misses the box, at the row's edge beside it, ticks too instead of opening the issue.
+    const row = (await page.locator(`[data-issue="${b.id}"]`).boundingBox())!
+    const box = (await page.getByRole('checkbox', {name: `Select ${b.id}`}).locator('span').boundingBox())!
+    await page.mouse.click(box.x - 4, row.y + 2)
+    await expect(page.getByRole('checkbox', {name: `Select ${b.id}`})).toHaveAttribute('aria-checked', 'true')
+    await expect(page).toHaveURL(/\/p\/larder\?view=list$/)
     const bar = page.getByRole('toolbar', {name: 'Change the ticked issues'})
     await expect(bar.getByText('2 selected')).toBeVisible()
     await bar.getByRole('button', {name: 'Priority'}).click()
