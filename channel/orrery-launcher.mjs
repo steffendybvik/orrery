@@ -18,14 +18,15 @@
 // fresh context. With several launchers on a project, the first
 // to claim a launch starts it. Stopping the launcher stops the sessions it started; one that dies instead (a
 // crash, the service restarting it) takes its project's sessions back when it starts again, as each keeps its
-// stop time (or `never`) in tmux, and tells Orrery which it runs whenever it connects. It answers the warning
-// Claude Code shows for the channel flag on every start (the channel is the repo's own); run the channel
-// command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
+// stop time (or `never`) and its launcher's pid in tmux, and tells Orrery which it runs whenever it connects. A
+// second launcher leaves alone the sessions of one that's still running, so stopping it can't stop them. It
+// answers the warning Claude Code shows for the channel flag on every start (the channel is the repo's own); run
+// the channel command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
 import {mkdirSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {configFile, install, readConfig, uninstall} from './launcher-service.mjs'
+import {adoptable, configFile, install, readConfig, uninstall} from './launcher-service.mjs'
 import {channelFor, projectsIn} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
@@ -196,6 +197,8 @@ const STOPS_AT = '@orrery_stops_at'
 const NEVER = 'never'
 /** And the context the owner started it with (JSON), for an Orrery that restarted to know it again. */
 const CONTEXT = '@orrery_context'
+/** The pid of the launcher that runs it, so another launcher leaves it alone while that one lives. */
+const LAUNCHER = '@orrery_launcher'
 
 /** Keeps the session's stop time (none: until stopped), for Orrery to know again after a restart. Orrery, not
  * this, stops it when the time comes, as only Orrery knows whether it's done with its work. */
@@ -226,6 +229,17 @@ function adopt(project, api) {
     for (const name of names) {
         const id = name.startsWith(prefix) ? name.slice(prefix.length) : ''
         if (!/^[0-9a-f]{12}$/.test(id) || running.has(id)) continue
+        let owner = ''
+        try {
+            owner = tmux('show-options', '-v', '-t', name, LAUNCHER)
+        } catch {
+            // Started before launchers kept their pid.
+        }
+        if (!adoptable(owner, process.pid)) {
+            log(`left ${name} to the launcher running it (pid ${owner})`)
+            continue
+        }
+        tmux('set-option', '-t', name, LAUNCHER, String(process.pid))
         running.set(id, {tmux: name, api})
         let stopsAt = ''
         try {
@@ -283,6 +297,7 @@ function serve({url, project, dir}) {
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after)}
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             'claude', '--dangerously-load-development-channels', `server:${channelFor(dir, url, project)?.name ?? project}`, '--permission-mode', mode)
+        tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
         running.set(launch.id, {tmux: launch.tmux, api, context: launch.context})
         if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
         keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)
