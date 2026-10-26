@@ -12,6 +12,8 @@ the database schema are the public surface, and a database always migrates forwa
   ends the run it was on.
 - **Faster first load:** each Heroicon loads when it's shown, and each dialog the first time it opens, so a
   page's first load is about a third smaller (510 KB of JS to 340 KB).
+- **Watch a started session live:** a session Orrery started shows its screen on the Sessions page, refreshed
+  while you look (read-only; its launcher captures the tmux pane).
 - **Last sent keeps up:** a session's card on the Sessions page shows a message you just sent it.
 - **More e2e:** the flows cover starting sessions, the Sessions page and messaging a session, Focus on this
   starting one, presets, schedules, the bell, and Now, My issues and Connect (25 flows, from 18).
