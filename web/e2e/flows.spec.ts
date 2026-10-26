@@ -531,7 +531,7 @@ test('Now, My issues and Connect show what they should', async ({page, request})
     // Getting started is a card on Now until it's done; someone only planning is set without the steps for Claude.
     const card = page.getByRole('region', {name: 'Getting started'})
     await page.goto('/now')
-    await expect(card.getByText('Connect a folder')).toBeVisible()
+    await expect(card.getByText('Connect a folder', {exact: true})).toBeVisible()
     await card.getByRole('button', {name: "Just planning? You're set"}).click()
     await expect(card).toBeHidden()
     await page.goto('/getting-started')
