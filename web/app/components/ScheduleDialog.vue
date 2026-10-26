@@ -88,7 +88,7 @@ watch(editing, now => {
     cron.value = s?.cron ?? '0 9 * * 1-5'
     failed.value = ''
     nextTick(() => titleInput.value?.focus())
-})
+}, {immediate: true})
 
 const repeat = computed<Repeat>(() => {
     switch (kind.value) {

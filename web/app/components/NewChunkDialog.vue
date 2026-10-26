@@ -19,7 +19,7 @@ watch(target, now => {
     if (!now) return
     title.value = summary.value = failed.value = ''
     nextTick(() => titleInput.value?.focus())
-})
+}, {immediate: true})
 
 const ready = computed(() => !!title.value.trim() && !saving.value)
 

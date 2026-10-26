@@ -45,7 +45,7 @@ watch(target, now => {
     picked.value = []
     statuses.value = open.value.filter(p => p.kind === 'todo' || p.kind === 'started').map(p => p.id)
     loadStates()
-})
+}, {immediate: true})
 // Asked again as launchers come and go and sessions start, while it's open.
 watch([launchers, sessions], () => target.value && loadStates())
 watch(chosen, () => {
