@@ -199,7 +199,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async releases(args) {
             const releases = await call('GET', '/releases', undefined, at(await projectOf(args)))
-            return releases.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
+            return releases.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : r.frozen_on ? ` (feature freeze since ${r.frozen_on}: fixes, tests and docs)` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
                 || 'No releases yet.'
         },
         async docs(args) {

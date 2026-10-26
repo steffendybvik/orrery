@@ -158,6 +158,8 @@ export interface Release {
     branch?: string
     /** What it's about, in Markdown. */
     notes?: string
+    /** The day its features froze (`YYYY-MM-DD`): from then on it takes fixes, tests and docs, by preference. */
+    frozen_on?: string
     /** The day it shipped (`YYYY-MM-DD`); none while it's being prepared. */
     shipped_on?: string
     /** Its issues: those set for it, each with its sub-issues (in every project drawing on it, on its source). */
@@ -167,6 +169,15 @@ export interface Release {
     protected: boolean
     created_at: string
     updated_at: string
+}
+
+/** Whether the release is in feature freeze: frozen, and not shipped yet. */
+export const isFrozen = (release: Pick<Release, 'frozen_on' | 'shipped_on'> | undefined) => !!release?.frozen_on && !release.shipped_on
+
+/** What a session hears about an issue set for a release in feature freeze: a preference, never a refusal. */
+export function freezeNote(release: Pick<Release, 'version' | 'frozen_on' | 'shipped_on'> | undefined): string | null {
+    if (!isFrozen(release)) return null
+    return `${release!.version} is in feature freeze (since ${release!.frozen_on}): it takes fixes, tests and docs. Put a new feature on the next release instead, so this one can go out.`
 }
 
 /** A doc without its text, as a project lists it. */

@@ -1,5 +1,6 @@
 import type {Signal} from '#shared/roadmap'
 import {renderPrompt} from '#shared/prompt'
+import {freezeNote} from '#shared/roadmap'
 
 // `GET /api/projects/:project/signals/stream` → the owner's signals to this project's sessions, as they're
 // sent: server-sent `signal` events (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
@@ -36,6 +37,11 @@ export default defineEventHandler(async event => {
      * the project's (or the Orrery's) template filled in, with the standing instructions picked for it. */
     const told = async (signal: Signal) => {
         const statuses = await store.statuses()
+        // A release in feature freeze says so, after the standing instructions.
+        const withFreeze = async (version: string | undefined) => {
+            const note = version ? freezeNote((await store.project(project)).releases.find(r => r.version === version)) : null
+            return note ? [...signal.instructions, note] : signal.instructions
+        }
         const templates = await store.prompts(project)
         const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
         const name = (column: string) => columnName(column, statuses)
@@ -60,16 +66,19 @@ export default defineEventHandler(async event => {
                 issues: open.map(i => issueLine(i, statuses)).join('\n') || '- none left',
                 url: signal.chunk === 'none' || signal.chunk === 'all' || signal.release || signal.status?.includes(',')
                     ? `'${api}/issues?${query}'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
-            }, signal.instructions).replace(' []', '')
+            }, await withFreeze(signal.release)).replace(' []', '')
             return {...signal, status, title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
         }
         const issue = await store.issue(project, signal.issue)
         const chunk = (await store.project(project)).board.chunks.find(c => c.id === (issue.chunk ?? ''))
         if (signal.kind !== 'focus') return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null}
+        // A sub-issue set for no release goes out with its parent's.
+        let release = issue.release
+        for (let parent = issue.parent; !release && parent;) ({release, parent} = await store.issue(project, parent))
         const prompt = renderPrompt(templates.focus, {
             actor: signal.created_by, issue: issue.id, title: issue.title, status: name(issue.column), priority: issue.priority, chunk: chunk?.title,
             where: where(name(issue.column), issue.priority, chunk?.title), note: signal.note, url: `${api}/issues/${encodeURIComponent(issue.id)}`,
-        }, signal.instructions)
+        }, await withFreeze(release))
         return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null, prompt}
     }
     // The owner's signals for every session, or for this one (by any id it has had); a receipt (delivered_to) isn't news.

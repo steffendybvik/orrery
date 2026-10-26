@@ -545,6 +545,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     INSERT INTO settings (key, value) SELECT 'starts', starts FROM projects WHERE starts IS NOT NULL ORDER BY created_at, id LIMIT 1
         ON CONFLICT (key) DO NOTHING;
     UPDATE projects SET starts = NULL;
+`, `
+    -- The day a release's features froze: from then on it takes fixes, tests and docs, by preference.
+    ALTER TABLE releases ADD COLUMN frozen_on TEXT;
 `]
 
 let db: DatabaseSync | null = null
