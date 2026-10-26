@@ -7,6 +7,8 @@ the database schema are the public surface, and a database always migrates forwa
 
 - **Releases count a sub-issue where it's set:** a sub-issue set for another release than its parent's
   counts toward its own release on the Releases page, and its work comes out of the parent's.
+- **A schedule's repeats come once:** when a session catches up, or is still busy, a recurring
+  message with the same text reaches it once instead of every copy; the others count as delivered.
 
 ## 1.0.0-rc.3 (2026-10-26)
 
