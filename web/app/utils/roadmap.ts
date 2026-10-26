@@ -1,5 +1,5 @@
 import type {Chunk, Column, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
-import {CLOSED, TINTS, open, total} from '#shared/roadmap'
+import {CLOSED, TINTS, open, slugify, total} from '#shared/roadmap'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
 export const colorOf = (color: string) => TINTS[color as keyof typeof TINTS] ?? color
@@ -9,6 +9,13 @@ export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
 
 /** A session's state as the page says it. */
 export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
+
+/** The command that starts a session's window again with the channel: the Orrery's server in the repo's
+ * `.mcp.json` (`orrery-<environment>`, as the Connect page names it), keeping the window's name unless it was made up. */
+export function restartCommand(session: {name: string, project: string}, environment: string): string {
+    const server = `orrery-${slugify(environment) || 'orrery'}`
+    return `${session.name.startsWith(`${session.project} `) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${server}`
+}
 
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}
 

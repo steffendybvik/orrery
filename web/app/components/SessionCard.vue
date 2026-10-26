@@ -12,8 +12,8 @@ const viewing = ref(false)
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
     : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message: ${s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
     : s.issue ? `${who(s.created_by)}: focus on ${s.issue}` : `${who(s.created_by)}: work through chunk ${s.chunk}`
-/** The command that starts the window again with the channel, keeping its name unless it was made up. */
-const restart = (session: Session) => `${session.name.startsWith(`${session.project} `) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${session.project}`
+const {environment} = useRuntimeConfig().public
+const restart = (session: Session) => restartCommand(session, String(environment || 'personal'))
 </script>
 
 <template>

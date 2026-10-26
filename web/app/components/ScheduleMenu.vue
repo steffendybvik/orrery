@@ -63,22 +63,7 @@ function editIt() {
     close()
 }
 
-function onOutside(event: PointerEvent) {
-    if (!box.value?.contains(event.target as Node)) close()
-}
-watch(() => !!menu.value, isOpen => {
-    if (isOpen) {
-        document.addEventListener('pointerdown', onOutside, true)
-        window.addEventListener('blur', close)
-    } else {
-        document.removeEventListener('pointerdown', onOutside, true)
-        window.removeEventListener('blur', close)
-    }
-})
-onBeforeUnmount(() => {
-    document.removeEventListener('pointerdown', onOutside, true)
-    window.removeEventListener('blur', close)
-})
+useDismiss(box, () => menu.value, close, {capture: true, blur: true})
 
 const item = 'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg hover:bg-hover disabled:opacity-50'
 </script>

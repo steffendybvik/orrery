@@ -31,11 +31,7 @@ async function focus(session: Session | null) {
     }
 }
 
-function onOutside(event: PointerEvent) {
-    if (!root.value?.contains(event.target as Node)) open.value = false
-}
-watch(open, isOpen => isOpen ? document.addEventListener('pointerdown', onOutside) : document.removeEventListener('pointerdown', onOutside))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
+useDismiss(root, () => open.value, () => open.value = false)
 </script>
 
 <template>

@@ -80,25 +80,7 @@ async function copyId() {
     if (chunk.value && await copyText(chunk.value.id)) note.value = `Copied ${chunk.value.id}`
 }
 
-function onOutside(event: PointerEvent) {
-    if (!menu.value?.contains(event.target as Node)) close()
-}
-watch(() => !!target.value, isOpen => {
-    if (isOpen) {
-        document.addEventListener('pointerdown', onOutside, true)
-        window.addEventListener('blur', close)
-        window.addEventListener('resize', close)
-    } else {
-        document.removeEventListener('pointerdown', onOutside, true)
-        window.removeEventListener('blur', close)
-        window.removeEventListener('resize', close)
-    }
-})
-onBeforeUnmount(() => {
-    document.removeEventListener('pointerdown', onOutside, true)
-    window.removeEventListener('blur', close)
-    window.removeEventListener('resize', close)
-})
+useDismiss(menu, () => target.value, close, {capture: true, blur: true, resize: true})
 
 const item = 'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg hover:bg-hover disabled:opacity-50'
 const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover disabled:opacity-50'
