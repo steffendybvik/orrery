@@ -7,7 +7,7 @@ import {issueRef, total} from '#shared/roadmap'
 // and previous issue in the project, Esc goes back.
 const route = useRoute()
 const router = useRouter()
-const {byId, ready} = useRoadmaps()
+const {byId, ready, reload} = useRoadmaps()
 const {open, last} = useIssueLink()
 const {who, load} = useOwner()
 const {of: schedulesOf, edit: editSchedule} = useSchedules()
@@ -22,6 +22,18 @@ watch(found, f => {
     if (f && f.issue.id !== issueId.value) router.replace(`/p/${route.params.project}/issues/${encodeURIComponent(f.issue.id)}`)
 }, {immediate: true})
 const issue = computed(() => found.value?.issue)
+// One it doesn't have yet (just made, and its update still on its way or lost offline) is asked for once
+// before the page says there's no such issue.
+const looking = ref(false)
+const asked = new Set<string>()
+watch([ready, issueId, found], async ([now, id, f]) => {
+    const key = `${route.params.project}/${id}`
+    if (!now || f || asked.has(key)) return
+    asked.add(key)
+    looking.value = true
+    await reload(route.params.project as string)
+    looking.value = false
+}, {immediate: true})
 // What says whose board it's on, to put in a commit body or PR description.
 const {settings} = useAppSettings()
 const {owner} = useOwner()
@@ -427,7 +439,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
       </aside>
     </div>
 
-    <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-center text-sm text-muted">
+    <div v-else-if="ready && !looking" class="grid place-items-center px-4 py-24 text-center text-sm text-muted">
       <div class="flex flex-col items-center gap-2">
         <p>No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}.</p>
         <p class="text-xs text-faint">It may have moved or been deleted.</p>
