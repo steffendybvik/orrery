@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Issue, Preset, Project} from '#shared/roadmap'
+import {startsFor} from '#shared/roadmap'
 import type {LaunchState} from '~/composables/useLaunchState'
 
 // Starting Claude sessions from anywhere, as the owner: pick the projects (every one, those that can't start one
@@ -23,14 +24,17 @@ const release = ref('')
 const busy = ref(false)
 const failed = ref('')
 const states = ref<Record<string, LaunchState | null>>({})
+const {settings} = useAppSettings()
+/** A project's limits: its own, or the Orrery's; none while Orrery doesn't start sessions. */
+const startsOf = (project: Project) => startsFor(project, settings.value)
 /** The presets the chosen projects' sessions can have, the Orrery's first; those ticked, and your own words. */
 const presets = ref<Preset[]>([])
 const picked = ref<number[]>([])
 const instructions = ref('')
 
-/** Whether a launcher is there and how many are running, for each project that lets Orrery start sessions. */
+/** Whether a launcher is there and how many are running, for each project, once Orrery may start sessions. */
 async function loadStates() {
-    const asked = await Promise.all(ordered.value.filter(p => p.starts).map(async p =>
+    const asked = await Promise.all(ordered.value.filter(p => startsOf(p)).map(async p =>
         [p.id, await $fetch<LaunchState>(`/api/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)] as const))
     states.value = Object.fromEntries(asked)
 }
@@ -70,11 +74,12 @@ function pick(id: number) {
 
 /** Why the project can't start a session now, if it can't. */
 function why(project: Project): string | null {
-    if (!project.starts) return "Doesn't let Orrery start sessions"
+    const starts = startsOf(project)
+    if (!starts) return "Orrery doesn't start sessions"
     const state = states.value[project.id]
     if (!state) return null
     if (!state.launchers) return 'No launcher running'
-    if (state.started + state.starting >= project.starts.limit) return `At its limit of ${project.starts.limit}`
+    if (state.started + state.starting >= starts.limit) return `At its limit of ${starts.limit}`
     return null
 }
 
@@ -166,10 +171,10 @@ const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 r
               <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
               <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
               <span v-if="why(p)" class="shrink-0 text-xs">
-                {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink :to="`/p/${p.id}/sessions#starts`" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
+                {{ why(p) }}<template v-if="!startsOf(p)"> · <NuxtLink to="/settings#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
               </span>
-              <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
-                <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}
+              <span v-else-if="startsOf(p)" class="shrink-0 text-xs text-faint">
+                <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ startsOf(p)!.minutes ? `${startsOf(p)!.minutes} min` : 'until stopped' }}
               </span>
             </label>
           </div>

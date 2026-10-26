@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import type {Session, SessionWork} from '#shared/roadmap'
+import {startsFor} from '#shared/roadmap'
 
 // A project's Claude sessions, to browse: what each is doing and since when, whether it can hear signals, where
 // it runs, the issues it's on and what it was last sent. One Orrery started has its time left, Watch, +30 min
 // and Stop; any other with its channel running, a Stop that ends it through the channel. Start session has
-// the project's launcher start one, when the project lets Orrery. A sidebar row opens its session here
-// (`#session-<id>`), lit up for a moment. Below the header, whether Orrery may start sessions and how many (`#starts`),
+// the project's launcher start one, once Orrery may. A sidebar row opens its session here
+// (`#session-<id>`), lit up for a moment. Below the header, whether Orrery may start sessions and how many on it (`#starts`),
 // then how starting them works.
 const route = useRoute()
 const {byId, ready, sessions: all} = useRoadmaps()
 const {who} = useOwner()
 const project = computed(() => byId(route.params.project as string))
+const {settings} = useAppSettings()
 const sessions = computed<Session[]>(() => all.value[route.params.project as string] ?? [])
 
 // What each is on, asked again whenever the sessions change (a hook, a channel, a signal delivered).
@@ -55,7 +57,7 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
           <h2 class="text-[15px] font-semibold text-fg">Sessions</h2>
           <p class="text-xs text-muted">
             The Claude sessions working on {{ project.name }}, as their hooks and channels last said.
-            <template v-if="project.starts">Orrery starts more when your work finds nobody listening, or when you start one.</template>
+            <template v-if="startsFor(project, settings)">Orrery starts more when your work finds nobody listening, or when you start one.</template>
           </p>
         </div>
         <StartSession :project="project" />

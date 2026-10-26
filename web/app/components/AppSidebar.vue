@@ -59,8 +59,9 @@ const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p
 
 // Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged.
 const {open: startSession} = useStartSession()
-/** Whether any project lets Orrery start sessions, so Start session has somewhere to go. */
-const canStart = computed(() => ordered.value.some(p => p.starts))
+/** Whether Orrery starts sessions and has a project to start one on. */
+const {settings: appSettings} = useAppSettings()
+const canStart = computed(() => !!appSettings.value.starts && ordered.value.length > 0)
 const allSessions = computed(() => ordered.value
     .flatMap(project => (sessions.value[project.id] ?? []).map(session => ({session, project})))
     .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))

@@ -1,10 +1,10 @@
 // Sessions Orrery starts itself, with no terminal. When the owner's signal reaches a project nobody is
-// listening on, and the owner lets the project have sessions started (its `starts`), Orrery asks the
+// listening on, and the owner lets Orrery start sessions (the Orrery's `starts`), Orrery asks the
 // project's launchers (channel/orrery-launcher.mjs, running on the host in the repo) to start one in tmux,
-// within the project's limit. The first launcher to
+// within the project's limit (its own, or else the Orrery's). The first launcher to
 // claim the launch starts it; its channel catches up from that signal. The session runs until the owner stops
-// it, or Orrery has its launcher stop it once its time is up or it has sat idle too long (the project's `minutes`
-// and `idle_minutes`, when set), and only while it's idle with nothing open.
+// it, or Orrery has its launcher stop it once its time is up or it has sat idle too long (the `minutes`
+// and `idle_minutes` that apply to the project, when set), and only while it's idle with nothing open.
 import {randomBytes} from 'node:crypto'
 import type {Session, SessionContext, Signal, StartedSession, Starts} from '#shared/roadmap'
 import type {Actor} from './store'
@@ -88,7 +88,7 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * in for them the way a signal's launch does. */
 export async function startLaunch(project: string, {issue, statuses, release, context, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, actor?: Actor} = {}): Promise<Launch> {
     const starts = await useStore().starts(project)
-    if (!starts) throw conflict(`${project} doesn't let Orrery start sessions; turn it on from its Sessions tab`)
+    if (!starts) throw conflict(`${project} Orrery doesn't start sessions; turn it on in App settings`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
     if (startedSessions(project) + pendingOn(project) >= starts.limit) throw conflict(`${project} already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     const id = randomBytes(6).toString('hex')

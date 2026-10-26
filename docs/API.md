@@ -37,7 +37,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
 | `POST /projects` | `{name, id?, key?, description?, repo?, release_mode?, releases_from?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board, docs and releases |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes?, idle_minutes?}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is its own `{limit, minutes?, idle_minutes?}` for the sessions Orrery starts, `null` for the Orrery's, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
 | `DELETE /projects/:project` | with its chunks, issues and comments; a 409 while others take their releases from it |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there (schedules that made issues in a chunk make them in none) |
 
@@ -301,11 +301,13 @@ and its old ids still find it.
 
 ### Starting sessions
 
-A project whose owner set `starts: {limit, minutes?, idle_minutes?}` gets sessions started for it, with no terminal: when
+Once the owner lets Orrery start sessions (`PATCH /settings {starts: {limit, minutes?, idle_minutes?}}`, for every
+project; `null` stops it), a project gets sessions started for it, with no terminal: when
 the owner's signal (a focus, a comment, a schedule's) finds nobody listening on it, Orrery asks the
 project's launcher (`channel/orrery-launcher.mjs`, on the host, installed as a service with `--install`) to start one in a detached tmux session.
-At most `limit` run at once on the project; it's set per project, with no cap over every project. Each
-runs until it's stopped: by the owner, or, when the project sets them, once `minutes` are up or it has sat
+The Orrery's `starts` are the limits for every project, unless the project has its own (`PATCH /projects/:project
+{starts}`, `null` for the Orrery's again); the project's `starts` are only its own. At most `limit` run at once on
+the project, with no cap over every project. Each runs until it's stopped: by the owner, or, when set, once `minutes` are up or it has sat
 idle for `idle_minutes` (1 to 1440 each). Neither stops one mid-work: Orrery waits until the session is
 idle with no issue in progress and no signal waiting for it, then has its launcher stop it. Several signals at once start one
 session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
@@ -340,7 +342,7 @@ it. Each signal lists the sessions it reached in `delivered_to`
 A focus reaches a session as its `prompt`: a template filled in, with standing instructions after it.
 The owner sets them (an agent gets a 403):
 
-- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?}`: the Orrery's. A template is text with
+- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?}`: the Orrery's. A template is text with
   placeholders (`{issue}`, `{title}`, `{status}`, `{priority}`, `{chunk}`, `{where}`, `{note}`, `{url}`,
   `{actor}`; a chunk's also `{issues}`), and a line whose placeholders all come out empty is left out.
   `null` or `""` goes back to the default. `instructions` is a list of `{text, on?, id?}`, lines such as

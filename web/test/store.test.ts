@@ -855,7 +855,18 @@ describe("an owner's comment", () => {
 describe('starting sessions', () => {
     const owner = {name: 'skoll', owner: true}
 
-    it("is the owner's to allow, as {limit, minutes?, idle_minutes?}, and to stop with null", async () => {
+    it("is the owner's to allow, once for every project, as {limit, minutes?, idle_minutes?}, and to stop with null", async () => {
+        expect((await store.settings()).starts).toBeNull()
+        expect(await store.starts('larder')).toBeUndefined()
+        expect((await failure(() => store.updateSettings({starts: {limit: 1}}))).status).toBe(403)
+        expect((await store.updateSettings({starts: {limit: 1, idle_minutes: 30}}, owner)).starts).toEqual({limit: 1, idle_minutes: 30})
+        expect(await store.starts('larder')).toEqual({limit: 1, idle_minutes: 30})
+        expect((await failure(() => store.updateSettings({starts: {limit: 0}}, owner))).status).toBe(400)
+        expect((await store.updateSettings({starts: null}, owner)).starts).toBeNull()
+        expect(await store.starts('larder')).toBeUndefined()
+    })
+
+    it("gives a project limits of its own, the owner's, which apply only while Orrery starts sessions", async () => {
         expect((await store.project('larder')).starts).toBeUndefined()
         expect((await failure(() => store.updateProject('larder', {starts: {limit: 1, minutes: 30}}))).status).toBe(403)
         expect((await store.updateProject('larder', {starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
@@ -865,10 +876,16 @@ describe('starting sessions', () => {
         for (const wrong of [{limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
             expect((await failure(() => store.updateProject('larder', {starts: wrong}, owner))).status).toBe(400)
         }
+        // Its own limits allow nothing until the Orrery does, then take the place of the Orrery's.
+        expect(await store.starts('larder')).toBeUndefined()
+        await store.updateSettings({starts: {limit: 1}}, owner)
+        expect(await store.starts('larder')).toEqual({limit: 2, idle_minutes: 60})
         expect((await store.updateProject('larder', {starts: null}, owner)).starts).toBeUndefined()
+        expect(await store.starts('larder')).toEqual({limit: 1})
     })
 
     it('reads without building the board', async () => {
+        await store.updateSettings({starts: {limit: 3}}, owner)
         await store.updateProject('larder', {starts: {limit: 1, minutes: 45}}, owner)
         expect(await store.starts('larder')).toEqual({limit: 1, minutes: 45})
         expect((await failure(() => store.starts('nope'))).status).toBe(404)
@@ -1292,6 +1309,22 @@ describe('the database', () => {
         old.prepare(`INSERT INTO settings (key, value) VALUES ('focusPrompt', '"Look at {issue}"'), ('chunkPrompt', '"Work {chunk}"')`).run()
         old.close()
         expect(await new Store(new SqliteDb(openDb(path))).settings()).toMatchObject({focus_prompt: 'Look at {issue}', chunk_prompt: 'Work {chunk}'})
+    })
+
+    it('lets Orrery start sessions when a project did, each keeping its limits as its own', async () => {
+        const fresh = openDb(':memory:')
+        const latest = (fresh.prepare('PRAGMA user_version').get() as {user_version: number}).user_version
+        fresh.close()
+        for (const before of [null, {limit: 3, minutes: 20}]) {
+            const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+            const old = openDb(path, latest - 1)
+            old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at, starts) VALUES ('larder', 'larder', 'LAR', 'agent', 'x', 'x', ?)")
+                .run(before && JSON.stringify(before))
+            old.close()
+            const upgraded = new Store(new SqliteDb(openDb(path)))
+            expect((await upgraded.settings()).starts).toEqual(before && {limit: 1})
+            expect(await upgraded.starts('larder')).toEqual(before ?? undefined)
+        }
     })
 
     it('keeps its data through the migrations and gives it project ids, the old ones as aliases', async () => {

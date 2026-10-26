@@ -539,6 +539,11 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
+`, `
+    -- Letting Orrery start sessions is the Orrery's, once, not each project's: on if any project had it. Those
+    -- projects keep their limits as their own; the others take the Orrery's, one session at a time.
+    INSERT INTO settings (key, value) SELECT 'starts', '{"limit":1}' WHERE EXISTS (SELECT 1 FROM projects WHERE starts IS NOT NULL)
+        ON CONFLICT (key) DO NOTHING;
 `]
 
 let db: DatabaseSync | null = null

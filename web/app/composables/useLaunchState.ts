@@ -18,6 +18,8 @@ export function useLaunchState(project: MaybeRefOrGetter<string>) {
 
     function refresh(): Promise<void> {
         const id = toValue(project)
+        // No project (App settings): nothing to ask.
+        if (!id) return Promise.resolve()
         const already = asking.get(id)
         if (already) return already
         const ask = $fetch<LaunchState>(`/api/projects/${encodeURIComponent(id)}/launches`).catch(() => null)

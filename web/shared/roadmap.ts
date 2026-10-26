@@ -202,8 +202,8 @@ export interface Project {
     /** Its own standing instructions, and the ids of the Orrery's it switches off. */
     instructions: Instruction[]
     muted: string[]
-    /** Whether Orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
-     * within what; none while the owner hasn't let it. */
+    /** Its own limits on the sessions Orrery starts for it, when not the Orrery's (`Settings.starts`, which says
+     * whether Orrery starts sessions at all); `startsFor` gives the ones that apply. */
     starts?: Starts
     /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
     repo?: string
@@ -372,6 +372,12 @@ export interface Starts {
     idle_minutes?: number
 }
 
+/** The sessions Orrery may start for a project: none unless the owner lets Orrery start them (`Settings.starts`),
+ * then within the project's own limits, or else the Orrery's. */
+export function startsFor(project: {starts?: Starts}, settings: {starts: Starts | null}): Starts | undefined {
+    return settings.starts ? project.starts ?? settings.starts : undefined
+}
+
 export interface Settings {
     /** This Orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
      * talking to the same Orrery (ORRERY_ID), whatever its address. */
@@ -382,6 +388,9 @@ export interface Settings {
     tint: string | null
     /** The issue statuses, in board order. */
     statuses: IssueStatus[]
+    /** Whether Orrery may start Claude sessions itself, for any project, when the owner's signal finds nobody
+     * listening or they start one, and within what (a project can have its own limits); none while the owner hasn't let it. */
+    starts: Starts | null
     /** What a session hears when asked to focus on an issue, or to work through a chunk; none is the default
      * (`DEFAULT_FOCUS_PROMPT`, `DEFAULT_CHUNK_PROMPT`). A project can have its own. */
     focus_prompt: string | null

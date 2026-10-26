@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import type {Project} from '#shared/roadmap'
+import {startsFor} from '#shared/roadmap'
 
 // How Orrery starts sessions for a project with no terminal, step by step, each ticked once it's done: the
-// opt-in, the launcher installed on the host, then starting, watching and stopping them. Open while a step
+// owner's opt-in (once, for every project), the launcher installed on the host, then starting, watching and stopping them. Open while a step
 // is left.
 const props = defineProps<{project: Project}>()
 const {state, install} = useLaunchState(() => props.project.id)
 const running = computed(() => state.value?.launchers ?? null)
-const ready = computed(() => !!props.project.starts && !!running.value)
+const {settings} = useAppSettings()
+const allowed = computed(() => !!startsFor(props.project, settings.value))
+const ready = computed(() => allowed.value && !!running.value)
 </script>
 
 <template>
@@ -19,11 +22,12 @@ const ready = computed(() => !!props.project.starts && !!running.value)
     </summary>
     <ol class="flex flex-col gap-4 px-4 pb-4 text-[13px] leading-relaxed text-muted">
       <li class="flex gap-3">
-        <StepMark :done="!!project.starts" :n="1" />
+        <StepMark :done="allowed" :n="1" />
         <div class="flex min-w-0 flex-col gap-0.5">
-          <span class="font-medium text-fg">Let Orrery start sessions for {{ project.name }}</span>
+          <span class="font-medium text-fg">Let Orrery start sessions</span>
           <span>
-            Tick it above, then say how many may run at once. Each runs until you stop it, unless you give it minutes,
+            Once, for every project, in <NuxtLink to="/settings#starts" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">App settings</NuxtLink>,
+            then say how many may run at once ({{ project.name }} can have its own above). Each runs until you stop it, unless you give it minutes,
             or minutes it may sit idle with nothing to do.
           </span>
         </div>

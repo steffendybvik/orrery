@@ -298,6 +298,11 @@ const STEPS: string[] = [`
         created_at text NOT NULL,
         updated_at text NOT NULL
     );
+`, `
+    -- Letting Orrery start sessions is the Orrery's, once, not each project's: on if any project had it. Those
+    -- projects keep their limits as their own; the others take the Orrery's, one session at a time.
+    INSERT INTO settings (key, value) SELECT 'starts', '{"limit":1}' WHERE EXISTS (SELECT 1 FROM projects WHERE starts IS NOT NULL)
+        ON CONFLICT (key) DO NOTHING;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether

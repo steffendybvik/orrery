@@ -6,7 +6,7 @@
 // or run it in a terminal for the repo's project alone, for as long as the terminal stays open:
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
 // The projects are ORRERY_PROJECT, else the channel's in .mcp.json (its ORRERY_PROJECTS, each of them, or its
-// ORRERY_PROJECT), else the folder's name; the Orrery is ORRERY_URL. Orrery asks only for a project the owner lets have sessions started (its Sessions tab): when the
+// ORRERY_PROJECT), else the folder's name; the Orrery is ORRERY_URL. Orrery asks only once the owner lets it start sessions (App settings): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and runs until Orrery asks
@@ -91,7 +91,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             const {config, logs} = install(entry, {script})
             console.log(`The launcher now starts sessions for ${entry.project} (${entry.url}) in ${entry.dir}, from login on.`)
             console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.`)
-            console.log(`Let Orrery start sessions on the project's Sessions tab, if it doesn't yet. Its log: ${logs}`)
+            console.log(`Let Orrery start sessions in its App settings, if it doesn't yet. Its log: ${logs}`)
         }
         if (!args.includes('--uninstall')) console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
         process.exit(0)
@@ -248,7 +248,7 @@ function serve({url, project, dir}) {
                 const {starts} = JSON.parse(data)
                 log(starts
                     ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
-                    : `connected, but ${project} doesn't let Orrery start sessions yet: turn it on from its Sessions tab`)
+                    : `connected, but Orrery doesn't start sessions yet: turn it on in its App settings`)
             } else if (event === 'launch') {
                 await start(JSON.parse(data)).catch(error => log(`couldn't start a session for ${project}: ${error.message}`))
             } else if (event === 'stop') {

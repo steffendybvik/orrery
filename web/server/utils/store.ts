@@ -4,7 +4,7 @@
 // turns into a server-sent event, so open pages update.
 import {randomBytes} from 'node:crypto'
 import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Preset, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
-import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TINTS, emptyKinds, issueRef, keyFor, startsFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, isObject, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
@@ -139,7 +139,7 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     /** Ids of the Orrery's standing instructions the project switches off. */
     muted: {type: 'strings', nullable: true},
-    /** The owner's: `{limit, minutes}` lets Orrery start sessions for it; null stops that. */
+    /** The owner's: its own `{limit, minutes?, idle_minutes?}` for the sessions Orrery starts; null takes the Orrery's. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
     repo: {type: 'string', nullable: true, pattern: /^https?:\/\/\S+[^/\s]$/, hint: 'use the web address of its code, e.g. https://github.com/you/shop'},
     /** Whether it has releases: none (a new project's), its own, or `shared`, those of `releases_from`. */
@@ -270,6 +270,8 @@ const LEGACY_KINDS: Record<string, Kind> = {doing: 'started', now: 'todo', next:
 
 export const SETTINGS_FIELDS: Record<string, Field> = {
     tint: TINT,
+    /** `{limit, minutes?, idle_minutes?}` lets Orrery start sessions, for every project; null stops that. */
+    starts: {type: 'json', nullable: true, parse: parseStarts},
     focus_prompt: {type: 'string', nullable: true},
     chunk_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
@@ -590,10 +592,11 @@ export class Store {
         }
     }
 
-    /** Whether Orrery may start sessions for the project, and within what; none while the owner hasn't let it. */
+    /** Whether Orrery may start sessions for the project, and within what: its own limits, or else the Orrery's;
+     * none while the owner hasn't let Orrery start sessions. */
     async starts(project: string): Promise<Starts | undefined> {
         const row = await this.projectRow(project)
-        return row.starts ? JSON.parse(row.starts) as Starts : undefined
+        return startsFor({starts: row.starts ? JSON.parse(row.starts) as Starts : undefined}, await this.settings())
     }
 
     /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
@@ -656,6 +659,7 @@ export class Store {
             id: value('id') as string,
             tint: (value('tint') as string | undefined) ?? null,
             statuses: await this.statuses(),
+            starts: (value('starts') as Starts | undefined) ?? null,
             focus_prompt: (value('focus_prompt') as string | undefined) || null,
             chunk_prompt: (value('chunk_prompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
@@ -828,7 +832,9 @@ export class Store {
                 if (sent === undefined) continue
                 // An empty template is none: the default.
                 const value = (key === 'focus_prompt' || key === 'chunk_prompt') && typeof sent === 'string' ? sent.trim() || null
-                    : key === 'handle' && typeof sent === 'string' ? sent.toLowerCase() : sent
+                    : key === 'handle' && typeof sent === 'string' ? sent.toLowerCase()
+                    // Checked and stored as JSON text, kept as the object.
+                    : key === 'starts' && typeof sent === 'string' ? JSON.parse(sent) : sent
                 await this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
             }
         })
