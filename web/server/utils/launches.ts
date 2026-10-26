@@ -77,10 +77,11 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
 export const launchTarget = (launch: string) => `launch-${launch}`
 
 /** The owner starting a session on the project by hand, though nobody's work is waiting: it catches up from the
- * project's latest signal, or, given an `issue`, from a focus on it made for this session alone. Needs the
+ * project's latest signal; given an `issue`, from a focus on it made for this session alone; given a scope
+ * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * project's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, actor}: {issue?: string, actor?: Actor} = {}): Promise<Launch> {
+export async function startLaunch(project: string, {issue, statuses, release, actor}: {issue?: string, statuses?: string[], release?: string, actor?: Actor} = {}): Promise<Launch> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`${project} doesn't let Orrery start sessions; turn it on from its Sessions tab`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
@@ -90,9 +91,12 @@ export async function startLaunch(project: string, {issue, actor}: {issue?: stri
     const held = {id, project, after: 0, minutes: starts.minutes, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
     pending.set(id, held)
     try {
+        const session = launchTarget(id)
         held.after = issue
-            ? (await useStore().focus(project, issue, {session: launchTarget(id)}, actor)).id - 1
-            : await useStore().lastSignal(project)
+            ? (await useStore().focus(project, issue, {session}, actor)).id - 1
+            : statuses?.length || release
+                ? (await useStore().focusChunk(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: release ?? null}, actor)).id - 1
+                : await useStore().lastSignal(project)
     } catch (error) {
         pending.delete(id)
         throw error
@@ -101,6 +105,9 @@ export async function startLaunch(project: string, {issue, actor}: {issue?: stri
     emit({type: 'launch', launch})
     return launch
 }
+
+/** What a session started with a scope but no statuses works through: the open work that's ready. */
+export const SCOPE_STATUSES = ['todo', 'started']
 
 /** The minutes a new session on the project gets; none when the owner hasn't let it have sessions started,
  * or its limit is reached. */

@@ -1,4 +1,4 @@
-import type {Signal} from '#shared/roadmap'
+import type {Issue, Signal} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
 import {renderPrompt} from '#shared/prompt'
 
@@ -50,25 +50,37 @@ export default defineEventHandler(async event => {
             return {...signal, title, column: null, priority: null, chunk: null}
         }
         if (!signal.issue) {
-            // `none`: the issues in no chunk, which the board keeps as a chunk without an id.
-            const chunk = signal.chunk === 'none'
-                ? (await store.project(project)).board.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done', priority: undefined, tasks: []}
-                : await store.chunk(project, signal.chunk!)
-            // A status, or a kind (`started`): its issues; else every open one.
-            const fits = (t: {column: string, kind: string}) => signal.status
-                ? t.column === signal.status || t.kind === signal.status
+            // `none`: the issues in no chunk, which the board keeps as a chunk without an id; `all`: the whole project's.
+            const board = signal.chunk === 'none' || signal.chunk === 'all' ? (await store.project(project)).board : undefined
+            const chunk = signal.chunk === 'all'
+                ? {title: 'every chunk', column: '', priority: undefined, tasks: board!.chunks.flatMap(c => c.tasks)}
+                : signal.chunk === 'none'
+                    ? board!.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done', priority: undefined, tasks: []}
+                    : await store.chunk(project, signal.chunk!)
+            // With a release, the issues set for it, at any depth (a sub-issue's when its parent isn't).
+            const tasks: Issue[] = []
+            const pick = (issues: Issue[]) => issues.forEach(t => t.release === signal.release ? tasks.push(t) : pick(t.tasks))
+            if (signal.release) pick(chunk.tasks)
+            else tasks.push(...chunk.tasks)
+            // Statuses or kinds (`started`), comma-separated: their issues; else every open one.
+            const wanted = signal.status?.split(',').map(s => s.trim()).filter(Boolean) ?? []
+            const fits = (t: {column: string, kind: string}) => wanted.length
+                ? wanted.some(s => t.column === s || t.kind === s)
                 : t.kind !== 'proposed' && !CLOSED.includes(t.kind as never)
-            const open = chunk.tasks.filter(fits)
+            const open = tasks.filter(fits)
                 .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
                 .map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
-            const status = signal.status ? statuses.find(s => s.id === signal.status)?.name ?? signal.status : undefined
+            const status = wanted.length ? wanted.map(s => statuses.find(st => st.id === s)?.name ?? s).join(' or ') : undefined
+            const title = signal.release ? `${chunk.title}, release ${signal.release}` : chunk.title
+            const query = new URLSearchParams({...signal.chunk === 'all' ? {} : {chunk: signal.chunk!}, ...signal.status ? {status: signal.status} : {}, ...signal.release ? {release: signal.release} : {}})
             const prompt = renderPrompt(templates.chunk, {
-                actor: signal.created_by, chunk: signal.chunk, title: chunk.title, status: status ?? 'open', priority: chunk.priority,
+                actor: signal.created_by, chunk: signal.chunk, title, status: status ?? 'open', priority: chunk.priority,
                 where: where(name(chunk.column), chunk.priority), note: signal.note,
                 issues: open.map(i => issueLine(i, statuses)).join('\n') || '- none left',
-                url: signal.chunk === 'none' ? `'${api}/issues?chunk=none'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
-            }, signal.instructions)
-            return {...signal, status, title: chunk.title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: chunk.title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
+                url: signal.chunk === 'none' || signal.chunk === 'all' || signal.release || signal.status?.includes(',')
+                    ? `'${api}/issues?${query}'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
+            }, signal.instructions).replace(' []', '')
+            return {...signal, status, title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
         }
         const issue = await store.issue(project, signal.issue)
         const chunk = (await store.project(project)).board.chunks.find(c => c.id === (issue.chunk ?? ''))

@@ -116,7 +116,7 @@ interface CommentRow extends Made { id: number, project: string, issue: string, 
 interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
 interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, shipped_on: string | null, position: number }
-interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
+interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
@@ -246,10 +246,12 @@ export const SIGNAL_FIELDS: Record<string, Field> = {
     instructions: {type: 'strings', nullable: true},
 }
 
-/** A chunk's focus can be narrowed to its issues of one open status: `{status: 'todo'}` (an id or a kind). */
+/** A chunk's focus can be narrowed to its issues of some open statuses, `{status: 'todo,started'}` (ids or kinds),
+ * and to those set for a release. */
 export const CHUNK_SIGNAL_FIELDS: Record<string, Field> = {
     ...SIGNAL_FIELDS,
     status: {type: 'string', nullable: true},
+    release: {type: 'string', nullable: true},
 }
 
 export const STATUS_FIELDS: Record<string, Field> = {
@@ -711,11 +713,15 @@ export class Store {
     }
 
     /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */
+    /** The status ids a status's id or kind stands for; several, comma-separated, stand for all of theirs. */
     private async statusIds(status: string): Promise<string[]> {
         const statuses = await this.statuses()
-        if (statuses.some(s => s.id === status)) return [status]
-        const kind = (KINDS.includes(status as Kind) ? status : LEGACY_KINDS[status]) as Kind | undefined
-        return kind ? statuses.filter(s => s.kind === kind).map(s => s.id) : []
+        const of = (one: string) => {
+            if (statuses.some(s => s.id === one)) return [one]
+            const kind = (KINDS.includes(one as Kind) ? one : LEGACY_KINDS[one]) as Kind | undefined
+            return kind ? statuses.filter(s => s.kind === kind).map(s => s.id) : []
+        }
+        return [...new Set(status.split(',').map(s => s.trim()).filter(Boolean).flatMap(of))]
     }
 
     private async keepOneOf(status: IssueStatus) {
@@ -1475,25 +1481,28 @@ export class Store {
     }
 
     /** Asks the sessions (or `session`) to work through the chunk's open issues now, or (`status`) its issues of
-     * that status; `none` is the issues in no chunk. */
+     * those statuses, or (`release`) those set for a release; `none` is the issues in no chunk, `all` every chunk's. */
     async focusChunk(project: string, chunk: string, body: unknown, actor = AGENT): Promise<Signal> {
         await this.projectRow(project)
-        if (chunk !== 'none') {
+        if (chunk !== 'none' && chunk !== 'all') {
             chunk = await this.chunkId(project, chunk)
             await this.chunkRow(project, chunk)
         }
         const input = checkInput(body ?? {}, CHUNK_SIGNAL_FIELDS)
         if (input.status) {
             const status = String(input.status)
-            const ids = await this.statusIds(status)
-            const statuses = (await this.statuses()).filter(s => ids.includes(s.id))
-            if (!statuses.length || statuses.some(s => CLOSED.includes(s.kind))) {
-                throw badRequest(`"status" is "${status}", not an open status (${(await this.statuses()).filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
+            for (const one of status.split(',').map(s => s.trim())) {
+                const ids = await this.statusIds(one)
+                const statuses = (await this.statuses()).filter(s => ids.includes(s.id))
+                if (!statuses.length || statuses.some(s => CLOSED.includes(s.kind))) {
+                    throw badRequest(`"status" has "${one}", not an open status (${(await this.statuses()).filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
+                }
             }
         }
+        const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.get<SignalRow>('INSERT INTO signals (project, chunk, status, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, chunk, nullable(input.status), 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
+        const row = await this.get<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, chunk, nullable(input.status), release, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row!)
         this.onSignal(signal)
         return signal
@@ -1909,7 +1918,7 @@ function eventOf(row: EventRow): IssueEvent {
 
 function signalOf(row: SignalRow): Signal {
     return {
-        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined,
+        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined,
         target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
 }

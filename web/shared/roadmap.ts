@@ -286,11 +286,13 @@ export const open = (kinds: Kinds) => kinds.backlog + kinds.todo + kinds.started
 export interface Signal {
     id: number
     project: string
-    /** The issue it's about, or for a focus on a whole chunk, `chunk`. */
+    /** The issue it's about, or for a focus on a whole chunk, `chunk` (`none`: the issues in no chunk; `all`: every chunk's). */
     issue?: string
     chunk?: string
-    /** For a chunk: only its issues of this status (an id, or a kind), not all its open ones. */
+    /** For a chunk: only its issues of these statuses (ids or kinds, comma-separated), not all its open ones. */
     status?: string
+    /** For a chunk: only its issues set for this release. */
+    release?: string
     /** The schedule that sent it (a message). */
     schedule?: number
     kind: 'focus' | 'comment' | 'message'

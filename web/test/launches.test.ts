@@ -11,6 +11,7 @@ let starts: Starts | undefined
 let session: {started?: {launch: string, tmux: string, stops_at: string}} | undefined
 let adopted: string[]
 let focused: {issue: string, session: string}[]
+let scoped: {chunk: string, body: Record<string, unknown>}[]
 
 beforeEach(async () => {
     sent = []
@@ -33,6 +34,7 @@ beforeEach(async () => {
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
     // A tick for reading the project, as the database gives, so signals can overlap.
     focused = []
+    scoped = []
     vi.stubGlobal('useStore', () => ({
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
@@ -40,6 +42,10 @@ beforeEach(async () => {
             if (issue === 'LAR-404') throw Object.assign(new Error('No issue LAR-404'), {statusCode: 404})
             focused.push({issue, session: body.session})
             return {id: 42}
+        },
+        focusChunk: async (_project: string, chunk: string, body: Record<string, unknown>) => {
+            scoped.push({chunk, body})
+            return {id: 43}
         },
     }))
     vi.resetModules()
@@ -156,6 +162,17 @@ describe('the owner starting a session by hand', () => {
         // It catches up from the focus made for it.
         expect(launch.after).toBe(41)
         expect(sent).toEqual([{type: 'launch', after: 41, minutes: 30}])
+    })
+
+    it("starts it working through a scope: statuses, a release, or both, the open work that's ready by default", async () => {
+        launches.addLauncher('larder')
+        const launch = await launches.startLaunch('larder', {statuses: ['backlog', 'todo'], release: '1.0.0'})
+        await launches.startLaunch('larder', {release: '1.0.0'})
+        expect(scoped).toEqual([
+            {chunk: 'all', body: {session: `launch-${launch.id}`, status: 'backlog,todo', release: '1.0.0'}},
+            {chunk: 'all', body: expect.objectContaining({status: 'todo,started', release: '1.0.0'})},
+        ])
+        expect(launch.after).toBe(42)
     })
 })
 
