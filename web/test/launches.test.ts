@@ -37,6 +37,7 @@ beforeEach(async () => {
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stops_at: string) => ({...session, started: {...session!.started!, stops_at}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+    vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
     // A tick for reading the project, as the database gives, so signals can overlap.
     focused = []
     scoped = []
@@ -231,23 +232,41 @@ describe('a session Orrery started', () => {
         session = {started: {launch: 'abc', tmux: 'orrery-larder-abc'}}
         expect(() => launches.viewLaunch('larder', 'abc')).toThrow('attach by hand with tmux attach -t orrery-larder-abc')
         launches.addLauncher('larder')
+        const {key} = launches.keyLauncher('larder')
         expect(launches.viewLaunch('larder', 'abc', 1000)).toEqual({screen: null})
         // Asked once, not on every poll while the first screen is on its way.
         expect(launches.viewLaunch('larder', 'abc', 2000)).toEqual({screen: null})
         expect(sent).toEqual([{type: 'view', project: 'larder', id: 'abc'}])
-        expect(launches.keepScreen('larder', 'abc', '> working', 2500)).toEqual({watching: true})
+        expect(launches.keepScreen('larder', 'abc', '> working', key, 2500)).toEqual({watching: true})
         expect(launches.viewLaunch('larder', 'abc', 3000)).toEqual({screen: '> working', at: new Date(2500).toISOString()})
         // The launcher stopped sending: a stale screen is asked for again.
         expect(launches.viewLaunch('larder', 'abc', 7000).screen).toBe('> working')
         expect(sent).toHaveLength(2)
         // Nobody viewing: the launcher stops, and the screen isn't kept.
-        expect(launches.keepScreen('larder', 'abc', '> done', 7000 + launches.VIEW_FOR)).toEqual({watching: false})
+        expect(launches.keepScreen('larder', 'abc', '> done', key, 7000 + launches.VIEW_FOR)).toEqual({watching: false})
         launches.launchGone('abc')
         expect(launches.viewLaunch('larder', 'abc', 20_000)).toEqual({screen: null})
     })
 
+    it('takes a screen only from a launcher, with the key its stream gave it', () => {
+        session = {started: {launch: 'abc', tmux: 'orrery-larder-abc'}}
+        launches.addLauncher('larder')
+        const {key, drop} = launches.keyLauncher('larder')
+        const other = launches.keyLauncher('pantry').key
+        launches.viewLaunch('larder', 'abc', 1000)
+        expect(() => launches.keepScreen('larder', 'abc', 'a fake screen', undefined, 1500)).toThrow("Only larder's launcher sends a session's screen")
+        expect(() => launches.keepScreen('larder', 'abc', 'a fake screen', 'made-up', 1500)).toThrow("Only larder's launcher")
+        // Another project's launcher's key doesn't do for this one.
+        expect(() => launches.keepScreen('larder', 'abc', 'a fake screen', other, 1500)).toThrow("Only larder's launcher")
+        expect(launches.viewLaunch('larder', 'abc', 1600)).toEqual({screen: null})
+        expect(launches.keepScreen('larder', 'abc', '> working', key, 2000)).toEqual({watching: true})
+        // Its stream closed: the key goes with it.
+        drop()
+        expect(() => launches.keepScreen('larder', 'abc', '> working', key, 2500)).toThrow("Only larder's launcher")
+    })
+
     it('keeps no screen for a launch it has no session for', () => {
-        expect(launches.keepScreen('larder', 'abc', 'anything')).toEqual({watching: false})
+        expect(launches.keepScreen('larder', 'abc', 'anything', launches.keyLauncher('larder').key)).toEqual({watching: false})
     })
 
     it('is stopped, or given longer from when it would have stopped, through its launcher', () => {

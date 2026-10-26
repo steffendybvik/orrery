@@ -151,6 +151,8 @@ function watch(id, app) {
 
 /** The sessions whose screens it's sending, so a second ask doesn't start a second loop. */
 const viewing = new Set()
+/** The key each project's stream gave it on `ready`, by the project's API: Orrery takes a screen only with it. */
+const keys = new Map()
 
 /** Sends the screen of a session it started (its tmux pane, as text) about once a second, as the owner viewing it
  * on the Sessions page asks, for as long as Orrery says someone still is. Nothing goes into the session. */
@@ -166,7 +168,7 @@ async function view(id) {
             } catch {
                 return // It has ended.
             }
-            const {watching} = await fetch(`${session.api}/launches/${id}/screen`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({screen})})
+            const {watching} = await fetch(`${session.api}/launches/${id}/screen`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Orrery-Launcher': keys.get(session.api) ?? ''}, body: JSON.stringify({screen})})
                 .then(response => response.ok ? response.json() : {watching: false}).catch(() => ({watching: false}))
             if (!watching) return
             await new Promise(resolve => setTimeout(resolve, 1000))
@@ -316,8 +318,9 @@ function serve({url, project, dir}) {
         url: () => `${api}/launches/stream`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
+                const {starts, key} = JSON.parse(data)
+                keys.set(api, key)
                 await report(api)
-                const {starts} = JSON.parse(data)
                 log(starts
                     ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
                     : "connected, but Orrery doesn't start sessions yet: turn it on under Starting sessions, on its Sessions page")

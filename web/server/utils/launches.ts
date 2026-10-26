@@ -43,6 +43,15 @@ const launchers = counter('launchers')
 export const launchersOf = launchers.count
 /** Counts a project's launcher in until `done` is called. */
 export const addLauncher = launchers.add
+/** The keys Orrery handed each project's connected launchers on their streams, so only a launcher sends a screen. */
+const keys = new Map<string, Set<string>>()
+
+/** A key for a launcher that just connected, good until `drop` is called (its stream closed). */
+export function keyLauncher(project: string): {key: string, drop: () => void} {
+    const key = randomBytes(24).toString('base64url')
+    keys.set(project, (keys.get(project) ?? new Set()).add(key))
+    return {key, drop: () => keys.get(project)?.delete(key)}
+}
 
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) if (Date.now() - launch.at > PENDING_FOR) pending.delete(id)
@@ -258,9 +267,11 @@ export function viewLaunch(project: string, id: string, now = Date.now()): {scre
     return shot ? {screen: shot.text, at: new Date(shot.at).toISOString()} : {screen: null}
 }
 
-/** A launcher sending the screen of a session it started; says whether the owner is still viewing it, for the
- * launcher to stop sending once nobody is. */
-export function keepScreen(project: string, id: string, text: string, now = Date.now()): {watching: boolean} {
+/** A launcher sending the screen of a session it started, with the key its stream gave it; says whether the owner is
+ * still viewing it, for the launcher to stop sending once nobody is. Anything else sending one is refused, so what
+ * the owner sees is the session's own screen. */
+export function keepScreen(project: string, id: string, text: string, key: string | undefined, now = Date.now()): {watching: boolean} {
+    if (!key || !keys.get(project)?.has(key)) throw forbidden(`Only ${project}'s launcher sends a session's screen, with the key its stream gave it`)
     const watching = !!sessionOfLaunch(project, id) && now - (viewed.get(id) ?? -Infinity) < VIEW_FOR
     if (watching) screens.set(id, {text: text.slice(-SCREEN_MAX), at: now})
     else screens.delete(id)
