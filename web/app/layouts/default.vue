@@ -20,5 +20,6 @@ await callOnce('owner', load)
     <NewChunkDialog />
     <ScheduleMenu />
     <OwnerDialog />
+    <BulkBar />
   </div>
 </template>

@@ -13,6 +13,8 @@ const props = defineProps<{
     /** What the row to make a new one says, before the typed name: `Add`, `Assign`. */
     createVerb?: string
     disabled?: boolean
+    /** Opens above the button, as in a bar at the bottom of the page. */
+    up?: boolean
 }>()
 const model = defineModel<string | string[]>({required: true})
 
@@ -103,7 +105,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
     >
       <slot />
     </button>
-    <div v-if="open" class="glass absolute left-0 top-full z-40 mt-1 w-60 animate-fade-up rounded-xl p-1" @keydown="onKey">
+    <div v-if="open" class="glass absolute left-0 z-40 w-60 animate-fade-up rounded-xl p-1" :class="up ? 'bottom-full mb-1' : 'top-full mt-1'" @keydown="onKey">
       <input
           ref="input"
           v-model="query"

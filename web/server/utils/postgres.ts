@@ -272,6 +272,11 @@ const STEPS: string[] = [`
 `, `
     ALTER TABLE issues ADD COLUMN external text NOT NULL DEFAULT '[]';
 `, `
+    ALTER TABLE projects ADD COLUMN release_mode text NOT NULL DEFAULT 'none';
+    UPDATE projects SET release_mode = 'shared' WHERE releases_from IS NOT NULL;
+    UPDATE projects SET release_mode = 'own' WHERE releases_from IS NULL
+        AND (id IN (SELECT project FROM releases) OR id IN (SELECT releases_from FROM projects WHERE releases_from IS NOT NULL));
+`, `
     UPDATE issues SET proposal = NULL, status = COALESCE((SELECT id FROM statuses WHERE kind = 'todo' ORDER BY position, id LIMIT 1), status)
         WHERE proposal = 'approved';
 `]

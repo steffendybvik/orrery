@@ -3,8 +3,8 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import {randomBytes} from 'node:crypto'
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Release, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
-import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
@@ -40,6 +40,16 @@ export interface IssueRecord extends Omit<Issue, 'tasks'> {
     chunk: string | null
     sub_issues: string[]
 }
+
+/** What became of one issue in a change to many: done, or why not. */
+export interface BulkResult {
+    id: string
+    ok: boolean
+    error?: string
+}
+
+/** What one change to many issues can set. */
+const BULK_FIELDS = ['status', 'priority', 'assignee', 'chunk', 'release']
 
 /** An issue with its sub-issues drawn out, as `GET …/issues/:issue` shows it. */
 export interface IssueDetail extends Issue {
@@ -92,7 +102,7 @@ interface Made { created_by: string, owned: number, created_at: string, updated_
 interface ProjectRow extends Made {
     id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
     focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
-    releases_from: string | null
+    release_mode: ReleaseMode, releases_from: string | null
 }
 interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 interface IssueRow extends Made {
@@ -131,7 +141,10 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     /** The owner's: `{limit, minutes}` lets Orrery start sessions for it; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
     repo: {type: 'string', nullable: true, pattern: /^https?:\/\/\S+[^/\s]$/, hint: 'use the web address of its code, e.g. https://github.com/you/shop'},
-    /** Another project whose releases it ships in (a monorepo's apps going out together); null gives it its own. */
+    /** Whether it has releases: none (a new project's), its own, or `shared`, those of `releases_from`. */
+    release_mode: {type: 'string', values: RELEASE_MODES},
+    /** Another project whose releases it ships in (a monorepo's apps going out together); sending it makes the
+     * project `shared`, and null gives it its own. */
     releases_from: {type: 'string', nullable: true, pattern: SLUG, hint: "use the other project's id"},
 }
 
@@ -447,10 +460,11 @@ export class Store {
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
-        if (input.releases_from) await this.checkReleasesFrom(id, String(input.releases_from))
+        const {mode, from} = releaseModeOf(input, 'none', null)
+        if (from) await this.checkReleasesFrom(id, from)
         const now = stamp()
-        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, repo, releases_from, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.icon_color), nullable(input.repo), nullable(input.releases_from), actor.name, Number(actor.owner), now, now)
+        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.icon_color), nullable(input.repo), mode, from, actor.name, Number(actor.owner), now, now)
         await this.update('projects', 'id = ?', [id], this.promptColumns(input))
         this.changed(id)
         return await this.project(id)
@@ -461,9 +475,9 @@ export class Store {
         const input = checkInput(body, PROJECT_FIELDS, true)
         this.promptsAreTheOwners(input, actor)
         if (input.id !== undefined && input.id !== id) throw badRequest("A project's id can't change")
-        const from = input.releases_from === undefined ? undefined : nullable(input.releases_from)
+        const {mode, from} = releaseModeOf(input, row.release_mode, row.releases_from)
         const before = row.releases_from
-        if (from) await this.checkReleasesFrom(id, from)
+        if (mode !== row.release_mode || from !== before) await this.checkReleaseMode(row, mode, from)
         await this.db.transaction(async () => {
             await this.update('projects', 'id = ?', [id], {
                 name: input.name === undefined ? undefined : String(input.name).trim(),
@@ -472,12 +486,15 @@ export class Store {
                 icon: input.icon,
                 icon_color: input.icon_color,
                 repo: input.repo,
+                release_mode: mode,
                 releases_from: from,
                 ...this.promptColumns(input),
             })
-            // Its issues keep only the releases the new source has (none, back on its own: it has no releases yet).
-            if (from !== undefined && from !== before) {
-                await this.run('UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in IS NOT NULL AND ships_in NOT IN (SELECT version FROM releases WHERE project = ?)', id, from ?? id)
+            // Its issues keep only the releases the new source has: none without releases, or back on its own (it has none yet).
+            if (mode !== row.release_mode || from !== before) {
+                const source = mode === 'shared' ? from : mode === 'own' ? id : null
+                if (source) await this.run('UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in IS NOT NULL AND ships_in NOT IN (SELECT version FROM releases WHERE project = ?)', id, source)
+                else await this.run('UPDATE issues SET ships_in = NULL WHERE project = ?', id)
             }
         })
         this.changed(id)
@@ -486,21 +503,31 @@ export class Store {
         return await this.project(id)
     }
 
-    /** Whether `id` can take its releases from `from`: one level only, and nothing of its own to merge. */
-    private async checkReleasesFrom(id: string, from: string) {
-        if (from === id) throw badRequest("A project can't take its releases from itself; send null to give it its own")
-        const source = await this.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', from)
-        if (!source) throw badRequest(`No project "${from}" to take releases from`)
-        if (source.releases_from) throw badRequest(`${from} takes its releases from ${source.releases_from}; take them from ${source.releases_from} too`)
-        const drawing = await this.drawingOn(id)
-        if (drawing.length) throw badRequest(`${drawing.join(', ')} ${drawing.length === 1 ? 'takes its' : 'take their'} releases from ${id}, so it keeps its own`)
-        const own = await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? ORDER BY version', id)
-        if (own.length) throw conflict(`${id} has releases of its own (${own.map(r => r.version).join(', ')}); delete them first, nothing merges into ${from}'s`)
+    /** Whether the project can leave its own releases (for none, or another's): nothing of its own to lose or
+     * merge, and nobody drawing on them; and when it takes another's, that they can be taken. */
+    private async checkReleaseMode(row: ProjectRow, mode: ReleaseMode, from: string | null) {
+        if (row.release_mode === 'own' && mode !== 'own') {
+            const drawing = await this.drawingOn(row.id)
+            if (drawing.length) throw conflict(`${drawing.join(', ')} ${drawing.length === 1 ? 'takes its' : 'take their'} releases from ${row.id}, so it keeps its own`)
+            const own = await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? ORDER BY version', row.id)
+            if (own.length) throw conflict(`${row.id} has releases of its own (${own.map(r => r.version).join(', ')}); delete them first, ${mode === 'shared' ? `nothing merges into ${from}'s` : 'nothing goes quietly'}`)
+        }
+        if (from) await this.checkReleasesFrom(row.id, from)
     }
 
-    /** The project its releases are: its `releases_from`, else its own. */
-    private async releaseSource(project: string): Promise<string> {
-        return (await this.projectRow(project)).releases_from ?? project
+    /** Whether `id` can take its releases from `from`: another project with releases of its own, one level only. */
+    private async checkReleasesFrom(id: string, from: string) {
+        if (from === id) throw badRequest("A project can't take its releases from itself; send release_mode \"own\" to give it its own")
+        const source = await this.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', from)
+        if (!source) throw badRequest(`No project "${from}" to take releases from`)
+        if (source.release_mode === 'shared') throw badRequest(`${from} takes its releases from ${source.releases_from}; take them from ${source.releases_from} too`)
+        if (source.release_mode === 'none') throw badRequest(`${from} has no releases; give it its own first (release_mode "own")`)
+    }
+
+    /** The project its releases are: its `releases_from`, its own, or none when it has no releases. */
+    private async releaseSource(project: string): Promise<string | null> {
+        const row = await this.projectRow(project)
+        return row.release_mode === 'shared' ? row.releases_from : row.release_mode === 'own' ? project : null
     }
 
     /** The projects taking their releases from `project`, by id. */
@@ -512,6 +539,7 @@ export class Store {
      * issue), and the projects sharing its releases: a source counts the issues of those drawing on it, and they
      * show its releases. */
     changed(project: string) {
+        if (this.held) return void this.held.add(project)
         this.onChange(project)
         this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
             .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})
@@ -948,6 +976,87 @@ export class Store {
     }
 
     /** Deletes its sub-issues and comments too. */
+    // Many at once
+
+    /** Projects changed while a batch runs, said once it ends rather than once per issue. */
+    private held: Set<string> | null = null
+
+    /** Runs `work` for each issue on its own, so one refusal doesn't stop the rest, and says each one's outcome. */
+    private async each(ids: unknown, work: (id: string) => Promise<unknown>): Promise<BulkResult[]> {
+        if (!Array.isArray(ids) || !ids.length || ids.some(id => typeof id !== 'string')) throw badRequest('Send "ids": the issues, as a list of their ids')
+        const held = this.held ??= new Set()
+        try {
+            const results: BulkResult[] = []
+            for (const id of new Set(ids as string[])) {
+                try {
+                    await work(id)
+                    results.push({id, ok: true})
+                } catch (error) {
+                    results.push({id, ok: false, error: (error as Error).message})
+                }
+            }
+            return results
+        } finally {
+            if (this.held === held) {
+                this.held = null
+                held.forEach(project => this.changed(project))
+            }
+        }
+    }
+
+    /** One change to many issues: `{ids, set: {status?, priority?, assignee?, chunk?, release?}, labels?: {add?, remove?}}`. */
+    async updateIssues(project: string, body: unknown, actor = AGENT): Promise<BulkResult[]> {
+        await this.projectRow(project)
+        const {ids, set = {}, labels} = (body ?? {}) as {ids?: unknown, set?: Record<string, unknown>, labels?: {add?: unknown, remove?: unknown}}
+        const fields = Object.keys(set ?? {}).filter(key => !BULK_FIELDS.includes(key))
+        if (fields.length) throw badRequest(`Many issues at once take ${BULK_FIELDS.join(', ')} in "set", and labels as {add, remove}; not ${fields.join(', ')}`)
+        const list = (value: unknown, key: string) => {
+            if (value === undefined) return []
+            if (!Array.isArray(value) || value.some(l => typeof l !== 'string')) throw badRequest(`"labels.${key}" should be a list of labels`)
+            return value as string[]
+        }
+        const [add, remove] = [list(labels?.add, 'add'), list(labels?.remove, 'remove')]
+        return await this.each(ids, async id => {
+            const patch: Record<string, unknown> = {...set}
+            if (add.length || remove.length) {
+                const now = JSON.parse((await this.issueRow(project, await this.issueId(project, id))).labels) as string[]
+                patch.labels = [...new Set([...now.filter(l => !remove.includes(l)), ...add])]
+            }
+            await this.updateIssue(project, id, patch, actor)
+        })
+    }
+
+    /** The owner's one decision on many proposals: `{ids, decision, note?}`. Approving takes each one's recommended
+     * picks; one with a choice that has none is skipped, so nothing is approved on a guess. */
+    async decideIssues(project: string, body: unknown, actor = AGENT): Promise<BulkResult[]> {
+        await this.projectRow(project)
+        const {ids, ...decision} = (body ?? {}) as {ids?: unknown}
+        if ('picks' in decision || 'explore' in decision) throw badRequest('Many proposals at once take a decision and a note; picks and explore go one at a time')
+        return await this.each(ids, async id => {
+            const row = await this.issueRow(project, await this.issueId(project, id))
+            const choices = JSON.parse(row.choices) as Choice[]
+            const unsure = choices.filter(c => !c.from && !c.recommended?.length)
+            if ((decision as {decision?: string}).decision === 'approved' && unsure.length) {
+                throw badRequest(`Needs your picks: nothing is recommended for ${unsure.map(c => `"${c.question}"`).join(', ')}`)
+            }
+            await this.decide(project, id, decision, actor)
+        })
+    }
+
+    /** Many issues deleted, each with its sub-issues; one under another in the list goes with it. */
+    async deleteIssues(project: string, body: unknown, actor = AGENT): Promise<BulkResult[]> {
+        await this.projectRow(project)
+        const {ids} = (body ?? {}) as {ids?: unknown}
+        const gone = new Set<string>()
+        return await this.each(ids, async id => {
+            id = await this.issueId(project, id)
+            if (gone.has(id)) return
+            const subtree = await this.subtree(project, id)
+            await this.deleteIssue(project, id, actor)
+            subtree.forEach(i => gone.add(i))
+        })
+    }
+
     async deleteIssue(project: string, id: string, actor = AGENT) {
         id = await this.issueId(project, id)
         await this.issueRow(project, id)
@@ -1017,7 +1126,8 @@ export class Store {
         const subtree = await this.subtree(from, id)
         const marks = subtree.map(() => '?').join(', ')
         // Releases are the source project's, so an issue keeps its release only between projects sharing them.
-        const ships = await this.releaseSource(from) === await this.releaseSource(to) ? 'ships_in' : 'NULL'
+        const source = await this.releaseSource(from)
+        const ships = source && source === await this.releaseSource(to) ? 'ships_in' : 'NULL'
         const moved = await this.db.transaction(async () => {
             // Rows move first and get their new ids and links after, so the foreign keys wait for the commit.
             await this.db.deferConstraints()
@@ -1253,6 +1363,7 @@ export class Store {
     /** Refuses changing a release from a project that takes its releases from another. */
     private async ownReleases(project: string, action: string) {
         const source = await this.releaseSource(project)
+        if (!source) throw badRequest(noReleases(project))
         if (source !== project) throw badRequest(`${project} takes its releases from ${source}; ${action} there: /api/projects/${source}/releases`)
     }
 
@@ -1500,6 +1611,7 @@ export class Store {
             muted: JSON.parse(row.muted) as string[],
             starts: row.starts ? JSON.parse(row.starts) as Starts : undefined,
             repo: row.repo ?? undefined,
+            release_mode: row.release_mode,
             releases_from: row.releases_from ?? undefined,
             created_by: row.created_by,
             protected: !!row.owned,
@@ -1516,6 +1628,7 @@ export class Store {
      * set for it on its own counts when its parent isn't. A source counts the issues of every project drawing on it; one
      * drawing on it counts its own. */
     private async releasesOf(project: ProjectRow, board: Board): Promise<Release[]> {
+        if (project.release_mode === 'none') return []
         const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC',
             project.releases_from ?? project.id)
         const boards = project.releases_from ? [board] : [board, ...await Promise.all((await this.drawingOn(project.id)).map(id => this.board(id)))]
@@ -1687,6 +1800,7 @@ export class Store {
     /** The release by its version, in the project's source when it takes its releases from another. */
     private async releaseRow(project: string, version: string): Promise<ReleaseRow> {
         const source = await this.releaseSource(project)
+        if (!source) throw badRequest(noReleases(project))
         const row = await this.get<ReleaseRow>('SELECT * FROM releases WHERE project = ? AND version = ?', source, version)
         if (!row) throw notFound(`No release ${version} in ${source}${source === project ? '' : ` (where ${project} takes its releases from)`}; make it with POST /api/projects/${source}/releases`)
         return row
@@ -1805,6 +1919,30 @@ function releaseOf(row: ReleaseRow): Omit<Release, 'issues' | 'kinds'> {
         version: row.version, branch: row.branch ?? undefined, notes: row.notes ?? undefined, shipped_on: row.shipped_on ?? undefined,
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
+}
+
+/** The release mode and source a write asks for, from what the project has: `releases_from` alone makes it
+ * `shared`, null gives it its own, and a mode other than `shared` takes none. */
+function releaseModeOf(input: Input, mode: ReleaseMode, from: string | null): {mode: ReleaseMode, from: string | null} {
+    const sent = input.releases_from === undefined ? undefined : nullable(input.releases_from)
+    const asked = input.release_mode as ReleaseMode | undefined
+    if (asked === undefined) {
+        if (sent) return {mode: 'shared', from: sent}
+        if (sent === null && mode === 'shared') return {mode: 'own', from: null}
+        return {mode, from}
+    }
+    if (asked === 'shared') {
+        const source = sent === undefined ? from : sent
+        if (!source) throw badRequest('Say whose releases it ships in: "releases_from" with the other project\'s id')
+        return {mode: asked, from: source}
+    }
+    if (sent) throw badRequest(`A project with release_mode "${asked}" takes no other's releases; send "shared" with "releases_from", or leave it out`)
+    return {mode: asked, from: null}
+}
+
+/** Why a project without releases can't have one made or set. */
+function noReleases(project: string): string {
+    return `${project} has no releases; turn them on with PATCH /api/projects/${project} {"release_mode": "own"}`
 }
 
 function docOf(row: DocRow): Doc {
