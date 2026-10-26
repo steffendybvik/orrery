@@ -203,8 +203,8 @@ curl -s -X POST $ORRERY_URL/api/uploads -H 'Content-Type: application/json' -H '
 
 ## Schedules
 
-Recurring work in a project. A `message` schedule sends its message (`notes`) to the project's
-listening sessions each run, with no issue (a `message` signal; the run is `sent`). Otherwise, at each
+Recurring work in a project. A `message` schedule sends its message (`notes`) to one of the project's
+listening sessions each run, the first one free (see `POST …/focus`), with no issue (a `message` signal; the run is `sent`). Otherwise, at each
 time a schedule makes an issue (its title plus the day, e.g.
 `Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
 the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
@@ -345,8 +345,10 @@ with review instructions in it.
 | `POST /projects/:project/launches/:launch/screen` | `{screen}` → `{watching}`: the launcher sending the screen of a session it started; it stops once `watching` is false |
 | `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped; a 409 for one that runs until stopped |
 
-`POST …/focus` takes `{session}` to reach one session; without it, every session gets
-it. A focus on one session makes it the issue's session, unless another listening session has the issue started:
+`POST …/focus` takes `{session}` to reach one session, or `{session: "*"}` for every session on the project.
+Without it, one session gets it, and Orrery picks which: for an issue, the session already on it if that one is
+listening; else whichever listening session is idle when it comes; else, with every one busy, the next to go idle
+(within a day). A schedule's message goes the same way. A focus on one session makes it the issue's session, unless another listening session has the issue started:
 then it stays with that one, and the session asked gets the 409 if it tries to start it. Each signal lists the sessions it reached in `delivered_to`
 (`POST /projects/:project/signals/:signal/delivered`, sent by the channel).
 

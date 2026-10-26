@@ -8,6 +8,7 @@
 import {randomBytes} from 'node:crypto'
 import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
+import {EVERY} from './pool'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
  * catch up from; `minutes` how long it has, none until stopped; `tmux` names the tmux session it runs in;
@@ -60,7 +61,7 @@ function emit(event: LaunchEvent) {
 export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const {project} = signal
     // One aimed at a session only that session hears, and a delivered one has been heard.
-    if (!signal.protected || signal.target || signal.delivered_to.length) return null
+    if (!signal.protected || signal.target && signal.target !== EVERY || signal.delivered_to.length) return null
     if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
     const id = randomBytes(6).toString('hex')
     const held: Launch & {at: number, claimed: boolean} = {id, project, after: signal.id - 1, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}

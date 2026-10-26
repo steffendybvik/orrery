@@ -81,9 +81,11 @@ export default defineEventHandler(async event => {
         }, await withFreeze(release))
         return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null, prompt}
     }
-    // The owner's signals for every session, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
-    const ours = (signal: Signal) => !signal.target || currentId(signal.target) === attended?.id
+    // The owner's signals for every session, for one Orrery picks, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
+    const ours = (signal: Signal) => aimedAt(signal, attended?.id)
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.delivered_to.length && ours(signal)
+    // One aimed at no session goes to the one that takes it (pool.ts); a session that can't hear it takes none.
+    const mine = (signal: Signal) => !pooled(signal) || heard && take(signal, project, attended?.id)
     // Live signals are heard from before the catch-up is read, and held until it has gone out, so one sent in
     // between isn't lost; `heard` takes them once it has (those in the catch-up too are left out).
     const early: Signal[] = []
@@ -103,10 +105,31 @@ export default defineEventHandler(async event => {
         throw error
     }
 
+    // This session going idle takes up what was sent to one session while every one was busy, as each kind of
+    // stream sends it (`sendIdle`).
+    let sendIdle: (signal: Signal) => unknown = () => {}
+    const idle = async (id: string) => {
+        if (!attended || !heard || currentId(id) !== attended.id) return
+        try {
+            for (const signal of await store.pooledWaiting(project)) sendIdle(signal)
+        } catch (error) {
+            console.error(`[orrery] ${project}'s waiting signals:`, error)
+        }
+    }
+    projectEvents.on('session-idle', idle)
+
     /** Sends signals one after another, in the order they came, however long each takes to read. */
     let queue: Promise<unknown> = Promise.resolve()
     const inOrder = (work: () => Promise<unknown>) => {
         queue = queue.then(work).catch(error => console.error(`[orrery] a signal for ${project}:`, error))
+    }
+
+    /** The stream's gone: what it listened for, and what its session took and didn't hand on (pool.ts). */
+    const closed = () => {
+        projectEvents.off('signal', hear)
+        projectEvents.off('session-idle', idle)
+        if (attended) handBack(project, attended.id)
+        done()
     }
 
     if (query.format === 'text') {
@@ -119,18 +142,17 @@ export default defineEventHandler(async event => {
         const stream = new ReadableStream<string>({
             start(controller) {
                 controller.enqueue(`Listening for focus signals on ${project}.\n`)
-                missed.forEach(s => inOrder(async () => controller.enqueue(await line(s))))
-                goLive(signal => wanted(signal) && inOrder(async () => controller.enqueue(await line(signal))), new Set(missed.map(s => s.id)))
+                const told = new Set<number>()
+                const say = (signal: Signal) => !told.has(signal.id) && told.add(signal.id) && inOrder(async () => controller.enqueue(await line(signal)))
+                missed.filter(mine).forEach(say)
+                sendIdle = signal => wanted(signal) && mine(signal) && say(signal)
+                goLive(sendIdle, new Set(missed.map(s => s.id)))
             },
             cancel() {
-                projectEvents.off('signal', hear)
-                done()
+                closed()
             },
         })
-        event.node.req.on('close', () => {
-            projectEvents.off('signal', hear)
-            done()
-        })
+        event.node.req.on('close', closed)
         setResponseHeaders(event, {'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache'})
         return sendStream(event, stream.pipeThrough(new TextEncoderStream()))
     }
@@ -144,9 +166,8 @@ export default defineEventHandler(async event => {
     // Cleaned up however the stream ends, a catch-up that fails included.
     stream.onClosed(async () => {
         clearInterval(ping)
-        projectEvents.off('signal', hear)
         projectEvents.off('session-stop', stopped)
-        done()
+        closed()
         await stream.close()
     })
     /** The context the owner started this session with, which every signal to it carries, for its channel to add. */
@@ -154,9 +175,12 @@ export default defineEventHandler(async event => {
         const given = attended && sessionNow(attended.id)?.started?.context
         return given ? {context: contextBlock(given)} : {}
     }
-    /** When each repeatable message last went out on this stream. */
+    /** When each repeatable message last went out on this stream, and every signal it sent. */
     const sent = new Map<string, number>()
+    const pushed = new Set<number>()
     const push = (signal: Signal) => {
+        if (pushed.has(signal.id)) return
+        pushed.add(signal.id)
         const key = repeatKey(signal)
         if (key) sent.set(key, Date.now())
         if (attended) startRun(attended.id, signal)
@@ -172,11 +196,12 @@ export default defineEventHandler(async event => {
         return !!last && idle !== undefined && idle < last
     }
     const send = (signal: Signal) => {
-        if (!wanted(signal)) return
+        if (!wanted(signal) || !mine(signal)) return
         if (!unread(signal)) return push(signal)
         store.delivered(project, signal.id, sessionName(attended!.id) ?? text('name') ?? 'a session')
             .catch(error => console.error(`[orrery] a repeat for ${project}:`, error))
     }
+    sendIdle = send
     stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
     // A session that can hear catches up on scheduled work nobody was there to hear, and on the owner's
     // comments nobody has answered yet. A failure there leaves the stream open for what comes next.
@@ -185,7 +210,7 @@ export default defineEventHandler(async event => {
         // A schedule that kept sending the same message while nobody heard it says it once; the copies count as heard.
         const backlog = [...missed, ...unheard.filter(s => !missed.some(m => m.id === s.id))]
         const {kept, repeats} = foldRepeats(backlog)
-        kept.forEach(push)
+        kept.filter(mine).forEach(push)
         goLive(send, new Set(backlog.map(s => s.id)))
         if (attended && heard) {
             const name = sessionName(attended.id) ?? text('name') ?? 'a session'
