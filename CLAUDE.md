@@ -11,6 +11,7 @@ How to use it: `curl -s $ORRERY_URL/llms-full.txt`. Without an Orrery running, s
 
 - Work from an issue: set it to `in-progress` (assignee `claude`) before starting, comment as it moves, `done` when it ships (`canceled`, with a comment why, when it won't).
 - Knowledge (decisions, how things work) goes in the project's docs.
+- A pull request's body links its issue at the Orrery's own address, `$ORRERY_URL/p/orrery/issues/ORR-n`, so the owner can jump to it.
 - Send `Orrery-Actor: claude` on every write. Orrery hands out ids; don't send one.
 - With the channel connected, its tools (`issue`, `start_issue`, `comment`, `finish_issue`, …) do all of this without curl.
 - When you need the owner to decide or give feedback, ask in a comment on the issue with `"asks": "decision"` (or `"feedback"`), so it waits at the top of their bell until they answer.
