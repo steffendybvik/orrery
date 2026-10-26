@@ -3,11 +3,6 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## Unreleased
-
-- **Finished work stays quiet:** a done or canceled issue is never marked as changed, so a comment on one
-  lights up no row, no sidebar dot and no Mark seen count.
-
 ## 1.0.0-rc.3 (2026-10-26)
 
 - **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
@@ -42,6 +37,8 @@ the database schema are the public surface, and a database always migrates forwa
   `POST …/issues/decide` and `DELETE …/issues` take `{ids}`.
 - **The version in the sidebar:** its foot says which version the Orrery runs (`v1.0.0-rc.3`), linking to
   that version's changelog, and the dev server adds `· dev`. A release sets it in `web/package.json`.
+- **Finished work stays quiet:** a done or canceled issue is never marked as changed, so a comment on one
+  lights up no row, no sidebar dot and no Mark seen count.
 
 ## 1.0.0-rc.2 (2026-10-25)
 
