@@ -79,7 +79,7 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 
 | | |
 |---|---|
-| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?chunk= ?release= ?parent= ?proposal= ?q=` (`none` for unset; `status` and `column` take a status's id or a kind; `?proposal=none` is committed work only) |
+| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?chunk= ?release= ?parent= ?proposal= ?q=` (`none` for unset; `status` and `column` take a status's id or a kind, or several comma-separated; `?proposal=none` is committed work only) |
 | `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, notes?, proposal?, parent?, chunk?, release?, position?}`; gets the next `KEY-n` |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and chunk |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |
@@ -265,7 +265,7 @@ an agent's P0. A schedule that asks the sessions sends its one focus, saying the
 | | |
 |---|---|
 | `POST /projects/:project/issues/:issue/focus` | `{note?, instructions?}` → `{signal, listeners}`: sends it, and says how many sessions heard |
-| `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?, instructions?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk); `status` (an open status's id, or `backlog`, `todo` or `started`) narrows it to those issues |
+| `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?, release?, instructions?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk; `all`: every chunk's); `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, and `release` (a version) to those set for it, at any depth |
 | `GET /projects/:project/signals?after=` | the signals after that id, oldest first; `?issue=` or `?chunk=` for the latest about one |
 | `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up); a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
@@ -307,7 +307,7 @@ the limits while their channel is connected.
 | | |
 |---|---|
 | `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}` and `extend` `{id, stops_at}` |
-| `POST /projects/:project/launches` | `{issue?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); 409 without the project's opt-in, a launcher or room under its limit |
+| `POST /projects/:project/launches` | `{issue?, statuses?, release?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); with `statuses` (ids or kinds; `todo` and `started` when only `release` is sent) and `release`, from a focus made the same way on the whole project's issues in them (chunk `all`); 409 without the project's opt-in, a launcher or room under its limit |
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |

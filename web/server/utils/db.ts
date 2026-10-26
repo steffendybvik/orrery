@@ -523,6 +523,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     UPDATE releases SET position = (SELECT n FROM (
         SELECT project, version, row_number() OVER (PARTITION BY project ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC) - 1 AS n
         FROM releases) o WHERE o.project = releases.project AND o.version = releases.version);
+`, `
+    -- A chunk's focus (or the whole project's, chunk 'all') can be narrowed to a release's issues.
+    ALTER TABLE signals ADD COLUMN release TEXT;
 `]
 
 let db: DatabaseSync | null = null

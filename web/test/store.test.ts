@@ -458,6 +458,20 @@ describe('chunks', () => {
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'done'}))).status).toBe(400)
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'soon'}))).status).toBe(400)
     })
+
+    it('can be focused on all at once, for issues of several statuses and a release', async () => {
+        const local = new Store(testDb(), () => {})
+        await local.createProject({name: 'larder', key: 'LAR', release_mode: 'own'})
+        await local.createRelease('larder', {version: '1.0.0'})
+        const signal = await local.focusChunk('larder', 'all', {status: 'todo, started', release: '1.0.0'}, {name: 'skoll', owner: true})
+        expect(signal).toMatchObject({chunk: 'all', status: 'todo, started', release: '1.0.0'})
+        expect((await failure(() => local.focusChunk('larder', 'all', {status: 'todo,done'}))).message).toContain('"status" has "done"')
+        expect((await failure(() => local.focusChunk('larder', 'all', {release: '9.9'}))).status).toBe(404)
+        await local.createIssue('larder', {title: 'Hinges', status: 'todo'})
+        await local.createIssue('larder', {title: 'Pins', status: 'in-progress'})
+        await local.createIssue('larder', {title: 'Bolts'})
+        expect((await local.listIssues('larder', {status: 'todo,started'})).map(i => i.title)).toEqual(['Hinges', 'Pins'])
+    })
 })
 
 describe('releases', () => {

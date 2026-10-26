@@ -9,6 +9,11 @@ the database schema are the public surface, and a database always migrates forwa
   counts toward its own release on the Releases page, and its work comes out of the parent's.
 - **A schedule's repeats come once:** when a session catches up, or is still busy, a recurring
   message with the same text reaches it once instead of every copy; the others count as delivered.
+- **Start sessions with a scope:** Start session takes several projects (a session each) and, without an
+  issue to focus on, what to work through: statuses ticked (Todo and In progress to begin with) and a
+  release. The session starts on those issues, most urgent first. `POST …/launches` takes `statuses` and
+  `release`; a chunk's focus takes `all` for every chunk, several statuses comma-separated, and `release`.
+  `?status=` on the issue list takes several too.
 
 ## 1.0.0-rc.3 (2026-10-26)
 
