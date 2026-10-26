@@ -35,13 +35,15 @@ function served(channel, fallbackUrl) {
 
 /** The projects to serve from the repo at `dir`, each with its Orrery and folder. With `project` (ORRERY_PROJECT),
  * that one, on the Orrery of the channel that names it (or serves every project); without, every project each
- * channel names. `url` (ORRERY_URL) stands in where a channel's own address isn't plain. With no channel naming
- * any, the folder's name. */
+ * channel names. `url` (ORRERY_URL) stands in where a channel's own address isn't plain, but doesn't override one
+ * that is: a session's own ORRERY_URL would send a monorepo's projects to another Orrery. With no channel naming
+ * any, the folder's name. A project no channel serves is on `url`, else the first channel's Orrery. */
 export function projectsIn(dir, {project, url} = {}) {
     const channels = channelsIn(dir).map(channel => ({channel, ...served(channel, url)}))
+    const unnamed = trim(url ?? channels[0]?.url ?? DEFAULT_URL)
     if (project) {
         const named = channels.find(c => c.projects.includes(project)) ?? channels.find(c => c.every)
-        return [{url: named?.url ?? trim(url ?? DEFAULT_URL), project, dir}]
+        return [{url: named?.url ?? unnamed, project, dir}]
     }
     const seen = new Set()
     const out = []
@@ -53,7 +55,7 @@ export function projectsIn(dir, {project, url} = {}) {
             out.push({url: c.url, project: p, dir})
         }
     }
-    return out.length ? out : [{url: channels[0]?.url ?? trim(url ?? DEFAULT_URL), project: basename(dir), dir}]
+    return out.length ? out : [{url: unnamed, project: basename(dir), dir}]
 }
 
 /** The channel a session for `project` on the Orrery at `url` loads: the one naming that project there, else

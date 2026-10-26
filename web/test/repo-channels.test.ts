@@ -49,6 +49,12 @@ describe("a repo's channels", () => {
         expect(projectsIn(dir, {project: 'orrery', url: WORK})).toEqual([{url: PERSONAL, project: 'orrery', dir}])
     })
 
+    it("put a project no channel names on ORRERY_URL, else the first channel's Orrery, not the default", () => {
+        const dir = mono()
+        expect(projectsIn(dir, {project: 'cellar'})).toEqual([{url: WORK, project: 'cellar', dir}])
+        expect(projectsIn(dir, {project: 'cellar', url: PERSONAL})).toEqual([{url: PERSONAL, project: 'cellar', dir}])
+    })
+
     it("fall back to the folder's name, and to ORRERY_URL where a channel's address isn't plain", () => {
         const every = repo({orrery: channel({ORRERY_URL: '${ORRERY_URL:-http://localhost:9000}', ORRERY_PROJECTS: '*'})})
         expect(projectsIn(every)).toEqual([{url: 'http://localhost:9000', project: basename(every), dir: every}])
