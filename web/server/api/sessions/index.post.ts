@@ -23,6 +23,8 @@ export default defineEventHandler(async event => {
     if (session && body.event === 'Stop') considerClear(session.project, session.id)
     const source = text('source')
     if (!session || body.event !== 'SessionStart') return session
+    // Back from Orrery's clear with part of its run left: a focus on the rest starts its next turn.
+    if (source === 'clear' && session.started) resumeRun(body.project, session.id).catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
     const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
     const work = source && Object.hasOwn(RESUMED, source) ? await briefFor(body.project, session.id, RESUMED[source]!, api).catch(() => undefined) : undefined
     // Its launch as its hook says (before its channel has connected) or as Orrery knows it.
