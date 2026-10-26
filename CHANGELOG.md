@@ -3,18 +3,6 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## Unreleased
-
-- **Build from a release:** `ORRERY_BUILD_CONTEXT` builds the image from a ref on GitHub
-  (`https://github.com/steffendybvik/orrery.git#main`) instead of this folder, so the Orrerys you use never
-  pick up a branch you have checked out to work on.
-- **Start a session from anywhere:** a Sessions page lists every project's sessions, and Start session there
-  (or the + by the sidebar's Sessions) picks the project, then optionally an open issue for it to focus on
-  from the start. Projects that can't start one now say why, with a link to turn starting on.
-  `POST …/launches` takes `{issue}`.
-- **Fixed:** a session Orrery starts for a project's very first signal now gets that signal: an `after` of 0
-  is a catch-up too.
-
 ## 1.0.0-rc.3 (2026-10-26)
 
 - **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
@@ -54,6 +42,15 @@ the database schema are the public surface, and a database always migrates forwa
   that version's changelog, and the dev server adds `· dev`. A release sets it in `web/package.json`.
 - **Finished work stays quiet:** a done or canceled issue is never marked as changed, so a comment on one
   lights up no row, no sidebar dot and no Mark seen count.
+- **Build from a release:** `ORRERY_BUILD_CONTEXT` builds the image from a ref on GitHub
+  (`https://github.com/steffendybvik/orrery.git#main`) instead of this folder, so the Orrerys you use never
+  pick up a branch you have checked out to work on.
+- **Start a session from anywhere:** a Sessions page lists every project's sessions, and Start session there
+  (or the + by the sidebar's Sessions) picks the project, then optionally an open issue for it to focus on
+  from the start. Projects that can't start one now say why, with a link to turn starting on.
+  `POST …/launches` takes `{issue}`.
+- **Fixed:** a session Orrery starts for a project's very first signal now gets that signal: an `after` of 0
+  is a catch-up too.
 
 ## 1.0.0-rc.2 (2026-10-25)
 
