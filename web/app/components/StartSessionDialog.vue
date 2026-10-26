@@ -7,7 +7,7 @@ import type {LaunchState} from '~/composables/useLaunchState'
 // else it works through a scope, the issues of the statuses ticked (and of a release), most urgent first, or with
 // nothing ticked waits for your work. It can be given more context: presets (the Orrery's, and each project's own)
 // and your own words, which go with every signal to it. Their launchers start them in tmux, for each project's
-// minutes; the project's Sessions tab shows them arriving.
+// minutes or until stopped; the project's Sessions tab shows them arriving.
 const {target, close} = useStartSession()
 const {launchers, sessions} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -169,7 +169,7 @@ const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 r
                 {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink :to="`/p/${p.id}/sessions#starts`" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
               </span>
               <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
-                <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes }} min
+                <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}
               </span>
             </label>
           </div>

@@ -363,10 +363,13 @@ export interface Owner {
     named: boolean
 }
 
-/** The sessions Orrery may start for a project: at most `limit` running at once, each stopped after `minutes`. */
+/** The sessions Orrery may start for a project: at most `limit` running at once, each running until it's stopped,
+ * or for `minutes` when set. `idle_minutes` stops one that has sat idle with nothing to do for that long. Neither
+ * stops a session mid-work: it waits until the session is idle with nothing in progress or waiting. */
 export interface Starts {
     limit: number
-    minutes: number
+    minutes?: number
+    idle_minutes?: number
 }
 
 export interface Settings {
@@ -438,7 +441,8 @@ export interface SessionWork {
 export interface StartedSession {
     launch: string
     tmux: string
-    stops_at: string
+    /** When its time is up, if the project gives sessions a time; none runs until stopped. */
+    stops_at?: string
     /** What the owner gave it to go on when they started it, if anything. */
     context?: SessionContext
 }

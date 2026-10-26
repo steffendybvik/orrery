@@ -9,12 +9,13 @@
 // ORRERY_PROJECT), else the folder's name; the Orrery is ORRERY_URL. Orrery asks only for a project the owner lets have sessions started (its Sessions tab): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it), with the channel, in
-// ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and is stopped after the
-// project's minutes, or when the owner stops it from Orrery. Between pieces of work Orrery has it `/clear`ed, for a
+// ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and runs until Orrery asks
+// for it to be stopped: the owner stopping it, or, once it's idle with nothing open, its time being up or its having
+// sat idle too long (when the project sets those). Between pieces of work Orrery has it `/clear`ed, for a
 // fresh context. With several launchers on a project, the first
 // to claim a launch starts it. Stopping the launcher stops the sessions it started; one that dies instead (a
 // crash, the service restarting it) takes its project's sessions back when it starts again, as each keeps its
-// stop time in tmux, and tells Orrery which it runs whenever it connects. It answers the warning
+// stop time (or `never`) in tmux, and tells Orrery which it runs whenever it connects. It answers the warning
 // Claude Code shows for the channel flag on every start (the channel is the repo's own); run the channel
 // command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
@@ -106,15 +107,14 @@ if (problem) {
     process.exit(1)
 }
 
-/** The sessions this launcher started, by launch id: their tmux session and the timer that stops each, and
- * how to tell their project's Orrery they ended. */
+/** The sessions this launcher started, by launch id: their tmux session, their stop time (none until stopped),
+ * and how to tell their project's Orrery they ended. */
 const running = new Map()
 
 /** Stops a session it started, and tells Orrery it ended by its launch (its own hook may not get the chance). */
 async function stop(id, why) {
     const session = running.get(id)
     if (!session) return
-    clearTimeout(session.timer)
     running.delete(id)
     try {
         tmux('kill-session', '-t', session.tmux)
@@ -140,22 +140,23 @@ async function clear(id) {
     }
 }
 
-/** The tmux option a session keeps its stop time in, so a launcher that restarts can take it back. */
+/** The tmux option a session keeps its stop time in (`never` for one that runs until stopped), so a launcher
+ * that restarts can take it back. */
 const STOPS_AT = '@orrery_stops_at'
+const NEVER = 'never'
 /** And the context the owner started it with (JSON), for an Orrery that restarted to know it again. */
 const CONTEXT = '@orrery_context'
 
-/** Stops the session when `stops_at` comes (again, when the owner gives it longer). */
-function stopAt(id, stopsAt) {
+/** Keeps the session's stop time (none: until stopped), for Orrery to know again after a restart. Orrery, not
+ * this, stops it when the time comes, as only Orrery knows whether it's done with its work. */
+function keepStopTime(id, stopsAt) {
     const session = running.get(id)
     if (!session) return
-    clearTimeout(session.timer)
     session.stops_at = stopsAt
-    session.timer = setTimeout(() => stop(id, 'its time is up'), Math.max(0, Date.parse(stopsAt) - Date.now()))
     try {
-        tmux('set-option', '-t', session.tmux, STOPS_AT, stopsAt)
+        tmux('set-option', '-t', session.tmux, STOPS_AT, stopsAt ?? NEVER)
     } catch {
-        // It has ended; its timer finds it gone.
+        // It has ended.
     }
 }
 
@@ -163,7 +164,7 @@ function stopAt(id, stopsAt) {
 const tmuxName = (project, id) => `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')
 
 /** Takes back the project's sessions a launcher before this one started (it died without stopping them),
- * with their stop times; one without a stop time is stopped, as nothing would. */
+ * with their stop times; one that kept none (from before they were kept) is stopped, as nothing would. */
 function adopt(project, api) {
     let names = []
     try {
@@ -182,24 +183,24 @@ function adopt(project, api) {
         } catch {
             // Started before stop times were kept.
         }
-        if (Number.isNaN(Date.parse(stopsAt))) {
+        if (stopsAt !== NEVER && Number.isNaN(Date.parse(stopsAt))) {
             stop(id, "it was started by a launcher before this one, and its time isn't known")
             continue
         }
-        stopAt(id, stopsAt)
+        keepStopTime(id, stopsAt === NEVER ? undefined : stopsAt)
         try {
             running.get(id).context = JSON.parse(tmux('show-options', '-v', '-t', name, CONTEXT))
         } catch {
             // Started with none.
         }
-        log(`took back ${name}, running until ${new Date(stopsAt).toLocaleTimeString()}`)
+        log(`took back ${name}, running ${stopsAt === NEVER ? 'until stopped' : `until ${new Date(stopsAt).toLocaleTimeString()}`}`)
     }
 }
 
 /** Tells the project's Orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
-    const launches = [...running.entries()].filter(([, s]) => s.api === api && s.stops_at)
-        .map(([id, s]) => ({id, tmux: s.tmux, stops_at: s.stops_at, ...s.context ? {context: s.context} : {}}))
+    const launches = [...running.entries()].filter(([, s]) => s.api === api)
+        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
@@ -234,8 +235,8 @@ function serve({url, project, dir}) {
             'claude', '--dangerously-load-development-channels', `server:${channelIn(dir)?.name ?? project}`, '--permission-mode', mode)
         running.set(launch.id, {tmux: launch.tmux, api, context: launch.context})
         if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
-        stopAt(launch.id, new Date(Date.now() + launch.minutes * 60_000).toISOString())
-        log(`started ${launch.tmux} for ${launch.minutes} minutes; watch it with: tmux attach -t ${launch.tmux}`)
+        keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)
+        log(`started ${launch.tmux} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
         getPast(launch.id, dir).catch(error => log(`${launch.tmux}: ${error.message}`))
     }
 
@@ -246,15 +247,15 @@ function serve({url, project, dir}) {
                 await report(api)
                 const {starts} = JSON.parse(data)
                 log(starts
-                    ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes} minutes each`
+                    ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
                     : `connected, but ${project} doesn't let Orrery start sessions yet: turn it on from its Sessions tab`)
             } else if (event === 'launch') {
                 await start(JSON.parse(data)).catch(error => log(`couldn't start a session for ${project}: ${error.message}`))
             } else if (event === 'stop') {
-                await stop(JSON.parse(data).id, 'the owner stopped it')
+                await stop(JSON.parse(data).id, 'Orrery asked for it to stop')
             } else if (event === 'extend') {
                 const {id, stops_at} = JSON.parse(data)
-                stopAt(id, stops_at)
+                keepStopTime(id, stops_at)
                 if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stops_at).toLocaleTimeString()}`)
             } else if (event === 'clear') {
                 await clear(JSON.parse(data).id)

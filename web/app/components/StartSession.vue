@@ -2,7 +2,7 @@
 import type {Project} from '#shared/roadmap'
 
 // The owner's Start session, for a project that lets Orrery start sessions: opens Start session on it, where it can
-// be given an issue, a scope and context; its launcher starts one in tmux, for the project's minutes, within its
+// be given an issue, a scope and context; its launcher starts one in tmux, for the project's minutes or until stopped, within its
 // limit. Says why not when it can't (no launcher, the limit reached).
 const props = defineProps<{project: Project}>()
 const {open} = useStartSession()
@@ -12,7 +12,7 @@ const {state, install} = useLaunchState(() => props.project.id)
 
 const full = computed(() => !!state.value && !!props.project.starts && state.value.started + state.value.starting >= props.project.starts.limit)
 const why = computed(() => !state.value?.launchers ? `No launcher is running for ${props.project.name}: install one in its repo with ${install}`
-    : full.value ? `${props.project.name} already has its ${props.project.starts!.limit} at once` : `Start a Claude session on ${props.project.name} for ${props.project.starts!.minutes} minutes`)
+    : full.value ? `${props.project.name} already has its ${props.project.starts!.limit} at once` : `Start a Claude session on ${props.project.name} ${props.project.starts!.minutes ? `for ${props.project.starts!.minutes} minutes` : 'until you stop it'}`)
 </script>
 
 <template>

@@ -855,11 +855,14 @@ describe("an owner's comment", () => {
 describe('starting sessions', () => {
     const owner = {name: 'skoll', owner: true}
 
-    it("is the owner's to allow, as {limit, minutes}, and to stop with null", async () => {
+    it("is the owner's to allow, as {limit, minutes?, idle_minutes?}, and to stop with null", async () => {
         expect((await store.project('larder')).starts).toBeUndefined()
         expect((await failure(() => store.updateProject('larder', {starts: {limit: 1, minutes: 30}}))).status).toBe(403)
         expect((await store.updateProject('larder', {starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
-        for (const wrong of [{limit: 0, minutes: 30}, {limit: 2}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
+        // Without minutes, they run until stopped; idle minutes stop one that has nothing to do.
+        expect((await store.updateProject('larder', {starts: {limit: 2}}, owner)).starts).toEqual({limit: 2})
+        expect((await store.updateProject('larder', {starts: {limit: 2, minutes: null, idle_minutes: 60}}, owner)).starts).toEqual({limit: 2, idle_minutes: 60})
+        for (const wrong of [{limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
             expect((await failure(() => store.updateProject('larder', {starts: wrong}, owner))).status).toBe(400)
         }
         expect((await store.updateProject('larder', {starts: null}, owner)).starts).toBeUndefined()

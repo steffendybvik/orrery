@@ -37,7 +37,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
 | `POST /projects` | `{name, id?, key?, description?, repo?, release_mode?, releases_from?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board, docs and releases |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes?, idle_minutes?}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
 | `DELETE /projects/:project` | with its chunks, issues and comments; a 409 while others take their releases from it |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there (schedules that made issues in a chunk make them in none) |
 
@@ -301,14 +301,16 @@ and its old ids still find it.
 
 ### Starting sessions
 
-A project whose owner set `starts: {limit, minutes}` gets sessions started for it, with no terminal: when
+A project whose owner set `starts: {limit, minutes?, idle_minutes?}` gets sessions started for it, with no terminal: when
 the owner's signal (a focus, a comment, a schedule's) finds nobody listening on it, Orrery asks the
 project's launcher (`channel/orrery-launcher.mjs`, on the host, installed as a service with `--install`) to start one in a detached tmux session.
-At most `limit` run at once on the project, each stopped after `minutes`; it's set per project, with no
-cap over every project. Several signals at once start one
+At most `limit` run at once on the project; it's set per project, with no cap over every project. Each
+runs until it's stopped: by the owner, or, when the project sets them, once `minutes` are up or it has sat
+idle for `idle_minutes` (1 to 1440 each). Neither stops one mid-work: Orrery waits until the session is
+idle with no issue in progress and no signal waiting for it, then has its launcher stop it. Several signals at once start one
 session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
 signal it was started for. The owner can also start one by hand (`POST .../launches`, Start session on the
-Sessions tab), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at, context?}`, and count toward
+Sessions tab), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at?, context?}` (no `stops_at`: until stopped), and count toward
 the limits while their channel is connected.
 
 One started by hand can be given more context: presets the owner picks (any number, the Orrery's and the
@@ -320,14 +322,14 @@ with review instructions in it.
 
 | | |
 |---|---|
-| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux, context?}` (claim it, then start it), `stop` `{id}`, `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through |
+| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes?, tmux, context?}` (claim it, then start it; no `minutes`: until stopped), `stop` `{id}` (the owner stopped it, or it's done and past its time or idle too long), `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through |
 | `POST /projects/:project/launches` | `{issue?, statuses?, release?, presets?, instructions?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); with `statuses` (ids or kinds; `todo` and `started` when only `release` is sent) and `release`, from a focus made the same way on the whole project's issues in them (chunk `all`); `presets` (ids, the Orrery's or the project's) and `instructions` (text) give it context; 400 for another project's preset; 409 without the project's opt-in, a launcher or room under its limit |
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
-| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at, context?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again, with the context they were given (a launch Orrery still knows keeps its own) |
+| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at?, context?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again, with the context they were given (a launch Orrery still knows keeps its own) |
 | `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
-| `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped |
+| `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped; a 409 for one that runs until stopped |
 
 `POST …/focus` takes `{session}` to reach one session; without it, every session gets
 it. Each signal lists the sessions it reached in `delivered_to`

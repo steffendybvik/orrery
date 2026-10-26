@@ -151,12 +151,13 @@ export const PROJECT_FIELDS: Record<string, Field> = {
 
 /** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
 function parseStarts(value: unknown): string {
-    const {limit, minutes, ...rest} = (isObject(value) ? value : {})
+    const {limit, minutes, idle_minutes, ...rest} = (isObject(value) ? value : {})
     const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
-    if (Object.keys(rest).length || !whole(limit, 20) || !whole(minutes, 24 * 60)) {
-        throw new Error(`should be {limit, minutes}: at most 20 sessions at once, each for 1 to 1440 minutes, not ${JSON.stringify(value)}`)
+    const maybe = (n: unknown) => n === undefined || n === null || whole(n, 24 * 60)
+    if (Object.keys(rest).length || !whole(limit, 20) || !maybe(minutes) || !maybe(idle_minutes)) {
+        throw new Error(`should be {limit, minutes?, idle_minutes?}: at most 20 sessions at once, each for 1 to 1440 minutes or until stopped, and stopped after 1 to 1440 idle minutes or never, not ${JSON.stringify(value)}`)
     }
-    return JSON.stringify({limit, minutes})
+    return JSON.stringify({limit, ...minutes ? {minutes} : {}, ...idle_minutes ? {idle_minutes} : {}})
 }
 
 /** What a project's sessions are told, and whether Orrery starts them: only the owner changes these. */
