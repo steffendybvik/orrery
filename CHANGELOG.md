@@ -3,6 +3,13 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## Unreleased
+
+- **A dev server with a demo:** `docker-compose.dev.yml` runs as its own compose project (`.env.dev`), and
+  `ORRERY_SEED` fills its empty database with a demo on start, so working on Orrery never touches the
+  Orrerys you use. `ORRERY_BUILD_CONTEXT` builds those from a release on GitHub (`…orrery.git#main`)
+  rather than this folder.
+
 ## 1.0.0-rc.3 (2026-10-26)
 
 - **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:

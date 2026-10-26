@@ -1,9 +1,14 @@
 # Working on Orrery: the repo with `nuxt dev`, so a saved change shows on the page straight away and
-# the server reloads itself, with no rebuild. Same database and port as the built app, in its place:
+# the server reloads itself, with no rebuild. Run it as a compose project of its own, beside the Orrerys
+# you use, so the branch you're on never touches their data: a `.env.dev` with
 #
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   COMPOSE_PROJECT_NAME=orrery-dev
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+#   ORRERY_ENVIRONMENT=dev
+#   ORRERY_SEED=1
 #
-# or set COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml in .env, and `docker compose up -d`.
+# and `docker compose --env-file .env.dev up -d`. ORRERY_SEED fills its empty database with a demo on start
+# (web/server/utils/seed.ts); one with projects is left as it is.
 # It's this machine's only, whatever ORRERY_HOST says: the dev server hands out the source and its
 # build errors to whoever can reach it. The container has its own node_modules and .nuxt (volumes),
 # so they don't clash with the host's; after a pnpm-lock.yaml change, `docker compose restart orrery`.
@@ -13,6 +18,8 @@ services:
     build: {context: ., target: dev}
     ports: !override
       - "127.0.0.1:${ORRERY_PORT:-9000}:9000"
+    environment:
+      ORRERY_SEED: ${ORRERY_SEED:-}
     volumes:
       - .:/src
       - orrery-node-modules:/src/node_modules
