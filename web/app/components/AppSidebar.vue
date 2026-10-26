@@ -4,7 +4,9 @@ import type {Issue} from '#shared/roadmap'
 // Every project with its progress and how many issues are started; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
-const {of: schedulesOf} = useSchedules()
+const {of: schedulesOf, byProject: schedulesByProject} = useSchedules()
+/** Every project's schedules still set to run, for the Schedules entry. */
+const scheduleCount = computed(() => Object.values(schedulesByProject.value).flat().filter(s => s.enabled).length)
 const open = useState('sidebar-open', () => false)
 const palette = useState('palette-open', () => false)
 const {environment, version} = useRuntimeConfig().public
@@ -134,6 +136,26 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
         <span class="flex-1">Connect an agent</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/sessions"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/sessions' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="sessions" class="size-4 text-faint" />
+        <span class="flex-1">Sessions</span>
+        <span v-if="allSessions.length" class="font-mono text-[11px] text-faint tabular-nums">{{ allSessions.length }}</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/schedules"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/schedules' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="schedules" class="size-4 text-faint" />
+        <span class="flex-1">Schedules</span>
+        <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
       </NuxtLink>
 
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
