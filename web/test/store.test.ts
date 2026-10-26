@@ -882,6 +882,19 @@ describe('settings', () => {
         expect((await failure(() => store.updateSettings({tint: null}, {name: 'claude', owner: false}))).status).toBe(403)
         expect((await store.updateSettings({tint: null}, {name: 'skoll', owner: true})).tint).toBeNull()
     })
+
+    it("give every issue a reference saying whose board it's on, by the owner's handle or else their id", async () => {
+        const owner = {name: 'skoll', owner: true}
+        const {id} = await store.createIssue('larder', {title: 'Hinges'})
+        expect((await store.issue('larder', id)).ref).toBe(`orrery-owner: ${id}`)
+        expect((await store.updateSettings({handle: 'SkollF'}, owner)).handle).toBe('skollf')
+        expect((await store.issue('larder', id)).ref).toBe(`orrery-skollf: ${id}`)
+        expect((await store.listIssues('larder'))[0]!.ref).toBe(`orrery-skollf: ${id}`)
+        expect((await store.updateIssue('larder', id, {title: 'Pins'})).ref).toBe(`orrery-skollf: ${id}`)
+        expect((await failure(() => store.updateSettings({handle: 'no spaces'}, owner))).status).toBe(400)
+        expect((await failure(() => store.updateSettings({handle: 'x'}, {name: 'claude', owner: false}))).status).toBe(403)
+        expect((await store.updateSettings({handle: null}, owner)).handle).toBeNull()
+    })
 })
 
 describe('removing', () => {

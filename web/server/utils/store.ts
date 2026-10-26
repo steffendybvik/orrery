@@ -4,7 +4,7 @@
 // turns into a server-sent event, so open pages update.
 import {randomBytes} from 'node:crypto'
 import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Release, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
-import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS, emptyKinds, keyFor, slugify} from '#shared/roadmap'
+import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
@@ -33,6 +33,8 @@ export interface ReleaseDetail extends Release {
 /** An issue on its own: where it sits, and its sub-issues by id. */
 export interface IssueRecord extends Omit<Issue, 'tasks'> {
     project: string
+    /** What says whose board it's on, for commit bodies and PR descriptions: `orrery-<handle>: <id>`. */
+    ref?: string
     parent: string | null
     /** The chunk it's in, a sub-issue's being its top-level issue's. */
     chunk: string | null
@@ -42,6 +44,7 @@ export interface IssueRecord extends Omit<Issue, 'tasks'> {
 /** An issue with its sub-issues drawn out, as `GET …/issues/:issue` shows it. */
 export interface IssueDetail extends Issue {
     project: string
+    ref: string
     parent: string | null
     chunk: string | null
 }
@@ -246,6 +249,7 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     focus_prompt: {type: 'string', nullable: true},
     chunk_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
+    handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
 }
 
 export const OWNER_FIELDS: Record<string, Field> = {
@@ -585,7 +589,13 @@ export class Store {
             focus_prompt: (value('focus_prompt') as string | undefined) || null,
             chunk_prompt: (value('chunk_prompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
+            handle: (value('handle') as string | undefined) || null,
         }
+    }
+
+    /** The handle in issues' references: the owner's, or else their id. */
+    private async handle(): Promise<string> {
+        return (await this.settings()).handle ?? (await this.ownerOf()).name
     }
 
     // Statuses
@@ -694,7 +704,8 @@ export class Store {
             for (const [key, sent] of Object.entries(input)) {
                 if (sent === undefined) continue
                 // An empty template is none: the default.
-                const value = (key === 'focus_prompt' || key === 'chunk_prompt') && typeof sent === 'string' ? sent.trim() || null : sent
+                const value = (key === 'focus_prompt' || key === 'chunk_prompt') && typeof sent === 'string' ? sent.trim() || null
+                    : key === 'handle' && typeof sent === 'string' ? sent.toLowerCase() : sent
                 await this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
             }
         })
@@ -778,7 +789,8 @@ export class Store {
         const statuses = filter.status ? await this.statusIds(filter.status) : []
         const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? await this.statusIds(filter.column) : []
         const assignee = filter.assignee && filter.assignee !== 'none' ? await this.assigneeOf(filter.assignee) : undefined
-        return records.filter(r =>
+        const handle = await this.handle()
+        return records.map(r => ({...r, ref: issueRef(handle, r.id)})).filter(r =>
             (!filter.status || statuses.includes(r.status))
             && (!filter.priority || (filter.priority === 'none' ? !r.priority : r.priority === filter.priority))
             && (!filter.column || columns.includes(r.column))
@@ -795,7 +807,7 @@ export class Store {
         id = await this.issueId(project, id)
         const found = this.findIssue(await this.project(project), id)
         if (!found) throw notFound(`No issue ${id} in ${project}`)
-        return {...found.issue, project, parent: found.parent, chunk: found.chunk || null}
+        return {...found.issue, project, parent: found.parent, chunk: found.chunk || null, ref: issueRef(await this.handle(), id)}
     }
 
     /** `urgent: false` leaves a P0 issue's push to the caller, which asks the sessions itself. */

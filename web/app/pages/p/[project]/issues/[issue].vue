@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Comment, Issue, IssueEvent} from '#shared/roadmap'
-import {total} from '#shared/roadmap'
+import {issueRef, total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, sub-issues and activity, with its
 // properties beside them. The title and description edit in place, as the owner. j/k go to the next
@@ -22,6 +22,10 @@ watch(found, f => {
     if (f && f.issue.id !== issueId.value) router.replace(`/p/${route.params.project}/issues/${encodeURIComponent(f.issue.id)}`)
 }, {immediate: true})
 const issue = computed(() => found.value?.issue)
+// What says whose board it's on, to put in a commit body or PR description.
+const {settings} = useAppSettings()
+const {owner} = useOwner()
+const ref_ = computed(() => issue.value ? issueRef(settings.value.handle ?? owner.value?.name ?? 'owner', issue.value.id) : '')
 // Open, it's seen, and stays seen as it changes in front of you.
 const {seeIssue} = useUnseen()
 watch(() => issue.value?.updated_at, () => {
@@ -220,6 +224,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <div class="flex items-center gap-1.5">
             <span class="font-mono text-xs text-faint">{{ issue.id }}</span>
             <CopyButton :text="issue.id" />
+            <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" />
             <button
                 v-if="madeBy"
                 type="button"

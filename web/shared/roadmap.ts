@@ -370,7 +370,13 @@ export interface Settings {
     chunk_prompt: string | null
     /** Lines added to every focus, such as `commit whenever a piece works`. */
     instructions: Instruction[]
+    /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;
+     * none uses their id. */
+    handle: string | null
 }
+
+/** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-steffendybvik: DOC-132`. */
+export const issueRef = (handle: string, id: string) => `orrery-${handle.toLowerCase()}: ${id}`
 
 /** What a Claude session is doing, as its hooks last said: `waiting` is waiting on the owner. */
 export const SESSION_STATES = ['starting', 'working', 'idle', 'waiting'] as const

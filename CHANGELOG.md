@@ -3,6 +3,12 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## Unreleased
+
+- **Whose board an issue is on:** every issue has a reference, `orrery-<handle>: DOC-132`, with a Copy
+  ref button by its id and `ref` in the API and the `issue` tool, for commit bodies and PR descriptions.
+  App settings take the handle (your GitHub login, say); without one it's your id.
+
 ## 1.0.0-rc.3 (2026-10-26)
 
 - **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
