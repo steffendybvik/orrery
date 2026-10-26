@@ -225,7 +225,7 @@ async function pick(tint: string | null) {
           <h2 class="text-[15px] font-semibold text-fg">{{ title.starts }}</h2>
           <p class="text-xs text-muted">
             Orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
-            Start session. It does so for any project whose repo has its launcher installed (see a project's Sessions tab).
+            Start session. It does so for any project whose repo has its launcher installed (see <NuxtLink to="/sessions" class="text-accent-600 hover:underline dark:text-accent-400">Sessions</NuxtLink>).
           </p>
         </header>
         <SessionStarts />

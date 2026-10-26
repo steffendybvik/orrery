@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Whether Orrery may start Claude sessions itself, with no terminal: the owner's one opt-in, for every project whose
 // repo has a launcher installed (how many at once on each, and, if they like, how long each runs and how long one
-// may sit idle; blank runs it until stopped). In App settings; a project's Sessions tab has its launcher and sessions.
+// may sit idle; blank runs it until stopped). In App settings; the Sessions page has the launchers and sessions.
 const {settings, save: saveSettings} = useAppSettings()
 const failed = ref('')
 const field = 'h-8 w-20 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'

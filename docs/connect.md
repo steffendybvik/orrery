@@ -92,7 +92,7 @@ owner's comment on one goes to the session working it rather than to every sessi
 
 The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
 project; without one, it's `shop`. With a server serving several projects, it's the one a session is filed
-under; it shows on the others' Sessions tabs too.
+under; it shows under the others on the Sessions page too.
 
 With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
 Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the
@@ -101,7 +101,7 @@ issues it had in progress and their latest comment, so it carries on with them.
 ## 4. Optionally, let Orrery start sessions
 
 Orrery can start a session itself when you send the project work and nobody is listening, or when you
-press **Start session** on its Sessions tab, so nobody has to open a terminal. Turn it on once, for every
+press **Start session** on the Sessions page, so nobody has to open a terminal. Turn it on once, for every
 project, under App settings → Starting sessions (how many at once, how many minutes each), then install the
 launcher once, in the repo:
 

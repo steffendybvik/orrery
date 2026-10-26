@@ -7,7 +7,7 @@ import type {LaunchState} from '~/composables/useLaunchState'
 // else it works through a scope, the issues of the statuses ticked (and of a release), most urgent first, or with
 // nothing ticked waits for your work. It can be given more context: presets (the Orrery's, and each project's own)
 // and your own words, which go with every signal to it. Their launchers start them in tmux, for each project's
-// minutes or until stopped; the project's Sessions tab shows them arriving.
+// minutes or until stopped; the Sessions page shows them arriving.
 const {target, close} = useStartSession()
 const {launchers, sessions} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -138,7 +138,7 @@ async function start() {
         return
     }
     close()
-    if (first) router.push(`/p/${first}/sessions`)
+    if (first) router.push({path: '/sessions', query: {project: first}})
 }
 
 const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'

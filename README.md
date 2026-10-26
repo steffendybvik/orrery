@@ -24,7 +24,7 @@ live, answer their questions in one place, and point them at what matters next.
   sessions are working, idle or waiting on you. Your P0 issues reach them on their own, and a session
   stays one session across a `/clear`.
 - **It starts sessions for you.** Let a project start its own sessions, a few at a time for as long as
-  you say, and start or stop one from its Sessions tab. They run in tmux through a small launcher on
+  you say, and start or stop one from the Sessions page. They run in tmux through a small launcher on
   your machine, so no one has to keep a terminal open.
 - **Releases, where a project ships.** Each version, the branch its work gathers on and which issues go
   out in it, with its changelog drafted from those issues. A monorepo's apps can share one release, each
