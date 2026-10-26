@@ -32,6 +32,31 @@ the database schema are the public surface, and a database always migrates forwa
 - **Signals don't slip through a reconnect:** a session's stream hears live signals before reading what it
   missed, so one sent in between arrives once; sessions acking a signal at the same time all count; a failed
   re-read of a project no longer clears it from the page.
+- **Your own context for a session:** Start session takes presets (a saved name and text, the Orrery's and
+  each project's own, under App settings and project Settings) and your own words. They go with every
+  signal to the session and come back in its SessionStart brief, as it starts and after a `/clear` or a
+  compaction. `/api/presets` and `/api/projects/:project/presets`; `POST …/launches` takes `presets` and
+  `instructions`.
+- **Started sessions run until stopped:** a session Orrery starts runs until stopped unless its project sets
+  a time, and a new idle limit (`starts.idle_minutes`) stops one that sits with nothing to do. Neither stops a
+  session mid-work: Orrery waits until it's idle with nothing in progress or waiting, then has its launcher
+  stop it. `started.stops_at` and a launch's `minutes` are optional.
+- **A fresh context between pieces of work:** once a session Orrery started goes idle with nothing in
+  progress and no signal waiting, its launcher types `/clear` into it, and the brief after hands it what's
+  left of the chunk or scope it was working through.
+- **One session per issue:** starting an issue another listening session holds gets a 409 naming that
+  session, so sessions answering the same nudge no longer take the same issue.
+- **A session hears about the issues it makes:** an issue a session creates (a proposal included) or moves
+  to another project is linked to it, so the owner's decision on it reaches that session.
+- **Ids keep their meaning:** a replacing import continues the issue and chunk counters, signals move with an
+  issue to its new id, and a new issue skips numbers still in use as aliases.
+- **A new issue opens straight away:** its page loads the project before saying "No issue", and a live
+  stream the browser gave up on is opened again.
+- **PRs link their issue:** the channel's instructions, `/llms.txt` and the API reference ask agents to put the
+  issue's page on the owner's Orrery in the PRs they write.
+- **Smaller fixes:** `docs/API.md` lists every live event; built-in names (`constructor`) are refused as body
+  fields; renaming the owner tells open pages; settings, statuses, secrets and schedules changes are backed
+  up; a bad escape in an address gives a 404.
 
 ## 1.0.0-rc.3 (2026-10-26)
 
