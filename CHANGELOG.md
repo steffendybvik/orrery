@@ -26,6 +26,12 @@ the database schema are the public surface, and a database always migrates forwa
   preview with only a release picked shows Todo and In progress, as the server sends. A receipt that couldn't be
   saved answers 409 instead of reporting it saved. A starts limit typed just after ticking the box isn't undone by
   the live update.
+- **Tick many at once:** drag over the ticks to tick (or untick) a run, tick a whole list group or board column
+  from its header, and the bulk bar says how.
+- **Docs A–Z:** a project's docs are listed by title on the Docs page and in `GET …/docs` (and the `docs` tool),
+  not in the order they were made.
+- **A second launcher leaves the first one's sessions alone:** each session keeps its launcher's pid, so a launcher
+  run next to the service no longer takes its sessions over and stops them when it exits.
 - **One set of UI components:** buttons, dialogs, menus and confirmations come from a small kit
   (`components/ui/`), listed with the other shared pieces in [docs/components.md](docs/components.md). Disabled
   buttons, quiet icon buttons and the red remove buttons now look the same everywhere.
