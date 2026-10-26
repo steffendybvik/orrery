@@ -37,8 +37,7 @@ the database schema are the public surface, and a database always migrates forwa
   signal to the session and come back in its SessionStart brief, as it starts and after a `/clear` or a
   compaction. `/api/presets` and `/api/projects/:project/presets`; `POST …/launches` takes `presets` and
   `instructions`.
-- **Started sessions run until stopped:** a session Orrery starts runs until stopped unless its project sets
-  a time, and a new idle limit (`starts.idle_minutes`) stops one that sits with nothing to do. Neither stops a
+- **Started sessions run until stopped:** a session Orrery starts runs until stopped unless a time is set, and a new idle limit (`starts.idle_minutes`) stops one that sits with nothing to do. Neither stops a
   session mid-work: Orrery waits until it's idle with nothing in progress or waiting, then has its launcher
   stop it. `started.stops_at` and a launch's `minutes` are optional.
 - **A fresh context between pieces of work:** once a session Orrery started goes idle with nothing in
@@ -57,6 +56,20 @@ the database schema are the public surface, and a database always migrates forwa
 - **Smaller fixes:** `docs/API.md` lists every live event; built-in names (`constructor`) are refused as body
   fields; renaming the owner tells open pages; settings, statuses, secrets and schedules changes are backed
   up; a bad escape in an address gives a 404.
+- **Breaking, starting sessions is one setting:** you let Orrery start sessions once, for every project, under
+  App settings → Starting sessions, with its limits (at once on each project, minutes, idle minutes). `PATCH
+  /settings {starts}` sets it; `PATCH /projects/:project` no longer takes `starts` (a 400), and a project's
+  `starts` reads the Orrery's. The database carries over the first project's setting. A project gets sessions
+  wherever its repo has a launcher.
+- **Watch opens a terminal:** Watch on a session Orrery started has its launcher open a terminal window attached
+  to it, in the app picked under App settings → Watching sessions (Terminal, iTerm2, Warp or Ghostty on macOS).
+- **One session per issue, even at once:** two sessions starting the same issue at the same moment are taken one
+  after the other, so only the first gets it and the other gets the 409.
+- **Egress keeps a whole-address secret whole:** a `{{secret:…}}` that starts the url (a webhook) goes in as it
+  is, one in the path keeps its `/`, and one in the query is escaped; the hosts check still decides where it may go.
+- **Smaller review fixes:** the doc texts kept for change tints are capped, an image upload finishing after its
+  field was reopened stays out of it, a chunk's remove prompt resets on another chunk, an oversized upload is
+  refused before it's read, and a slow doc reply for a page you've left is let go.
 
 ## 1.0.0-rc.3 (2026-10-26)
 
