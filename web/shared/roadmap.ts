@@ -203,7 +203,7 @@ export interface Project {
     instructions: Instruction[]
     muted: string[]
     /** Whether Orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
-     * within what; none while the owner hasn't let it. */
+     * within what: the Orrery's setting (`Settings.starts`), the same for every project; none while the owner hasn't let it. */
     starts?: Starts
     /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
     repo?: string
@@ -363,7 +363,7 @@ export interface Owner {
     named: boolean
 }
 
-/** The sessions Orrery may start for a project: at most `limit` running at once, each running until it's stopped,
+/** The sessions Orrery may start, the owner's one setting for every project: at most `limit` running at once on each, each running until it's stopped,
  * or for `minutes` when set. `idle_minutes` stops one that has sat idle with nothing to do for that long. Neither
  * stops a session mid-work: it waits until the session is idle with nothing in progress or waiting. */
 export interface Starts {
@@ -393,6 +393,9 @@ export interface Settings {
     handle: string | null
     /** Where the team's tracker shows a task, with `{id}` for its id: `https://linear.app/circuly/issue/{id}`. */
     tracker: string | null
+    /** Whether Orrery starts sessions itself, for any project whose repo has a launcher, and within what; none
+     * while the owner hasn't let it. */
+    starts: Starts | null
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */
