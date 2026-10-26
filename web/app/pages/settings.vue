@@ -113,7 +113,7 @@ async function pick(tint: string | null) {
               v-model="ownerName"
               aria-label="Your name"
               maxlength="60"
-              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-72 max-w-full field"
               @blur="saveOwner"
               @keydown.esc="ownerName = owner?.named ? owner.display : ''; ($event.target as HTMLInputElement).blur()"
           >
@@ -137,7 +137,7 @@ async function pick(tint: string | null) {
               :placeholder="owner?.name"
               spellcheck="false"
               maxlength="39"
-              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-72 max-w-full field font-mono"
               @blur="saveHandle"
               @keydown.esc="handle = settings.handle ?? ''; ($event.target as HTMLInputElement).blur()"
           >
@@ -160,7 +160,7 @@ async function pick(tint: string | null) {
               aria-label="Team tracker"
               placeholder="https://linear.app/your-team/issue/{id}"
               spellcheck="false"
-              class="h-8 w-[28rem] max-w-full rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-[28rem] max-w-full field font-mono"
               @blur="saveTracker"
               @keydown.esc="tracker = settings.tracker ?? ''; ($event.target as HTMLInputElement).blur()"
           >
@@ -228,7 +228,7 @@ async function pick(tint: string | null) {
         <select
             :value="settings.terminal"
             aria-label="Terminal app"
-            class="h-8 w-56 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+            class="h-8 w-56 field"
             @change="save({terminal: ($event.target as HTMLSelectElement).value as keyof typeof TERMINALS})"
         >
           <option v-for="(name, key) in TERMINALS" :key="key" :value="key">{{ name }}</option>

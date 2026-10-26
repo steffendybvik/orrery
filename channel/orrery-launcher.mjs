@@ -9,7 +9,7 @@
 // ORRERY_PROJECT), else the folder's name; the Orrery is ORRERY_URL. Orrery asks only once the owner lets it start sessions (App settings): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
-// this launcher open a terminal on it), with the channel, in
+// this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and runs until Orrery asks
 // for it to be stopped: the owner stopping it, or, once it's idle with nothing open, its time being up or its having
 // sat idle too long (when the project sets those). Between pieces of work Orrery has it `/clear`ed, for a
@@ -143,6 +143,33 @@ function watch(id, app) {
         log(`opened ${app ?? 'a terminal'} on ${session.tmux}`)
     } catch (error) {
         log(`couldn't open a terminal on ${session.tmux} (${error.message}); attach by hand: tmux attach -t ${session.tmux}`)
+    }
+}
+
+/** The sessions whose screens it's sending, so a second ask doesn't start a second loop. */
+const viewing = new Set()
+
+/** Sends the screen of a session it started (its tmux pane, as text) about once a second, as the owner viewing it
+ * on the Sessions page asks, for as long as Orrery says someone still is. Nothing goes into the session. */
+async function view(id) {
+    const session = running.get(id)
+    if (!session || viewing.has(id)) return
+    viewing.add(id)
+    try {
+        while (running.has(id)) {
+            let screen
+            try {
+                screen = tmux('capture-pane', '-p', '-t', session.tmux)
+            } catch {
+                return // It has ended.
+            }
+            const {watching} = await fetch(`${session.api}/launches/${id}/screen`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({screen})})
+                .then(response => response.ok ? response.json() : {watching: false}).catch(() => ({watching: false}))
+            if (!watching) return
+            await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+    } finally {
+        viewing.delete(id)
     }
 }
 
@@ -283,6 +310,9 @@ function serve({url, project, dir}) {
             } else if (event === 'watch') {
                 const {id, terminal} = JSON.parse(data)
                 watch(id, terminal)
+            } else if (event === 'view') {
+                // Not awaited: it sends for as long as the owner views it, and the stream goes on meanwhile.
+                view(JSON.parse(data).id).catch(error => log(`couldn't send a screen: ${error.message}`))
             }
         },
         log: (...parts) => log(`${project}:`, ...parts),

@@ -41,8 +41,8 @@ function change(preset: Preset, key: 'name' | 'text', event: Event) {
 }
 const remove = (preset: Preset) => write(`/api/presets/${preset.id}`, 'DELETE')
 
-const line = 'h-8 min-w-0 flex-1 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
-const area = 'w-full rounded-lg bg-well px-2.5 py-2 text-[13px] leading-5 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
+const line = 'h-8 min-w-0 flex-1 field'
+const area = 'w-full field py-2 leading-5'
 </script>
 
 <template>

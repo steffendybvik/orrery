@@ -145,7 +145,7 @@ async function start() {
     if (first) router.push({path: '/sessions', query: {project: first}})
 }
 
-const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
+const field = 'h-8 w-full field'
 </script>
 
 <template>
@@ -230,7 +230,7 @@ const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 r
               rows="2"
               aria-label="Your own instructions"
               placeholder="Anything else it should know, e.g. run the e2e suite before you finish"
-              class="w-full rounded-lg bg-well px-2.5 py-2 text-[13px] leading-5 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              class="w-full field py-2 leading-5"
           />
           <p v-if="!presets.length" class="px-1 text-xs text-faint">
             Context you give often can be saved as a preset under <NuxtLink to="/sessions#presets" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">Presets</NuxtLink> on the Sessions page.

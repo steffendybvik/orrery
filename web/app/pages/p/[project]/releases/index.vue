@@ -134,11 +134,11 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
         <div class="flex flex-wrap items-end gap-3">
           <label class="flex flex-col gap-1 text-xs text-muted">
             Version
-            <input ref="versionInput" v-model="version" placeholder="1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-44 rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
+            <input ref="versionInput" v-model="version" placeholder="1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-44 field font-mono">
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted">
             Branch its work gathers on
-            <input v-model="branch" placeholder="v1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-56 rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none" @input="branchTyped = true">
+            <input v-model="branch" placeholder="v1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-56 field font-mono" @input="branchTyped = true">
           </label>
           <div class="flex items-center gap-2">
             <button type="submit" class="h-8 rounded-lg bg-accent-500 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy || !version.trim()">{{ busy ? 'Making…' : 'Make it' }}</button>

@@ -89,7 +89,7 @@ function mute(line: Instruction) {
 }
 
 const field = 'w-full rounded-lg bg-well px-2.5 py-2 font-mono text-[12px] leading-5 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
-const line = 'h-8 min-w-0 flex-1 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
+const line = 'h-8 min-w-0 flex-1 field'
 </script>
 
 <template>
