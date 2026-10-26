@@ -16,6 +16,8 @@ const STORAGE = 'orrery-seen'
 const READ = 'orrery-read-docs'
 /** Longer docs aren't kept: the browser's storage is small. */
 const READ_LIMIT = 200_000
+/** All of them together, in characters: past it the docs read longest ago go, so the seen marks still fit. */
+const READ_TOTAL = 1_000_000
 /** How long a write from this page waits for the change it brings back (one that changed nothing brings none). */
 const OWN_FOR = 10_000
 
@@ -76,8 +78,15 @@ export function useUnseen() {
     function read(project: string, id: string, body: string) {
         try {
             const all = JSON.parse(localStorage.getItem(READ) ?? '{}') as Record<string, string>
-            if (body.length > READ_LIMIT) delete all[docKey(project, id)]
-            else all[docKey(project, id)] = body
+            // Taken out and put back last, so the order is the order they were read in.
+            delete all[docKey(project, id)]
+            if (body.length <= READ_LIMIT) all[docKey(project, id)] = body
+            let total = Object.values(all).reduce((sum, text) => sum + text.length, 0)
+            for (const key of Object.keys(all)) {
+                if (total <= READ_TOTAL) break
+                total -= all[key]!.length
+                delete all[key]
+            }
             localStorage.setItem(READ, JSON.stringify(all))
         } catch {
             // Full or refused: the next visit shows no changes, as on a first one.
