@@ -15,6 +15,22 @@ the database schema are the public surface, and a database always migrates forwa
 - **Watch a started session live:** a session Orrery started shows its screen on the Sessions page, refreshed
   while you look (read-only; its launcher captures the tmux pane).
 - **Last sent keeps up:** a session's card on the Sessions page shows a message you just sent it.
+- **Session settings on the Sessions page:** Starting sessions, What sessions hear and Presets moved there from
+  App settings, beside the sessions they're about, with a contents list on a wide screen.
+- **The restart command loads the channel:** the "can't hear signals" command named the server
+  `server:<project>`; it names it `orrery-<environment>`, as Connect does.
+- **The channel knows it's a channel:** it looks for its Claude Code log under the name Connect gives it, so with an
+  environment such as `Work` or `my laptop` it no longer reports `unknown`.
+- **Old status words in a focus:** a chunk focus with `doing` or `now` keeps to the issues it means; it matched none.
+- **Smaller fixes:** a preset whose name or text is only spaces is refused, not saved empty. Start session's
+  preview with only a release picked shows Todo and In progress, as the server sends. A receipt that couldn't be
+  saved answers 409 instead of reporting it saved. A starts limit typed just after ticking the box isn't undone by
+  the live update.
+- **One set of UI components:** buttons, dialogs, menus and confirmations come from a small kit
+  (`components/ui/`), listed with the other shared pieces in [docs/components.md](docs/components.md). Disabled
+  buttons, quiet icon buttons and the red remove buttons now look the same everywhere.
+- **Cleanup:** one text field style, one way menus close on an outside press, and the store split into a file per
+  domain behind the same `Store`.
 - **More e2e:** the flows cover starting sessions, the Sessions page and messaging a session, Focus on this
   starting one, presets, schedules, the bell, and Now, My issues and Connect (25 flows, from 18).
 
