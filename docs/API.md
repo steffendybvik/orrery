@@ -162,11 +162,11 @@ instead of `done` when it won't ship.
 
 | | |
 |---|---|
-| `GET /projects/:project/docs` | without their text |
-| `POST /projects/:project/docs` | `{title, body?, id?, position?}`; `body` is Markdown |
+| `GET /projects/:project/docs` | without their text, by title, A–Z (a `position` sent with a doc is kept but no longer orders them) |
+| `POST /projects/:project/docs` | `{title, body?, id?}`; `body` is Markdown |
 | `GET /projects/:project/docs/:doc` | with its Markdown |
-| `PUT /projects/:project/docs/:doc` | `{title, body?, position?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync |
-| `PATCH /projects/:project/docs/:doc` | `{title?, body?, position?}` |
+| `PUT /projects/:project/docs/:doc` | `{title, body?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync |
+| `PATCH /projects/:project/docs/:doc` | `{title?, body?}` |
 | `DELETE /projects/:project/docs/:doc` | |
 
 ## Comments

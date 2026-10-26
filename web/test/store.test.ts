@@ -1300,6 +1300,11 @@ describe('docs', () => {
         expect((await store.doc('larder', doc.id)).body).toContain('**hinge**')
     })
 
+    it('are listed by title, A–Z, whatever order they were made in', async () => {
+        for (const title of ['Running', 'decision: ids', 'API', 'Decision: owner']) await store.createDoc('larder', {title})
+        expect((await store.listDocs('larder')).map(d => d.title)).toEqual(['API', 'decision: ids', 'Decision: owner', 'Running'])
+    })
+
     it('are created or replaced at their id with PUT', async () => {
         expect((await store.putDoc('larder', 'readme', {title: 'Readme', body: 'one'})).created).toBe(true)
         const {doc, created} = await store.putDoc('larder', 'readme', {title: 'README', body: 'two'})
