@@ -494,6 +494,8 @@ describe('chunks', () => {
         expect((await local.focusChunk('larder', '1', {})).status).toBeUndefined()
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'done'}))).status).toBe(400)
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'soon'}))).status).toBe(400)
+        // An old word is kept as the kind it means now, so the scope finds its issues.
+        expect((await local.focusChunk('larder', '1', {status: 'doing, todo'})).status).toBe('started,todo')
     })
 
     it('can be focused on all at once, for issues of several statuses and a release', async () => {
@@ -501,7 +503,7 @@ describe('chunks', () => {
         await local.createProject({name: 'larder', key: 'LAR', release_mode: 'own'})
         await local.createRelease('larder', {version: '1.0.0'})
         const signal = await local.focusChunk('larder', 'all', {status: 'todo, started', release: '1.0.0'}, {name: 'skoll', owner: true})
-        expect(signal).toMatchObject({chunk: 'all', status: 'todo, started', release: '1.0.0'})
+        expect(signal).toMatchObject({chunk: 'all', status: 'todo,started', release: '1.0.0'})
         expect((await failure(() => local.focusChunk('larder', 'all', {status: 'todo,done'}))).message).toContain('"status" has "done"')
         expect((await failure(() => local.focusChunk('larder', 'all', {release: '9.9'}))).status).toBe(404)
         await local.createIssue('larder', {title: 'Hinges', status: 'todo'})
@@ -892,6 +894,16 @@ describe('a signal reaching sessions', () => {
         const [heard] = await store.listSignals('larder', signal.id - 1)
         expect([...heard!.delivered_to].sort()).toEqual(['larder 1', 'larder 2', 'pantry'])
     })
+
+    it("says so when it can't keep a session's receipt, rather than one it didn't save", async () => {
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        const signal = await store.focus('larder', jars, {}, {name: 'skoll', owner: true})
+        // Every write loses its race to another session's.
+        const losing = Object.assign(Object.create(store) as Store, {run: async () => ({changes: 0})})
+        expect((await failure(() => losing.delivered('larder', signal.id, 'larder 1'))).status).toBe(409)
+        const [heard] = await store.listSignals('larder', signal.id - 1)
+        expect(heard!.delivered_to).toEqual([])
+    })
 })
 
 describe("what a project's sessions are on", () => {
@@ -1010,6 +1022,7 @@ describe('presets', () => {
         expect((await failure(() => store.updatePreset(preset.id, {text: 'Skip it.'}, claude))).status).toBe(403)
         expect(await store.updatePreset(preset.id, {text: 'Run pnpm test:e2e.'}, owner)).toMatchObject({name: 'E2E', text: 'Run pnpm test:e2e.'})
         expect((await failure(() => store.updatePreset(preset.id, {text: ''}, owner))).status).toBe(400)
+        expect((await failure(() => store.updatePreset(preset.id, {name: '   '}, owner))).status).toBe(400)
         await store.deletePreset(preset.id, owner)
         expect((await failure(() => store.preset(preset.id))).status).toBe(404)
         await store.createPreset('larder', {name: 'E2E', text: 'Run the e2e suite.'}, owner)

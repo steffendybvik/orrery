@@ -95,14 +95,15 @@ const issueLabel = computed(() => issueOptions.value.find(o => o.value === issue
 const releaseOptions = computed(() => [{value: '', label: 'Any release'}, ...releases.value.map(v => ({value: v, label: `Release ${v}`}))])
 
 /** The project's issues a session started now would work through, as the server picks them: every chunk's,
- * or with a release those set for it at any depth, of the ticked statuses (or every open one). */
+ * or with a release those set for it at any depth, of the ticked statuses (or, with none, the open work that's ready:
+ * Todo and In progress, as the server's `SCOPE_STATUSES`). */
 function scopeOf(project: Project): Issue[] {
     const tasks: Issue[] = []
     const pick = (issues: Issue[]) => issues.forEach(t => t.release === release.value ? tasks.push(t) : pick(t.tasks))
     const top = project.board.chunks.flatMap(c => c.tasks)
     if (release.value) pick(top)
     else tasks.push(...top)
-    return tasks.filter(t => statuses.value.length ? statuses.value.includes(t.column) : t.kind !== 'proposed' && !isClosed(t.kind))
+    return tasks.filter(t => statuses.value.length ? statuses.value.includes(t.column) : t.kind === 'todo' || t.kind === 'started')
 }
 
 const ready = computed(() => projects.value.length > 0 && projects.value.every(p => !why(p) && !!states.value[p.id]) && !busy.value)
