@@ -55,7 +55,8 @@ repo. The session sets the repo up itself.
 - [Running Orrery](docs/running.md): configuration, backups, Postgres, several instances, running without Docker
 - [Connecting a repo](docs/connect.md): the MCP server and channel, hooks, the launcher
 - [API](docs/API.md): every route and field
-- [Development](docs/development.md): the dev server and checks
+- [Development](docs/development.md): where things are, the dev server and checks
+- [UI components](docs/components.md): the kit and shared pieces the page is built from
 - [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 ## License

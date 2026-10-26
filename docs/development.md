@@ -9,6 +9,19 @@ channel/      the channel and hooks Claude sessions run, by path, from every con
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
+Inside `web/`:
+
+```
+app/pages/              one file per page; app/layouts/default.vue holds the sidebar and the dialogs
+app/components/         the page's pieces, ui/ the kit (see UI components below)
+app/composables/, utils/  shared state and behaviour, auto-imported
+server/api/             the routes, one file per method and path (/api/…)
+server/store/           the store, a file per domain (issues, chunks, comments, signals, releases, docs, presets…),
+                        each class extending the one before; server/utils/store.ts is the last, `Store`, which the routes use
+server/utils/           the rest of the server: the database and its migrations, sessions and launches, schedules, secrets
+shared/                 types and rules both sides use (roadmap.ts)
+```
+
 The root is a pnpm workspace with the app as its one package: `pnpm dev`, `pnpm test`,
 `pnpm typecheck`, `pnpm test:e2e` and `pnpm orrery:copy` run there and work in `web/`. The root's
 own dependency is the channel's MCP SDK, so `channel/` keeps working from other repos. The database
