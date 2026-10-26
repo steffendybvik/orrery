@@ -44,14 +44,19 @@ export function useSelection() {
         toggle(project, id)
         const on = isSelected(project, id)
         const over = (e: PointerEvent) => {
+            // Let go outside the window, where no pointerup reaches it: the drag is over, and a move back ticks nothing.
+            if (!(e.buttons & 1)) return stop()
             const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('main [data-issue][data-project]')
             if (el && isSelected(el.dataset.project!, el.dataset.issue!) !== on) set([key(el.dataset.project!, el.dataset.issue!)], on)
         }
         const eat = (e: MouseEvent) => (e.stopPropagation(), e.preventDefault())
-        const end = () => {
+        const stop = () => {
             window.removeEventListener('pointermove', over)
             window.removeEventListener('pointerup', end)
             window.removeEventListener('pointercancel', end)
+        }
+        const end = () => {
+            stop()
             window.addEventListener('click', eat, {capture: true})
             setTimeout(() => window.removeEventListener('click', eat, {capture: true}))
         }
