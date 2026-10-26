@@ -139,8 +139,6 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     /** Ids of the Orrery's standing instructions the project switches off. */
     muted: {type: 'strings', nullable: true},
-    /** The owner's: `{limit, minutes}` lets Orrery start sessions for it; null stops that. */
-    starts: {type: 'json', nullable: true, parse: parseStarts},
     repo: {type: 'string', nullable: true, pattern: /^https?:\/\/\S+[^/\s]$/, hint: 'use the web address of its code, e.g. https://github.com/you/shop'},
     /** Whether it has releases: none (a new project's), its own, or `shared`, those of `releases_from`. */
     release_mode: {type: 'string', values: RELEASE_MODES},
@@ -160,8 +158,8 @@ function parseStarts(value: unknown): string {
     return JSON.stringify({limit, ...minutes ? {minutes} : {}, ...idle_minutes ? {idle_minutes} : {}})
 }
 
-/** What a project's sessions are told, and whether Orrery starts them: only the owner changes these. */
-const PROMPT_FIELDS = ['focus_prompt', 'chunk_prompt', 'instructions', 'muted', 'starts']
+/** What a project's sessions are told: only the owner changes these. */
+const PROMPT_FIELDS = ['focus_prompt', 'chunk_prompt', 'instructions', 'muted']
 
 // No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
 export const CHUNK_FIELDS: Record<string, Field> = {
@@ -275,6 +273,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://linear.app/you/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
+    /** `{limit, minutes?, idle_minutes?}` lets Orrery start sessions, for any project with a launcher; null stops that. */
+    starts: {type: 'json', nullable: true, parse: parseStarts},
 }
 
 /** A preset's name and its text, both needed. */
@@ -577,7 +577,7 @@ export class Store {
 
     private promptsAreTheOwners(input: Input, actor: Actor) {
         const sent = PROMPT_FIELDS.filter(key => input[key] !== undefined)
-        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told, and whether Orrery starts them (${sent.join(', ')}); send Orrery-Actor: <owner>`)
+        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told (${sent.join(', ')}); send Orrery-Actor: <owner>`)
     }
 
     /** The prompt fields as columns: an empty template is none (the Orrery's). */
@@ -586,14 +586,19 @@ export class Store {
         const list = (value: Input[string]) => value === undefined ? undefined : JSON.stringify(value ?? [])
         return {
             focus_prompt: template(input.focus_prompt), chunk_prompt: template(input.chunk_prompt), instructions: list(input.instructions), muted: list(input.muted),
-            starts: input.starts === undefined ? undefined : input.starts ?? null,
         }
     }
 
-    /** Whether Orrery may start sessions for the project, and within what; none while the owner hasn't let it. */
+    /** Whether Orrery may start sessions for the project, and within what: the Orrery's, as the owner lets it start
+     * them for every project at once; none while they haven't. */
     async starts(project: string): Promise<Starts | undefined> {
-        const row = await this.projectRow(project)
-        return row.starts ? JSON.parse(row.starts) as Starts : undefined
+        await this.projectRow(project)
+        return await this.orreryStarts()
+    }
+
+    private async orreryStarts(): Promise<Starts | undefined> {
+        const row = await this.get<{value: string}>('SELECT value FROM settings WHERE key = ?', 'starts')
+        return (row ? JSON.parse(row.value) as Starts | null : null) ?? undefined
     }
 
     /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
@@ -661,6 +666,7 @@ export class Store {
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
             handle: (value('handle') as string | undefined) || null,
             tracker: (value('tracker') as string | undefined) || null,
+            starts: (value('starts') as Starts | null | undefined) ?? null,
         }
     }
 
@@ -828,12 +834,16 @@ export class Store {
                 if (sent === undefined) continue
                 // An empty template is none: the default.
                 const value = (key === 'focus_prompt' || key === 'chunk_prompt') && typeof sent === 'string' ? sent.trim() || null
-                    : key === 'handle' && typeof sent === 'string' ? sent.toLowerCase() : sent
+                    : key === 'handle' && typeof sent === 'string' ? sent.toLowerCase()
+                    // Checked and given back as JSON text: kept as the value it stands for.
+                    : key === 'starts' && typeof sent === 'string' ? JSON.parse(sent) as unknown : sent
                 await this.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
             }
         })
         const settings = await this.settings()
         this.onSettings(settings)
+        // Every project says whether Orrery starts its sessions.
+        if (input.starts !== undefined) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         return settings
     }
 
@@ -1749,7 +1759,7 @@ export class Store {
             chunk_prompt: row.chunk_prompt ?? undefined,
             instructions: JSON.parse(row.instructions) as Instruction[],
             muted: JSON.parse(row.muted) as string[],
-            starts: row.starts ? JSON.parse(row.starts) as Starts : undefined,
+            starts: await this.orreryStarts(),
             repo: row.repo ?? undefined,
             release_mode: row.release_mode,
             releases_from: row.releases_from ?? undefined,

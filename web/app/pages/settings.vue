@@ -15,6 +15,7 @@ const headings: Heading[] = [
     {id: 'tracker', text: 'Team tracker', level: 2},
     {id: 'tint', text: 'Background tint', level: 2},
     {id: 'statuses', text: 'Issue statuses', level: 2},
+    {id: 'starts', text: 'Starting sessions', level: 2},
     {id: 'sessions', text: 'What sessions hear', level: 2},
     {id: 'presets', text: 'Presets', level: 2},
     {id: 'secrets', text: 'Secrets', level: 2},
@@ -216,6 +217,17 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <StatusSettings />
+      </section>
+
+      <section id="starts" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.starts }}</h2>
+          <p class="text-xs text-muted">
+            Orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
+            Start session. It does so for any project whose repo has its launcher installed (see a project's Sessions tab).
+          </p>
+        </header>
+        <SessionStarts />
       </section>
 
       <section id="sessions" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">

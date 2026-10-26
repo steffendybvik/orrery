@@ -5,8 +5,8 @@ import type {Session, SessionWork} from '#shared/roadmap'
 // it runs, the issues it's on and what it was last sent. One Orrery started has its time left, Watch, +30 min
 // and Stop; any other with its channel running, a Stop that ends it through the channel. Start session has
 // the project's launcher start one, when the project lets Orrery. A sidebar row opens its session here
-// (`#session-<id>`), lit up for a moment. Below the header, whether Orrery may start sessions and how many (`#starts`),
-// then how starting them works.
+// (`#session-<id>`), lit up for a moment. Below the header, how starting them works (whether Orrery may is in App
+// settings, `#starts`).
 const route = useRoute()
 const {byId, ready, sessions: all} = useRoadmaps()
 const {who} = useOwner()
@@ -60,7 +60,6 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
         </div>
         <StartSession :project="project" />
       </header>
-      <SessionStarts id="starts" :project="project" class="scroll-mt-6" />
       <StartingSessionsGuide :project="project" />
 
       <ul v-if="sessions.length" class="flex flex-col gap-3">

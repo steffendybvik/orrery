@@ -70,7 +70,7 @@ function pick(id: number) {
 
 /** Why the project can't start a session now, if it can't. */
 function why(project: Project): string | null {
-    if (!project.starts) return "Doesn't let Orrery start sessions"
+    if (!project.starts) return "Orrery doesn't start sessions"
     const state = states.value[project.id]
     if (!state) return null
     if (!state.launchers) return 'No launcher running'
@@ -166,7 +166,7 @@ const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 r
               <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
               <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
               <span v-if="why(p)" class="shrink-0 text-xs">
-                {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink :to="`/p/${p.id}/sessions#starts`" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
+                {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/settings#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
               </span>
               <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
                 <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}

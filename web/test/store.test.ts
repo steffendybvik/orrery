@@ -42,7 +42,7 @@ describe('projects', () => {
 
     it('refuses unknown fields', async () => {
         expect(await failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, icon_color, focus_prompt, chunk_prompt, instructions, muted, starts, repo, release_mode, releases_from'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, icon_color, focus_prompt, chunk_prompt, instructions, muted, repo, release_mode, releases_from'})
     })
 
     it('keep where their code is', async () => {
@@ -855,21 +855,30 @@ describe("an owner's comment", () => {
 describe('starting sessions', () => {
     const owner = {name: 'skoll', owner: true}
 
-    it("is the owner's to allow, as {limit, minutes?, idle_minutes?}, and to stop with null", async () => {
+    it("is the owner's to allow once for every project, as {limit, minutes?, idle_minutes?}, and to stop with null", async () => {
+        await store.createProject({name: 'pantry', key: 'PAN'})
+        expect((await store.settings()).starts).toBeNull()
         expect((await store.project('larder')).starts).toBeUndefined()
-        expect((await failure(() => store.updateProject('larder', {starts: {limit: 1, minutes: 30}}))).status).toBe(403)
-        expect((await store.updateProject('larder', {starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
+        expect((await failure(() => store.updateSettings({starts: {limit: 1, minutes: 30}}))).status).toBe(403)
+        changes.length = 0
+        expect((await store.updateSettings({starts: {limit: 2, minutes: 30}}, owner)).starts).toEqual({limit: 2, minutes: 30})
+        // Every project has it, and says so.
+        expect((await store.project('pantry')).starts).toEqual({limit: 2, minutes: 30})
+        expect(changes.sort()).toEqual(['larder', 'pantry'])
         // Without minutes, they run until stopped; idle minutes stop one that has nothing to do.
-        expect((await store.updateProject('larder', {starts: {limit: 2}}, owner)).starts).toEqual({limit: 2})
-        expect((await store.updateProject('larder', {starts: {limit: 2, minutes: null, idle_minutes: 60}}, owner)).starts).toEqual({limit: 2, idle_minutes: 60})
+        expect((await store.updateSettings({starts: {limit: 2}}, owner)).starts).toEqual({limit: 2})
+        expect((await store.updateSettings({starts: {limit: 2, minutes: null, idle_minutes: 60}}, owner)).starts).toEqual({limit: 2, idle_minutes: 60})
         for (const wrong of [{limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
-            expect((await failure(() => store.updateProject('larder', {starts: wrong}, owner))).status).toBe(400)
+            expect((await failure(() => store.updateSettings({starts: wrong}, owner))).status).toBe(400)
         }
-        expect((await store.updateProject('larder', {starts: null}, owner)).starts).toBeUndefined()
+        expect((await store.updateSettings({starts: null}, owner)).starts).toBeNull()
+        expect((await store.project('larder')).starts).toBeUndefined()
+        // A project has none of its own.
+        expect((await failure(() => store.updateProject('larder', {starts: {limit: 1}}, owner))).status).toBe(400)
     })
 
     it('reads without building the board', async () => {
-        await store.updateProject('larder', {starts: {limit: 1, minutes: 45}}, owner)
+        await store.updateSettings({starts: {limit: 1, minutes: 45}}, owner)
         expect(await store.starts('larder')).toEqual({limit: 1, minutes: 45})
         expect((await failure(() => store.starts('nope'))).status).toBe(404)
     })
@@ -1273,6 +1282,21 @@ describe('images', () => {
 })
 
 describe('the database', () => {
+    it("makes letting Orrery start sessions the Orrery's one setting, from the first project that had it", async () => {
+        const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+        const old = openDb(path, 34)
+        old.prepare(`INSERT INTO projects (id, name, key, starts, created_by, created_at, updated_at) VALUES
+            ('larder', 'larder', 'LAR', NULL, 'agent', '1', '1'), ('pantry', 'pantry', 'PAN', '{"limit":2,"minutes":60}', 'agent', '2', '2'),
+            ('cellar', 'cellar', 'CEL', '{"limit":5}', 'agent', '3', '3')`).run()
+        old.close()
+        const upgraded = new Store(new SqliteDb(openDb(path)))
+        expect((await upgraded.settings()).starts).toEqual({limit: 2, minutes: 60})
+        expect((await upgraded.project('larder')).starts).toEqual({limit: 2, minutes: 60})
+        const none = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'none.db')
+        openDb(none, 34).close()
+        expect((await new Store(new SqliteDb(openDb(none))).settings()).starts).toBeNull()
+    })
+
     it('puts the proposals approved before on the roadmap, in Todo', async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 30)
