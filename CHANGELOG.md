@@ -9,6 +9,9 @@ the database schema are the public surface, and a database always migrates forwa
   `own` or `shared` (another project's, `releases_from`), under Settings → Releases. New projects have
   none, and no Releases page, until it's turned on. Existing projects with releases, or others drawing on
   them, keep their own. A shared release's page leaves out projects with nothing in it.
+- **Approving a proposal puts it on the roadmap:** no separate Commit. It goes to Todo, keeping who
+  approved it, the note and the picks, and the panel offers Put it up again while it's open. Proposals
+  approved before are committed into Todo as the database migrates.
 - **Team tasks:** an issue links to its tasks on the team's tracker (`external`: `CIR-1567`, or a URL),
   editable under its properties and opening there through App settings → Team tracker
   (`https://linear.app/your-team/issue/{id}`). `?external=` finds the issues linked to a task, and

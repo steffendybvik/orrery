@@ -58,7 +58,7 @@ export const TOOLS = [
     },
     {
         name: 'update_issue',
-        description: 'Changes an issue: any of its fields; proposal "pending" puts it (back) up to the owner, null commits an approved one.',
+        description: 'Changes an issue: any of its fields; proposal "pending" puts it (back) up to the owner; the owner approving it puts it on the roadmap.',
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...FIELDS, proposal: {type: ['string', 'null'], enum: ['pending', null]}}},
     },
     {

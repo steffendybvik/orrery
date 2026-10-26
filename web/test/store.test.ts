@@ -217,6 +217,9 @@ describe('activity', () => {
         expect((await changed(id)).slice(1)).toEqual([
             ['proposal', 'pending', 'approved', 'skoll'],
             ['assignee', 'owner', 'claude', 'skoll'],
+            // Approving puts it on the roadmap, in Todo.
+            ['status', 'backlog', 'todo', 'skoll'],
+            ['proposal', 'approved', undefined, 'skoll'],
             ['assignee', 'claude', 'owner', 'claude'],
         ])
     })
@@ -256,12 +259,12 @@ describe('proposals', () => {
         expect((await failure(() => store.decide('larder', work, {decision: 'approved'}, owner))).status).toBe(400)
     })
 
-    it('are committed once approved, or by the owner', async () => {
+    it('go on the roadmap in Todo when approved, keeping the decision, or are committed by the owner', async () => {
         const {id} = await store.createIssue('larder', {title: 'Button', proposal: 'pending'})
         expect((await failure(() => store.updateIssue('larder', id, {proposal: null}, claude))).status).toBe(403)
-        await store.decide('larder', id, {decision: 'approved'}, owner)
-        const committed = await store.updateIssue('larder', id, {proposal: null, status: 'todo'}, claude)
-        expect([committed.proposal, committed.column, committed.decided_by]).toEqual([undefined, 'todo', 'skoll'])
+        const approved = await store.decide('larder', id, {decision: 'approved', note: 'Go'}, owner)
+        expect([approved.proposal, approved.column, approved.decided_by, approved.decision_note]).toEqual([undefined, 'todo', 'skoll', 'Go'])
+        expect((await store.listComments('larder', id)).at(-1)?.body).toBe('Approved this proposal.\n\nGo')
         const other = await store.createIssue('larder', {title: 'Card', proposal: 'pending'})
         expect((await store.updateIssue('larder', other.id, {proposal: null}, owner)).column).toBe('backlog')
     })
@@ -1088,6 +1091,17 @@ describe('images', () => {
 })
 
 describe('the database', () => {
+    it('puts the proposals approved before on the roadmap, in Todo', async () => {
+        const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+        const old = openDb(path, 30)
+        old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('larder', 'larder', 'LAR', 'agent', 'x', 'x')").run()
+        old.prepare("INSERT INTO issues (project, id, title, status, proposal, decided_by, position, created_by, created_at, updated_at) VALUES ('larder', 'LAR-1', 'A', 'backlog', 'approved', 'skoll', 0, 'agent', 'x', 'x'), ('larder', 'LAR-2', 'B', 'backlog', 'pending', NULL, 1, 'agent', 'x', 'x')").run()
+        old.close()
+        const upgraded = new Store(new SqliteDb(openDb(path)))
+        expect([(await upgraded.issue('larder', 'LAR-1')).column, (await upgraded.issue('larder', 'LAR-1')).decided_by]).toEqual(['todo', 'skoll'])
+        expect((await upgraded.issue('larder', 'LAR-2')).proposal).toBe('pending')
+    })
+
     it("keeps the Orrery's prompts through the API going snake_case", async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 27)
