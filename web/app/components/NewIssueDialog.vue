@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Column, Priority} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
 
 // Writing a new issue, as the owner (so agents can't delete it); Orrery hands out its id. Its labels say
 // what kind it is (bug, feature request, …), and it can go straight to the listening Claude sessions to
@@ -31,6 +30,7 @@ const {uploading, failed: uploadError, dragging, upload, reset: resetUploads, on
 // Where it starts: Proposed or any open status.
 const {places} = useStatuses()
 const WHERE = computed(() => places.value.filter(p => !isClosed(p.kind)))
+const whereOptions = computed(() => WHERE.value.map(w => ({value: w.id, label: w.label})))
 
 watch(target, now => {
     // An image still on its way from an earlier open stays out of this one.
@@ -79,8 +79,6 @@ async function create() {
         saving.value = false
     }
 }
-
-const field = 'h-8 field'
 </script>
 
 <template>
@@ -115,17 +113,25 @@ const field = 'h-8 field'
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-        <select v-model="column" aria-label="Where" :class="field">
-          <option v-for="w in WHERE" :key="w.id" :value="w.id">{{ w.label }}</option>
-        </select>
-        <select v-model="priority" aria-label="Priority" :class="field">
-          <option value="">No priority</option>
-          <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
-        </select>
-        <select v-model="chunk" aria-label="Chunk" :class="[field, 'max-w-56']">
-          <option value="">No chunk</option>
-          <option v-for="c in chunks" :key="c.id" :value="c.id">{{ c.title }}</option>
-        </select>
+        <PropertyPicker v-model="column" :options="whereOptions" label="Where" field>
+          <StatusIcon :column="column" />
+          <span class="truncate">{{ whereOptions.find(o => o.value === column)?.label ?? column }}</span>
+          <template #option="{option}">
+            <StatusIcon :column="option.value" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" field>
+          <PriorityIcon :priority="priority || undefined" />
+          <span class="truncate" :class="!priority && 'text-faint'">{{ priority ? `${priority} · ${PRIORITY_LABEL[priority]}` : 'No priority' }}</span>
+          <template #option="{option}">
+            <PriorityIcon :priority="option.value || undefined" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <PropertyPicker v-model="chunk" :options="chunkOptions(project.board.chunks)" label="Chunk" field>
+          <span class="truncate" :class="!chunk && 'text-faint'">{{ chunks.find(c => c.id === chunk)?.title ?? 'No chunk' }}</span>
+        </PropertyPicker>
         <LabelPicker v-model="labels" :labels="known" />
         <label class="flex items-center gap-1.5 text-xs text-muted">
           <input v-model="ask" type="checkbox" class="accent-accent-500">

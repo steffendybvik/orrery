@@ -116,7 +116,7 @@ Already one component each; use them rather than drawing the same thing again.
 
 | Component | For |
 |---|---|
-| `PropertyPicker` | a property as a button with a menu to type in (status, priority, chunk, release, assignee, labels with `multiple`). Prefer it to a native `<select>` |
+| `PropertyPicker` | a property as a button with a menu to type in (status, priority, chunk, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue). `PRIORITY_OPTIONS` and `chunkOptions(chunks)` (utils/roadmap) are the usual option lists |
 | `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message) |
 | `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any |
 | `LabelPicker` | a new issue's labels: tick the project's or make one |

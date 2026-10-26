@@ -1,5 +1,5 @@
 import type {Chunk, Column, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
-import {CLOSED, TINTS, open, slugify, total} from '#shared/roadmap'
+import {CLOSED, PRIORITIES, TINTS, open, slugify, total} from '#shared/roadmap'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
 export const colorOf = (color: string) => TINTS[color as keyof typeof TINTS] ?? color
@@ -18,6 +18,12 @@ export function restartCommand(session: {name: string, project: string}, environ
 }
 
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}
+
+/** The priorities as a `PropertyPicker`'s options, none first. */
+export const PRIORITY_OPTIONS = [{value: '', label: 'No priority'}, ...PRIORITIES.map(p => ({value: p, label: `${p} · ${PRIORITY_LABEL[p]}`}))]
+
+/** A project's chunks as a `PropertyPicker`'s options, none first (the chunk of loose issues has no id). */
+export const chunkOptions = (chunks: Chunk[]) => [{value: '', label: 'No chunk'}, ...chunks.filter(c => c.id).map(c => ({value: c.id, label: c.title}))]
 
 /** Putting an issue in a column: its status. Into Proposed makes it a proposal; a proposal put anywhere
  * else is committed. */

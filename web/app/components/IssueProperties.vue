@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Chunk, Column, Issue, Project} from '#shared/roadmap'
-import {PRIORITIES, taskUrl} from '#shared/roadmap'
+import {taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once.
@@ -26,10 +26,7 @@ const chunkId = computed({
     get: () => props.chunk.id,
     set: (next: string) => save({chunk: next || null}),
 })
-const chunks = computed(() => props.project.board.chunks.filter(c => c.id))
 const statusOptions = computed(() => places.value.map(p => ({value: p.id, label: p.label})))
-const priorityOptions = [{value: '', label: 'No priority'}, ...PRIORITIES.map(p => ({value: p, label: `${p} · ${PRIORITY_LABEL[p]}`}))]
-const chunkOptions = computed(() => [{value: '', label: 'No chunk'}, ...chunks.value.map(c => ({value: c.id, label: c.title}))])
 // The release it ships in, newest first; a shipped one says so.
 const release = computed({
     get: () => props.issue.release ?? '',
@@ -82,7 +79,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
 
     <dt class="label">Priority</dt>
     <dd class="flex min-w-0">
-      <PropertyPicker v-model="priority" :options="priorityOptions" label="Priority" :disabled="saving">
+      <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" :disabled="saving">
         <PriorityIcon :priority="issue.priority" />
         <span class="truncate" :class="!issue.priority && 'text-faint'">{{ issue.priority ? `${issue.priority} · ${PRIORITY_LABEL[issue.priority]}` : 'No priority' }}</span>
         <template #option="{option}">
@@ -141,7 +138,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
 
     <dt class="label">Chunk</dt>
     <dd class="flex min-w-0 items-center gap-1">
-      <PropertyPicker v-if="!isSub" v-model="chunkId" :options="chunkOptions" label="Chunk" :disabled="saving">
+      <PropertyPicker v-if="!isSub" v-model="chunkId" :options="chunkOptions(project.board.chunks)" label="Chunk" :disabled="saving">
         <span class="truncate" :class="!chunk.id && 'text-faint'">{{ chunk.id ? chunk.title : 'No chunk' }}</span>
       </PropertyPicker>
       <NuxtLink v-else :to="chunkPath(project.id, chunk.id)" class="truncate hover:underline" :class="!chunk.id && 'text-faint'" title="A sub-issue is in its parent's chunk">{{ chunk.title }}</NuxtLink>
