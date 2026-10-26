@@ -203,7 +203,7 @@ export interface Project {
     instructions: Instruction[]
     muted: string[]
     /** Whether Orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
-     * within what; none while the owner hasn't let it. */
+     * within what: the Orrery's setting (`Settings.starts`), the same for every project; none while the owner hasn't let it. */
     starts?: Starts
     /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
     repo?: string
@@ -286,11 +286,13 @@ export const open = (kinds: Kinds) => kinds.backlog + kinds.todo + kinds.started
 export interface Signal {
     id: number
     project: string
-    /** The issue it's about, or for a focus on a whole chunk, `chunk`. */
+    /** The issue it's about, or for a focus on a whole chunk, `chunk` (`none`: the issues in no chunk; `all`: every chunk's). */
     issue?: string
     chunk?: string
-    /** For a chunk: only its issues of this status (an id, or a kind), not all its open ones. */
+    /** For a chunk: only its issues of these statuses (ids or kinds, comma-separated), not all its open ones. */
     status?: string
+    /** For a chunk: only its issues set for this release. */
+    release?: string
     /** The schedule that sent it (a message). */
     schedule?: number
     kind: 'focus' | 'comment' | 'message'
@@ -361,13 +363,25 @@ export interface Owner {
     named: boolean
 }
 
-/** The sessions Orrery may start for a project: at most `limit` running at once, each stopped after `minutes`. */
+/** The sessions Orrery may start, the owner's one setting for every project: at most `limit` running at once on each, each running until it's stopped,
+ * or for `minutes` when set. `idle_minutes` stops one that has sat idle with nothing to do for that long. Neither
+ * stops a session mid-work: it waits until the session is idle with nothing in progress or waiting. */
 export interface Starts {
     limit: number
-    minutes: number
+    minutes?: number
+    idle_minutes?: number
 }
 
+/** The terminal apps Watch can open (on macOS; elsewhere the system's own terminal opens), by their setting. */
+export const TERMINALS = {terminal: 'Terminal', iterm: 'iTerm2', warp: 'Warp', ghostty: 'Ghostty'} as const
+export type TerminalApp = keyof typeof TERMINALS
+
 export interface Settings {
+    /** This Orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
+     * talking to the same Orrery (ORRERY_ID), whatever its address. */
+    id: string
+    /** Which Orrery this is (`personal`, `work`), as it's run; a channel serving it is named `orrery-<environment>`. */
+    environment?: string
     /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
     tint: string | null
     /** The issue statuses, in board order. */
@@ -383,6 +397,11 @@ export interface Settings {
     handle: string | null
     /** Where the team's tracker shows a task, with `{id}` for its id: `https://linear.app/circuly/issue/{id}`. */
     tracker: string | null
+    /** Whether Orrery starts sessions itself, for any project whose repo has a launcher, and within what; none
+     * while the owner hasn't let it. */
+    starts: Starts | null
+    /** The terminal app Watch opens a session Orrery started in, on its launcher's machine. */
+    terminal: TerminalApp
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */
@@ -412,6 +431,8 @@ export interface Session {
     started_at: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
+    /** The other projects its channel is heard on, when it serves several (ORRERY_PROJECTS). */
+    also?: string[]
     /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from Orrery. */
     reachable?: boolean
     /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
@@ -429,7 +450,29 @@ export interface SessionWork {
 export interface StartedSession {
     launch: string
     tmux: string
-    stops_at: string
+    /** When its time is up, if the project gives sessions a time; none runs until stopped. */
+    stops_at?: string
+    /** What the owner gave it to go on when they started it, if anything. */
+    context?: SessionContext
+}
+
+/** More context for a session, from the owner as they start it: the presets they picked (by name) and their own
+ * words (`instructions`), joined in `text`. It goes with every signal to the session, and back to it after a `/clear`. */
+export interface SessionContext {
+    presets: string[]
+    instructions?: string
+    text: string
+}
+
+/** A saved piece of context the owner can give a session as they start it: the Orrery's (`project` null), for
+ * sessions on any project, or a project's own. */
+export interface Preset {
+    id: number
+    project: string | null
+    name: string
+    text: string
+    created_at: string
+    updated_at: string
 }
 
 /** An agent's comment, as the notification bell and page list it. */

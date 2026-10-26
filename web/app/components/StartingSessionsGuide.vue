@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import type {Project} from '#shared/roadmap'
+// How Orrery starts sessions with no terminal, step by step, each ticked once it's done: the owner's opt-in, a
+// launcher installed in a project's repo, then starting, watching and stopping them. Open while a step is left.
+import type {LaunchState} from '~/composables/useLaunchState'
 
-// How Orrery starts sessions for a project with no terminal, step by step, each ticked once it's done: the
-// opt-in, the launcher installed on the host, then starting, watching and stopping them. Open while a step
-// is left.
-const props = defineProps<{project: Project}>()
-const {state, install} = useLaunchState(() => props.project.id)
-const running = computed(() => state.value?.launchers ?? null)
-const ready = computed(() => !!props.project.starts && !!running.value)
+const {settings} = useAppSettings()
+const {launchers} = useRoadmaps()
+const {ordered} = useProjectOrder()
+const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
+/** Whether any project has a launcher running, asked of each, and again as launchers come and go; null until known. */
+const running = ref<boolean | null>(null)
+async function ask() {
+    const states = await Promise.all(ordered.value.map(p => $fetch<LaunchState>(`/api/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)))
+    running.value = states.some(s => !!s?.launchers)
+}
+watch([() => ordered.value.length, launchers], ask, {immediate: true})
+const ready = computed(() => !!settings.value.starts && !!running.value)
 </script>
 
 <template>
@@ -19,11 +26,12 @@ const ready = computed(() => !!props.project.starts && !!running.value)
     </summary>
     <ol class="flex flex-col gap-4 px-4 pb-4 text-[13px] leading-relaxed text-muted">
       <li class="flex gap-3">
-        <StepMark :done="!!project.starts" :n="1" />
+        <StepMark :done="!!settings.starts" :n="1" />
         <div class="flex min-w-0 flex-col gap-0.5">
-          <span class="font-medium text-fg">Let Orrery start sessions for {{ project.name }}</span>
+          <span class="font-medium text-fg">Let Orrery start sessions</span>
           <span>
-            Tick it above, then say how many may run at once and how many minutes each gets before it's stopped.
+            Once, for every project, in <NuxtLink to="/settings#starts" class="text-accent-600 hover:underline dark:text-accent-400">App settings</NuxtLink>:
+            how many may run at once on each, and, if you like, how long each runs or may sit idle.
           </span>
         </div>
       </li>
@@ -31,7 +39,7 @@ const ready = computed(() => !!props.project.starts && !!running.value)
         <StepMark :done="!!running" :n="2" />
         <div class="flex min-w-0 flex-1 flex-col gap-2">
           <div class="flex flex-col gap-0.5">
-            <span class="font-medium text-fg">Install the launcher, once, in {{ project.name }}'s repo</span>
+            <span class="font-medium text-fg">Install the launcher, once in each project's repo</span>
             <span>
               Orrery runs in Docker and can't start Claude on your machine, so a small launcher does it. Installed, it runs in the
               background (launchd on macOS, systemd on Linux), starts at login and serves every project installed this way.
@@ -47,8 +55,8 @@ const ready = computed(() => !!props.project.starts && !!running.value)
         <div class="flex min-w-0 flex-col gap-0.5">
           <span class="font-medium text-fg">Start one</span>
           <span>
-            Press <strong class="font-medium text-fg">Start session</strong> above, or send {{ project.name }} work (focus on an issue, a chunk,
-            a comment) while no session is listening. It runs Claude in a detached tmux session in the repo, with the channel, in
+            Press <strong class="font-medium text-fg">Start session</strong> above, or send a project work (focus on an issue, a chunk,
+            a comment) while no session is listening on it. It runs Claude in a detached tmux session in the repo, with the channel, in
             <span class="font-mono">auto</span> permission mode, as nobody is there to answer a prompt.
           </span>
         </div>
@@ -58,9 +66,10 @@ const ready = computed(() => !!props.project.starts && !!running.value)
         <div class="flex min-w-0 flex-col gap-0.5">
           <span class="font-medium text-fg">Watch it, give it longer, or stop it</span>
           <span>
-            It lists here like any session. <strong class="font-medium text-fg">Watch</strong> copies the command that opens it in a terminal,
-            <strong class="font-medium text-fg">+30 min</strong> gives it longer, <strong class="font-medium text-fg">Stop</strong> ends it now;
-            otherwise it stops when its minutes are up. The launcher's log is <span class="font-mono">~/Library/Logs/orrery-launcher.log</span>
+            It lists here like any session. <strong class="font-medium text-fg">Watch</strong> opens a terminal on it (the app picked in
+            <NuxtLink to="/settings#watch" class="text-accent-600 hover:underline dark:text-accent-400">App settings</NuxtLink>),
+            <strong class="font-medium text-fg">Stop</strong> ends it now, and <strong class="font-medium text-fg">+30 min</strong> gives one with minutes longer.
+            One whose minutes are up, or that has sat idle too long, is stopped once it's done with what it's on. The launcher's log is <span class="font-mono">~/Library/Logs/orrery-launcher.log</span>
             on macOS, <span class="font-mono">journalctl --user -u orrery-launcher</span> on Linux.
           </span>
         </div>

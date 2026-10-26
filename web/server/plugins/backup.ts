@@ -1,4 +1,5 @@
-// With NUXT_BACKUP_DIR set, backs the database up a few seconds after each change, and on start.
+// With NUXT_BACKUP_DIR set, backs the database up a few seconds after each change (to a project, the
+// settings and statuses, the owner's name, secrets or schedules), and on start.
 export default defineNitroPlugin(nitro => {
     const dir = String(useRuntimeConfig().backupDir ?? '')
     // Postgres is backed up by its own means (a managed service's backups, pg_dump on a schedule).
@@ -13,8 +14,7 @@ export default defineNitroPlugin(nitro => {
         timer = setTimeout(save, 3000)
     }
     save()
-    projectEvents.on('project', soon)
-    projectEvents.on('removed', soon)
+    for (const change of ['project', 'removed', 'settings', 'secrets', 'schedules']) projectEvents.on(change, soon)
     nitro.hooks.hook('close', async () => {
         clearTimeout(timer)
         await save()

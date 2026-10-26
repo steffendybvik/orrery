@@ -3,6 +3,83 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.4 (2026-10-26)
+
+- **Releases count a sub-issue where it's set:** a sub-issue set for another release than its parent's
+  counts toward its own release on the Releases page, and its work comes out of the parent's.
+- **A schedule's repeats come once:** when a session catches up, or is still busy, a recurring
+  message with the same text reaches it once instead of every copy; the others count as delivered.
+- **Start sessions with a scope:** Start session takes several projects (a session each) and, without an
+  issue to focus on, what to work through: statuses ticked (Todo and In progress to begin with) and a
+  release. The session starts on those issues, most urgent first. `POST …/launches` takes `statuses` and
+  `release`; a chunk's focus takes `all` for every chunk, several statuses comma-separated, and `release`.
+  `?status=` on the issue list takes several too.
+- **One channel server per repo:** a repo's `.mcp.json` needs one Orrery server, not one per project.
+  `ORRERY_PROJECTS` lists the projects it serves (`hub,css,pos`, or `*` for every project on the Orrery):
+  a tool on an issue finds its project from the id's key, and the others take `project`. The server is
+  named after the Orrery (`orrery-<environment>`), and `ORRERY_ID` pins it to that Orrery, whose id
+  `GET /api/settings` now says; another Orrery at the address is refused. A session heard on several
+  projects shows on each one's Sessions tab (`also`). The Connect page hands out the new entry; a server
+  per project (`ORRERY_PROJECT`) works as before.
+- **A near miss ticks:** a row's tick takes clicks the row's whole height and a few px either side of
+  the box, and a card's a few px around it, so aiming for it no longer opens the issue.
+- **Sessions and schedules across projects in the sidebar:** under Connect an agent, Sessions opens every
+  project's sessions, and Schedules a new page with every project's schedules in one agenda, each saying
+  its project; a new one is made in the project picked.
+  Start session and New schedule sit on a toolbar on those pages.
+- **Edit and delete your own comments:** the owner's comments on an issue page have Edit and Delete. An edit
+  that changes the words goes to the session on the issue again, saying it replaces the earlier comment.
+- **Signals don't slip through a reconnect:** a session's stream hears live signals before reading what it
+  missed, so one sent in between arrives once; sessions acking a signal at the same time all count; a failed
+  re-read of a project no longer clears it from the page.
+- **Your own context for a session:** Start session takes presets (a saved name and text, the Orrery's and
+  each project's own, under App settings and project Settings) and your own words. They go with every
+  signal to the session and come back in its SessionStart brief, as it starts and after a `/clear` or a
+  compaction. `/api/presets` and `/api/projects/:project/presets`; `POST …/launches` takes `presets` and
+  `instructions`.
+- **Started sessions run until stopped:** a session Orrery starts runs until stopped unless a time is set, and a new idle limit (`starts.idle_minutes`) stops one that sits with nothing to do. Neither stops a
+  session mid-work: Orrery waits until it's idle with nothing in progress or waiting, then has its launcher
+  stop it. `started.stops_at` and a launch's `minutes` are optional. One still not done well past its time
+  (stuck on a prompt, or never going idle) is stopped anyway, its minutes again past it (15 minutes to an hour).
+- **A fresh context between pieces of work:** once a session Orrery started goes idle with nothing in
+  progress and no signal waiting, its launcher types `/clear` into it, and the brief after hands it what's
+  left of the chunk or scope it was working through.
+- **One session per issue:** starting an issue another listening session holds gets a 409 naming that
+  session, so sessions answering the same nudge no longer take the same issue.
+- **A session hears about the issues it makes:** an issue a session creates (a proposal included) or moves
+  to another project is linked to it, so the owner's decision on it reaches that session.
+- **Ids keep their meaning:** a replacing import continues the issue and chunk counters, signals move with an
+  issue to its new id, and a new issue skips numbers still in use as aliases.
+- **A new issue opens straight away:** its page loads the project before saying "No issue", and a live
+  stream the browser gave up on is opened again.
+- **PRs link their issue:** the channel's instructions, `/llms.txt` and the API reference ask agents to put the
+  issue's page on the owner's Orrery in the PRs they write.
+- **Smaller fixes:** `docs/API.md` lists every live event; built-in names (`constructor`) are refused as body
+  fields; renaming the owner tells open pages; settings, statuses, secrets and schedules changes are backed
+  up; a bad escape in an address gives a 404.
+- **Breaking, starting sessions is one setting:** you let Orrery start sessions once, for every project, under
+  App settings → Starting sessions, with its limits (at once on each project, minutes, idle minutes). `PATCH
+  /settings {starts}` sets it; `PATCH /projects/:project` no longer takes `starts` (a 400), and a project's
+  `starts` reads the Orrery's. The database carries over the first project's setting. A project gets sessions
+  wherever its repo has a launcher.
+- **Watch opens a terminal:** Watch on a session Orrery started has its launcher open a terminal window attached
+  to it, in the app picked under App settings → Watching sessions (Terminal, iTerm2, Warp or Ghostty on macOS).
+- **One session per issue, even at once:** two sessions starting the same issue at the same moment are taken one
+  after the other, so only the first gets it and the other gets the 409.
+- **Egress keeps a whole-address secret whole:** a `{{secret:…}}` that starts the url (a webhook) goes in as it
+  is, one in the path keeps its `/`, and one in the query is escaped; the hosts check still decides where it may go.
+- **Smaller review fixes:** the doc texts kept for change tints are capped, an image upload finishing after its
+  field was reopened stays out of it, a chunk's remove prompt resets on another chunk, an oversized upload is
+  refused before it's read, and a slow doc reply for a page you've left is let go.
+- **Sessions and Schedules in one place each:** a project's Sessions and Schedules tabs are gone. The Sessions
+  page shows every session as a full card (Watch, Stop, +30 min, what it's on and was last sent), each project's
+  Start session and launcher state, and the setup guide; both pages keep to one project with `?project=`, and
+  the old tab addresses go there.
+- **Message one session:** a listening session's card takes a message, which goes through its channel to it
+  alone. `POST /projects/:project/sessions/:session/message {text}`.
+- **Focus on this starts a session:** with nobody listening, when Orrery may start sessions and a launcher is
+  there, the issue page offers Focus on this (starts a session), and a chunk Work through this.
+
 ## 1.0.0-rc.3 (2026-10-26)
 
 - **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:

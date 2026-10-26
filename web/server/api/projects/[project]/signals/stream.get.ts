@@ -1,5 +1,4 @@
 import type {Signal} from '#shared/roadmap'
-import {CLOSED} from '#shared/roadmap'
 import {renderPrompt} from '#shared/prompt'
 
 // `GET /api/projects/:project/signals/stream` → the owner's signals to this project's sessions, as they're
@@ -40,6 +39,7 @@ export default defineEventHandler(async event => {
         const templates = await store.prompts(project)
         const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
         const name = (column: string) => columnName(column, statuses)
+        if (signal.kind === 'message' && signal.schedule === undefined) return {...signal, title: null, column: null, priority: null, chunk: null}
         if (signal.kind === 'message') {
             let title = 'a schedule'
             try {
@@ -50,25 +50,18 @@ export default defineEventHandler(async event => {
             return {...signal, title, column: null, priority: null, chunk: null}
         }
         if (!signal.issue) {
-            // `none`: the issues in no chunk, which the board keeps as a chunk without an id.
-            const chunk = signal.chunk === 'none'
-                ? (await store.project(project)).board.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done', priority: undefined, tasks: []}
-                : await store.chunk(project, signal.chunk!)
-            // A status, or a kind (`started`): its issues; else every open one.
-            const fits = (t: {column: string, kind: string}) => signal.status
-                ? t.column === signal.status || t.kind === signal.status
-                : t.kind !== 'proposed' && !CLOSED.includes(t.kind as never)
-            const open = chunk.tasks.filter(fits)
-                .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
-                .map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
-            const status = signal.status ? statuses.find(s => s.id === signal.status)?.name ?? signal.status : undefined
+            const {chunk, title, wanted, open: matching} = await scopeOf(store, project, signal)
+            const open = matching.map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
+            const status = wanted.length ? wanted.map(s => statuses.find(st => st.id === s)?.name ?? s).join(' or ') : undefined
+            const query = new URLSearchParams({...signal.chunk === 'all' ? {} : {chunk: signal.chunk!}, ...signal.status ? {status: signal.status} : {}, ...signal.release ? {release: signal.release} : {}})
             const prompt = renderPrompt(templates.chunk, {
-                actor: signal.created_by, chunk: signal.chunk, title: chunk.title, status: status ?? 'open', priority: chunk.priority,
+                actor: signal.created_by, chunk: signal.chunk, title, status: status ?? 'open', priority: chunk.priority,
                 where: where(name(chunk.column), chunk.priority), note: signal.note,
                 issues: open.map(i => issueLine(i, statuses)).join('\n') || '- none left',
-                url: signal.chunk === 'none' ? `'${api}/issues?chunk=none'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
-            }, signal.instructions)
-            return {...signal, status, title: chunk.title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: chunk.title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
+                url: signal.chunk === 'none' || signal.chunk === 'all' || signal.release || signal.status?.includes(',')
+                    ? `'${api}/issues?${query}'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
+            }, signal.instructions).replace(' []', '')
+            return {...signal, status, title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
         }
         const issue = await store.issue(project, signal.issue)
         const chunk = (await store.project(project)).board.chunks.find(c => c.id === (issue.chunk ?? ''))
@@ -82,7 +75,24 @@ export default defineEventHandler(async event => {
     // The owner's signals for every session, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
     const ours = (signal: Signal) => !signal.target || currentId(signal.target) === attended?.id
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.delivered_to.length && ours(signal)
-    const missed = from !== undefined ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && ours(s)) : []
+    // Live signals are heard from before the catch-up is read, and held until it has gone out, so one sent in
+    // between isn't lost; `heard` takes them once it has (those in the catch-up too are left out).
+    const early: Signal[] = []
+    let live: ((signal: Signal) => void) | null = null
+    const hear = (signal: Signal) => live ? live(signal) : early.push(signal)
+    projectEvents.on('signal', hear)
+    const goLive = (deliver: (signal: Signal) => void, already: Set<number>) => {
+        live = deliver
+        early.splice(0).filter(s => !already.has(s.id)).forEach(deliver)
+    }
+    let missed: Signal[]
+    try {
+        missed = from !== undefined ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && ours(s)) : []
+    } catch (error) {
+        projectEvents.off('signal', hear)
+        done()
+        throw error
+    }
 
     /** Sends signals one after another, in the order they came, however long each takes to read. */
     let queue: Promise<unknown> = Promise.resolve()
@@ -93,25 +103,23 @@ export default defineEventHandler(async event => {
     if (query.format === 'text') {
         const line = async (signal: Signal) => {
             const s = await told(signal)
-            if (s.kind === 'message') return `${s.created_by}'s schedule "${s.title}": ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
+            if (s.kind === 'message') return `${s.created_by}${s.title ? `'s schedule "${s.title}"` : ' (to you)'}: ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             if (s.kind === 'comment') return `${s.created_by} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             return `${'prompt' in s ? s.prompt.replace(/\s*\n+\s*/g, ' ') : s.title}\n`
         }
-        let send: (signal: Signal) => void = () => {}
         const stream = new ReadableStream<string>({
             start(controller) {
                 controller.enqueue(`Listening for focus signals on ${project}.\n`)
                 missed.forEach(s => inOrder(async () => controller.enqueue(await line(s))))
-                send = signal => wanted(signal) && inOrder(async () => controller.enqueue(await line(signal)))
-                projectEvents.on('signal', send)
+                goLive(signal => wanted(signal) && inOrder(async () => controller.enqueue(await line(signal))), new Set(missed.map(s => s.id)))
             },
             cancel() {
-                projectEvents.off('signal', send)
+                projectEvents.off('signal', hear)
                 done()
             },
         })
         event.node.req.on('close', () => {
-            projectEvents.off('signal', send)
+            projectEvents.off('signal', hear)
             done()
         })
         setResponseHeaders(event, {'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache'})
@@ -123,25 +131,61 @@ export default defineEventHandler(async event => {
     const stopped = (asked: {project: string, id: string}) => asked.project === project && asked.id === attended?.id
         && stream.push({event: 'stop', data: JSON.stringify(asked)})
     projectEvents.on('session-stop', stopped)
-    const push = (signal: Signal) => inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(await told(signal))}))
-    const send = (signal: Signal) => wanted(signal) && push(signal)
-    projectEvents.on('signal', send)
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
-    stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
-    missed.forEach(push)
-    // A session that can hear catches up on the owner's comments nobody has answered yet, and on
-    // scheduled work nobody was there to hear.
-    if (attended && heard) {
-        await store.carryUnanswered(project, attended.id)
-        const unheard = await store.unheardScheduled(project)
-        unheard.filter(s => !missed.some(m => m.id === s.id)).forEach(push)
-    }
+    // Cleaned up however the stream ends, a catch-up that fails included.
     stream.onClosed(async () => {
         clearInterval(ping)
-        projectEvents.off('signal', send)
+        projectEvents.off('signal', hear)
         projectEvents.off('session-stop', stopped)
         done()
         await stream.close()
     })
+    /** The context the owner started this session with, which every signal to it carries, for its channel to add. */
+    const context = () => {
+        const given = attended && sessionNow(attended.id)?.started?.context
+        return given ? {context: contextBlock(given)} : {}
+    }
+    /** When each repeatable message last went out on this stream. */
+    const sent = new Map<string, number>()
+    const push = (signal: Signal) => {
+        const key = repeatKey(signal)
+        if (key) sent.set(key, Date.now())
+        if (attended) startRun(attended.id, signal)
+        inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify({...await told(signal), ...context()})}))
+    }
+    // A schedule's message again while the session hasn't finished a turn since the last copy (busy, or yet to
+    // read it) would only pile up behind it: it counts as heard. A session whose hooks never said it went idle
+    // gets every copy, as there's no telling.
+    const unread = (signal: Signal) => {
+        const key = repeatKey(signal)
+        const last = key && sent.get(key)
+        const idle = attended ? idleAt(attended.id) : undefined
+        return !!last && idle !== undefined && idle < last
+    }
+    const send = (signal: Signal) => {
+        if (!wanted(signal)) return
+        if (!unread(signal)) return push(signal)
+        store.delivered(project, signal.id, sessionName(attended!.id) ?? text('name') ?? 'a session')
+            .catch(error => console.error(`[orrery] a repeat for ${project}:`, error))
+    }
+    stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
+    // A session that can hear catches up on scheduled work nobody was there to hear, and on the owner's
+    // comments nobody has answered yet. A failure there leaves the stream open for what comes next.
+    try {
+        const unheard = attended && heard ? (await store.unheardScheduled(project)).filter(ours) : []
+        // A schedule that kept sending the same message while nobody heard it says it once; the copies count as heard.
+        const backlog = [...missed, ...unheard.filter(s => !missed.some(m => m.id === s.id))]
+        const {kept, repeats} = foldRepeats(backlog)
+        kept.forEach(push)
+        goLive(send, new Set(backlog.map(s => s.id)))
+        if (attended && heard) {
+            const name = sessionName(attended.id) ?? text('name') ?? 'a session'
+            for (const s of repeats) await store.delivered(project, s.id, name)
+            await store.carryUnanswered(project, attended.id)
+        }
+    } catch (error) {
+        console.error(`[orrery] catching ${project}'s stream up:`, error)
+        if (!live) goLive(send, new Set(missed.map(s => s.id)))
+    }
     return stream.send()
 })

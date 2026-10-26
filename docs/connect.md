@@ -21,36 +21,43 @@ curl -s -X POST http://localhost:9000/api/projects \
 
 ## 2. Add the channel
 
-In the repo's `.mcp.json`, named after the project (`orrery-<project>`, or plain `orrery`), so the
-owner's signals reach its sessions:
+In the repo's `.mcp.json`, one server for this Orrery, named after it (`orrery-<environment>`: `orrery-personal`,
+`orrery-work`), so the owner's signals reach its sessions:
 
 ```json
 {
   "mcpServers": {
-    "orrery-shop": {
+    "orrery-personal": {
       "command": "node",
       "args": ["/path/to/orrery/channel/orrery-channel.mjs"],
       "env": {
         "ORRERY_URL": "http://localhost:9000",
-        "ORRERY_PROJECT": "shop"
+        "ORRERY_ID": "orr_7f3a9c",
+        "ORRERY_PROJECTS": "shop"
       }
     }
   }
 }
 ```
 
+`ORRERY_PROJECTS` lists the repo's projects on it: a monorepo with an app per project has them all in the one
+server (`hub,css,pos`), or `*` for every project on the Orrery as the session starts. A tool on an issue finds its
+project from the id (`HUB-12` is hub's); the others take `project`, and each `<channel>` message says its project.
+`ORRERY_ID` is the Orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another Orrery at
+`ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
+Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
+
 Channels are a Claude Code research preview, so a session only shows the channel's messages when it
-was started with it: `claude --dangerously-load-development-channels server:orrery-shop`. A terminal
+was started with it: `claude --dangerously-load-development-channels server:orrery-personal`. A terminal
 alias saves typing that, in `~/.zshrc`:
 
 ```sh
-alias shop="cd ~/code/shop && ORRERY_PROJECT=shop claude --dangerously-load-development-channels server:orrery-shop"
+alias shop="cd ~/code/shop && claude --dangerously-load-development-channels server:orrery-personal"
 ```
 
-Then `source ~/.zshrc` and start the session with `shop`. A repo with several projects (a monorepo,
-one per app) gets one server and one alias for each.
+Then `source ~/.zshrc` and start the session with `shop`.
 
-The same server gives the session **tools** for its project's roadmap, so it works without curl:
+The same server gives the session **tools** for its projects' roadmaps, so it works without curl:
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
 `create_issue` (a proposal too, with choices), `update_issue`, `chunks`, `docs`, `doc` and
 `write_doc`; and `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
@@ -84,7 +91,8 @@ owner's comment on one goes to the session working it rather than to every sessi
 ```
 
 The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
-project; without one, it's `shop`.
+project; without one, it's `shop`. With a server serving several projects, it's the one a session is filed
+under; it shows under the others on the Sessions page too.
 
 With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
 Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the
@@ -93,8 +101,9 @@ issues it had in progress and their latest comment, so it carries on with them.
 ## 4. Optionally, let Orrery start sessions
 
 Orrery can start a session itself when you send the project work and nobody is listening, or when you
-press **Start session** on its Sessions tab, so nobody has to open a terminal. Turn it on at the top of that
-Sessions tab (how many at once, how many minutes each), then install the launcher once, in the repo:
+press **Start session** on the Sessions page, so nobody has to open a terminal. Turn it on once, for every
+project, under App settings → Starting sessions (how many at once, how many minutes each), then install the
+launcher once, in the repo:
 
 ```bash
 node /path/to/orrery/channel/orrery-launcher.mjs --install
@@ -102,11 +111,15 @@ node /path/to/orrery/channel/orrery-launcher.mjs --install
 
 It runs in the background from then on (launchd on macOS, systemd on Linux), starts at login, and serves
 every project installed this way; run `--install` again in another repo to add its project, and
-`--uninstall` to take one off. It finds the project and the Orrery in the repo's `.mcp.json` (or
-`ORRERY_PROJECT` and `ORRERY_URL`), and keeps its list in `~/.config/orrery/launcher.json`. Its log is
+`--uninstall` to take one off. It finds the projects and the Orrery in the repo's `.mcp.json` (each one in
+its `ORRERY_PROJECTS`; with `*`, name the one with `ORRERY_PROJECT`), or `ORRERY_PROJECT` and `ORRERY_URL`, and keeps its list in `~/.config/orrery/launcher.json`. Its log is
 `~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
 stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
 terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`.
+
+Between pieces of work, a session it started gets a fresh context: once it goes idle with no issue in progress
+and no signal waiting, the launcher types `/clear` into it. Its channel stays connected, and the brief after the
+clear hands it the issues still in progress and what's left of a chunk or scope it was working through.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
@@ -114,5 +127,5 @@ are up, when you press **Stop** beside it (in the sessions panel or the project'
 to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
-The limits are per project, on its Sessions tab. The cap is time, not cost:
+The limits are the Orrery's, under App settings, and apply to each project. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.

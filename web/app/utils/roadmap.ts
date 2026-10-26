@@ -1,4 +1,4 @@
-import type {Chunk, Column, Issue, Kinds, Place, Project, Release} from '#shared/roadmap'
+import type {Chunk, Column, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
 import {CLOSED, TINTS, open, total} from '#shared/roadmap'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
@@ -99,20 +99,18 @@ export function ago(iso: string): string {
 
 export type Section = 'issues' | 'roadmap' | 'releases' | 'docs' | 'schedules' | 'sessions' | 'settings'
 
-/** A project's pages, as the sidebar and the tabs show them; `path` marks the one on screen, and
- * `schedules` is how many it has. */
-export function sectionsOf(project: Project, path: string, schedules = 0, sessions = 0) {
+/** A project's pages, as the sidebar and the tabs show them; `path` marks the one on screen. Its sessions and
+ * schedules are on the Sessions and Schedules pages, kept to it. */
+export function sectionsOf(project: Project, path: string) {
     const base = `/p/${project.id}`
-    const on = path.startsWith(`${base}/roadmap`) ? 'roadmap' : path.startsWith(`${base}/releases`) ? 'releases' : path.startsWith(`${base}/docs`) ? 'docs' : path.startsWith(`${base}/schedules`) ? 'schedules'
-        : path.startsWith(`${base}/sessions`) ? 'sessions' : path.startsWith(`${base}/settings`) ? 'settings' : path === base || path.startsWith(`${base}/issues`) ? 'issues' : null
+    const on = path.startsWith(`${base}/roadmap`) ? 'roadmap' : path.startsWith(`${base}/releases`) ? 'releases' : path.startsWith(`${base}/docs`) ? 'docs'
+        : path.startsWith(`${base}/settings`) ? 'settings' : path === base || path.startsWith(`${base}/issues`) ? 'issues' : null
     const sections = [
         {id: 'issues' as Section, label: 'Issues', to: base, count: open(project.board.kinds), active: on === 'issues'},
         {id: 'roadmap' as Section, label: 'Roadmap', to: `${base}/roadmap`, count: project.board.chunks.filter(c => c.id).length, active: on === 'roadmap'},
         // Counted: the releases still being prepared.
         {id: 'releases' as Section, label: 'Releases', to: `${base}/releases`, count: project.releases.filter(r => !r.shipped_on).length, active: on === 'releases'},
         {id: 'docs' as Section, label: 'Docs', to: `${base}/docs`, count: project.docs.length, active: on === 'docs'},
-        {id: 'schedules' as Section, label: 'Schedules', to: `${base}/schedules`, count: schedules, active: on === 'schedules'},
-        {id: 'sessions' as Section, label: 'Sessions', to: `${base}/sessions`, count: sessions, active: on === 'sessions'},
         {id: 'settings' as Section, label: 'Settings', to: `${base}/settings`, count: 0, active: on === 'settings'},
     ]
     // Releases only for a project that has them (not every project ships), unless it's the page on screen.
@@ -145,3 +143,6 @@ export function changelogOf(release: Release, chunks: Chunk[], date = release.sh
         ...open.length ? ['', '<!-- Not done yet -->', ...open.map(line)] : [],
     ].join('\n')
 }
+
+/** What a session Orrery started was given to go on, in a few words: its presets, and your own words if any. */
+export const contextLabel = (context: SessionContext) => [...context.presets, ...context.instructions ? ['your words'] : []].join(', ')

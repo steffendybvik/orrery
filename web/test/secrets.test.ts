@@ -175,6 +175,29 @@ describe('egress', () => {
         expect(lists.at(-1)![0]!.last_used!.id).toBe(uses[0]!.id)
     })
 
+    it('fill a url for where they sit: a whole address as it is, a path keeping its slashes, a query escaped', async () => {
+        await secrets.set('SLACK_WEBHOOK', {value: 'https://hooks.slack.com/services/T000/B000/XXXX', hosts: ['hooks.slack.com']}, me)
+        await secrets.set('SLACK_PATH', {value: 'T000/B000/XX YY', hosts: ['hooks.slack.com']}, me)
+        await secrets.set('QUOTED', {value: "it's/a&b c", hosts: ['hooks.slack.com']}, me)
+        await secrets.egress({url: '{{secret:SLACK_WEBHOOK}}', method: 'POST', body: {text: 'hi'}}, agent)
+        await secrets.egress({url: '{{secret:SLACK_WEBHOOK}}?ref={{secret:QUOTED}}'}, agent)
+        await secrets.egress({url: 'https://hooks.slack.com/services/{{secret:SLACK_PATH}}?q={{secret:QUOTED}}#{{secret:QUOTED}}'}, agent)
+        expect(sent.map(s => s.url)).toEqual([
+            'https://hooks.slack.com/services/T000/B000/XXXX',
+            "https://hooks.slack.com/services/T000/B000/XXXX?ref=it%27s%2Fa%26b%20c",
+            "https://hooks.slack.com/services/T000/B000/XX%20YY?q=it%27s%2Fa%26b%20c#it's%2Fa%26b%20c",
+        ])
+        // The hosts still decide where a whole address may go, and the path recorded keeps the placeholder.
+        await secrets.set('ELSEWHERE', {value: 'https://evil.example/x', hosts: ['hooks.slack.com']}, me)
+        expect((await failure(() => secrets.egress({url: '{{secret:ELSEWHERE}}'}, agent))).status).toBe(403)
+        const {uses} = await secrets.get('SLACK_PATH')
+        expect(uses[0]!.path).toBe('/services/{{secret:SLACK_PATH}}')
+        // An answer echoing the url gives the query's own escaping back, `'` as `%27`: scrubbed too.
+        answer = url => new Response(`you asked for ${url}`)
+        const echoed = await secrets.egress({url: 'https://hooks.slack.com/services/{{secret:SLACK_PATH}}?q={{secret:QUOTED}}'}, agent)
+        expect(echoed.body).toBe('you asked for https://hooks.slack.com/services/{{secret:SLACK_PATH}}?q={{secret:QUOTED}}')
+    })
+
     it('cuts a long answer', async () => {
         answer = () => new Response('x'.repeat(1_000_010))
         const result = await secrets.egress({url: 'https://api.stripe.com/?k={{secret:STRIPE_KEY}}'}, agent)

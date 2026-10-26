@@ -523,6 +523,28 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     UPDATE releases SET position = (SELECT n FROM (
         SELECT project, version, row_number() OVER (PARTITION BY project ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC) - 1 AS n
         FROM releases) o WHERE o.project = releases.project AND o.version = releases.version);
+`, `
+    -- A chunk's focus (or the whole project's, chunk 'all') can be narrowed to a release's issues.
+    ALTER TABLE signals ADD COLUMN release TEXT;
+`, `
+    -- Presets: saved pieces of context the owner gives a session as they start it, each a name and its text;
+    -- the Orrery's (no project), for any project's sessions, or a project's own.
+    CREATE TABLE presets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+`, `
+    -- Letting Orrery start sessions is the owner's one setting, not each project's: the first project that had it
+    -- passes its limits on, and the projects' own are let go.
+    INSERT INTO settings (key, value) SELECT 'starts', starts FROM projects WHERE starts IS NOT NULL ORDER BY created_at, id LIMIT 1
+        ON CONFLICT (key) DO NOTHING;
+    UPDATE projects SET starts = NULL;
 `]
 
 let db: DatabaseSync | null = null

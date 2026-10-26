@@ -5,23 +5,27 @@
 //   node /path/to/orrery/channel/orrery-launcher.mjs --install      (--uninstall takes the repo's project off)
 // or run it in a terminal for the repo's project alone, for as long as the terminal stays open:
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
-// The project is ORRERY_PROJECT, else the channel's in .mcp.json, else the folder's name; the Orrery is
-// ORRERY_URL. Orrery asks only for a project the owner lets have sessions started (its Sessions tab): when the
+// The projects are ORRERY_PROJECT, else the channel's in .mcp.json (its ORRERY_PROJECTS, each of them, or its
+// ORRERY_PROJECT), else the folder's name; the Orrery is ORRERY_URL. Orrery asks only once the owner lets it start sessions (App settings): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
-// Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it), with the channel, in
-// ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and is stopped after the
-// project's minutes, or when the owner stops it from Orrery. With several launchers on a project, the first
+// Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
+// this launcher open a terminal on it), with the channel, in
+// ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and runs until Orrery asks
+// for it to be stopped: the owner stopping it, or, once it's idle with nothing open, its time being up or its having
+// sat idle too long (when the project sets those). Between pieces of work Orrery has it `/clear`ed, for a
+// fresh context. With several launchers on a project, the first
 // to claim a launch starts it. Stopping the launcher stops the sessions it started; one that dies instead (a
 // crash, the service restarting it) takes its project's sessions back when it starts again, as each keeps its
-// stop time in tmux, and tells Orrery which it runs whenever it connects. It answers the warning
+// stop time (or `never`) in tmux, and tells Orrery which it runs whenever it connects. It answers the warning
 // Claude Code shows for the channel flag on every start (the channel is the repo's own); run the channel
 // command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
-import {readFileSync} from 'node:fs'
-import {basename, join} from 'node:path'
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {basename, dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {configFile, install, readConfig, uninstall} from './launcher-service.mjs'
 import {follow} from './sse.mjs'
+import {openWatch} from './terminal.mjs'
 
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
@@ -38,14 +42,17 @@ function channelIn(dir) {
     }
 }
 
-/** The repo here as the launcher serves it: its Orrery, its project, and its folder. A value in .mcp.json
- * counts only when it's plain, not `${…}`. */
+/** The repo here as the launcher serves it: for each of its projects, its Orrery, the project, and its folder.
+ * A value in .mcp.json counts only when it's plain, not `${…}`; a channel serving every project (`*`) needs
+ * ORRERY_PROJECT to say which to start sessions for. */
 function here() {
     const dir = process.cwd()
     const env = channelIn(dir)?.env ?? {}
     const plain = value => typeof value === 'string' && !value.includes('${') ? value : undefined
     const url = (process.env.ORRERY_URL ?? plain(env.ORRERY_URL) ?? 'http://localhost:9000').replace(/\/+$/, '')
-    return {url, project: process.env.ORRERY_PROJECT ?? plain(env.ORRERY_PROJECT) ?? basename(dir), dir}
+    const listed = plain(env.ORRERY_PROJECTS)?.split(',').map(p => p.trim()).filter(p => p && p !== '*')
+    const projects = process.env.ORRERY_PROJECT ? [process.env.ORRERY_PROJECT] : listed?.length ? listed : [plain(env.ORRERY_PROJECT) ?? basename(dir)]
+    return projects.map(project => ({url, project, dir}))
 }
 
 /** tmux, 3.2 or newer (`new-session -e` hands each session its launch); says what's wrong when it isn't. */
@@ -64,13 +71,14 @@ function tmuxProblem() {
 const args = process.argv.slice(2)
 const script = fileURLToPath(import.meta.url)
 if (args.includes('--install') || args.includes('--uninstall')) {
-    const entry = here()
     try {
-        if (args.includes('--uninstall')) {
-            const {config} = uninstall(entry, {script})
-            console.log(`Took ${entry.project} (${entry.url}) off the launcher.`)
-            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : 'Nothing was left on it, so the service is removed.')
-        } else {
+        for (const entry of here()) {
+            if (args.includes('--uninstall')) {
+                const {config} = uninstall(entry, {script})
+                console.log(`Took ${entry.project} (${entry.url}) off the launcher.`)
+                console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : 'Nothing was left on it, so the service is removed.')
+                continue
+            }
             const problem = tmuxProblem()
             if (problem) throw new Error(problem)
             try {
@@ -85,9 +93,9 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             const {config, logs} = install(entry, {script})
             console.log(`The launcher now starts sessions for ${entry.project} (${entry.url}) in ${entry.dir}, from login on.`)
             console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.`)
-            console.log(`Let Orrery start sessions on the project's Sessions tab, if it doesn't yet. Its log: ${logs}`)
-            console.log(`If claude hasn't run in ${entry.dir} before, run it there once to trust the folder.`)
+            console.log(`Let Orrery start sessions in its App settings, if it doesn't yet. Its log: ${logs}`)
         }
+        if (!args.includes('--uninstall')) console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
         process.exit(0)
     } catch (error) {
         log(error.message)
@@ -101,15 +109,14 @@ if (problem) {
     process.exit(1)
 }
 
-/** The sessions this launcher started, by launch id: their tmux session and the timer that stops each, and
- * how to tell their project's Orrery they ended. */
+/** The sessions this launcher started, by launch id: their tmux session, their stop time (none until stopped),
+ * and how to tell their project's Orrery they ended. */
 const running = new Map()
 
 /** Stops a session it started, and tells Orrery it ended by its launch (its own hook may not get the chance). */
 async function stop(id, why) {
     const session = running.get(id)
     if (!session) return
-    clearTimeout(session.timer)
     running.delete(id)
     try {
         tmux('kill-session', '-t', session.tmux)
@@ -120,20 +127,57 @@ async function stop(id, why) {
     await fetch(`${session.api}/launches/${id}/ended`, {method: 'POST'}).catch(() => {})
 }
 
-/** The tmux option a session keeps its stop time in, so a launcher that restarts can take it back. */
-const STOPS_AT = '@orrery_stops_at'
-
-/** Stops the session when `stops_at` comes (again, when the owner gives it longer). */
-function stopAt(id, stopsAt) {
+/** Opens a terminal window on this machine attached to a session it started, as the owner pressing Watch asks, in
+ * the app the Orrery's settings name. A session another launcher runs is that one's to open. */
+function watch(id, app) {
     const session = running.get(id)
     if (!session) return
-    clearTimeout(session.timer)
-    session.stops_at = stopsAt
-    session.timer = setTimeout(() => stop(id, 'its time is up'), Math.max(0, Date.parse(stopsAt) - Date.now()))
     try {
-        tmux('set-option', '-t', session.tmux, STOPS_AT, stopsAt)
+        const tmuxPath = execFileSync('sh', ['-c', 'command -v tmux'], {encoding: 'utf8'}).trim() || 'tmux'
+        const {command, args, file} = openWatch({app, tmux: tmuxPath, name: session.tmux})
+        if (file) {
+            mkdirSync(dirname(file.path), {recursive: true})
+            writeFileSync(file.path, file.text)
+        }
+        execFileSync(command, args, {stdio: 'ignore'})
+        log(`opened ${app ?? 'a terminal'} on ${session.tmux}`)
+    } catch (error) {
+        log(`couldn't open a terminal on ${session.tmux} (${error.message}); attach by hand: tmux attach -t ${session.tmux}`)
+    }
+}
+
+/** Gives a session it started a fresh context between pieces of work, as Orrery asks once it's idle: types
+ * `/clear` into it. Its channel stays, and its hooks hand the new context what's left to do. */
+async function clear(id) {
+    const session = running.get(id)
+    if (!session) return
+    try {
+        tmux('send-keys', '-t', session.tmux, '-l', '/clear')
+        await new Promise(resolve => setTimeout(resolve, 300))
+        tmux('send-keys', '-t', session.tmux, 'Enter')
+        log(`cleared ${session.tmux}'s context: its work was done`)
     } catch {
-        // It has ended; its timer finds it gone.
+        // It has ended.
+    }
+}
+
+/** The tmux option a session keeps its stop time in (`never` for one that runs until stopped), so a launcher
+ * that restarts can take it back. */
+const STOPS_AT = '@orrery_stops_at'
+const NEVER = 'never'
+/** And the context the owner started it with (JSON), for an Orrery that restarted to know it again. */
+const CONTEXT = '@orrery_context'
+
+/** Keeps the session's stop time (none: until stopped), for Orrery to know again after a restart. Orrery, not
+ * this, stops it when the time comes, as only Orrery knows whether it's done with its work. */
+function keepStopTime(id, stopsAt) {
+    const session = running.get(id)
+    if (!session) return
+    session.stops_at = stopsAt
+    try {
+        tmux('set-option', '-t', session.tmux, STOPS_AT, stopsAt ?? NEVER)
+    } catch {
+        // It has ended.
     }
 }
 
@@ -141,7 +185,7 @@ function stopAt(id, stopsAt) {
 const tmuxName = (project, id) => `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')
 
 /** Takes back the project's sessions a launcher before this one started (it died without stopping them),
- * with their stop times; one without a stop time is stopped, as nothing would. */
+ * with their stop times; one that kept none (from before they were kept) is stopped, as nothing would. */
 function adopt(project, api) {
     let names = []
     try {
@@ -160,18 +204,24 @@ function adopt(project, api) {
         } catch {
             // Started before stop times were kept.
         }
-        if (Number.isNaN(Date.parse(stopsAt))) {
+        if (stopsAt !== NEVER && Number.isNaN(Date.parse(stopsAt))) {
             stop(id, "it was started by a launcher before this one, and its time isn't known")
             continue
         }
-        stopAt(id, stopsAt)
-        log(`took back ${name}, running until ${new Date(stopsAt).toLocaleTimeString()}`)
+        keepStopTime(id, stopsAt === NEVER ? undefined : stopsAt)
+        try {
+            running.get(id).context = JSON.parse(tmux('show-options', '-v', '-t', name, CONTEXT))
+        } catch {
+            // Started with none.
+        }
+        log(`took back ${name}, running ${stopsAt === NEVER ? 'until stopped' : `until ${new Date(stopsAt).toLocaleTimeString()}`}`)
     }
 }
 
 /** Tells the project's Orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
-    const launches = [...running.entries()].filter(([, s]) => s.api === api && s.stops_at).map(([id, s]) => ({id, tmux: s.tmux, stops_at: s.stops_at}))
+    const launches = [...running.entries()].filter(([, s]) => s.api === api)
+        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
@@ -204,9 +254,10 @@ function serve({url, project, dir}) {
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after)}
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             'claude', '--dangerously-load-development-channels', `server:${channelIn(dir)?.name ?? project}`, '--permission-mode', mode)
-        running.set(launch.id, {tmux: launch.tmux, api})
-        stopAt(launch.id, new Date(Date.now() + launch.minutes * 60_000).toISOString())
-        log(`started ${launch.tmux} for ${launch.minutes} minutes; watch it with: tmux attach -t ${launch.tmux}`)
+        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context})
+        if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
+        keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)
+        log(`started ${launch.tmux} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
         getPast(launch.id, dir).catch(error => log(`${launch.tmux}: ${error.message}`))
     }
 
@@ -217,16 +268,21 @@ function serve({url, project, dir}) {
                 await report(api)
                 const {starts} = JSON.parse(data)
                 log(starts
-                    ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes} minutes each`
-                    : `connected, but ${project} doesn't let Orrery start sessions yet: turn it on from its Sessions tab`)
+                    ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
+                    : "connected, but Orrery doesn't start sessions yet: turn it on in its App settings")
             } else if (event === 'launch') {
                 await start(JSON.parse(data)).catch(error => log(`couldn't start a session for ${project}: ${error.message}`))
             } else if (event === 'stop') {
-                await stop(JSON.parse(data).id, 'the owner stopped it')
+                await stop(JSON.parse(data).id, 'Orrery asked for it to stop')
             } else if (event === 'extend') {
                 const {id, stops_at} = JSON.parse(data)
-                stopAt(id, stops_at)
+                keepStopTime(id, stops_at)
                 if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stops_at).toLocaleTimeString()}`)
+            } else if (event === 'clear') {
+                await clear(JSON.parse(data).id)
+            } else if (event === 'watch') {
+                const {id, terminal} = JSON.parse(data)
+                watch(id, terminal)
             }
         },
         log: (...parts) => log(`${project}:`, ...parts),
@@ -241,7 +297,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 // As the service, every project on the list; in a terminal, the repo's.
-const projects = args.includes('--service') ? readConfig().projects : [here()]
+const projects = args.includes('--service') ? readConfig().projects : here()
 if (!projects.length) {
     log(`no project is on ${configFile()}: run this with --install in a project's repo`)
     process.exit(0)

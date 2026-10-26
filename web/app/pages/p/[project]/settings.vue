@@ -2,7 +2,7 @@
 import {TINTS} from '#shared/roadmap'
 
 // A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, and deleting
-// the project, for good. Its schedules have a page of their own, and so does starting its sessions (Sessions).
+// the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
@@ -271,6 +271,17 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           </p>
         </header>
         <FocusPrompts :project="project" />
+      </section>
+
+      <section id="presets" class="flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
+          <p class="text-xs text-muted">
+            Saved context to give {{ project.name }}'s sessions as you start them, beside the Orrery's (on
+            <NuxtLink to="/settings#presets" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>).
+          </p>
+        </header>
+        <PresetSettings :project="project" />
       </section>
 
       <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">

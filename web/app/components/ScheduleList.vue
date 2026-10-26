@@ -4,8 +4,9 @@ import type {Schedule} from '#shared/roadmap'
 // Schedules as an agenda, by when they run next: today, tomorrow, this week, later, then paused (and
 // one-offs that have run). A row says when it repeats, when it runs next and how its last run went;
 // clicking edits it, right-clicking opens its menu, and its pause button (on hover, or while paused)
-// pauses or resumes it.
-const props = defineProps<{schedules: Schedule[]}>()
+// pauses or resumes it. With `projects`, a row says which project it's on (every project's, in one list).
+const props = defineProps<{schedules: Schedule[], projects?: boolean}>()
+const {byId} = useRoadmaps()
 const {edit, openMenu, pause} = useSchedules()
 const {open: openIssue} = useIssueLink()
 
@@ -82,7 +83,7 @@ const OUTCOME = {
         <div class="flex min-w-0 flex-1 flex-col">
           <span class="truncate text-fg">{{ s.title }}</span>
           <span class="truncate text-xs text-faint">
-            {{ describe(s) }}<template v-if="s.kind === 'message'"> · messages the sessions</template><template v-else-if="s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template>
+            <template v-if="projects">{{ byId(s.project)?.name ?? s.project }} · </template>{{ describe(s) }}<template v-if="s.kind === 'message'"> · messages the sessions</template><template v-else-if="s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template>
           </span>
         </div>
         <span v-if="s.runs[0]" class="hidden shrink-0 items-center gap-1 text-xs md:flex" :class="OUTCOME[s.runs[0].outcome]" :title="s.runs[0].note ?? ''">

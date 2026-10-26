@@ -9,6 +9,10 @@ describe('a focus prompt', () => {
         expect(renderPrompt(DEFAULT_FOCUS_PROMPT, {...values, note: 'soon'})).toContain('\nNote: soon\n')
     })
 
+    it("takes an object's built-in names for unknown placeholders", () => {
+        expect(renderPrompt('Do {constructor} and {toString}', values)).toBe('Do {constructor} and {toString}')
+    })
+
     it('keeps a line with no placeholders, and an unknown placeholder as written', () => {
         expect(renderPrompt('Hi {actor}.\nBe kind.\n{nope} stays', values)).toBe('Hi skoll_fenrisson.\nBe kind.\n{nope} stays')
     })

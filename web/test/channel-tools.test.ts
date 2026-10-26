@@ -1,18 +1,18 @@
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {TOOLS, orreryTools} from '../../channel/tools.mjs'
+import {TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
-/** The tools against a pretend Orrery: `answers` by `METHOD path`, every call kept. */
-function harness(answers: Record<string, {status?: number, body: unknown}>) {
+/** The tools against a pretend Orrery: `answers` by `METHOD path` (`raw` for a body that isn't JSON), every call kept. */
+function harness(answers: Record<string, {status?: number, body?: unknown, raw?: string}>) {
     const calls: Call[] = []
     const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
         const path = url.replace('http://o/api/projects/larder', '').replace('http://o/api', '')
         calls.push({method: init.method, url: path, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined})
         const answer = answers[`${init.method} ${path.split('?')[0]}`] ?? {status: 404, body: {message: `No ${path}`}}
         const status = answer.status ?? 200
-        return {ok: status < 400, status, statusText: '', text: async () => JSON.stringify(answer.body)}
+        return {ok: status < 400, status, statusText: '', text: async () => answer.raw ?? JSON.stringify(answer.body)}
     }
     const call = orreryTools({api: 'http://o/api/projects/larder', session: 'abc', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
     return {calls, call: async (name: string, args?: object) => {
@@ -54,12 +54,23 @@ describe("the channel's tools", () => {
         expect(calls[1]!.url).toBe('/issues?status=done&q=old')
     })
 
-    it('make a proposal, and finish with a comment first', async () => {
+    it('make a proposal, and finish with the status first, then the comment', async () => {
         const {call, calls} = harness({'POST /issues': {body: issue({proposal: 'pending'})}, 'POST /issues/LAR-1/comments': {body: {id: 1}}, 'PATCH /issues/LAR-1': {body: issue({status: 'in-review'})}})
         await call('create_issue', {title: 'Shelves', proposal: true})
         expect(calls[0]!.body).toEqual({title: 'Shelves', proposal: 'pending'})
         expect((await call('finish_issue', {id: 'LAR-1', comment: 'Built', status: 'in-review'})).text).toBe('In review: LAR-1 [in-review] Shelves')
-        expect(calls.slice(1).map(c => c.method)).toEqual(['POST', 'PATCH'])
+        expect(calls.slice(1).map(c => c.method)).toEqual(['PATCH', 'POST'])
+    })
+
+    it('leave no comment when finishing is refused', async () => {
+        const {call, calls} = harness({'PATCH /issues/LAR-1': {status: 403, body: {message: 'Not yours'}}, 'POST /issues/LAR-1/comments': {body: {id: 1}}})
+        expect(await call('finish_issue', {id: 'LAR-1', comment: 'Built'})).toEqual({error: true, text: 'Orrery said no: Not yours'})
+        expect(calls.map(c => c.method)).toEqual(['PATCH'])
+    })
+
+    it("say the status when what answers isn't Orrery", async () => {
+        const {call} = harness({'GET /issues': {status: 502, raw: '<html>Bad Gateway</html>'}})
+        expect(await call('issues')).toEqual({error: true, text: "Orrery said no: 502, not an answer from Orrery"})
     })
 
     it('list the releases, and the issues in one', async () => {
@@ -77,5 +88,49 @@ describe("the channel's tools", () => {
         const {call} = harness({'PATCH /issues/LAR-1': {status: 400, body: {message: '"status" is "soon"'}}})
         expect(await call('update_issue', {id: 'LAR-1', status: 'soon'})).toEqual({error: true, text: 'Orrery said no: "status" is "soon"'})
         expect((await call('nope')).error).toBe(true)
+    })
+})
+
+describe('one channel serving several projects', () => {
+    /** The tools on larder (LAR) and pantry (PAN) at a pretend Orrery: `answers` by `METHOD path` under /api. */
+    function several(answers: Record<string, unknown>) {
+        const calls: Call[] = []
+        const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
+            const path = url.replace('http://o/api', '')
+            calls.push({method: init.method, url: path, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined})
+            const body = answers[`${init.method} ${path.split('?')[0]}`]
+            return {ok: body !== undefined, status: body === undefined ? 404 : 200, statusText: '', text: async () => JSON.stringify(body ?? {message: `No ${path}`})}
+        }
+        const call = orreryTools({root: 'http://o/api', projects: ['larder', 'pantry'], session: 'abc', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        return {calls, call: async (name: string, args?: object) => {
+            const result = await call(name, args)
+            return {error: !!result.isError, text: result.content[0]!.text}
+        }}
+    }
+    const projects = [{id: 'larder', key: 'LAR'}, {id: 'pantry', key: 'PAN'}, {id: 'garden', key: 'GAR'}]
+
+    it("find an issue's project from its id's key", async () => {
+        const {call, calls} = several({'GET /projects': projects, 'PATCH /projects/pantry/issues/PAN-3': issue({id: 'PAN-3', status: 'in-review'}), 'POST /projects/pantry/issues/PAN-3/comments': {id: 1}})
+        expect((await call('finish_issue', {id: 'PAN-3', comment: 'Built', status: 'in-review'})).text).toBe('In review: PAN-3 [in-review] Shelves')
+        expect(calls.map(c => c.url)).toEqual(['/projects', '/projects/pantry/issues/PAN-3', '/projects/pantry/issues/PAN-3/comments'])
+        // A key of a project it doesn't serve is refused, saying which it does.
+        expect((await call('issue', {id: 'GAR-1'})).text).toBe("Orrery said no: GAR-1 isn't an issue of larder, pantry: its key is none of theirs")
+    })
+
+    it('take the project for the others, refusing none or one it doesn\'t serve', async () => {
+        const {call, calls} = several({'GET /projects/larder/docs': [{id: 'stack', title: 'The stack'}]})
+        expect((await call('docs', {project: 'larder'})).text).toBe('stack: The stack')
+        expect(calls[0]!.url).toBe('/projects/larder/docs')
+        expect((await call('docs')).text).toBe('Orrery said no: Say which project: larder, pantry')
+        expect((await call('docs', {project: 'garden'})).text).toBe('Orrery said no: This server serves larder, pantry, not garden')
+    })
+
+    it('list the project argument, required, on the tools that work on one project', () => {
+        const tools = toolsFor(['larder', 'pantry']) as {name: string, inputSchema: {required?: string[], properties: Record<string, {enum?: string[]}>}}[]
+        const docs = tools.find(t => t.name === 'docs')!
+        expect(docs.inputSchema.required).toEqual(['project'])
+        expect(docs.inputSchema.properties.project!.enum).toEqual(['larder', 'pantry'])
+        expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
+        expect(toolsFor(['larder'])).toBe(TOOLS)
     })
 })

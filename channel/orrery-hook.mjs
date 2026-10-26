@@ -4,7 +4,8 @@
 // PreToolUse, Stop, Notification and SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT
 // (and ORRERY_URL) set. It never fails the hook, and prints nothing (a hook's output goes to Claude) but
 // after a `/clear`, a compaction or a resume: then Orrery's brief of what the session was working on, which
-// Claude Code adds to the fresh context so the work carries on.
+// Claude Code adds to the fresh context so the work carries on. A session Orrery started with context gets that
+// in the brief too, as it starts and after each of those.
 import {basename} from 'node:path'
 import {claudeWindow} from './session.mjs'
 
@@ -29,6 +30,8 @@ try {
             // `clear` on SessionEnd keeps the window; SessionStart's `source` says if the context was cleared.
             reason: hook.reason,
             source: hook.source,
+            // The launch Orrery started this session for (the launcher hands it down), for the context it was given.
+            started: process.env.ORRERY_STARTED,
             // Which issues it's about to write to: an owner's comment on one goes to this session.
             command: hook.hook_event_name === 'PreToolUse' && hook.tool_name === 'Bash' ? String(hook.tool_input?.command ?? '').slice(0, 4000) : undefined,
         }),

@@ -4,8 +4,8 @@ import {expect, test} from '@playwright/test'
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
 // them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
 // issues starting on the open ones, what changed since the owner looked, and ticked issues changed
-// together; then a chunk made, edited and removed from its page, and an image in a new issue and a
-// comment; then a changed doc and what changed in it; then a release, and a project drawing on it.
+// together; then a chunk made, edited and removed from its page, an image in a new issue and a comment,
+// and the owner editing and deleting their own comment; then a changed doc and what changed in it; then a release, and a project drawing on it.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -171,7 +171,12 @@ test('ticks issues and changes them together', async ({page, request}) => {
     const b = await api(request, 'post', '/issues', {title: 'Date the flour'})
     await page.goto('/p/larder?view=list')
     await page.getByRole('checkbox', {name: `Select ${a.id}`}).click()
-    await page.getByRole('checkbox', {name: `Select ${b.id}`}).click()
+    // A click that just misses the box, at the row's edge beside it, ticks too instead of opening the issue.
+    const row = (await page.locator(`[data-issue="${b.id}"]`).boundingBox())!
+    const box = (await page.getByRole('checkbox', {name: `Select ${b.id}`}).locator('span').boundingBox())!
+    await page.mouse.click(box.x - 4, row.y + 2)
+    await expect(page.getByRole('checkbox', {name: `Select ${b.id}`})).toHaveAttribute('aria-checked', 'true')
+    await expect(page).toHaveURL(/\/p\/larder\?view=list$/)
     const bar = page.getByRole('toolbar', {name: 'Change the ticked issues'})
     await expect(bar.getByText('2 selected')).toBeVisible()
     await bar.getByRole('button', {name: 'Priority'}).click()
@@ -230,6 +235,33 @@ test('puts a picked image in a new issue, and in a comment on it', async ({page,
     await expect(page.getByRole('textbox', {name: 'Comment'})).toHaveValue(/!\[shelf\]/)
     await page.getByRole('button', {name: 'Comment', exact: true}).click()
     await expect.poll(async () => (await api(request, 'get', `/issues/${id}/comments`)).at(-1)?.body).toMatch(/^!\[shelf\]\(\/api\/uploads\//)
+})
+
+test("edits and deletes the owner's own comment, but not an agent's", async ({page, request}) => {
+    const {id} = await api(request, 'post', '/issues', {title: 'Oil the hinges'})
+    await api(request, 'post', `/issues/${id}/comments`, {body: 'Bought the oil'})
+    await page.goto(`/p/larder/issues/${id}`)
+    await page.getByRole('textbox', {name: 'Comment'}).fill('Use the thin oil')
+    await page.getByRole('button', {name: 'Comment', exact: true}).click()
+    const mine = page.locator('li').filter({hasText: 'Use the thin oil'})
+    await expect(mine).toBeVisible()
+    await expect(page.locator('li').filter({hasText: 'Bought the oil'}).getByRole('button', {name: 'Edit'})).toHaveCount(0)
+
+    await mine.hover()
+    await mine.getByRole('button', {name: 'Edit'}).click()
+    const field = page.getByRole('textbox', {name: 'Edit comment'})
+    await expect(field).toHaveValue('Use the thin oil')
+    await field.fill('Use the thick oil')
+    await field.press('Meta+Enter')
+    await expect(page.locator('li').filter({hasText: 'Use the thick oil'})).toContainText('edited')
+    expect((await api(request, 'get', `/issues/${id}/comments`)).at(-1)).toMatchObject({body: 'Use the thick oil'})
+
+    const edited = page.locator('li').filter({hasText: 'Use the thick oil'})
+    await edited.hover()
+    await edited.getByRole('button', {name: 'Delete'}).click()
+    await edited.getByRole('button', {name: 'Delete', exact: true}).click()
+    await expect(edited).toHaveCount(0)
+    expect((await api(request, 'get', `/issues/${id}/comments`)).map((c: {body: string}) => c.body)).toEqual(['Bought the oil'])
 })
 
 test('turns a Before and an After picture into a slider between them', async ({page, request}) => {

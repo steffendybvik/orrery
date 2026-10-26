@@ -53,6 +53,18 @@ describe('a session', () => {
         expect(sessions.report({id: 'a', project: 'larder', event: 'Stop'})!.since).toBe('2026-10-25T10:01:00.000Z')
     })
 
+    it('keeps when its hooks last said it went idle, for a repeat to wait on', () => {
+        vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
+        sessions.attend('larder', 'a', undefined, undefined)
+        expect(sessions.idleAt('a')).toBeUndefined()
+        sessions.report({id: 'a', project: 'larder', event: 'Stop'})
+        expect(sessions.idleAt('a')).toBe(Date.parse('2026-10-25T10:00:00Z'))
+        vi.setSystemTime(new Date('2026-10-25T10:05:00Z'))
+        sessions.report({id: 'a', project: 'larder', event: 'working'})
+        expect(sessions.idleAt('a')).toBe(Date.parse('2026-10-25T10:00:00Z'))
+        expect(sessions.listSessions('larder')[0]).not.toHaveProperty('idleAt')
+    })
+
     it('first heard of by its pid takes its id when a hook brings it, and keeps no pid in public', () => {
         expect(sessions.report({pid: 42, project: 'larder', event: 'SessionStart'})?.id).toBe('pid-42')
         const now = sessions.report({id: 'abc', pid: 42, project: 'larder', cwd: '/repo', event: 'UserPromptSubmit'})!
@@ -111,6 +123,24 @@ describe('a session', () => {
         docs.done()
         docs.done()
         expect(sessions.hearing('docs', 'w')).toBe(false)
+    })
+
+    it('heard on several projects by one channel, keeps its own and shows on each', () => {
+        sessions.report({id: 'w', project: 'hub', event: 'SessionStart'})
+        sessions.attend('hub', 'w', undefined, undefined)
+        const pos = sessions.attend('pos', 'w', undefined, undefined)
+        expect(sessions.listSessions('pos')).toMatchObject([{id: 'w', project: 'hub', listening: true, also: ['pos']}])
+        expect(sessions.listSessions('hub')).toHaveLength(1)
+        expect([sessions.hearing('hub', 'w'), sessions.hearing('pos', 'w'), sessions.hearing('css', 'w')]).toEqual([true, true, false])
+        pos.done()
+        expect(sessions.listSessions('pos')).toEqual([])
+    })
+
+    it('started for a project by Orrery, is on it, and counts toward its limit only', () => {
+        sessions.attend('hub', 'w', undefined, undefined)
+        sessions.attend('pos', 'w', undefined, undefined, true, {launch: 'l1', tmux: 't', stops_at: '2999-01-01T00:00:00.000Z'})
+        expect(sessions.listSessions('pos')[0]).toMatchObject({project: 'pos', also: ['hub']})
+        expect([sessions.startedSessions('pos'), sessions.startedSessions('hub')]).toEqual([1, 0])
     })
 
     it('stays listening while a reconnect overlaps the stream it replaces', () => {

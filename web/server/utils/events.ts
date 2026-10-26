@@ -13,9 +13,22 @@ projectEvents.setMaxListeners(0)
 
 let store: Store | null = null
 
+/** Each project's latest re-read, so one that finishes after a newer one doesn't push a stale board. */
+const reads = new Map<string, number>()
+
 export function useStore(): Store {
     store ??= new Store(useDatabase(), id => {
-        store!.project(id).then(project => projectEvents.emit('project', project), () => projectEvents.emit('removed', id))
+        const read = (reads.get(id) ?? 0) + 1
+        reads.set(id, read)
+        store!.project(id).then(project => {
+            if (reads.get(id) === read) projectEvents.emit('project', project)
+        }, error => {
+            // Only a project that's gone is removed; any other failure leaves the pages as they are.
+            if ((error as {statusCode?: number}).statusCode === 404) {
+                reads.delete(id)
+                projectEvents.emit('removed', id)
+            } else console.error(`[orrery] reading ${id} again:`, error)
+        })
     }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
     store.hears = hearing
     return store
@@ -63,7 +76,16 @@ export const listen = listeners.add
 
 /** A route's `:name` part, decoded. */
 export function param(event: H3Event, name: string): string {
-    return decodeURIComponent(getRouterParam(event, name) ?? '')
+    return decoded(getRouterParam(event, name) ?? '')
+}
+
+/** A part of an address, decoded; as it is when it's no valid escape (`ORR-%E0`), so it's simply not found. */
+export function decoded(part: string): string {
+    try {
+        return decodeURIComponent(part)
+    } catch {
+        return part
+    }
 }
 
 export function commentId(event: H3Event): number {
