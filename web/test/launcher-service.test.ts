@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {plist, readConfig, systemdUnit, withProject, withoutProject} from '../../channel/launcher-service.mjs'
+import {adoptable, pidAlive, plist, readConfig, systemdUnit, withProject, withoutProject} from '../../channel/launcher-service.mjs'
 
 const larder = {url: 'http://localhost:9000', project: 'larder', dir: '/code/larder'}
 const opts = {node: '/opt/homebrew/bin/node', script: '/code/orrery/channel/orrery-launcher.mjs', path: '/opt/homebrew/bin:/usr/bin', log: '/Users/me/Library/Logs/orrery-launcher.log'}
@@ -40,5 +40,24 @@ describe("the service's file", () => {
             expect(execFileSync('plutil', ['-lint', at], {encoding: 'utf8'})).toContain('OK')
         }
         expect(systemdUnit({...opts, path: '/my "bin"'})).toContain('ExecStart="/opt/homebrew/bin/node" "/code/orrery/channel/orrery-launcher.mjs" --service\nEnvironment="PATH=/my \\"bin\\""\nRestart=on-failure')
+    })
+})
+
+describe('taking over a running session', () => {
+    const alive = (pid: number) => pid === 4242
+
+    it("leaves a session to the launcher that runs it while that one lives", () => {
+        expect(adoptable('4242', 100, alive)).toBe(false)
+    })
+
+    it('takes it once that launcher is gone, or it was its own, or no launcher was kept', () => {
+        expect(adoptable('5151', 100, alive)).toBe(true)
+        expect(adoptable('100', 100, alive)).toBe(true)
+        expect(adoptable('', 100, alive)).toBe(true)
+        expect(adoptable('not a pid', 100, alive)).toBe(true)
+    })
+
+    it('sees this process as running', () => {
+        expect(pidAlive(process.pid)).toBe(true)
     })
 })
