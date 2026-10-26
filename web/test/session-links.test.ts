@@ -10,7 +10,7 @@ beforeEach(async () => {
     worked = []
     const store = {
         workedBy: async (project: string, issue: string, session: string) => void worked.push([project, issue, session]),
-        claim: async () => {},
+        claimed: async (_project: string, _issue: string, _status: unknown, _session: string, write: () => Promise<unknown>) => write(),
         createIssue: async (project: string) => ({project, id: 'LAR-9'}),
         updateIssue: async (project: string, id: string, body: {project?: string}) => ({project: body.project ?? project, id: body.project ? 'PAN-4' : id}),
     }

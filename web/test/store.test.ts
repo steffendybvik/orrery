@@ -1227,6 +1227,19 @@ describe('starting an issue', () => {
         await store.claim('larder', shelves, undefined, 'second')
     })
 
+    it('goes to one session only when two start it at once', async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        const start = (session: string) => store.claimed('larder', shelves, 'in-progress', session, () => store.updateIssue('larder', shelves, {status: 'in-progress'}))
+        const [first, second] = await Promise.allSettled([start('first'), start('second')])
+        expect(first.status).toBe('fulfilled')
+        expect(second).toMatchObject({status: 'rejected', reason: {statusCode: 409}})
+        expect(await store.workingOn('larder', ['first'])).toHaveLength(1)
+        expect(await store.workingOn('larder', ['second'])).toEqual([])
+        // A refusal doesn't hold up the next write, and one without a status doesn't wait.
+        await store.claimed('larder', shelves, 'done', 'second', () => store.updateIssue('larder', shelves, {status: 'done'}))
+        expect(await store.claimed('larder', shelves, undefined, 'second', async () => 'written')).toBe('written')
+    })
+
     it('is free once the session on it is gone, or when it was never started', async () => {
         const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
         const jars = (await store.createIssue('larder', {title: 'Jars', status: 'todo'})).id

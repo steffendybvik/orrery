@@ -342,6 +342,30 @@ export class Store {
             ON CONFLICT (project, issue) DO UPDATE SET session = excluded.session, at = excluded.at`, project, issue, session, stamp(), project, issue)
     }
 
+    /** Each issue's write in `claimed` under way, so the next waits for it. */
+    private readonly claiming = new Map<string, Promise<unknown>>()
+
+    /** A session's write to an issue, `status` and all, one at a time for the issue: the claim, the write and tying
+     * the session to the issue happen together, so two sessions starting it at once can't both pass the claim
+     * before either has it. The second waits, then finds the first on it. */
+    async claimed<T>(project: string, issue: string, status: Input[string], session: string, write: () => Promise<T>): Promise<T> {
+        if (status === undefined) return write()
+        const key = `${project}\n${await this.issueId(project, issue)}`
+        const run = (this.claiming.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
+            await this.claim(project, issue, status, session)
+            const written = await write()
+            // One the write moved to another project is tied there by its route.
+            await this.workedBy(project, issue, session).catch(() => {})
+            return written
+        })
+        this.claiming.set(key, run)
+        try {
+            return await run
+        } finally {
+            if (this.claiming.get(key) === run) this.claiming.delete(key)
+        }
+    }
+
     /** Refuses `session` starting an issue (`status` a started one, in review too) that another session already
      * has started while that one is there to hear: every session is `claude`, so two that heard the same message would
      * otherwise both take it up. One no session is on any more is free to take over. */
