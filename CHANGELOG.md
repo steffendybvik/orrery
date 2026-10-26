@@ -26,6 +26,7 @@ the database schema are the public surface, and a database always migrates forwa
 - **Sessions and schedules across projects in the sidebar:** under Connect an agent, Sessions opens every
   project's sessions, and Schedules a new page with every project's schedules in one agenda, each saying
   its project; a new one is made in the project picked.
+  Start session and New schedule sit on a toolbar on those pages.
 - **Edit and delete your own comments:** the owner's comments on an issue page have Edit and Delete. An edit
   that changes the words goes to the session on the issue again, saying it replaces the earlier comment.
 - **Signals don't slip through a reconnect:** a session's stream hears live signals before reading what it
