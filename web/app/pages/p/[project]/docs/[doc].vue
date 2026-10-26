@@ -20,17 +20,21 @@ const missing = ref(false)
 // for the whole visit, so changes coming in while it's open are tinted too.
 const {lastRead, read} = useUnseen()
 const before = ref<{key: string, body?: string} | null>(null)
-watch(() => [route.params.project, route.params.doc, summary.value?.updated_at] as const, async ([p, d]) => {
+// A reply that comes after you've moved on (another doc, or a newer change) is let go.
+watch(() => [route.params.project, route.params.doc, summary.value?.updated_at] as const, async ([p, d], _, onCleanup) => {
     if (!p || !d) return
+    let left = false
+    onCleanup(() => left = true)
     try {
         const fetched = await $fetch<Doc>(`/api/projects/${encodeURIComponent(String(p))}/docs/${encodeURIComponent(String(d))}`)
+        if (left) return
         const key = `${fetched.project}/${fetched.id}`
         if (before.value?.key !== key) before.value = {key, body: lastRead(fetched.project, fetched.id)}
         read(fetched.project, fetched.id, fetched.body)
         doc.value = fetched
         missing.value = false
     } catch {
-        missing.value = true
+        if (!left) missing.value = true
     }
 }, {immediate: true})
 

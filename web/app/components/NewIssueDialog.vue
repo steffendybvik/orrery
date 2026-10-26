@@ -27,12 +27,14 @@ const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
 const notesInput = ref<HTMLTextAreaElement | null>(null)
-const {uploading, failed: uploadError, dragging, upload, onPaste, onDrop} = useImageUpload(notes, notesInput)
+const {uploading, failed: uploadError, dragging, upload, reset: resetUploads, onPaste, onDrop} = useImageUpload(notes, notesInput)
 // Where it starts: Proposed or any open status.
 const {places} = useStatuses()
 const WHERE = computed(() => places.value.filter(p => !isClosed(p.kind)))
 
 watch(target, now => {
+    // An image still on its way from an earlier open stays out of this one.
+    resetUploads()
     if (!now) return
     title.value = ''
     notes.value = ''
@@ -41,7 +43,7 @@ watch(target, now => {
     labels.value = []
     column.value = WHERE.value.find(w => w.kind === 'backlog')?.id ?? 'backlog'
     ask.value = false
-    failed.value = uploadError.value = ''
+    failed.value = ''
     nextTick(() => titleInput.value?.focus())
 })
 
