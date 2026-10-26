@@ -25,6 +25,7 @@ or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
 - Match the code around you: its naming, its comment density, plain words over jargon
 - A comment says what something is for or why it's so, not what the next line does
 - UI copy is short and in the same voice as the rest of the page
+- Build the page from [its components](docs/components.md) (`UiButton`, `UiDialog`, `UiMenuItem`, `PropertyPicker`, …) rather than new markup; when none fits, add one and say so there
 
 ## Commits
 

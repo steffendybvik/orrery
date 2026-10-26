@@ -124,10 +124,10 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
             Set an issue's release on its page.
           </p>
         </div>
-        <button v-if="!making && project.release_mode === 'own'" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium whitespace-nowrap text-white hover:opacity-90" @click="startMaking">
+        <UiButton v-if="!making && project.release_mode === 'own'" variant="primary" class="shrink-0" @click="startMaking">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
           New release
-        </button>
+        </UiButton>
       </header>
 
       <form v-if="making" class="flex flex-col gap-3 rounded-xl border border-line p-4" @submit.prevent="make" @keydown.esc="cancel">
@@ -141,8 +141,8 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
             <input v-model="branch" placeholder="v1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-56 field font-mono" @input="branchTyped = true">
           </label>
           <div class="flex items-center gap-2">
-            <button type="submit" class="h-8 rounded-lg bg-accent-500 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy || !version.trim()">{{ busy ? 'Making…' : 'Make it' }}</button>
-            <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="cancel">Cancel</button>
+            <UiButton type="submit" variant="primary" size="md" :disabled="busy || !version.trim()">{{ busy ? 'Making…' : 'Make it' }}</UiButton>
+            <UiButton size="md" @click="cancel">Cancel</UiButton>
           </div>
         </div>
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>

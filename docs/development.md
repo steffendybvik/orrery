@@ -31,6 +31,12 @@ packages as it starts.
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
 
+## The page's pieces
+
+Buttons, dialogs, menus and confirmations come from a small kit in `web/app/components/ui/`, and the
+rest of the shared pieces (pickers, icons, chips) are one component each. [UI components](components.md)
+lists them and when to use which: reach for one before writing the markup again.
+
 ## Checks
 
 `pnpm test` (the column rules, the store, schedules) · `pnpm typecheck`

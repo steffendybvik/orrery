@@ -72,7 +72,6 @@ async function remove(status: IssueStatus) {
 }
 
 const field = 'h-7 rounded-md bg-transparent px-1.5 text-[13px] text-fg hover:bg-hover focus:bg-well focus:ring-1 focus:ring-accent-500/50 focus:outline-none'
-const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:bg-hover hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent'
 </script>
 
 <template>
@@ -81,7 +80,7 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
       <div class="flex items-center gap-2 px-1.5 pb-1">
         <span class="text-xs font-medium text-fg">{{ KIND_LABEL[kind].label }}</span>
         <span class="text-xs text-faint">{{ KIND_LABEL[kind].hint }}</span>
-        <button type="button" class="ml-auto rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-fg" @click="adding = kind; newName = ''">+ Add</button>
+        <UiButton variant="ghost" size="xs" class="ml-auto" @click="adding = kind; newName = ''">+ Add</UiButton>
       </div>
       <div v-for="(status, i) in list" :key="status.id" class="flex flex-col">
         <div class="group flex items-center gap-2 rounded-lg px-1.5 py-0.5 hover:bg-hover/60">
@@ -109,22 +108,23 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
                 :disabled="busy"
                 @click="patch(status, {color: name})"
             />
-            <button type="button" :class="iconButton" :disabled="busy || i === 0" :aria-label="`Move ${status.name} up`" @click="move(list, i, -1)">
+            <UiButton variant="ghost" size="xs" square :disabled="busy || i === 0" :aria-label="`Move ${status.name} up`" @click="move(list, i, -1)">
               <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6" /></svg>
-            </button>
-            <button type="button" :class="iconButton" :disabled="busy || i === list.length - 1" :aria-label="`Move ${status.name} down`" @click="move(list, i, 1)">
+            </UiButton>
+            <UiButton variant="ghost" size="xs" square :disabled="busy || i === list.length - 1" :aria-label="`Move ${status.name} down`" @click="move(list, i, 1)">
               <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-            </button>
-            <button
-                type="button"
-                :class="iconButton"
+            </UiButton>
+            <UiButton
+                variant="ghost"
+                size="xs"
+                square
                 :disabled="busy || list.length === 1"
                 :title="list.length === 1 ? `The only ${kind} status stays` : `Remove ${status.name}`"
                 :aria-label="`Remove ${status.name}`"
                 @click="askRemove(status)"
             >
               <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-            </button>
+            </UiButton>
           </span>
         </div>
         <div v-if="removing === status.id" class="flex flex-wrap items-center gap-2 px-8 py-1.5 text-xs text-muted">
@@ -132,8 +132,8 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
           <select v-model="into" aria-label="Move its issues to" class="h-7 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:outline-none">
             <option v-for="s in statuses.filter(s => s.id !== status.id)" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
-          <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy" @click="remove(status)">Remove</button>
-          <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover" @click="removing = null">Cancel</button>
+          <UiButton variant="danger" :disabled="busy" @click="remove(status)">Remove</UiButton>
+          <UiButton @click="removing = null">Cancel</UiButton>
         </div>
       </div>
       <form v-if="adding === kind" class="flex items-center gap-2 px-1.5 pt-1" @submit.prevent="add(kind)">
@@ -145,7 +145,7 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
             class="h-7 w-72 max-w-full rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
             @keydown.esc="adding = null"
         >
-        <button type="submit" class="h-7 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy || !newName.trim()">Add</button>
+        <UiButton type="submit" variant="primary" :disabled="busy || !newName.trim()">Add</UiButton>
       </form>
     </div>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>

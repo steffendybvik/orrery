@@ -50,6 +50,6 @@ const columns = computed(() => order.value.map(c => ({value: c.id as Column, lab
       <template #option="{value}"><PersonAvatar v-if="value !== 'none'" :name="value" :size="14" /><span v-else class="size-3.5 rounded-full border border-dashed border-faint" /></template>
     </FilterMenu>
     <FilterMenu v-if="labels.length" v-model="filters.labels" label="Label" :options="labels" class="hidden sm:block" />
-    <button v-if="changed" type="button" title="Back to the open issues" class="h-7 shrink-0 rounded-md px-2 text-xs text-muted hover:bg-hover hover:text-fg" @click="clear">Clear</button>
+    <UiButton v-if="changed" variant="ghost" class="shrink-0" title="Back to the open issues" @click="clear">Clear</UiButton>
   </div>
 </template>

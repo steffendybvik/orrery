@@ -96,13 +96,13 @@ const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs 
     <div class="glass pointer-events-auto flex max-w-full flex-col gap-2 rounded-2xl px-3 py-2 shadow-lg" role="toolbar" aria-label="Change the ticked issues">
       <div v-if="selected.length" class="flex flex-wrap items-center gap-2">
         <span class="text-[13px] font-medium text-fg">{{ selected.length }} selected</span>
-        <button type="button" class="rounded-md px-1.5 py-0.5 text-xs text-faint hover:bg-hover hover:text-fg" title="Clear (Esc)" @click="clear">Clear <KeyHint>esc</KeyHint></button>
+        <UiButton variant="ghost" size="xs" title="Clear (Esc)" @click="clear">Clear <KeyHint>esc</KeyHint></UiButton>
         <span class="mx-1 h-5 w-px bg-line" />
         <template v-if="proposals">
           <input v-model="note" aria-label="A note with your decision" placeholder="A note for all of them (optional)" class="h-7 w-56 rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
-          <button type="button" class="h-7 rounded-md bg-emerald-600 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="busy" title="Each takes its recommended picks; one with none is skipped" @click="decide('approved')">Approve</button>
-          <button type="button" :class="button" :disabled="busy" @click="decide('changes')">Request changes</button>
-          <button type="button" class="h-7 rounded-md px-2 text-xs text-rose-600 ring-1 ring-rose-500/40 hover:bg-rose-500/10 disabled:opacity-40 dark:text-rose-400" :disabled="busy" @click="decide('rejected')">Reject</button>
+          <UiButton variant="success" :disabled="busy" title="Each takes its recommended picks; one with none is skipped" @click="decide('approved')">Approve</UiButton>
+          <UiButton :disabled="busy" @click="decide('changes')">Request changes</UiButton>
+          <UiButton variant="danger-outline" :disabled="busy" @click="decide('rejected')">Reject</UiButton>
         </template>
         <template v-else>
           <PropertyPicker v-model="status" :options="statusOptions" label="Status" up :disabled="busy"><span :class="button">Status</span></PropertyPicker>
@@ -114,12 +114,12 @@ const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs 
           <PropertyPicker v-if="releaseOptions.length" v-model="release" :options="releaseOptions" label="Release" up :disabled="busy"><span :class="button">Release</span></PropertyPicker>
         </template>
         <template v-if="confirming">
-          <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy" @click="remove">Delete {{ selected.length }}, with their sub-issues</button>
-          <button type="button" :class="button" @click="confirming = false">Cancel</button>
+          <UiButton variant="danger" :disabled="busy" @click="remove">Delete {{ selected.length }}, with their sub-issues</UiButton>
+          <UiButton @click="confirming = false">Cancel</UiButton>
         </template>
-        <button v-else type="button" class="rounded-md p-1 text-faint hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400" title="Delete them" aria-label="Delete them" @click="confirming = true">
+        <UiButton v-else variant="danger-ghost" size="xs" square title="Delete them" aria-label="Delete them" @click="confirming = true">
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
-        </button>
+        </UiButton>
       </div>
       <p v-if="said" class="text-xs text-muted" role="status">{{ said }}</p>
       <ul v-if="failed.length" class="max-h-24 overflow-y-auto text-xs text-rose-600 dark:text-rose-400">

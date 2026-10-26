@@ -145,9 +145,9 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         <span class="truncate" :class="!chunk.id && 'text-faint'">{{ chunk.id ? chunk.title : 'No chunk' }}</span>
       </PropertyPicker>
       <NuxtLink v-else :to="chunkPath(project.id, chunk.id)" class="truncate hover:underline" :class="!chunk.id && 'text-faint'" title="A sub-issue is in its parent's chunk">{{ chunk.title }}</NuxtLink>
-      <NuxtLink v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" class="shrink-0 rounded p-1 text-faint hover:bg-hover hover:text-fg" title="Open the chunk" aria-label="Open the chunk">
+      <UiButton v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" variant="ghost" size="xs" square class="shrink-0" title="Open the chunk" aria-label="Open the chunk">
         <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
-      </NuxtLink>
+      </UiButton>
     </dd>
 
     <template v-if="project.releases.length || issue.release">
@@ -156,9 +156,9 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         <PropertyPicker v-model="release" :options="releaseOptions" label="Release" :disabled="saving">
           <span class="truncate font-mono text-xs" :class="!issue.release && 'font-sans text-faint'">{{ issue.release ?? 'No release' }}</span>
         </PropertyPicker>
-        <NuxtLink v-if="issue.release" :to="releasePath(project.id, issue.release)" class="shrink-0 rounded p-1 text-faint hover:bg-hover hover:text-fg" title="Open the release" aria-label="Open the release">
+        <UiButton v-if="issue.release" :to="releasePath(project.id, issue.release)" variant="ghost" size="xs" square class="shrink-0" title="Open the release" aria-label="Open the release">
           <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
-        </NuxtLink>
+        </UiButton>
       </dd>
     </template>
 

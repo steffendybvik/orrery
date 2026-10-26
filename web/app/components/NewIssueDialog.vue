@@ -84,60 +84,58 @@ const field = 'h-8 field'
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="target && project" class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[10vh] backdrop-blur-[2px]" @pointerdown.self="close">
-      <form class="glass flex w-full max-w-2xl animate-fade-up flex-col gap-3 rounded-2xl p-5" role="dialog" aria-label="New issue" @submit.prevent="create" @keydown.esc.stop="close" @keydown.meta.enter.prevent="create" @keydown.ctrl.enter.prevent="create">
-        <div class="flex items-center gap-2 text-xs text-faint">
-          <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] ring-1 ring-line">{{ project.key }}</span>
-          <span>New in {{ project.name }}</span>
-          <KeyHint class="ml-auto">esc</KeyHint>
+  <UiDialog :open="target && project" label="New issue" width="2xl" @close="close" @submit="create">
+    <template v-if="project">
+      <div class="flex items-center gap-2 text-xs text-faint">
+        <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] ring-1 ring-line">{{ project.key }}</span>
+        <span>New in {{ project.name }}</span>
+        <KeyHint class="ml-auto">esc</KeyHint>
+      </div>
+      <input ref="titleInput" v-model="title" placeholder="Issue title" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
+      <div
+          class="-mx-2 flex flex-col rounded-lg px-2 ring-1 ring-transparent"
+          :class="dragging && 'ring-accent-500/50'"
+          @dragover.prevent="dragging = true"
+          @dragleave="dragging = false"
+          @drop.prevent="onDrop"
+      >
+        <textarea
+            ref="notesInput"
+            v-model="notes"
+            rows="5"
+            placeholder="Add a description… (Markdown works, paste or drop an image)"
+            aria-label="Description"
+            class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
+            @paste="onPaste"
+        />
+        <div class="-ml-1.5 flex items-center gap-2">
+          <ImageButton @picked="upload" />
+          <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
+          <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
         </div>
-        <input ref="titleInput" v-model="title" placeholder="Issue title" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
-        <div
-            class="-mx-2 flex flex-col rounded-lg px-2 ring-1 ring-transparent"
-            :class="dragging && 'ring-accent-500/50'"
-            @dragover.prevent="dragging = true"
-            @dragleave="dragging = false"
-            @drop.prevent="onDrop"
-        >
-          <textarea
-              ref="notesInput"
-              v-model="notes"
-              rows="5"
-              placeholder="Add a description… (Markdown works, paste or drop an image)"
-              aria-label="Description"
-              class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
-              @paste="onPaste"
-          />
-          <div class="-ml-1.5 flex items-center gap-2">
-            <ImageButton @picked="upload" />
-            <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
-            <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-          <select v-model="column" aria-label="Where" :class="field">
-            <option v-for="w in WHERE" :key="w.id" :value="w.id">{{ w.label }}</option>
-          </select>
-          <select v-model="priority" aria-label="Priority" :class="field">
-            <option value="">No priority</option>
-            <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
-          </select>
-          <select v-model="chunk" aria-label="Chunk" :class="[field, 'max-w-56']">
-            <option value="">No chunk</option>
-            <option v-for="c in chunks" :key="c.id" :value="c.id">{{ c.title }}</option>
-          </select>
-          <LabelPicker v-model="labels" :labels="known" />
-          <label class="flex items-center gap-1.5 text-xs text-muted">
-            <input v-model="ask" type="checkbox" class="accent-accent-500">
-            Ask a Claude session to pick it up
-          </label>
-          <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-          <button type="submit" class="ml-auto flex h-8 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="!title.trim() || saving || !!uploading">
-            {{ saving ? 'Creating…' : 'Create issue' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-          </button>
-        </div>
-      </form>
-    </div>
-  </Teleport>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+        <select v-model="column" aria-label="Where" :class="field">
+          <option v-for="w in WHERE" :key="w.id" :value="w.id">{{ w.label }}</option>
+        </select>
+        <select v-model="priority" aria-label="Priority" :class="field">
+          <option value="">No priority</option>
+          <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
+        </select>
+        <select v-model="chunk" aria-label="Chunk" :class="[field, 'max-w-56']">
+          <option value="">No chunk</option>
+          <option v-for="c in chunks" :key="c.id" :value="c.id">{{ c.title }}</option>
+        </select>
+        <LabelPicker v-model="labels" :labels="known" />
+        <label class="flex items-center gap-1.5 text-xs text-muted">
+          <input v-model="ask" type="checkbox" class="accent-accent-500">
+          Ask a Claude session to pick it up
+        </label>
+        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+        <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!title.trim() || saving || !!uploading">
+          {{ saving ? 'Creating…' : 'Create issue' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+        </UiButton>
+      </div>
+    </template>
+  </UiDialog>
 </template>

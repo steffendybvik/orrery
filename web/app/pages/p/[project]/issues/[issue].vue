@@ -235,9 +235,9 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 <template>
   <PageHeader>
     <template v-if="project">
-      <button type="button" class="-ml-1 hidden rounded-md p-1 text-faint hover:bg-hover hover:text-fg md:block" title="Back (Esc)" aria-label="Back" @click="back">
+      <UiButton variant="ghost" size="xs" square class="-ml-1 max-md:hidden" title="Back (Esc)" aria-label="Back" @click="back">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6" /></svg>
-      </button>
+      </UiButton>
       <nav class="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Breadcrumb">
         <NuxtLink :to="`/p/${project.id}`" class="shrink-0 font-medium hover:text-fg">{{ project.name }}</NuxtLink>
         <template v-if="found">
@@ -255,12 +255,12 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     <template v-if="project && at >= 0" #actions>
       <div class="ml-auto flex items-center gap-1 text-xs text-faint">
         <span class="mr-1 font-mono tabular-nums">{{ at + 1 }} / {{ order.length }}</span>
-        <button type="button" class="rounded-md p-1 hover:bg-hover hover:text-fg disabled:opacity-30" :disabled="at <= 0" title="Previous (k)" aria-label="Previous issue" @click="step(-1)">
+        <UiButton variant="ghost" size="xs" square :disabled="at <= 0" title="Previous (k)" aria-label="Previous issue" @click="step(-1)">
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6" /></svg>
-        </button>
-        <button type="button" class="rounded-md p-1 hover:bg-hover hover:text-fg disabled:opacity-30" :disabled="at >= order.length - 1" title="Next (j)" aria-label="Next issue" @click="step(1)">
+        </UiButton>
+        <UiButton variant="ghost" size="xs" square :disabled="at >= order.length - 1" title="Next (j)" aria-label="Next issue" @click="step(1)">
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-        </button>
+        </UiButton>
       </div>
     </template>
   </PageHeader>
@@ -282,23 +282,19 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             >
               <SectionIcon section="schedules" class="size-3" /> {{ madeBy.title }}
             </button>
-            <button
+            <UiButton
                 v-if="!removing"
-                type="button"
-                class="ml-auto flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400"
+                variant="danger-ghost"
+                class="ml-auto"
                 title="Remove this issue"
                 @click="removing = 'ask'"
             >
               <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
               Remove
-            </button>
-            <span v-else class="ml-auto flex items-center gap-2 text-xs" @keydown.esc.stop="removing = null">
-              <span class="text-muted">Remove {{ issue.id }}{{ subCount ? ` and its ${subCount} sub-issue${subCount === 1 ? '' : 's'}` : '' }}, with its comments?</span>
-              <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="removing === 'busy'" @click="remove">
-                {{ removing === 'busy' ? 'Removing…' : 'Remove' }}
-              </button>
-              <button type="button" class="h-7 rounded-md px-2 text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="removing === 'busy'" @click="removing = null">Cancel</button>
-            </span>
+            </UiButton>
+            <UiConfirm v-else inline class="ml-auto text-xs" :busy="removing === 'busy'" @confirm="remove" @cancel="removing = null">
+              Remove {{ issue.id }}{{ subCount ? ` and its ${subCount} sub-issue${subCount === 1 ? '' : 's'}` : '' }}, with its comments?
+            </UiConfirm>
           </div>
           <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
           <input
@@ -355,18 +351,17 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             <span v-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
             <span v-else-if="uploadError" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
             <span v-else class="mr-auto text-xs text-faint">Markdown</span>
-            <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></button>
-            <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving || !!uploading" @click="saveNotes">
+            <UiButton :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></UiButton>
+            <UiButton variant="primary" :disabled="saving || !!uploading" @click="saveNotes">
               {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-            </button>
+            </UiButton>
           </div>
         </section>
         <section v-else class="group relative">
-          <button
-              type="button"
-              class="absolute -top-1 right-0 flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted opacity-0 ring-1 ring-line transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg focus:opacity-100"
+          <UiButton
+              class="absolute -top-1 right-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               @click="editNotes"
-          >Edit</button>
+          >Edit</UiButton>
           <MarkdownView v-if="issue.notes" :source="issue.notes" />
           <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No description. Add one</button>
         </section>
@@ -400,17 +395,23 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
                       class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
                       :class="entry.comment.answered ? 'text-faint ring-line' : 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300'"
                   >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
-                  <span v-if="removingComment?.id === entry.comment.id" class="ml-auto flex items-center gap-2" @keydown.esc.stop="removingComment = null">
-                    <span class="text-muted">Delete the comment?</span>
-                    <button type="button" class="h-6 rounded-md bg-rose-600 px-2 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="removingComment.busy" @click="removeComment(entry.comment.id)">
-                      {{ removingComment.busy ? 'Deleting…' : 'Delete' }}
-                    </button>
-                    <button type="button" class="h-6 rounded-md px-2 text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="removingComment.busy" @click="removingComment = null">Cancel</button>
-                  </span>
+                  <UiConfirm
+                      v-if="removingComment?.id === entry.comment.id"
+                      inline
+                      size="xs"
+                      class="ml-auto"
+                      action="Delete"
+                      busy-action="Deleting…"
+                      :busy="removingComment.busy"
+                      @confirm="removeComment(entry.comment.id)"
+                      @cancel="removingComment = null"
+                  >
+                    Delete the comment?
+                  </UiConfirm>
                   <span v-else class="ml-auto flex items-center gap-0.5 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-within:opacity-100">
                     <template v-if="entry.comment.protected && editingComment !== entry.comment.id">
-                      <button type="button" class="h-6 rounded-md px-1.5 text-muted hover:bg-hover hover:text-fg" @click="editingComment = entry.comment.id">Edit</button>
-                      <button type="button" class="h-6 rounded-md px-1.5 text-muted hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400" @click="removingComment = {id: entry.comment.id}">Delete</button>
+                      <UiButton variant="ghost" size="xs" @click="editingComment = entry.comment.id">Edit</UiButton>
+                      <UiButton variant="danger-ghost" size="xs" @click="removingComment = {id: entry.comment.id}">Delete</UiButton>
                     </template>
                     <CopyButton :text="entry.comment.body" name="the comment" />
                   </span>

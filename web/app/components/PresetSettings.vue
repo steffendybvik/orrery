@@ -51,9 +51,9 @@ const area = 'w-full field py-2 leading-5'
       <li v-for="p in presets" :key="p.id" class="flex flex-col gap-1.5">
         <div class="flex items-center gap-2">
           <input :value="p.name" :class="line" aria-label="Preset name" @blur="change(p, 'name', $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
-          <button type="button" class="grid size-7 shrink-0 place-items-center rounded-md text-faint hover:bg-hover hover:text-rose-600" :aria-label="`Remove ${p.name}`" @click="remove(p)">
+          <UiButton variant="danger-ghost" square class="shrink-0" :aria-label="`Remove ${p.name}`" @click="remove(p)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-          </button>
+          </UiButton>
         </div>
         <textarea :value="p.text" rows="3" :class="area" :aria-label="`What ${p.name} tells a session`" @blur="change(p, 'text', $event)" />
       </li>
@@ -69,7 +69,7 @@ const area = 'w-full field py-2 leading-5'
           @keydown.meta.enter.prevent="add"
           @keydown.ctrl.enter.prevent="add"
       />
-      <button type="submit" class="h-8 self-end rounded-lg px-3 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="!adding.name.trim() || !adding.text.trim()">Add preset</button>
+      <UiButton type="submit" size="md" class="self-end" :disabled="!adding.name.trim() || !adding.text.trim()">Add preset</UiButton>
     </form>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
   </div>

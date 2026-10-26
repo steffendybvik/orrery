@@ -74,10 +74,10 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     </select>
     <span class="truncate text-xs text-muted">{{ count ? `${count} ${count === 1 ? 'session' : 'sessions'}` : 'No sessions right now' }}</span>
     <template #end>
-      <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 whitespace-nowrap text-xs font-medium text-white hover:opacity-90" @click="open(only || undefined)">
+      <UiButton variant="primary" class="shrink-0" @click="open(only || undefined)">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         Start session
-      </button>
+      </UiButton>
     </template>
   </ViewToolbar>
 
