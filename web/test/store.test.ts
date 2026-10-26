@@ -903,7 +903,10 @@ describe("what a project's sessions are on", () => {
         await store.workedBy('larder', shelves, 'a')
         await store.workedBy('larder', lids, 'a')
         await store.workedBy('larder', jars, 'a')
+        // a is gone by then, so the focus hands Shelves to b.
+        store.hears = (_project, session) => session !== 'a'
         await store.focus('larder', shelves, {session: 'b'}, owner)
+        store.hears = () => true
         const everyone = await store.focus('larder', jars, {}, owner)
         await store.delivered('larder', everyone.id, 'pantry')
         const work = await store.sessionWork('larder', [{id: 'a', name: 'larder 1'}, {id: 'b', name: 'pantry'}])
@@ -1234,6 +1237,18 @@ describe('starting an issue', () => {
         for (const issue of [shelves, jars]) await store.workedBy('larder', issue, 'first')
         await store.claim('larder', jars, 'started', 'second')
         store.hears = (_project, session) => session !== 'first'
+        await store.claim('larder', shelves, 'started', 'second')
+    })
+
+    it("stays with its session when the owner asks another to focus on it", async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        await store.claimed('larder', shelves, 'started', 'first', () => store.updateIssue('larder', shelves, {status: 'started'}))
+        await store.focus('larder', shelves, {session: 'second'}, {name: 'skoll', owner: true})
+        expect((await failure(() => store.claim('larder', shelves, 'started', 'second'))).status).toBe(409)
+        // Once the first is gone, the focus hands it over.
+        store.hears = (_project, session) => session !== 'first'
+        await store.focus('larder', shelves, {session: 'second'}, {name: 'skoll', owner: true})
+        store.hears = () => true
         await store.claim('larder', shelves, 'started', 'second')
     })
 })

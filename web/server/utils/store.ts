@@ -1093,6 +1093,14 @@ export class Store {
         }
     }
 
+    /** Whether a session other than `session` has the issue started and is there to hear. */
+    private async heldElsewhere(project: string, issue: string, session: string): Promise<boolean> {
+        const worker = await this.listeningWorker(project, issue)
+        if (!worker || worker === session) return false
+        const status = (await this.issueRow(project, issue)).status
+        return (await this.statuses()).find(s => s.id === status)?.kind === 'started'
+    }
+
     /** The session that last worked the issue, while it's there to hear; null (every session) otherwise. */
     private async listeningWorker(project: string, issue: string): Promise<string | null> {
         const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
@@ -1609,7 +1617,8 @@ export class Store {
         const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row!)
-        if (signal.target) await this.workedBy(project, issue, signal.target)
+        // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
+        if (signal.target && !await this.heldElsewhere(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
         return signal
     }
