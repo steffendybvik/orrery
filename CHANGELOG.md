@@ -3,7 +3,7 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## Unreleased
+## 1.0.0-rc.3 (2026-10-26)
 
 - **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
   `created_by`, `created_at`, `updated_at`, `icon_color`, `focus_prompt`, `chunk_prompt`, `shipped_on`,

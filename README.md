@@ -26,7 +26,8 @@ live, answer their questions in one place, and point them at what matters next.
   you say, and start or stop one from its Sessions tab. They run in tmux through a small launcher on
   your machine, so no one has to keep a terminal open.
 - **Releases.** Each version a project ships, the branch its work gathers on and which issues go out
-  in it, with its changelog drafted from those issues.
+  in it, with its changelog drafted from those issues. A monorepo's apps can share one release, each
+  app's issues in a section of its own.
 - **Docs live beside the work.** Each project keeps its decisions and how-tos as Markdown pages
   that the agents keep up to date. Comments, descriptions and docs take pasted images, and a Before and
   After pair shows as a slider.
