@@ -453,7 +453,7 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     await page.getByLabel('New preset name').fill('Review')
     await page.getByLabel('New preset text').fill("You're reviewing: read the diff and comment, don't change code.")
     await page.getByRole('button', {name: 'Add preset'}).click()
-    await expect(page.getByLabel('Preset name')).toHaveValue('Review')
+    await expect(page.getByLabel('Preset name', {exact: true})).toHaveValue('Review')
     await page.goto('/sessions')
     await page.getByRole('button', {name: 'Start session'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'Start session'})
