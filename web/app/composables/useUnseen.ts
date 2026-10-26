@@ -1,13 +1,13 @@
 import type {DocSummary, Issue, Project} from '#shared/roadmap'
 
-// What changed since the owner last looked: an issue (a comment touches it too) or a doc whose `updatedAt`
+// What changed since the owner last looked: an issue (a comment touches it too) or a doc whose `updated_at`
 // is past when they last opened it, remembered in this browser. Rows mark it with a quiet accent dot until
 // it's opened. The owner's own changes don't count: what they made starts seen, and a write from this page
 // marks what it wrote to as seen once the change comes back. Everything from before the first visit is seen.
 // A doc's text is kept as read too, so opening it again tints what changed in it since.
 interface Seen {
     since: string
-    /** Each issue's or doc's `updatedAt` when it was last seen, by its key. */
+    /** Each issue's or doc's `updated_at` when it was last seen, by its key. */
     items: Record<string, string>
 }
 
@@ -42,8 +42,8 @@ export function useUnseen() {
         const at = seen.value.items[key]
         return at && at > seen.value.since ? at : seen.value.since
     }
-    const isNew = (key: string, item: {createdBy: string, createdAt: string, updatedAt: string}) =>
-        item.updatedAt > seenAt(key) && !(item.createdBy === name.value && item.updatedAt === item.createdAt)
+    const isNew = (key: string, item: {created_by: string, created_at: string, updated_at: string}) =>
+        item.updated_at > seenAt(key) && !(item.created_by === name.value && item.updated_at === item.created_at)
 
     const issueUnseen = (project: string, issue: Issue) => isNew(issueKey(project, issue.id), issue)
     const docUnseen = (project: string, doc: DocSummary) => isNew(docKey(project, doc.id), doc)
@@ -59,8 +59,8 @@ export function useUnseen() {
         }
     }
 
-    const seeIssue = (project: string, issue: Issue) => mark([[issueKey(project, issue.id), issue.updatedAt]])
-    const seeDoc = (project: string, doc: DocSummary) => mark([[docKey(project, doc.id), doc.updatedAt]])
+    const seeIssue = (project: string, issue: Issue) => mark([[issueKey(project, issue.id), issue.updated_at]])
+    const seeDoc = (project: string, doc: DocSummary) => mark([[docKey(project, doc.id), doc.updated_at]])
 
     /** The doc's text as last read here, if it was. */
     function lastRead(project: string, id: string): string | undefined {
@@ -86,8 +86,8 @@ export function useUnseen() {
     /** Everything in the project marked seen. */
     function seeAll(project: Project) {
         mark([
-            ...allIssues(project).map(({issue}): [string, string] => [issueKey(project.id, issue.id), issue.updatedAt]),
-            ...project.docs.map((doc): [string, string] => [docKey(project.id, doc.id), doc.updatedAt]),
+            ...allIssues(project).map(({issue}): [string, string] => [issueKey(project.id, issue.id), issue.updated_at]),
+            ...project.docs.map((doc): [string, string] => [docKey(project.id, doc.id), doc.updated_at]),
         ])
     }
 
@@ -108,8 +108,8 @@ export function useUnseen() {
     function ownChanges(project: Project) {
         const now = Date.now()
         const items: [string, string][] = [
-            ...allIssues(project).map(({issue}): [string, string] => [issueKey(project.id, issue.id), issue.updatedAt]),
-            ...project.docs.map((doc): [string, string] => [docKey(project.id, doc.id), doc.updatedAt]),
+            ...allIssues(project).map(({issue}): [string, string] => [issueKey(project.id, issue.id), issue.updated_at]),
+            ...project.docs.map((doc): [string, string] => [docKey(project.id, doc.id), doc.updated_at]),
         ]
         const own = items.filter(([key, at]) => now - (wrote.value[key] ?? 0) < OWN_FOR && at > seenAt(key))
         if (!own.length) return

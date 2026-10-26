@@ -21,7 +21,7 @@ export interface Launch {
 export type LaunchEvent =
     | {type: 'launch', launch: Launch}
     | {type: 'stop', project: string, id: string}
-    | {type: 'extend', project: string, id: string, stopsAt: string}
+    | {type: 'extend', project: string, id: string, stops_at: string}
 
 /** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
  * `claimed` once a launcher has taken it on. */
@@ -29,7 +29,7 @@ const pending = new Map<string, Launch & {at: number, claimed: boolean}>()
 const PENDING_FOR = 3 * 60 * 1000
 /** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
  * each reports its sessions when it connects, so one that reconnects to a restarted Orrery is known again. */
-const reported = new Map<string, {project: string, tmux: string, stopsAt: string}>()
+const reported = new Map<string, {project: string, tmux: string, stops_at: string}>()
 /** How many launchers each project has connected. */
 const launchers = counter('launchers')
 export const launchersOf = launchers.count
@@ -52,7 +52,7 @@ function emit(event: LaunchEvent) {
 export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const {project} = signal
     // One aimed at a session only that session hears, and a delivered one has been heard.
-    if (!signal.protected || signal.target || signal.deliveredTo.length) return null
+    if (!signal.protected || signal.target || signal.delivered_to.length) return null
     if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
     const id = randomBytes(6).toString('hex')
     const held = {id, project, after: signal.id - 1, minutes: 0, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
@@ -102,20 +102,20 @@ export function claim(project: string, id: string): boolean {
 }
 
 /** The launch's session connected: it counts as a started session from now on. Says what it was started as. */
-export function launched(id: string): {launch: string, tmux: string, stopsAt: string} | undefined {
+export function launched(id: string): {launch: string, tmux: string, stops_at: string} | undefined {
     const launch = pending.get(id)
     pending.delete(id)
-    if (launch) return {launch: id, tmux: launch.tmux, stopsAt: new Date(Date.now() + launch.minutes * 60_000).toISOString()}
+    if (launch) return {launch: id, tmux: launch.tmux, stops_at: new Date(Date.now() + launch.minutes * 60_000).toISOString()}
     const known = reported.get(id)
-    return known && {launch: id, tmux: known.tmux, stopsAt: known.stopsAt}
+    return known && {launch: id, tmux: known.tmux, stops_at: known.stops_at}
 }
 
 /** A launcher saying which of the project's sessions it runs, as it connects: they count as started again,
  * with their stop times, whether their channels connected before this or connect after. */
-export function reportRunning(project: string, launches: {id: string, tmux: string, stopsAt: string}[]) {
-    for (const {id, tmux, stopsAt} of launches) {
-        reported.set(id, {project, tmux, stopsAt})
-        adoptLaunch(project, {launch: id, tmux, stopsAt})
+export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at: string}[]) {
+    for (const {id, tmux, stops_at} of launches) {
+        reported.set(id, {project, tmux, stops_at})
+        adoptLaunch(project, {launch: id, tmux, stops_at})
     }
 }
 
@@ -137,11 +137,11 @@ export function stopLaunch(project: string, id: string): Session {
 export function extendLaunchBy(project: string, id: string, minutes: number): Session {
     const session = sessionOfLaunch(project, id)
     if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
-    const from = Math.max(Date.now(), Date.parse(session.started.stopsAt))
+    const from = Math.max(Date.now(), Date.parse(session.started.stops_at))
     const stopsAt = new Date(from + minutes * 60_000).toISOString()
-    emit({type: 'extend', project, id, stopsAt})
+    emit({type: 'extend', project, id, stops_at: stopsAt})
     const known = reported.get(id)
-    if (known) known.stopsAt = stopsAt
+    if (known) known.stops_at = stopsAt
     return extendLaunch(project, id, stopsAt)!
 }
 

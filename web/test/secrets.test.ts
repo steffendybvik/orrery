@@ -50,7 +50,7 @@ describe('secrets', () => {
     it('never give their value back, only its last 4 characters', async () => {
         const {secret, created} = await stripe()
         expect(created).toBe(true)
-        expect(secret).toMatchObject({name: 'STRIPE_KEY', last4: '3456', hosts: ['api.stripe.com'], projects: null, lastUsed: null})
+        expect(secret).toMatchObject({name: 'STRIPE_KEY', last4: '3456', hosts: ['api.stripe.com'], projects: null, last_used: null})
         const everything = JSON.stringify([await secrets.list(), await secrets.get('STRIPE_KEY'), lists])
         expect(everything).not.toContain(VALUE)
         const row = await store.db.get<{value: string}>('SELECT value FROM secrets')
@@ -165,14 +165,14 @@ describe('egress', () => {
         const failed = await failure(() => secrets.egress({url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}}, agent))
         expect(failed.status).toBe(502)
         expect(failed.message).not.toContain(VALUE)
-        const {uses, lastUsed} = await secrets.get('STRIPE_KEY')
+        const {uses, last_used} = await secrets.get('STRIPE_KEY')
         expect(uses).toMatchObject([
-            {method: 'GET', host: 'api.stripe.com', path: '/v1/charges', status: null, error: expect.stringContaining('ECONNREFUSED'), createdBy: 'claude'},
+            {method: 'GET', host: 'api.stripe.com', path: '/v1/charges', status: null, error: expect.stringContaining('ECONNREFUSED'), created_by: 'claude'},
             {method: 'GET', host: 'api.stripe.com', path: '/v1/customers/{{secret:STRIPE_KEY}}', project: 'larder', issue: 'LAR-1', status: 200, error: null},
         ])
-        expect(lastUsed).toEqual(uses[0])
+        expect(last_used).toEqual(uses[0])
         expect(JSON.stringify(uses)).not.toContain(VALUE)
-        expect(lists.at(-1)![0]!.lastUsed!.id).toBe(uses[0]!.id)
+        expect(lists.at(-1)![0]!.last_used!.id).toBe(uses[0]!.id)
     })
 
     it('cuts a long answer', async () => {

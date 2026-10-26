@@ -15,7 +15,7 @@ const {load} = useOwner()
 
 const project = computed(() => byId(route.params.project as string))
 // The project the release is made in: this one, or the one it takes its releases from.
-const source = computed(() => project.value?.releasesFrom ? byId(project.value.releasesFrom) : project.value)
+const source = computed(() => project.value?.releases_from ? byId(project.value.releases_from) : project.value)
 const version = computed(() => String(route.params.release))
 const release = computed(() => project.value?.releases.find(r => r.version === version.value))
 // All of it, across the projects drawing on it.
@@ -23,7 +23,7 @@ const whole = computed(() => source.value?.releases.find(r => r.version === vers
 // Each project's part: on its source, the source's and then each drawing on it; else this project's.
 const parts = computed(() => {
     if (!project.value || !release.value) return []
-    const shown = project.value.releasesFrom ? [project.value] : [project.value, ...projects.value.filter(p => p.releasesFrom === project.value!.id)]
+    const shown = project.value.releases_from ? [project.value] : [project.value, ...projects.value.filter(p => p.releases_from === project.value!.id)]
     return shown.map(p => {
         const chunks = releaseChunks(p, version.value)
         const tasks = chunks.flatMap(c => c.tasks)
@@ -61,8 +61,8 @@ async function save(body: Record<string, unknown>): Promise<boolean> {
 }
 
 const today = () => new Date().toLocaleDateString('sv')
-const ship = () => save({shippedOn: today()})
-const unship = () => save({shippedOn: null})
+const ship = () => save({shipped_on: today()})
+const unship = () => save({shipped_on: null})
 
 // The branch, edited in place: Enter saves, Esc puts it back.
 const editingBranch = ref(false)
@@ -148,9 +148,9 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <div class="flex flex-wrap items-center gap-3 text-xs">
           <span
               class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-              :class="release.shippedOn ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
-          >{{ release.shippedOn ? `Shipped ${release.shippedOn}` : 'Preparing' }}</span>
-          <button v-if="!release.shippedOn" type="button" class="h-7 rounded-md px-2.5 text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="saving" @click="ship">Mark shipped today</button>
+              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
+          >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : 'Preparing' }}</span>
+          <button v-if="!release.shipped_on" type="button" class="h-7 rounded-md px-2.5 text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="saving" @click="ship">Mark shipped today</button>
           <button v-else type="button" class="h-7 rounded-md px-2.5 text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="saving" @click="unship">Not shipped yet</button>
           <span class="ml-auto flex items-center gap-2">
             <template v-if="confirmingRemove">
@@ -171,9 +171,9 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           </span>
         </div>
         <h1 class="font-mono text-xl font-semibold tracking-tight text-fg sm:text-2xl">{{ release.version }}</h1>
-        <p v-if="project.releasesFrom" class="text-xs text-muted">
-          Shared: {{ source?.name ?? project.releasesFrom }}'s release, with {{ project.name }}'s issues here.
-          <NuxtLink :to="releasePath(project.releasesFrom, release.version)" class="text-fg underline underline-offset-2">The whole release</NuxtLink>
+        <p v-if="project.releases_from" class="text-xs text-muted">
+          Shared: {{ source?.name ?? project.releases_from }}'s release, with {{ project.name }}'s issues here.
+          <NuxtLink :to="releasePath(project.releases_from, release.version)" class="text-fg underline underline-offset-2">The whole release</NuxtLink>
         </p>
 
         <div class="flex flex-wrap items-center gap-2 text-xs text-muted">

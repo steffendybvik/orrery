@@ -266,6 +266,9 @@ const STEPS: string[] = [`
     ALTER TABLE projects ADD COLUMN repo text;
 `, `
     ALTER TABLE projects ADD COLUMN releases_from text;
+`, `
+    UPDATE settings SET key = 'focus_prompt' WHERE key = 'focusPrompt';
+    UPDATE settings SET key = 'chunk_prompt' WHERE key = 'chunkPrompt';
 `]
 
 /** The transaction the code running now is part of, if any: its connection, and the database it's on. */

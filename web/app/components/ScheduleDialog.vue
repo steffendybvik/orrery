@@ -72,7 +72,7 @@ watch(editing, now => {
     priority.value = s?.priority ?? ''
     labels.value = [...s?.labels ?? []]
     ask.value = s?.ask ?? false
-    skipOpen.value = s?.skipOpen ?? true
+    skipOpen.value = s?.skip_open ?? true
     enabled.value = s?.enabled ?? true
     const repeat: Repeat = s ? toRepeat(s) : {kind: 'weekdays', time: '09:00'}
     kind.value = repeat.kind
@@ -130,7 +130,7 @@ async function save() {
         priority: priority.value || null,
         labels: labels.value,
         ask: ask.value,
-        skipOpen: skipOpen.value,
+        skip_open: skipOpen.value,
     }
     try {
         const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`

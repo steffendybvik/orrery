@@ -42,7 +42,7 @@ describe('projects', () => {
 
     it('refuses unknown fields', async () => {
         expect(await failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, iconColor, focusPrompt, chunkPrompt, instructions, muted, starts, repo, releasesFrom'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, icon_color, focus_prompt, chunk_prompt, instructions, muted, starts, repo, releases_from'})
     })
 
     it('keep where their code is', async () => {
@@ -59,10 +59,10 @@ describe('projects', () => {
     })
 
     it("keep an icon colour, a tint's name or a #rrggbb", async () => {
-        expect((await store.updateProject('larder', {iconColor: 'teal'})).iconColor).toBe('teal')
-        expect((await store.updateProject('larder', {iconColor: '#123abc'})).iconColor).toBe('#123abc')
-        expect((await failure(() => store.updateProject('larder', {iconColor: 'red; background: url(x)'}))).status).toBe(400)
-        expect((await store.updateProject('larder', {iconColor: null})).iconColor).toBeUndefined()
+        expect((await store.updateProject('larder', {icon_color: 'teal'})).icon_color).toBe('teal')
+        expect((await store.updateProject('larder', {icon_color: '#123abc'})).icon_color).toBe('#123abc')
+        expect((await failure(() => store.updateProject('larder', {icon_color: 'red; background: url(x)'}))).status).toBe(400)
+        expect((await store.updateProject('larder', {icon_color: null})).icon_color).toBeUndefined()
     })
 
     it('deletes everything in it', async () => {
@@ -170,7 +170,7 @@ describe('comments', () => {
     it('list, show, update and delete', async () => {
         const a = (await store.createIssue('larder', {title: 'A'})).id
         const comment = await store.createComment('larder', a, {body: 'Started on `joints.rs`'}, {name: 'claude', owner: false})
-        expect(comment.createdBy).toBe('claude')
+        expect(comment.created_by).toBe('claude')
         expect((await store.issue('larder', a)).comments).toBe(1)
         expect((await store.updateComment('larder', a, comment.id, {body: 'Done'})).body).toBe('Done')
         expect((await store.listComments('larder', a)).map(c => c.body)).toEqual(['Done'])
@@ -182,7 +182,7 @@ describe('comments', () => {
 describe('activity', () => {
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
-    const changed = async (issue: string, project = 'larder') => (await store.listActivity(project, issue)).map(e => [e.field, e.before, e.after, e.createdBy])
+    const changed = async (issue: string, project = 'larder') => (await store.listActivity(project, issue)).map(e => [e.field, e.before, e.after, e.created_by])
 
     it('notes who changed which field, from what to what', async () => {
         const {id} = await store.createIssue('larder', {title: 'A', notes: 'first'}, owner)
@@ -248,10 +248,10 @@ describe('proposals', () => {
         const {id} = await store.createIssue('larder', {title: 'Button', proposal: 'pending'}, claude)
         expect((await failure(() => store.decide('larder', id, {decision: 'approved'}, claude))).status).toBe(403)
         const decided = await store.decide('larder', id, {decision: 'changes', note: 'Rounder corners'}, owner)
-        expect([decided.proposal, decided.decidedBy, decided.decisionNote, decided.column]).toEqual(['changes', 'skoll', 'Rounder corners', 'proposed'])
+        expect([decided.proposal, decided.decided_by, decided.decision_note, decided.column]).toEqual(['changes', 'skoll', 'Rounder corners', 'proposed'])
         expect((await store.listComments('larder', id)).at(-1)?.body).toBe('Asked for changes to this proposal.\n\nRounder corners')
         // Put up again, it waits on a new decision.
-        expect((await store.updateIssue('larder', id, {proposal: 'pending'}, claude)).decidedBy).toBeUndefined()
+        expect((await store.updateIssue('larder', id, {proposal: 'pending'}, claude)).decided_by).toBeUndefined()
         const work = (await store.createIssue('larder', {title: 'Work'})).id
         expect((await failure(() => store.decide('larder', work, {decision: 'approved'}, owner))).status).toBe(400)
     })
@@ -261,7 +261,7 @@ describe('proposals', () => {
         expect((await failure(() => store.updateIssue('larder', id, {proposal: null}, claude))).status).toBe(403)
         await store.decide('larder', id, {decision: 'approved'}, owner)
         const committed = await store.updateIssue('larder', id, {proposal: null, status: 'todo'}, claude)
-        expect([committed.proposal, committed.column, committed.decidedBy]).toEqual([undefined, 'todo', 'skoll'])
+        expect([committed.proposal, committed.column, committed.decided_by]).toEqual([undefined, 'todo', 'skoll'])
         const other = await store.createIssue('larder', {title: 'Card', proposal: 'pending'})
         expect((await store.updateIssue('larder', other.id, {proposal: null}, owner)).column).toBe('backlog')
     })
@@ -333,8 +333,8 @@ describe("the owner's things", () => {
     const add = async (body: Record<string, unknown>, actor: Actor) => (await store.createIssue('larder', body, actor)).id
 
     it('record who made them', async () => {
-        expect(await store.createIssue('larder', {title: 'A'}, me)).toMatchObject({createdBy: 'skoll', protected: true})
-        expect(await store.createIssue('larder', {title: 'B'}, claude)).toMatchObject({createdBy: 'claude', protected: false})
+        expect(await store.createIssue('larder', {title: 'A'}, me)).toMatchObject({created_by: 'skoll', protected: true})
+        expect(await store.createIssue('larder', {title: 'B'}, claude)).toMatchObject({created_by: 'claude', protected: false})
     })
 
     it("can't be deleted by an agent, directly or with what holds them", async () => {
@@ -374,7 +374,7 @@ describe("the owner's name", () => {
         expect((await store.issue('larder', proposed.id)).assignee).toBe('owner')
 
         expect(await store.nameOwner({name: 'Sköll Fenrisson'}, claude)).toEqual({name: 'skoll_fenrisson', display: 'Sköll Fenrisson', named: true})
-        expect((await store.issue('larder', mine.id)).createdBy).toBe('skoll_fenrisson')
+        expect((await store.issue('larder', mine.id)).created_by).toBe('skoll_fenrisson')
         expect((await store.issue('larder', proposed.id)).assignee).toBe('skoll_fenrisson')
         expect((await store.issue('larder', mine.id)).protected).toBe(true)
     })
@@ -460,14 +460,14 @@ describe('releases', () => {
         expect(made).toMatchObject({version: '1.0.0-rc.2', branch: 'v1.0.0-rc.2', issues: 0, tasks: [], project: 'larder'})
         expect((await failure(() => store.createRelease('larder', {version: '1.0.0-rc.2'}))).status).toBe(409)
         expect((await failure(() => store.createRelease('larder', {version: 'one two'}))).status).toBe(400)
-        expect((await failure(() => store.createRelease('larder', {version: '1.0.0', shippedOn: 'today'}))).status).toBe(400)
+        expect((await failure(() => store.createRelease('larder', {version: '1.0.0', shipped_on: 'today'}))).status).toBe(400)
     })
 
     it('count their issues, a parent with its sub-issues; those being prepared first', async () => {
         await store.createRelease('larder', {version: '1.0.0'})
         await store.createRelease('larder', {version: '1.1.0'})
-        await store.createRelease('larder', {version: '0.8.0', shippedOn: '2026-09-01'})
-        await store.createRelease('larder', {version: '0.9.0', shippedOn: '2026-10-01'})
+        await store.createRelease('larder', {version: '0.8.0', shipped_on: '2026-09-01'})
+        await store.createRelease('larder', {version: '0.9.0', shipped_on: '2026-10-01'})
         const parent = await store.createIssue('larder', {title: 'Hinges', chunk: '1', release: '1.0.0'})
         await store.createIssue('larder', {title: 'Pin', parent: parent.id, status: 'done'})
         await store.createIssue('larder', {title: 'Socket', parent: parent.id, release: '1.0.0'})
@@ -497,7 +497,7 @@ describe('releases', () => {
     it('change all but their version, and go leaving their issues in none', async () => {
         await store.createRelease('larder', {version: '1.0.0'})
         const issue = await store.createIssue('larder', {title: 'Hinges', release: '1.0.0'})
-        expect(await store.updateRelease('larder', '1.0.0', {notes: 'Joints.', shippedOn: '2026-10-25', branch: ''})).toMatchObject({notes: 'Joints.', shippedOn: '2026-10-25'})
+        expect(await store.updateRelease('larder', '1.0.0', {notes: 'Joints.', shipped_on: '2026-10-25', branch: ''})).toMatchObject({notes: 'Joints.', shipped_on: '2026-10-25'})
         expect((await store.release('larder', '1.0.0')).branch).toBeUndefined()
         expect((await failure(() => store.updateRelease('larder', '1.0.0', {version: '1.0.1'}))).status).toBe(400)
         await store.deleteRelease('larder', '1.0.0')
@@ -529,9 +529,9 @@ describe('releases', () => {
     describe('shared across projects', () => {
         beforeEach(async () => {
             await store.createProject({name: 'repository', key: 'REP'})
-            await store.createProject({name: 'hub', key: 'HUB', releasesFrom: 'repository'})
+            await store.createProject({name: 'hub', key: 'HUB', releases_from: 'repository'})
             await store.createProject({name: 'pos', key: 'POS'})
-            await store.updateProject('pos', {releasesFrom: 'repository'})
+            await store.updateProject('pos', {releases_from: 'repository'})
             await store.createRelease('repository', {version: '2.25.0'})
         })
 
@@ -542,7 +542,7 @@ describe('releases', () => {
             await store.updateIssue('pos', pos.id, {release: '2.25.0'})
             await store.createIssue('pos', {title: 'Tips', parent: pos.id})
 
-            expect((await store.project('hub')).releasesFrom).toBe('repository')
+            expect((await store.project('hub')).releases_from).toBe('repository')
             expect((await store.project('repository')).releases[0]).toMatchObject({version: '2.25.0', issues: 3, kinds: {done: 1, backlog: 2}})
             // A project drawing on it counts its own part.
             expect((await store.project('pos')).releases[0]).toMatchObject({version: '2.25.0', issues: 1, kinds: {backlog: 1}})
@@ -565,12 +565,12 @@ describe('releases', () => {
         })
 
         it('go one level deep, and never merge with releases a project already has', async () => {
-            expect((await failure(() => store.updateProject('larder', {releasesFrom: 'hub'}))).message).toBe('hub takes its releases from repository; take them from repository too')
-            expect((await failure(() => store.updateProject('repository', {releasesFrom: 'larder'}))).message).toBe('hub, pos take their releases from repository, so it keeps its own')
-            expect((await failure(() => store.updateProject('larder', {releasesFrom: 'larder'}))).status).toBe(400)
-            expect((await failure(() => store.updateProject('larder', {releasesFrom: 'nowhere'}))).status).toBe(400)
+            expect((await failure(() => store.updateProject('larder', {releases_from: 'hub'}))).message).toBe('hub takes its releases from repository; take them from repository too')
+            expect((await failure(() => store.updateProject('repository', {releases_from: 'larder'}))).message).toBe('hub, pos take their releases from repository, so it keeps its own')
+            expect((await failure(() => store.updateProject('larder', {releases_from: 'larder'}))).status).toBe(400)
+            expect((await failure(() => store.updateProject('larder', {releases_from: 'nowhere'}))).status).toBe(400)
             await store.createRelease('larder', {version: '1.0.0'})
-            expect((await failure(() => store.updateProject('larder', {releasesFrom: 'repository'}))).status).toBe(409)
+            expect((await failure(() => store.updateProject('larder', {releases_from: 'repository'}))).status).toBe(409)
         })
 
         it("keep an issue's release when it moves within them, and when the project gets its own back, it has none", async () => {
@@ -579,7 +579,7 @@ describe('releases', () => {
             expect(moved.release).toBe('2.25.0')
             expect((await store.updateIssue('pos', moved.id, {project: 'larder'})).release).toBeUndefined()
             const other = await store.createIssue('pos', {title: 'Receipts', release: '2.25.0'})
-            await store.updateProject('pos', {releasesFrom: null})
+            await store.updateProject('pos', {releases_from: null})
             expect((await store.issue('pos', other.id)).release).toBeUndefined()
             expect((await store.project('pos')).releases).toEqual([])
         })
@@ -600,16 +600,16 @@ describe('what sessions are told', () => {
 
     it("uses the project's templates, else the Orrery's, else the defaults", async () => {
         expect(await store.prompts('larder')).toEqual({focus: DEFAULT_FOCUS_PROMPT, chunk: DEFAULT_CHUNK_PROMPT})
-        await store.updateSettings({focusPrompt: 'Look at {issue}.'}, owner)
-        await store.updateProject('larder', {chunkPrompt: 'Do chunk {chunk}.'}, owner)
+        await store.updateSettings({focus_prompt: 'Look at {issue}.'}, owner)
+        await store.updateProject('larder', {chunk_prompt: 'Do chunk {chunk}.'}, owner)
         expect(await store.prompts('larder')).toEqual({focus: 'Look at {issue}.', chunk: 'Do chunk {chunk}.'})
-        await store.updateProject('larder', {chunkPrompt: '  '}, owner)
-        await store.updateSettings({focusPrompt: ''}, owner)
+        await store.updateProject('larder', {chunk_prompt: '  '}, owner)
+        await store.updateSettings({focus_prompt: ''}, owner)
         expect(await store.prompts('larder')).toEqual({focus: DEFAULT_FOCUS_PROMPT, chunk: DEFAULT_CHUNK_PROMPT})
     })
 
     it("are the owner's to change", async () => {
-        expect((await failure(() => store.updateProject('larder', {focusPrompt: 'x'}, {name: 'claude', owner: false}))).status).toBe(403)
+        expect((await failure(() => store.updateProject('larder', {focus_prompt: 'x'}, {name: 'claude', owner: false}))).status).toBe(403)
         expect((await failure(() => store.updateSettings({instructions: []}, {name: 'claude', owner: false}))).status).toBe(403)
         expect((await store.updateProject('larder', {description: 'still fine'})).description).toBe('still fine')
     })
@@ -941,7 +941,7 @@ describe('what a session is working on', () => {
 describe('docs', () => {
     it('are listed with the project, without their text', async () => {
         const doc = await store.createDoc('larder', {title: 'How joints work', body: '# Joints\n\nA **hinge** turns.'})
-        expect(doc).toMatchObject({id: 'how-joints-work', createdBy: 'agent', protected: false})
+        expect(doc).toMatchObject({id: 'how-joints-work', created_by: 'agent', protected: false})
         expect((await store.project('larder')).docs.map(d => d.id)).toEqual(['how-joints-work'])
         expect((await store.project('larder')).docs[0]).not.toHaveProperty('body')
         expect((await store.doc('larder', doc.id)).body).toContain('**hinge**')
@@ -995,6 +995,14 @@ describe('images', () => {
 })
 
 describe('the database', () => {
+    it("keeps the Orrery's prompts through the API going snake_case", async () => {
+        const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+        const old = openDb(path, 27)
+        old.prepare(`INSERT INTO settings (key, value) VALUES ('focusPrompt', '"Look at {issue}"'), ('chunkPrompt', '"Work {chunk}"')`).run()
+        old.close()
+        expect(await new Store(new SqliteDb(openDb(path))).settings()).toMatchObject({focus_prompt: 'Look at {issue}', chunk_prompt: 'Work {chunk}'})
+    })
+
     it('keeps its data through the migrations and gives it project ids, the old ones as aliases', async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 2)

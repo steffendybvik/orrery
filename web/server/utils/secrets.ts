@@ -85,7 +85,7 @@ export class Secrets {
     async get(name: string): Promise<Secret & {uses: SecretUse[]}> {
         const row = await this.row(name)
         const uses = (await this.db.all<UseRow>('SELECT * FROM secret_uses WHERE secret = ? ORDER BY id DESC LIMIT ?', name, USES)).map(useOf)
-        return {...secretOf(row, undefined), lastUsed: uses[0] ?? null, uses}
+        return {...secretOf(row, undefined), last_used: uses[0] ?? null, uses}
     }
 
     /** Sets a secret, new or replacing the one with this name: `{value, hosts, projects?}`. */
@@ -358,10 +358,10 @@ function secretOf(row: SecretRow, last: UseRow | undefined): Secret {
         last4: row.last4,
         hosts: JSON.parse(row.hosts),
         projects: row.projects ? JSON.parse(row.projects) : null,
-        createdBy: row.created_by,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        lastUsed: last ? useOf(last) : null,
+        created_by: row.created_by,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        last_used: last ? useOf(last) : null,
     }
 }
 
@@ -376,7 +376,7 @@ function useOf(row: UseRow): SecretUse {
         issue: row.issue,
         status: row.status,
         error: row.error,
-        createdBy: row.created_by,
-        createdAt: row.created_at,
+        created_by: row.created_by,
+        created_at: row.created_at,
     }
 }

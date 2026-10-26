@@ -35,8 +35,8 @@ const {docUnseen} = useUnseen()
           <span class="min-w-0 flex-1 truncate text-[13px] text-fg" :class="docUnseen(project.id, doc) ? 'font-semibold' : ''">{{ doc.title }}</span>
           <span v-if="docUnseen(project.id, doc)" class="unseen-dot" title="Changed since you last opened it" />
           <svg v-if="doc.protected" class="size-3 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><title>Only the owner can delete it</title><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
-          <PersonAvatar :name="doc.createdBy" :size="16" />
-          <span class="w-16 shrink-0 text-right text-xs text-faint" :title="doc.updatedAt">{{ ago(doc.updatedAt) }}</span>
+          <PersonAvatar :name="doc.created_by" :size="16" />
+          <span class="w-16 shrink-0 text-right text-xs text-faint" :title="doc.updated_at">{{ ago(doc.updated_at) }}</span>
         </NuxtLink>
       </div>
       <div v-else class="mx-auto flex max-w-xl flex-col gap-3 px-4 py-20 text-center">

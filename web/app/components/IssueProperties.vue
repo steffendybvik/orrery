@@ -35,7 +35,7 @@ const release = computed({
     get: () => props.issue.release ?? '',
     set: (next: string) => save({release: next || null}),
 })
-const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shippedOn ? `${r.version} · shipped` : r.version}))])
+const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shipped_on ? `${r.version} · shipped` : r.version}))])
 
 // Labels: any the project uses, or a new one.
 const known = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.labels))])
@@ -138,16 +138,16 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
     </template>
     <dt class="label">Created by</dt>
     <dd class="flex flex-wrap items-center gap-x-2 text-muted">
-      {{ who(issue.createdBy) }}
+      {{ who(issue.created_by) }}
       <span v-if="issue.protected" class="flex items-center gap-1 text-xs text-faint" title="Only the owner can delete it">
         <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
         protected
       </span>
     </dd>
     <dt class="label">Created</dt>
-    <dd class="text-muted" :title="issue.createdAt">{{ ago(issue.createdAt) }}</dd>
+    <dd class="text-muted" :title="issue.created_at">{{ ago(issue.created_at) }}</dd>
     <dt class="label">Updated</dt>
-    <dd class="text-muted" :title="issue.updatedAt">{{ ago(issue.updatedAt) }}</dd>
+    <dd class="text-muted" :title="issue.updated_at">{{ ago(issue.updated_at) }}</dd>
     <dd v-if="failed" class="col-span-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</dd>
   </dl>
 </template>
