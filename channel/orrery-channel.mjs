@@ -73,19 +73,24 @@ await new Promise(resolve => setTimeout(resolve, 300))
  * `--dangerously-load-development-channels server:<name>` shows its messages; otherwise it skips them.
  * Claude Code says which in its MCP log for this server (an undocumented file, read here as a hint:
  * `unknown` when it can't be found or doesn't say). The log is kept by the server's name in .mcp.json,
- * which this server can't see, so it reads the newest log under any name it might have. */
+ * which this server can't see, so it reads the newest log under the likeliest name that has one. A repo
+ * with a channel per project (`orrery-hub`, `orrery-css`, and `orrery` for another Orrery) keeps a log for
+ * each, so a one-project server tries its project's names before the Orrery's and the bare `orrery`. */
 function registered() {
     try {
         const cache = join(claudeCache(), process.cwd().replace(/[^a-zA-Z0-9]/g, '-'))
-        const names = [...orrery.environment ? [serverName(orrery.environment)] : [], ...projects.flatMap(p => [p, `orrery-${p}`]), 'orrery']
-        const dirs = [...new Set(names)].map(name => join(cache, `mcp-logs-${name}`))
-        const newest = dirs.flatMap(dir => {
+        const own = projects.flatMap(p => [`orrery-${p}`, p])
+        const environment = orrery.environment ? [serverName(orrery.environment)] : []
+        const names = projects.length === 1 ? [...own, ...environment, 'orrery'] : [...environment, ...own, 'orrery']
+        const logs = [...new Set(names)].map(name => {
             try {
-                return readdirSync(dir).map(name => join(dir, name))
+                const dir = join(cache, `mcp-logs-${name}`)
+                return readdirSync(dir).map(file => join(dir, file))
             } catch {
                 return []
             }
-        }).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0]
+        }).find(files => files.length) ?? []
+        const newest = logs.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0]
         const text = newest ? readFileSync(newest, 'utf8') : ''
         if (text.includes('Channel notifications registered')) return 'yes'
         if (text.includes('Channel notifications skipped')) return 'no'
