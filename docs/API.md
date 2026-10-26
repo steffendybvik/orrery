@@ -69,7 +69,7 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 
 | | |
 |---|---|
-| `GET /projects/:project/releases` | in the order they're arranged in, a new one on top: `{version, branch?, notes?, shipped_on?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included |
+| `GET /projects/:project/releases` | in the order they're arranged in, a new one on top: `{version, branch?, notes?, shipped_on?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included (a sub-issue set for another release counts there instead) |
 | `POST /projects/:project/releases` | `{version, branch?, notes?, shipped_on?, position?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shipped_on` the day it shipped (`YYYY-MM-DD`; none while it's being prepared), `position` where it goes in the list (0 the top, the default) |
 | `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues), and by project in `projects`: `{project, name, issues, kinds, tasks}`, the project's own first, then on a source each project drawing on it |
 | `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shipped_on?, position?}`; `position` moves it in the list (0 the top); the version doesn't change; `null` clears |

@@ -1358,11 +1358,7 @@ export class Store {
             return {project: p.id, name: p.name, issues, kinds, tasks}
         })
         // A source's own row counts every project; its part here is only its own issues.
-        if (drawing.length) {
-            const kinds = emptyKinds()
-            parts[0]!.tasks.forEach(issue => (Object.keys(kinds) as (keyof Kinds)[]).forEach(kind => kinds[kind] += issue.kinds[kind]))
-            parts[0] = {...parts[0]!, issues: parts[0]!.tasks.length, kinds}
-        }
+        if (drawing.length) parts[0] = {...parts[0]!, ...tallyReleases([version], [own.board]).get(version)!}
         return {...own.releases.find(r => r.version === version)!, project, tasks: parts[0]!.tasks, projects: parts}
     }
 
@@ -1641,27 +1637,14 @@ export class Store {
         }
     }
 
-    /** The project's releases (its source's, when it takes them from another), in the order they're arranged in; each with how far its issues are: an issue set for it counts with its sub-issues, and a sub-issue
-     * set for it on its own counts when its parent isn't. A source counts the issues of every project drawing on it; one
-     * drawing on it counts its own. */
+    /** The project's releases (its source's, when it takes them from another), in the order they're arranged in; each with how far its issues are
+     * (see tallyReleases). A source counts the issues of every project drawing on it; one drawing on it counts its own. */
     private async releasesOf(project: ProjectRow, board: Board): Promise<Release[]> {
         if (project.release_mode === 'none') return []
         const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY position, created_at DESC',
             project.releases_from ?? project.id)
         const boards = project.releases_from ? [board] : [board, ...await Promise.all((await this.drawingOn(project.id)).map(id => this.board(id)))]
-        const tally = new Map(rows.map(r => [r.version, {issues: 0, kinds: emptyKinds()}]))
-        const walk = (issues: Issue[]) => {
-            for (const issue of issues) {
-                const into = issue.release ? tally.get(issue.release) : undefined
-                if (!into) {
-                    walk(issue.tasks)
-                    continue
-                }
-                into.issues++
-                for (const kind of Object.keys(into.kinds) as (keyof Kinds)[]) into.kinds[kind] += issue.kinds[kind]
-            }
-        }
-        boards.forEach(b => b.chunks.forEach(c => walk(c.tasks)))
+        const tally = tallyReleases(rows.map(r => r.version), boards)
         return rows.map(row => ({...releaseOf(row), ...tally.get(row.version)!}))
     }
 
@@ -1929,6 +1912,26 @@ function signalOf(row: SignalRow): Signal {
         id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined,
         target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
+}
+
+/** How far each release's issues are: an issue set for it counts once, with its sub-issues' work, unless it's under an issue
+ * already set for it; a sub-issue set for another release counts there instead, taking its work out of its ancestor's. */
+function tallyReleases(versions: string[], boards: Board[]): Map<string, {issues: number, kinds: Kinds}> {
+    const tally = new Map(versions.map(v => [v, {issues: 0, kinds: emptyKinds()}]))
+    const walk = (issues: Issue[], current: string | undefined) => {
+        for (const issue of issues) {
+            const release = issue.release ?? current
+            const own = issue.release && issue.release !== current ? tally.get(issue.release) : undefined
+            if (own) own.issues++
+            if (issue.tasks.length) walk(issue.tasks, release)
+            else if (release && tally.has(release)) {
+                const into = tally.get(release)!.kinds
+                for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
+            }
+        }
+    }
+    boards.forEach(b => b.chunks.forEach(c => walk(c.tasks, undefined)))
+    return tally
 }
 
 function releaseOf(row: ReleaseRow): Omit<Release, 'issues' | 'kinds'> {
