@@ -6,6 +6,7 @@ import {badRequest, checkInput, conflict, forbidden, notFound} from '../utils/in
 import type {Actor, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
+import {EVERY} from '../utils/pool'
 
 export abstract class SignalStore extends IssueStore {
     /** `Store` has it, with the claims on issues. */
@@ -45,15 +46,17 @@ export abstract class SignalStore extends IssueStore {
         return await this.sendFocus(project, issue, body, actor)
     }
 
-    /** `focus` for an issue id already resolved and checked. */
+    /** `focus` for an issue id already resolved and checked. Aimed at no session, it goes to the one already on the
+     * issue if that one is listening, else to one Orrery picks (pool.ts); `*` sends it to every session. */
     protected async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
+        const target = nullable(input.session) ?? await this.listeningWorker(project, issue)
         const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
+            project, issue, 'focus', nullable(input.note), target, instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row!)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
-        if (signal.target && !await this.heldElsewhere(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
+        if (signal.target && signal.target !== EVERY && !await this.heldElsewhere(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
         return signal
     }
@@ -128,7 +131,7 @@ export abstract class SignalStore extends IssueStore {
             const issues = new Set(worked.filter(w => ids.includes(w.session) && open.has(w.issue)).map(w => w.issue))
             return [session.id, {
                 issues: [...issues].map(issue => open.get(issue)!).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
-                signals: recent.filter(s => (s.target && ids.includes(s.target)) || (!s.target && s.delivered_to.includes(session.name))).slice(0, signals),
+                signals: recent.filter(s => ids.includes(s.target ?? '') || ((!s.target || s.target === EVERY) && s.delivered_to.includes(session.name))).slice(0, signals),
             }]
         }))
     }
@@ -156,10 +159,19 @@ export abstract class SignalStore extends IssueStore {
         return signal
     }
 
-    /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it or for every session. */
+    /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or
+     * for the one Orrery picks. */
     async waiting(project: string, ids: string[]): Promise<boolean> {
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
-            AND (target IS NULL OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, ...ids)
+            AND (target IS NULL OR target = ? OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, EVERY, ...ids)
+    }
+
+    /** The owner's signals from the last day for one session Orrery picks (pool.ts) that none has heard yet: the next
+     * session to go idle takes them. */
+    async pooledWaiting(project: string): Promise<Signal[]> {
+        const since = new Date(Date.now() - 86_400_000).toISOString()
+        return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
+            AND target IS NULL AND kind != 'comment' AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
     }
 
     /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next

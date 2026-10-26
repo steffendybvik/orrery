@@ -167,6 +167,8 @@ export function report(input: Report): Session | null {
     }
     if (state === 'idle') session.idleAt = Date.now()
     changed(session.project)
+    // Free now: it takes up what was sent to one session while every one was busy (pool.ts).
+    if (state === 'idle') projectEvents.emit('session-idle', session.id)
     if (input.command) {
         const {id, project} = session
         for (const write of issueWrites(input.command, project)) {

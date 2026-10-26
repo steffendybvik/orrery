@@ -915,6 +915,31 @@ describe('a signal reaching sessions', () => {
     })
 })
 
+describe('a focus aimed at no session', () => {
+    it("goes to the session already on its issue while it's listening, else to one Orrery picks", async () => {
+        const owner = {name: 'skoll', owner: true}
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        expect((await store.focus('larder', jars, {}, owner)).target).toBeUndefined()
+        await store.workedBy('larder', jars, 'a')
+        store.hears = () => true
+        expect((await store.focus('larder', jars, {}, owner)).target).toBe('a')
+        expect((await store.focus('larder', jars, {session: '*'}, owner)).target).toBe('*')
+        store.hears = () => false
+        expect((await store.focus('larder', jars, {}, owner)).target).toBeUndefined()
+    })
+
+    it('waits for the next session to go idle while nobody has heard it', async () => {
+        const owner = {name: 'skoll', owner: true}
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        const one = await store.focus('larder', jars, {}, owner)
+        await store.focus('larder', jars, {session: 'b'}, owner)
+        const chunk = await store.focusChunk('larder', 'all', {}, owner)
+        expect((await store.pooledWaiting('larder')).map(s => s.id)).toEqual([one.id, chunk.id])
+        await store.delivered('larder', one.id, 'pantry')
+        expect((await store.pooledWaiting('larder')).map(s => s.id)).toEqual([chunk.id])
+    })
+})
+
 describe("what a project's sessions are on", () => {
     it('is the open issues each worked last, newest first, and the last signals that went to it', async () => {
         const owner = {name: 'skoll', owner: true}
@@ -928,7 +953,7 @@ describe("what a project's sessions are on", () => {
         store.hears = (_project, session) => session !== 'a'
         await store.focus('larder', shelves, {session: 'b'}, owner)
         store.hears = () => true
-        const everyone = await store.focus('larder', jars, {}, owner)
+        const everyone = await store.focus('larder', jars, {session: '*'}, owner)
         await store.delivered('larder', everyone.id, 'pantry')
         const work = await store.sessionWork('larder', [{id: 'a', name: 'larder 1'}, {id: 'b', name: 'pantry'}])
         expect(work.a!.issues.map(i => i.id)).toEqual([jars])

@@ -62,6 +62,9 @@ async function focus(session: Session | null) {
 }
 
 const nameOf = (id?: string) => sessions.value.find(s => s.id === id)?.name ?? 'a session'
+/** Who a signal was for: a session, every session, or (a comment aside) the one Orrery picks. */
+const aimed = (signal: Signal) => signal.target === '*' || !signal.target && signal.kind === 'comment' ? 'every session'
+    : signal.target ? nameOf(signal.target) : 'one session'
 const {environment} = useRuntimeConfig().public
 const restart = (session: Session) => restartCommand({name: session.name, project: props.project, server: session.server}, String(environment || 'personal'))
 </script>
@@ -136,11 +139,11 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">
         <template v-if="signal.kind === 'comment'">
           <span><span class="text-muted">{{ who(signal.created_by) }}</span>'s comment went to</span>
-          <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
+          <span class="text-muted">{{ aimed(signal) }}</span>
         </template>
         <template v-else>
           <span class="text-muted">{{ who(signal.created_by) }}</span> asked
-          <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
+          <span class="text-muted">{{ aimed(signal) }}</span>
           {{ signal.status ? `to work through its ${look(signal.status).label} issues` : 'to focus on this' }}
         </template>
         · {{ ago(signal.created_at) }} ·
