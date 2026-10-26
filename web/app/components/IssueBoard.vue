@@ -9,6 +9,11 @@ const {open, isLast} = useIssueLink()
 const {issueUnseen} = useUnseen()
 const {open: openMenu} = useIssueMenu()
 const {columns: order, look} = useStatuses()
+const {selected, isSelected, toggle} = useSelection()
+function click(event: MouseEvent, issue: Issue) {
+    if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
+    else open(props.project, issue.id)
+}
 const unfolded = ref<Column[]>([])
 
 const columns = computed(() => {
@@ -52,14 +57,16 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             :key="issue.id"
             data-nav
             :data-issue="issue.id"
+            :data-project="project"
             tabindex="0"
             role="button"
-            class="flex cursor-pointer flex-col gap-2 rounded-xl border bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
-            :class="[isLast(project, issue.id) ? 'border-faint/50' : 'border-line', issueUnseen(project, issue) && 'unseen-row']"
-            @click="open(project, issue.id)"
+            class="group flex cursor-pointer flex-col gap-2 rounded-xl border bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
+            :class="[isSelected(project, issue.id) ? 'border-accent-500/60 bg-accent-500/5' : isLast(project, issue.id) ? 'border-faint/50' : 'border-line', issueUnseen(project, issue) && 'unseen-row']"
+            @click="click($event, issue)"
             @contextmenu="openMenu($event, project, issue.id)"
         >
           <div class="flex items-center gap-2 text-[11px] text-faint">
+            <SelectBox :project="project" :id="issue.id" />
             <span v-if="issueUnseen(project, issue)" class="unseen-dot" title="Changed since you last opened it" />
             <span class="font-mono">{{ issue.id }}</span>
             <span class="min-w-0 flex-1 truncate"><NuxtLink :to="chunkPath(project, chunk.id)" class="hover:text-fg hover:underline" @click.stop>{{ chunk.title }}</NuxtLink></span>

@@ -937,6 +937,46 @@ describe('settings', () => {
     })
 })
 
+describe('many issues at once', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it('take one change each on its own, labels added and taken off, saying which were refused', async () => {
+        const a = await store.createIssue('larder', {title: 'A', labels: ['ui', 'old']})
+        const b = await store.createIssue('larder', {title: 'B'})
+        changes = []
+        expect(await store.updateIssues('larder', {ids: [a.id, b.id, 'LAR-99'], set: {priority: 'P1', assignee: 'claude'}, labels: {add: ['bulk'], remove: ['old']}}, owner))
+            .toEqual([{id: a.id, ok: true}, {id: b.id, ok: true}, {id: 'LAR-99', ok: false, error: 'No issue LAR-99 in larder'}])
+        expect((await store.issue('larder', a.id))).toMatchObject({priority: 'P1', assignee: 'claude', labels: ['ui', 'bulk']})
+        expect((await store.issue('larder', b.id)).labels).toEqual(['bulk'])
+        // The page hears the batch once.
+        expect(changes.filter(p => p === 'larder')).toHaveLength(1)
+        expect((await failure(() => store.updateIssues('larder', {ids: [a.id], set: {title: 'x'}}, owner))).status).toBe(400)
+        expect((await failure(() => store.updateIssues('larder', {ids: []}, owner))).status).toBe(400)
+    })
+
+    it("are decided by the owner, skipping a proposal whose choices have no recommendation", async () => {
+        const plain = await store.createIssue('larder', {title: 'Plain', proposal: 'pending'})
+        const unsure = await store.createIssue('larder', {title: 'Unsure', proposal: 'pending', choices: [{key: 'k', question: 'Which?', options: [{key: 'a', title: 'A'}, {key: 'b', title: 'B'}]}]})
+        const sure = await store.createIssue('larder', {title: 'Sure', proposal: 'pending', choices: [{key: 'k', question: 'Which?', options: [{key: 'a', title: 'A'}, {key: 'b', title: 'B'}], recommended: ['a']}]})
+        const results = await store.decideIssues('larder', {ids: [plain.id, unsure.id, sure.id], decision: 'approved', note: 'All good'}, owner)
+        expect(results.map(r => r.ok)).toEqual([true, false, true])
+        expect(results[1]!.error).toBe('Needs your picks: nothing is recommended for "Which?"')
+        expect((await store.issue('larder', sure.id)).picks).toEqual({k: ['a']})
+        expect((await store.issue('larder', unsure.id)).proposal).toBe('pending')
+        expect((await store.decideIssues('larder', {ids: [unsure.id], decision: 'rejected'}, owner))[0]!.ok).toBe(true)
+        expect((await store.decideIssues('larder', {ids: [plain.id], decision: 'changes'}, {name: 'claude', owner: false}))[0]!.ok).toBe(false)
+    })
+
+    it('are deleted with their sub-issues, one under another in the list going with it', async () => {
+        const parent = await store.createIssue('larder', {title: 'Parent'})
+        const sub = await store.createIssue('larder', {title: 'Sub', parent: parent.id})
+        const mine = await store.createIssue('larder', {title: 'Mine'}, owner)
+        expect(await store.deleteIssues('larder', {ids: [parent.id, sub.id, mine.id]}, {name: 'claude', owner: false}))
+            .toMatchObject([{id: parent.id, ok: true}, {id: sub.id, ok: true}, {id: mine.id, ok: false}])
+        expect((await store.listIssues('larder')).map(i => i.id)).toEqual([mine.id])
+    })
+})
+
 describe('removing', () => {
     it('an issue takes its signals with it', async () => {
         const {id} = await store.createIssue('larder', {title: 'A'})

@@ -83,6 +83,9 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 | `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, notes?, proposal?, parent?, chunk?, release?, position?}`; gets the next `KEY-n` |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and chunk |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |
+| `PATCH /projects/:project/issues` | many at once: `{ids, set?: {status?, priority?, assignee?, chunk?, release?}, labels?: {add?, remove?}}` → `[{id, ok, error?}]`, each issue on its own, so one refused doesn't stop the rest; open pages hear the batch once |
+| `POST /projects/:project/issues/decide` | the owner's one decision on many proposals: `{ids, decision, note?}` → `[{id, ok, error?}]`; approving takes each one's recommended picks, and skips one with a choice that has none |
+| `DELETE /projects/:project/issues` | `{ids}` → `[{id, ok, error?}]`, each with its sub-issues, under the same protections as one |
 | `DELETE /projects/:project/issues/:issue` | with its sub-issues and comments |
 | `POST /projects/:project/issues/:issue/decide` | `{decision, note?}`, the owner only: `approved`, `changes` or `rejected` a proposal → the issue |
 

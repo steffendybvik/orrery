@@ -16,6 +16,11 @@ the database schema are the public surface, and a database always migrates forwa
 - **Whose board an issue is on:** every issue has a reference, `orrery-<handle>: DOC-132`, with a Copy
   ref button by its id and `ref` in the API and the `issue` tool, for commit bodies and PR descriptions.
   App settings take the handle (your GitHub login, say); without one it's your id.
+- **Many issues at once:** tick issues on any list or board (a row's tick on hover, shift-click for a run,
+  `x`, ⌘A for the page, Esc to clear) and a bar changes them together: Approve, Request changes or Reject
+  proposals with one note, or set status, priority, assignee, labels, chunk or release, or delete them.
+  Each issue goes on its own and the bar lists what was skipped. `PATCH /projects/:project/issues`,
+  `POST …/issues/decide` and `DELETE …/issues` take `{ids}`.
 
 ## 1.0.0-rc.3 (2026-10-26)
 
