@@ -58,9 +58,29 @@ jobs:
   # The main flows in a real browser, against `nuxt dev` with a fresh database: on every pull request
   # that isn't a draft, each push to it included, so nothing merges without them; on a release tag; and
   # by hand. Pushes to a branch with no pull request run the unit tests alone.
-  e2e:
+  # The Playwright version web/ pins, for the e2e job's image.
+  playwright:
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: web/package.json
+          sparse-checkout-cone-mode: false
+      - id: version
+        run: echo "version=$(jq -r '.devDependencies["@playwright/test"]' web/package.json)" >> "$GITHUB_OUTPUT"
+
+  e2e:
+    needs: playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Playwright's own image has the browser and the system libraries it needs. Installing those with apt on
+    # every run took from 10 seconds to 11 minutes, as Ubuntu's mirror allowed.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
+      options: --ipc=host
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -69,19 +89,6 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # The browser is cached per Playwright version; the system libraries it needs aren't, so a hit
-      # still installs those.
-      - id: playwright
-        run: echo "version=$(pnpm --dir web exec playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
-      - id: browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - if: steps.browsers.outputs.cache-hit != 'true'
-        run: pnpm --dir web exec playwright install --with-deps chromium
-      - if: steps.browsers.outputs.cache-hit == 'true'
-        run: pnpm --dir web exec playwright install-deps chromium
       - run: pnpm test:e2e
       # The report carries the traces of the failed tests (open with `pnpm exec playwright show-report`).
       - uses: actions/upload-artifact@v4
