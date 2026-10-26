@@ -273,6 +273,23 @@ describe('stopping the sessions Orrery started that are done', () => {
         expect(stopped()).toEqual(['due', 'busy', 'holding'])
     })
 
+    it('stops one long past its time anyway, whatever it is doing', async () => {
+        starts = {limit: 2, minutes: 20}
+        const sessions = [
+            started('stuck', {stops_at: minutesAgo(21), state: 'waiting'}),
+            started('looping', {stops_at: minutesAgo(25), state: 'working'}),
+            started('holding', {stops_at: minutesAgo(30)}),
+            started('nearly', {stops_at: minutesAgo(19), state: 'working'}),
+        ]
+        vi.stubGlobal('listSessions', () => sessions)
+        working = {'s-holding': ['LAR-1']}
+        // 20 minutes over: its minutes again. One just past its time and still busy is let finish.
+        expect(await launches.stopDue(now)).toEqual(['stuck', 'looping', 'holding'])
+        expect(launches.overdueAfter(5)).toBe(15 * 60_000)
+        expect(launches.overdueAfter(240)).toBe(60 * 60_000)
+        expect(launches.overdueAfter()).toBe(30 * 60_000)
+    })
+
     it("stops one idle for the project's idle minutes, from when it went idle, and asks a slow launcher again later", async () => {
         starts = {limit: 2, idle_minutes: 60}
         const sessions = [started('idle', {since: minutesAgo(61)}), started('fresh', {since: minutesAgo(59)}), started('working', {state: 'working', since: minutesAgo(120)})]
