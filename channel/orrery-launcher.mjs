@@ -239,7 +239,14 @@ function adopt(project, api) {
             log(`left ${name} to the launcher running it (pid ${owner})`)
             continue
         }
-        tmux('set-option', '-t', name, LAUNCHER, String(process.pid))
+        // Taken only if it's still the owner seen: tmux runs one command at a time, so of two launchers starting
+        // together, one gets it and the other finds it taken.
+        tmux('if-shell', '-F', '-t', name, `#{==:#{${LAUNCHER}},${owner}}`, `set-option -t ${name} ${LAUNCHER} ${process.pid}`)
+        const now = tmux('show-options', '-v', '-t', name, LAUNCHER)
+        if (now !== String(process.pid)) {
+            log(`left ${name} to the launcher that took it first (pid ${now})`)
+            continue
+        }
         running.set(id, {tmux: name, api})
         let stopsAt = ''
         try {

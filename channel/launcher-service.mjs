@@ -151,20 +151,20 @@ export function uninstall(entries, {node = process.execPath, script, path = proc
     return {config, file: where.file}
 }
 
-/** Whether the process `pid` is running (one of another user's counts: it's there, just not ours to signal). */
-export function pidAlive(pid) {
+/** Whether the process `pid` is a launcher still running. Once a launcher dies the system can hand its pid to
+ * another program, which doesn't count: its sessions would otherwise be left to nobody. */
+export function launcherAlive(pid) {
     try {
-        process.kill(pid, 0)
-        return true
-    } catch (error) {
-        return error.code === 'EPERM'
+        return execFileSync('ps', ['-p', String(pid), '-o', 'command='], {encoding: 'utf8'}).includes('orrery-launcher')
+    } catch {
+        return false // No such process.
     }
 }
 
 /** Whether a launcher (`self`, its pid) may take over a session whose launcher was `owner` (the pid it keeps in
  * tmux, `''` when it kept none): only when that launcher is gone, so a second launcher leaves the first one's
  * sessions alone. One with no owner kept was started before owners were, and is taken as before. */
-export function adoptable(owner, self, alive = pidAlive) {
+export function adoptable(owner, self, alive = launcherAlive) {
     const pid = Number(owner)
     return !owner || !Number.isInteger(pid) || pid <= 0 || pid === self || !alive(pid)
 }

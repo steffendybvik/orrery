@@ -114,7 +114,9 @@ every project installed this way; run `--install` again in another repo to add i
 `--uninstall` to take them off. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
 channel there, each with the projects in its `ORRERY_PROJECTS` (or its `ORRERY_PROJECT`), so a monorepo with a
 channel per project gets all of them, and each project's sessions load the channel that serves it. With `*`, or to
-pick one, name it with `ORRERY_PROJECT`. A project already served from another repo (a monorepo's channel to your
+pick one, name it with `ORRERY_PROJECT`. `ORRERY_URL` stands in for a channel's address only where `.mcp.json` doesn't write
+one out (`${ORRERY_URL:-…}`); a written address wins, so a session's own `ORRERY_URL` can't send a monorepo's projects to
+another Orrery. A project no channel names goes on `ORRERY_URL`, else the first channel's Orrery. A project already served from another repo (a monorepo's channel to your
 personal Orrery) is left there unless `ORRERY_PROJECT` names it. `--list` shows what a repo would register, and
 with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`. Its log is
 `~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
