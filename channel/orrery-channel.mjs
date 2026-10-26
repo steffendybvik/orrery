@@ -16,6 +16,7 @@ import {basename, join} from 'node:path'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
+import {serverName} from './server-name.mjs'
 import {claudeWindow} from './session.mjs'
 import {follow} from './sse.mjs'
 import {orreryTools, toolsFor} from './tools.mjs'
@@ -76,7 +77,7 @@ await new Promise(resolve => setTimeout(resolve, 300))
 function registered() {
     try {
         const cache = join(claudeCache(), process.cwd().replace(/[^a-zA-Z0-9]/g, '-'))
-        const names = [...orrery.environment ? [`orrery-${orrery.environment}`] : [], ...projects.flatMap(p => [p, `orrery-${p}`]), 'orrery']
+        const names = [...orrery.environment ? [serverName(orrery.environment)] : [], ...projects.flatMap(p => [p, `orrery-${p}`]), 'orrery']
         const dirs = [...new Set(names)].map(name => join(cache, `mcp-logs-${name}`))
         const newest = dirs.flatMap(dir => {
             try {
