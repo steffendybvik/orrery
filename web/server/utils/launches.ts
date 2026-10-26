@@ -6,6 +6,7 @@
 // after the project's minutes, or when the owner stops it.
 import {randomBytes} from 'node:crypto'
 import type {Session, Signal} from '#shared/roadmap'
+import type {Actor} from './store'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
  * catch up from; `tmux` names the tmux session it runs in. */
@@ -71,17 +72,32 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     return launch
 }
 
+/** The session id a focus made for a launch is aimed at: its session takes it as one of its ids when it connects,
+ * so no other session hears it. */
+export const launchTarget = (launch: string) => `launch-${launch}`
+
 /** The owner starting a session on the project by hand, though nobody's work is waiting: it catches up from the
- * project's latest signal. Needs the project's opt-in and a launcher, and counts the sessions on their way
- * against the limit, as it doesn't stand in for them the way a signal's launch does. */
-export async function startLaunch(project: string): Promise<Launch> {
+ * project's latest signal, or, given an `issue`, from a focus on it made for this session alone. Needs the
+ * project's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
+ * in for them the way a signal's launch does. */
+export async function startLaunch(project: string, {issue, actor}: {issue?: string, actor?: Actor} = {}): Promise<Launch> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`${project} doesn't let Orrery start sessions; turn it on from its Sessions tab`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
     if (startedSessions(project) + pendingOn(project) >= starts.limit) throw conflict(`${project} already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     const id = randomBytes(6).toString('hex')
-    const launch = {id, project, after: await useStore().lastSignal(project), minutes: starts.minutes, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')}
-    pending.set(id, {...launch, at: Date.now(), claimed: false})
+    // Held from here, so the limit counts it while its focus is made.
+    const held = {id, project, after: 0, minutes: starts.minutes, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
+    pending.set(id, held)
+    try {
+        held.after = issue
+            ? (await useStore().focus(project, issue, {session: launchTarget(id)}, actor)).id - 1
+            : await useStore().lastSignal(project)
+    } catch (error) {
+        pending.delete(id)
+        throw error
+    }
+    const {at: _at, claimed: _claimed, ...launch} = held
     emit({type: 'launch', launch})
     return launch
 }

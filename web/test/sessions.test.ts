@@ -13,6 +13,7 @@ beforeEach(async () => {
     vi.stubGlobal('projectEvents', events)
     renamed = []
     vi.stubGlobal('useStore', () => ({workedBy: async () => {}, renameSession: async (project: string, from: string, to: string) => renamed.push(`${project}:${from}>${to}`)}))
+    vi.stubGlobal('launchTarget', (launch: string) => `launch-${launch}`)
     vi.resetModules()
     sessions = await import('../server/utils/sessions')
 })
@@ -70,6 +71,13 @@ describe('a session', () => {
         // A session started without the channel flag connects but wouldn't hear.
         expect(sessions.attend('larder', 'b', undefined, undefined, false)).toMatchObject({id: 'b'})
         expect(sessions.listSessions('larder').find(s => s.id === 'b')).toMatchObject({name: 'larder 1', listening: false})
+    })
+
+    it('takes the focus made for its launch as its own', () => {
+        const {id} = sessions.attend('larder', 'a', undefined, undefined, true, undefined, false, 'l9')
+        expect(sessions.currentId('launch-l9')).toBe(id)
+        expect(sessions.sessionIds(id)).toContain('launch-l9')
+        expect(sessions.currentId('launch-l8')).toBe('launch-l8')
     })
 
     it('started by Orrery says which launch, and counts as one it started while its channel is there', () => {

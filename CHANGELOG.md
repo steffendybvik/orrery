@@ -3,6 +3,15 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## Unreleased
+
+- **Start a session from anywhere:** a Sessions page lists every project's sessions, and Start session there
+  (or the + by the sidebar's Sessions) picks the project, then optionally an open issue for it to focus on
+  from the start. Projects that can't start one now say why, with a link to turn starting on.
+  `POST …/launches` takes `{issue}`.
+- **Fixed:** a session Orrery starts for a project's very first signal now gets that signal: an `after` of 0
+  is a catch-up too.
+
 ## 1.0.0-rc.3 (2026-10-26)
 
 - **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:

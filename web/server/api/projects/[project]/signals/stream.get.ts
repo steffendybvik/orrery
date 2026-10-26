@@ -11,7 +11,9 @@ export default defineEventHandler(async event => {
     const store = useStore()
     await store.project(project)
     const query = getQuery(event)
-    const after = Number(query.after ?? getHeader(event, 'last-event-id') ?? 0) || 0
+    // An `after` of 0 is a catch-up too: from a project's first signal, as a session started for it asks.
+    const from = query.after ?? getHeader(event, 'last-event-id')
+    const after = Number(from ?? 0) || 0
     const text = (key: string) => typeof query[key] === 'string' && query[key] ? String(query[key]) : undefined
     // A channel says which window it is; the Monitor stream may not.
     // A channel in a session not started with the channel flag says so (`channel=no`): Claude Code
@@ -80,7 +82,7 @@ export default defineEventHandler(async event => {
     // The owner's signals for every session, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
     const ours = (signal: Signal) => !signal.target || currentId(signal.target) === attended?.id
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.delivered_to.length && ours(signal)
-    const missed = after ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && ours(s)) : []
+    const missed = from !== undefined ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && ours(s)) : []
 
     /** Sends signals one after another, in the order they came, however long each takes to read. */
     let queue: Promise<unknown> = Promise.resolve()

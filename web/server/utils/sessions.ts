@@ -212,7 +212,11 @@ export function attend(project: string, id: string | undefined, pid: number | un
     held.channels.set(project, {streams: count.streams + 1, heard: count.heard + Number(heard), stops: count.stops + Number(stops)})
     tally(held)
     if (started) held.started = started
-    if (launch) held.launch = launch
+    if (launch) {
+        held.launch = launch
+        // A focus made for the launch is this session's.
+        aliases.set(launchTarget(launch), held.id)
+    }
     if (name) held.name = name
     changed(held.project)
     let open = true
