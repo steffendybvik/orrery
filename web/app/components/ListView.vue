@@ -3,6 +3,7 @@ import type {Chunk, Column, Counts, Issue, Kinds} from '#shared/roadmap'
 
 // Top-level issues as rows with their sub-issues under them, in groups that fold: by status (Doing…Done, each row
 // saying its chunk; started first) or by chunk. Closed groups start folded, unless a filter is on. `#group-end` adds to a group's header.
+// An open group's header has a tick (GroupTick) for every row it shows, sub-issues included.
 const props = withDefaults(defineProps<{chunks: Chunk[], project: string, group: 'status' | 'chunk', showChunk?: boolean}>(), {showChunk: true})
 const {active} = useFilters()
 const {columns, look} = useStatuses()
@@ -24,6 +25,9 @@ const groups = computed<Group[]>(() => {
 const toggled = ref<Record<string, boolean>>({})
 const isOpen = (group: Group) => toggled.value[group.key] ?? (active.value || !isClosed(look(group.column).kind))
 
+/** The ids of a group's rows, each issue followed by its sub-issues at every depth, as the rows show them. */
+const ids = (issues: Issue[]): string[] => issues.flatMap(issue => [issue.id, ...ids(issue.tasks)])
+
 function toggle(group: Group) {
     toggled.value = {...toggled.value, [group.key]: !isOpen(group)}
 }
@@ -37,9 +41,12 @@ function toggle(group: Group) {
           tabindex="0"
           role="button"
           :aria-expanded="isOpen(group)"
-          class="sticky top-0 z-10 flex h-9 cursor-pointer items-center gap-2.5 border-b border-line bg-panel/90 px-3 outline-none backdrop-blur hover:bg-hover focus-visible:bg-active"
+          class="group sticky top-0 z-10 flex h-9 cursor-pointer items-center gap-2.5 border-b border-line bg-panel/90 px-3 outline-none backdrop-blur hover:bg-hover focus-visible:bg-active"
           @click="toggle(group)"
       >
+        <span class="hidden size-[14px] shrink-0 sm:flex">
+          <GroupTick v-if="isOpen(group) && group.issues.length" :project="project" :ids="ids(group.issues.map(i => i.issue))" :label="group.title" />
+        </span>
         <svg class="size-3 shrink-0 text-faint transition-transform" :class="isOpen(group) && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
         <StatusIcon :column="group.column" :progress="group.kinds ? progress(group.kinds).share : 0.5" />
         <h3 class="min-w-0 truncate text-[13px] font-medium" :class="group.muted && 'text-muted italic'">{{ group.title }}</h3>

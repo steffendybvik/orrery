@@ -3,7 +3,7 @@ import type {Decision, Issue} from '#shared/roadmap'
 
 // The issues ticked on the page (useSelection), changed at once: decided when they're all proposals waiting on the
 // owner, else set (status, priority, assignee, labels added or taken off, and chunk or release within one project),
-// or deleted. Each project's ticked issues go in one call, and each issue on its own: what was refused is listed.
+// or deleted. Under the buttons it says how to tick more. Each project's ticked issues go in one call, and each issue on its own: what was refused is listed.
 const route = useRoute()
 const {byId} = useRoadmaps()
 const {load, who, name: owner} = useOwner()
@@ -120,6 +120,9 @@ const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs 
         </UiButton>
       </div>
       <p v-if="said" class="text-xs text-muted" role="status">{{ said }}</p>
+      <p v-else-if="selected.length" class="hidden items-center gap-1 text-[11px] text-faint sm:flex">
+        Drag over the ticks, or shift-click, for a run · a group's tick for all of it · <KeyHint>⌘A</KeyHint> for the page
+      </p>
       <ul v-if="failed.length" class="max-h-24 overflow-y-auto text-xs text-rose-600 dark:text-rose-400">
         <li v-for="line in failed" :key="line">{{ line }}</li>
       </ul>

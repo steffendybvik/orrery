@@ -3,7 +3,8 @@ import type {Chunk, Column, Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // Issues as cards in their columns, started first and closed last. A parent stands for its
-// sub-issues. Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu).
+// sub-issues. Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
+// column's header has a tick (GroupTick) for all its cards.
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()
 const {issueUnseen} = useUnseen()
@@ -33,7 +34,8 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
         class="flex shrink-0 snap-start flex-col"
         :class="folded(column) ? 'w-44' : 'w-[85vw] sm:w-80'"
     >
-      <header class="mb-2 flex h-7 items-center gap-2 px-1">
+      <header class="group mb-2 flex h-7 items-center gap-2 px-1">
+        <GroupTick v-if="!folded(column) && cards.length" :project="project" :ids="cards.map(({issue}) => issue.id)" :label="look(column).label" />
         <StatusIcon :column="column" />
         <h2 class="text-[13px] font-medium">{{ look(column).label }}</h2>
         <span class="font-mono text-[11px] text-faint tabular-nums">{{ cards.length }}</span>
