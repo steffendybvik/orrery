@@ -3,6 +3,19 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.5 (2026-10-26)
+
+- **Find the issue to focus on as you type:** Start session's issue and release are the picker the issue page
+  uses: type part of an id or title, ↑↓ and ↵ to pick.
+- **A run carries on after a clear:** a session Orrery started and then cleared partway through a chunk or
+  scope gets a focus on what's left, to it alone, so it carries on instead of waiting. A focus on one issue
+  ends the run it was on.
+- **Faster first load:** each Heroicon loads when it's shown, and each dialog the first time it opens, so a
+  page's first load is about a third smaller (510 KB of JS to 340 KB).
+- **Last sent keeps up:** a session's card on the Sessions page shows a message you just sent it.
+- **More e2e:** the flows cover starting sessions, the Sessions page and messaging a session, Focus on this
+  starting one, presets, schedules, the bell, and Now, My issues and Connect (25 flows, from 18).
+
 ## 1.0.0-rc.4 (2026-10-26)
 
 - **Releases count a sub-issue where it's set:** a sub-issue set for another release than its parent's
