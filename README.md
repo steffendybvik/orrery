@@ -16,7 +16,7 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
   issue, work through a chunk, or read a message. Hooks report whether each session is working, idle
   or waiting. Only one session can work on an issue at a time.
 - **Starting sessions:** optionally, a launcher on the host starts Claude sessions in tmux when work
-  arrives with nobody listening, within limits set in App settings.
+  arrives with nobody listening, within limits set on the Sessions page.
 - **Schedules:** cron jobs that create an issue or send the sessions a message.
 - **Releases:** versions with their issues and a drafted changelog, shared across a monorepo's projects
   if wanted.
@@ -50,9 +50,10 @@ You need:
    docker compose up -d --build        # http://localhost:9000
    ```
 
-3. Open it, give your name (that makes you the owner) and create a project from the sidebar (`+`).
-4. Open **Connect an agent** and paste the line it gives you into a Claude session in that project's repo. The
-   session writes the repo's `.mcp.json`, hooks and `CLAUDE.md` section itself.
+3. Open it and give your name (that makes you the owner). It opens on **Getting started**, which ticks off the
+   steps below as they happen. Create a project there or from the sidebar (`+`).
+4. Paste the line Getting started (or **Connect an agent**) gives you into a Claude session in that
+   project's repo. The session writes the repo's `.mcp.json`, hooks and `CLAUDE.md` section itself.
 5. From then on, start Claude in that repo with the channel, so Orrery can send it work:
 
    ```sh

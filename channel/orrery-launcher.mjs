@@ -8,7 +8,7 @@
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
 // The projects are ORRERY_PROJECT, else every one the channels in .mcp.json name (each channel's ORRERY_PROJECTS,
 // or its ORRERY_PROJECT), else the folder's name, each on its channel's Orrery (see repo-channels.mjs), and each
-// project's sessions load the channel that serves it. Orrery asks only once the owner lets it start sessions (App settings): when the
+// project's sessions load the channel that serves it. Orrery asks only once the owner lets it start sessions (Starting sessions, on the Sessions page): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
 // this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open), with the channel, in
@@ -313,7 +313,7 @@ function serve({url, project, dir}) {
                 const {starts} = JSON.parse(data)
                 log(starts
                     ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
-                    : "connected, but Orrery doesn't start sessions yet: turn it on in its App settings")
+                    : "connected, but Orrery doesn't start sessions yet: turn it on under Starting sessions, on its Sessions page")
             } else if (event === 'launch') {
                 await start(JSON.parse(data)).catch(error => log(`couldn't start a session for ${project}: ${error.message}`))
             } else if (event === 'stop') {

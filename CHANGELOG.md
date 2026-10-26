@@ -32,6 +32,15 @@ the database schema are the public surface, and a database always migrates forwa
   not in the order they were made.
 - **A second launcher leaves the first one's sessions alone:** each session keeps its launcher's pid, so a launcher
   run next to the service no longer takes its sessions over and stops them when it exits.
+- **A launcher serves every channel in a repo:** a monorepo whose `.mcp.json` has a channel per project
+  (`orrery-hub`, `orrery-css`, …) installs all of them with one `--install`, each project's sessions load the
+  channel that serves it, and each on its own channel's Orrery. `--install --list` shows what a repo would register.
+- **Getting started:** a new Orrery opens on a checklist that ticks itself as it happens: a project, its repo
+  connected, a session listening, work sent. *Try it with a demo project* makes a sample board to look around
+  first. Until it's done it's a card at the top of Now; **Hide** puts it away, and ⌘K → *Getting started* brings it
+  back (`/getting-started`).
+- **The quick start lists everything it needs:** Node 24 and pnpm for the channel, hooks and launcher, which run
+  from the clone outside Docker, and tmux only for starting sessions.
 - **One set of UI components:** buttons, dialogs, menus and confirmations come from a small kit
   (`components/ui/`), listed with the other shared pieces in [docs/components.md](docs/components.md). Disabled
   buttons, quiet icon buttons and the red remove buttons now look the same everywhere.
@@ -40,7 +49,10 @@ the database schema are the public surface, and a database always migrates forwa
 - **Cleanup:** one text field style, one way menus close on an outside press, and the store split into a file per
   domain behind the same `Store`. [docs/development.md](docs/development.md) maps where things live now.
 - **More e2e:** the flows cover starting sessions, the Sessions page and messaging a session, Focus on this
-  starting one, presets, schedules, the bell, and Now, My issues and Connect (25 flows, from 18).
+  starting one, presets, schedules, the bell, Now, My issues, Connect and Getting started (26 flows, from 18). In CI
+  they run in Playwright's own image, rather than installing the browser's system libraries on every run.
+- **Dependencies:** `pg` 8.23, `marked` 18.1.1, `dompurify` 3.4.17 and `@playwright/test` 1.64, and the GitHub
+  Actions at their current majors.
 
 ## 1.0.0-rc.4 (2026-10-26)
 

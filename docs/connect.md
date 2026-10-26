@@ -119,7 +119,8 @@ personal Orrery) is left there unless `ORRERY_PROJECT` names it. `--list` shows 
 with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`. Its log is
 `~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
 stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
-terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`.
+terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`. Next to the installed one, it leaves
+that launcher's sessions alone: each session keeps its launcher's pid, and only a gone launcher's sessions are taken over.
 
 Between pieces of work, a session it started gets a fresh context: once it goes idle with no issue in progress
 and no signal waiting, the launcher types `/clear` into it. Its channel stays connected, and the brief after the
