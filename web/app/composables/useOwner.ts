@@ -11,6 +11,10 @@ export function useOwner() {
         owner.value ??= await $fetch<Owner>('/api/owner')
         return owner.value.name
     }
+    /** Asks again, when the owner may have been renamed (in another tab), so writes don't go as the old id. */
+    async function refresh() {
+        owner.value = await $fetch<Owner>('/api/owner').catch(() => owner.value)
+    }
     /** The name to show for an actor: the owner's display name for the owner, anyone else as they are. */
     function who(actor: string) {
         return owner.value && actor.toLowerCase() === owner.value.name.toLowerCase() ? owner.value.display : actor
@@ -20,5 +24,5 @@ export function useOwner() {
         const headers = {'Orrery-Actor': await load()}
         owner.value = await $fetch<Owner>('/api/owner', {method: 'PUT', headers, body: {name: display}})
     }
-    return {owner, name, named, load, who, rename}
+    return {owner, name, named, load, refresh, who, rename}
 }

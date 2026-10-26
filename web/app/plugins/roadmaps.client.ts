@@ -9,6 +9,7 @@ export default defineNuxtPlugin(() => {
         const app = useAppSettings()
         app.settings.value = await $fetch<Settings>('/api/settings').catch(() => app.settings.value)
         app.apply()
+        await useOwner().refresh()
         projects.value = await $fetch<Project[]>('/api/projects', {query: {expand: 'board'}})
         ready.value = true
         useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
@@ -80,6 +81,8 @@ export default defineNuxtPlugin(() => {
             const app = useAppSettings()
             app.settings.value = JSON.parse((event as MessageEvent).data) as Settings
             app.apply()
+            // They come with renaming the owner, whose id this tab writes as.
+            useOwner().refresh()
         })
         events.addEventListener('schedules', event => {
             const {project, schedules} = JSON.parse((event as MessageEvent).data) as {project: string, schedules: Schedule[]}

@@ -392,6 +392,8 @@ export class Store {
             await this.run('UPDATE issues SET decided_by = ? WHERE lower(decided_by) = ?', name, before.name)
         })
         if (name !== before.name) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
+        // Open pages hear it with the settings, and ask who the owner is now.
+        this.onSettings(await this.settings())
         return await this.ownerOf()
     }
 

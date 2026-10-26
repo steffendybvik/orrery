@@ -417,6 +417,13 @@ describe("the owner's name", () => {
         expect((await store.issue('larder', mine.id)).protected).toBe(true)
     })
 
+    it('tells open pages when renamed, with the settings, so they write as the new id', async () => {
+        const told: string[] = []
+        const local = new Store(testDb(), () => {}, () => {}, () => {}, settings => told.push(settings.id))
+        await local.nameOwner({name: 'Skoll'})
+        expect(told).toHaveLength(1)
+    })
+
     it('is who `owner` means as an assignee, so agents needn\'t know the id', async () => {
         await store.nameOwner({name: 'Sköll Fenrisson'})
         const a = await store.createIssue('larder', {title: 'A', assignee: 'owner'}, claude)

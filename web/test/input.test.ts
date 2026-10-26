@@ -25,6 +25,13 @@ function problems(body: unknown, partial = false): string[] {
 }
 
 describe('a request body', () => {
+    it("refuses an object's own built-in names as fields", () => {
+        expect(problems({title: 'Pantry', constructor: 1, toString: 'x'})).toEqual([
+            'unknown field "constructor"; this takes title, plan, icon, position, done, labels, instructions',
+            'unknown field "toString"; this takes title, plan, icon, position, done, labels, instructions',
+        ])
+    })
+
     it('keeps the fields it takes, as sent', () => {
         expect(checkInput({title: 'Pantry', position: 2, done: false, plan: 'now'}, SPEC)).toEqual({title: 'Pantry', position: 2, done: false, plan: 'now'})
     })
