@@ -39,6 +39,7 @@ export default defineEventHandler(async event => {
         const templates = await store.prompts(project)
         const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
         const name = (column: string) => columnName(column, statuses)
+        if (signal.kind === 'message' && signal.schedule === undefined) return {...signal, title: null, column: null, priority: null, chunk: null}
         if (signal.kind === 'message') {
             let title = 'a schedule'
             try {
@@ -102,7 +103,7 @@ export default defineEventHandler(async event => {
     if (query.format === 'text') {
         const line = async (signal: Signal) => {
             const s = await told(signal)
-            if (s.kind === 'message') return `${s.created_by}'s schedule "${s.title}": ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
+            if (s.kind === 'message') return `${s.created_by}${s.title ? `'s schedule "${s.title}"` : ' (to you)'}: ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             if (s.kind === 'comment') return `${s.created_by} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             return `${'prompt' in s ? s.prompt.replace(/\s*\n+\s*/g, ' ') : s.title}\n`
         }
@@ -171,7 +172,7 @@ export default defineEventHandler(async event => {
     // A session that can hear catches up on scheduled work nobody was there to hear, and on the owner's
     // comments nobody has answered yet. A failure there leaves the stream open for what comes next.
     try {
-        const unheard = attended && heard ? await store.unheardScheduled(project) : []
+        const unheard = attended && heard ? (await store.unheardScheduled(project)).filter(ours) : []
         // A schedule that kept sending the same message while nobody heard it says it once; the copies count as heard.
         const backlog = [...missed, ...unheard.filter(s => !missed.some(m => m.id === s.id))]
         const {kept, repeats} = foldRepeats(backlog)

@@ -144,6 +144,14 @@ async function deliver(project, signal, query) {
     // A focus comes with what to say (the owner's template, filled in); an older Orrery's doesn't.
     let content = signal.prompt
         ? signal.prompt
+        : signal.kind === 'message' && !signal.schedule
+        ? [
+            `${signal.created_by} sends you a message, to you alone:`,
+            '',
+            signal.note.split('\n').map(line => `> ${line}`).join('\n'),
+            '',
+            'Answer or act on it as it asks. If it turns into work worth tracking, put it in an issue as usual.',
+        ].join('\n')
         : signal.kind === 'message'
         ? [
             `${signal.created_by}'s schedule "${signal.title}" says:`,

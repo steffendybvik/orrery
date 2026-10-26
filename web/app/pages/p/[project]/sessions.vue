@@ -33,7 +33,7 @@ async function show(hash: string) {
 watch(() => [route.hash, sessions.value.length] as const, ([hash]) => show(hash), {immediate: true})
 
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
-    : s.kind === 'message' ? `${who(s.created_by)}'s scheduled message`
+    : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message: ${s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
     : s.issue ? `${who(s.created_by)}: focus on ${s.issue}` : `${who(s.created_by)}: work through chunk ${s.chunk}`
 /** The command that starts the window again with the channel, keeping its name unless it was made up. */
 const restart = (session: Session) => `${session.name.startsWith(`${session.project} `) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${session.project}`
@@ -88,6 +88,7 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
             Up since {{ ago(session.started_at) }}<template v-if="session.cwd"> · in <span class="font-mono">{{ session.cwd }}</span></template>
             <template v-if="session.started?.context"> · with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></template>
           </p>
+          <SessionMessage v-if="session.listening" :session="session" :project="project.id" />
 
           <div v-if="work[session.id]?.issues.length || work[session.id]?.signals.length" class="grid gap-4 border-t border-line pt-3 sm:grid-cols-2">
             <div class="flex min-w-0 flex-col gap-1">
