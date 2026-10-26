@@ -39,7 +39,8 @@ the database schema are the public surface, and a database always migrates forwa
   `instructions`.
 - **Started sessions run until stopped:** a session Orrery starts runs until stopped unless a time is set, and a new idle limit (`starts.idle_minutes`) stops one that sits with nothing to do. Neither stops a
   session mid-work: Orrery waits until it's idle with nothing in progress or waiting, then has its launcher
-  stop it. `started.stops_at` and a launch's `minutes` are optional.
+  stop it. `started.stops_at` and a launch's `minutes` are optional. One still not done well past its time
+  (stuck on a prompt, or never going idle) is stopped anyway, its minutes again past it (15 minutes to an hour).
 - **A fresh context between pieces of work:** once a session Orrery started goes idle with nothing in
   progress and no signal waiting, its launcher types `/clear` into it, and the brief after hands it what's
   left of the chunk or scope it was working through.
