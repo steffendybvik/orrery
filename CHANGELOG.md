@@ -3,12 +3,22 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## Unreleased
+## 1.0.0-rc.3 (2026-10-26)
 
+- **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
+  `created_by`, `created_at`, `updated_at`, `icon_color`, `focus_prompt`, `chunk_prompt`, `shipped_on`,
+  `decided_by`, `decided_at`, `decision_note`, `delivered_to`, `sub_issues`, `skip_open`, `next_run`,
+  `started_at`, `stops_at`, `last_used`. The pages, the channel's tools and the launcher move with it;
+  restart running sessions and launchers after updating, as they still hold the old code. The Orrery's
+  own prompt settings migrate on start.
 - **Breaking, releases are a project setting:** not every project ships, so a project's `release_mode` is `none`,
   `own` or `shared` (another project's, `releases_from`), under Settings → Releases. New projects have
   none, and no Releases page, until it's turned on. Existing projects with releases, or others drawing on
   them, keep their own. A shared release's page leaves out projects with nothing in it.
+- **Shared releases:** a project can take its releases from another (Settings → Releases, or
+  `releases_from`), so a monorepo's apps ship in one release. Their issues are set for it, and its page
+  shows each project's issues in a section with its progress; a project drawing on it shows its own part
+  and links the whole. `GET …/releases/:release` adds `projects`.
 - **Approving a proposal puts it on the roadmap:** no separate Commit. It goes to Todo, keeping who
   approved it, the note and the picks, and the panel offers Put it up again while it's open. Proposals
   approved before are committed into Todo as the database migrates.
@@ -24,19 +34,6 @@ the database schema are the public surface, and a database always migrates forwa
   proposals with one note, or set status, priority, assignee, labels, chunk or release, or delete them.
   Each issue goes on its own and the bar lists what was skipped. `PATCH /projects/:project/issues`,
   `POST …/issues/decide` and `DELETE …/issues` take `{ids}`.
-
-## 1.0.0-rc.3 (2026-10-26)
-
-- **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
-  `created_by`, `created_at`, `updated_at`, `icon_color`, `focus_prompt`, `chunk_prompt`, `shipped_on`,
-  `decided_by`, `decided_at`, `decision_note`, `delivered_to`, `sub_issues`, `skip_open`, `next_run`,
-  `started_at`, `stops_at`, `last_used`. The pages, the channel's tools and the launcher move with it;
-  restart running sessions and launchers after updating, as they still hold the old code. The Orrery's
-  own prompt settings migrate on start.
-- **Shared releases:** a project can take its releases from another (Settings → Releases, or
-  `releases_from`), so a monorepo's apps ship in one release. Their issues are set for it, and its page
-  shows each project's issues in a section with its progress; a project drawing on it shows its own part
-  and links the whole. `GET …/releases/:release` adds `projects`.
 
 ## 1.0.0-rc.2 (2026-10-25)
 

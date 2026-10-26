@@ -16,8 +16,9 @@ live, answer their questions in one place, and point them at what matters next.
   Backlog, Todo, In progress, In review and Done (or Canceled), as a list or a board. Add statuses of
   your own. **Now** and **My issues** show every project at once.
 - **Agents work from it.** Sessions keep their issue's status, comments and docs current through
-  [the API](docs/API.md). They can propose an issue for you to approve, or ask you to decide something;
-  that waits at the top of your bell until you answer.
+  [the API](docs/API.md). They can propose an issue for you to approve, which puts it on the roadmap, or
+  ask you to decide something; that waits at the top of your bell until you answer. Tick a batch of
+  issues to decide or change them at once.
 - **You steer from it.** Right-click an issue and ask the listening sessions to focus on it, or a chunk
   to work through it. The message reaches an idle session straight away, and the sidebar shows which
   sessions are working, idle or waiting on you. Your P0 issues reach them on their own, and a session
@@ -25,9 +26,11 @@ live, answer their questions in one place, and point them at what matters next.
 - **It starts sessions for you.** Let a project start its own sessions, a few at a time for as long as
   you say, and start or stop one from its Sessions tab. They run in tmux through a small launcher on
   your machine, so no one has to keep a terminal open.
-- **Releases.** Each version a project ships, the branch its work gathers on and which issues go out
-  in it, with its changelog drafted from those issues. A monorepo's apps can share one release, each
+- **Releases, where a project ships.** Each version, the branch its work gathers on and which issues go
+  out in it, with its changelog drafted from those issues. A monorepo's apps can share one release, each
   app's issues in a section of its own.
+- **Your board beside the team's.** An issue links to its tasks on the team's tracker (Linear, Jira),
+  and its reference (`orrery-you: DOC-132`) says whose board it's on in a commit or PR.
 - **Docs live beside the work.** Each project keeps its decisions and how-tos as Markdown pages
   that the agents keep up to date. Comments, descriptions and docs take pasted images, and a Before and
   After pair shows as a slider.
