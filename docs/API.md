@@ -126,7 +126,8 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
   recommendation, a pick-one takes exactly one. The issue keeps `picks`, and the decision comment lists
   them. Or they ask for changes with `explore: {choice, option}`: add a choice `from` that option, then
   put the proposal up again with `proposal: "pending"`
-- Approving commits it: it leaves Proposed for Todo (the first status of that kind), keeping `decided_by`,
+- Approving commits it: it leaves Proposed for Todo (the first status of that kind) if it's still in a backlog
+  status, else keeps the status its work got to (started, done), keeping `decided_by`,
   `decided_at`, `decision_note` and `picks`, and `proposal` goes to none. `PATCH {proposal: "pending"}` puts it
   up again. The owner can also commit a proposal without deciding, with `PATCH {proposal: null}` (and a
   `status` to place it); an agent can't (403). A rejected one stays in Proposed until the owner deletes or commits it
