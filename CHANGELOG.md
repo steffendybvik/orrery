@@ -3,7 +3,7 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
-## Unreleased
+## 1.0.0-rc.4 (2026-10-26)
 
 - **Releases count a sub-issue where it's set:** a sub-issue set for another release than its parent's
   counts toward its own release on the Releases page, and its work comes out of the parent's.
@@ -14,6 +14,15 @@ the database schema are the public surface, and a database always migrates forwa
   release. The session starts on those issues, most urgent first. `POST …/launches` takes `statuses` and
   `release`; a chunk's focus takes `all` for every chunk, several statuses comma-separated, and `release`.
   `?status=` on the issue list takes several too.
+- **One channel server per repo:** a repo's `.mcp.json` needs one Orrery server, not one per project.
+  `ORRERY_PROJECTS` lists the projects it serves (`hub,css,pos`, or `*` for every project on the Orrery):
+  a tool on an issue finds its project from the id's key, and the others take `project`. The server is
+  named after the Orrery (`orrery-<environment>`), and `ORRERY_ID` pins it to that Orrery, whose id
+  `GET /api/settings` now says; another Orrery at the address is refused. A session heard on several
+  projects shows on each one's Sessions tab (`also`). The Connect page hands out the new entry; a server
+  per project (`ORRERY_PROJECT`) works as before.
+- **A near miss ticks:** a row's tick takes clicks the row's whole height and a few px either side of
+  the box, and a card's a few px around it, so aiming for it no longer opens the issue.
 
 ## 1.0.0-rc.3 (2026-10-26)
 
