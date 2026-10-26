@@ -17,5 +17,15 @@ export function useRoadmaps() {
     const signals = useState<Signal[]>('projects-signals', () => [])
 
     const byId = (id: string | undefined) => projects.value.find(p => p.id === id)
-    return {projects, ready, live, changed, listeners, launchers, sessions, signals, byId}
+    /** Loads one project afresh and puts it in place: for when its update hasn't come yet (a page opened right
+     * after a write), or won't (offline). Nothing when it can't be loaded. */
+    async function reload(id: string): Promise<Project | undefined> {
+        const project = await $fetch<Project>(`/api/projects/${encodeURIComponent(id)}`).catch(() => undefined)
+        if (project) {
+            projects.value = byId(id) ? projects.value.map(p => p.id === id ? project : p)
+                : [...projects.value, project].sort((a, b) => a.name.localeCompare(b.name))
+        }
+        return project
+    }
+    return {projects, ready, live, changed, listeners, launchers, sessions, signals, byId, reload}
 }
