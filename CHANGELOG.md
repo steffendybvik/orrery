@@ -70,6 +70,14 @@ the database schema are the public surface, and a database always migrates forwa
 - **Smaller review fixes:** the doc texts kept for change tints are capped, an image upload finishing after its
   field was reopened stays out of it, a chunk's remove prompt resets on another chunk, an oversized upload is
   refused before it's read, and a slow doc reply for a page you've left is let go.
+- **Sessions and Schedules in one place each:** a project's Sessions and Schedules tabs are gone. The Sessions
+  page shows every session as a full card (Watch, Stop, +30 min, what it's on and was last sent), each project's
+  Start session and launcher state, and the setup guide; both pages keep to one project with `?project=`, and
+  the old tab addresses go there.
+- **Message one session:** a listening session's card takes a message, which goes through its channel to it
+  alone. `POST /projects/:project/sessions/:session/message {text}`.
+- **Focus on this starts a session:** with nobody listening, when Orrery may start sessions and a launcher is
+  there, the issue page offers Focus on this (starts a session), and a chunk Work through this.
 
 ## 1.0.0-rc.3 (2026-10-26)
 
