@@ -1,5 +1,9 @@
+import {readFileSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
+
+// The version a release sets in package.json, shown at the foot of the sidebar.
+const {version} = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {version: string}
 
 export default defineNuxtConfig({
     compatibilityDate: '2026-10-01',
@@ -33,6 +37,7 @@ export default defineNuxtConfig({
             // Which Orrery this is, each its own server and database (`personal`, `work`, …): a chip by
             // the name, and the start of every tab's title. Override with NUXT_PUBLIC_ENVIRONMENT.
             environment: 'personal',
+            version,
         },
     },
 

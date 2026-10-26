@@ -7,7 +7,9 @@ const route = useRoute()
 const {of: schedulesOf} = useSchedules()
 const open = useState('sidebar-open', () => false)
 const palette = useState('palette-open', () => false)
-const {environment} = useRuntimeConfig().public
+const {environment, version} = useRuntimeConfig().public
+// The dev server runs whatever is checked out, so its version says so.
+const dev = import.meta.dev
 const newProject = useState('new-project', () => false)
 
 watch(() => route.fullPath, () => {
@@ -254,6 +256,10 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span><KeyHint>↵</KeyHint> open</span>
         <span><KeyHint>g</KeyHint> <KeyHint>n</KeyHint> <KeyHint>u</KeyHint></span>
       </div>
+      <p class="mt-1.5 px-2 font-mono text-[10px] text-faint">
+        <a v-if="!dev" :href="`https://github.com/steffendybvik/orrery/blob/v${version}/CHANGELOG.md`" target="_blank" rel="noopener" class="hover:text-fg hover:underline" title="What's in this version">v{{ version }}</a>
+        <span v-else title="The dev server: whatever branch is checked out">v{{ version }} · dev</span>
+      </p>
     </div>
   </aside>
 </template>
