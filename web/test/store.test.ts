@@ -159,6 +159,36 @@ describe('issues', () => {
         expect(changes.slice(-3)).toEqual(['larder', 'orrery', 'orrery'])
     })
 
+    it('take their signals along when they move, so catching up finds them where they are', async () => {
+        const owner = {name: 'skoll', owner: true}
+        await store.createProject({name: 'orrery', key: 'ORR'})
+        const a = await add({title: 'A'})
+        await store.focus('larder', a, {}, owner)
+        const moved = await store.updateIssue('larder', a, {project: 'orrery'})
+        expect(await store.listSignals('larder')).toEqual([])
+        expect((await store.listSignals('orrery')).map(s => [s.project, s.issue])).toEqual([['orrery', moved.id]])
+    })
+
+    it("never take a number that's still an id something had", async () => {
+        await store.createProject({name: 'orrery', key: 'ORR'})
+        const a = (await store.createIssue('orrery', {title: 'A'})).id
+        // Larder's LAR-1 moves in as ORR-2 and keeps LAR-1 as an alias; ORR-3 is next either way, so make
+        // an alias that's ahead of the counter, the way an import can.
+        await store.updateIssue('larder', await add({title: 'B'}), {project: 'orrery'})
+        await store.db.run("INSERT INTO issue_aliases (project, alias, issue) VALUES ('orrery', 'ORR-3', ?)", a)
+        expect((await store.createIssue('orrery', {title: 'C'})).id).toBe('ORR-4')
+        expect((await store.issue('orrery', 'ORR-3')).id).toBe(a)
+    })
+
+    it('are found under a parent by an id it had', async () => {
+        await store.createProject({name: 'orrery', key: 'ORR'})
+        const a = await add({title: 'A'})
+        await add({title: 'B', parent: a})
+        const moved = await store.updateIssue('larder', a, {project: 'orrery'})
+        expect((await store.listIssues('orrery', {parent: a})).map(i => i.title)).toEqual(['B'])
+        expect((await store.listIssues('orrery', {parent: moved.id})).map(i => i.title)).toEqual(['B'])
+    })
+
     it('stay when their chunk is deleted', async () => {
         const a = await add({title: 'A', chunk: '1'})
         await store.deleteChunk('larder', '1')
@@ -1241,9 +1271,24 @@ describe('import', () => {
         const {board} = await store.importRoadmap('larder', roadmap, true)
         expect(board.chunks).toHaveLength(16)
         expect(total(board.kinds)).toBe(139)
-        expect(board.chunks.map(c => c.id)).toEqual(Array.from({length: 16}, (_, i) => String(i + 1)))
+        // Chunk 1 was the one it replaced, so its number isn't handed out again.
+        expect(board.chunks.map(c => c.id)).toEqual(Array.from({length: 16}, (_, i) => String(i + 2)))
         expect(board.chunks[0]!.tasks[0]).toMatchObject({id: 'LAR-1', aliases: ['FIX-1']})
         expect((await store.issue('larder', 'MOT-5')).aliases).toEqual(['MOT-5'])
         expect((await store.createIssue('larder', {title: 'next'})).id).toBe('LAR-140')
+    })
+
+    it('replacing never hands out a number again, and lets go of what pointed at the replaced issues', async () => {
+        const owner = {name: 'skoll', owner: true}
+        const shelves = (await store.createIssue('larder', {title: 'Shelves'})).id
+        await store.createIssue('larder', {title: 'Jars'})
+        await store.focus('larder', shelves, {}, owner)
+        await store.focusChunk('larder', '1', {}, owner)
+        const file = readRoadmap(JSON.stringify({chunks: [{id: 'new', title: 'New', tasks: [{id: 'lids', title: 'Lids', status: 'todo'}]}]}))
+        const {board} = await store.importRoadmap('larder', file, true)
+        expect(board.chunks.map(c => c.id)).toEqual(['2'])
+        expect(board.chunks[0]!.tasks.map(t => t.id)).toEqual(['LAR-3'])
+        expect(await store.listSignals('larder')).toEqual([])
+        expect((await store.createIssue('larder', {title: 'next'})).id).toBe('LAR-4')
     })
 })
