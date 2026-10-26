@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {TINTS} from '#shared/roadmap'
 
-// A project's settings: its name, where its code is, whose releases it ships in, its icon in the sidebar and the icon's colour, and deleting
+// A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, and deleting
 // the project, for good. Its schedules have a page of their own, and so does starting its sessions (Sessions).
 const route = useRoute()
 const router = useRouter()
@@ -49,20 +49,24 @@ async function saveRepo() {
     }
 }
 
-// Whose releases it ships in: its own, or another project's (a monorepo's apps going out together). A project
-// can draw on one that has its own, while nothing draws on it and it has none of its own yet; the server says why not.
+// Whether it has releases: none (not every project ships), its own, or another project's (a monorepo's apps going
+// out together). A project can draw on one that has its own; it leaves its own only while nothing draws on them and
+// none are left, and the server says why not.
 const drawing = computed(() => projects.value.filter(p => p.releases_from === project.value?.id))
-const sources = computed(() => projects.value.filter(p => p.id !== project.value?.id && !p.releases_from))
+const sources = computed(() => projects.value.filter(p => p.id !== project.value?.id && p.release_mode === 'own'))
+// The choice as the select holds it: `none`, `own`, or `from:<project>`.
+const releaseChoice = computed(() => project.value?.release_mode === 'shared' ? `from:${project.value.releases_from}` : project.value?.release_mode ?? 'none')
 const releasesFailed = ref('')
-async function saveReleasesFrom(event: Event) {
+async function saveReleaseMode(event: Event) {
     if (!project.value) return
-    const next = (event.target as HTMLSelectElement).value || null
+    const next = (event.target as HTMLSelectElement).value
+    const body = next.startsWith('from:') ? {release_mode: 'shared', releases_from: next.slice(5)} : {release_mode: next}
     releasesFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {releases_from: next}, headers: {'Orrery-Actor': await load()}})
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body, headers: {'Orrery-Actor': await load()}})
     } catch (error) {
         releasesFailed.value = errorMessage(error)
-        ;(event.target as HTMLSelectElement).value = project.value.releases_from ?? ''
+        ;(event.target as HTMLSelectElement).value = releaseChoice.value
     }
 }
 
@@ -171,20 +175,22 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Releases</h2>
           <p class="text-xs text-muted">
-            Whose releases {{ project.name }} ships in. Take them from another project when several go out together, as a monorepo's apps do:
-            its issues are set for that project's releases, and each release counts them.
+            Whether {{ project.name }} ships in releases. Give it its own when it ships versions, or take another project's when several go out
+            together, as a monorepo's apps do: its issues are set for that project's releases, and each release counts them.
+            Without releases, it has no Releases page.
           </p>
         </header>
         <div class="flex flex-wrap items-center gap-2">
           <select
-              :value="project.releases_from ?? ''"
-              aria-label="Whose releases it ships in"
+              :value="releaseChoice"
+              aria-label="Its releases"
               class="h-8 max-w-full rounded-lg bg-well px-2 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:opacity-60"
               :disabled="!!drawing.length"
-              @change="saveReleasesFrom"
+              @change="saveReleaseMode"
           >
-            <option value="">Its own</option>
-            <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}'s</option>
+            <option value="none">None</option>
+            <option value="own">Its own</option>
+            <option v-for="source in sources" :key="source.id" :value="`from:${source.id}`">{{ source.name }}'s</option>
           </select>
           <span v-if="drawing.length" class="text-xs text-faint">{{ drawing.map(p => p.name).join(', ') }} {{ drawing.length === 1 ? 'takes its' : 'take their' }} releases from {{ project.name }}.</span>
           <span v-if="releasesFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ releasesFailed }}</span>

@@ -207,8 +207,10 @@ export interface Project {
     starts?: Starts
     /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
     repo?: string
-    /** The project whose releases it ships in, when it takes them from another (a monorepo's apps going out
-     * together); its `releases` are then that project's, counting its own issues. */
+    /** Whether it has releases: `none` (not everything ships), its `own`, or `shared`, another project's. */
+    release_mode: ReleaseMode
+    /** The project whose releases it ships in, when it's `shared` (a monorepo's apps going out together); its
+     * `releases` are then that project's, counting its own issues. */
     releases_from?: string
     created_by: string
     protected: boolean
@@ -250,6 +252,10 @@ export interface Comment {
 
 /** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
  * moved in from another project. */
+/** Whether a project has releases: none, its own, or another project's (`releases_from`). */
+export const RELEASE_MODES = ['none', 'own', 'shared'] as const
+export type ReleaseMode = typeof RELEASE_MODES[number]
+
 export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'external', 'notes', 'chunk', 'parent', 'proposal', 'project', 'release'] as const
 export type ActivityField = (typeof ACTIVITY_FIELDS)[number]
 

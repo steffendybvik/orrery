@@ -271,6 +271,11 @@ const STEPS: string[] = [`
     UPDATE settings SET key = 'chunk_prompt' WHERE key = 'chunkPrompt';
 `, `
     ALTER TABLE issues ADD COLUMN external text NOT NULL DEFAULT '[]';
+`, `
+    ALTER TABLE projects ADD COLUMN release_mode text NOT NULL DEFAULT 'none';
+    UPDATE projects SET release_mode = 'shared' WHERE releases_from IS NOT NULL;
+    UPDATE projects SET release_mode = 'own' WHERE releases_from IS NULL
+        AND (id IN (SELECT project FROM releases) OR id IN (SELECT releases_from FROM projects WHERE releases_from IS NOT NULL));
 `]
 
 /** The transaction the code running now is part of, if any: its connection, and the database it's on. */

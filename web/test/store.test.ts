@@ -42,7 +42,7 @@ describe('projects', () => {
 
     it('refuses unknown fields', async () => {
         expect(await failure(() => store.createProject({name: 'x', colour: 'red'})))
-            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, icon_color, focus_prompt, chunk_prompt, instructions, muted, starts, repo, releases_from'})
+            .toEqual({status: 400, message: 'unknown field "colour"; this takes id, name, key, description, icon, icon_color, focus_prompt, chunk_prompt, instructions, muted, starts, repo, release_mode, releases_from'})
     })
 
     it('keep where their code is', async () => {
@@ -455,6 +455,24 @@ describe('chunks', () => {
 describe('releases', () => {
     const owner: Actor = {name: 'skoll', owner: true}
 
+    beforeEach(async () => {
+        await store.updateProject('larder', {release_mode: 'own'})
+    })
+
+    it("are none of a new project's until it turns them on, and go off only with none left", async () => {
+        const made = await store.createProject({name: 'garden', key: 'GAR'})
+        expect([made.release_mode, made.releases]).toEqual(['none', []])
+        expect(await failure(() => store.createRelease('garden', {version: '1.0.0'})))
+            .toEqual({status: 400, message: 'garden has no releases; turn them on with PATCH /api/projects/garden {"release_mode": "own"}'})
+        expect((await failure(() => store.createIssue('garden', {title: 'Weed', release: '1.0.0'}))).status).toBe(400)
+        expect((await store.updateProject('garden', {release_mode: 'own'})).release_mode).toBe('own')
+        await store.createRelease('garden', {version: '1.0.0'})
+        expect((await failure(() => store.updateProject('garden', {release_mode: 'none'}))).status).toBe(409)
+        await store.deleteRelease('garden', '1.0.0')
+        expect((await store.updateProject('garden', {release_mode: 'none'})).releases).toEqual([])
+        expect((await failure(() => store.updateProject('garden', {release_mode: 'paused'}))).status).toBe(400)
+    })
+
     it('are made by version and refuse a second of the same', async () => {
         const made = await store.createRelease('larder', {version: '1.0.0-rc.2', branch: ' v1.0.0-rc.2 '})
         expect(made).toMatchObject({version: '1.0.0-rc.2', branch: 'v1.0.0-rc.2', issues: 0, tasks: [], project: 'larder'})
@@ -528,7 +546,7 @@ describe('releases', () => {
     })
     describe('shared across projects', () => {
         beforeEach(async () => {
-            await store.createProject({name: 'repository', key: 'REP'})
+            await store.createProject({name: 'repository', key: 'REP', release_mode: 'own'})
             await store.createProject({name: 'hub', key: 'HUB', releases_from: 'repository'})
             await store.createProject({name: 'pos', key: 'POS'})
             await store.updateProject('pos', {releases_from: 'repository'})
@@ -542,7 +560,7 @@ describe('releases', () => {
             await store.updateIssue('pos', pos.id, {release: '2.25.0'})
             await store.createIssue('pos', {title: 'Tips', parent: pos.id})
 
-            expect((await store.project('hub')).releases_from).toBe('repository')
+            expect((await store.project('hub'))).toMatchObject({release_mode: 'shared', releases_from: 'repository'})
             expect((await store.project('repository')).releases[0]).toMatchObject({version: '2.25.0', issues: 3, kinds: {done: 1, backlog: 2}})
             // A project drawing on it counts its own part.
             expect((await store.project('pos')).releases[0]).toMatchObject({version: '2.25.0', issues: 1, kinds: {backlog: 1}})
@@ -569,6 +587,11 @@ describe('releases', () => {
             expect((await failure(() => store.updateProject('repository', {releases_from: 'larder'}))).message).toBe('hub, pos take their releases from repository, so it keeps its own')
             expect((await failure(() => store.updateProject('larder', {releases_from: 'larder'}))).status).toBe(400)
             expect((await failure(() => store.updateProject('larder', {releases_from: 'nowhere'}))).status).toBe(400)
+            await store.createProject({name: 'garden', key: 'GAR'})
+            expect((await failure(() => store.updateProject('larder', {releases_from: 'garden'}))).message).toBe('garden has no releases; give it its own first (release_mode "own")')
+            expect((await failure(() => store.updateProject('garden', {release_mode: 'shared'}))).status).toBe(400)
+            expect((await failure(() => store.updateProject('garden', {release_mode: 'own', releases_from: 'repository'}))).status).toBe(400)
+            expect((await store.updateProject('garden', {release_mode: 'shared', releases_from: 'repository'})).release_mode).toBe('shared')
             await store.createRelease('larder', {version: '1.0.0'})
             expect((await failure(() => store.updateProject('larder', {releases_from: 'repository'}))).status).toBe(409)
         })
@@ -581,7 +604,10 @@ describe('releases', () => {
             const other = await store.createIssue('pos', {title: 'Receipts', release: '2.25.0'})
             await store.updateProject('pos', {releases_from: null})
             expect((await store.issue('pos', other.id)).release).toBeUndefined()
-            expect((await store.project('pos')).releases).toEqual([])
+            expect((await store.project('pos'))).toMatchObject({release_mode: 'own', releases: []})
+            const third = await store.createIssue('hub', {title: 'Credit notes', release: '2.25.0'})
+            await store.updateProject('hub', {release_mode: 'none'})
+            expect((await store.issue('hub', third.id)).release).toBeUndefined()
         })
 
         it('keep their source from being deleted, and tell each other about changes', async () => {

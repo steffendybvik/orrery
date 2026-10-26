@@ -102,7 +102,7 @@ export function sectionsOf(project: Project, path: string, schedules = 0, sessio
     const base = `/p/${project.id}`
     const on = path.startsWith(`${base}/roadmap`) ? 'roadmap' : path.startsWith(`${base}/releases`) ? 'releases' : path.startsWith(`${base}/docs`) ? 'docs' : path.startsWith(`${base}/schedules`) ? 'schedules'
         : path.startsWith(`${base}/sessions`) ? 'sessions' : path.startsWith(`${base}/settings`) ? 'settings' : path === base || path.startsWith(`${base}/issues`) ? 'issues' : null
-    return [
+    const sections = [
         {id: 'issues' as Section, label: 'Issues', to: base, count: open(project.board.kinds), active: on === 'issues'},
         {id: 'roadmap' as Section, label: 'Roadmap', to: `${base}/roadmap`, count: project.board.chunks.filter(c => c.id).length, active: on === 'roadmap'},
         // Counted: the releases still being prepared.
@@ -112,6 +112,8 @@ export function sectionsOf(project: Project, path: string, schedules = 0, sessio
         {id: 'sessions' as Section, label: 'Sessions', to: `${base}/sessions`, count: sessions, active: on === 'sessions'},
         {id: 'settings' as Section, label: 'Settings', to: `${base}/settings`, count: 0, active: on === 'settings'},
     ]
+    // Releases only for a project that has them (not every project ships), unless it's the page on screen.
+    return sections.filter(s => s.id !== 'releases' || project.release_mode !== 'none' || s.active)
 }
 
 /** A release's page. */
