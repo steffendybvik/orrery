@@ -1199,6 +1199,20 @@ describe('what a session is working on', () => {
     })
 })
 
+describe('a message to one session', () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it("is the owner's, as text, a message signal for that session alone", async () => {
+        expect((await failure(() => store.messageSession('larder', 'abc', 'Look at the hinges'))).status).toBe(403)
+        expect((await failure(() => store.messageSession('larder', 'abc', '  ', owner))).status).toBe(400)
+        expect((await failure(() => store.messageSession('nope', 'abc', 'Hi', owner))).status).toBe(404)
+        const signal = await store.messageSession('larder', 'abc', ' Look at the hinges\n', owner)
+        expect(signal).toMatchObject({kind: 'message', note: 'Look at the hinges', target: 'abc', schedule: undefined, issue: undefined, created_by: 'skoll', protected: true})
+        // Nobody else catches up on it, but the session it's for does, if it wasn't there to hear it.
+        expect((await store.unheardScheduled('larder')).map(s => s.target)).toEqual(['abc'])
+    })
+})
+
 describe('starting an issue', () => {
     it("is refused while another session that's there has it started", async () => {
         const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id

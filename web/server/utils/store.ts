@@ -1663,6 +1663,19 @@ export class Store {
         return signal
     }
 
+    /** The owner's own words to one session, through its channel: about no issue, from no schedule. */
+    async messageSession(project: string, session: string, text: unknown, actor = AGENT): Promise<Signal> {
+        if (!actor.owner) throw forbidden('Only the owner messages a session; send Orrery-Actor: <owner>')
+        await this.projectRow(project)
+        const note = typeof text === 'string' ? text.trim() : ''
+        if (!note) throw badRequest('Send the message as {"text": "…"}')
+        const row = await this.get<SignalRow>('INSERT INTO signals (project, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, 'message', note, session, actor.name, 1, stamp())
+        const signal = signalOf(row!)
+        this.onSignal(signal)
+        return signal
+    }
+
     /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it or for every session. */
     async waiting(project: string, ids: string[]): Promise<boolean> {
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
