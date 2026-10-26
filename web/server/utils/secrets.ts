@@ -165,7 +165,7 @@ export class Secrets {
 
         let url: URL
         try {
-            url = new URL(fill(template, encodeURIComponent))
+            url = new URL(fillUrl(template, fill))
         } catch {
             throw badRequest(`"url" isn't a URL: ${template}`)
         }
@@ -320,13 +320,29 @@ function replaceWords(text: string, core: string, by: string): string {
     return out + text.slice(from)
 }
 
+/** The url with its placeholders filled for where each sits: one that starts it (a webhook's whole address, or
+ * its base) as it is, the hosts check guarding where it goes; in the path escaped but for its `/` (Slack's
+ * `T000/B000/XXX`); in the query or fragment escaped whole. */
+function fillUrl(template: string, fill: (part: string, escape?: (value: string) => string) => string): string {
+    const lead = template.match(/^\{\{secret:[A-Za-z0-9_]+\}\}/)?.[0] ?? ''
+    const rest = template.slice(lead.length)
+    // Where the query starts, outside a placeholder (a name can't hold `?` or `#`, so the first is it).
+    const at = rest.search(/[?#]/)
+    const [path, query] = at < 0 ? [rest, ''] : [rest.slice(0, at), rest.slice(at)]
+    return fill(lead) + fill(path, inPath) + fill(query, encodeURIComponent)
+}
+
+const inPath = (value: string) => encodeURIComponent(value).replaceAll('%2F', '/')
+
 /** `scrub` puts the placeholder back wherever a value shows: as it is, URL- or form-encoded, JSON-escaped,
  * or inside base64 (as Basic auth sends it, a user name and all). `cut` drops what's left of one at the end
  * of an answer cut short. It stops a value echoed back; the hosts are what stop one being sent away on purpose. */
 function scrubber(secrets: Map<string, {value: string}>): {scrub: (text: string) => string, cut: (text: string) => string} {
     const json = (value: string) => JSON.stringify(value).slice(1, -1)
     const forms = [...secrets].flatMap(([name, {value}]) => [
-        value, encodeURIComponent(value), new URLSearchParams({v: value}).toString().slice(2), json(value), json(value).replaceAll('/', '\\/'),
+        // The URL's own escaping of a query adds `%27` for `'`, which encodeURIComponent leaves.
+        value, encodeURIComponent(value), encodeURIComponent(value).replaceAll("'", '%27'), inPath(value),
+        new URLSearchParams({v: value}).toString().slice(2), json(value), json(value).replaceAll('/', '\\/'),
     ].map(form => ({form, name})))
         .sort((a, b) => b.form.length - a.form.length)
     // In base64 the value's characters depend on where it starts, so each of the three starts has its own run
