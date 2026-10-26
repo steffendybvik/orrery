@@ -264,6 +264,11 @@ describe('proposals', () => {
         expect((await failure(() => store.updateIssue('larder', id, {proposal: null}, claude))).status).toBe(403)
         const approved = await store.decide('larder', id, {decision: 'approved', note: 'Go'}, owner)
         expect([approved.proposal, approved.column, approved.decided_by, approved.decision_note]).toEqual([undefined, 'todo', 'skoll', 'Go'])
+        // One whose work went ahead while it waited keeps where it got to.
+        const done = await store.createIssue('larder', {title: 'Done already', proposal: 'pending', status: 'done'})
+        expect((await store.decide('larder', done.id, {decision: 'approved'}, owner))).toMatchObject({column: 'done', proposal: undefined})
+        const started = await store.createIssue('larder', {title: 'Started', proposal: 'pending', status: 'in-progress'})
+        expect((await store.decide('larder', started.id, {decision: 'approved'}, owner)).status).toBe('in-progress')
         expect((await store.listComments('larder', id)).at(-1)?.body).toBe('Approved this proposal.\n\nGo')
         const other = await store.createIssue('larder', {title: 'Card', proposal: 'pending'})
         expect((await store.updateIssue('larder', other.id, {proposal: null}, owner)).column).toBe('backlog')
@@ -1095,11 +1100,13 @@ describe('the database', () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 30)
         old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('larder', 'larder', 'LAR', 'agent', 'x', 'x')").run()
-        old.prepare("INSERT INTO issues (project, id, title, status, proposal, decided_by, position, created_by, created_at, updated_at) VALUES ('larder', 'LAR-1', 'A', 'backlog', 'approved', 'skoll', 0, 'agent', 'x', 'x'), ('larder', 'LAR-2', 'B', 'backlog', 'pending', NULL, 1, 'agent', 'x', 'x')").run()
+        old.prepare("INSERT INTO issues (project, id, title, status, proposal, decided_by, position, created_by, created_at, updated_at) VALUES ('larder', 'LAR-1', 'A', 'backlog', 'approved', 'skoll', 0, 'agent', 'x', 'x'), ('larder', 'LAR-2', 'B', 'backlog', 'pending', NULL, 1, 'agent', 'x', 'x'), ('larder', 'LAR-3', 'C', 'done', 'approved', 'skoll', 2, 'agent', 'x', 'x')").run()
         old.close()
         const upgraded = new Store(new SqliteDb(openDb(path)))
         expect([(await upgraded.issue('larder', 'LAR-1')).column, (await upgraded.issue('larder', 'LAR-1')).decided_by]).toEqual(['todo', 'skoll'])
         expect((await upgraded.issue('larder', 'LAR-2')).proposal).toBe('pending')
+        // One its work already finished stays done.
+        expect((await upgraded.issue('larder', 'LAR-3'))).toMatchObject({column: 'done', proposal: undefined})
     })
 
     it("keeps the Orrery's prompts through the API going snake_case", async () => {
