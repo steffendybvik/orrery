@@ -29,11 +29,14 @@
 # Or set ORRERY_DATABASE to a Postgres of your own. Orrery's backups are SQLite's only: back Postgres up
 # with its own means (pg_dump on a schedule, or a managed service's backups).
 #
-# Working on Orrery itself: docker-compose.dev.yml, on top of this.
+# ORRERY_BUILD_CONTEXT is what the image is built from: this folder by default, or a ref on GitHub, so a
+# branch switched here never ends up in it: ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main
+#
+# Working on Orrery itself: the playground (.playground/play), docker-compose.dev.yml on top of this.
 
 services:
   orrery:
-    build: {context: ., target: prod}
+    build: {context: "${ORRERY_BUILD_CONTEXT:-.}", target: prod}
     ports:
       - "${ORRERY_HOST:-127.0.0.1}:${ORRERY_PORT:-9000}:9000"
     environment:

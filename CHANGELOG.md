@@ -5,6 +5,9 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Build from a release:** `ORRERY_BUILD_CONTEXT` builds the image from a ref on GitHub
+  (`https://github.com/steffendybvik/orrery.git#main`) instead of this folder, so the Orrerys you use never
+  pick up a branch you have checked out to work on.
 - **Start a session from anywhere:** a Sessions page lists every project's sessions, and Start session there
   (or the + by the sidebar's Sessions) picks the project, then optionally an open issue for it to focus on
   from the start. Projects that can't start one now say why, with a link to turn starting on.

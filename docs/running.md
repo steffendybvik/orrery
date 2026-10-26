@@ -25,6 +25,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the Orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | none (no secrets) |
+| `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
 | `ORRERY_ENVIRONMENT` | this Orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
 ## Backups
@@ -93,6 +94,11 @@ The project name keeps them apart: each gets its own volumes (`orrery-personal_o
 `orrery-work_orrery-data`), container and port, so stopping, rebuilding or wiping one leaves the
 other alone (`docker compose --env-file .env.work down`). Give each its own backup folder, too: a
 backup folder holds one database. Env files other than `.env.example` are git-ignored.
+
+In a checkout you also work on Orrery in, build them from a release rather than the folder:
+`ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main` in each env file, then
+`docker compose --env-file … up -d --build` when a release lands on `main`. Try changes in the
+[playground](../.playground/README.md) instead.
 
 A repo's channel and hook point at the server its projects are on, by `ORRERY_URL`:
 `http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
