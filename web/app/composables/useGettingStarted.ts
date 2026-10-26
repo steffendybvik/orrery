@@ -3,7 +3,8 @@ import {allIssues} from '~/utils/roadmap'
 export const DEMO = 'demo'
 
 // Getting started: the steps from a new Orrery to a Claude session working from it, each ticked from what the
-// Orrery already knows, so none has to be ticked by hand. Hiding its card on Now is remembered in this browser.
+// Orrery already knows, so none has to be ticked by hand. Someone only planning is set after the first two: the rest
+// are for working with Claude. Hiding its card on Now, and planning, are remembered in this browser.
 export function useGettingStarted() {
     const {named, name} = useOwner()
     const {projects, sessions} = useRoadmaps()
@@ -28,7 +29,17 @@ export function useGettingStarted() {
         const next = steps.value.findIndex(s => !s.done)
         return next === -1 ? steps.value.length - 1 : next
     })
-    const finished = computed(() => done.value === steps.value.length)
+    /** The steps up to here are all there is to it without Claude. */
+    const WITHOUT_CLAUDE = 2
+    const planning = useState('getting-started-planning', () => {
+        try {
+            return localStorage.getItem('orrery-getting-started-planning') === 'yes'
+        } catch {
+            return false
+        }
+    })
+    const finished = computed(() => done.value === steps.value.length
+        || (planning.value && steps.value.slice(0, WITHOUT_CLAUDE).every(s => s.done)))
     /** The project the steps are about: your first in the sidebar. */
     const project = computed(() => own.value[0])
 
@@ -39,7 +50,19 @@ export function useGettingStarted() {
             return false
         }
     })
+    /** Just planning: set without the steps for working with Claude; `false` takes them up again. */
+    function plan(now = true) {
+        planning.value = now
+        try {
+            if (now) localStorage.setItem('orrery-getting-started-planning', 'yes')
+            else localStorage.removeItem('orrery-getting-started-planning')
+        } catch {
+            // As for hiding.
+        }
+    }
+    /** Hides its card on Now; `false` brings it back, with the steps for working with Claude. */
     function hide(now = true) {
+        if (!now) plan(false)
         hidden.value = now
         try {
             if (now) localStorage.setItem('orrery-getting-started', 'hidden')
@@ -49,5 +72,5 @@ export function useGettingStarted() {
         }
     }
 
-    return {steps, done, current, finished, project, hidden, hide}
+    return {steps, done, current, finished, project, hidden, hide, planning, plan, WITHOUT_CLAUDE}
 }
