@@ -12,6 +12,9 @@ export const CLEAR_AFTER = 5000
 /** The last chunk or scope focus each session was handed, by the id it had then. */
 const runs = new Map<string, Signal>()
 
+/** What was left of each run when it was last resumed: its open issues, each with its status and last change. */
+const resumed = new WeakMap<Signal, string>()
+
 /** A chunk or scope focus reaching the session: what's left of it is its run until another comes. A focus on one
  * issue ends the run: the owner pointed it elsewhere. Runs of sessions that are gone are let go. */
 export function startRun(session: string, signal: Signal) {
@@ -24,13 +27,18 @@ export function startRun(session: string, signal: Signal) {
 }
 
 /** The session Orrery started is back from a `/clear`: if its run has issues left, a focus on them goes to it
- * alone, as the run's was sent (by whom, the statuses and release), so a new turn starts. Says if it sent one. */
+ * alone, as the run's was sent (by whom, the statuses and release), so a new turn starts. Says if it sent one.
+ * Not when nothing left has changed since the last time: a session that won't take any of it (blocked, or waiting
+ * on the owner) would otherwise be cleared and sent it again every few seconds. */
 export async function resumeRun(project: string, session: string): Promise<boolean> {
     const run = runOf(session)
     if (!run || run.project !== project || !run.chunk || !sessionNow(session)?.started) return false
     const store = useStore()
     const {open} = await scopeOf(store, project, run)
     if (!open.length) return false
+    const left = open.map(t => `${t.id} ${t.column} ${t.updated_at}`).join('\n')
+    if (resumed.get(run) === left) return false
+    resumed.set(run, left)
     await store.focusChunk(project, run.chunk, {session, status: run.status ?? null, release: run.release ?? null, note: "Carry on with what's left of it after the clear."},
         {name: run.created_by, owner: run.protected})
     return true

@@ -20,9 +20,9 @@ export default defineEventHandler(async event => {
     // drops its messages, so the session isn't counted as listening.
     const heard = text('channel') !== 'no'
     // A session Orrery started says which launch it is (`started`); a channel that quits when the owner stops
-    // its session says so (`stops`).
+    // its session says so (`stops`); and the name its server goes by in the repo's .mcp.json, when it found it (`server`).
     const started = text('started') ? launched(text('started')!) : undefined
-    const attended = text('session') || text('pid') ? attend(project, text('session'), Number(text('pid')) || undefined, text('name'), heard, started, text('stops') === 'yes', text('started')) : null
+    const attended = text('session') || text('pid') ? attend(project, text('session'), Number(text('pid')) || undefined, text('name'), heard, started, text('stops') === 'yes', text('started'), text('server')) : null
     const stopListening = heard ? listen(project) : () => {}
     const done = () => {
         stopListening()

@@ -11,7 +11,6 @@ export abstract class SignalStore extends IssueStore {
     /** `Store` has it, with the claims on issues. */
     abstract workedBy(project: string, issue: string, session: string): Promise<void>
 
-    /** Asks the sessions on the project to focus on the issue (`{note?}` says what for). */
     /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. */
     async createUpload(body: unknown, actor = AGENT): Promise<Upload> {
         const input = checkInput(body, UPLOAD_FIELDS)
@@ -39,6 +38,7 @@ export abstract class SignalStore extends IssueStore {
         return {type: row.type, data: Buffer.from(row.data)}
     }
 
+    /** Asks the sessions on the project to focus on the issue (`{note?}` says what for). */
     async focus(project: string, issue: string, body: unknown, actor = AGENT): Promise<Signal> {
         issue = await this.issueId(project, issue)
         await this.issueRow(project, issue)

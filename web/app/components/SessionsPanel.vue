@@ -63,7 +63,7 @@ async function focus(session: Session | null) {
 
 const nameOf = (id?: string) => sessions.value.find(s => s.id === id)?.name ?? 'a session'
 const {environment} = useRuntimeConfig().public
-const restart = (session: Session) => restartCommand({name: session.name, project: props.project}, String(environment || 'personal'))
+const restart = (session: Session) => restartCommand({name: session.name, project: props.project, server: session.server}, String(environment || 'personal'))
 </script>
 
 <template>

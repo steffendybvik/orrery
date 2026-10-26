@@ -209,9 +209,9 @@ function changedAll(session: Known) {
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
  * started with the channel flag, so its messages would be dropped; `started` is the launch Orrery started it for;
- * `stops` when the channel ends its session when the owner stops it (an older one doesn't). Says the session's id, the one it
+ * `stops` when the channel ends its session when the owner stops it (an older one doesn't); `server` the name its server goes by. Says the session's id, the one it
  * has now: a `/clear` changes it while the channel stays connected. */
-export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string): {id: string, done: () => void} {
+export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
@@ -237,6 +237,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
         aliases.set(launchTarget(launch), held.id)
     }
     if (name) held.name = name
+    if (server) held.server = server
     changedAll(held)
     let open = true
     return {

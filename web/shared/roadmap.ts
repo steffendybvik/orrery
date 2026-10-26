@@ -444,6 +444,8 @@ export interface Session {
     listening: boolean
     /** The other projects its channel is heard on, when it serves several (ORRERY_PROJECTS). */
     also?: string[]
+    /** The name its channel's server goes by in the repo's .mcp.json, as the channel found it: what restarts it with the channel. */
+    server?: string
     /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from Orrery. */
     reachable?: boolean
     /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
