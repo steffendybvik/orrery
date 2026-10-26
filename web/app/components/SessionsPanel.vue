@@ -72,13 +72,12 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
       <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
       <h2 class="text-[13px] font-medium text-fg">Claude sessions</h2>
       <span class="text-xs text-faint">{{ listening.length ? `${listening.length} listening` : 'none listening' }}</span>
-      <button
+      <UiButton
           v-if="listening.length > 1"
-          type="button"
-          class="ml-auto h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50"
+          class="ml-auto"
           :disabled="!!sending"
           @click="focus(null)"
-      >Focus all on this</button>
+      >Focus all on this</UiButton>
       <button
           v-else-if="canStart"
           type="button"

@@ -52,7 +52,6 @@ const dropHost = (secret: Secret, host: string) => call(secret.name, 'PATCH', {h
 const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
 
 const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
-const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:bg-hover hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent'
 </script>
 
 <template>
@@ -88,16 +87,16 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
               </template>
               <template v-else>never used</template>
             </span>
-            <button type="button" class="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-fg" @click="open(secret)">Replace</button>
-            <button type="button" :class="iconButton" :disabled="busy" :aria-label="`Delete ${secret.name}`" @click="removing = secret.name">
+            <UiButton variant="ghost" size="xs" @click="open(secret)">Replace</UiButton>
+            <UiButton variant="ghost" size="xs" square :disabled="busy" :aria-label="`Delete ${secret.name}`" @click="removing = secret.name">
               <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-            </button>
+            </UiButton>
           </span>
         </div>
         <div v-if="removing === secret.name" class="flex flex-wrap items-center gap-2 px-1.5 py-1.5 text-xs text-muted">
           Delete {{ secret.name }}? Agents using it get a 404; its uses stay on record.
-          <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy" @click="remove(secret)">Delete</button>
-          <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover" @click="removing = null">Cancel</button>
+          <UiButton variant="danger" :disabled="busy" @click="remove(secret)">Delete</UiButton>
+          <UiButton @click="removing = null">Cancel</UiButton>
         </div>
       </div>
     </div>
@@ -137,15 +136,15 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
         <span class="text-faint" title="Agents say which project a request is for, so this guards against a slip, not a determined agent: the hosts are the limit">{{ form.projects.length ? '(a guard against slips; the hosts are the limit)' : '(none picked: every project)' }}</span>
       </div>
       <div class="flex items-center gap-2">
-        <button type="submit" class="h-7 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy || !form.name.trim() || !form.value || !list(form.hosts).length">
+        <UiButton type="submit" variant="primary" :disabled="busy || !form.name.trim() || !form.value || !list(form.hosts).length">
           {{ editing ? 'Replace' : 'Add' }}
-        </button>
-        <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover" @click="editing = null">Cancel</button>
+        </UiButton>
+        <UiButton @click="editing = null">Cancel</UiButton>
         <span class="text-xs text-faint">The value never shows again, here or to an agent.</span>
       </div>
     </form>
     <div v-else>
-      <button type="button" class="rounded-md px-1.5 py-0.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="open()">+ Add a secret</button>
+      <UiButton size="xs" @click="open()">+ Add a secret</UiButton>
     </div>
 
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">

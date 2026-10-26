@@ -147,14 +147,14 @@ const line = 'h-8 min-w-0 flex-1 field'
         <li v-for="l in own" :key="l.id" class="flex items-center gap-2">
           <input type="checkbox" class="size-3.5 accent-accent-500" :checked="l.on" :title="l.on ? 'Ticked by default' : 'Unticked by default'" :aria-label="`Tick “${l.text}” by default`" @change="toggle(l)">
           <input :value="l.text" :class="line" aria-label="Instruction" @blur="rename(l, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
-          <button type="button" class="grid size-7 shrink-0 place-items-center rounded-md text-faint hover:bg-hover hover:text-rose-600" :aria-label="`Remove “${l.text}”`" @click="remove(l)">
+          <UiButton variant="danger-ghost" square class="shrink-0" :aria-label="`Remove “${l.text}”`" @click="remove(l)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-          </button>
+          </UiButton>
         </li>
       </ul>
       <form class="flex items-center gap-2" @submit.prevent="add">
         <input v-model="adding" :class="line" :placeholder="project ? `A line for ${project.name}'s sessions only` : 'Create a new branch for this'" aria-label="New instruction">
-        <button type="submit" class="h-8 shrink-0 rounded-lg px-3 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="!adding.trim()">Add</button>
+        <UiButton type="submit" size="md" class="shrink-0" :disabled="!adding.trim()">Add</UiButton>
       </form>
     </div>
 

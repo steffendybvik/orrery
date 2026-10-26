@@ -149,101 +149,97 @@ const field = 'h-8 w-full field'
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="target" class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[12vh] backdrop-blur-[2px]" @pointerdown.self="close">
-      <form class="glass flex max-h-[76vh] w-full max-w-lg animate-fade-up flex-col gap-3 rounded-2xl p-5" role="dialog" aria-label="Start session" @submit.prevent="start" @keydown.esc.stop="close" @keydown.meta.enter.prevent="start" @keydown.ctrl.enter.prevent="start">
-        <div class="flex items-center gap-2 text-xs text-faint">
-          <span>Start a Claude session</span>
-          <KeyHint class="ml-auto">esc</KeyHint>
-        </div>
-
-        <div class="flex min-h-0 flex-col gap-1">
-          <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· a session each</span></span>
-          <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto" role="group" aria-label="Projects">
-            <label
-                v-for="p in ordered"
-                :key="p.id"
-                class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
-                :class="why(p) ? 'text-faint' : chosen.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'cursor-pointer text-muted hover:bg-hover hover:text-fg'"
-            >
-              <input v-model="chosen" type="checkbox" name="project" :value="p.id" :disabled="!!why(p)" class="accent-accent-500">
-              <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
-              <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
-              <span v-if="why(p)" class="shrink-0 text-xs">
-                {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/settings#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
-              </span>
-              <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
-                <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}
-              </span>
-            </label>
-          </div>
-        </div>
-
-        <div v-if="one" class="flex flex-col gap-1">
-          <span class="label px-1">Focus on (optional)</span>
-          <PropertyPicker v-model="issue" :options="issueOptions" label="Issue" placeholder="Find an issue by id or title…" wide>
-            <span class="truncate" :class="!issue && 'text-faint'">{{ issueLabel }}</span>
-          </PropertyPicker>
-        </div>
-
-        <div v-if="projects.length && !issue" class="flex flex-col gap-1.5">
-          <span class="label px-1">Work through</span>
-          <div class="flex flex-wrap gap-1.5" role="group" aria-label="Statuses">
-            <button
-                v-for="s in open"
-                :key="s.id"
-                type="button"
-                :aria-pressed="statuses.includes(s.id)"
-                class="flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs ring-1"
-                :class="statuses.includes(s.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
-                @click="toggle(s.id)"
-            >
-              <StatusIcon :column="s.id" :size="12" />{{ s.label }}
-            </button>
-          </div>
-          <PropertyPicker v-if="releases.length" v-model="release" :options="releaseOptions" label="Release">
-            <span class="truncate" :class="!release && 'text-faint'">{{ release ? `Release ${release}` : 'Any release' }}</span>
-          </PropertyPicker>
-          <p class="px-1 text-xs text-faint">
-            {{ scoped ? 'It works through these issues, most urgent first, one at a time.' : 'Nothing ticked: it waits for your work.' }}
-          </p>
-        </div>
-
-        <div v-if="projects.length" class="flex flex-col gap-1.5">
-          <span class="label px-1">Context <span class="font-normal normal-case text-faint">· optional, goes with every signal to it</span></span>
-          <div v-if="presets.length" class="flex flex-wrap gap-1.5" role="group" aria-label="Presets">
-            <button
-                v-for="p in presets"
-                :key="p.id"
-                type="button"
-                :aria-pressed="picked.includes(p.id)"
-                :title="p.text"
-                class="flex h-7 items-center gap-1 rounded-full px-2.5 text-xs ring-1"
-                :class="picked.includes(p.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
-                @click="pick(p.id)"
-            >
-              {{ p.name }}<span v-if="p.project && projects.length > 1" class="text-faint">· {{ projectName(p.project) }}</span>
-            </button>
-          </div>
-          <textarea
-              v-model="instructions"
-              rows="2"
-              aria-label="Your own instructions"
-              placeholder="Anything else it should know, e.g. run the e2e suite before you finish"
-              class="w-full field py-2 leading-5"
-          />
-          <p v-if="!presets.length" class="px-1 text-xs text-faint">
-            Context you give often can be saved as a preset on <NuxtLink to="/settings#presets" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">App settings</NuxtLink>.
-          </p>
-        </div>
-
-        <div class="flex items-center gap-2 border-t border-line pt-3">
-          <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-          <button type="submit" class="ml-auto flex h-8 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="!ready">
-            {{ busy ? 'Starting…' : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-          </button>
-        </div>
-      </form>
+  <UiDialog :open="target" label="Start session" class="max-h-[76vh]" @close="close" @submit="start">
+    <div class="flex items-center gap-2 text-xs text-faint">
+      <span>Start a Claude session</span>
+      <KeyHint class="ml-auto">esc</KeyHint>
     </div>
-  </Teleport>
+
+    <div class="flex min-h-0 flex-col gap-1">
+      <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· a session each</span></span>
+      <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto" role="group" aria-label="Projects">
+        <label
+            v-for="p in ordered"
+            :key="p.id"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
+            :class="why(p) ? 'text-faint' : chosen.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'cursor-pointer text-muted hover:bg-hover hover:text-fg'"
+        >
+          <input v-model="chosen" type="checkbox" name="project" :value="p.id" :disabled="!!why(p)" class="accent-accent-500">
+          <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
+          <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
+          <span v-if="why(p)" class="shrink-0 text-xs">
+            {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/settings#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
+          </span>
+          <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
+            <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div v-if="one" class="flex flex-col gap-1">
+      <span class="label px-1">Focus on (optional)</span>
+      <PropertyPicker v-model="issue" :options="issueOptions" label="Issue" placeholder="Find an issue by id or title…" wide>
+        <span class="truncate" :class="!issue && 'text-faint'">{{ issueLabel }}</span>
+      </PropertyPicker>
+    </div>
+
+    <div v-if="projects.length && !issue" class="flex flex-col gap-1.5">
+      <span class="label px-1">Work through</span>
+      <div class="flex flex-wrap gap-1.5" role="group" aria-label="Statuses">
+        <button
+            v-for="s in open"
+            :key="s.id"
+            type="button"
+            :aria-pressed="statuses.includes(s.id)"
+            class="flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs ring-1"
+            :class="statuses.includes(s.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
+            @click="toggle(s.id)"
+        >
+          <StatusIcon :column="s.id" :size="12" />{{ s.label }}
+        </button>
+      </div>
+      <PropertyPicker v-if="releases.length" v-model="release" :options="releaseOptions" label="Release">
+        <span class="truncate" :class="!release && 'text-faint'">{{ release ? `Release ${release}` : 'Any release' }}</span>
+      </PropertyPicker>
+      <p class="px-1 text-xs text-faint">
+        {{ scoped ? 'It works through these issues, most urgent first, one at a time.' : 'Nothing ticked: it waits for your work.' }}
+      </p>
+    </div>
+
+    <div v-if="projects.length" class="flex flex-col gap-1.5">
+      <span class="label px-1">Context <span class="font-normal normal-case text-faint">· optional, goes with every signal to it</span></span>
+      <div v-if="presets.length" class="flex flex-wrap gap-1.5" role="group" aria-label="Presets">
+        <button
+            v-for="p in presets"
+            :key="p.id"
+            type="button"
+            :aria-pressed="picked.includes(p.id)"
+            :title="p.text"
+            class="flex h-7 items-center gap-1 rounded-full px-2.5 text-xs ring-1"
+            :class="picked.includes(p.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
+            @click="pick(p.id)"
+        >
+          {{ p.name }}<span v-if="p.project && projects.length > 1" class="text-faint">· {{ projectName(p.project) }}</span>
+        </button>
+      </div>
+      <textarea
+          v-model="instructions"
+          rows="2"
+          aria-label="Your own instructions"
+          placeholder="Anything else it should know, e.g. run the e2e suite before you finish"
+          class="w-full field py-2 leading-5"
+      />
+      <p v-if="!presets.length" class="px-1 text-xs text-faint">
+        Context you give often can be saved as a preset on <NuxtLink to="/settings#presets" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">App settings</NuxtLink>.
+      </p>
+    </div>
+
+    <div class="flex items-center gap-2 border-t border-line pt-3">
+      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
+        {{ busy ? 'Starting…' : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+      </UiButton>
+    </div>
+  </UiDialog>
 </template>

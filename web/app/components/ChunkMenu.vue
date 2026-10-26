@@ -100,7 +100,6 @@ onBeforeUnmount(() => {
     window.removeEventListener('resize', close)
 })
 
-const item = 'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg hover:bg-hover disabled:opacity-50'
 const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover disabled:opacity-50'
 </script>
 
@@ -109,7 +108,7 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
     <div
         v-if="target && chunk && project"
         ref="menu"
-        class="glass fixed z-50 flex w-64 animate-fade-up flex-col gap-1 rounded-xl p-1 outline-none"
+        class="menu fixed z-50 w-64"
         :style="{left: `${place.left}px`, top: `${place.top}px`}"
         role="menu"
         :aria-label="chunk.id ? `Actions for chunk ${chunk.id}` : 'Actions for the issues in no chunk'"
@@ -142,36 +141,32 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
         </div>
 
         <div class="flex flex-col border-t border-line pt-1">
-          <button v-if="listening && !isClosed(chunk.kind)" type="button" :class="item" :disabled="busy" @click="focus">
+          <UiMenuItem v-if="listening && !isClosed(chunk.kind)" :disabled="busy" @click="focus">
             <svg class="size-3.5 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
             Ask {{ listening === 1 ? 'the session' : `all ${listening} sessions` }} to work through it
-          </button>
-          <button type="button" :class="item" @click="newIssue">
+          </UiMenuItem>
+          <UiMenuItem @click="newIssue">
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
             New issue in it
-          </button>
-          <button v-if="chunk.id" type="button" :class="item" @click="copyId">
+          </UiMenuItem>
+          <UiMenuItem v-if="chunk.id" @click="copyId">
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
             Copy id
-          </button>
-          <button type="button" :class="item" @click="openChunk">
+          </UiMenuItem>
+          <UiMenuItem @click="openChunk">
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9" /></svg>
             Open
-          </button>
-          <button v-if="chunk.id" type="button" :class="[item, 'text-rose-600 hover:bg-rose-500/10 dark:text-rose-400']" :disabled="busy" @click="confirming = true">
+          </UiMenuItem>
+          <UiMenuItem v-if="chunk.id" danger :disabled="busy" @click="confirming = true">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
             Remove…
-          </button>
+          </UiMenuItem>
         </div>
       </template>
 
-      <div v-else class="flex flex-col gap-2 border-t border-line p-2 text-xs">
-        <p class="text-muted">Remove chunk {{ chunk.id }}? Its {{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue stays' : 'issues stay' }}, in no chunk.</p>
-        <div class="flex gap-2">
-          <button type="button" class="h-7 flex-1 rounded-md bg-rose-600 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy" @click="remove">{{ busy ? 'Removing…' : 'Remove' }}</button>
-          <button type="button" class="h-7 flex-1 rounded-md text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="busy" @click="confirming = false">Cancel</button>
-        </div>
-      </div>
+      <UiConfirm v-else class="border-t border-line p-2" :busy="busy" @confirm="remove" @cancel="confirming = false">
+        Remove chunk {{ chunk.id }}? Its {{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue stays' : 'issues stay' }}, in no chunk.
+      </UiConfirm>
 
       <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       <p v-else-if="note" class="px-2 pb-1.5 text-xs text-emerald-600 dark:text-emerald-400">{{ note }}</p>

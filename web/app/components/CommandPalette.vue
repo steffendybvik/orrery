@@ -230,63 +230,59 @@ function onKey(event: KeyboardEvent) {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="openPalette" class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[12vh] backdrop-blur-[2px]" @pointerdown.self="openPalette = false">
-      <div class="glass flex max-h-[64vh] w-full max-w-xl animate-fade-up flex-col overflow-hidden rounded-2xl" role="dialog" aria-label="Commands">
-        <div class="flex items-center gap-2 border-b border-line px-4">
-          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-          <input
-              ref="input"
-              v-model="query"
-              class="h-12 flex-1 bg-transparent text-sm text-fg placeholder:text-faint focus:outline-none"
-              placeholder="Type a command, or find a project, chunk, doc or issue…"
-              aria-label="Type a command or search"
-              @keydown="onKey"
-          >
-          <KeyHint>esc</KeyHint>
-        </div>
-        <div ref="list" class="overflow-y-auto p-1" role="listbox">
-          <section v-for="(s, i) in sections" :key="s.key" :aria-label="s.title" class="pb-1" :class="i > 0 && 'mt-1 border-t border-line'">
-            <h3 class="label px-3 pt-2.5 pb-1">{{ s.title }}</h3>
-            <div
-                v-for="entry in s.entries"
-                :key="entry.key"
-                role="option"
-                :data-row="rowIndex.get(`${s.key}:${entry.key}`)"
-                :aria-selected="rowIndex.get(`${s.key}:${entry.key}`) === active"
-                class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13px]"
-                :class="rowIndex.get(`${s.key}:${entry.key}`) === active ? 'bg-active' : 'hover:bg-hover'"
-                @mouseenter="active = rowIndex.get(`${s.key}:${entry.key}`)!"
-                @click="run(rows[rowIndex.get(`${s.key}:${entry.key}`)!])"
-            >
-              <span v-if="entry.id" class="shrink-0 font-mono text-[11px] text-faint">{{ entry.id }}</span>
-              <span class="min-w-0 flex-1 truncate text-fg">{{ entry.label }}</span>
-              <span v-if="entry.detail" class="max-w-40 shrink-0 truncate text-[11px] text-faint" :class="!entry.id && 'font-mono'">{{ entry.detail }}</span>
-              <KeyHint v-if="entry.hint">{{ entry.hint }}</KeyHint>
-            </div>
-            <div
-                v-if="s.hidden"
-                role="option"
-                :data-row="rowIndex.get(`${s.key}:more`)"
-                :aria-selected="rowIndex.get(`${s.key}:more`) === active"
-                class="flex cursor-pointer items-center rounded-lg px-3 py-1.5 text-xs text-muted"
-                :class="rowIndex.get(`${s.key}:more`) === active ? 'bg-active' : 'hover:bg-hover'"
-                @mouseenter="active = rowIndex.get(`${s.key}:more`)!"
-                @click="run(rows[rowIndex.get(`${s.key}:more`)!])"
-            >{{ s.hidden }} more…</div>
-          </section>
-          <p v-if="!rows.length" class="px-3 py-6 text-center text-sm text-faint">Nothing matches</p>
-        </div>
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-[11px] text-faint">
-          <span><KeyHint>↑</KeyHint> <KeyHint>↓</KeyHint> choose</span>
-          <span><KeyHint>⇥</KeyHint> section</span>
-          <span><KeyHint>↵</KeyHint> run</span>
-          <span class="hidden sm:inline"><KeyHint>&gt;</KeyHint> commands · <KeyHint>#</KeyHint> issues · <KeyHint>@</KeyHint> places</span>
-          <span class="ml-auto">{{ results.length }} {{ results.length === 1 ? 'result' : 'results' }}</span>
-        </div>
-      </div>
+  <UiDialog :open="openPalette" label="Commands" width="xl" flush class="max-h-[64vh] overflow-hidden" @close="openPalette = false">
+    <div class="flex items-center gap-2 border-b border-line px-4">
+      <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+      <input
+          ref="input"
+          v-model="query"
+          class="h-12 flex-1 bg-transparent text-sm text-fg placeholder:text-faint focus:outline-none"
+          placeholder="Type a command, or find a project, chunk, doc or issue…"
+          aria-label="Type a command or search"
+          @keydown="onKey"
+      >
+      <KeyHint>esc</KeyHint>
     </div>
-  </Teleport>
+    <div ref="list" class="overflow-y-auto p-1" role="listbox">
+      <section v-for="(s, i) in sections" :key="s.key" :aria-label="s.title" class="pb-1" :class="i > 0 && 'mt-1 border-t border-line'">
+        <h3 class="label px-3 pt-2.5 pb-1">{{ s.title }}</h3>
+        <div
+            v-for="entry in s.entries"
+            :key="entry.key"
+            role="option"
+            :data-row="rowIndex.get(`${s.key}:${entry.key}`)"
+            :aria-selected="rowIndex.get(`${s.key}:${entry.key}`) === active"
+            class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13px]"
+            :class="rowIndex.get(`${s.key}:${entry.key}`) === active ? 'bg-active' : 'hover:bg-hover'"
+            @mouseenter="active = rowIndex.get(`${s.key}:${entry.key}`)!"
+            @click="run(rows[rowIndex.get(`${s.key}:${entry.key}`)!])"
+        >
+          <span v-if="entry.id" class="shrink-0 font-mono text-[11px] text-faint">{{ entry.id }}</span>
+          <span class="min-w-0 flex-1 truncate text-fg">{{ entry.label }}</span>
+          <span v-if="entry.detail" class="max-w-40 shrink-0 truncate text-[11px] text-faint" :class="!entry.id && 'font-mono'">{{ entry.detail }}</span>
+          <KeyHint v-if="entry.hint">{{ entry.hint }}</KeyHint>
+        </div>
+        <div
+            v-if="s.hidden"
+            role="option"
+            :data-row="rowIndex.get(`${s.key}:more`)"
+            :aria-selected="rowIndex.get(`${s.key}:more`) === active"
+            class="flex cursor-pointer items-center rounded-lg px-3 py-1.5 text-xs text-muted"
+            :class="rowIndex.get(`${s.key}:more`) === active ? 'bg-active' : 'hover:bg-hover'"
+            @mouseenter="active = rowIndex.get(`${s.key}:more`)!"
+            @click="run(rows[rowIndex.get(`${s.key}:more`)!])"
+        >{{ s.hidden }} more…</div>
+      </section>
+      <p v-if="!rows.length" class="px-3 py-6 text-center text-sm text-faint">Nothing matches</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-[11px] text-faint">
+      <span><KeyHint>↑</KeyHint> <KeyHint>↓</KeyHint> choose</span>
+      <span><KeyHint>⇥</KeyHint> section</span>
+      <span><KeyHint>↵</KeyHint> run</span>
+      <span class="hidden sm:inline"><KeyHint>&gt;</KeyHint> commands · <KeyHint>#</KeyHint> issues · <KeyHint>@</KeyHint> places</span>
+      <span class="ml-auto">{{ results.length }} {{ results.length === 1 ? 'result' : 'results' }}</span>
+    </div>
+  </UiDialog>
   <Teleport to="body">
     <div v-if="copied" class="glass fixed bottom-4 left-1/2 z-50 -translate-x-1/2 animate-fade-up rounded-full px-4 py-2 text-xs text-fg">Copied the {{ copied }}</div>
   </Teleport>

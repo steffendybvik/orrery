@@ -94,9 +94,9 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </span>
         {{ LIVE[live] }}
       </span>
-      <button type="button" class="-mr-1 grid size-8 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg md:hidden" aria-label="Close the menu" @click="open = false">
+      <UiButton variant="ghost" size="md" square class="-mr-1 md:hidden" aria-label="Close the menu" @click="open = false">
         <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-      </button>
+      </UiButton>
     </div>
 
     <div class="px-2 pb-2">

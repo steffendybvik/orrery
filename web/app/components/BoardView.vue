@@ -24,9 +24,9 @@ const fold = (column: Column) => unfolded.value = unfolded.value.includes(column
         <StatusIcon :column="column" />
         <h2 class="text-[13px] font-medium">{{ look(column).label }}</h2>
         <span class="font-mono text-[11px] text-faint tabular-nums">{{ inColumn.length }}</span>
-        <button v-if="isClosed(look(column).kind) && inColumn.length" type="button" class="ml-auto rounded-md px-1.5 py-0.5 text-[11px] text-faint hover:bg-hover hover:text-fg" @click="fold(column)">
+        <UiButton v-if="isClosed(look(column).kind) && inColumn.length" variant="ghost" size="xs" class="ml-auto" @click="fold(column)">
           {{ folded(column) ? 'Show' : 'Fold' }}
-        </button>
+        </UiButton>
       </header>
       <button
           v-if="folded(column)"

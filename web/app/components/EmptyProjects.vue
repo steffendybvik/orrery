@@ -17,10 +17,10 @@ const command = computed(() => `curl -X POST ${origin.value}/api/projects \\
       <h1 class="text-lg font-semibold tracking-tight">No projects yet</h1>
       <p class="text-muted">Orrery shows what your apps tell it. Start one here, or ask Claude in an app's repo to add it through the API.</p>
     </div>
-    <button type="button" class="flex h-8 items-center gap-2 self-start rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90" @click="newProject = true">
+    <UiButton variant="primary" size="md" class="self-start" @click="newProject = true">
       <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
       New project
-    </button>
+    </UiButton>
     <div class="relative">
       <pre class="overflow-x-auto rounded-xl bg-well p-4 pr-24 font-mono text-xs leading-relaxed text-muted ring-1 ring-line">{{ command }}</pre>
       <CopyButton :text="command" class="absolute top-3 right-3" />

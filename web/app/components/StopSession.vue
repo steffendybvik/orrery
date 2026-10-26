@@ -34,16 +34,16 @@ async function stop() {
 
 <template>
   <span class="flex shrink-0 items-center gap-1.5 text-xs">
-    <button
-        type="button"
-        class="h-6 rounded-md px-1.5 text-[11px] text-rose-600 ring-1 ring-rose-500/40 hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-400"
+    <UiButton
+        variant="danger-outline"
+        size="xs"
         :class="{'bg-rose-500/10': sure}"
         :disabled="busy"
         :title="`End ${session.name}: Claude quits in its terminal`"
         @click="stop"
     >
       {{ busy ? 'Stopping…' : sure ? 'Stop it?' : 'Stop' }}
-    </button>
+    </UiButton>
     <span v-if="failed" class="text-rose-600 dark:text-rose-400">{{ failed }}</span>
   </span>
 </template>

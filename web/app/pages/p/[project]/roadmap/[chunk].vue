@@ -112,9 +112,9 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
 <template>
   <PageHeader>
     <template v-if="project">
-      <NuxtLink :to="`/p/${project.id}/roadmap`" class="-ml-1 hidden rounded-md p-1 text-faint hover:bg-hover hover:text-fg md:block" title="Back to the roadmap (Esc)" aria-label="Back">
+      <UiButton :to="`/p/${project.id}/roadmap`" variant="ghost" size="xs" square class="-ml-1 max-md:hidden" title="Back to the roadmap (Esc)" aria-label="Back">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6" /></svg>
-      </NuxtLink>
+      </UiButton>
       <nav class="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Breadcrumb">
         <NuxtLink :to="`/p/${project.id}`" class="shrink-0 font-medium hover:text-fg">{{ project.name }}</NuxtLink>
         <span class="text-faint">/</span>
@@ -153,21 +153,20 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
             </select>
           </label>
           <span v-if="chunk.id" class="ml-auto flex items-center gap-2">
-            <template v-if="confirmingRemove">
-              <span class="text-muted">Remove chunk {{ chunk.id }}? Its {{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue stays' : 'issues stay' }}, in no chunk.</span>
-              <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="remove">{{ saving ? 'Removing…' : 'Remove' }}</button>
-              <button type="button" class="h-7 rounded-md px-2 text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="confirmingRemove = false">Cancel</button>
-            </template>
-            <button
+            <UiConfirm v-if="confirmingRemove" inline :busy="saving" @confirm="remove" @cancel="confirmingRemove = false">
+              Remove chunk {{ chunk.id }}? Its {{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue stays' : 'issues stay' }}, in no chunk.
+            </UiConfirm>
+            <UiButton
                 v-else
-                type="button"
-                class="rounded-md p-1 text-faint hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400"
+                variant="danger-ghost"
+                size="xs"
+                square
                 title="Remove this chunk"
                 aria-label="Remove this chunk"
                 @click="confirmingRemove = true"
             >
               <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
-            </button>
+            </UiButton>
           </span>
         </div>
         <input
@@ -202,19 +201,18 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
           />
           <div class="flex items-center justify-end gap-2">
             <span class="mr-auto text-xs text-faint">Markdown</span>
-            <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="editingSummary = false">Cancel <KeyHint>esc</KeyHint></button>
-            <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="saveSummary">
+            <UiButton :disabled="saving" @click="editingSummary = false">Cancel <KeyHint>esc</KeyHint></UiButton>
+            <UiButton variant="primary" :disabled="saving" @click="saveSummary">
               {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-            </button>
+            </UiButton>
           </div>
         </section>
         <section v-else-if="chunk.id" class="group relative">
-          <button
+          <UiButton
               v-if="chunk.summary"
-              type="button"
-              class="absolute -top-1 right-0 flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted opacity-0 ring-1 ring-line transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg focus:opacity-100"
+              class="absolute -top-1 right-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               @click="editSummary"
-          >Edit</button>
+          >Edit</UiButton>
           <MarkdownView v-if="chunk.summary" :source="chunk.summary" />
           <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editSummary">No summary. Add one</button>
         </section>
@@ -231,10 +229,10 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
         <span class="label">Issues</span>
         <template #end>
           <FilterBar />
-          <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs whitespace-nowrap font-medium text-white hover:opacity-90" title="New issue (c)" @click="useNewIssue().open(project.id, chunk.id || undefined)">
+          <UiButton variant="primary" class="shrink-0" title="New issue (c)" @click="useNewIssue().open(project.id, chunk.id || undefined)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
             New issue
-          </button>
+          </UiButton>
         </template>
       </ViewToolbar>
       <ListView v-if="shown[0]?.tasks.length" :chunks="shown" :project="project.id" group="status" :show-chunk="false">
