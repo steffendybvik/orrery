@@ -349,7 +349,9 @@ The owner sets them (an agent gets a 403):
 `/api/guide` is this reference alone. A Claude session with Orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
 make these calls for it. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
-to the issue, so the owner's comments on it go to that session.
+to the issue, so the owner's comments on it go to that session. Such a write that starts an issue another
+session has started (in progress or in review), while that session is still listening, is refused with a 409:
+pick another issue.
 
 An issue id is only unique within its Orrery, and an Orrery is one person's board. So when a commit body
 or PR description names an issue, write its `ref` (`orrery-steffendybvik: DOC-132`) as a trailer on a
