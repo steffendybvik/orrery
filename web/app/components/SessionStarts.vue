@@ -10,7 +10,9 @@ const limit = ref(1)
 // Blank (an empty input gives '') is no limit.
 const minutes = ref<number | ''>('')
 const idleMinutes = ref<number | ''>('')
-watch(() => settings.value.starts, starts => {
+// Only when they change: a live update that brings the same values back would undo what's being typed.
+watch(() => JSON.stringify(settings.value.starts ?? null), () => {
+    const starts = settings.value.starts
     limit.value = starts?.limit ?? 1
     minutes.value = starts?.minutes ?? ''
     idleMinutes.value = starts?.idle_minutes ?? ''
