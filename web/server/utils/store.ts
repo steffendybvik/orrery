@@ -1109,8 +1109,12 @@ export class Store {
             : explored ? `Asked to explore ${explored.key} (${explored.title}) further: add a choice that goes down it, then put the proposal up again.`
             : DECIDED[decision]
         await this.createComment(project, id, {body: note ? `${said}\n\n${note}` : said}, actor)
-        // Approving is the owner saying it's work, so it goes on the roadmap now, keeping who decided and the picks.
-        if (decision === 'approved') return await this.updateIssue(project, id, {proposal: null, status: 'todo'}, actor)
+        // Approving is the owner saying it's work, so it goes on the roadmap now, keeping who decided and the picks:
+        // into Todo while it's still in the backlog, else where its work already took it (started, done).
+        if (decision === 'approved') {
+            const waiting = (await this.statuses()).find(s => s.id === row.status)?.kind === 'backlog'
+            return await this.updateIssue(project, id, waiting ? {proposal: null, status: 'todo'} : {proposal: null}, actor)
+        }
         return await this.issue(project, id)
     }
 
