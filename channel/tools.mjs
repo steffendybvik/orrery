@@ -124,7 +124,7 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
         async issue({id}) {
             const [issue, comments] = await Promise.all([call('GET', issuePath(id)), call('GET', `${issuePath(id)}/comments`)])
             const {tasks, counts, kinds, ...rest} = issue
-            return JSON.stringify({...rest, subIssues: tasks.map(line), comments: comments.map(c => ({by: c.createdBy, at: c.createdAt, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
+            return JSON.stringify({...rest, sub_issues: tasks.map(line), comments: comments.map(c => ({by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
         },
         async create_issue(args) {
             const {proposal, ...fields} = args
@@ -153,7 +153,7 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
         },
         async releases() {
             const releases = await call('GET', '/releases')
-            return releases.map(r => `${r.version}${r.shippedOn ? ` (shipped ${r.shippedOn})` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
+            return releases.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
                 || 'No releases yet.'
         },
         async docs() {

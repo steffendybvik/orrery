@@ -46,7 +46,7 @@ watch([() => props.issue.id, () => JSON.stringify(props.issue.choices), () => JS
 // Decided (approved, changes asked for, rejected), it shows as a summary: what was decided and picked,
 // with Change decision to bring the controls back. Waiting on the owner, it's all there.
 const reopened = ref(false)
-watch([() => props.issue.id, () => props.issue.proposal, () => props.issue.decidedAt], () => reopened.value = false)
+watch([() => props.issue.id, () => props.issue.proposal, () => props.issue.decided_at], () => reopened.value = false)
 const deciding = computed(() => props.issue.proposal === 'pending' || reopened.value)
 /** What was picked, as the lines the summary shows: the question, then the options' titles. */
 const picked = computed(() => props.issue.picks ? props.issue.choices.filter(c => props.issue.picks![c.key]).map(c => ({
@@ -70,11 +70,11 @@ const commit = () => send('', 'PATCH', {proposal: null})
       <StatusIcon column="proposed" />
       <h2 class="text-[13px] font-semibold text-fg">Proposal</h2>
       <span class="rounded-full px-2 py-px text-[11px] font-medium ring-1" :class="STATE[issue.proposal].chip">{{ STATE[issue.proposal].label }}</span>
-      <span v-if="issue.decidedBy && issue.decidedAt && issue.proposal !== 'pending'" class="text-xs text-faint">
-        {{ who(issue.decidedBy) }} {{ DID[issue.proposal] }} · <span :title="issue.decidedAt">{{ ago(issue.decidedAt) }}</span>
+      <span v-if="issue.decided_by && issue.decided_at && issue.proposal !== 'pending'" class="text-xs text-faint">
+        {{ who(issue.decided_by) }} {{ DID[issue.proposal] }} · <span :title="issue.decided_at">{{ ago(issue.decided_at) }}</span>
       </span>
     </header>
-    <p v-if="issue.decisionNote && issue.proposal !== 'pending'" class="text-[13px] leading-relaxed text-muted">“{{ issue.decisionNote }}”</p>
+    <p v-if="issue.decision_note && issue.proposal !== 'pending'" class="text-[13px] leading-relaxed text-muted">“{{ issue.decision_note }}”</p>
     <p v-if="explored && issue.proposal === 'changes'" class="text-[13px] text-muted">
       You asked to explore <span class="font-mono text-xs">{{ explored.option?.key }}</span> {{ explored.option?.title }}: the agent adds a choice down it, then puts it up again.
     </p>

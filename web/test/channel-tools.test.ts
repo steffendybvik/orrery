@@ -65,7 +65,7 @@ describe("the channel's tools", () => {
     it('list the releases, and the issues in one', async () => {
         const kinds = {proposed: 0, backlog: 1, todo: 0, started: 0, done: 2, canceled: 0}
         const {call, calls} = harness({
-            'GET /releases': {body: [{version: '1.1.0', branch: 'v1.1.0', issues: 3, kinds}, {version: '1.0.0', shippedOn: '2026-10-01', issues: 1, kinds: {...kinds, backlog: 0, done: 1}}]},
+            'GET /releases': {body: [{version: '1.1.0', branch: 'v1.1.0', issues: 3, kinds}, {version: '1.0.0', shipped_on: '2026-10-01', issues: 1, kinds: {...kinds, backlog: 0, done: 1}}]},
             'GET /issues': {body: []},
         })
         expect((await call('releases')).text).toBe('1.1.0 on v1.1.0: 3 issues, 2/3 done\n1.0.0 (shipped 2026-10-01): 1 issue, 1/1 done')

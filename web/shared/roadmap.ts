@@ -95,9 +95,9 @@ export interface Issue {
     /** Set when it's a proposal (with its sub-issues): not work until the owner commits it. */
     proposal?: Proposal
     /** Who last decided on the proposal, when, and what they said. */
-    decidedBy?: string
-    decidedAt?: string
-    decisionNote?: string
+    decided_by?: string
+    decided_at?: string
+    decision_note?: string
     /** A proposal's choices: what the owner decides, the agent's recommendation ticked. */
     choices: Choice[]
     /** The owner's picks when they approved it, choice → options. */
@@ -117,11 +117,11 @@ export interface Issue {
     schedule?: number
     /** The version it ships in (a release's), if it's set for one. */
     release?: string
-    createdBy: string
+    created_by: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
-    createdAt: string
-    updatedAt: string
+    created_at: string
+    updated_at: string
     tasks: Issue[]
 }
 
@@ -138,7 +138,7 @@ export interface Chunk {
     kinds: Kinds
     /** Names it had before (e.g. `joints`), which still find it. */
     aliases: string[]
-    createdBy: string
+    created_by: string
     protected: boolean
     tasks: Issue[]
 }
@@ -157,24 +157,24 @@ export interface Release {
     /** What it's about, in Markdown. */
     notes?: string
     /** The day it shipped (`YYYY-MM-DD`); none while it's being prepared. */
-    shippedOn?: string
-    /** Its issues: those set for it, each with its sub-issues. */
+    shipped_on?: string
+    /** Its issues: those set for it, each with its sub-issues (in every project drawing on it, on its source). */
     issues: number
     kinds: Kinds
-    createdBy: string
+    created_by: string
     protected: boolean
-    createdAt: string
-    updatedAt: string
+    created_at: string
+    updated_at: string
 }
 
 /** A doc without its text, as a project lists it. */
 export interface DocSummary {
     id: string
     title: string
-    createdBy: string
+    created_by: string
     protected: boolean
-    createdAt: string
-    updatedAt: string
+    created_at: string
+    updated_at: string
 }
 
 /** A page of Markdown about the project: an overview, a decision, how to run it. */
@@ -193,10 +193,10 @@ export interface Project {
     /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
     icon?: string
     /** Its icon's colour: a tint's name (`teal`) or a `#rrggbb`; none follows the text. */
-    iconColor?: string
+    icon_color?: string
     /** What its sessions hear when asked to focus on an issue or a chunk, when not the Orrery's (`Settings`). */
-    focusPrompt?: string
-    chunkPrompt?: string
+    focus_prompt?: string
+    chunk_prompt?: string
     /** Its own standing instructions, and the ids of the Orrery's it switches off. */
     instructions: Instruction[]
     muted: string[]
@@ -205,10 +205,13 @@ export interface Project {
     starts?: Starts
     /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
     repo?: string
-    createdBy: string
+    /** The project whose releases it ships in, when it takes them from another (a monorepo's apps going out
+     * together); its `releases` are then that project's, counting its own issues. */
+    releases_from?: string
+    created_by: string
     protected: boolean
-    createdAt: string
-    updatedAt: string
+    created_at: string
+    updated_at: string
     board: Board
     docs: DocSummary[]
     /** Those being prepared first, then the shipped ones, latest first. */
@@ -237,10 +240,10 @@ export interface Comment {
     /** It waits on the owner for this, until they comment on the issue after it (`answered`). */
     asks?: Asks
     answered?: boolean
-    createdBy: string
+    created_by: string
     protected: boolean
-    createdAt: string
-    updatedAt: string
+    created_at: string
+    updated_at: string
 }
 
 /** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
@@ -256,9 +259,9 @@ export interface IssueEvent {
     field: ActivityField
     before?: string
     after?: string
-    createdBy: string
+    created_by: string
     protected: boolean
-    createdAt: string
+    created_at: string
 }
 
 export const emptyKinds = (): Kinds => ({proposed: 0, backlog: 0, todo: 0, started: 0, done: 0, canceled: 0})
@@ -287,13 +290,13 @@ export interface Signal {
     /** The session it's for; none means every session on the project. */
     target?: string
     /** The names of the sessions it reached. */
-    deliveredTo: string[]
+    delivered_to: string[]
     /** The standing instructions picked for a focus, as said. */
     instructions: string[]
-    createdBy: string
+    created_by: string
     /** Sent by the owner. Sessions only act on these. */
     protected: boolean
-    createdAt: string
+    created_at: string
 }
 
 /** One time a schedule ran: the issue it made, or why it didn't. */
@@ -325,16 +328,16 @@ export interface Schedule {
     labels: string[]
     ask: boolean
     /** Skips a run while the issue from the last one isn't done. */
-    skipOpen: boolean
+    skip_open: boolean
     enabled: boolean
     /** When it runs next; none once it's paused or a one-off has run. */
-    nextRun?: string
+    next_run?: string
     /** The latest runs, newest first. */
     runs: ScheduleRun[]
-    createdBy: string
+    created_by: string
     protected: boolean
-    createdAt: string
-    updatedAt: string
+    created_at: string
+    updated_at: string
 }
 
 /** The tints a page can take on: a few named colours, or any `#rrggbb`. */
@@ -363,8 +366,8 @@ export interface Settings {
     statuses: IssueStatus[]
     /** What a session hears when asked to focus on an issue, or to work through a chunk; none is the default
      * (`DEFAULT_FOCUS_PROMPT`, `DEFAULT_CHUNK_PROMPT`). A project can have its own. */
-    focusPrompt: string | null
-    chunkPrompt: string | null
+    focus_prompt: string | null
+    chunk_prompt: string | null
     /** Lines added to every focus, such as `commit whenever a piece works`. */
     instructions: Instruction[]
 }
@@ -384,7 +387,7 @@ export interface Session {
     state: SessionState
     /** When it got into that state. */
     since: string
-    startedAt: string
+    started_at: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
     /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from Orrery. */
@@ -404,7 +407,7 @@ export interface SessionWork {
 export interface StartedSession {
     launch: string
     tmux: string
-    stopsAt: string
+    stops_at: string
 }
 
 /** An agent's comment, as the notification bell and page list it. */
@@ -428,10 +431,10 @@ export interface Secret {
     hosts: string[]
     /** The projects that may use it; null for any. */
     projects: string[] | null
-    createdBy: string
-    createdAt: string
-    updatedAt: string
-    lastUsed: SecretUse | null
+    created_by: string
+    created_at: string
+    updated_at: string
+    last_used: SecretUse | null
 }
 
 /** One request a secret went out in, kept without the value. */
@@ -447,8 +450,8 @@ export interface SecretUse {
     /** The status that came back, or null when it never got one (`error` says why). */
     status: number | null
     error: string | null
-    createdBy: string
-    createdAt: string
+    created_by: string
+    created_at: string
 }
 
 /** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */

@@ -5,7 +5,8 @@ issues with sub-issues to any depth, comments, and docs (Markdown pages). The pa
 changes through this API, and open pages update live.
 
 Base URL: `http://localhost:9000/api` (or the `ORRERY_PORT` the container runs on). Bodies are
-JSON. Send `Orrery-Actor: <your name>` on writes (e.g. `claude`): it's recorded as `createdBy`.
+JSON, and its fields are snake_case (`created_at`, `icon_color`), as the database's columns are. Send
+`Orrery-Actor: <your name>` on writes (e.g. `claude`): it's recorded as `created_by`.
 
 ## Ids
 
@@ -31,10 +32,10 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | | |
 |---|---|
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
-| `POST /projects` | `{name, id?, key?, description?, repo?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
+| `POST /projects` | `{name, id?, key?, description?, repo?, releases_from?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board, docs and releases |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, iconColor?, repo?, focusPrompt?, chunkPrompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `iconColor` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `null` clears any of them |
-| `DELETE /projects/:project` | with its chunks, issues and comments |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `releases_from` is another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
+| `DELETE /projects/:project` | with its chunks, issues and comments; a 409 while others take their releases from it |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there |
 
 ## Chunks
@@ -53,13 +54,20 @@ The versions a project ships, and which issues go out in each. Chunks are themes
 them. An issue says which release it ships in with `release` (a version); a sub-issue set for none goes
 out with its parent.
 
+A project can take its releases from another (`releases_from`), so a monorepo's apps go out in one shared
+release: its issues are set for that project's releases, and it has none of its own. Its `releases` list
+the source's, each counting its own issues; the source's count every project drawing on it. One level
+only: a source can't take its releases from another, and a project with releases of its own can't take
+another's until they're deleted (a 409; nothing merges). Moving an issue between projects sharing
+releases keeps its `release`; changing a project's `releases_from` clears those its new source hasn't.
+
 | | |
 |---|---|
-| `GET /projects/:project/releases` | those being prepared first, then the shipped ones, latest first: `{version, branch?, notes?, shippedOn?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included |
-| `POST /projects/:project/releases` | `{version, branch?, notes?, shippedOn?}`: `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shippedOn` the day it shipped (`YYYY-MM-DD`; none while it's being prepared) |
-| `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues) |
-| `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shippedOn?}`; the version doesn't change; `null` clears |
-| `DELETE /projects/:project/releases/:release` | its issues stay, set for none |
+| `GET /projects/:project/releases` | those being prepared first, then the shipped ones, latest first: `{version, branch?, notes?, shipped_on?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included |
+| `POST /projects/:project/releases` | `{version, branch?, notes?, shipped_on?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `shipped_on` the day it shipped (`YYYY-MM-DD`; none while it's being prepared) |
+| `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues), and by project in `projects`: `{project, name, issues, kinds, tasks}`, the project's own first, then on a source each project drawing on it |
+| `PATCH /projects/:project/releases/:release` | `{branch?, notes?, shipped_on?}`; the version doesn't change; `null` clears |
+| `DELETE /projects/:project/releases/:release` | its issues stay, set for none, in every project drawing on it too |
 
 ## Issues
 
@@ -79,7 +87,7 @@ out with its parent.
   (stored as their id, so it shows under their My issues; `?assignee=owner` finds theirs too)
 - A top-level issue is in a `chunk`; a sub-issue (`parent`) is in its parent's chunk, so it takes no `chunk`
 - `parent: null` lifts a sub-issue to the top, into the chunk it was in
-- `release`: the version of a release of the project (see [Releases](#releases)); moving the issue to another project takes it out
+- `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `notes` may use inline `` `code` `` and `**bold**`
 
@@ -92,7 +100,7 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
   the owner asked for changes (clearing their last decision). It's assigned to the owner (their id)
   while it waits on them, whatever `assignee` the request sends, so it's under their My issues
 - The owner decides with `POST …/issues/:issue/decide {decision, note?}`; `proposal` becomes
-  `approved`, `changes` or `rejected`, with `decidedBy`, `decidedAt` and `decisionNote`. The decision is
+  `approved`, `changes` or `rejected`, with `decided_by`, `decided_at` and `decision_note`. The decision is
   also left as the owner's comment (`Approved this proposal.` and the note), so the session on it hears,
   and the issue goes back to whoever proposed it
 - **Choices:** a proposal can put questions to the owner instead of a plain yes or no. Send
@@ -105,7 +113,7 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
   them. Or they ask for changes with `explore: {choice, option}`: add a choice `from` that option, then
   put the proposal up again with `proposal: "pending"`
 - Approving doesn't commit it: `PATCH {proposal: null}` does (with a `status` to place it),
-  and the issue keeps `decidedBy` and `decidedAt`. An agent can only commit an approved proposal (403
+  and the issue keeps `decided_by` and `decided_at`. An agent can only commit an approved proposal (403
   otherwise); a rejected one stays in Proposed until the owner deletes or commits it
 
 ## Statuses
@@ -149,7 +157,7 @@ instead of `done` when it won't ship.
 | `GET /projects/:project/issues/:issue/comments` | oldest first |
 | `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
-| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, createdBy, createdAt}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release` or `project` (moved in from `before`) |
+| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release` or `project` (moved in from `before`) |
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell). `?list=waiting` is every one still waiting; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
 | `POST /notices/clear` | `{ids}` or `{before}` → `{cleared}`: the owner takes them out of the bell; they stay on their issues |
 
@@ -175,18 +183,18 @@ listening sessions each run, with no issue (a `message` signal; the run is `sent
 time a schedule makes an issue (its title plus the day, e.g.
 `Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
 the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
-is listening, the next to connect within a day gets it). With `skipOpen` (the default) a run is skipped
+is listening, the next to connect within a day gets it). With `skip_open` (the default) a run is skipped
 while the last run's issue isn't done. Missed runs while Orrery was down run once when it's back.
 
 | | |
 |---|---|
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
-| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skipOpen?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
+| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}`; the owner's, only by the owner |
 
-Each schedule carries `nextRun` and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why).
+Each schedule carries `next_run` and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why).
 
 ## Secrets
 
@@ -198,7 +206,7 @@ without Docker), which encrypts them; without it these routes answer 503.
 
 | | |
 |---|---|
-| `GET /secrets` | every secret by name: `{name, last4, hosts, projects, lastUsed}`, never a value |
+| `GET /secrets` | every secret by name: `{name, last4, hosts, projects, last_used}`, never a value |
 | `GET /secrets/:name` | the secret with its latest `uses` |
 | `PUT /secrets/:name` | `{value, hosts, projects?}`, the owner only: sets it, new (201) or replacing. `name` is capitals, digits and `_` (`STRIPE_KEY`); `hosts` the host names it may go to (`api.stripe.com`, with a port if not 443); `projects` the projects that may use it (none: every one) |
 | `PATCH /secrets/:name` | `{hosts?, projects?}`, the owner only: only narrows them. Letting it go somewhere new takes the value again (`PUT`), so whoever doesn't know it can't send it elsewhere |
@@ -277,22 +285,22 @@ At most `limit` run at once on the project, each stopped after `minutes`; it's s
 cap over every project. Several signals at once start one
 session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
 signal it was started for. The owner can also start one by hand (`POST .../launches`, Start session on the
-Sessions tab), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stopsAt}`, and count toward
+Sessions tab), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at}`, and count toward
 the limits while their channel is connected.
 
 | | |
 |---|---|
-| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}` and `extend` `{id, stopsAt}` |
+| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}` and `extend` `{id, stops_at}` |
 | `POST /projects/:project/launches` | 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; 409 without the project's opt-in, a launcher or room under its limit |
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
-| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stopsAt}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again |
+| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again |
 | `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
 | `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped |
 
 `POST …/focus` takes `{session}` to reach one session; without it, every session gets
-it. Each signal lists the sessions it reached in `deliveredTo`
+it. Each signal lists the sessions it reached in `delivered_to`
 (`POST /projects/:project/signals/:signal/delivered`, sent by the channel).
 
 ### What sessions hear
@@ -300,13 +308,13 @@ it. Each signal lists the sessions it reached in `deliveredTo`
 A focus reaches a session as its `prompt`: a template filled in, with standing instructions after it.
 The owner sets them (an agent gets a 403):
 
-- `PATCH /settings {focusPrompt?, chunkPrompt?, instructions?}`: the Orrery's. A template is text with
+- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?}`: the Orrery's. A template is text with
   placeholders (`{issue}`, `{title}`, `{status}`, `{priority}`, `{chunk}`, `{where}`, `{note}`, `{url}`,
   `{actor}`; a chunk's also `{issues}`), and a line whose placeholders all come out empty is left out.
   `null` or `""` goes back to the default. `instructions` is a list of `{text, on?, id?}`, lines such as
   "commit whenever a piece works"; `on` (true unless sent) ticks one by default. They go where
   `{instructions}` is, or at the end.
-- `PATCH /projects/:project {focusPrompt?, chunkPrompt?, instructions?, muted?}`: the project's own
+- `PATCH /projects/:project {focus_prompt?, chunk_prompt?, instructions?, muted?}`: the project's own
   templates (none follows the Orrery's), its own lines, and `muted`, the ids of the Orrery's lines it
   switches off.
 - `POST …/focus {instructions: [ids]}` picks the lines for one send (`[]` for none). Left out, it gets

@@ -492,6 +492,14 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     ALTER TABLE issues ADD COLUMN ships_in TEXT;
     ALTER TABLE projects ADD COLUMN repo TEXT;
+`, `
+    -- A project can take its releases from another (a monorepo's apps going out in one shared release): its
+    -- issues are set for that project's releases, and it has none of its own.
+    ALTER TABLE projects ADD COLUMN releases_from TEXT;
+`, `
+    -- The API's fields are snake_case, as the columns are: the Orrery's own prompt settings follow.
+    UPDATE settings SET key = 'focus_prompt' WHERE key = 'focusPrompt';
+    UPDATE settings SET key = 'chunk_prompt' WHERE key = 'chunkPrompt';
 `]
 
 let db: DatabaseSync | null = null

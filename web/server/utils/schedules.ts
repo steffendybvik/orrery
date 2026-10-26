@@ -1,7 +1,7 @@
 // A project's schedules: recurring work Orrery starts on its own. At each time a schedule makes an issue
 // in its project (marked with the schedule) and, with `ask`, points the project's listening Claude
 // sessions at it; or, as a `message` schedule, sends its message to the sessions with no issue. An issue
-// run is skipped while the last one's issue is still open (`skipOpen`). The timer
+// run is skipped while the last one's issue is still open (`skip_open`). The timer
 // (server/plugins/schedules.ts) calls `runDue`; a run is claimed by moving `next_run` on first, so two
 // servers (a reloading `nuxt dev`) can't run it twice, and after downtime a schedule runs once.
 import {Cron} from 'croner'
@@ -35,7 +35,7 @@ export const SCHEDULE_FIELDS: Record<string, Field> = {
     priority: {type: 'string', values: PRIORITIES, nullable: true},
     labels: {type: 'strings', nullable: true},
     ask: {type: 'boolean'},
-    skipOpen: {type: 'boolean'},
+    skip_open: {type: 'boolean'},
     enabled: {type: 'boolean'},
 }
 
@@ -61,7 +61,7 @@ export class Schedules {
             ? (await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE project = ?', project))
             : (await this.db.all<ScheduleRow>('SELECT * FROM schedules'))
         return (await Promise.all(rows.map(row => this.scheduleOf(row))))
-            .sort((a, b) => (a.nextRun ?? '~').localeCompare(b.nextRun ?? '~') || a.title.localeCompare(b.title))
+            .sort((a, b) => (a.next_run ?? '~').localeCompare(b.next_run ?? '~') || a.title.localeCompare(b.title))
     }
 
     async get(project: string, id: number): Promise<Schedule> {
@@ -80,7 +80,7 @@ export class Schedules {
         const {id} = (await this.db.get<{id: number}>(`INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
             next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
             project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, await this.place(input.column ?? 'todo'), chunk,
-            text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skipOpen ?? true), Number(enabled),
+            text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now))!
         this.onChange(project)
         return await this.get(project, id)
@@ -113,7 +113,7 @@ export class Schedules {
             priority: input.priority === undefined ? undefined : text(input.priority),
             labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
             ask: input.ask === undefined ? undefined : Number(input.ask),
-            skip_open: input.skipOpen === undefined ? undefined : Number(input.skipOpen),
+            skip_open: input.skip_open === undefined ? undefined : Number(input.skip_open),
             enabled: Number(enabled),
             next_run: next,
             updated_at: new Date().toISOString(),
@@ -258,9 +258,9 @@ export class Schedules {
             id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
             cron: row.cron ?? undefined, at: row.at ?? undefined, timezone: row.timezone,
             column: row.place, chunk: row.chunk ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
-            ask: !!row.ask, skipOpen: !!row.skip_open, enabled: !!row.enabled, nextRun: row.next_run ?? undefined,
+            ask: !!row.ask, skip_open: !!row.skip_open, enabled: !!row.enabled, next_run: row.next_run ?? undefined,
             runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined})),
-            createdBy: row.created_by, protected: !!row.owned, createdAt: row.created_at, updatedAt: row.updated_at,
+            created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
         }
     }
 }

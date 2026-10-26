@@ -34,9 +34,9 @@ async function show(hash: string) {
 }
 watch(() => [route.hash, sessions.value.length] as const, ([hash]) => show(hash), {immediate: true})
 
-const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.createdBy)}'s comment on ${s.issue}`
-    : s.kind === 'message' ? `${who(s.createdBy)}'s scheduled message`
-    : s.issue ? `${who(s.createdBy)}: focus on ${s.issue}` : `${who(s.createdBy)}: work through chunk ${s.chunk}`
+const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
+    : s.kind === 'message' ? `${who(s.created_by)}'s scheduled message`
+    : s.issue ? `${who(s.created_by)}: focus on ${s.issue}` : `${who(s.created_by)}: work through chunk ${s.chunk}`
 /** The command that starts the window again with the channel, keeping its name unless it was made up. */
 const restart = (session: Session) => `${session.name.startsWith(`${session.project} `) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${session.project}`
 useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orrery` : 'Orrery'}))
@@ -88,7 +88,7 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
             <StopSession v-if="!session.started && session.reachable" :session="session" class="ml-auto" />
           </div>
           <p class="text-xs text-faint">
-            Up since {{ ago(session.startedAt) }}<template v-if="session.cwd"> · in <span class="font-mono">{{ session.cwd }}</span></template>
+            Up since {{ ago(session.started_at) }}<template v-if="session.cwd"> · in <span class="font-mono">{{ session.cwd }}</span></template>
           </p>
 
           <div v-if="work[session.id]?.issues.length || work[session.id]?.signals.length" class="grid gap-4 border-t border-line pt-3 sm:grid-cols-2">
@@ -110,7 +110,7 @@ useHead(() => ({title: project.value ? `Sessions · ${project.value.name} · Orr
               <h3 class="label">Last sent</h3>
               <p v-for="signal in work[session.id]!.signals" :key="signal.id" class="flex min-w-0 gap-1.5 px-1.5 py-0.5 text-xs text-muted">
                 <span class="truncate">{{ signalText(signal) }}</span>
-                <span class="shrink-0 text-faint">· {{ ago(signal.createdAt) }}</span>
+                <span class="shrink-0 text-faint">· {{ ago(signal.created_at) }}</span>
               </p>
               <p v-if="!work[session.id]!.signals.length" class="px-1.5 text-xs text-faint">Nothing yet.</p>
             </div>

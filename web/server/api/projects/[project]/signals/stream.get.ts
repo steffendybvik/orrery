@@ -61,7 +61,7 @@ export default defineEventHandler(async event => {
                 .map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
             const status = signal.status ? statuses.find(s => s.id === signal.status)?.name ?? signal.status : undefined
             const prompt = renderPrompt(templates.chunk, {
-                actor: signal.createdBy, chunk: signal.chunk, title: chunk.title, status: status ?? 'open', priority: chunk.priority,
+                actor: signal.created_by, chunk: signal.chunk, title: chunk.title, status: status ?? 'open', priority: chunk.priority,
                 where: where(name(chunk.column), chunk.priority), note: signal.note,
                 issues: open.map(i => issueLine(i, statuses)).join('\n') || '- none left',
                 url: signal.chunk === 'none' ? `'${api}/issues?chunk=none'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
@@ -72,14 +72,14 @@ export default defineEventHandler(async event => {
         const chunk = (await store.project(project)).board.chunks.find(c => c.id === (issue.chunk ?? ''))
         if (signal.kind !== 'focus') return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null}
         const prompt = renderPrompt(templates.focus, {
-            actor: signal.createdBy, issue: issue.id, title: issue.title, status: name(issue.column), priority: issue.priority, chunk: chunk?.title,
+            actor: signal.created_by, issue: issue.id, title: issue.title, status: name(issue.column), priority: issue.priority, chunk: chunk?.title,
             where: where(name(issue.column), issue.priority, chunk?.title), note: signal.note, url: `${api}/issues/${encodeURIComponent(issue.id)}`,
         }, signal.instructions)
         return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null, prompt}
     }
-    // The owner's signals for every session, or for this one (by any id it has had); a receipt (deliveredTo) isn't news.
+    // The owner's signals for every session, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
     const ours = (signal: Signal) => !signal.target || currentId(signal.target) === attended?.id
-    const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.deliveredTo.length && ours(signal)
+    const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.delivered_to.length && ours(signal)
     const missed = after ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && ours(s)) : []
 
     /** Sends signals one after another, in the order they came, however long each takes to read. */
@@ -91,8 +91,8 @@ export default defineEventHandler(async event => {
     if (query.format === 'text') {
         const line = async (signal: Signal) => {
             const s = await told(signal)
-            if (s.kind === 'message') return `${s.createdBy}'s schedule "${s.title}": ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
-            if (s.kind === 'comment') return `${s.createdBy} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
+            if (s.kind === 'message') return `${s.created_by}'s schedule "${s.title}": ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
+            if (s.kind === 'comment') return `${s.created_by} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             return `${'prompt' in s ? s.prompt.replace(/\s*\n+\s*/g, ' ') : s.title}\n`
         }
         let send: (signal: Signal) => void = () => {}

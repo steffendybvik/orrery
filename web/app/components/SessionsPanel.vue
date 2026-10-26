@@ -121,16 +121,16 @@ const restart = (session: Session) => `${session.name.startsWith(`${props.projec
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">
         <template v-if="signal.kind === 'comment'">
-          <span><span class="text-muted">{{ who(signal.createdBy) }}</span>'s comment went to</span>
+          <span><span class="text-muted">{{ who(signal.created_by) }}</span>'s comment went to</span>
           <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
         </template>
         <template v-else>
-          <span class="text-muted">{{ who(signal.createdBy) }}</span> asked
+          <span class="text-muted">{{ who(signal.created_by) }}</span> asked
           <span class="text-muted">{{ signal.target ? nameOf(signal.target) : 'every session' }}</span>
           {{ signal.status ? `to work through its ${look(signal.status).label} issues` : 'to focus on this' }}
         </template>
-        · {{ ago(signal.createdAt) }} ·
-        <span v-if="signal.deliveredTo.length" class="text-emerald-600 dark:text-emerald-400">delivered to {{ signal.deliveredTo.join(', ') }}</span>
+        · {{ ago(signal.created_at) }} ·
+        <span v-if="signal.delivered_to.length" class="text-emerald-600 dark:text-emerald-400">delivered to {{ signal.delivered_to.join(', ') }}</span>
         <span v-else-if="!signal.protected">not sent on (only the owner's signals reach sessions)</span>
         <span v-else>not delivered</span>
       </li>

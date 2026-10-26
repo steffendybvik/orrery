@@ -132,7 +132,7 @@ export function report(input: Report): Session | null {
     if (!session) {
         session = {
             id: input.id ?? `pid-${input.pid}`, pid: input.pid, project: input.project, name: input.name || nameFor(input.project),
-            cwd: input.cwd, state, since: now, startedAt: now, listening: false, seenAt: Date.now(),
+            cwd: input.cwd, state, since: now, started_at: now, listening: false, seenAt: Date.now(),
         }
         add(session)
     } else {
@@ -197,7 +197,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
-        session = {id: id ?? `pid-${pid ?? Math.random().toString(36).slice(2)}`, pid, project, name: name || nameFor(project), state: 'idle', since: now, startedAt: now, listening: false, seenAt: Date.now()}
+        session = {id: id ?? `pid-${pid ?? Math.random().toString(36).slice(2)}`, pid, project, name: name || nameFor(project), state: 'idle', since: now, started_at: now, listening: false, seenAt: Date.now()}
         add(session)
     }
     const held = session
@@ -283,10 +283,10 @@ export function launchEnded(project: string, launch: string) {
 }
 
 /** Moves the launch's stop time; says the session as it now is. */
-export function extendLaunch(project: string, launch: string, stopsAt: string): Session | undefined {
+export function extendLaunch(project: string, launch: string, stops_at: string): Session | undefined {
     const session = [...sessions.values()].find(s => s.project === project && s.started?.launch === launch)
     if (!session?.started) return undefined
-    session.started = {...session.started, stopsAt}
+    session.started = {...session.started, stops_at}
     changed(project)
     return publicOf(session)
 }
@@ -295,7 +295,7 @@ export function listSessions(project?: string): Session[] {
     const now = Date.now()
     for (const s of [...sessions.values()]) if (!s.listening && now - s.seenAt > FORGET_AFTER) forget(s)
     return [...sessions.values()].filter(s => !project || s.project === project)
-        .sort((a, b) => a.startedAt.localeCompare(b.startedAt)).map(publicOf)
+        .sort((a, b) => a.started_at.localeCompare(b.started_at)).map(publicOf)
 }
 
 export function sessionName(id: string | undefined): string | undefined {

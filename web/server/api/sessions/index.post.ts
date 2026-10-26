@@ -36,7 +36,7 @@ async function briefFor(project: string, session: string, happened: string, api:
         `Orrery: ${happened}. It was working on these issues in project "${project}"; carry on with them:`,
         ...issues.map(issue => [
             issueLine(issue, statuses),
-            issue.last ? `  last comment, by ${issue.last.createdBy}: ${said(issue.last.body)}` : '',
+            issue.last ? `  last comment, by ${issue.last.created_by}: ${said(issue.last.body)}` : '',
         ].filter(Boolean).join('\n')),
         `Read each in full (the issue tool, or curl ${api}/issues/<id>) before going on.`,
     ].join('\n')

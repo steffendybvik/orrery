@@ -17,18 +17,18 @@ export default defineNuxtPlugin(() => {
         sessions.value = Object.groupBy(all, s => s.project) as Record<string, Session[]>
     }
 
-    /** The issues whose `updatedAt` moved, so their rows can flash. */
+    /** The issues whose `updated_at` moved, so their rows can flash. */
     function markChanged(before: Project | undefined, after: Project) {
         const stamps = new Map<string, string>()
         const walk = (issues: Issue[], visit: (issue: Issue) => void) => issues.forEach(i => {
             visit(i)
             walk(i.tasks, visit)
         })
-        before?.board.chunks.forEach(c => walk(c.tasks, i => stamps.set(i.id, i.updatedAt)))
+        before?.board.chunks.forEach(c => walk(c.tasks, i => stamps.set(i.id, i.updated_at)))
         const now = Date.now()
         const next = {...changed.value}
         after.board.chunks.forEach(c => walk(c.tasks, i => {
-            if (before && stamps.get(i.id) !== i.updatedAt) next[`${after.id}/${i.id}`] = now
+            if (before && stamps.get(i.id) !== i.updated_at) next[`${after.id}/${i.id}`] = now
         }))
         changed.value = next
     }

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import {TINTS} from '#shared/roadmap'
 
-// A project's settings: its name, where its code is, its icon in the sidebar and the icon's colour, and deleting
+// A project's settings: its name, where its code is, whose releases it ships in, its icon in the sidebar and the icon's colour, and deleting
 // the project, for good. Its schedules have a page of their own, and so does starting its sessions (Sessions).
 const route = useRoute()
 const router = useRouter()
-const {byId, ready} = useRoadmaps()
+const {projects, byId, ready} = useRoadmaps()
 const {of} = useSchedules()
 const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
@@ -49,11 +49,28 @@ async function saveRepo() {
     }
 }
 
+// Whose releases it ships in: its own, or another project's (a monorepo's apps going out together). A project
+// can draw on one that has its own, while nothing draws on it and it has none of its own yet; the server says why not.
+const drawing = computed(() => projects.value.filter(p => p.releases_from === project.value?.id))
+const sources = computed(() => projects.value.filter(p => p.id !== project.value?.id && !p.releases_from))
+const releasesFailed = ref('')
+async function saveReleasesFrom(event: Event) {
+    if (!project.value) return
+    const next = (event.target as HTMLSelectElement).value || null
+    releasesFailed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {releases_from: next}, headers: {'Orrery-Actor': await load()}})
+    } catch (error) {
+        releasesFailed.value = errorMessage(error)
+        ;(event.target as HTMLSelectElement).value = project.value.releases_from ?? ''
+    }
+}
+
 // Its icon: any Heroicon, found by name, in a colour (or the text's). The sidebar shows it in place of
 // the progress ring.
 const search = ref('')
 const custom = ref('#3b82f6')
-watch(() => project.value?.iconColor, now => {
+watch(() => project.value?.icon_color, now => {
     if (now?.startsWith('#')) custom.value = now
 }, {immediate: true})
 const iconFailed = ref('')
@@ -61,7 +78,7 @@ const shown = computed(() => {
     const words = search.value.trim().toLowerCase().split(/[\s-]+/).filter(Boolean)
     return HEROICONS.filter(name => words.every(word => name.includes(word)))
 })
-async function saveIcon(change: {icon?: string | null, iconColor?: string | null}) {
+async function saveIcon(change: {icon?: string | null, icon_color?: string | null}) {
     if (!project.value) return
     iconFailed.value = ''
     try {
@@ -150,10 +167,34 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         </form>
       </section>
 
+      <section id="releases" class="flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Releases</h2>
+          <p class="text-xs text-muted">
+            Whose releases {{ project.name }} ships in. Take them from another project when several go out together, as a monorepo's apps do:
+            its issues are set for that project's releases, and each release counts them.
+          </p>
+        </header>
+        <div class="flex flex-wrap items-center gap-2">
+          <select
+              :value="project.releases_from ?? ''"
+              aria-label="Whose releases it ships in"
+              class="h-8 max-w-full rounded-lg bg-well px-2 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:opacity-60"
+              :disabled="!!drawing.length"
+              @change="saveReleasesFrom"
+          >
+            <option value="">Its own</option>
+            <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}'s</option>
+          </select>
+          <span v-if="drawing.length" class="text-xs text-faint">{{ drawing.map(p => p.name).join(', ') }} {{ drawing.length === 1 ? 'takes its' : 'take their' }} releases from {{ project.name }}.</span>
+          <span v-if="releasesFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ releasesFailed }}</span>
+        </div>
+      </section>
+
       <section id="icon" class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex items-start gap-3">
           <div class="mt-0.5 grid size-4 place-items-center text-accent-500">
-            <ProjectIcon v-if="project.icon" :icon="project.icon" :color="project.iconColor" class="size-4" />
+            <ProjectIcon v-if="project.icon" :icon="project.icon" :color="project.icon_color" class="size-4" />
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
           </div>
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -168,29 +209,29 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
             <button
                 type="button"
                 class="flex h-7 items-center rounded-lg px-2.5 text-xs ring-1 transition-colors"
-                :class="!project.iconColor ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line hover:bg-hover'"
-                :aria-pressed="!project.iconColor"
+                :class="!project.icon_color ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line hover:bg-hover'"
+                :aria-pressed="!project.icon_color"
                 title="Follows the text, as the sidebar's other icons do"
-                @click="saveIcon({iconColor: null})"
+                @click="saveIcon({icon_color: null})"
             >None</button>
             <button
                 v-for="(color, tint) in TINTS"
                 :key="tint"
                 type="button"
                 class="grid size-7 place-items-center rounded-lg ring-1 transition-colors"
-                :class="project.iconColor === tint ? 'bg-active ring-faint/60' : 'ring-line hover:bg-hover'"
+                :class="project.icon_color === tint ? 'bg-active ring-faint/60' : 'ring-line hover:bg-hover'"
                 :title="tint"
                 :aria-label="tint"
-                :aria-pressed="project.iconColor === tint"
-                @click="saveIcon({iconColor: tint})"
+                :aria-pressed="project.icon_color === tint"
+                @click="saveIcon({icon_color: tint})"
             >
               <span class="size-3.5 rounded-full ring-1 ring-black/10" :style="{background: color}" />
             </button>
             <label
                 class="flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs ring-1"
-                :class="project.iconColor?.startsWith('#') ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line'"
+                :class="project.icon_color?.startsWith('#') ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line'"
             >
-              <input v-model="custom" type="color" aria-label="Custom icon colour" class="size-4 cursor-pointer rounded border-0 bg-transparent p-0" @change="saveIcon({iconColor: custom})">
+              <input v-model="custom" type="color" aria-label="Custom icon colour" class="size-4 cursor-pointer rounded border-0 bg-transparent p-0" @change="saveIcon({icon_color: custom})">
               Custom
             </label>
           </div>
@@ -207,7 +248,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
                 :aria-pressed="project.icon === name"
                 @click="saveIcon({icon: name})"
             >
-              <ProjectIcon :icon="name" :color="project.icon === name ? project.iconColor : null" class="size-4" />
+              <ProjectIcon :icon="name" :color="project.icon === name ? project.icon_color : null" class="size-4" />
             </button>
           </div>
           <p v-if="!shown.length" class="px-1 py-4 text-center text-xs text-faint">No icon called “{{ search }}”.</p>

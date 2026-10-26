@@ -3,6 +3,19 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## Unreleased
+
+- **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
+  `created_by`, `created_at`, `updated_at`, `icon_color`, `focus_prompt`, `chunk_prompt`, `shipped_on`,
+  `decided_by`, `decided_at`, `decision_note`, `delivered_to`, `sub_issues`, `skip_open`, `next_run`,
+  `started_at`, `stops_at`, `last_used`. The pages, the channel's tools and the launcher move with it;
+  restart running sessions and launchers after updating, as they still hold the old code. The Orrery's
+  own prompt settings migrate on start.
+- **Shared releases:** a project can take its releases from another (Settings → Releases, or
+  `releases_from`), so a monorepo's apps ship in one release. Their issues are set for it, and its page
+  shows each project's issues in a section with its progress; a project drawing on it shows its own part
+  and links the whole. `GET …/releases/:release` adds `projects`.
+
 ## 1.0.0-rc.2 (2026-10-25)
 
 - **Fixed, the owner's protections:** an agent can no longer change or run the owner's schedules (and

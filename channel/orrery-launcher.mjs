@@ -123,12 +123,12 @@ async function stop(id, why) {
 /** The tmux option a session keeps its stop time in, so a launcher that restarts can take it back. */
 const STOPS_AT = '@orrery_stops_at'
 
-/** Stops the session when `stopsAt` comes (again, when the owner gives it longer). */
+/** Stops the session when `stops_at` comes (again, when the owner gives it longer). */
 function stopAt(id, stopsAt) {
     const session = running.get(id)
     if (!session) return
     clearTimeout(session.timer)
-    session.stopsAt = stopsAt
+    session.stops_at = stopsAt
     session.timer = setTimeout(() => stop(id, 'its time is up'), Math.max(0, Date.parse(stopsAt) - Date.now()))
     try {
         tmux('set-option', '-t', session.tmux, STOPS_AT, stopsAt)
@@ -171,7 +171,7 @@ function adopt(project, api) {
 
 /** Tells the project's Orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
-    const launches = [...running.entries()].filter(([, s]) => s.api === api && s.stopsAt).map(([id, s]) => ({id, tmux: s.tmux, stopsAt: s.stopsAt}))
+    const launches = [...running.entries()].filter(([, s]) => s.api === api && s.stops_at).map(([id, s]) => ({id, tmux: s.tmux, stops_at: s.stops_at}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
@@ -224,9 +224,9 @@ function serve({url, project, dir}) {
             } else if (event === 'stop') {
                 await stop(JSON.parse(data).id, 'the owner stopped it')
             } else if (event === 'extend') {
-                const {id, stopsAt} = JSON.parse(data)
-                stopAt(id, stopsAt)
-                if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stopsAt).toLocaleTimeString()}`)
+                const {id, stops_at} = JSON.parse(data)
+                stopAt(id, stops_at)
+                if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stops_at).toLocaleTimeString()}`)
             }
         },
         log: (...parts) => log(`${project}:`, ...parts),

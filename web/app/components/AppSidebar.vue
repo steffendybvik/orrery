@@ -175,7 +175,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
               @keydown.right.exact.prevent="setFolds([project.id], true)"
               @keydown.left.exact.prevent="setFolds([project.id], false)"
           >
-            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.iconColor" class="size-3.5" />
+            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
             <span v-if="unseenIn(project)" class="unseen-dot" :title="`${unseenIn(project)} changed since you last looked`" />
@@ -229,7 +229,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           <SessionDot :session="session" />
           <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
           <span class="flex min-w-0 max-w-[40%] items-center gap-1 text-[11px] text-faint">
-            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.iconColor" class="size-3" />
+            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3" />
             <span class="truncate">{{ project.name }}</span>
           </span>
           <span class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>

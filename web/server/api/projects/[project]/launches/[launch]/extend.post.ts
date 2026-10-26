@@ -1,4 +1,4 @@
-// `POST /api/projects/:project/launches/:launch/extend` {minutes} → the session, with its new `started.stopsAt`:
+// `POST /api/projects/:project/launches/:launch/extend` {minutes} → the session, with its new `started.stops_at`:
 // the owner giving a session Orrery started longer, from when it would have stopped.
 export default defineEventHandler(async event => {
     if (!(await actorOf(event)).owner) throw forbidden('Only the owner gives a session Orrery started more time; send Orrery-Actor: <owner>')

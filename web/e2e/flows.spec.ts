@@ -85,7 +85,7 @@ test("an agent's proposal waits until the owner approves it", async ({page, requ
     await page.goto(`/p/larder/issues/${proposal.id}`)
     await page.getByRole('button', {name: 'Approve'}).click()
     await expect.poll(async () => (await api(request, 'get', `/issues/${proposal.id}`)).proposal).toBe('approved')
-    expect((await api(request, 'get', `/issues/${proposal.id}/comments`)).at(-1)).toMatchObject({body: 'Approved this proposal.', createdBy: 'ada_lovelace'})
+    expect((await api(request, 'get', `/issues/${proposal.id}/comments`)).at(-1)).toMatchObject({body: 'Approved this proposal.', created_by: 'ada_lovelace'})
 })
 
 test("the owner's picks on a proposal survive a live update before they approve", async ({page, request}) => {
@@ -164,7 +164,7 @@ test('makes a chunk from the roadmap, renames it, gives it a summary and removes
     await dialog.getByRole('button', {name: /Create chunk/}).click()
     await expect(page).toHaveURL(/\/p\/larder\/roadmap\/\d+$/)
     const id = page.url().split('/').at(-1)!
-    expect(await api(request, 'get', `/chunks/${id}`)).toMatchObject({title: 'Shelves', summary: 'Where things go', createdBy: 'ada_lovelace'})
+    expect(await api(request, 'get', `/chunks/${id}`)).toMatchObject({title: 'Shelves', summary: 'Where things go', created_by: 'ada_lovelace'})
 
     await page.getByRole('heading', {name: 'Shelves'}).click()
     await page.getByLabel('Title', {exact: true}).fill('Shelving')

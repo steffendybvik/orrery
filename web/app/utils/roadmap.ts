@@ -106,7 +106,7 @@ export function sectionsOf(project: Project, path: string, schedules = 0, sessio
         {id: 'issues' as Section, label: 'Issues', to: base, count: open(project.board.kinds), active: on === 'issues'},
         {id: 'roadmap' as Section, label: 'Roadmap', to: `${base}/roadmap`, count: project.board.chunks.filter(c => c.id).length, active: on === 'roadmap'},
         // Counted: the releases still being prepared.
-        {id: 'releases' as Section, label: 'Releases', to: `${base}/releases`, count: project.releases.filter(r => !r.shippedOn).length, active: on === 'releases'},
+        {id: 'releases' as Section, label: 'Releases', to: `${base}/releases`, count: project.releases.filter(r => !r.shipped_on).length, active: on === 'releases'},
         {id: 'docs' as Section, label: 'Docs', to: `${base}/docs`, count: project.docs.length, active: on === 'docs'},
         {id: 'schedules' as Section, label: 'Schedules', to: `${base}/schedules`, count: schedules, active: on === 'schedules'},
         {id: 'sessions' as Section, label: 'Sessions', to: `${base}/sessions`, count: sessions, active: on === 'sessions'},
@@ -128,7 +128,7 @@ export function releaseChunks(project: Project, version: string): Chunk[] {
 }
 
 /** A changelog for the release, in Markdown, from its issues' titles: what's done, then what isn't yet. */
-export function changelogOf(release: Release, chunks: Chunk[], date = release.shippedOn ?? 'unreleased'): string {
+export function changelogOf(release: Release, chunks: Chunk[], date = release.shipped_on ?? 'unreleased'): string {
     const issues = chunks.flatMap(c => c.tasks)
     const line = (issue: Issue) => `- ${issue.title} (${issue.id})`
     const done = issues.filter(i => i.kind === 'done')

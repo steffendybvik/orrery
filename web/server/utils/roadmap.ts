@@ -171,9 +171,9 @@ export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> 
     /** A status's id. */
     status: string
     proposal?: Proposal
-    decidedBy?: string
-    decidedAt?: string
-    decisionNote?: string
+    decided_by?: string
+    decided_at?: string
+    decision_note?: string
     choices?: Choice[]
     picks?: Picks
     explore?: {choice: string, option: string}
@@ -181,15 +181,15 @@ export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> 
     aliases?: string[]
     schedule?: number
     release?: string
-    createdBy?: string
+    created_by?: string
     protected?: boolean
-    createdAt?: string
-    updatedAt?: string
+    created_at?: string
+    updated_at?: string
     tasks: IssueInput[]
 }
 
 export interface BoardInput {
-    chunks: (Omit<ChunkFile, 'tasks'> & {priority?: Priority, aliases?: string[], createdBy?: string, protected?: boolean, tasks: IssueInput[]})[]
+    chunks: (Omit<ChunkFile, 'tasks'> & {priority?: Priority, aliases?: string[], created_by?: string, protected?: boolean, tasks: IssueInput[]})[]
 }
 
 /** Places every issue in its column and rolls them up into their parents and chunks. `statuses` are in board order. */
@@ -202,9 +202,9 @@ export function buildBoard(roadmap: BoardInput, statuses: IssueStatus[]): Board 
         const own = rules.sum(tasks)
         merge(counts, own.counts)
         mergeKinds(kinds, own.kinds)
-        const {id, title, summary, priority, aliases = [], createdBy = '', protected: owned = false} = chunk
+        const {id, title, summary, priority, aliases = [], created_by = '', protected: owned = false} = chunk
         const column = rules.columnOf(own.counts, own.kinds)
-        return {id, title, summary: summary || undefined, priority, column, kind: rules.kindOf(column), counts: own.counts, kinds: own.kinds, aliases, createdBy, protected: owned, tasks}
+        return {id, title, summary: summary || undefined, priority, column, kind: rules.kindOf(column), counts: own.counts, kinds: own.kinds, aliases, created_by, protected: owned, tasks}
     })
     return {chunks, counts, kinds}
 }
@@ -235,8 +235,8 @@ class Rules {
             kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
         }
         const column = this.columnOf(counts, kinds)
-        const {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, choices = [], picks, explore, comments = 0, aliases = [], schedule, release, createdBy = '', protected: owned = false, createdAt = '', updatedAt = ''} = task
-        return {id, title, priority, assignee, labels, status, notes, proposal, decidedBy, decidedAt, decisionNote, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, release, createdBy, protected: owned, createdAt, updatedAt, tasks}
+        const {id, title, priority, assignee, labels, status, notes, proposal, decided_by, decided_at, decision_note, choices = [], picks, explore, comments = 0, aliases = [], schedule, release, created_by = '', protected: owned = false, created_at = '', updated_at = ''} = task
+        return {id, title, priority, assignee, labels, status, notes, proposal, decided_by, decided_at, decision_note, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, release, created_by, protected: owned, created_at, updated_at, tasks}
     }
 
     /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.

@@ -1,22 +1,43 @@
 <script setup lang="ts">
+import type {Kinds} from '#shared/roadmap'
+import {emptyKinds} from '#shared/roadmap'
+
 // A release's page: whether it shipped (and when), the branch its work gathers on with its PRs (when the
 // project says where its code is), its notes, a changelog drafted from its issues, and every one of those
 // issues by status (the board's filters would hide the done ones, most of a release), each row saying its chunk. The branch, notes and day edit in place, as the owner, and it can be
-// removed (its issues stay, set for none). Esc goes back to the releases.
+// removed (its issues stay, set for none). A release shared across projects is its source's: there it shows each
+// project's issues in a section of their own, and from a project drawing on it, that project's, linking the whole.
+// Esc goes back to the releases.
 const route = useRoute()
 const router = useRouter()
-const {byId, ready} = useRoadmaps()
+const {projects, byId, ready} = useRoadmaps()
 const {load} = useOwner()
 
 const project = computed(() => byId(route.params.project as string))
+// The project the release is made in: this one, or the one it takes its releases from.
+const source = computed(() => project.value?.releases_from ? byId(project.value.releases_from) : project.value)
 const version = computed(() => String(route.params.release))
 const release = computed(() => project.value?.releases.find(r => r.version === version.value))
-const chunks = computed(() => project.value && release.value ? releaseChunks(project.value, release.value.version) : [])
-const changelog = computed(() => release.value ? changelogOf(release.value, chunks.value) : '')
+// All of it, across the projects drawing on it.
+const whole = computed(() => source.value?.releases.find(r => r.version === version.value) ?? release.value)
+// Each project's part: on its source, the source's and then each drawing on it; else this project's.
+const parts = computed(() => {
+    if (!project.value || !release.value) return []
+    const shown = project.value.releases_from ? [project.value] : [project.value, ...projects.value.filter(p => p.releases_from === project.value!.id)]
+    return shown.map(p => {
+        const chunks = releaseChunks(p, version.value)
+        const tasks = chunks.flatMap(c => c.tasks)
+        const kinds = emptyKinds()
+        tasks.forEach(issue => (Object.keys(kinds) as (keyof Kinds)[]).forEach(kind => kinds[kind] += issue.kinds[kind]))
+        return {project: p, chunks, issues: tasks.length, kinds}
+    })
+})
+const chunks = computed(() => parts.value[0]?.chunks ?? [])
+const changelog = computed(() => release.value ? changelogOf(release.value, parts.value.flatMap(p => p.chunks)) : '')
 
 // Where the branch and its PRs are, on GitHub or a forge that answers the same addresses.
 const links = computed(() => {
-    const repo = project.value?.repo
+    const repo = source.value?.repo
     const branch = release.value?.branch
     if (!repo || !branch) return null
     return {branch: `${repo}/tree/${encodeURIComponent(branch)}`, prs: `${repo}/pulls?q=${encodeURIComponent(`is:pr base:${branch}`)}`}
@@ -24,7 +45,7 @@ const links = computed(() => {
 
 const saving = ref(false)
 const failed = ref('')
-const api = computed(() => project.value ? `/api/projects/${encodeURIComponent(project.value.id)}/releases/${encodeURIComponent(version.value)}` : '')
+const api = computed(() => source.value ? `/api/projects/${encodeURIComponent(source.value.id)}/releases/${encodeURIComponent(version.value)}` : '')
 async function save(body: Record<string, unknown>): Promise<boolean> {
     saving.value = true
     failed.value = ''
@@ -40,8 +61,8 @@ async function save(body: Record<string, unknown>): Promise<boolean> {
 }
 
 const today = () => new Date().toLocaleDateString('sv')
-const ship = () => save({shippedOn: today()})
-const unship = () => save({shippedOn: null})
+const ship = () => save({shipped_on: today()})
+const unship = () => save({shipped_on: null})
 
 // The branch, edited in place: Enter saves, Esc puts it back.
 const editingBranch = ref(false)
@@ -127,13 +148,13 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <div class="flex flex-wrap items-center gap-3 text-xs">
           <span
               class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-              :class="release.shippedOn ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
-          >{{ release.shippedOn ? `Shipped ${release.shippedOn}` : 'Preparing' }}</span>
-          <button v-if="!release.shippedOn" type="button" class="h-7 rounded-md px-2.5 text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="saving" @click="ship">Mark shipped today</button>
+              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
+          >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : 'Preparing' }}</span>
+          <button v-if="!release.shipped_on" type="button" class="h-7 rounded-md px-2.5 text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="saving" @click="ship">Mark shipped today</button>
           <button v-else type="button" class="h-7 rounded-md px-2.5 text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="saving" @click="unship">Not shipped yet</button>
           <span class="ml-auto flex items-center gap-2">
             <template v-if="confirmingRemove">
-              <span class="text-muted">Remove {{ release.version }}? Its {{ release.issues }} {{ release.issues === 1 ? 'issue stays' : 'issues stay' }}, set for no release.</span>
+              <span class="text-muted">Remove {{ release.version }}? Its {{ whole!.issues }} {{ whole!.issues === 1 ? 'issue stays' : 'issues stay' }}, set for no release.</span>
               <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="remove">{{ saving ? 'Removing…' : 'Remove' }}</button>
               <button type="button" class="h-7 rounded-md px-2 text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="confirmingRemove = false">Cancel</button>
             </template>
@@ -150,6 +171,10 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           </span>
         </div>
         <h1 class="font-mono text-xl font-semibold tracking-tight text-fg sm:text-2xl">{{ release.version }}</h1>
+        <p v-if="project.releases_from" class="text-xs text-muted">
+          Shared: {{ source?.name ?? project.releases_from }}'s release, with {{ project.name }}'s issues here.
+          <NuxtLink :to="releasePath(project.releases_from, release.version)" class="text-fg underline underline-offset-2">The whole release</NuxtLink>
+        </p>
 
         <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span class="label">Branch</span>
@@ -171,7 +196,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
             <a :href="links.branch" target="_blank" rel="noopener" class="text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400">Code</a>
             <a :href="links.prs" target="_blank" rel="noopener" class="text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400">PRs into it</a>
           </template>
-          <NuxtLink v-else-if="release.branch && !project.repo" :to="`/p/${project.id}/settings#repo`" class="text-faint underline underline-offset-2 hover:text-fg">Say where the code is, to link its PRs</NuxtLink>
+          <NuxtLink v-else-if="release.branch && source && !source.repo" :to="`/p/${source.id}/settings#repo`" class="text-faint underline underline-offset-2 hover:text-fg">Say where the code is, to link its PRs</NuxtLink>
         </div>
 
         <section v-if="editingNotes" class="flex flex-col gap-2" @keydown.esc.stop.prevent="editingNotes = false">
@@ -222,11 +247,24 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           </div>
         </details>
       </header>
-      <ViewToolbar>
-        <span class="label">Issues</span>
-      </ViewToolbar>
-      <ListView v-if="chunks.length" :chunks="chunks" :project="project.id" group="status" />
-      <p v-else class="px-4 py-16 text-center text-sm text-muted">No issues set for this release yet. Pick it under Release on an issue’s page.</p>
+      <template v-if="parts.length > 1">
+        <section v-for="part in parts" :key="part.project.id">
+          <ViewToolbar>
+            <NuxtLink :to="`/p/${part.project.id}`" class="label hover:text-fg">{{ part.project.name }}</NuxtLink>
+            <ProgressRing :kinds="part.kinds" :size="14" />
+            <span class="text-xs text-faint">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
+          </ViewToolbar>
+          <ListView v-if="part.chunks.length" :chunks="part.chunks" :project="part.project.id" group="status" />
+          <p v-else class="px-4 py-6 text-center text-xs text-faint">None of {{ part.project.name }}'s issues are set for it yet.</p>
+        </section>
+      </template>
+      <template v-else>
+        <ViewToolbar>
+          <span class="label">Issues</span>
+        </ViewToolbar>
+        <ListView v-if="chunks.length" :chunks="chunks" :project="project.id" group="status" />
+        <p v-else class="px-4 py-16 text-center text-sm text-muted">No issues set for this release yet. Pick it under Release on an issue’s page.</p>
+      </template>
     </template>
     <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">
       No release “{{ route.params.release }}”. <NuxtLink :to="`/p/${route.params.project}/releases`" class="ml-1 text-fg underline">Back to the releases</NuxtLink>
