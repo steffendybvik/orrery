@@ -10,7 +10,8 @@
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and is stopped after the
-// project's minutes, or when the owner stops it from Orrery. With several launchers on a project, the first
+// project's minutes, or when the owner stops it from Orrery. Between pieces of work Orrery has it `/clear`ed, for a
+// fresh context. With several launchers on a project, the first
 // to claim a launch starts it. Stopping the launcher stops the sessions it started; one that dies instead (a
 // crash, the service restarting it) takes its project's sessions back when it starts again, as each keeps its
 // stop time in tmux, and tells Orrery which it runs whenever it connects. It answers the warning
@@ -124,6 +125,21 @@ async function stop(id, why) {
     await fetch(`${session.api}/launches/${id}/ended`, {method: 'POST'}).catch(() => {})
 }
 
+/** Gives a session it started a fresh context between pieces of work, as Orrery asks once it's idle: types
+ * `/clear` into it. Its channel stays, and its hooks hand the new context what's left to do. */
+async function clear(id) {
+    const session = running.get(id)
+    if (!session) return
+    try {
+        tmux('send-keys', '-t', session.tmux, '-l', '/clear')
+        await new Promise(resolve => setTimeout(resolve, 300))
+        tmux('send-keys', '-t', session.tmux, 'Enter')
+        log(`cleared ${session.tmux}'s context: its work was done`)
+    } catch {
+        // It has ended.
+    }
+}
+
 /** The tmux option a session keeps its stop time in, so a launcher that restarts can take it back. */
 const STOPS_AT = '@orrery_stops_at'
 
@@ -231,6 +247,8 @@ function serve({url, project, dir}) {
                 const {id, stops_at} = JSON.parse(data)
                 stopAt(id, stops_at)
                 if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stops_at).toLocaleTimeString()}`)
+            } else if (event === 'clear') {
+                await clear(JSON.parse(data).id)
             }
         },
         log: (...parts) => log(`${project}:`, ...parts),

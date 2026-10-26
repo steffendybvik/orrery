@@ -1563,6 +1563,12 @@ export class Store {
         return signal
     }
 
+    /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it or for every session. */
+    async waiting(project: string, ids: string[]): Promise<boolean> {
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
+            AND (target IS NULL OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, ...ids)
+    }
+
     /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next
      * one to connect gets them. */
     async unheardScheduled(project: string): Promise<Signal[]> {
