@@ -20,7 +20,10 @@ const groups = computed(() => ordered.value
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
-    <p v-else-if="ready && !groups.length" class="px-4 py-10 text-center text-sm text-faint">No Claude sessions right now. Start one, or open Claude in a connected repo.</p>
+    <p v-else-if="ready && !groups.length" class="px-4 py-10 text-center text-sm text-faint">
+      No Claude sessions right now. Start one, or open Claude in a
+      <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
+    </p>
     <section v-for="group in groups" :key="group.project.id">
       <NuxtLink :to="`/p/${group.project.id}/sessions`" class="sticky top-0 z-10 flex h-9 items-center gap-2.5 border-b border-line bg-panel/90 px-3 backdrop-blur hover:bg-hover">
         <ProjectIcon v-if="group.project.icon && heroicon(group.project.icon)" :icon="group.project.icon" :color="group.project.icon_color" class="size-3.5" />
