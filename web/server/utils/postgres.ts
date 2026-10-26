@@ -289,8 +289,9 @@ const STEPS: string[] = [`
     ALTER TABLE signals ADD COLUMN release text;
 `]
 
-/** The transaction the code running now is part of, if any: its connection, and the database it's on. */
-const current = new AsyncLocalStorage<{db: PostgresDb, client: pg.PoolClient}>()
+/** The transaction the code running now is part of, if any: its connection, the database it's on, and whether
+ * it's still open (work it started can outlive its COMMIT, and then goes to the pool, not a released client). */
+const current = new AsyncLocalStorage<{db: PostgresDb, client: pg.PoolClient, open: boolean}>()
 
 export class PostgresDb implements Db {
     readonly dialect = 'postgres'
@@ -328,20 +329,27 @@ export class PostgresDb implements Db {
     }
 
     async transaction<T>(work: () => Promise<T>): Promise<T> {
-        if (current.getStore()?.db === this) return work()
+        if (this.inside()) return work()
         await this.ready
         const client = await this.pool.connect()
+        const transaction = {db: this, client, open: true}
         try {
             await client.query('BEGIN')
-            const result = await current.run({db: this, client}, work)
+            const result = await current.run(transaction, work)
             await client.query('COMMIT')
             return result
         } catch (error) {
             await client.query('ROLLBACK').catch(() => {})
             throw error
         } finally {
+            transaction.open = false
             client.release()
         }
+    }
+
+    private inside(): boolean {
+        const transaction = current.getStore()
+        return transaction?.db === this && transaction.open
     }
 
     async close() {
@@ -350,10 +358,9 @@ export class PostgresDb implements Db {
 
     private async query(sql: string, params: Value[]) {
         await this.ready
-        const inside = current.getStore()
         const text = numbered(sql)
         const values = params.map(value => typeof value === 'bigint' ? Number(value) : value)
-        return inside?.db === this ? inside.client.query(text, values) : this.pool.query(text, values)
+        return this.inside() ? current.getStore()!.client.query(text, values) : this.pool.query(text, values)
     }
 
     /** Lays down the baseline on an empty database, then the steps after it; one server at a time. */
