@@ -15,6 +15,9 @@ the database schema are the public surface, and a database always migrates forwa
   `own` or `shared` (another project's, `releases_from`), under Settings → Releases. New projects have
   none, and no Releases page, until it's turned on. Existing projects with releases, or others drawing on
   them, keep their own. A shared release's page leaves out projects with nothing in it.
+- **Rearrange releases:** drag a release on the Releases page (or ⌥↑/⌥↓) to move it; `position` on
+  `POST` and `PATCH …/releases/:release` sets where it goes. A new release goes on top, and existing ones
+  keep the order they had.
 - **Shared releases:** a project can take its releases from another (Settings → Releases, or
   `releases_from`), so a monorepo's apps ship in one release. Their issues are set for it, and its page
   shows each project's issues in a section with its progress; a project drawing on it shows its own part

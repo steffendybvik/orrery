@@ -481,6 +481,24 @@ describe('releases', () => {
         expect((await failure(() => store.updateProject('garden', {release_mode: 'paused'}))).status).toBe(400)
     })
 
+    it('are arranged by hand, a new one on top, and only where they are made', async () => {
+        for (const version of ['1.0.0', '1.1.0', '1.2.0']) await store.createRelease('larder', {version})
+        const versions = async () => (await store.project('larder')).releases.map(r => r.version)
+        expect(await versions()).toEqual(['1.2.0', '1.1.0', '1.0.0'])
+        await store.updateRelease('larder', '1.0.0', {position: 0})
+        expect(await versions()).toEqual(['1.0.0', '1.2.0', '1.1.0'])
+        await store.updateRelease('larder', '1.0.0', {position: 99})
+        expect(await versions()).toEqual(['1.2.0', '1.1.0', '1.0.0'])
+        await store.createRelease('larder', {version: '1.3.0', position: 1})
+        expect(await versions()).toEqual(['1.2.0', '1.3.0', '1.1.0', '1.0.0'])
+        // Shipping it leaves it where it is.
+        await store.updateRelease('larder', '1.3.0', {shipped_on: '2026-10-26'})
+        expect(await versions()).toEqual(['1.2.0', '1.3.0', '1.1.0', '1.0.0'])
+        await store.createProject({name: 'hub', key: 'HUB', releases_from: 'larder'})
+        expect((await store.project('hub')).releases.map(r => r.version)).toEqual(await versions())
+        expect((await failure(() => store.updateRelease('hub', '1.0.0', {position: 0}))).status).toBe(400)
+    })
+
     it('are made by version and refuse a second of the same', async () => {
         const made = await store.createRelease('larder', {version: '1.0.0-rc.2', branch: ' v1.0.0-rc.2 '})
         expect(made).toMatchObject({version: '1.0.0-rc.2', branch: 'v1.0.0-rc.2', issues: 0, tasks: [], project: 'larder'})
@@ -489,11 +507,11 @@ describe('releases', () => {
         expect((await failure(() => store.createRelease('larder', {version: '1.0.0', shipped_on: 'today'}))).status).toBe(400)
     })
 
-    it('count their issues, a parent with its sub-issues; those being prepared first', async () => {
-        await store.createRelease('larder', {version: '1.0.0'})
-        await store.createRelease('larder', {version: '1.1.0'})
+    it('count their issues, a parent with its sub-issues; the newest on top', async () => {
         await store.createRelease('larder', {version: '0.8.0', shipped_on: '2026-09-01'})
         await store.createRelease('larder', {version: '0.9.0', shipped_on: '2026-10-01'})
+        await store.createRelease('larder', {version: '1.0.0'})
+        await store.createRelease('larder', {version: '1.1.0'})
         const parent = await store.createIssue('larder', {title: 'Hinges', chunk: '1', release: '1.0.0'})
         await store.createIssue('larder', {title: 'Pin', parent: parent.id, status: 'done'})
         await store.createIssue('larder', {title: 'Socket', parent: parent.id, release: '1.0.0'})

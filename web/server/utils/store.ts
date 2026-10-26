@@ -115,7 +115,7 @@ interface IssueRow extends Made {
 interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
 interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
-interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, shipped_on: string | null }
+interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, shipped_on: string | null, position: number }
 interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
@@ -195,8 +195,10 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     position: {type: 'number'},
 }
 
-// A release's version is its id, given when it's made, and doesn't change.
+// A release's version is its id, given when it's made, and doesn't change. `position` is where it goes in the
+// project's releases, from 0 at the top; a new one goes on top.
 export const RELEASE_FIELDS: Record<string, Field> = {
+    position: {type: 'number'},
     version: {type: 'string', required: true, pattern: VERSION, hint: 'use letters, digits, dots and dashes, e.g. 1.0.0-rc.2'},
     branch: {type: 'string', nullable: true},
     notes: {type: 'string', nullable: true},
@@ -1378,8 +1380,10 @@ export class Store {
         if (await this.get('SELECT 1 FROM releases WHERE project = ? AND version = ?', project, version)) throw conflict(`There is already a release ${version} in ${project}`)
         const now = stamp()
         await this.db.transaction(async () => {
-            await this.run('INSERT INTO releases (project, version, branch, notes, shipped_on, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.shipped_on), actor.name, Number(actor.owner), now, now)
+            const top = (await this.get<{n: number | null}>('SELECT min(position) AS n FROM releases WHERE project = ?', project))?.n ?? 0
+            await this.run('INSERT INTO releases (project, version, branch, notes, shipped_on, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.shipped_on), top - 1, actor.name, Number(actor.owner), now, now)
+            if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)
         })
         this.changed(project)
@@ -1397,10 +1401,20 @@ export class Store {
                 notes: input.notes,
                 shipped_on: input.shipped_on,
             })
+            if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)
         })
         this.changed(project)
         return await this.release(project, version)
+    }
+
+    /** Puts the release at `index` among the project's releases (0 the top, past the end the bottom), numbering
+     * them all again from 0. */
+    private async placeRelease(project: string, version: string, index: number) {
+        const others = (await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? ORDER BY position, created_at DESC', project))
+            .map(r => r.version).filter(v => v !== version)
+        others.splice(Math.max(0, Math.min(Math.trunc(index), others.length)), 0, version)
+        for (const [position, each] of others.entries()) await this.run('UPDATE releases SET position = ? WHERE project = ? AND version = ?', position, project, each)
     }
 
     /** Its issues stay, set for no release, in every project drawing on it too. */
@@ -1627,13 +1641,12 @@ export class Store {
         }
     }
 
-    /** The project's releases (its source's, when it takes them from another), those being prepared first, then the shipped
-     * ones, latest first; each with how far its issues are: an issue set for it counts with its sub-issues, and a sub-issue
+    /** The project's releases (its source's, when it takes them from another), in the order they're arranged in; each with how far its issues are: an issue set for it counts with its sub-issues, and a sub-issue
      * set for it on its own counts when its parent isn't. A source counts the issues of every project drawing on it; one
      * drawing on it counts its own. */
     private async releasesOf(project: ProjectRow, board: Board): Promise<Release[]> {
         if (project.release_mode === 'none') return []
-        const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC',
+        const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY position, created_at DESC',
             project.releases_from ?? project.id)
         const boards = project.releases_from ? [board] : [board, ...await Promise.all((await this.drawingOn(project.id)).map(id => this.board(id)))]
         const tally = new Map(rows.map(r => [r.version, {issues: 0, kinds: emptyKinds()}]))

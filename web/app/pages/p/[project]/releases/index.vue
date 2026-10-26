@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// A project's releases, those being prepared first: each with its branch, how far its issues are and whether it shipped,
-// opening its page. New release makes one from a version (and the branch its work gathers on).
+// A project's releases, in the order they're arranged in: each with its branch, how far its issues are and whether it
+// shipped, opening its page. New release makes one from a version (and the branch its work gathers on).
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -44,6 +44,55 @@ function cancel() {
     making.value = false
     version.value = branch.value = ''
     branchTyped.value = false
+}
+
+// Releases are dragged to rearrange them (or moved with ⌥↑/⌥↓), where they're made; a line shows where one lands.
+// The list moves at once, and the server's order follows.
+const arranges = computed(() => project.value?.release_mode === 'own')
+const order = ref<string[] | null>(null)
+const releases = computed(() => {
+    const all = project.value?.releases ?? []
+    if (!order.value) return all
+    return [...all].sort((a, b) => order.value!.indexOf(a.version) - order.value!.indexOf(b.version))
+})
+watch(() => project.value?.releases, () => order.value = null)
+const dragging = ref<string | null>(null)
+const dropAt = ref<number | null>(null)
+const moveFailed = ref('')
+function onDragOver(event: DragEvent, index: number) {
+    if (!dragging.value) return
+    event.preventDefault()
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    dropAt.value = event.clientY < box.top + box.height / 2 ? index : index + 1
+}
+function onDrop() {
+    if (dragging.value === null || dropAt.value === null) return
+    const from = releases.value.findIndex(r => r.version === dragging.value)
+    move(dragging.value, dropAt.value > from ? dropAt.value - 1 : dropAt.value)
+    onDragEnd()
+}
+function onDragEnd() {
+    dragging.value = null
+    dropAt.value = null
+}
+function nudge(version: string, by: number, event: KeyboardEvent) {
+    const index = releases.value.findIndex(r => r.version === version) + by
+    if (index < 0 || index >= releases.value.length) return
+    move(version, index)
+    nextTick(() => (event.target as HTMLElement).focus())
+}
+async function move(version: string, index: number) {
+    if (!project.value) return
+    const versions = releases.value.map(r => r.version).filter(v => v !== version)
+    versions.splice(index, 0, version)
+    order.value = versions
+    moveFailed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/releases/${encodeURIComponent(version)}`, {method: 'PATCH', body: {position: index}, headers: {'Orrery-Actor': await load()}})
+    } catch (error) {
+        order.value = null
+        moveFailed.value = errorMessage(error)
+    }
 }
 
 useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orrery` : 'Orrery'}))
@@ -99,9 +148,28 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       </form>
 
-      <ul v-if="project.releases.length" class="flex flex-col gap-2">
-        <li v-for="release in project.releases" :key="release.version">
-          <NuxtLink :to="releasePath(project.id, release.version)" class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line px-4 py-3 transition-colors hover:bg-hover">
+      <p v-if="moveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ moveFailed }}</p>
+      <ul v-if="releases.length" class="flex flex-col gap-2">
+        <li
+            v-for="(release, index) in releases"
+            :key="release.version"
+            class="relative transition-opacity"
+            :class="dragging === release.version && 'opacity-40'"
+            @dragover="onDragOver($event, index)"
+            @drop.prevent="onDrop"
+        >
+          <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-500" />
+          <span v-if="dropAt === index + 1 && index === releases.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-500" />
+          <NuxtLink
+              :to="releasePath(project.id, release.version)"
+              :draggable="arranges"
+              :title="arranges ? 'Drag to rearrange (or ⌥↑ / ⌥↓)' : undefined"
+              :class="arranges && 'cursor-grab active:cursor-grabbing'"
+              @dragstart="dragging = release.version; $event.dataTransfer?.setData('text/plain', release.version)"
+              @dragend="onDragEnd"
+              @keydown.alt.up.prevent="arranges && nudge(release.version, -1, $event)"
+              @keydown.alt.down.prevent="arranges && nudge(release.version, 1, $event)"
+              class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line px-4 py-3 transition-colors hover:bg-hover">
             <span class="font-mono text-[14px] font-medium text-fg">{{ release.version }}</span>
             <span
                 class="rounded-full px-2 py-px text-[11px] font-medium ring-1"

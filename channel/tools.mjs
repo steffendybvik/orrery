@@ -77,7 +77,7 @@ export const TOOLS = [
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
     },
     {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress.", inputSchema: {type: 'object', properties: {}}},
-    {name: 'releases', description: "Lists the project's releases (those being prepared first), with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'releases', description: "Lists the project's releases, in the order they're arranged in, with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
     {name: 'docs', description: "Lists the project's docs: decisions, how things work.", inputSchema: {type: 'object', properties: {}}},
     {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
