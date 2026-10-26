@@ -74,6 +74,13 @@ function said(event: IssueEvent): string[] {
             ...was!.filter(l => !now!.includes(l)).map(l => `took off the label ${l}`),
         ]
     }
+    if (field === 'external') {
+        const [was, now] = [before, after].map(l => JSON.parse(l ?? '[]') as string[])
+        return [
+            ...now!.filter(t => !was!.includes(t)).map(t => `linked the team task ${t}`),
+            ...was!.filter(t => !now!.includes(t)).map(t => `unlinked the team task ${t}`),
+        ]
+    }
     return []
 }
 

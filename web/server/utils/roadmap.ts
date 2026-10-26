@@ -170,6 +170,7 @@ export function legacyStatus(status: TaskFile['status'], plan?: TaskFile['plan']
 export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> {
     /** A status's id. */
     status: string
+    external?: string[]
     proposal?: Proposal
     decided_by?: string
     decided_at?: string
@@ -235,8 +236,8 @@ class Rules {
             kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
         }
         const column = this.columnOf(counts, kinds)
-        const {id, title, priority, assignee, labels, status, notes, proposal, decided_by, decided_at, decision_note, choices = [], picks, explore, comments = 0, aliases = [], schedule, release, created_by = '', protected: owned = false, created_at = '', updated_at = ''} = task
-        return {id, title, priority, assignee, labels, status, notes, proposal, decided_by, decided_at, decision_note, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, release, created_by, protected: owned, created_at, updated_at, tasks}
+        const {id, title, priority, assignee, labels, external = [], status, notes, proposal, decided_by, decided_at, decision_note, choices = [], picks, explore, comments = 0, aliases = [], schedule, release, created_by = '', protected: owned = false, created_at = '', updated_at = ''} = task
+        return {id, title, priority, assignee, labels, external, status, notes, proposal, decided_by, decided_at, decision_note, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, release, created_by, protected: owned, created_at, updated_at, tasks}
     }
 
     /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.

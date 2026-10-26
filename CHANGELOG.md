@@ -5,6 +5,10 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## Unreleased
 
+- **Team tasks:** an issue links to its tasks on the team's tracker (`external`: `CIR-1567`, or a URL),
+  editable under its properties and opening there through App settings → Team tracker
+  (`https://linear.app/your-team/issue/{id}`). `?external=` finds the issues linked to a task, and
+  `create_issue` and `update_issue` take it.
 - **Whose board an issue is on:** every issue has a reference, `orrery-<handle>: DOC-132`, with a Copy
   ref button by its id and `ref` in the API and the `issue` tool, for commit bodies and PR descriptions.
   App settings take the handle (your GitHub login, say); without one it's your id.
