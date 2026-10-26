@@ -53,6 +53,18 @@ describe('a session', () => {
         expect(sessions.report({id: 'a', project: 'larder', event: 'Stop'})!.since).toBe('2026-10-25T10:01:00.000Z')
     })
 
+    it('keeps when its hooks last said it went idle, for a repeat to wait on', () => {
+        vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
+        sessions.attend('larder', 'a', undefined, undefined)
+        expect(sessions.idleAt('a')).toBeUndefined()
+        sessions.report({id: 'a', project: 'larder', event: 'Stop'})
+        expect(sessions.idleAt('a')).toBe(Date.parse('2026-10-25T10:00:00Z'))
+        vi.setSystemTime(new Date('2026-10-25T10:05:00Z'))
+        sessions.report({id: 'a', project: 'larder', event: 'working'})
+        expect(sessions.idleAt('a')).toBe(Date.parse('2026-10-25T10:00:00Z'))
+        expect(sessions.listSessions('larder')[0]).not.toHaveProperty('idleAt')
+    })
+
     it('first heard of by its pid takes its id when a hook brings it, and keeps no pid in public', () => {
         expect(sessions.report({pid: 42, project: 'larder', event: 'SessionStart'})?.id).toBe('pid-42')
         const now = sessions.report({id: 'abc', pid: 42, project: 'larder', cwd: '/repo', event: 'UserPromptSubmit'})!

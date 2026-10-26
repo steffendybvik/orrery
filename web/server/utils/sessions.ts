@@ -11,6 +11,8 @@ interface Known extends Session {
     pid?: number
     /** When a hook last spoke. */
     seenAt: number
+    /** When a hook last said it went idle (finished a turn), for a repeat to wait on. */
+    idleAt?: number
     /** Its channels' open streams, by project: how many, how many of them are heard, and how many know to quit
      * when asked. Its own project's say whether it's listening (`listening`) and can be stopped (`stoppable`). */
     channels?: Map<string, {streams: number, heard: number, stops: number}>
@@ -158,6 +160,7 @@ export function report(input: Report): Session | null {
         session.state = state
         session.seenAt = Date.now()
     }
+    if (state === 'idle') session.idleAt = Date.now()
     changed(session.project)
     if (input.command) {
         const {id, project} = session
@@ -302,10 +305,15 @@ export function listSessions(project?: string): Session[] {
         .sort((a, b) => a.started_at.localeCompare(b.started_at)).map(publicOf)
 }
 
+/** When the session's hooks last said it went idle; nothing when they never have (no hooks, or none yet). */
+export function idleAt(id: string): number | undefined {
+    return sessions.get(currentId(id))?.idleAt
+}
+
 export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, channels: _channels, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
+function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, channels: _channels, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
     return {...session, reachable: !!stoppable}
 }

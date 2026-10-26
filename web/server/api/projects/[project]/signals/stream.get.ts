@@ -123,18 +123,41 @@ export default defineEventHandler(async event => {
     const stopped = (asked: {project: string, id: string}) => asked.project === project && asked.id === attended?.id
         && stream.push({event: 'stop', data: JSON.stringify(asked)})
     projectEvents.on('session-stop', stopped)
-    const push = (signal: Signal) => inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(await told(signal))}))
-    const send = (signal: Signal) => wanted(signal) && push(signal)
+    /** When each repeatable message last went out on this stream. */
+    const sent = new Map<string, number>()
+    const push = (signal: Signal) => {
+        const key = repeatKey(signal)
+        if (key) sent.set(key, Date.now())
+        inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(await told(signal))}))
+    }
+    // A schedule's message again while the session hasn't finished a turn since the last copy (busy, or yet to
+    // read it) would only pile up behind it: it counts as heard. A session whose hooks never said it went idle
+    // gets every copy, as there's no telling.
+    const unread = (signal: Signal) => {
+        const key = repeatKey(signal)
+        const last = key && sent.get(key)
+        const idle = attended ? idleAt(attended.id) : undefined
+        return !!last && idle !== undefined && idle < last
+    }
+    const send = (signal: Signal) => {
+        if (!wanted(signal)) return
+        if (!unread(signal)) return push(signal)
+        store.delivered(project, signal.id, sessionName(attended!.id) ?? text('name') ?? 'a session')
+            .catch(error => console.error(`[orrery] a repeat for ${project}:`, error))
+    }
     projectEvents.on('signal', send)
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
     stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
-    missed.forEach(push)
-    // A session that can hear catches up on the owner's comments nobody has answered yet, and on
-    // scheduled work nobody was there to hear.
+    // A session that can hear catches up on scheduled work nobody was there to hear, and on the owner's
+    // comments nobody has answered yet.
+    const unheard = attended && heard ? await store.unheardScheduled(project) : []
+    // A schedule that kept sending the same message while nobody heard it says it once; the copies count as heard.
+    const {kept, repeats} = foldRepeats([...missed, ...unheard.filter(s => !missed.some(m => m.id === s.id))])
+    kept.forEach(push)
     if (attended && heard) {
+        const name = sessionName(attended.id) ?? text('name') ?? 'a session'
+        for (const s of repeats) await store.delivered(project, s.id, name)
         await store.carryUnanswered(project, attended.id)
-        const unheard = await store.unheardScheduled(project)
-        unheard.filter(s => !missed.some(m => m.id === s.id)).forEach(push)
     }
     stream.onClosed(async () => {
         clearInterval(ping)
