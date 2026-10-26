@@ -41,6 +41,16 @@ export interface IssueRecord extends Omit<Issue, 'tasks'> {
     sub_issues: string[]
 }
 
+/** What became of one issue in a change to many: done, or why not. */
+export interface BulkResult {
+    id: string
+    ok: boolean
+    error?: string
+}
+
+/** What one change to many issues can set. */
+const BULK_FIELDS = ['status', 'priority', 'assignee', 'chunk', 'release']
+
 /** An issue with its sub-issues drawn out, as `GET …/issues/:issue` shows it. */
 export interface IssueDetail extends Issue {
     project: string
@@ -512,6 +522,7 @@ export class Store {
      * issue), and the projects sharing its releases: a source counts the issues of those drawing on it, and they
      * show its releases. */
     changed(project: string) {
+        if (this.held) return void this.held.add(project)
         this.onChange(project)
         this.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)', project, project)
             .then(rows => rows.forEach(r => this.onChange(r.id)), () => {})
@@ -948,6 +959,87 @@ export class Store {
     }
 
     /** Deletes its sub-issues and comments too. */
+    // Many at once
+
+    /** Projects changed while a batch runs, said once it ends rather than once per issue. */
+    private held: Set<string> | null = null
+
+    /** Runs `work` for each issue on its own, so one refusal doesn't stop the rest, and says each one's outcome. */
+    private async each(ids: unknown, work: (id: string) => Promise<unknown>): Promise<BulkResult[]> {
+        if (!Array.isArray(ids) || !ids.length || ids.some(id => typeof id !== 'string')) throw badRequest('Send "ids": the issues, as a list of their ids')
+        const held = this.held ??= new Set()
+        try {
+            const results: BulkResult[] = []
+            for (const id of new Set(ids as string[])) {
+                try {
+                    await work(id)
+                    results.push({id, ok: true})
+                } catch (error) {
+                    results.push({id, ok: false, error: (error as Error).message})
+                }
+            }
+            return results
+        } finally {
+            if (this.held === held) {
+                this.held = null
+                held.forEach(project => this.changed(project))
+            }
+        }
+    }
+
+    /** One change to many issues: `{ids, set: {status?, priority?, assignee?, chunk?, release?}, labels?: {add?, remove?}}`. */
+    async updateIssues(project: string, body: unknown, actor = AGENT): Promise<BulkResult[]> {
+        await this.projectRow(project)
+        const {ids, set = {}, labels} = (body ?? {}) as {ids?: unknown, set?: Record<string, unknown>, labels?: {add?: unknown, remove?: unknown}}
+        const fields = Object.keys(set ?? {}).filter(key => !BULK_FIELDS.includes(key))
+        if (fields.length) throw badRequest(`Many issues at once take ${BULK_FIELDS.join(', ')} in "set", and labels as {add, remove}; not ${fields.join(', ')}`)
+        const list = (value: unknown, key: string) => {
+            if (value === undefined) return []
+            if (!Array.isArray(value) || value.some(l => typeof l !== 'string')) throw badRequest(`"labels.${key}" should be a list of labels`)
+            return value as string[]
+        }
+        const [add, remove] = [list(labels?.add, 'add'), list(labels?.remove, 'remove')]
+        return await this.each(ids, async id => {
+            const patch: Record<string, unknown> = {...set}
+            if (add.length || remove.length) {
+                const now = JSON.parse((await this.issueRow(project, await this.issueId(project, id))).labels) as string[]
+                patch.labels = [...new Set([...now.filter(l => !remove.includes(l)), ...add])]
+            }
+            await this.updateIssue(project, id, patch, actor)
+        })
+    }
+
+    /** The owner's one decision on many proposals: `{ids, decision, note?}`. Approving takes each one's recommended
+     * picks; one with a choice that has none is skipped, so nothing is approved on a guess. */
+    async decideIssues(project: string, body: unknown, actor = AGENT): Promise<BulkResult[]> {
+        await this.projectRow(project)
+        const {ids, ...decision} = (body ?? {}) as {ids?: unknown}
+        if ('picks' in decision || 'explore' in decision) throw badRequest('Many proposals at once take a decision and a note; picks and explore go one at a time')
+        return await this.each(ids, async id => {
+            const row = await this.issueRow(project, await this.issueId(project, id))
+            const choices = JSON.parse(row.choices) as Choice[]
+            const unsure = choices.filter(c => !c.from && !c.recommended?.length)
+            if ((decision as {decision?: string}).decision === 'approved' && unsure.length) {
+                throw badRequest(`Needs your picks: nothing is recommended for ${unsure.map(c => `"${c.question}"`).join(', ')}`)
+            }
+            await this.decide(project, id, decision, actor)
+        })
+    }
+
+    /** Many issues deleted, each with its sub-issues; one under another in the list goes with it. */
+    async deleteIssues(project: string, body: unknown, actor = AGENT): Promise<BulkResult[]> {
+        await this.projectRow(project)
+        const {ids} = (body ?? {}) as {ids?: unknown}
+        const gone = new Set<string>()
+        return await this.each(ids, async id => {
+            id = await this.issueId(project, id)
+            if (gone.has(id)) return
+            const subtree = await this.subtree(project, id)
+            await this.deleteIssue(project, id, actor)
+            subtree.forEach(i => gone.add(i))
+        })
+    }
+
     async deleteIssue(project: string, id: string, actor = AGENT) {
         id = await this.issueId(project, id)
         await this.issueRow(project, id)
