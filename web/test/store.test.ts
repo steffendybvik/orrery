@@ -975,6 +975,16 @@ describe('an urgent issue', () => {
 })
 
 describe('presets', () => {
+    it('refuse a name or text of only spaces, made or changed', async () => {
+        const owner = {name: 'skoll', owner: true}
+        expect((await failure(() => store.createPreset(null, {name: '  ', text: 'x'}, owner))).status).toBe(400)
+        expect((await failure(() => store.createPreset(null, {name: 'Review', text: ' \n '}, owner))).status).toBe(400)
+        const made = await store.createPreset(null, {name: ' Review ', text: ' Read the diff. '}, owner)
+        expect(made).toMatchObject({name: 'Review', text: 'Read the diff.'})
+        expect((await failure(() => store.updatePreset(made.id, {text: ' '}, owner))).status).toBe(400)
+        expect((await store.preset(made.id)).text).toBe('Read the diff.')
+    })
+
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
 

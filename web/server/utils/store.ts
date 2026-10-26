@@ -2158,9 +2158,15 @@ function nullable(value: Input[string]): string | null {
 }
 
 /** A preset's fields as sent, trimmed. */
+/** A preset's name and text, trimmed; one that's only spaces is refused, as an empty one is. */
 function presetInput(input: Input): {name?: string, text?: string} {
-    const trimmed = (value: Input[string]) => value === undefined ? undefined : String(value).trim()
-    return {name: trimmed(input.name), text: trimmed(input.text)}
+    const trimmed = (key: 'name' | 'text') => {
+        if (input[key] === undefined) return undefined
+        const value = String(input[key]).trim()
+        if (!value) throw badRequest(`"${key}" needs more than spaces`)
+        return value
+    }
+    return {name: trimmed('name'), text: trimmed('text')}
 }
 
 function stamp() {
