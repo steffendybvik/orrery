@@ -9,7 +9,8 @@ the database schema are the public surface, and a database always migrates forwa
   uses: type part of an id or title, ↑↓ and ↵ to pick.
 - **A run carries on after a clear:** a session Orrery started and then cleared partway through a chunk or
   scope gets a focus on what's left, to it alone, so it carries on instead of waiting. A focus on one issue
-  ends the run it was on.
+  ends the run it was on. A session that won't take any of what's left (blocked, or waiting on the owner) is
+  sent it again only when something in it changes, not every few seconds.
 - **Faster first load:** each Heroicon loads when it's shown, and each dialog the first time it opens, so a
   page's first load is about a third smaller (510 KB of JS to 340 KB).
 - **Watch a started session live:** a session Orrery started shows its screen on the Sessions page, refreshed
@@ -18,25 +19,38 @@ the database schema are the public surface, and a database always migrates forwa
 - **Session settings on the Sessions page:** Starting sessions, What sessions hear and Presets moved there from
   App settings, beside the sessions they're about, with a contents list on a wide screen.
 - **The restart command loads the channel:** the "can't hear signals" command named the server
-  `server:<project>`; it names it `orrery-<environment>`, as Connect does.
+  `server:<project>`; it names it as the channel reports it's called (`?server=` on the stream, `server` on a
+  session), else `orrery-<environment>`, as Connect does.
 - **The channel knows it's a channel:** it looks for its Claude Code log under the name Connect gives it, so with an
-  environment such as `Work` or `my laptop` it no longer reports `unknown`.
+  environment such as `Work` or `my laptop` it no longer reports `unknown`, and reads the newest log across its
+  own names, so a stale one under an old name doesn't hide the current one.
+- **A session on several projects is listed once:** the sidebar and the Sessions page show it under its own
+  project (the one its hooks name), saying which others it's also on; filtered to one of those, it's still found.
+- **Feature freeze:** a release can have a freeze day (`frozen_on`, Freeze features / Thaw on its page). From
+  then on it shows "Frozen <day>", its pickers say "· frozen", and a focus on its work tells the session to put a
+  new feature on the next release. Nothing is refused. A new migration step adds the column.
+- **A focus doesn't take a started issue:** a focus aimed at one session no longer moves an issue another
+  listening session has started; the session asked gets the claim's 409 if it tries to start it.
 - **Old status words in a focus:** a chunk focus with `doing` or `now` keeps to the issues it means; it matched none.
 - **Smaller fixes:** a preset whose name or text is only spaces is refused, not saved empty. Start session's
   preview with only a release picked shows Todo and In progress, as the server sends. A receipt that couldn't be
   saved answers 409 instead of reporting it saved. A starts limit typed just after ticking the box isn't undone by
   the live update.
 - **Tick many at once:** drag over the ticks to tick (or untick) a run, tick a whole list group or board column
-  from its header, and the bulk bar says how.
+  from its header, and the bulk bar says how. A drag let go outside the window ends there.
 - **Docs A–Z:** a project's docs are listed by title on the Docs page and in `GET …/docs` (and the `docs` tool),
   not in the order they were made.
 - **A second launcher leaves the first one's sessions alone:** each session keeps its launcher's pid, so a launcher
-  run next to the service no longer takes its sessions over and stops them when it exits.
+  run next to the service no longer takes its sessions over and stops them when it exits. A session is taken back
+  only from a launcher that's gone (a reused pid doesn't count), and of two launchers starting together only one
+  adopts it.
 - **A launcher serves every channel in a repo:** a monorepo whose `.mcp.json` has a channel per project
   (`orrery-hub`, `orrery-css`, …) installs all of them with one `--install`, each project's sessions load the
   channel that serves it, and each on its own channel's Orrery. `--install --list` shows what a repo would register.
-- **Getting started:** a new Orrery opens on a checklist that ticks itself as it happens: a project, its repo
-  connected, a session listening, work sent. *Try it with a demo project* makes a sample board to look around
+  A project `ORRERY_PROJECT` names but no channel lists goes on `ORRERY_URL`, else the first channel's Orrery.
+- **Getting started:** a new Orrery opens on a checklist that ticks itself as it happens: a project, a folder
+  connected (any folder, an empty one to try it), a session listening, work sent. *Just planning? You're set*
+  finishes it after the project. *Try it with a demo project* makes a sample board to look around
   first. Until it's done it's a card at the top of Now; **Hide** puts it away, and ⌘K → *Getting started* brings it
   back (`/getting-started`).
 - **The quick start lists everything it needs:** Node 24 and pnpm for the channel, hooks and launcher, which run
@@ -49,7 +63,7 @@ the database schema are the public surface, and a database always migrates forwa
 - **Cleanup:** one text field style, one way menus close on an outside press, and the store split into a file per
   domain behind the same `Store`. [docs/development.md](docs/development.md) maps where things live now.
 - **More e2e:** the flows cover starting sessions, the Sessions page and messaging a session, Focus on this
-  starting one, presets, schedules, the bell, Now, My issues, Connect and Getting started (26 flows, from 18). In CI
+  starting one, presets, schedules, the bell, Now, My issues, Connect, Getting started and a session on two projects (27 flows, from 18). In CI
   they run in Playwright's own image, rather than installing the browser's system libraries on every run.
 - **Dependencies:** `pg` 8.23, `marked` 18.1.1, `dompurify` 3.4.17 and `@playwright/test` 1.64, and the GitHub
   Actions at their current majors.
