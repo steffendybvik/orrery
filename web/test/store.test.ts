@@ -494,6 +494,8 @@ describe('chunks', () => {
         expect((await local.focusChunk('larder', '1', {})).status).toBeUndefined()
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'done'}))).status).toBe(400)
         expect((await failure(() => local.focusChunk('larder', '1', {status: 'soon'}))).status).toBe(400)
+        // An old word is kept as the kind it means now, so the scope finds its issues.
+        expect((await local.focusChunk('larder', '1', {status: 'doing, todo'})).status).toBe('started,todo')
     })
 
     it('can be focused on all at once, for issues of several statuses and a release', async () => {
@@ -501,7 +503,7 @@ describe('chunks', () => {
         await local.createProject({name: 'larder', key: 'LAR', release_mode: 'own'})
         await local.createRelease('larder', {version: '1.0.0'})
         const signal = await local.focusChunk('larder', 'all', {status: 'todo, started', release: '1.0.0'}, {name: 'skoll', owner: true})
-        expect(signal).toMatchObject({chunk: 'all', status: 'todo, started', release: '1.0.0'})
+        expect(signal).toMatchObject({chunk: 'all', status: 'todo,started', release: '1.0.0'})
         expect((await failure(() => local.focusChunk('larder', 'all', {status: 'todo,done'}))).message).toContain('"status" has "done"')
         expect((await failure(() => local.focusChunk('larder', 'all', {release: '9.9'}))).status).toBe(404)
         await local.createIssue('larder', {title: 'Hinges', status: 'todo'})
@@ -613,6 +615,15 @@ describe('releases', () => {
         await store.deleteRelease('larder', '1.0.0')
         expect((await store.issue('larder', issue.id)).release).toBeUndefined()
         expect((await store.project('larder')).releases).toEqual([])
+    })
+
+    it('freeze and thaw, still taking issues while frozen', async () => {
+        await store.createRelease('larder', {version: '1.0.0', frozen_on: '2026-10-20'})
+        const issue = await store.createIssue('larder', {title: 'Hinges', release: '1.0.0'})
+        expect((await store.release('larder', '1.0.0')).frozen_on).toBe('2026-10-20')
+        expect((await failure(() => store.updateRelease('larder', '1.0.0', {frozen_on: 'now'}))).status).toBe(400)
+        expect((await store.updateRelease('larder', '1.0.0', {frozen_on: null})).frozen_on).toBeUndefined()
+        expect((await store.issue('larder', issue.id)).release).toBe('1.0.0')
     })
 
     it("are the owner's to delete when the owner made them", async () => {
@@ -892,6 +903,16 @@ describe('a signal reaching sessions', () => {
         const [heard] = await store.listSignals('larder', signal.id - 1)
         expect([...heard!.delivered_to].sort()).toEqual(['larder 1', 'larder 2', 'pantry'])
     })
+
+    it("says so when it can't keep a session's receipt, rather than one it didn't save", async () => {
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        const signal = await store.focus('larder', jars, {}, {name: 'skoll', owner: true})
+        // Every write loses its race to another session's.
+        const losing = Object.assign(Object.create(store) as Store, {run: async () => ({changes: 0})})
+        expect((await failure(() => losing.delivered('larder', signal.id, 'larder 1'))).status).toBe(409)
+        const [heard] = await store.listSignals('larder', signal.id - 1)
+        expect(heard!.delivered_to).toEqual([])
+    })
 })
 
 describe("what a project's sessions are on", () => {
@@ -903,7 +924,10 @@ describe("what a project's sessions are on", () => {
         await store.workedBy('larder', shelves, 'a')
         await store.workedBy('larder', lids, 'a')
         await store.workedBy('larder', jars, 'a')
+        // a is gone by then, so the focus hands Shelves to b.
+        store.hears = (_project, session) => session !== 'a'
         await store.focus('larder', shelves, {session: 'b'}, owner)
+        store.hears = () => true
         const everyone = await store.focus('larder', jars, {}, owner)
         await store.delivered('larder', everyone.id, 'pantry')
         const work = await store.sessionWork('larder', [{id: 'a', name: 'larder 1'}, {id: 'b', name: 'pantry'}])
@@ -975,6 +999,16 @@ describe('an urgent issue', () => {
 })
 
 describe('presets', () => {
+    it('refuse a name or text of only spaces, made or changed', async () => {
+        const owner = {name: 'skoll', owner: true}
+        expect((await failure(() => store.createPreset(null, {name: '  ', text: 'x'}, owner))).status).toBe(400)
+        expect((await failure(() => store.createPreset(null, {name: 'Review', text: ' \n '}, owner))).status).toBe(400)
+        const made = await store.createPreset(null, {name: ' Review ', text: ' Read the diff. '}, owner)
+        expect(made).toMatchObject({name: 'Review', text: 'Read the diff.'})
+        expect((await failure(() => store.updatePreset(made.id, {text: ' '}, owner))).status).toBe(400)
+        expect((await store.preset(made.id)).text).toBe('Read the diff.')
+    })
+
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
 
@@ -1000,6 +1034,7 @@ describe('presets', () => {
         expect((await failure(() => store.updatePreset(preset.id, {text: 'Skip it.'}, claude))).status).toBe(403)
         expect(await store.updatePreset(preset.id, {text: 'Run pnpm test:e2e.'}, owner)).toMatchObject({name: 'E2E', text: 'Run pnpm test:e2e.'})
         expect((await failure(() => store.updatePreset(preset.id, {text: ''}, owner))).status).toBe(400)
+        expect((await failure(() => store.updatePreset(preset.id, {name: '   '}, owner))).status).toBe(400)
         await store.deletePreset(preset.id, owner)
         expect((await failure(() => store.preset(preset.id))).status).toBe(404)
         await store.createPreset('larder', {name: 'E2E', text: 'Run the e2e suite.'}, owner)
@@ -1266,6 +1301,18 @@ describe('starting an issue', () => {
         store.hears = (_project, session) => session !== 'first'
         await store.claim('larder', shelves, 'started', 'second')
     })
+
+    it("stays with its session when the owner asks another to focus on it", async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        await store.claimed('larder', shelves, 'started', 'first', () => store.updateIssue('larder', shelves, {status: 'started'}))
+        await store.focus('larder', shelves, {session: 'second'}, {name: 'skoll', owner: true})
+        expect((await failure(() => store.claim('larder', shelves, 'started', 'second'))).status).toBe(409)
+        // Once the first is gone, the focus hands it over.
+        store.hears = (_project, session) => session !== 'first'
+        await store.focus('larder', shelves, {session: 'second'}, {name: 'skoll', owner: true})
+        store.hears = () => true
+        await store.claim('larder', shelves, 'started', 'second')
+    })
 })
 
 describe('docs', () => {
@@ -1275,6 +1322,11 @@ describe('docs', () => {
         expect((await store.project('larder')).docs.map(d => d.id)).toEqual(['how-joints-work'])
         expect((await store.project('larder')).docs[0]).not.toHaveProperty('body')
         expect((await store.doc('larder', doc.id)).body).toContain('**hinge**')
+    })
+
+    it('are listed by title, A–Z, whatever order they were made in', async () => {
+        for (const title of ['Running', 'decision: ids', 'API', 'Decision: owner']) await store.createDoc('larder', {title})
+        expect((await store.listDocs('larder')).map(d => d.title)).toEqual(['API', 'decision: ids', 'Decision: owner', 'Running'])
     })
 
     it('are created or replaced at their id with PUT', async () => {

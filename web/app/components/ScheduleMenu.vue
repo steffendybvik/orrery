@@ -63,24 +63,8 @@ function editIt() {
     close()
 }
 
-function onOutside(event: PointerEvent) {
-    if (!box.value?.contains(event.target as Node)) close()
-}
-watch(() => !!menu.value, isOpen => {
-    if (isOpen) {
-        document.addEventListener('pointerdown', onOutside, true)
-        window.addEventListener('blur', close)
-    } else {
-        document.removeEventListener('pointerdown', onOutside, true)
-        window.removeEventListener('blur', close)
-    }
-})
-onBeforeUnmount(() => {
-    document.removeEventListener('pointerdown', onOutside, true)
-    window.removeEventListener('blur', close)
-})
+useDismiss(box, () => menu.value, close, {capture: true, blur: true})
 
-const item = 'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg hover:bg-hover disabled:opacity-50'
 </script>
 
 <template>
@@ -88,7 +72,7 @@ const item = 'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left te
     <div
         v-if="menu && s"
         ref="box"
-        class="glass fixed z-50 flex w-60 animate-fade-up flex-col gap-1 rounded-xl p-1 outline-none"
+        class="menu fixed z-50 w-60"
         :style="{left: `${place.left}px`, top: `${place.top}px`}"
         role="menu"
         :aria-label="`Actions for ${s.title}`"
@@ -98,18 +82,14 @@ const item = 'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left te
     >
       <div class="truncate px-2 pt-1.5 pb-1 text-xs text-muted">{{ s.title }}</div>
       <div v-if="!confirming" class="flex flex-col border-t border-line pt-1">
-        <button type="button" :class="item" :disabled="busy" @click="runNow">▶ Run now</button>
-        <button type="button" :class="item" :disabled="busy" @click="toggle">{{ s.enabled ? '❙❙ Pause' : '▶ Resume' }}</button>
-        <button type="button" :class="item" @click="editIt">✎ Edit</button>
-        <button type="button" :class="[item, 'text-rose-600 hover:bg-rose-500/10 dark:text-rose-400']" :disabled="busy" @click="confirming = true">Remove…</button>
+        <UiMenuItem :disabled="busy" @click="runNow">▶ Run now</UiMenuItem>
+        <UiMenuItem :disabled="busy" @click="toggle">{{ s.enabled ? '❙❙ Pause' : '▶ Resume' }}</UiMenuItem>
+        <UiMenuItem @click="editIt">✎ Edit</UiMenuItem>
+        <UiMenuItem danger :disabled="busy" @click="confirming = true">Remove…</UiMenuItem>
       </div>
-      <div v-else class="flex flex-col gap-2 border-t border-line p-2 text-xs">
-        <p class="text-muted">Remove this schedule? The issues it made stay.</p>
-        <div class="flex gap-2">
-          <button type="button" class="h-7 flex-1 rounded-md bg-rose-600 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy" @click="remove">{{ busy ? 'Removing…' : 'Remove' }}</button>
-          <button type="button" class="h-7 flex-1 rounded-md text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="busy" @click="confirming = false">Cancel</button>
-        </div>
-      </div>
+      <UiConfirm v-else class="border-t border-line p-2" :busy="busy" @confirm="remove" @cancel="confirming = false">
+        Remove this schedule? The issues it made stay.
+      </UiConfirm>
       <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
     </div>
   </Teleport>

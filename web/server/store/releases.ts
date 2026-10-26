@@ -1,0 +1,95 @@
+// A project's releases, and the projects sharing them.
+import type {Issue, Release} from '#shared/roadmap'
+import {badRequest, checkInput, conflict} from '../utils/input'
+import type {ReleaseDetail} from './schema'
+import {AGENT, RELEASE_FIELDS, tallyReleases, noReleases, nullable, stamp} from './schema'
+import {DocStore} from './docs'
+
+export abstract class ReleaseStore extends DocStore {
+    async listReleases(project: string): Promise<Release[]> {
+        return (await this.project(project)).releases
+    }
+
+    /** The release with its issues: those set for it (a sub-issue's when its parent isn't), each with its sub-issues,
+     * as `tasks` (the project's own) and by project in `projects` (with those drawing on it, when it's their source). */
+    async release(project: string, version: string): Promise<ReleaseDetail> {
+        await this.releaseRow(project, version)
+        const own = await this.project(project)
+        const drawing = own.releases_from ? [] : await Promise.all((await this.drawingOn(project)).map(id => this.project(id)))
+        const parts = [own, ...drawing].map(p => {
+            const tasks: Issue[] = []
+            const walk = (issues: Issue[]) => issues.forEach(issue => issue.release === version ? tasks.push(issue) : walk(issue.tasks))
+            p.board.chunks.forEach(c => walk(c.tasks))
+            const {issues, kinds} = p.releases.find(r => r.version === version)!
+            return {project: p.id, name: p.name, issues, kinds, tasks}
+        })
+        // A source's own row counts every project; its part here is only its own issues.
+        if (drawing.length) parts[0] = {...parts[0]!, ...tallyReleases([version], [own.board]).get(version)!}
+        return {...own.releases.find(r => r.version === version)!, project, tasks: parts[0]!.tasks, projects: parts}
+    }
+
+    /** Refuses changing a release from a project that takes its releases from another. */
+    protected async ownReleases(project: string, action: string) {
+        const source = await this.releaseSource(project)
+        if (!source) throw badRequest(noReleases(project))
+        if (source !== project) throw badRequest(`${project} takes its releases from ${source}; ${action} there: /api/projects/${source}/releases`)
+    }
+
+    async createRelease(project: string, body: unknown, actor = AGENT): Promise<ReleaseDetail> {
+        await this.ownReleases(project, 'make them')
+        const input = checkInput(body, RELEASE_FIELDS)
+        const version = String(input.version)
+        if (await this.get('SELECT 1 FROM releases WHERE project = ? AND version = ?', project, version)) throw conflict(`There is already a release ${version} in ${project}`)
+        const now = stamp()
+        await this.db.transaction(async () => {
+            const top = (await this.get<{n: number | null}>('SELECT min(position) AS n FROM releases WHERE project = ?', project))?.n ?? 0
+            await this.run('INSERT INTO releases (project, version, branch, notes, frozen_on, shipped_on, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.frozen_on), nullable(input.shipped_on), top - 1, actor.name, Number(actor.owner), now, now)
+            if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        return await this.release(project, version)
+    }
+
+    async updateRelease(project: string, version: string, body: unknown): Promise<ReleaseDetail> {
+        await this.ownReleases(project, 'change them')
+        await this.releaseRow(project, version)
+        const input = checkInput(body, RELEASE_FIELDS, true)
+        if (input.version !== undefined && input.version !== version) throw badRequest("A release's version can't change: make one with the new version and move its issues to it")
+        await this.db.transaction(async () => {
+            await this.update('releases', 'project = ? AND version = ?', [project, version], {
+                branch: input.branch === undefined ? undefined : String(input.branch ?? '').trim() || null,
+                notes: input.notes,
+                frozen_on: input.frozen_on,
+                shipped_on: input.shipped_on,
+            })
+            if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        return await this.release(project, version)
+    }
+
+    /** Puts the release at `index` among the project's releases (0 the top, past the end the bottom), numbering
+     * them all again from 0. */
+    protected async placeRelease(project: string, version: string, index: number) {
+        const others = (await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? ORDER BY position, created_at DESC', project))
+            .map(r => r.version).filter(v => v !== version)
+        others.splice(Math.max(0, Math.min(Math.trunc(index), others.length)), 0, version)
+        for (const [position, each] of others.entries()) await this.run('UPDATE releases SET position = ? WHERE project = ? AND version = ?', position, project, each)
+    }
+
+    /** Its issues stay, set for no release, in every project drawing on it too. */
+    async deleteRelease(project: string, version: string, actor = AGENT) {
+        await this.ownReleases(project, 'delete them')
+        const row = await this.releaseRow(project, version)
+        this.refuse(actor, `Deleting release ${version}`, row.owned ? [`release ${version}`] : [])
+        await this.db.transaction(async () => {
+            await this.run('UPDATE issues SET ships_in = NULL WHERE (project = ? OR project IN (SELECT id FROM projects WHERE releases_from = ?)) AND ships_in = ?', project, project, version)
+            await this.run('DELETE FROM releases WHERE project = ? AND version = ?', project, version)
+            await this.touchProject(project)
+        })
+        this.changed(project)
+    }
+}

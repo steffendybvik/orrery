@@ -143,7 +143,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
               v-model="name"
               aria-label="Project name"
               spellcheck="false"
-              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-72 max-w-full field"
               @blur="rename"
               @keydown.esc="name = project.name; ($event.target as HTMLInputElement).blur()"
           >
@@ -163,7 +163,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
               aria-label="Where its code is"
               placeholder="https://github.com/you/shop"
               spellcheck="false"
-              class="h-8 w-96 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-96 max-w-full field"
               @blur="saveRepo"
               @keydown.esc="repo = project.repo ?? ''; ($event.target as HTMLInputElement).blur()"
           >
@@ -207,7 +207,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
             <h2 class="text-[15px] font-semibold text-fg">Icon</h2>
             <p class="text-xs text-muted">Shows by {{ project.name }} in the sidebar, in place of its progress ring, so you can spot it among the rest. Any of the <a href="https://heroicons.com" target="_blank" rel="noopener" class="underline underline-offset-2 hover:text-fg">Heroicons</a>.</p>
           </div>
-          <button v-if="project.icon" type="button" class="h-7 shrink-0 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="saveIcon({icon: null})">Use the ring</button>
+          <UiButton v-if="project.icon" class="shrink-0" @click="saveIcon({icon: null})">Use the ring</UiButton>
         </header>
         <div class="flex flex-col gap-2 rounded-xl border border-line p-3">
           <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Icon colour">
@@ -241,7 +241,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
               Custom
             </label>
           </div>
-          <input v-model="search" type="search" placeholder="Find an icon: cart, lock, bolt…" aria-label="Find an icon" spellcheck="false" class="h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
+          <input v-model="search" type="search" placeholder="Find an icon: cart, lock, bolt…" aria-label="Find an icon" spellcheck="false" class="h-8 field">
           <div class="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1 overflow-y-auto">
             <button
                 v-for="name in shown"
@@ -267,7 +267,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
           <p class="text-xs text-muted">
             What {{ project.name }}'s Claude sessions get when you ask them to focus. Leave a template empty to use the
-            Orrery's (on <NuxtLink to="/settings" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>).
+            Orrery's (on <NuxtLink to="/sessions#hear" class="underline underline-offset-2 hover:text-fg">Sessions</NuxtLink>).
           </p>
         </header>
         <FocusPrompts :project="project" />
@@ -278,7 +278,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
           <p class="text-xs text-muted">
             Saved context to give {{ project.name }}'s sessions as you start them, beside the Orrery's (on
-            <NuxtLink to="/settings#presets" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>).
+            <NuxtLink to="/sessions#presets" class="underline underline-offset-2 hover:text-fg">Sessions</NuxtLink>).
           </p>
         </header>
         <PresetSettings :project="project" />
@@ -290,7 +290,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
             <h2 class="text-[15px] font-semibold text-rose-600 dark:text-rose-400">Delete this project</h2>
             <p class="text-xs text-muted">Removes {{ project.name }} and everything in it from Orrery.</p>
           </div>
-          <button v-if="!deleting" type="button" class="h-7 shrink-0 rounded-md px-2.5 text-xs font-medium text-rose-600 ring-1 ring-rose-500/40 hover:bg-rose-500/10 dark:text-rose-400" @click="deleting = true">Delete project…</button>
+          <UiButton v-if="!deleting" variant="danger-outline" class="shrink-0" @click="deleting = true">Delete project…</UiButton>
         </header>
         <form v-if="deleting" class="flex flex-col gap-3" @submit.prevent="remove" @keydown.esc="deleting = false">
           <div class="rounded-lg bg-rose-500/10 px-3 py-2.5 text-[13px] leading-relaxed text-rose-700 ring-1 ring-rose-500/30 dark:text-rose-300">
@@ -303,10 +303,10 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
             <input v-model="typed" autocomplete="off" spellcheck="false" aria-label="Type the project's id to confirm" class="h-8 w-64 rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line focus:ring-rose-500/50 focus:outline-none">
           </label>
           <div class="flex items-center gap-2">
-            <button type="submit" class="h-8 rounded-lg bg-rose-600 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="typed !== project.id || removing">
+            <UiButton type="submit" variant="danger" size="md" :disabled="typed !== project.id || removing">
               {{ removing ? 'Deleting…' : `Delete ${project.name} forever` }}
-            </button>
-            <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="deleting = false; typed = ''">Cancel</button>
+            </UiButton>
+            <UiButton size="md" @click="deleting = false; typed = ''">Cancel</UiButton>
             <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
           </div>
         </form>

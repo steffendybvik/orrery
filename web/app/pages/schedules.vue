@@ -36,10 +36,10 @@ const picked = computed({
     </select>
     <span class="text-xs text-muted">{{ all.length ? `${active} running, ${all.length - active} paused` : 'Nothing scheduled' }}</span>
     <template v-if="ordered.length" #end>
-      <button v-if="only" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 whitespace-nowrap text-xs font-medium text-white hover:opacity-90" @click="edit(only)">
+      <UiButton v-if="only" variant="primary" class="shrink-0" @click="edit(only)">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         New schedule
-      </button>
+      </UiButton>
       <select v-else v-model="picked" aria-label="New schedule in" class="h-7 shrink-0 cursor-pointer rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 focus:outline-none">
         <option value="" disabled>+ New schedule in…</option>
         <option v-for="p in ordered" :key="p.id" :value="p.id">{{ p.name }}</option>

@@ -31,20 +31,15 @@ async function focus(session: Session | null) {
     }
 }
 
-function onOutside(event: PointerEvent) {
-    if (!root.value?.contains(event.target as Node)) open.value = false
-}
-watch(open, isOpen => isOpen ? document.addEventListener('pointerdown', onOutside) : document.removeEventListener('pointerdown', onOutside))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
+useDismiss(root, () => open.value, () => open.value = false)
 </script>
 
 <template>
   <div v-if="listening.length && look(column).kind !== 'proposed' && !isClosed(look(column).kind)" ref="root" class="relative" @click.stop @keydown.stop @keydown.esc="open = false">
     <span v-if="note" class="text-xs text-faint">{{ note }}</span>
-    <button
+    <UiButton
         v-else
-        type="button"
-        class="flex h-6 items-center gap-1.5 rounded-md px-2 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50"
+        size="xs"
         :aria-expanded="open"
         :disabled="sending"
         :title="`Ask the sessions to work through the ${label} issues, most urgent first`"
@@ -52,24 +47,17 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
     >
       <svg class="size-3 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
       {{ sending ? 'Sending…' : `Focus on all ${label}` }}
-    </button>
-    <div v-if="open" class="glass absolute top-full right-0 z-40 mt-1.5 w-56 animate-fade-up rounded-xl p-1" role="menu">
-      <button
-          v-if="listening.length > 1"
-          type="button"
-          class="flex w-full items-center rounded-lg px-2 py-1.5 text-left text-[13px] text-fg hover:bg-hover"
-          @click="focus(null)"
-      >All {{ listening.length }} sessions</button>
-      <button
+    </UiButton>
+    <div v-if="open" class="menu absolute top-full right-0 z-40 mt-1.5 w-56" role="menu">
+      <UiMenuItem v-if="listening.length > 1" @click="focus(null)">All {{ listening.length }} sessions</UiMenuItem>
+      <UiMenuItem
           v-for="session in listening"
           :key="session.id"
-          type="button"
-          class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg hover:bg-hover"
           @click="focus(session)"
       >
         <SessionDot :session="session" />
         <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
-      </button>
+      </UiMenuItem>
     </div>
   </div>
 </template>

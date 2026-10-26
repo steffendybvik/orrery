@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Priority, Schedule} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
 // Writing a schedule, or changing one, as the owner: in a project, whether each run makes an issue or
@@ -20,6 +19,9 @@ const KINDS: {value: Repeat['kind'], label: string}[] = [
 // Where its issues start: any open status.
 const {places} = useStatuses()
 const starts = computed(() => places.value.filter(p => p.kind !== 'proposed' && !isClosed(p.kind)))
+const startOptions = computed(() => starts.value.map(p => ({value: p.id, label: p.label})))
+const MINUTES = [5, 10, 15, 20, 30].map(n => ({value: String(n), label: `${n} minutes`}))
+const HOURS = [1, 2, 3, 4, 6, 8, 12].map(n => ({value: String(n), label: n === 1 ? 'hour' : `${n} hours`}))
 
 const project = ref('')
 const sends = ref<'issue' | 'message'>('issue')
@@ -32,6 +34,9 @@ const days = ref<number[]>([1])
 const day = ref(1)
 const every = ref(4)
 const everyMinutes = ref(15)
+// The pickers take text; these are numbers.
+const everyText = computed({get: () => String(every.value), set: (next: string) => every.value = Number(next)})
+const everyMinutesText = computed({get: () => String(everyMinutes.value), set: (next: string) => everyMinutes.value = Number(next)})
 const minute = ref(0)
 const once = ref('')
 const cron = ref('0 9 * * 1-5')
@@ -88,7 +93,7 @@ watch(editing, now => {
     cron.value = s?.cron ?? '0 9 * * 1-5'
     failed.value = ''
     nextTick(() => titleInput.value?.focus())
-})
+}, {immediate: true})
 
 const repeat = computed<Repeat>(() => {
     switch (kind.value) {
@@ -159,135 +164,136 @@ async function togglePause() {
     }
 }
 
-const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
+const field = 'h-8 field'
+const labelOf = (options: {value: string, label: string}[], value: string) => options.find(o => o.value === value)?.label ?? value
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="editing" class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-[8vh] backdrop-blur-[2px]" @pointerdown.self="close">
-      <form class="glass flex w-full max-w-2xl animate-fade-up flex-col gap-3 rounded-2xl p-5" role="dialog" :aria-label="existing ? 'Edit schedule' : 'New schedule'" @submit.prevent="save" @keydown.esc.stop="close" @keydown.meta.enter.prevent="save" @keydown.ctrl.enter.prevent="save">
-        <div class="flex items-center gap-2 text-xs text-faint">
-          <SectionIcon section="schedules" />
-          <span>{{ existing ? 'Edit schedule in' : 'New schedule in' }}</span>
-          <span class="text-fg">{{ here?.name ?? project }}</span>
-          <KeyHint class="ml-auto">esc</KeyHint>
-        </div>
-
-        <SegmentedControl v-model="sends" :options="SENDS" class="self-start" />
-        <input
-            ref="titleInput"
-            v-model="title"
-            :placeholder="sends === 'issue' ? 'What to do, e.g. Groom the backlog' : 'Its name, e.g. Check CI'"
-            aria-label="Title"
-            class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none"
-        >
-        <textarea
-            v-model="notes"
-            rows="3"
-            :placeholder="sends === 'issue' ? 'Instructions for each run… (Markdown works; it\'s the issue\'s description)' : 'The message the sessions get each run, e.g. Check CI on main; if it\'s red, tell me why'"
-            :aria-label="sends === 'issue' ? 'Instructions' : 'Message'"
-            class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
-        />
-
-        <section class="flex flex-col gap-2 border-t border-line pt-3">
-          <span class="label">When</span>
-          <div class="flex flex-wrap items-center gap-2">
-            <select v-model="kind" aria-label="Repeats" :class="field">
-              <option v-for="k in KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
-            </select>
-            <template v-if="['daily', 'weekdays', 'weekly', 'monthly'].includes(kind)">
-              <template v-if="kind === 'monthly'">
-                <span class="text-xs text-muted">on day</span>
-                <input v-model.number="day" type="number" min="1" max="31" aria-label="Day of the month" :class="[field, 'w-16']">
-              </template>
-              <span class="text-xs text-muted">at</span>
-              <input v-model="time" type="time" aria-label="Time" :class="field">
-            </template>
-            <template v-else-if="kind === 'minutes'">
-              <span class="text-xs text-muted">every</span>
-              <select v-model.number="everyMinutes" aria-label="Every how many minutes" :class="field">
-                <option v-for="n in [5, 10, 15, 20, 30]" :key="n" :value="n">{{ n }} minutes</option>
-              </select>
-            </template>
-            <template v-else-if="kind === 'hours'">
-              <span class="text-xs text-muted">every</span>
-              <select v-model.number="every" aria-label="Every how many hours" :class="field">
-                <option v-for="n in [1, 2, 3, 4, 6, 8, 12]" :key="n" :value="n">{{ n === 1 ? 'hour' : `${n} hours` }}</option>
-              </select>
-              <span class="text-xs text-muted">at minute</span>
-              <input v-model.number="minute" type="number" min="0" max="59" aria-label="Minute" :class="[field, 'w-16']">
-            </template>
-            <input v-else-if="kind === 'once'" v-model="once" type="datetime-local" aria-label="When" :class="field">
-            <input v-else v-model="cron" placeholder="minute hour day month weekday" aria-label="Cron" :class="[field, 'w-52 font-mono']">
-          </div>
-          <div v-if="kind === 'weekly'" class="flex gap-1">
-            <button
-                v-for="d in [1, 2, 3, 4, 5, 6, 0]"
-                :key="d"
-                type="button"
-                class="h-7 w-10 rounded-md text-xs ring-1"
-                :class="days.includes(d) ? 'bg-accent-500/15 font-medium text-accent-700 ring-accent-500/40 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover'"
-                :aria-pressed="days.includes(d)"
-                @click="toggleDay(d)"
-            >{{ DAYS[d] }}</button>
-          </div>
-          <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">
-            <template v-if="upcoming.length">
-              <span>Next:</span>
-              <span v-for="t in upcoming" :key="t.toISOString()" class="rounded bg-well px-1.5 py-px text-muted ring-1 ring-line">{{ when(t, timezone) }}</span>
-            </template>
-            <span v-else class="text-rose-600 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
-            <label class="ml-auto flex items-center gap-1">
-              <span>Timezone</span>
-              <input v-model="timezone" aria-label="Timezone" class="h-6 w-36 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:outline-none">
-            </label>
-          </p>
-        </section>
-
-        <p v-if="sends === 'message'" class="border-t border-line pt-3 text-xs text-muted">
-          Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.
-        </p>
-        <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
-          <span class="label">Each run makes an issue</span>
-          <div class="flex flex-wrap items-center gap-2">
-            <select v-model="column" aria-label="Where it starts" :class="field">
-              <option v-for="p in starts" :key="p.id" :value="p.id">{{ p.label }}</option>
-            </select>
-            <select v-model="priority" aria-label="Priority" :class="field">
-              <option value="">No priority</option>
-              <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
-            </select>
-            <select v-model="chunk" aria-label="Chunk" :class="[field, 'max-w-56']">
-              <option value="">No chunk</option>
-              <option v-for="c in chunks" :key="c.id" :value="c.id">{{ c.title }}</option>
-            </select>
-            <LabelPicker v-model="labels" :labels="known" />
-          </div>
-          <label class="flex items-center gap-1.5 text-xs text-muted">
-            <input v-model="ask" type="checkbox" class="accent-accent-500">
-            Ask {{ here?.name ?? 'the project' }}'s Claude sessions to pick it up (if none is listening, the next one to connect gets it)
-          </label>
-          <label class="flex items-center gap-1.5 text-xs text-muted">
-            <input v-model="skipOpen" type="checkbox" class="accent-accent-500">
-            Skip a run while the last run's issue isn't done
-          </label>
-        </section>
-
-        <div class="flex items-center gap-2 border-t border-line pt-3">
-          <button
-              v-if="existing && !(existing.at && !existing.enabled)"
-              type="button"
-              class="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-40"
-              :disabled="pausing"
-              @click="togglePause"
-          >{{ enabled ? '❙❙ Pause' : '▶ Resume' }}</button>
-          <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>
-          <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-          <button type="submit" class="ml-auto flex h-8 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="!ready">
-            {{ saving ? 'Saving…' : existing ? 'Save schedule' : 'Create schedule' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-          </button>
-        </div>
-      </form>
+  <UiDialog :open="editing" :label="existing ? 'Edit schedule' : 'New schedule'" width="2xl" @close="close" @submit="save">
+    <div class="flex items-center gap-2 text-xs text-faint">
+      <SectionIcon section="schedules" />
+      <span>{{ existing ? 'Edit schedule in' : 'New schedule in' }}</span>
+      <span class="text-fg">{{ here?.name ?? project }}</span>
+      <KeyHint class="ml-auto">esc</KeyHint>
     </div>
-  </Teleport>
+
+    <SegmentedControl v-model="sends" :options="SENDS" class="self-start" />
+    <input
+        ref="titleInput"
+        v-model="title"
+        :placeholder="sends === 'issue' ? 'What to do, e.g. Groom the backlog' : 'Its name, e.g. Check CI'"
+        aria-label="Title"
+        class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none"
+    >
+    <textarea
+        v-model="notes"
+        rows="3"
+        :placeholder="sends === 'issue' ? 'Instructions for each run… (Markdown works; it\'s the issue\'s description)' : 'The message the sessions get each run, e.g. Check CI on main; if it\'s red, tell me why'"
+        :aria-label="sends === 'issue' ? 'Instructions' : 'Message'"
+        class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
+    />
+
+    <section class="flex flex-col gap-2 border-t border-line pt-3">
+      <span class="label">When</span>
+      <div class="flex flex-wrap items-center gap-2">
+        <PropertyPicker v-model="kind" :options="KINDS" label="Repeats" field>
+          <span class="truncate">{{ labelOf(KINDS, kind) }}</span>
+        </PropertyPicker>
+        <template v-if="['daily', 'weekdays', 'weekly', 'monthly'].includes(kind)">
+          <template v-if="kind === 'monthly'">
+            <span class="text-xs text-muted">on day</span>
+            <input v-model.number="day" type="number" min="1" max="31" aria-label="Day of the month" :class="[field, 'w-16']">
+          </template>
+          <span class="text-xs text-muted">at</span>
+          <input v-model="time" type="time" aria-label="Time" :class="field">
+        </template>
+        <template v-else-if="kind === 'minutes'">
+          <span class="text-xs text-muted">every</span>
+          <PropertyPicker v-model="everyMinutesText" :options="MINUTES" label="Every how many minutes" field>
+            <span class="truncate">{{ labelOf(MINUTES, everyMinutesText) }}</span>
+          </PropertyPicker>
+        </template>
+        <template v-else-if="kind === 'hours'">
+          <span class="text-xs text-muted">every</span>
+          <PropertyPicker v-model="everyText" :options="HOURS" label="Every how many hours" field>
+            <span class="truncate">{{ labelOf(HOURS, everyText) }}</span>
+          </PropertyPicker>
+          <span class="text-xs text-muted">at minute</span>
+          <input v-model.number="minute" type="number" min="0" max="59" aria-label="Minute" :class="[field, 'w-16']">
+        </template>
+        <input v-else-if="kind === 'once'" v-model="once" type="datetime-local" aria-label="When" :class="field">
+        <input v-else v-model="cron" placeholder="minute hour day month weekday" aria-label="Cron" :class="[field, 'w-52 font-mono']">
+      </div>
+      <div v-if="kind === 'weekly'" class="flex gap-1">
+        <button
+            v-for="d in [1, 2, 3, 4, 5, 6, 0]"
+            :key="d"
+            type="button"
+            class="h-7 w-10 rounded-md text-xs ring-1"
+            :class="days.includes(d) ? 'bg-accent-500/15 font-medium text-accent-700 ring-accent-500/40 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover'"
+            :aria-pressed="days.includes(d)"
+            @click="toggleDay(d)"
+        >{{ DAYS[d] }}</button>
+      </div>
+      <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">
+        <template v-if="upcoming.length">
+          <span>Next:</span>
+          <span v-for="t in upcoming" :key="t.toISOString()" class="rounded bg-well px-1.5 py-px text-muted ring-1 ring-line">{{ when(t, timezone) }}</span>
+        </template>
+        <span v-else class="text-rose-600 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
+        <label class="ml-auto flex items-center gap-1">
+          <span>Timezone</span>
+          <input v-model="timezone" aria-label="Timezone" class="h-6 w-36 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:outline-none">
+        </label>
+      </p>
+    </section>
+
+    <p v-if="sends === 'message'" class="border-t border-line pt-3 text-xs text-muted">
+      Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.
+    </p>
+    <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
+      <span class="label">Each run makes an issue</span>
+      <div class="flex flex-wrap items-center gap-2">
+        <PropertyPicker v-model="column" :options="startOptions" label="Where it starts" field>
+          <StatusIcon :column="column" />
+          <span class="truncate">{{ labelOf(startOptions, column) }}</span>
+          <template #option="{option}">
+            <StatusIcon :column="option.value" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" field>
+          <PriorityIcon :priority="priority || undefined" />
+          <span class="truncate" :class="!priority && 'text-faint'">{{ labelOf(PRIORITY_OPTIONS, priority) }}</span>
+          <template #option="{option}">
+            <PriorityIcon :priority="option.value || undefined" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <PropertyPicker v-model="chunk" :options="chunkOptions(chunks)" label="Chunk" field>
+          <span class="truncate" :class="!chunk && 'text-faint'">{{ labelOf(chunkOptions(chunks), chunk) }}</span>
+        </PropertyPicker>
+        <LabelPicker v-model="labels" :labels="known" />
+      </div>
+      <label class="flex items-center gap-1.5 text-xs text-muted">
+        <input v-model="ask" type="checkbox" class="accent-accent-500">
+        Ask {{ here?.name ?? 'the project' }}'s Claude sessions to pick it up (if none is listening, the next one to connect gets it)
+      </label>
+      <label class="flex items-center gap-1.5 text-xs text-muted">
+        <input v-model="skipOpen" type="checkbox" class="accent-accent-500">
+        Skip a run while the last run's issue isn't done
+      </label>
+    </section>
+
+    <div class="flex items-center gap-2 border-t border-line pt-3">
+      <UiButton v-if="existing && !(existing.at && !existing.enabled)" size="md" :disabled="pausing" @click="togglePause">
+        {{ enabled ? '❙❙ Pause' : '▶ Resume' }}
+      </UiButton>
+      <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>
+      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
+        {{ saving ? 'Saving…' : existing ? 'Save schedule' : 'Create schedule' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+      </UiButton>
+    </div>
+  </UiDialog>
 </template>

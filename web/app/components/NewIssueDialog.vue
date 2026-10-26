@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Column, Priority} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
 
 // Writing a new issue, as the owner (so agents can't delete it); Orrery hands out its id. Its labels say
 // what kind it is (bug, feature request, …), and it can go straight to the listening Claude sessions to
@@ -31,6 +30,7 @@ const {uploading, failed: uploadError, dragging, upload, reset: resetUploads, on
 // Where it starts: Proposed or any open status.
 const {places} = useStatuses()
 const WHERE = computed(() => places.value.filter(p => !isClosed(p.kind)))
+const whereOptions = computed(() => WHERE.value.map(w => ({value: w.id, label: w.label})))
 
 watch(target, now => {
     // An image still on its way from an earlier open stays out of this one.
@@ -45,7 +45,7 @@ watch(target, now => {
     ask.value = false
     failed.value = ''
     nextTick(() => titleInput.value?.focus())
-})
+}, {immediate: true})
 
 async function create() {
     if (!project.value || !title.value.trim() || saving.value || uploading.value) return
@@ -79,65 +79,69 @@ async function create() {
         saving.value = false
     }
 }
-
-const field = 'h-8 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="target && project" class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[10vh] backdrop-blur-[2px]" @pointerdown.self="close">
-      <form class="glass flex w-full max-w-2xl animate-fade-up flex-col gap-3 rounded-2xl p-5" role="dialog" aria-label="New issue" @submit.prevent="create" @keydown.esc.stop="close" @keydown.meta.enter.prevent="create" @keydown.ctrl.enter.prevent="create">
-        <div class="flex items-center gap-2 text-xs text-faint">
-          <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] ring-1 ring-line">{{ project.key }}</span>
-          <span>New in {{ project.name }}</span>
-          <KeyHint class="ml-auto">esc</KeyHint>
+  <UiDialog :open="target && project" label="New issue" width="2xl" @close="close" @submit="create">
+    <template v-if="project">
+      <div class="flex items-center gap-2 text-xs text-faint">
+        <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] ring-1 ring-line">{{ project.key }}</span>
+        <span>New in {{ project.name }}</span>
+        <KeyHint class="ml-auto">esc</KeyHint>
+      </div>
+      <input ref="titleInput" v-model="title" placeholder="Issue title" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
+      <div
+          class="-mx-2 flex flex-col rounded-lg px-2 ring-1 ring-transparent"
+          :class="dragging && 'ring-accent-500/50'"
+          @dragover.prevent="dragging = true"
+          @dragleave="dragging = false"
+          @drop.prevent="onDrop"
+      >
+        <textarea
+            ref="notesInput"
+            v-model="notes"
+            rows="5"
+            placeholder="Add a description… (Markdown works, paste or drop an image)"
+            aria-label="Description"
+            class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
+            @paste="onPaste"
+        />
+        <div class="-ml-1.5 flex items-center gap-2">
+          <ImageButton @picked="upload" />
+          <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
+          <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
         </div>
-        <input ref="titleInput" v-model="title" placeholder="Issue title" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
-        <div
-            class="-mx-2 flex flex-col rounded-lg px-2 ring-1 ring-transparent"
-            :class="dragging && 'ring-accent-500/50'"
-            @dragover.prevent="dragging = true"
-            @dragleave="dragging = false"
-            @drop.prevent="onDrop"
-        >
-          <textarea
-              ref="notesInput"
-              v-model="notes"
-              rows="5"
-              placeholder="Add a description… (Markdown works, paste or drop an image)"
-              aria-label="Description"
-              class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
-              @paste="onPaste"
-          />
-          <div class="-ml-1.5 flex items-center gap-2">
-            <ImageButton @picked="upload" />
-            <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
-            <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-          <select v-model="column" aria-label="Where" :class="field">
-            <option v-for="w in WHERE" :key="w.id" :value="w.id">{{ w.label }}</option>
-          </select>
-          <select v-model="priority" aria-label="Priority" :class="field">
-            <option value="">No priority</option>
-            <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
-          </select>
-          <select v-model="chunk" aria-label="Chunk" :class="[field, 'max-w-56']">
-            <option value="">No chunk</option>
-            <option v-for="c in chunks" :key="c.id" :value="c.id">{{ c.title }}</option>
-          </select>
-          <LabelPicker v-model="labels" :labels="known" />
-          <label class="flex items-center gap-1.5 text-xs text-muted">
-            <input v-model="ask" type="checkbox" class="accent-accent-500">
-            Ask a Claude session to pick it up
-          </label>
-          <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-          <button type="submit" class="ml-auto flex h-8 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="!title.trim() || saving || !!uploading">
-            {{ saving ? 'Creating…' : 'Create issue' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-          </button>
-        </div>
-      </form>
-    </div>
-  </Teleport>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+        <PropertyPicker v-model="column" :options="whereOptions" label="Where" field>
+          <StatusIcon :column="column" />
+          <span class="truncate">{{ whereOptions.find(o => o.value === column)?.label ?? column }}</span>
+          <template #option="{option}">
+            <StatusIcon :column="option.value" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" field>
+          <PriorityIcon :priority="priority || undefined" />
+          <span class="truncate" :class="!priority && 'text-faint'">{{ priority ? `${priority} · ${PRIORITY_LABEL[priority]}` : 'No priority' }}</span>
+          <template #option="{option}">
+            <PriorityIcon :priority="option.value || undefined" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <PropertyPicker v-model="chunk" :options="chunkOptions(project.board.chunks)" label="Chunk" field>
+          <span class="truncate" :class="!chunk && 'text-faint'">{{ chunks.find(c => c.id === chunk)?.title ?? 'No chunk' }}</span>
+        </PropertyPicker>
+        <LabelPicker v-model="labels" :labels="known" />
+        <label class="flex items-center gap-1.5 text-xs text-muted">
+          <input v-model="ask" type="checkbox" class="accent-accent-500">
+          Ask a Claude session to pick it up
+        </label>
+        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+        <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!title.trim() || saving || !!uploading">
+          {{ saving ? 'Creating…' : 'Create issue' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+        </UiButton>
+      </div>
+    </template>
+  </UiDialog>
 </template>

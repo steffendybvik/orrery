@@ -7,6 +7,8 @@ let session: {project: string, state: string, started?: {launch: string}, idleAt
 let working: string[]
 let waiting: boolean
 let sent: unknown[]
+let left: {id: string}[]
+let focused: unknown[]
 
 beforeEach(async () => {
     vi.useFakeTimers()
@@ -14,12 +16,19 @@ beforeEach(async () => {
     working = []
     waiting = false
     sent = []
+    left = []
+    focused = []
     const events = new EventEmitter()
     events.on('launches', event => sent.push(event))
     vi.stubGlobal('projectEvents', events)
-    vi.stubGlobal('sessionNow', () => session && {...session})
+    vi.stubGlobal('sessionNow', (id: string) => id !== 'gone' && session && {...session})
     vi.stubGlobal('sessionIds', (id: string) => [id, `${id}-before`])
-    vi.stubGlobal('useStore', () => ({workingOn: async () => working, waiting: async () => waiting}))
+    vi.stubGlobal('currentId', (id: string) => id.replace(/-before$/, ''))
+    vi.stubGlobal('scopeOf', async () => ({open: left}))
+    vi.stubGlobal('useStore', () => ({
+        workingOn: async () => working, waiting: async () => waiting,
+        focusChunk: async (...args: unknown[]) => void focused.push(args),
+    }))
     vi.resetModules()
     clearing = await import('../server/utils/clearing')
 })
@@ -66,11 +75,42 @@ describe('a session Orrery started, gone idle', () => {
 })
 
 describe("a session's run", () => {
+    const signal = (more: object) => ({id: 1, project: 'orrery', kind: 'focus', delivered_to: [], instructions: [], created_by: 'steffen', protected: true, created_at: '', ...more}) as never
+
     it('is the last chunk or scope focus it was handed, found by any id it has had', () => {
-        const signal = (more: object) => ({id: 1, project: 'orrery', kind: 'focus', delivered_to: [], instructions: [], created_by: 'steffen', protected: true, created_at: '', ...more}) as never
         clearing.startRun('w-before', signal({chunk: 'all', status: 'todo'}))
-        clearing.startRun('w-before', signal({issue: 'ORR-1'}))
+        clearing.startRun('w-before', signal({kind: 'message', note: 'hi'}))
         expect(clearing.runOf('w')).toMatchObject({chunk: 'all', status: 'todo'})
         expect(clearing.runOf('other')).toBeUndefined()
+    })
+
+    it('ends with a focus on one issue, and is let go once its session is gone', () => {
+        clearing.startRun('w', signal({chunk: '3'}))
+        clearing.startRun('w-before', signal({issue: 'ORR-99'}))
+        expect(clearing.runOf('w')).toBeUndefined()
+        clearing.startRun('gone', signal({chunk: '3'}))
+        clearing.startRun('w', signal({chunk: '4'}))
+        expect(clearing.runOf('gone')).toBeUndefined()
+        expect(clearing.runOf('w')).toMatchObject({chunk: '4'})
+    })
+
+    it("goes on after a clear: what's left of it is sent to the session alone, as its owner sent it", async () => {
+        clearing.startRun('w', signal({chunk: 'all', status: 'todo,started', release: '1.2'}))
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(false)
+        left = [{id: 'ORR-2'}]
+        expect(await clearing.resumeRun('elsewhere', 'w')).toBe(false)
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
+        expect(focused).toEqual([['orrery', 'all', {session: 'w', status: 'todo,started', release: '1.2', note: "Carry on with what's left of it after the clear."}, {name: 'steffen', owner: true}]])
+        // Nothing left has changed since: it isn't sent again, so a session that won't take it isn't kept going round.
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(false)
+        left = [{id: 'ORR-2', updated_at: 'later'}]
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
+        expect(focused).toHaveLength(2)
+        // A new run starts afresh.
+        clearing.startRun('w', signal({chunk: 'all', status: 'todo'}))
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
+        // One someone opened themselves isn't sent on.
+        session = {project: 'orrery', state: 'idle', idleAt: 1}
+        expect(await clearing.resumeRun('orrery', 'w')).toBe(false)
     })
 })

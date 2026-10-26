@@ -1,5 +1,6 @@
 import type {Chunk, Column, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
-import {CLOSED, TINTS, open, total} from '#shared/roadmap'
+import {CLOSED, PRIORITIES, TINTS, open, total} from '#shared/roadmap'
+import {serverName} from '#shared/connect'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
 export const colorOf = (color: string) => TINTS[color as keyof typeof TINTS] ?? color
@@ -10,7 +11,20 @@ export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
 /** A session's state as the page says it. */
 export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 
+/** The command that starts a session's window again with the channel: its server in the repo's `.mcp.json`, by the
+ * name its channel found, else the Orrery's as the Connect page names it (`orrery-<environment>`), keeping the window's name unless it was made up. */
+export function restartCommand(session: {name: string, project: string, server?: string}, environment: string): string {
+    const server = session.server ?? serverName(environment)
+    return `${session.name.startsWith(`${session.project} `) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${server}`
+}
+
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}
+
+/** The priorities as a `PropertyPicker`'s options, none first. */
+export const PRIORITY_OPTIONS = [{value: '', label: 'No priority'}, ...PRIORITIES.map(p => ({value: p, label: `${p} · ${PRIORITY_LABEL[p]}`}))]
+
+/** A project's chunks as a `PropertyPicker`'s options, none first (the chunk of loose issues has no id). */
+export const chunkOptions = (chunks: Chunk[]) => [{value: '', label: 'No chunk'}, ...chunks.filter(c => c.id).map(c => ({value: c.id, label: c.title}))]
 
 /** Putting an issue in a column: its status. Into Proposed makes it a proposal; a proposal put anywhere
  * else is committed. */

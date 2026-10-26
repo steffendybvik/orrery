@@ -302,6 +302,8 @@ const STEPS: string[] = [`
     INSERT INTO settings (key, value) SELECT 'starts', starts FROM projects WHERE starts IS NOT NULL ORDER BY created_at, id LIMIT 1
         ON CONFLICT (key) DO NOTHING;
     UPDATE projects SET starts = NULL;
+`, `
+    ALTER TABLE releases ADD COLUMN frozen_on text;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether

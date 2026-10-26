@@ -12,12 +12,12 @@ function onPick() {
 </script>
 
 <template>
-  <button
-      type="button"
-      class="flex size-7 items-center justify-center rounded-md text-faint transition-colors hover:bg-hover hover:text-fg"
+  <UiButton
+      variant="ghost"
+      square
       title="Add an image"
       aria-label="Add an image"
       @click="picker?.click()"
-  ><PhotoIcon class="size-4" /></button>
+  ><PhotoIcon class="size-4" /></UiButton>
   <input ref="picker" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple class="hidden" @change="onPick">
 </template>

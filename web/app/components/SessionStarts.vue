@@ -1,16 +1,18 @@
 <script setup lang="ts">
 // Whether Orrery may start Claude sessions itself, with no terminal: the owner's one opt-in, for every project whose
 // repo has a launcher installed (how many at once on each, and, if they like, how long each runs and how long one
-// may sit idle; blank runs it until stopped). In App settings; the Sessions page has the launchers and sessions.
+// may sit idle; blank runs it until stopped). On the Sessions page, above the sessions.
 const {settings, save: saveSettings} = useAppSettings()
 const failed = ref('')
-const field = 'h-8 w-20 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
+const field = 'h-8 w-20 field'
 
 const limit = ref(1)
 // Blank (an empty input gives '') is no limit.
 const minutes = ref<number | ''>('')
 const idleMinutes = ref<number | ''>('')
-watch(() => settings.value.starts, starts => {
+// Only when they change: a live update that brings the same values back would undo what's being typed.
+watch(() => JSON.stringify(settings.value.starts ?? null), () => {
+    const starts = settings.value.starts
     limit.value = starts?.limit ?? 1
     minutes.value = starts?.minutes ?? ''
     idleMinutes.value = starts?.idle_minutes ?? ''

@@ -98,6 +98,18 @@
     @apply border border-line bg-raised shadow-2xl shadow-black/20 dark:shadow-black/40;
 }
 
+/* A menu or popover on the glass panel, its lines `UiMenuItem`s. Where it sits (fixed, absolute) and how wide go
+   beside it. */
+@utility menu {
+    @apply glass flex animate-fade-up flex-col gap-1 rounded-xl p-1 outline-none;
+}
+
+/* A text field, select or text box: on the well, with a ring that lights up on focus. Its size (h-8, w-full,
+   py-2) goes beside it. */
+@utility field {
+    @apply rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none;
+}
+
 /* The small uppercase heading over a group (OBJECTS, PROPERTIES) */
 @utility label {
     @apply text-[11px] font-medium tracking-wide text-faint uppercase;

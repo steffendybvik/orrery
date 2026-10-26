@@ -102,7 +102,7 @@ issues it had in progress and their latest comment, so it carries on with them.
 
 Orrery can start a session itself when you send the project work and nobody is listening, or when you
 press **Start session** on the Sessions page, so nobody has to open a terminal. Turn it on once, for every
-project, under App settings → Starting sessions (how many at once, how many minutes each), then install the
+project, under Starting sessions at the top of the Sessions page (how many at once, how many minutes each), then install the
 launcher once, in the repo:
 
 ```bash
@@ -110,16 +110,25 @@ node /path/to/orrery/channel/orrery-launcher.mjs --install
 ```
 
 It runs in the background from then on (launchd on macOS, systemd on Linux), starts at login, and serves
-every project installed this way; run `--install` again in another repo to add its project, and
-`--uninstall` to take one off. It finds the projects and the Orrery in the repo's `.mcp.json` (each one in
-its `ORRERY_PROJECTS`; with `*`, name the one with `ORRERY_PROJECT`), or `ORRERY_PROJECT` and `ORRERY_URL`, and keeps its list in `~/.config/orrery/launcher.json`. Its log is
+every project installed this way; run `--install` again in another repo to add its projects, and
+`--uninstall` to take them off. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
+channel there, each with the projects in its `ORRERY_PROJECTS` (or its `ORRERY_PROJECT`), so a monorepo with a
+channel per project gets all of them, and each project's sessions load the channel that serves it. With `*`, or to
+pick one, name it with `ORRERY_PROJECT`. `ORRERY_URL` stands in for a channel's address only where `.mcp.json` doesn't write
+one out (`${ORRERY_URL:-…}`); a written address wins, so a session's own `ORRERY_URL` can't send a monorepo's projects to
+another Orrery. A project no channel names goes on `ORRERY_URL`, else the first channel's Orrery. A project already served from another repo (a monorepo's channel to your
+personal Orrery) is left there unless `ORRERY_PROJECT` names it. `--list` shows what a repo would register, and
+with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`. Its log is
 `~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
 stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
-terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`.
+terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`. Next to the installed one, it leaves
+that launcher's sessions alone: each session keeps its launcher's pid, and only a gone launcher's sessions are taken over.
 
 Between pieces of work, a session it started gets a fresh context: once it goes idle with no issue in progress
 and no signal waiting, the launcher types `/clear` into it. Its channel stays connected, and the brief after the
-clear hands it the issues still in progress and what's left of a chunk or scope it was working through.
+clear hands it the issues still in progress and what's left of a chunk or scope it was working through. When some of that
+chunk or scope is left, Orrery also sends it a focus on the rest, to it alone, so it carries on rather than waiting. A
+focus on a single issue ends the chunk or scope it was working through.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
@@ -127,5 +136,5 @@ are up, when you press **Stop** beside it (in the sessions panel or the project'
 to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
-The limits are the Orrery's, under App settings, and apply to each project. The cap is time, not cost:
+The limits are the Orrery's, on the Sessions page, and apply to each project. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.

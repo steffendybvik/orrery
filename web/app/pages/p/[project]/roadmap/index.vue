@@ -27,10 +27,10 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
     <span class="text-xs text-faint">Chunks in the column their issues put them in</span>
     <template #end>
       <FilterBar />
-      <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs whitespace-nowrap font-medium text-white hover:opacity-90" @click="useNewChunk().open(project.id)">
+      <UiButton variant="primary" class="shrink-0" @click="useNewChunk().open(project.id)">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         New chunk
-      </button>
+      </UiButton>
     </template>
   </ViewToolbar>
 
@@ -39,7 +39,7 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
       <div v-if="!project.board.chunks.length" class="grid place-items-center px-4 py-24 text-center text-sm text-muted">
         <div class="flex flex-col items-center gap-3">
           <p>{{ project.name }} has no chunks yet.</p>
-          <button type="button" class="h-7 rounded-md px-2.5 text-xs text-fg ring-1 ring-line hover:bg-hover" @click="useNewChunk().open(project.id)">New chunk</button>
+          <UiButton @click="useNewChunk().open(project.id)">New chunk</UiButton>
         </div>
       </div>
       <div v-else-if="!chunks.length" class="grid place-items-center px-4 py-24 text-sm text-muted">No chunk has an issue that matches the filters.</div>

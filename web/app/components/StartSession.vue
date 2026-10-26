@@ -17,15 +17,14 @@ const why = computed(() => !state.value?.launchers ? `No launcher is running for
 
 <template>
   <div v-if="project.starts" class="flex shrink-0 flex-col items-end gap-1">
-    <button
-        type="button"
-        class="h-7 rounded-md bg-accent-500 px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+    <UiButton
+        variant="primary"
         :disabled="!state?.launchers || full"
         :title="why"
         @click="open(project.id)"
     >
       Start session…
-    </button>
+    </UiButton>
     <span v-if="state?.starting" class="text-xs text-faint">{{ state.starting }} on its way…</span>
     <span v-else-if="state && (!state.launchers || full)" class="max-w-72 text-right text-xs text-faint">
       <template v-if="!state.launchers">No launcher running: install it in its repo.</template>

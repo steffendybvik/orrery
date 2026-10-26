@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Kinds} from '#shared/roadmap'
-import {emptyKinds} from '#shared/roadmap'
+import {emptyKinds, isFrozen} from '#shared/roadmap'
 
 // A release's page: whether it shipped (and when), the branch its work gathers on with its PRs (when the
 // project says where its code is), its notes, a changelog drafted from its issues, and every one of those
@@ -64,6 +64,9 @@ async function save(body: Record<string, unknown>): Promise<boolean> {
 const today = () => new Date().toLocaleDateString('sv')
 const ship = () => save({shipped_on: today()})
 const unship = () => save({shipped_on: null})
+// A freeze is a preference, not a lock: the release keeps taking whatever is set for it.
+const freeze = () => save({frozen_on: today()})
+const thaw = () => save({frozen_on: null})
 
 // The branch, edited in place: Enter saves, Esc puts it back.
 const editingBranch = ref(false)
@@ -128,9 +131,9 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
 <template>
   <PageHeader>
     <template v-if="project">
-      <NuxtLink :to="`/p/${project.id}/releases`" class="-ml-1 hidden rounded-md p-1 text-faint hover:bg-hover hover:text-fg md:block" title="Back to the releases (Esc)" aria-label="Back">
+      <UiButton :to="`/p/${project.id}/releases`" variant="ghost" size="xs" square class="-ml-1 max-md:hidden" title="Back to the releases (Esc)" aria-label="Back">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6" /></svg>
-      </NuxtLink>
+      </UiButton>
       <nav class="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Breadcrumb">
         <NuxtLink :to="`/p/${project.id}`" class="shrink-0 font-medium hover:text-fg">{{ project.name }}</NuxtLink>
         <span class="text-faint">/</span>
@@ -149,26 +152,30 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <div class="flex flex-wrap items-center gap-3 text-xs">
           <span
               class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
-          >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : 'Preparing' }}</span>
-          <button v-if="!release.shipped_on" type="button" class="h-7 rounded-md px-2.5 text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="saving" @click="ship">Mark shipped today</button>
-          <button v-else type="button" class="h-7 rounded-md px-2.5 text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="saving" @click="unship">Not shipped yet</button>
+              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : isFrozen(release) ? 'text-amber-700 ring-amber-500/30 dark:text-amber-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
+              :title="isFrozen(release) ? 'Feature freeze: fixes, tests and docs; a new feature goes on the next release' : undefined"
+          >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : isFrozen(release) ? `Frozen ${release.frozen_on}` : 'Preparing' }}</span>
+          <template v-if="!release.shipped_on">
+            <UiButton v-if="!release.frozen_on" :disabled="saving" title="From now on it takes fixes, tests and docs; a new feature goes on the next release" @click="freeze">Freeze features</UiButton>
+            <UiButton v-else :disabled="saving" @click="thaw">Thaw</UiButton>
+          </template>
+          <UiButton v-if="!release.shipped_on" :disabled="saving" @click="ship">Mark shipped today</UiButton>
+          <UiButton v-else :disabled="saving" @click="unship">Not shipped yet</UiButton>
           <span class="ml-auto flex items-center gap-2">
-            <template v-if="confirmingRemove">
-              <span class="text-muted">Remove {{ release.version }}? Its {{ whole!.issues }} {{ whole!.issues === 1 ? 'issue stays' : 'issues stay' }}, set for no release.</span>
-              <button type="button" class="h-7 rounded-md bg-rose-600 px-2.5 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="remove">{{ saving ? 'Removing…' : 'Remove' }}</button>
-              <button type="button" class="h-7 rounded-md px-2 text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="confirmingRemove = false">Cancel</button>
-            </template>
-            <button
+            <UiConfirm v-if="confirmingRemove" inline :busy="saving" @confirm="remove" @cancel="confirmingRemove = false">
+              Remove {{ release.version }}? Its {{ whole!.issues }} {{ whole!.issues === 1 ? 'issue stays' : 'issues stay' }}, set for no release.
+            </UiConfirm>
+            <UiButton
                 v-else
-                type="button"
-                class="rounded-md p-1 text-faint hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400"
+                variant="danger-ghost"
+                size="xs"
+                square
                 title="Remove this release"
                 aria-label="Remove this release"
                 @click="confirmingRemove = true"
             >
               <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
-            </button>
+            </UiButton>
           </span>
         </div>
         <h1 class="font-mono text-xl font-semibold tracking-tight text-fg sm:text-2xl">{{ release.version }}</h1>
@@ -214,19 +221,18 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           />
           <div class="flex items-center justify-end gap-2">
             <span class="mr-auto text-xs text-faint">Markdown</span>
-            <button type="button" class="h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></button>
-            <button type="button" class="flex h-7 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="saving" @click="saveNotes">
+            <UiButton :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></UiButton>
+            <UiButton variant="primary" :disabled="saving" @click="saveNotes">
               {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-            </button>
+            </UiButton>
           </div>
         </section>
         <section v-else class="group relative">
-          <button
+          <UiButton
               v-if="release.notes"
-              type="button"
-              class="absolute -top-1 right-0 flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted opacity-0 ring-1 ring-line transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg focus:opacity-100"
+              class="absolute -top-1 right-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               @click="editNotes"
-          >Edit</button>
+          >Edit</UiButton>
           <MarkdownView v-if="release.notes" :source="release.notes" />
           <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No notes. Add some</button>
         </section>

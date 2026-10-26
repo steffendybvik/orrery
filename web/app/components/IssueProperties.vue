@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Chunk, Column, Issue, Project} from '#shared/roadmap'
-import {PRIORITIES, taskUrl} from '#shared/roadmap'
+import {isFrozen, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once.
@@ -26,16 +26,15 @@ const chunkId = computed({
     get: () => props.chunk.id,
     set: (next: string) => save({chunk: next || null}),
 })
-const chunks = computed(() => props.project.board.chunks.filter(c => c.id))
 const statusOptions = computed(() => places.value.map(p => ({value: p.id, label: p.label})))
-const priorityOptions = [{value: '', label: 'No priority'}, ...PRIORITIES.map(p => ({value: p, label: `${p} · ${PRIORITY_LABEL[p]}`}))]
-const chunkOptions = computed(() => [{value: '', label: 'No chunk'}, ...chunks.value.map(c => ({value: c.id, label: c.title}))])
-// The release it ships in, newest first; a shipped one says so.
+// The release it ships in, newest first; a shipped or frozen one says so.
 const release = computed({
     get: () => props.issue.release ?? '',
     set: (next: string) => save({release: next || null}),
 })
-const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shipped_on ? `${r.version} · shipped` : r.version}))])
+const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...props.project.releases.map(r => ({value: r.version, label: r.shipped_on ? `${r.version} · shipped` : isFrozen(r) ? `${r.version} · frozen` : r.version}))])
+// Only a heads-up: a frozen release still takes the issue.
+const frozen = computed(() => isFrozen(props.project.releases.find(r => r.version === props.issue.release)))
 
 // Labels: any the project uses, or a new one.
 const known = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.labels))])
@@ -82,7 +81,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
 
     <dt class="label">Priority</dt>
     <dd class="flex min-w-0">
-      <PropertyPicker v-model="priority" :options="priorityOptions" label="Priority" :disabled="saving">
+      <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" :disabled="saving">
         <PriorityIcon :priority="issue.priority" />
         <span class="truncate" :class="!issue.priority && 'text-faint'">{{ issue.priority ? `${issue.priority} · ${PRIORITY_LABEL[issue.priority]}` : 'No priority' }}</span>
         <template #option="{option}">
@@ -141,13 +140,13 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
 
     <dt class="label">Chunk</dt>
     <dd class="flex min-w-0 items-center gap-1">
-      <PropertyPicker v-if="!isSub" v-model="chunkId" :options="chunkOptions" label="Chunk" :disabled="saving">
+      <PropertyPicker v-if="!isSub" v-model="chunkId" :options="chunkOptions(project.board.chunks)" label="Chunk" :disabled="saving">
         <span class="truncate" :class="!chunk.id && 'text-faint'">{{ chunk.id ? chunk.title : 'No chunk' }}</span>
       </PropertyPicker>
       <NuxtLink v-else :to="chunkPath(project.id, chunk.id)" class="truncate hover:underline" :class="!chunk.id && 'text-faint'" title="A sub-issue is in its parent's chunk">{{ chunk.title }}</NuxtLink>
-      <NuxtLink v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" class="shrink-0 rounded p-1 text-faint hover:bg-hover hover:text-fg" title="Open the chunk" aria-label="Open the chunk">
+      <UiButton v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" variant="ghost" size="xs" square class="shrink-0" title="Open the chunk" aria-label="Open the chunk">
         <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
-      </NuxtLink>
+      </UiButton>
     </dd>
 
     <template v-if="project.releases.length || issue.release">
@@ -156,10 +155,11 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         <PropertyPicker v-model="release" :options="releaseOptions" label="Release" :disabled="saving">
           <span class="truncate font-mono text-xs" :class="!issue.release && 'font-sans text-faint'">{{ issue.release ?? 'No release' }}</span>
         </PropertyPicker>
-        <NuxtLink v-if="issue.release" :to="releasePath(project.id, issue.release)" class="shrink-0 rounded p-1 text-faint hover:bg-hover hover:text-fg" title="Open the release" aria-label="Open the release">
+        <UiButton v-if="issue.release" :to="releasePath(project.id, issue.release)" variant="ghost" size="xs" square class="shrink-0" title="Open the release" aria-label="Open the release">
           <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
-        </NuxtLink>
+        </UiButton>
       </dd>
+      <dd v-if="frozen" class="col-start-2 -mt-1 text-xs text-faint">Frozen: fixes, tests and docs. A new feature fits the next release.</dd>
     </template>
 
     <template v-if="hasSubs">

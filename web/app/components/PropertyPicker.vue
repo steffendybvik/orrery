@@ -2,6 +2,7 @@
 // A property as a button with a menu to type in: the options narrow as you type, ↑↓ choose, ↵ picks,
 // Esc closes. One value (a status, a chunk) closes on a pick; `multiple` (labels) toggles and stays open.
 // `creatable` offers what was typed when nothing has that name (a new label, someone not assigned yet).
+// `field` draws the button as a text field, sized to what it shows, for a row of them in a form (New issue).
 export interface PickerOption { value: string, label: string }
 
 const props = defineProps<{
@@ -15,6 +16,10 @@ const props = defineProps<{
     disabled?: boolean
     /** Opens above the button, as in a bar at the bottom of the page. */
     up?: boolean
+    /** Its menu as wide as the button (at least the usual), for long options such as issue titles. */
+    wide?: boolean
+    /** A boxed button, as a field in a form, rather than a property's row. */
+    field?: boolean
 }>()
 const model = defineModel<string | string[]>({required: true})
 
@@ -74,9 +79,7 @@ function onKey(event: KeyboardEvent) {
     event.stopPropagation()
 }
 
-function onOutside(event: PointerEvent) {
-    if (!root.value?.contains(event.target as Node)) close(false)
-}
+useDismiss(root, () => open.value, () => close(false))
 
 watch(query, () => active.value = 0)
 watch(open, isOpen => {
@@ -84,18 +87,18 @@ watch(open, isOpen => {
     // Opens on what's picked, so ↵ straight away keeps it.
     active.value = Math.max(0, props.options.findIndex(o => picked(o.value)))
     if (isOpen) nextTick(() => input.value?.focus())
-    isOpen ? document.addEventListener('pointerdown', onOutside) : document.removeEventListener('pointerdown', onOutside)
 })
 watch(active, index => nextTick(() => list.value?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({block: 'nearest'})))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 </script>
 
 <template>
-  <div ref="root" class="relative min-w-0 flex-1">
+  <div ref="root" class="relative min-w-0" :class="!field && 'flex-1'">
     <button
         ref="trigger"
         type="button"
-        class="-ml-1.5 flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[13px] text-fg hover:bg-hover focus:bg-hover focus:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+        :class="field
+          ? 'flex h-8 max-w-56 min-w-0 items-center gap-2 field pr-2 text-left disabled:cursor-default'
+          : '-ml-1.5 flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[13px] text-fg hover:bg-hover focus:bg-hover focus:outline-none disabled:cursor-default disabled:hover:bg-transparent'"
         :disabled="disabled"
         :aria-label="label"
         aria-haspopup="listbox"
@@ -104,8 +107,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
         @keydown.down.prevent="open = true"
     >
       <slot />
+      <svg v-if="field" class="ml-auto size-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
     </button>
-    <div v-if="open" class="glass absolute left-0 z-40 w-60 animate-fade-up rounded-xl p-1" :class="up ? 'bottom-full mb-1' : 'top-full mt-1'" @keydown="onKey">
+    <div v-if="open" class="glass absolute left-0 z-40 animate-fade-up rounded-xl p-1" :class="[up ? 'bottom-full mb-1' : 'top-full mt-1', wide ? 'right-0 min-w-60' : 'w-60']" @keydown="onKey">
       <input
           ref="input"
           v-model="query"

@@ -64,13 +64,13 @@ onMounted(() => {
       <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
       <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
       <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">Couldn't {{ comment ? 'save' : 'post' }}. Is Orrery running?</span>
-      <button v-if="comment" type="button" class="ml-auto h-7 rounded-md px-2.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="posting" @click="emit('cancel')">Cancel <KeyHint>esc</KeyHint></button>
-      <button
+      <UiButton v-if="comment" class="ml-auto" :disabled="posting" @click="emit('cancel')">Cancel <KeyHint>esc</KeyHint></UiButton>
+      <UiButton
           type="submit"
-          class="h-7 rounded-md bg-accent-500 px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          variant="primary"
           :class="!comment && 'ml-auto'"
           :disabled="!body.trim() || posting || !!uploading"
-      >{{ comment ? posting ? 'Saving…' : 'Save' : posting ? 'Posting…' : 'Comment' }}</button>
+      >{{ comment ? posting ? 'Saving…' : 'Save' : posting ? 'Posting…' : 'Comment' }}</UiButton>
     </div>
   </form>
 </template>

@@ -97,15 +97,15 @@ const putUpAgain = () => send('', 'PATCH', {proposal: 'pending'})
           class="min-h-14 resize-y rounded-lg bg-panel px-2.5 py-2 text-[13px] leading-relaxed text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
       />
       <div class="flex flex-wrap items-center gap-2">
-        <button type="button" class="h-8 rounded-lg bg-emerald-600 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="busy" @click="decide('approved')">Approve</button>
-        <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-fg ring-1 ring-line hover:bg-hover disabled:opacity-40" :disabled="busy" @click="decide('changes')">Request changes</button>
-        <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-rose-600 ring-1 ring-rose-500/40 hover:bg-rose-500/10 disabled:opacity-40 dark:text-rose-400" :disabled="busy" @click="decide('rejected')">Reject</button>
-        <button v-if="reopened" type="button" class="h-8 rounded-lg px-2 text-[13px] text-faint hover:text-fg" @click="reopened = false">Cancel</button>
+        <UiButton variant="success" size="md" :disabled="busy" @click="decide('approved')">Approve</UiButton>
+        <UiButton size="md" :disabled="busy" @click="decide('changes')">Request changes</UiButton>
+        <UiButton variant="danger-outline" size="md" :disabled="busy" @click="decide('rejected')">Reject</UiButton>
+        <UiButton v-if="reopened" variant="ghost" size="md" @click="reopened = false">Cancel</UiButton>
       </div>
     </template>
     <div v-else class="flex flex-wrap items-center gap-2">
-      <button v-if="approved" type="button" class="h-8 rounded-lg px-2 text-[13px] text-faint hover:text-fg disabled:opacity-40" :disabled="busy" title="Take it off the roadmap and back to Proposed, to decide again" @click="putUpAgain">Put it up again</button>
-      <button v-else type="button" class="h-8 rounded-lg px-2 text-[13px] text-faint hover:text-fg" @click="reopened = true">Change decision</button>
+      <UiButton v-if="approved" variant="ghost" size="md" :disabled="busy" title="Take it off the roadmap and back to Proposed, to decide again" @click="putUpAgain">Put it up again</UiButton>
+      <UiButton v-else variant="ghost" size="md" @click="reopened = true">Change decision</UiButton>
     </div>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
   </section>

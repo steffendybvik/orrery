@@ -3,16 +3,22 @@ import type {Session, SessionWork} from '#shared/roadmap'
 
 // One Claude session on the Sessions page: what it's doing and since when, whether it can hear signals, where it
 // runs, the issues it's on (`work`, on `project`) and what it was last sent. One Orrery started has its time left,
-// Watch, +30 min and Stop; any other with its channel running, a Stop that ends it through the channel. A listening
-// one takes a message. `lit` marks the one a link pointed at.
-defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean}>()
+// Watch, +30 min and Stop, and its screen to view live; any other with its channel running, a Stop that ends it through
+// the channel. A listening one takes a message, and one that hears other projects too says which. `lit` marks the one a
+// link pointed at.
+const props = defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean}>()
 const {who} = useOwner()
+const {projects} = useRoadmaps()
+/** The other projects it hears, beside the one it's listed under, by name. */
+const elsewhere = computed(() => [props.session.project, ...props.session.also ?? []]
+    .filter(id => id !== props.project).map(id => projects.value.find(p => p.id === id)?.name ?? id))
+const viewing = ref(false)
 
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
     : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message: ${s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
     : s.issue ? `${who(s.created_by)}: focus on ${s.issue}` : `${who(s.created_by)}: work through chunk ${s.chunk}`
-/** The command that starts the window again with the channel, keeping its name unless it was made up. */
-const restart = (session: Session) => `${session.name.startsWith(`${session.project} `) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${session.project}`
+const {environment} = useRuntimeConfig().public
+const restart = (session: Session) => restartCommand(session, String(environment || 'personal'))
 </script>
 
 <template>
@@ -28,6 +34,7 @@ const restart = (session: Session) => `${session.name.startsWith(`${session.proj
         {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
       </span>
       <span v-if="session.listening" class="text-xs text-emerald-600 dark:text-emerald-400">listening</span>
+      <span v-if="elsewhere.length" class="text-xs text-faint" :title="`One session: it hears ${elsewhere.join(', ')} too`">also on {{ elsewhere.join(', ') }}</span>
       <span v-else class="flex items-center gap-1.5 text-xs text-faint" :title="`${session.name} was started without the channel, so a signal can't reach it`">
         can't hear signals
         <CopyButton :text="restart(session)" label="Restart command" />
@@ -38,7 +45,9 @@ const restart = (session: Session) => `${session.name.startsWith(`${session.proj
     <p class="text-xs text-faint">
       Up since {{ ago(session.started_at) }}<template v-if="session.cwd"> · in <span class="font-mono">{{ session.cwd }}</span></template>
       <template v-if="session.started?.context"> · with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></template>
+      <template v-if="session.started"> · <button type="button" class="text-muted underline-offset-2 hover:text-fg hover:underline" :aria-expanded="viewing" @click="viewing = !viewing">{{ viewing ? 'Hide screen' : 'Show screen' }}</button></template>
     </p>
+    <SessionScreen v-if="viewing && session.started" :session="session" />
     <SessionMessage v-if="session.listening" :session="session" :project="project" />
 
     <div v-if="work?.issues.length || work?.signals.length" class="grid gap-4 border-t border-line pt-3 sm:grid-cols-2">

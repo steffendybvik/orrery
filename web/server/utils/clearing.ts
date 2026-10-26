@@ -1,7 +1,8 @@
 // Sessions Orrery started get a fresh context between pieces of work: once one goes idle with nothing in progress
 // and nothing waiting for it, its launcher types `/clear` into it. The process, its tmux session and its channel
 // stay. Its hooks' SessionStart brief then hands the fresh context what's left: the issues in progress, and the
-// rest of a chunk or scope it was asked to work through (its run).
+// rest of a chunk or scope it was asked to work through (its run). A brief starts no turn, so when some of the run
+// is left, a focus on the rest goes to the session alone once it's back (`resumeRun`), and it carries on.
 import type {Signal} from '#shared/roadmap'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
@@ -11,9 +12,36 @@ export const CLEAR_AFTER = 5000
 /** The last chunk or scope focus each session was handed, by the id it had then. */
 const runs = new Map<string, Signal>()
 
-/** A chunk or scope focus reaching the session: what's left of it is its run until another comes. */
+/** What was left of each run when it was last resumed: its open issues, each with its status and last change. */
+const resumed = new WeakMap<Signal, string>()
+
+/** A chunk or scope focus reaching the session: what's left of it is its run until another comes. A focus on one
+ * issue ends the run: the owner pointed it elsewhere. Runs of sessions that are gone are let go. */
 export function startRun(session: string, signal: Signal) {
-    if (signal.kind === 'focus' && !signal.issue && signal.chunk) runs.set(session, signal)
+    for (const id of runs.keys()) {
+        if (!sessionNow(currentId(id))) runs.delete(id)
+    }
+    if (signal.kind !== 'focus') return
+    if (!signal.issue && signal.chunk) runs.set(session, signal)
+    else if (signal.issue) sessionIds(currentId(session)).forEach(id => runs.delete(id))
+}
+
+/** The session Orrery started is back from a `/clear`: if its run has issues left, a focus on them goes to it
+ * alone, as the run's was sent (by whom, the statuses and release), so a new turn starts. Says if it sent one.
+ * Not when nothing left has changed since the last time: a session that won't take any of it (blocked, or waiting
+ * on the owner) would otherwise be cleared and sent it again every few seconds. */
+export async function resumeRun(project: string, session: string): Promise<boolean> {
+    const run = runOf(session)
+    if (!run || run.project !== project || !run.chunk || !sessionNow(session)?.started) return false
+    const store = useStore()
+    const {open} = await scopeOf(store, project, run)
+    if (!open.length) return false
+    const left = open.map(t => `${t.id} ${t.column} ${t.updated_at}`).join('\n')
+    if (resumed.get(run) === left) return false
+    resumed.set(run, left)
+    await store.focusChunk(project, run.chunk, {session, status: run.status ?? null, release: run.release ?? null, note: "Carry on with what's left of it after the clear."},
+        {name: run.created_by, owner: run.protected})
+    return true
 }
 
 /** The session's run, by any id it has gone by. */

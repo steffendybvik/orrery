@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Issue} from '#shared/roadmap'
+import type {Issue, Session} from '#shared/roadmap'
 
 // Every project with its progress and how many issues are started; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
@@ -57,13 +57,17 @@ function onDragEnd() {
 const {isOpen, set: setFolds, toggle} = useProjectFolds()
 const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p => isOpen(p.id)))
 
-// Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged.
+// Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged. One that hears
+// several projects is listed once, under its own, with the others in its tooltip.
 const {open: startSession} = useStartSession()
 /** Whether any project lets Orrery start sessions, so Start session has somewhere to go. */
 const canStart = computed(() => ordered.value.some(p => p.starts))
 const allSessions = computed(() => ordered.value
-    .flatMap(project => (sessions.value[project.id] ?? []).map(session => ({session, project})))
+    .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id).map(session => ({session, project})))
     .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))
+
+/** The other projects a session hears, by name. */
+const alsoNames = (session: Session) => (session.also ?? []).map(id => projects.value.find(p => p.id === id)?.name ?? id)
 
 function nudge(id: string, by: number, event: KeyboardEvent) {
     const from = ordered.value.findIndex(p => p.id === id)
@@ -94,9 +98,9 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </span>
         {{ LIVE[live] }}
       </span>
-      <button type="button" class="-mr-1 grid size-8 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg md:hidden" aria-label="Close the menu" @click="open = false">
+      <UiButton variant="ghost" size="md" square class="-mr-1 md:hidden" aria-label="Close the menu" @click="open = false">
         <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-      </button>
+      </UiButton>
     </div>
 
     <div class="px-2 pb-2">
@@ -253,7 +257,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             :key="session.id"
             :to="`/sessions?project=${project.id}#session-${session.id}`"
             class="flex items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
-            :title="session.cwd ? `${project.name} · ${session.cwd}` : project.name"
+            :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd].filter(Boolean).join(' · ')"
         >
           <SessionDot :session="session" />
           <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>

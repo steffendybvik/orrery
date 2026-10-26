@@ -7,6 +7,7 @@ useHead({title: 'Now · Orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {matches, active} = useFilters()
+const gettingStarted = useGettingStarted()
 
 const groups = computed(() => ordered.value.map(project => {
     const issues = project.board.chunks.flatMap(chunk => chunk.tasks
@@ -33,6 +34,7 @@ const count = (issues: {issue: Issue}[]) => issues.length
   <div class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <template v-else>
+      <GettingStarted v-if="!gettingStarted.finished.value && !gettingStarted.hidden.value" card class="m-3 md:m-4" />
       <section v-for="group in groups" :key="group.project.id">
         <NuxtLink :to="`/p/${group.project.id}`" class="sticky top-0 z-10 flex h-9 items-center gap-2.5 border-b border-line bg-panel/90 px-3 backdrop-blur hover:bg-hover">
           <ProgressRing :kinds="group.project.board.kinds" bare :size="14" />

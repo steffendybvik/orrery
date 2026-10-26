@@ -9,7 +9,7 @@ import type {LaunchState} from '~/composables/useLaunchState'
 // and your own words, which go with every signal to it. Their launchers start them in tmux, for each project's
 // minutes or until stopped; the Sessions page shows them arriving.
 const {target, close} = useStartSession()
-const {launchers, sessions} = useRoadmaps()
+const {launchers, sessions, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {load} = useOwner()
 const {places} = useStatuses()
@@ -45,7 +45,7 @@ watch(target, now => {
     picked.value = []
     statuses.value = open.value.filter(p => p.kind === 'todo' || p.kind === 'started').map(p => p.id)
     loadStates()
-})
+}, {immediate: true})
 // Asked again as launchers come and go and sessions start, while it's open.
 watch([launchers, sessions], () => target.value && loadStates())
 watch(chosen, () => {
@@ -62,7 +62,7 @@ async function loadPresets() {
     presets.value = lists.flat()
     picked.value = picked.value.filter(id => presets.value.some(p => p.id === id))
 }
-const projectName = (id: string) => ordered.value.find(p => p.id === id)?.name ?? id
+const projectName = (id: string) => byId(id)?.name ?? id
 
 function pick(id: number) {
     picked.value = picked.value.includes(id) ? picked.value.filter(p => p !== id) : [...picked.value, id]
@@ -89,16 +89,21 @@ const releases = computed(() => {
     return lists.length ? lists.reduce((all, list) => all.filter(v => list.includes(v))) : []
 })
 const scoped = computed(() => !issue.value && (statuses.value.length > 0 || !!release.value))
+// For the pickers, which find as you type, as on an issue's page.
+const issueOptions = computed(() => [{value: '', label: "No one issue: it works through what's below"}, ...openIssues.value.map(i => ({value: i.id, label: `${i.id} · ${i.title}`}))])
+const issueLabel = computed(() => issueOptions.value.find(o => o.value === issue.value)?.label)
+const releaseOptions = computed(() => [{value: '', label: 'Any release'}, ...releases.value.map(v => ({value: v, label: `Release ${v}`}))])
 
 /** The project's issues a session started now would work through, as the server picks them: every chunk's,
- * or with a release those set for it at any depth, of the ticked statuses (or every open one). */
+ * or with a release those set for it at any depth, of the ticked statuses (or, with none, the open work that's ready:
+ * Todo and In progress, as the server's `SCOPE_STATUSES`). */
 function scopeOf(project: Project): Issue[] {
     const tasks: Issue[] = []
     const pick = (issues: Issue[]) => issues.forEach(t => t.release === release.value ? tasks.push(t) : pick(t.tasks))
     const top = project.board.chunks.flatMap(c => c.tasks)
     if (release.value) pick(top)
     else tasks.push(...top)
-    return tasks.filter(t => statuses.value.length ? statuses.value.includes(t.column) : t.kind !== 'proposed' && !isClosed(t.kind))
+    return tasks.filter(t => statuses.value.length ? statuses.value.includes(t.column) : t.kind === 'todo' || t.kind === 'started')
 }
 
 const ready = computed(() => projects.value.length > 0 && projects.value.every(p => !why(p) && !!states.value[p.id]) && !busy.value)
@@ -141,107 +146,101 @@ async function start() {
     if (first) router.push({path: '/sessions', query: {project: first}})
 }
 
-const field = 'h-8 w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
+const field = 'h-8 w-full field'
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="target" class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[12vh] backdrop-blur-[2px]" @pointerdown.self="close">
-      <form class="glass flex max-h-[76vh] w-full max-w-lg animate-fade-up flex-col gap-3 rounded-2xl p-5" role="dialog" aria-label="Start session" @submit.prevent="start" @keydown.esc.stop="close" @keydown.meta.enter.prevent="start" @keydown.ctrl.enter.prevent="start">
-        <div class="flex items-center gap-2 text-xs text-faint">
-          <span>Start a Claude session</span>
-          <KeyHint class="ml-auto">esc</KeyHint>
-        </div>
-
-        <div class="flex min-h-0 flex-col gap-1">
-          <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· a session each</span></span>
-          <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto" role="group" aria-label="Projects">
-            <label
-                v-for="p in ordered"
-                :key="p.id"
-                class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
-                :class="why(p) ? 'text-faint' : chosen.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'cursor-pointer text-muted hover:bg-hover hover:text-fg'"
-            >
-              <input v-model="chosen" type="checkbox" name="project" :value="p.id" :disabled="!!why(p)" class="accent-accent-500">
-              <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
-              <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
-              <span v-if="why(p)" class="shrink-0 text-xs">
-                {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/settings#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
-              </span>
-              <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
-                <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}
-              </span>
-            </label>
-          </div>
-        </div>
-
-        <label v-if="one" class="flex flex-col gap-1">
-          <span class="label px-1">Focus on (optional)</span>
-          <select v-model="issue" aria-label="Issue" :class="field">
-            <option value="">No one issue: it works through what's below</option>
-            <option v-for="i in openIssues" :key="i.id" :value="i.id">{{ i.id }} · {{ i.title }}</option>
-          </select>
-        </label>
-
-        <div v-if="projects.length && !issue" class="flex flex-col gap-1.5">
-          <span class="label px-1">Work through</span>
-          <div class="flex flex-wrap gap-1.5" role="group" aria-label="Statuses">
-            <button
-                v-for="s in open"
-                :key="s.id"
-                type="button"
-                :aria-pressed="statuses.includes(s.id)"
-                class="flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs ring-1"
-                :class="statuses.includes(s.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
-                @click="toggle(s.id)"
-            >
-              <StatusIcon :column="s.id" :size="12" />{{ s.label }}
-            </button>
-          </div>
-          <select v-if="releases.length" v-model="release" aria-label="Release" :class="field">
-            <option value="">Any release</option>
-            <option v-for="v in releases" :key="v" :value="v">Release {{ v }}</option>
-          </select>
-          <p class="px-1 text-xs text-faint">
-            {{ scoped ? 'It works through these issues, most urgent first, one at a time.' : 'Nothing ticked: it waits for your work.' }}
-          </p>
-        </div>
-
-        <div v-if="projects.length" class="flex flex-col gap-1.5">
-          <span class="label px-1">Context <span class="font-normal normal-case text-faint">· optional, goes with every signal to it</span></span>
-          <div v-if="presets.length" class="flex flex-wrap gap-1.5" role="group" aria-label="Presets">
-            <button
-                v-for="p in presets"
-                :key="p.id"
-                type="button"
-                :aria-pressed="picked.includes(p.id)"
-                :title="p.text"
-                class="flex h-7 items-center gap-1 rounded-full px-2.5 text-xs ring-1"
-                :class="picked.includes(p.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
-                @click="pick(p.id)"
-            >
-              {{ p.name }}<span v-if="p.project && projects.length > 1" class="text-faint">· {{ projectName(p.project) }}</span>
-            </button>
-          </div>
-          <textarea
-              v-model="instructions"
-              rows="2"
-              aria-label="Your own instructions"
-              placeholder="Anything else it should know, e.g. run the e2e suite before you finish"
-              class="w-full rounded-lg bg-well px-2.5 py-2 text-[13px] leading-5 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
-          />
-          <p v-if="!presets.length" class="px-1 text-xs text-faint">
-            Context you give often can be saved as a preset on <NuxtLink to="/settings#presets" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">App settings</NuxtLink>.
-          </p>
-        </div>
-
-        <div class="flex items-center gap-2 border-t border-line pt-3">
-          <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-          <button type="submit" class="ml-auto flex h-8 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="!ready">
-            {{ busy ? 'Starting…' : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-          </button>
-        </div>
-      </form>
+  <UiDialog :open="target" label="Start session" class="max-h-[76vh]" @close="close" @submit="start">
+    <div class="flex items-center gap-2 text-xs text-faint">
+      <span>Start a Claude session</span>
+      <KeyHint class="ml-auto">esc</KeyHint>
     </div>
-  </Teleport>
+
+    <div class="flex min-h-0 flex-col gap-1">
+      <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· a session each</span></span>
+      <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto" role="group" aria-label="Projects">
+        <label
+            v-for="p in ordered"
+            :key="p.id"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
+            :class="why(p) ? 'text-faint' : chosen.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'cursor-pointer text-muted hover:bg-hover hover:text-fg'"
+        >
+          <input v-model="chosen" type="checkbox" name="project" :value="p.id" :disabled="!!why(p)" class="accent-accent-500">
+          <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
+          <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
+          <span v-if="why(p)" class="shrink-0 text-xs">
+            {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/sessions#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
+          </span>
+          <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
+            <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div v-if="one" class="flex flex-col gap-1">
+      <span class="label px-1">Focus on (optional)</span>
+      <PropertyPicker v-model="issue" :options="issueOptions" label="Issue" placeholder="Find an issue by id or title…" wide>
+        <span class="truncate" :class="!issue && 'text-faint'">{{ issueLabel }}</span>
+      </PropertyPicker>
+    </div>
+
+    <div v-if="projects.length && !issue" class="flex flex-col gap-1.5">
+      <span class="label px-1">Work through</span>
+      <div class="flex flex-wrap gap-1.5" role="group" aria-label="Statuses">
+        <button
+            v-for="s in open"
+            :key="s.id"
+            type="button"
+            :aria-pressed="statuses.includes(s.id)"
+            class="flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs ring-1"
+            :class="statuses.includes(s.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
+            @click="toggle(s.id)"
+        >
+          <StatusIcon :column="s.id" :size="12" />{{ s.label }}
+        </button>
+      </div>
+      <PropertyPicker v-if="releases.length" v-model="release" :options="releaseOptions" label="Release">
+        <span class="truncate" :class="!release && 'text-faint'">{{ release ? `Release ${release}` : 'Any release' }}</span>
+      </PropertyPicker>
+      <p class="px-1 text-xs text-faint">
+        {{ scoped ? 'It works through these issues, most urgent first, one at a time.' : 'Nothing ticked: it waits for your work.' }}
+      </p>
+    </div>
+
+    <div v-if="projects.length" class="flex flex-col gap-1.5">
+      <span class="label px-1">Context <span class="font-normal normal-case text-faint">· optional, goes with every signal to it</span></span>
+      <div v-if="presets.length" class="flex flex-wrap gap-1.5" role="group" aria-label="Presets">
+        <button
+            v-for="p in presets"
+            :key="p.id"
+            type="button"
+            :aria-pressed="picked.includes(p.id)"
+            :title="p.text"
+            class="flex h-7 items-center gap-1 rounded-full px-2.5 text-xs ring-1"
+            :class="picked.includes(p.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
+            @click="pick(p.id)"
+        >
+          {{ p.name }}<span v-if="p.project && projects.length > 1" class="text-faint">· {{ projectName(p.project) }}</span>
+        </button>
+      </div>
+      <textarea
+          v-model="instructions"
+          rows="2"
+          aria-label="Your own instructions"
+          placeholder="Anything else it should know, e.g. run the e2e suite before you finish"
+          class="w-full field py-2 leading-5"
+      />
+      <p v-if="!presets.length" class="px-1 text-xs text-faint">
+        Context you give often can be saved as a preset under <NuxtLink to="/sessions#presets" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">Presets</NuxtLink> on the Sessions page.
+      </p>
+    </div>
+
+    <div class="flex items-center gap-2 border-t border-line pt-3">
+      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
+        {{ busy ? 'Starting…' : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+      </UiButton>
+    </div>
+  </UiDialog>
 </template>

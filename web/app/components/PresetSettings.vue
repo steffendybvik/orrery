@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Preset, Project} from '#shared/roadmap'
 
-// Presets: saved pieces of context to give a session as you start it, each a name and its text. On App settings
+// Presets: saved pieces of context to give a session as you start it, each a name and its text. On the Sessions page
 // they're the Orrery's, for sessions on any project; with `project`, that project's own. Edited in place (saved
 // on leaving the field), added and removed.
 const props = defineProps<{project?: Project}>()
@@ -41,8 +41,8 @@ function change(preset: Preset, key: 'name' | 'text', event: Event) {
 }
 const remove = (preset: Preset) => write(`/api/presets/${preset.id}`, 'DELETE')
 
-const line = 'h-8 min-w-0 flex-1 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
-const area = 'w-full rounded-lg bg-well px-2.5 py-2 text-[13px] leading-5 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
+const line = 'h-8 min-w-0 flex-1 field'
+const area = 'w-full field py-2 leading-5'
 </script>
 
 <template>
@@ -51,9 +51,9 @@ const area = 'w-full rounded-lg bg-well px-2.5 py-2 text-[13px] leading-5 text-f
       <li v-for="p in presets" :key="p.id" class="flex flex-col gap-1.5">
         <div class="flex items-center gap-2">
           <input :value="p.name" :class="line" aria-label="Preset name" @blur="change(p, 'name', $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
-          <button type="button" class="grid size-7 shrink-0 place-items-center rounded-md text-faint hover:bg-hover hover:text-rose-600" :aria-label="`Remove ${p.name}`" @click="remove(p)">
+          <UiButton variant="danger-ghost" square class="shrink-0" :aria-label="`Remove ${p.name}`" @click="remove(p)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-          </button>
+          </UiButton>
         </div>
         <textarea :value="p.text" rows="3" :class="area" :aria-label="`What ${p.name} tells a session`" @blur="change(p, 'text', $event)" />
       </li>
@@ -69,7 +69,7 @@ const area = 'w-full rounded-lg bg-well px-2.5 py-2 text-[13px] leading-5 text-f
           @keydown.meta.enter.prevent="add"
           @keydown.ctrl.enter.prevent="add"
       />
-      <button type="submit" class="h-8 self-end rounded-lg px-3 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="!adding.name.trim() || !adding.text.trim()">Add preset</button>
+      <UiButton type="submit" size="md" class="self-end" :disabled="!adding.name.trim() || !adding.text.trim()">Add preset</UiButton>
     </form>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
   </div>

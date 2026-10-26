@@ -226,6 +226,30 @@ describe('a session Orrery started', () => {
         expect(sent).toEqual([{type: 'watch', project: 'larder', id: 'abc', terminal: 'warp'}])
     })
 
+    it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {
+        expect(() => launches.viewLaunch('larder', 'abc')).toThrow('No session started for launch abc')
+        session = {started: {launch: 'abc', tmux: 'orrery-larder-abc'}}
+        expect(() => launches.viewLaunch('larder', 'abc')).toThrow('attach by hand with tmux attach -t orrery-larder-abc')
+        launches.addLauncher('larder')
+        expect(launches.viewLaunch('larder', 'abc', 1000)).toEqual({screen: null})
+        // Asked once, not on every poll while the first screen is on its way.
+        expect(launches.viewLaunch('larder', 'abc', 2000)).toEqual({screen: null})
+        expect(sent).toEqual([{type: 'view', project: 'larder', id: 'abc'}])
+        expect(launches.keepScreen('larder', 'abc', '> working', 2500)).toEqual({watching: true})
+        expect(launches.viewLaunch('larder', 'abc', 3000)).toEqual({screen: '> working', at: new Date(2500).toISOString()})
+        // The launcher stopped sending: a stale screen is asked for again.
+        expect(launches.viewLaunch('larder', 'abc', 7000).screen).toBe('> working')
+        expect(sent).toHaveLength(2)
+        // Nobody viewing: the launcher stops, and the screen isn't kept.
+        expect(launches.keepScreen('larder', 'abc', '> done', 7000 + launches.VIEW_FOR)).toEqual({watching: false})
+        launches.launchGone('abc')
+        expect(launches.viewLaunch('larder', 'abc', 20_000)).toEqual({screen: null})
+    })
+
+    it('keeps no screen for a launch it has no session for', () => {
+        expect(launches.keepScreen('larder', 'abc', 'anything')).toEqual({watching: false})
+    })
+
     it('is stopped, or given longer from when it would have stopped, through its launcher', () => {
         expect(() => launches.stopLaunch('larder', 'abc')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T10:00:00.000Z'}}

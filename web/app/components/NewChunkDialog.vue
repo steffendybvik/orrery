@@ -19,7 +19,7 @@ watch(target, now => {
     if (!now) return
     title.value = summary.value = failed.value = ''
     nextTick(() => titleInput.value?.focus())
-})
+}, {immediate: true})
 
 const ready = computed(() => !!title.value.trim() && !saving.value)
 
@@ -45,28 +45,24 @@ async function create() {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="target" class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[12vh] backdrop-blur-[2px]" @pointerdown.self="close">
-      <form class="glass flex w-full max-w-lg animate-fade-up flex-col gap-3 rounded-2xl p-5" role="dialog" aria-label="New chunk" @submit.prevent="create" @keydown.esc.stop="close" @keydown.meta.enter.prevent="create" @keydown.ctrl.enter.prevent="create">
-        <div class="flex items-center gap-2 text-xs text-faint">
-          <span>New chunk<template v-if="project"> in {{ project.name }}</template></span>
-          <KeyHint class="ml-auto">esc</KeyHint>
-        </div>
-        <input ref="titleInput" v-model="title" placeholder="Chunk title, e.g. Moving parts" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
-        <textarea
-            v-model="summary"
-            rows="3"
-            placeholder="What it's for, in Markdown (optional)"
-            aria-label="Summary"
-            class="field-sizing-content min-h-16 resize-none bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
-        />
-        <div class="flex items-center gap-2 border-t border-line pt-3">
-          <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-          <button type="submit" class="ml-auto flex h-8 items-center gap-2 rounded-lg bg-accent-500 px-3.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="!ready">
-            {{ saving ? 'Creating…' : 'Create chunk' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
-          </button>
-        </div>
-      </form>
+  <UiDialog :open="target" label="New chunk" @close="close" @submit="create">
+    <div class="flex items-center gap-2 text-xs text-faint">
+      <span>New chunk<template v-if="project"> in {{ project.name }}</template></span>
+      <KeyHint class="ml-auto">esc</KeyHint>
     </div>
-  </Teleport>
+    <input ref="titleInput" v-model="title" placeholder="Chunk title, e.g. Moving parts" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
+    <textarea
+        v-model="summary"
+        rows="3"
+        placeholder="What it's for, in Markdown (optional)"
+        aria-label="Summary"
+        class="field-sizing-content min-h-16 resize-none bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
+    />
+    <div class="flex items-center gap-2 border-t border-line pt-3">
+      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
+        {{ saving ? 'Creating…' : 'Create chunk' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+      </UiButton>
+    </div>
+  </UiDialog>
 </template>

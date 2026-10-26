@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import type {SessionWork} from '#shared/roadmap'
+import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). `?project=` keeps to one project; a project's old Sessions tab comes
 // here that way, and a sidebar row opens its session (`#session-<id>`), lit up for a moment. Start session starts
-// one on any project, and the guide says how Orrery starts them with no terminal.
+// one on any project. Above them, whether Orrery may start sessions and how it does; below, what sessions hear and the
+// presets to start one with.
 useHead({title: 'Sessions · Orrery'})
 const route = useRoute()
 const router = useRouter()
-const {projects, ready, sessions} = useRoadmaps()
+const {projects, ready, sessions, signals} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {open} = useStartSession()
 
@@ -18,15 +20,27 @@ const only = computed({
     set: id => router.replace({query: id ? {project: id} : {}, hash: route.hash}),
 })
 const shown = computed(() => ordered.value.filter(p => !only.value || p.id === only.value))
-// Each project with sessions; the one kept to shows even with none, to say so.
+// Each project with sessions; the one kept to shows even with none, to say so. A session that hears several projects
+// is listed once, under its own, unless the page keeps to one of the others: then it's found there.
 const groups = computed(() => shown.value
-    .map(project => ({project, sessions: sessions.value[project.id] ?? []}))
+    .map(project => ({project, sessions: (sessions.value[project.id] ?? []).filter(s => s.project === project.id || only.value === project.id)}))
     .filter(g => g.sessions.length || g.project.id === only.value))
 const count = computed(() => groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
-// What each session is on, by project, asked again whenever that project's sessions change.
+// The contents beside the page on a wide screen, as on App settings: the settings, and each project's sessions.
+const scroller = ref<HTMLElement | null>(null)
+const headings = computed<Heading[]>(() => [
+    {id: 'starts', text: 'Starting sessions', level: 2},
+    ...groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 3 as const})),
+    {id: 'hear', text: 'What sessions hear', level: 2},
+    {id: 'presets', text: 'Presets', level: 2},
+])
+
+// What each session is on, by project, asked again whenever that project's sessions change, or a signal to them is
+// sent or delivered (so Last sent keeps up).
 const work = ref<Record<string, Record<string, SessionWork>>>({})
-watch(() => groups.value.map(g => `${g.project.id}:${g.sessions.map(s => `${s.id}/${s.state}`).join(',')}`).join('|'), () => {
+const lastSignal = (project: string) => signals.value.find(s => s.project === project)
+watch(() => groups.value.map(g => `${g.project.id}:${g.sessions.map(s => `${s.id}/${s.state}`).join(',')}:${lastSignal(g.project.id)?.id ?? ''}/${lastSignal(g.project.id)?.delivered_to.length ?? 0}`).join('|'), () => {
     for (const {project, sessions: here} of groups.value) {
         if (!here.length) continue
         $fetch<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(project.id)}/sessions/work`)
@@ -61,23 +75,34 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     </select>
     <span class="truncate text-xs text-muted">{{ count ? `${count} ${count === 1 ? 'session' : 'sessions'}` : 'No sessions right now' }}</span>
     <template #end>
-      <button type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 whitespace-nowrap text-xs font-medium text-white hover:opacity-90" @click="open(only || undefined)">
+      <UiButton variant="primary" class="shrink-0" @click="open(only || undefined)">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         Start session
-      </button>
+      </UiButton>
     </template>
   </ViewToolbar>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
-    <div v-else class="mx-auto flex max-w-4xl animate-fade-up flex-col gap-6 px-4 py-6 sm:px-8">
-      <StartingSessionsGuide />
+    <div v-else class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-6 sm:px-8">
+    <div class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
+      <section id="starts" class="flex scroll-mt-14 flex-col gap-2">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
+          <p class="text-xs text-muted">
+            Orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
+            Start session. It does so for any project whose repo has its launcher installed.
+          </p>
+        </header>
+        <SessionStarts />
+        <StartingSessionsGuide />
+      </section>
       <p v-if="ready && !groups.length" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         No Claude sessions right now.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
         or open Claude in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
       </p>
-      <section v-for="group in groups" :key="group.project.id" class="flex flex-col gap-3">
+      <section v-for="group in groups" :id="`sessions-${group.project.id}`" :key="group.project.id" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <NuxtLink :to="`/p/${group.project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-600 dark:hover:text-accent-400">
             <ProjectIcon v-if="group.project.icon && heroicon(group.project.icon)" :icon="group.project.icon" :color="group.project.icon_color" class="size-3.5" />
@@ -102,6 +127,32 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
           to see it here.
         </p>
       </section>
+      <section id="hear" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
+          <p class="text-xs text-muted">
+            The message a Claude session gets when you ask it to focus on an issue or work through a chunk, for every project
+            (a project can have its own on its Settings tab). Sessions started before a change hear it once they restart.
+          </p>
+        </header>
+        <FocusPrompts />
+      </section>
+      <section id="presets" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
+          <p class="text-xs text-muted">
+            Saved context to give a session as you start it, for sessions on any project (a project can have its own on its
+            Settings tab). Tick any number in Start session; the session gets their text with every signal, and again after a clear.
+          </p>
+        </header>
+        <PresetSettings />
+      </section>
+    </div>
+    <aside class="hidden w-56 shrink-0 xl:block">
+      <div class="sticky top-6">
+        <DocContents :headings="headings" :root="scroller" />
+      </div>
+    </aside>
     </div>
   </div>
 </template>

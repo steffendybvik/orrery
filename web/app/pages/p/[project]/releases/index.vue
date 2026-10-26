@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {isFrozen} from '#shared/roadmap'
 // A project's releases, in the order they're arranged in: each with its branch, how far its issues are and whether it
 // shipped, opening its page. New release makes one from a version (and the branch its work gathers on).
 const route = useRoute()
@@ -124,25 +125,25 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
             Set an issue's release on its page.
           </p>
         </div>
-        <button v-if="!making && project.release_mode === 'own'" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium whitespace-nowrap text-white hover:opacity-90" @click="startMaking">
+        <UiButton v-if="!making && project.release_mode === 'own'" variant="primary" class="shrink-0" @click="startMaking">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
           New release
-        </button>
+        </UiButton>
       </header>
 
       <form v-if="making" class="flex flex-col gap-3 rounded-xl border border-line p-4" @submit.prevent="make" @keydown.esc="cancel">
         <div class="flex flex-wrap items-end gap-3">
           <label class="flex flex-col gap-1 text-xs text-muted">
             Version
-            <input ref="versionInput" v-model="version" placeholder="1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-44 rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
+            <input ref="versionInput" v-model="version" placeholder="1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-44 field font-mono">
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted">
             Branch its work gathers on
-            <input v-model="branch" placeholder="v1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-56 rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none" @input="branchTyped = true">
+            <input v-model="branch" placeholder="v1.0.0-rc.3" spellcheck="false" autocomplete="off" class="h-8 w-56 field font-mono" @input="branchTyped = true">
           </label>
           <div class="flex items-center gap-2">
-            <button type="submit" class="h-8 rounded-lg bg-accent-500 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="busy || !version.trim()">{{ busy ? 'Making…' : 'Make it' }}</button>
-            <button type="button" class="h-8 rounded-lg px-3 text-[13px] text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="cancel">Cancel</button>
+            <UiButton type="submit" variant="primary" size="md" :disabled="busy || !version.trim()">{{ busy ? 'Making…' : 'Make it' }}</UiButton>
+            <UiButton size="md" @click="cancel">Cancel</UiButton>
           </div>
         </div>
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
@@ -173,8 +174,9 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
             <span class="font-mono text-[14px] font-medium text-fg">{{ release.version }}</span>
             <span
                 class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-                :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
-            >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : 'Preparing' }}</span>
+                :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : isFrozen(release) ? 'text-amber-700 ring-amber-500/30 dark:text-amber-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
+                :title="isFrozen(release) ? 'Feature freeze: fixes, tests and docs; a new feature goes on the next release' : undefined"
+            >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : isFrozen(release) ? `Frozen ${release.frozen_on}` : 'Preparing' }}</span>
             <span v-if="release.branch" class="font-mono text-xs text-faint">{{ release.branch }}</span>
             <span class="ml-auto flex items-center gap-3 text-xs text-faint">
               <span>{{ release.issues }} {{ release.issues === 1 ? 'issue' : 'issues' }}</span>

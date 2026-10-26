@@ -5,7 +5,10 @@ import {expect, test} from '@playwright/test'
 // them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
 // issues starting on the open ones, what changed since the owner looked, and ticked issues changed
 // together; then a chunk made, edited and removed from its page, an image in a new issue and a comment,
-// and the owner editing and deleting their own comment; then a changed doc and what changed in it; then a release, and a project drawing on it.
+// and the owner editing and deleting their own comment; then a changed doc and what changed in it; then a release, and a project drawing on it;
+// then the session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
+// a session's card and a message to it alone, Focus on this starting one, a preset, a schedule, the bell, and the
+// pages that span projects.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -15,12 +18,28 @@ const api = (request: APIRequestContext, method: 'get' | 'post' | 'patch', path:
         return r.json()
     })
 
+/** A stream held open the way a channel or launcher holds it, keeping what arrives; `stop` lets it go. */
+function hold(baseURL: string, path: string) {
+    const controller = new AbortController()
+    const said = {text: ''}
+    fetch(`${baseURL}${path}`, {signal: controller.signal}).then(async response => {
+        const reader = response.body!.getReader()
+        for (;;) {
+            const {done, value} = await reader.read()
+            if (done) return
+            said.text += new TextDecoder().decode(value)
+        }
+    }).catch(() => {})
+    return {said, stop: () => controller.abort()}
+}
+
 async function newIssue(page: Page, title: string, where: string) {
     await page.goto('/p/larder')
     await page.getByRole('button', {name: 'New issue'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'New issue'})
     await dialog.getByLabel('Title').fill(title)
-    await dialog.getByLabel('Where').selectOption(where)
+    await dialog.getByRole('button', {name: 'Where'}).click()
+    await dialog.getByRole('option', {name: new RegExp(`^${where}\\b`, 'i')}).click()
     await dialog.getByRole('button', {name: /Create issue/}).click()
     await expect(dialog).toBeHidden()
 }
@@ -32,6 +51,10 @@ test('asks the owner their name on first open', async ({page, request}) => {
     await dialog.getByRole('button').last().click()
     await expect(dialog).toBeHidden()
     expect(await (await request.get('/api/owner')).json()).toMatchObject({name: 'ada_lovelace', named: true})
+    // A new Orrery opens on Getting started: the owner's step ticked, a project the one to do.
+    await expect(page.getByRole('heading', {name: 'Getting started'})).toBeVisible()
+    await expect(page.getByRole('progressbar', {name: 'Steps done'})).toHaveAttribute('aria-valuenow', '1')
+    await expect(page.getByRole('button', {name: 'Try it with a demo project'})).toBeVisible()
 })
 
 test('makes a project', async ({page}) => {
@@ -187,6 +210,39 @@ test('ticks issues and changes them together', async ({page, request}) => {
     await expect(bar.getByText('2 selected')).toBeHidden()
 })
 
+test('ticks a run by dragging over the ticks, and a whole group from its header', async ({page, request}) => {
+    const made = [await api(request, 'post', '/issues', {title: 'Wipe the shelves'}), await api(request, 'post', '/issues', {title: 'Toss the stale crackers'}), await api(request, 'post', '/issues', {title: 'Refill the salt'})]
+    await page.goto('/p/larder?view=list')
+    const tick = (id: string) => page.getByRole('checkbox', {name: `Select ${id}`})
+    const centres = await Promise.all(made.map(async ({id}) => {
+        const box = (await tick(id).boundingBox())!
+        return {x: box.x + box.width / 2, y: box.y + box.height / 2}
+    }))
+    const [top, bottom] = [centres.reduce((a, b) => a.y < b.y ? a : b), centres.reduce((a, b) => a.y > b.y ? a : b)]
+    // Pressing one tick and dragging over the others ticks them all, and doesn't open the one it's let go on.
+    await page.mouse.move(top.x, top.y)
+    await page.mouse.down()
+    await page.mouse.move(bottom.x, bottom.y, {steps: 8})
+    await page.mouse.up()
+    for (const {id} of made) await expect(tick(id)).toHaveAttribute('aria-checked', 'true')
+    await expect(page).toHaveURL(/\/p\/larder\?view=list$/)
+    const bar = page.getByRole('toolbar', {name: 'Change the ticked issues'})
+    await expect(bar.getByText(/Drag over the ticks/)).toBeVisible()
+    // Dragging back from a ticked one unticks them.
+    await page.mouse.move(bottom.x, bottom.y)
+    await page.mouse.down()
+    await page.mouse.move(top.x, top.y, {steps: 8})
+    await page.mouse.up()
+    for (const {id} of made) await expect(tick(id)).toHaveAttribute('aria-checked', 'false')
+    // A group's tick ticks every row in it, and a second click unticks them.
+    const group = page.getByRole('checkbox', {name: /^Select all in /}).first()
+    await group.click()
+    await expect(group).toHaveAttribute('aria-checked', 'true')
+    await expect(bar.getByText(/\d+ selected/)).toBeVisible()
+    await group.click()
+    await expect(bar).toBeHidden()
+})
+
 test('makes a chunk from the roadmap, renames it, gives it a summary and removes it', async ({page, request}) => {
     await page.goto('/p/larder/roadmap')
     await page.getByRole('button', {name: 'New chunk'}).first().click()
@@ -319,7 +375,8 @@ test('makes a release, sets an issue for it from its page, and drafts its change
     await expect.poll(async () => (await api(request, 'get', `/issues/${issue.id}`)).release).toBe('1.0.0')
 
     await page.getByRole('link', {name: 'Open the release'}).click()
-    await expect(page.getByText('Label the jars')).toBeVisible()
+    // Exact: the changelog draft, folded away but in the page once the release counts the issue, has its title too.
+    await expect(page.getByText('Label the jars', {exact: true})).toBeVisible()
     await page.getByText('Changelog draft').click()
     await expect(page.locator('pre', {hasText: `## 1.0.0 (unreleased)`})).toContainText(`- Label the jars (${issue.id})`)
     await page.getByRole('button', {name: 'Mark shipped today'}).click()
@@ -335,4 +392,153 @@ test("a project drawing on another's releases shows in its release, in a section
     await expect(page.getByRole('main').getByRole('link', {name: 'Pantry', exact: true})).toBeVisible()
     await expect(page.locator('[data-issue]', {hasText: 'Stock the shelves'})).toBeVisible()
     await expect(page.locator('[data-issue]', {hasText: 'Label the jars'})).toBeVisible()
+})
+
+const OWNER = {'Orrery-Actor': 'ada_lovelace'}
+
+test('lets Orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
+    await page.goto('/sessions#starts')
+    const starts = page.locator('#starts')
+    await starts.getByRole('checkbox', {name: 'Let Orrery start sessions'}).check()
+    await starts.getByLabel('Sessions at once').fill('2')
+    await starts.getByLabel('Sessions at once').blur()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2})
+    // A project shows it as its own.
+    expect((await api(request, 'get', '')).starts).toEqual({limit: 2})
+})
+
+test("shows a listening session on the Sessions page, and sends it a message only it hears", async ({page, request, baseURL}) => {
+    const hello = await request.post('/api/sessions', {data: {id: 'e2e-1', project: 'larder', event: 'UserPromptSubmit', name: 'larder shelves', cwd: '/code/larder'}})
+    expect(hello.ok(), await hello.text()).toBeTruthy()
+    const channel = hold(baseURL!, '/api/projects/larder/signals/stream?session=e2e-1&name=larder%20shelves&format=text')
+    try {
+        await page.goto('/sessions')
+        const card = page.locator('#session-e2e-1')
+        await expect(card).toContainText('larder shelves')
+        await expect(card.getByText('listening')).toBeVisible()
+        await card.getByLabel('Message larder shelves').fill('Use the oak hinges, not pine.')
+        await card.getByRole('button', {name: 'Send'}).click()
+        await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
+        await expect(card.getByText(/message: Use the oak hinges/)).toBeVisible()
+
+        // Kept to one project, and a project's old Sessions tab comes here.
+        await page.getByRole('combobox', {name: 'Project', exact: true}).selectOption('pantry')
+        await expect(page).toHaveURL(/\/sessions\?project=pantry/)
+        await expect(page.locator('#session-e2e-1')).toBeHidden()
+        await page.goto('/p/larder/sessions')
+        await expect(page).toHaveURL(/\/sessions\?project=larder/)
+        await expect(page.locator('#session-e2e-1')).toBeVisible()
+    } finally {
+        channel.stop()
+    }
+})
+
+test('lists a session that hears two projects once, under its own', async ({page, request, baseURL}) => {
+    const hello = await request.post('/api/sessions', {data: {id: 'e2e-2', project: 'larder', event: 'SessionStart', name: 'kitchen', cwd: '/code/kitchen'}})
+    expect(hello.ok(), await hello.text()).toBeTruthy()
+    const channels = ['larder', 'pantry'].map(p => hold(baseURL!, `/api/projects/${p}/signals/stream?session=e2e-2&name=kitchen&format=text`))
+    try {
+        await page.goto('/sessions')
+        await expect(page.locator('#session-e2e-2')).toHaveCount(1)
+        await expect(page.locator('#sessions-larder #session-e2e-2')).toContainText('also on Pantry')
+        // The sidebar lists it once too.
+        await expect(page.getByRole('link', {name: /kitchen/})).toHaveCount(1)
+        // Kept to the other project, it's found there.
+        await page.goto('/sessions?project=pantry')
+        await expect(page.locator('#sessions-pantry #session-e2e-2')).toContainText('also on Larder')
+    } finally {
+        for (const channel of channels) channel.stop()
+    }
+})
+
+test('with nobody listening and a launcher there, Focus on this starts a session', async ({page, request, baseURL}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Oil the hinges', status: 'todo'})
+    // The session from before has gone: nobody listens on larder now.
+    await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {listening: boolean}) => s.listening)).toBe(false)
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await page.goto(`/p/larder/issues/${issue.id}`)
+        await page.getByRole('button', {name: 'Focus on this (starts a session)'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: launch')
+    } finally {
+        launcher.stop()
+    }
+})
+
+test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {
+    await page.goto('/sessions#presets')
+    await page.getByLabel('New preset name').fill('Review')
+    await page.getByLabel('New preset text').fill("You're reviewing: read the diff and comment, don't change code.")
+    await page.getByRole('button', {name: 'Add preset'}).click()
+    await expect(page.getByLabel('Preset name', {exact: true})).toHaveValue('Review')
+    await page.goto('/sessions')
+    await page.getByRole('button', {name: 'Start session'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'Start session'})
+    await expect(dialog).toBeVisible()
+    // No launcher is running now, so larder can't be picked; the reason says so.
+    await expect(dialog.getByRole('group', {name: 'Projects'})).toContainText('No launcher running')
+    await page.keyboard.press('Escape')
+})
+
+test('makes a schedule, keeps to its project, pauses and removes it', async ({page, request}) => {
+    await page.goto('/schedules?project=larder')
+    await page.getByRole('button', {name: 'New schedule'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await dialog.getByLabel('Title').fill('Groom the backlog')
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    await expect(dialog).toBeHidden()
+    const row = page.getByRole('button', {name: /Groom the backlog/}).first()
+    await expect(row).toBeVisible()
+    const [made] = await api(request, 'get', '/schedules')
+    expect(made).toMatchObject({title: 'Groom the backlog', enabled: true})
+
+    await page.getByRole('button', {name: 'Pause Groom the backlog', exact: true}).click()
+    await expect.poll(async () => (await api(request, 'get', '/schedules'))[0].enabled).toBe(false)
+    // Kept to another project, it isn't there; the old tab comes here kept to larder.
+    await page.getByRole('combobox', {name: 'Project', exact: true}).selectOption('pantry')
+    await expect(page.getByText('Groom the backlog')).toBeHidden()
+    await page.goto('/p/larder/schedules')
+    await expect(page).toHaveURL(/\/schedules\?project=larder/)
+
+    await page.getByText('Groom the backlog').click({button: 'right'})
+    await page.getByRole('menu').getByRole('button', {name: /Remove/}).click()
+    await page.getByRole('menu').getByRole('button', {name: /Remove/}).last().click()
+    await expect.poll(async () => (await api(request, 'get', '/schedules')).length).toBe(0)
+})
+
+test("an agent's question waits in the bell until the owner answers it", async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Pick a hinge', status: 'todo'})
+    await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Oak or pine for the hinges?', asks: 'decision'})
+    await page.goto('/now')
+    const bell = page.getByRole('link', {name: /waiting on you/})
+    await expect(bell).toBeVisible()
+    await bell.click()
+    await expect(page).toHaveURL(/\/notifications/)
+    await expect(page.getByRole('button', {name: `${issue.id}: Pick a hinge`}).or(page.getByRole('link', {name: `${issue.id}: Pick a hinge`})).first()).toBeVisible()
+
+    await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'Oak.'}, OWNER)
+    await page.goto('/now')
+    await expect(page.getByRole('link', {name: /waiting on you/})).toBeHidden()
+})
+
+test('Now, My issues and Connect show what they should', async ({page, request}) => {
+    const urgent = await api(request, 'post', '/issues', {title: 'The shelf fell down', status: 'todo', priority: 'P0'})
+    await page.goto('/now')
+    await expect(page.getByText('The shelf fell down')).toBeVisible()
+    await page.goto('/mine')
+    await expect(page.getByText('The shelf fell down')).toBeVisible()
+    // Getting started is a card on Now until it's done; someone only planning is set without the steps for Claude.
+    const card = page.getByRole('region', {name: 'Getting started'})
+    await page.goto('/now')
+    await expect(card.getByText('Connect a folder', {exact: true})).toBeVisible()
+    await card.getByRole('button', {name: "Just planning? You're set"}).click()
+    await expect(card).toBeHidden()
+    await page.goto('/getting-started')
+    await page.getByRole('button', {name: 'Working with Claude after all?'}).click()
+    await page.goto('/now')
+    await expect(card).toBeVisible()
+    await page.goto('/connect?project=larder')
+    await expect(page.getByText(/Set this repo up for Orrery: read .*\/connect\/larder\.md/)).toBeVisible()
+    await api(request, 'patch', `/issues/${urgent.id}`, {status: 'done'})
 })

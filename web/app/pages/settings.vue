@@ -15,9 +15,6 @@ const headings: Heading[] = [
     {id: 'tracker', text: 'Team tracker', level: 2},
     {id: 'tint', text: 'Background tint', level: 2},
     {id: 'statuses', text: 'Issue statuses', level: 2},
-    {id: 'starts', text: 'Starting sessions', level: 2},
-    {id: 'sessions', text: 'What sessions hear', level: 2},
-    {id: 'presets', text: 'Presets', level: 2},
     {id: 'watch', text: 'Watching sessions', level: 2},
     {id: 'secrets', text: 'Secrets', level: 2},
 ]
@@ -116,7 +113,7 @@ async function pick(tint: string | null) {
               v-model="ownerName"
               aria-label="Your name"
               maxlength="60"
-              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-72 max-w-full field"
               @blur="saveOwner"
               @keydown.esc="ownerName = owner?.named ? owner.display : ''; ($event.target as HTMLInputElement).blur()"
           >
@@ -140,7 +137,7 @@ async function pick(tint: string | null) {
               :placeholder="owner?.name"
               spellcheck="false"
               maxlength="39"
-              class="h-8 w-72 max-w-full rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-72 max-w-full field font-mono"
               @blur="saveHandle"
               @keydown.esc="handle = settings.handle ?? ''; ($event.target as HTMLInputElement).blur()"
           >
@@ -163,7 +160,7 @@ async function pick(tint: string | null) {
               aria-label="Team tracker"
               placeholder="https://linear.app/your-team/issue/{id}"
               spellcheck="false"
-              class="h-8 w-[28rem] max-w-full rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+              class="h-8 w-[28rem] max-w-full field font-mono"
               @blur="saveTracker"
               @keydown.esc="tracker = settings.tracker ?? ''; ($event.target as HTMLInputElement).blur()"
           >
@@ -220,39 +217,6 @@ async function pick(tint: string | null) {
         <StatusSettings />
       </section>
 
-      <section id="starts" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.starts }}</h2>
-          <p class="text-xs text-muted">
-            Orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
-            Start session. It does so for any project whose repo has its launcher installed (see <NuxtLink to="/sessions" class="text-accent-600 hover:underline dark:text-accent-400">Sessions</NuxtLink>).
-          </p>
-        </header>
-        <SessionStarts />
-      </section>
-
-      <section id="sessions" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.sessions }}</h2>
-          <p class="text-xs text-muted">
-            The message a Claude session gets when you ask it to focus on an issue or work through a chunk, for every project
-            (a project can have its own on its Settings tab). Sessions started before a change hear it once they restart.
-          </p>
-        </header>
-        <FocusPrompts />
-      </section>
-
-      <section id="presets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.presets }}</h2>
-          <p class="text-xs text-muted">
-            Saved context to give a session as you start it, for sessions on any project (a project can have its own on its
-            Settings tab). Tick any number in Start session; the session gets their text with every signal, and again after a clear.
-          </p>
-        </header>
-        <PresetSettings />
-      </section>
-
       <section id="watch" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.watch }}</h2>
@@ -264,7 +228,7 @@ async function pick(tint: string | null) {
         <select
             :value="settings.terminal"
             aria-label="Terminal app"
-            class="h-8 w-56 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+            class="h-8 w-56 field"
             @change="save({terminal: ($event.target as HTMLSelectElement).value as keyof typeof TERMINALS})"
         >
           <option v-for="(name, key) in TERMINALS" :key="key" :value="key">{{ name }}</option>

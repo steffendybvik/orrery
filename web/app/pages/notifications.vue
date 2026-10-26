@@ -8,7 +8,7 @@ useHead({title: 'Notifications · Orrery'})
 type Show = 'inbox' | 'waiting' | 'cleared'
 const ASKS = {decision: 'Needs your decision', feedback: 'Needs your feedback'}
 const {notices, lists, seenAt, seen, load, clear} = useInbox()
-const {projects} = useRoadmaps()
+const {projects, byId} = useRoadmaps()
 const {open: openIssue} = useIssueLink()
 const {who} = useOwner()
 
@@ -37,7 +37,7 @@ const options = computed(() => [
     {value: 'cleared' as const, label: 'Cleared'},
 ])
 const isNew = (n: Notice) => !n.cleared && (n.created_at > since.value || isWaiting(n))
-const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
+const projectName = (id: string) => byId(id)?.name ?? id
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'})
 
 /** A card opens its issue, unless the click was on a link or button in it, or ended a text selection. */
@@ -56,8 +56,8 @@ function openCard(notice: Notice, event: MouseEvent) {
   <ViewToolbar>
     <SegmentedControl v-model="show" :options="options" />
     <template #end>
-      <button v-if="show === 'inbox' && lists.inbox.items.length" type="button" class="rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg" title="Clear every read one, not those waiting on you" @click="clear()">Clear read</button>
-      <button v-if="show !== 'cleared' && shown.length" type="button" class="rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg" :title="`Clear these ${shown.length}; they stay under Cleared`" @click="clear(shown.map(n => n.id))">Clear all</button>
+      <UiButton v-if="show === 'inbox' && lists.inbox.items.length" variant="ghost" size="xs" title="Clear every read one, not those waiting on you" @click="clear()">Clear read</UiButton>
+      <UiButton v-if="show !== 'cleared' && shown.length" variant="ghost" size="xs" :title="`Clear these ${shown.length}; they stay under Cleared`" @click="clear(shown.map(n => n.id))">Clear all</UiButton>
     </template>
   </ViewToolbar>
 
@@ -104,7 +104,7 @@ function openCard(notice: Notice, event: MouseEvent) {
       </li>
     </ul>
     <div v-if="show !== 'waiting' && lists[show].more" class="flex justify-center pb-6">
-      <button type="button" class="rounded-md px-3 py-1.5 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg" @click="load(show, true)">Show older</button>
+      <UiButton @click="load(show, true)">Show older</UiButton>
     </div>
     <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center">
       <p class="text-sm text-muted">{{ {inbox: 'No comments from agents.', waiting: 'Nothing waiting on you.', cleared: 'Nothing cleared yet.'}[show] }}</p>

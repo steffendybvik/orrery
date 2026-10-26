@@ -4,7 +4,7 @@ import type {Project} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, PLACEHOLDERS, renderPrompt} from '#shared/prompt'
 
 // What a Claude session hears when asked to focus: the two templates (an issue, a chunk's issues) and the
-// standing instructions added to every focus. On App settings they're the Orrery's; with `project`, that
+// standing instructions added to every focus. On the Sessions page they're the Orrery's; with `project`, that
 // project's own templates (empty follows the Orrery's), its own instructions, and the Orrery's it switches off.
 const props = defineProps<{project?: Project}>()
 const {settings, save: saveSettings} = useAppSettings()
@@ -89,7 +89,7 @@ function mute(line: Instruction) {
 }
 
 const field = 'w-full rounded-lg bg-well px-2.5 py-2 font-mono text-[12px] leading-5 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
-const line = 'h-8 min-w-0 flex-1 rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
+const line = 'h-8 min-w-0 flex-1 field'
 </script>
 
 <template>
@@ -125,7 +125,7 @@ const line = 'h-8 min-w-0 flex-1 rounded-lg bg-well px-2.5 text-[13px] text-fg r
         <h3 class="text-[13px] font-medium text-fg">Standing instructions</h3>
         <p class="text-xs text-muted">
           Lines added to every focus, such as "commit whenever a piece works". Ticked ones go by default; the focus panel lets you
-          change that for one send.<template v-if="project"> The Orrery's are on App settings; switch them off for this project here.</template>
+          change that for one send.<template v-if="project"> The Orrery's are on the Sessions page; switch them off for this project here.</template>
         </p>
       </div>
 
@@ -147,14 +147,14 @@ const line = 'h-8 min-w-0 flex-1 rounded-lg bg-well px-2.5 text-[13px] text-fg r
         <li v-for="l in own" :key="l.id" class="flex items-center gap-2">
           <input type="checkbox" class="size-3.5 accent-accent-500" :checked="l.on" :title="l.on ? 'Ticked by default' : 'Unticked by default'" :aria-label="`Tick “${l.text}” by default`" @change="toggle(l)">
           <input :value="l.text" :class="line" aria-label="Instruction" @blur="rename(l, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
-          <button type="button" class="grid size-7 shrink-0 place-items-center rounded-md text-faint hover:bg-hover hover:text-rose-600" :aria-label="`Remove “${l.text}”`" @click="remove(l)">
+          <UiButton variant="danger-ghost" square class="shrink-0" :aria-label="`Remove “${l.text}”`" @click="remove(l)">
             <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-          </button>
+          </UiButton>
         </li>
       </ul>
       <form class="flex items-center gap-2" @submit.prevent="add">
         <input v-model="adding" :class="line" :placeholder="project ? `A line for ${project.name}'s sessions only` : 'Create a new branch for this'" aria-label="New instruction">
-        <button type="submit" class="h-8 shrink-0 rounded-lg px-3 text-xs text-muted ring-1 ring-line hover:bg-hover hover:text-fg disabled:opacity-50" :disabled="!adding.trim()">Add</button>
+        <UiButton type="submit" size="md" class="shrink-0" :disabled="!adding.trim()">Add</UiButton>
       </form>
     </div>
 
