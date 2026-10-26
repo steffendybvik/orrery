@@ -45,7 +45,7 @@ watch(target, now => {
     ask.value = false
     failed.value = ''
     nextTick(() => titleInput.value?.focus())
-})
+}, {immediate: true})
 
 async function create() {
     if (!project.value || !title.value.trim() || saving.value || uploading.value) return

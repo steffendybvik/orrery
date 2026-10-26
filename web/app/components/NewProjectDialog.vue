@@ -25,7 +25,7 @@ watch(shown, now => {
     name.value = key.value = id.value = description.value = failed.value = ''
     keyTouched.value = idTouched.value = false
     nextTick(() => nameInput.value?.focus())
-})
+}, {immediate: true})
 watch(name, now => {
     if (!keyTouched.value) key.value = keyFor(now)
     if (!idTouched.value) id.value = slugify(now)
