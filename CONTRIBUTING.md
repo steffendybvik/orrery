@@ -8,7 +8,7 @@ first and say what you'd change and why; it saves you building something that wo
 [Working on Orrery](docs/development.md) has the details. In short:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d   # nuxt dev on http://localhost:9000
+.playground/play   # nuxt dev on http://localhost:9001, with a demo of its own
 ```
 
 or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
