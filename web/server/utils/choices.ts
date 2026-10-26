@@ -3,6 +3,7 @@
 // put into words for the comment the session hears.
 import type {Choice, Picks} from '#shared/roadmap'
 import {liveChoices} from '#shared/roadmap'
+import {isObject} from './input'
 
 const KEY = /^[A-Za-z0-9][A-Za-z0-9_-]{0,29}$/
 
@@ -10,7 +11,6 @@ const text = (value: unknown, what: string): string => {
     if (typeof value !== 'string' || !value.trim()) throw new Error(`${what} should be text`)
     return value.trim()
 }
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** Checks a list of choices; gives it back as JSON. Keys are unique, each choice has two options or more,
  * the recommendation is among them (one at most for `pick: one`), and `from` names an earlier choice's option. */

@@ -3,6 +3,7 @@
 // which `POST /api/projects/:project/import` takes.
 import type {Board, Choice, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Picks, Place, Priority, Proposal} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
+import {isObject} from './input'
 
 /** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
 export const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
@@ -273,10 +274,6 @@ function merge(into: Counts, from: Counts) {
 
 function mergeKinds(into: Kinds, from: Kinds) {
     for (const kind of Object.keys(into) as Place[]) into[kind] += from[kind]
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function describe(value: unknown): string {
