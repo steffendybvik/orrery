@@ -1153,6 +1153,32 @@ describe('what a session is working on', () => {
     })
 })
 
+describe('starting an issue', () => {
+    it("is refused while another session that's there has it started", async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        await store.claim('larder', shelves, 'started', 'first')
+        await store.updateIssue('larder', shelves, {status: 'started'})
+        await store.workedBy('larder', shelves, 'first')
+        const refused = await failure(() => store.claim('larder', shelves, 'in-progress', 'second'))
+        expect(refused).toEqual({status: 409, message: `${shelves} is already being worked on by another session (first); pick another issue`})
+        // In review is still its work. Its own session starts it again, any session closes it, and a write
+        // without a status is let be.
+        expect((await failure(() => store.claim('larder', shelves, 'in-review', 'second'))).status).toBe(409)
+        await store.claim('larder', shelves, 'started', 'first')
+        await store.claim('larder', shelves, 'done', 'second')
+        await store.claim('larder', shelves, undefined, 'second')
+    })
+
+    it('is free once the session on it is gone, or when it was never started', async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
+        const jars = (await store.createIssue('larder', {title: 'Jars', status: 'todo'})).id
+        for (const issue of [shelves, jars]) await store.workedBy('larder', issue, 'first')
+        await store.claim('larder', jars, 'started', 'second')
+        store.hears = (_project, session) => session !== 'first'
+        await store.claim('larder', shelves, 'started', 'second')
+    })
+})
+
 describe('docs', () => {
     it('are listed with the project, without their text', async () => {
         const doc = await store.createDoc('larder', {title: 'How joints work', body: '# Joints\n\nA **hinge** turns.'})

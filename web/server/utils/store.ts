@@ -332,6 +332,21 @@ export class Store {
             ON CONFLICT (project, issue) DO UPDATE SET session = excluded.session, at = excluded.at`, project, issue, session, stamp(), project, issue)
     }
 
+    /** Refuses `session` starting an issue (`status` a started one, in review too) that another session already
+     * has started while that one is there to hear: every session is `claude`, so two that heard the same message would
+     * otherwise both take it up. One no session is on any more is free to take over. */
+    async claim(project: string, issue: string, status: Input[string], session: string) {
+        if (status === undefined) return
+        issue = await this.issueId(project, issue)
+        const statuses = await this.statuses()
+        const started = (id: string) => statuses.find(s => s.id === id)?.kind === 'started'
+        if (!started(await this.resolveStatus(status)) || !started((await this.issueRow(project, issue)).status)) return
+        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
+        if (worker && worker !== session && this.hears(project, worker)) {
+            throw conflict(`${issue} is already being worked on by another session (${worker}); pick another issue`)
+        }
+    }
+
     /** The issues in progress (a started status) that one of `sessions` worked last, with their latest comment. */
     async workingOn(project: string, sessions: string[]): Promise<(IssueRecord & {last?: Comment})[]> {
         if (!sessions.length) return []
