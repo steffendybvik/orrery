@@ -20,7 +20,7 @@ const version = computed(() => String(route.params.release))
 const release = computed(() => project.value?.releases.find(r => r.version === version.value))
 // All of it, across the projects drawing on it.
 const whole = computed(() => source.value?.releases.find(r => r.version === version.value) ?? release.value)
-// Each project's part: on its source, the source's and then each drawing on it; else this project's.
+// Each project's part: on its source, the source's and then each drawing on it with issues in it; else this project's.
 const parts = computed(() => {
     if (!project.value || !release.value) return []
     const shown = project.value.releases_from ? [project.value] : [project.value, ...projects.value.filter(p => p.releases_from === project.value!.id)]
@@ -30,7 +30,8 @@ const parts = computed(() => {
         const kinds = emptyKinds()
         tasks.forEach(issue => (Object.keys(kinds) as (keyof Kinds)[]).forEach(kind => kinds[kind] += issue.kinds[kind]))
         return {project: p, chunks, issues: tasks.length, kinds}
-    })
+    // A project drawing on it with nothing in it gets no section.
+    }).filter((part, i) => i === 0 || part.issues)
 })
 const chunks = computed(() => parts.value[0]?.chunks ?? [])
 const changelog = computed(() => release.value ? changelogOf(release.value, parts.value.flatMap(p => p.chunks)) : '')

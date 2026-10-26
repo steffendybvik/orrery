@@ -32,9 +32,9 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | | |
 |---|---|
 | `GET /projects` | every project with its counts; `?expand=board` adds boards |
-| `POST /projects` | `{name, id?, key?, description?, repo?, releases_from?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
+| `POST /projects` | `{name, id?, key?, description?, repo?, release_mode?, releases_from?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board, docs and releases |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `releases_from` is another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
 | `DELETE /projects/:project` | with its chunks, issues and comments; a 409 while others take their releases from it |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there |
 
@@ -54,8 +54,14 @@ The versions a project ships, and which issues go out in each. Chunks are themes
 them. An issue says which release it ships in with `release` (a version); a sub-issue set for none goes
 out with its parent.
 
-A project can take its releases from another (`releases_from`), so a monorepo's apps go out in one shared
-release: its issues are set for that project's releases, and it has none of its own. Its `releases` list
+Not every project ships, so a project's `release_mode` says whether it has releases: `none` (a new
+project's: no releases, and making one or setting an issue's `release` is a 400), its `own`, or `shared`,
+another project's. It leaves its own only with none left and nobody drawing on them (a 409), and going
+to `none` takes its issues out of the releases they were set for.
+
+A `shared` project takes its releases from another (`releases_from`, which sending alone makes it
+`shared`), so a monorepo's apps go out in one shared release: its issues are set for that project's
+releases, and it has none of its own. The source must have its own. Its `releases` list
 the source's, each counting its own issues; the source's count every project drawing on it. One level
 only: a source can't take its releases from another, and a project with releases of its own can't take
 another's until they're deleted (a 409; nothing merges). Moving an issue between projects sharing

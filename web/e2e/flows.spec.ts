@@ -244,7 +244,7 @@ test("tints a doc an agent changed, and in it the parts that changed since the o
 })
 
 test('makes a release, sets an issue for it from its page, and drafts its changelog', async ({page, request}) => {
-    await api(request, 'patch', '', {repo: 'https://github.com/you/larder'})
+    await api(request, 'patch', '', {repo: 'https://github.com/you/larder', release_mode: 'own'})
     const issue = await api(request, 'post', '/issues', {title: 'Label the jars', status: 'done'})
     await page.goto('/p/larder/releases')
     await page.getByRole('button', {name: 'New release'}).click()

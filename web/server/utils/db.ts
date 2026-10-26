@@ -503,6 +503,13 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- An issue's tasks on the team's tracker (Linear, Jira): a JSON list of ids or URLs.
     ALTER TABLE issues ADD COLUMN external TEXT NOT NULL DEFAULT '[]';
+`, `
+    -- Not every project ships: one has no releases, its own, or another's (\`releases_from\`). Those with
+    -- releases, or others drawing on them, keep their own; the rest have none until they're turned on.
+    ALTER TABLE projects ADD COLUMN release_mode TEXT NOT NULL DEFAULT 'none';
+    UPDATE projects SET release_mode = 'shared' WHERE releases_from IS NOT NULL;
+    UPDATE projects SET release_mode = 'own' WHERE releases_from IS NULL
+        AND (id IN (SELECT project FROM releases) OR id IN (SELECT releases_from FROM projects WHERE releases_from IS NOT NULL));
 `]
 
 let db: DatabaseSync | null = null

@@ -66,12 +66,16 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
             {{ project.name }} ships in <NuxtLink :to="`/p/${project.releases_from}/releases`" class="text-fg underline underline-offset-2">{{ source?.name ?? project.releases_from }}'s releases</NuxtLink>,
             made there; each counts {{ project.name }}'s issues here. Set an issue's release on its page.
           </p>
+          <p v-else-if="project.release_mode === 'none'" class="text-xs text-muted">
+            {{ project.name }} has no releases. <NuxtLink :to="`/p/${project.id}/settings#releases`" class="text-fg underline underline-offset-2">Turn them on in Settings</NuxtLink>
+            when it ships versions, its own or another project's.
+          </p>
           <p v-else class="text-xs text-muted">
             The versions {{ project.name }} ships, and which issues go out in each. Chunks are themes; a release cuts across them.
             Set an issue's release on its page.
           </p>
         </div>
-        <button v-if="!making && !project.releases_from" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium whitespace-nowrap text-white hover:opacity-90" @click="startMaking">
+        <button v-if="!making && project.release_mode === 'own'" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium whitespace-nowrap text-white hover:opacity-90" @click="startMaking">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
           New release
         </button>
@@ -111,7 +115,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
           </NuxtLink>
         </li>
       </ul>
-      <p v-else-if="!making" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">
+      <p v-else-if="!making && project.release_mode !== 'none'" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">
         <template v-if="project.releases_from">No releases in {{ source?.name ?? project.releases_from }} yet.</template>
         <template v-else>No releases yet. Make one, then set issues for it from their pages.</template>
       </p>
