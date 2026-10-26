@@ -1,11 +1,14 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
-# tag has to pass before `release.yml` publishes anything.
+# tag has to pass before `release.yml` publishes anything. The e2e flows run on a release tag and when a
+# pull request goes from draft to ready for review.
 name: CI
 
 on:
   push:
     branches: [main, development]
   pull_request:
+    # The default three, and a draft becoming ready, which runs the e2e flows too.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_call:
 
 permissions:
@@ -51,10 +54,11 @@ jobs:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
       - run: pnpm typecheck
 
-  # The main flows in a real browser, against `nuxt dev` with a fresh database. Only before a
-  # release, on its tag; pull requests and pushes run the unit tests alone.
+  # The main flows in a real browser, against `nuxt dev` with a fresh database: before a release, on
+  # its tag, and on a pull request as it leaves draft. Other pushes and pull request updates run the
+  # unit tests alone.
   e2e:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event.action == 'ready_for_review' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
