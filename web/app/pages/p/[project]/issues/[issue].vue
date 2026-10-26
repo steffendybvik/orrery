@@ -168,6 +168,29 @@ watch(issueId, () => {
     editingTitle.value = editingNotes.value = false
 })
 
+// The owner's own comments edit in place, and come out after asking once more in place.
+const editingComment = ref<number | null>(null)
+const removingComment = ref<{id: number, busy?: boolean, failed?: string} | null>(null)
+watch(issueId, () => {
+    editingComment.value = null
+    removingComment.value = null
+})
+function edited(comment: Comment) {
+    comments.value = comments.value.map(c => c.id === comment.id ? comment : c)
+    editingComment.value = null
+}
+async function removeComment(id: number) {
+    if (!project.value || !issue.value) return
+    removingComment.value = {id, busy: true}
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}/comments/${id}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        comments.value = comments.value.filter(c => c.id !== id)
+        removingComment.value = null
+    } catch (error) {
+        removingComment.value = {id, failed: errorMessage(error, 'delete')}
+    }
+}
+
 const under = (tasks: Issue[]): number => tasks.reduce((n, t) => n + 1 + under(t.tasks), 0)
 const subCount = computed(() => issue.value ? under(issue.value.tasks) : 0)
 
@@ -359,9 +382,31 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
                       class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
                       :class="entry.comment.answered ? 'text-faint ring-line' : 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300'"
                   >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
-                  <CopyButton :text="entry.comment.body" name="the comment" class="ml-auto pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100" />
+                  <span v-if="removingComment?.id === entry.comment.id" class="ml-auto flex items-center gap-2" @keydown.esc.stop="removingComment = null">
+                    <span class="text-muted">Delete the comment?</span>
+                    <button type="button" class="h-6 rounded-md bg-rose-600 px-2 font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="removingComment.busy" @click="removeComment(entry.comment.id)">
+                      {{ removingComment.busy ? 'Deleting…' : 'Delete' }}
+                    </button>
+                    <button type="button" class="h-6 rounded-md px-2 text-muted ring-1 ring-line hover:bg-hover hover:text-fg" :disabled="removingComment.busy" @click="removingComment = null">Cancel</button>
+                  </span>
+                  <span v-else class="ml-auto flex items-center gap-0.5 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-within:opacity-100">
+                    <template v-if="entry.comment.protected && editingComment !== entry.comment.id">
+                      <button type="button" class="h-6 rounded-md px-1.5 text-muted hover:bg-hover hover:text-fg" @click="editingComment = entry.comment.id">Edit</button>
+                      <button type="button" class="h-6 rounded-md px-1.5 text-muted hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400" @click="removingComment = {id: entry.comment.id}">Delete</button>
+                    </template>
+                    <CopyButton :text="entry.comment.body" name="the comment" />
+                  </span>
                 </div>
-                <div class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[14px] leading-6" /></div>
+                <p v-if="removingComment?.id === entry.comment.id && removingComment.failed" class="text-xs text-rose-600 dark:text-rose-400">{{ removingComment.failed }}</p>
+                <CommentBox
+                    v-if="editingComment === entry.comment.id"
+                    :project="project.id"
+                    :issue="issue.id"
+                    :comment="entry.comment"
+                    @posted="edited"
+                    @cancel="editingComment = null"
+                />
+                <div v-else class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[14px] leading-6" /></div>
               </li>
             </template>
           </ol>

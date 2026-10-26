@@ -800,6 +800,19 @@ describe("an owner's comment", () => {
         // Noting a worker on an issue that isn't there does nothing.
         await local.workedBy('larder', 'LAR-99', 'window-a')
     })
+
+    it('goes again, marked as an edit, when the owner changes its words', async () => {
+        const sent: (string | null)[] = []
+        const local = new Store(testDb(), () => {}, signal => signal.kind === 'comment' && sent.push(signal.note ?? null))
+        await local.createProject({name: 'larder', key: 'LAR'})
+        const {id} = await local.createIssue('larder', {title: 'Shelves'})
+        const comment = await local.createComment('larder', id, {body: 'Use oak'}, owner)
+        await local.updateComment('larder', id, comment.id, {body: 'Use pine'}, owner)
+        // The same words again, or only the ask changing, isn't news.
+        await local.updateComment('larder', id, comment.id, {body: 'Use pine'}, owner)
+        await local.updateComment('larder', id, comment.id, {asks: 'feedback'}, owner)
+        expect(sent).toEqual(['Use oak', '(Edited: this replaces their earlier comment.)\n\nUse pine'])
+    })
 })
 
 describe('starting sessions', () => {
