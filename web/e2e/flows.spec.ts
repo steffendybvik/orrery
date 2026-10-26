@@ -433,6 +433,24 @@ test("shows a listening session on the Sessions page, and sends it a message onl
     }
 })
 
+test('lists a session that hears two projects once, under its own', async ({page, request, baseURL}) => {
+    const hello = await request.post('/api/sessions', {data: {id: 'e2e-2', project: 'larder', event: 'SessionStart', name: 'kitchen', cwd: '/code/kitchen'}})
+    expect(hello.ok(), await hello.text()).toBeTruthy()
+    const channels = ['larder', 'pantry'].map(p => hold(baseURL!, `/api/projects/${p}/signals/stream?session=e2e-2&name=kitchen&format=text`))
+    try {
+        await page.goto('/sessions')
+        await expect(page.locator('#session-e2e-2')).toHaveCount(1)
+        await expect(page.locator('#sessions-larder #session-e2e-2')).toContainText('also on Pantry')
+        // The sidebar lists it once too.
+        await expect(page.getByRole('link', {name: /kitchen/})).toHaveCount(1)
+        // Kept to the other project, it's found there.
+        await page.goto('/sessions?project=pantry')
+        await expect(page.locator('#sessions-pantry #session-e2e-2')).toContainText('also on Larder')
+    } finally {
+        for (const channel of channels) channel.stop()
+    }
+})
+
 test('with nobody listening and a launcher there, Focus on this starts a session', async ({page, request, baseURL}) => {
     const issue = await api(request, 'post', '/issues', {title: 'Oil the hinges', status: 'todo'})
     // The session from before has gone: nobody listens on larder now.

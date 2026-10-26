@@ -11,6 +11,8 @@ interface Known extends Session {
     pid?: number
     /** When a hook last spoke. */
     seenAt: number
+    /** The project its hooks name: its own once a channel there is heard, whichever channel connected first. */
+    hooked?: string
     /** When a hook last said it went idle (finished a turn), for a repeat to wait on. */
     idleAt?: number
     /** Its channels' open streams, by project: how many, how many of them are heard, and how many know to quit
@@ -134,10 +136,13 @@ export function report(input: Report): Session | null {
     if (!session) {
         session = {
             id: input.id ?? `pid-${input.pid}`, pid: input.pid, project: input.project, name: input.name || nameFor(input.project),
-            cwd: input.cwd, state, since: now, started_at: now, listening: false, seenAt: Date.now(),
+            cwd: input.cwd, state, since: now, started_at: now, listening: false, seenAt: Date.now(), hooked: input.project,
         }
         add(session)
     } else {
+        session.hooked = input.project
+        // Its channels connected before the hook spoke, and one heard is on the hook's project: that's its own.
+        if (!session.started && session.project !== input.project && heardOn(session, input.project)) moveTo(session, input.project)
         // A session first heard of by its pid gets its real id when a hook brings it, and one cleared
         // its new one; the old id stays an alias, as its channel and the issues it worked still use it.
         // An id it had before isn't a new one: its channel still reports with the id it started under, even
@@ -220,12 +225,9 @@ export function attend(project: string, id: string | undefined, pid: number | un
     }
     const held = session
     // A skipped channel that connected before the hook spoke filed the window under its project. One channel
-    // heard on several projects keeps the first it was heard on, or the one Orrery started it for.
-    if (heard && held.project !== project && (started || !heardOn(held, held.project))) {
-        changed(held.project)
-        if (held.name.startsWith(`${held.project} `)) held.name = nameFor(project)
-        held.project = project
-    }
+    // heard on several projects keeps the one Orrery started it for, else the one its hooks name, else the first
+    // it was heard on.
+    if (heard && held.project !== project && (started || !held.started && project === held.hooked || !heardOn(held, held.project))) moveTo(held, project)
     held.channels ??= new Map()
     const count = held.channels.get(project) ?? {streams: 0, heard: 0, stops: 0}
     held.channels.set(project, {streams: count.streams + 1, heard: count.heard + Number(heard), stops: count.stops + Number(stops)})
@@ -256,6 +258,14 @@ export function attend(project: string, id: string | undefined, pid: number | un
             changed(project)
         },
     }
+}
+
+/** Files the session under another project as its own. */
+function moveTo(session: Known, project: string) {
+    changed(session.project)
+    if (session.name.startsWith(`${session.project} `)) session.name = nameFor(project)
+    session.project = project
+    tally(session)
 }
 
 /** Listening and stoppable as its own project's channels say: another project's (skipped) don't count. */
@@ -338,7 +348,7 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, channels, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
+function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
     const others = [...channels ?? []].filter(([project, c]) => c.heard && project !== session.project).map(([project]) => project)
     return {...session, reachable: !!stoppable, ...others.length ? {also: others} : {}}
 }
