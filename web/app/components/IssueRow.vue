@@ -57,7 +57,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
     </template>
     <span class="relative hidden size-[14px] shrink-0 sm:block">
       <PriorityIcon :priority="issue.priority" class="transition-opacity" :class="ticked || selected.length ? 'opacity-0' : 'group-hover:opacity-0'" />
-      <SelectBox :project="project" :id="issue.id" class="absolute inset-0 m-auto" />
+      <SelectBox :project="project" :id="issue.id" row class="absolute top-0 left-0" />
     </span>
     <span class="w-16 shrink-0 truncate font-mono text-[11px] text-faint">{{ issue.id }}</span>
     <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
