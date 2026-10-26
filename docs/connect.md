@@ -110,9 +110,13 @@ node /path/to/orrery/channel/orrery-launcher.mjs --install
 ```
 
 It runs in the background from then on (launchd on macOS, systemd on Linux), starts at login, and serves
-every project installed this way; run `--install` again in another repo to add its project, and
-`--uninstall` to take one off. It finds the projects and the Orrery in the repo's `.mcp.json` (each one in
-its `ORRERY_PROJECTS`; with `*`, name the one with `ORRERY_PROJECT`), or `ORRERY_PROJECT` and `ORRERY_URL`, and keeps its list in `~/.config/orrery/launcher.json`. Its log is
+every project installed this way; run `--install` again in another repo to add its projects, and
+`--uninstall` to take them off. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
+channel there, each with the projects in its `ORRERY_PROJECTS` (or its `ORRERY_PROJECT`), so a monorepo with a
+channel per project gets all of them, and each project's sessions load the channel that serves it. With `*`, or to
+pick one, name it with `ORRERY_PROJECT`. A project already served from another repo (a monorepo's channel to your
+personal Orrery) is left there unless `ORRERY_PROJECT` names it. `--list` shows what a repo would register, and
+with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`. Its log is
 `~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
 stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
 terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`.

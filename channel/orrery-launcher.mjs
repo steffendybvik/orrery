@@ -2,11 +2,13 @@
 // Orrery's launcher: starts Claude sessions for a project when Orrery asks, so work gets done without
 // anyone opening a terminal. Install it once in each project's repo (where .mcp.json registers the channel),
 // as a background service that starts at login and serves every project installed:
-//   node /path/to/orrery/channel/orrery-launcher.mjs --install      (--uninstall takes the repo's project off)
+//   node /path/to/orrery/channel/orrery-launcher.mjs --install      (--uninstall takes the repo's projects off;
+//                                                                    --list shows which they'd be, changing nothing)
 // or run it in a terminal for the repo's project alone, for as long as the terminal stays open:
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
-// The projects are ORRERY_PROJECT, else the channel's in .mcp.json (its ORRERY_PROJECTS, each of them, or its
-// ORRERY_PROJECT), else the folder's name; the Orrery is ORRERY_URL. Orrery asks only once the owner lets it start sessions (App settings): when the
+// The projects are ORRERY_PROJECT, else every one the channels in .mcp.json name (each channel's ORRERY_PROJECTS,
+// or its ORRERY_PROJECT), else the folder's name, each on its channel's Orrery (see repo-channels.mjs), and each
+// project's sessions load the channel that serves it. Orrery asks only once the owner lets it start sessions (App settings): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
 // this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open), with the channel, in
@@ -20,10 +22,11 @@
 // Claude Code shows for the channel flag on every start (the channel is the repo's own); run the channel
 // command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
-import {basename, dirname, join} from 'node:path'
+import {mkdirSync, writeFileSync} from 'node:fs'
+import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {configFile, install, readConfig, uninstall} from './launcher-service.mjs'
+import {channelFor, projectsIn} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
 
@@ -31,29 +34,8 @@ const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
 const tmux = (...args) => execFileSync('tmux', args, {encoding: 'utf8'}).trim()
 
-/** The channel's entry in a repo's .mcp.json: the server that runs orrery-channel.mjs. */
-function channelIn(dir) {
-    try {
-        const servers = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8')).mcpServers ?? {}
-        const found = Object.entries(servers).find(([, s]) => (s.args ?? []).some(a => String(a).includes('orrery-channel.mjs')))
-        return found && {name: found[0], env: found[1].env ?? {}}
-    } catch {
-        return undefined
-    }
-}
-
-/** The repo here as the launcher serves it: for each of its projects, its Orrery, the project, and its folder.
- * A value in .mcp.json counts only when it's plain, not `${…}`; a channel serving every project (`*`) needs
- * ORRERY_PROJECT to say which to start sessions for. */
-function here() {
-    const dir = process.cwd()
-    const env = channelIn(dir)?.env ?? {}
-    const plain = value => typeof value === 'string' && !value.includes('${') ? value : undefined
-    const url = (process.env.ORRERY_URL ?? plain(env.ORRERY_URL) ?? 'http://localhost:9000').replace(/\/+$/, '')
-    const listed = plain(env.ORRERY_PROJECTS)?.split(',').map(p => p.trim()).filter(p => p && p !== '*')
-    const projects = process.env.ORRERY_PROJECT ? [process.env.ORRERY_PROJECT] : listed?.length ? listed : [plain(env.ORRERY_PROJECT) ?? basename(dir)]
-    return projects.map(project => ({url, project, dir}))
-}
+/** The repo here as the launcher serves it: for each of its projects, its Orrery, the project, and its folder. */
+const here = () => projectsIn(process.cwd(), {project: process.env.ORRERY_PROJECT, url: process.env.ORRERY_URL})
 
 /** tmux, 3.2 or newer (`new-session -e` hands each session its launch); says what's wrong when it isn't. */
 function tmuxProblem() {
@@ -70,32 +52,52 @@ function tmuxProblem() {
 
 const args = process.argv.slice(2)
 const script = fileURLToPath(import.meta.url)
+if (args.includes('--list')) {
+    const served = readConfig().projects
+    for (const {url, project, dir} of here()) {
+        const elsewhere = served.find(p => p.url === url && p.project === project && p.dir !== dir)
+        console.log(`${project} (${url}): sessions load ${channelFor(dir, url, project)?.name ?? 'no channel'}${elsewhere ? `; served from ${elsewhere.dir}, so --install leaves it there` : ''}`)
+    }
+    process.exit(0)
+}
 if (args.includes('--install') || args.includes('--uninstall')) {
     try {
-        for (const entry of here()) {
-            if (args.includes('--uninstall')) {
-                const {config} = uninstall(entry, {script})
-                console.log(`Took ${entry.project} (${entry.url}) off the launcher.`)
-                console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : 'Nothing was left on it, so the service is removed.')
-                continue
-            }
-            const problem = tmuxProblem()
-            if (problem) throw new Error(problem)
-            try {
-                execFileSync('claude', ['--version'], {stdio: 'ignore'})
-            } catch {
-                throw new Error('claude isn\'t on your PATH: install Claude Code, then run this again from the same shell')
-            }
+        // Several channels can name a project served from its own repo (a monorepo's channel to the personal
+        // Orrery): it's left there unless ORRERY_PROJECT names it.
+        const served = readConfig().projects
+        const entries = here().filter(entry => {
+            const elsewhere = served.find(p => p.url === entry.url && p.project === entry.project && p.dir !== entry.dir)
+            if (elsewhere && !process.env.ORRERY_PROJECT) console.log(`Left ${entry.project} (${entry.url}) as it is, served from ${elsewhere.dir}; ORRERY_PROJECT=${entry.project} acts on it from here.`)
+            return !elsewhere || process.env.ORRERY_PROJECT
+        })
+        if (!entries.length) process.exit(0)
+        // All of the repo's projects at once, so the service restarts (stopping the sessions it runs) only once.
+        if (args.includes('--uninstall')) {
+            const {config} = uninstall(entries, {script})
+            console.log(`Took ${entries.map(e => `${e.project} (${e.url})`).join(', ')} off the launcher.`)
+            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : 'Nothing was left on it, so the service is removed.')
+            process.exit(0)
+        }
+        const problem = tmuxProblem()
+        if (problem) throw new Error(problem)
+        try {
+            execFileSync('claude', ['--version'], {stdio: 'ignore'})
+        } catch {
+            throw new Error('claude isn\'t on your PATH: install Claude Code, then run this again from the same shell')
+        }
+        for (const entry of entries) {
             const found = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`).then(r => r.status).catch(() => 0)
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
             if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed`)
-            if (!channelIn(entry.dir)) log(`no .mcp.json here registers orrery-channel.mjs, so its sessions won't hear Orrery: run this in the project's repo`)
-            const {config, logs} = install(entry, {script})
-            console.log(`The launcher now starts sessions for ${entry.project} (${entry.url}) in ${entry.dir}, from login on.`)
-            console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.`)
-            console.log(`Let Orrery start sessions in its App settings, if it doesn't yet. Its log: ${logs}`)
+            if (!channelFor(entry.dir, entry.url, entry.project)) log(`no .mcp.json here registers orrery-channel.mjs, so ${entry.project}'s sessions won't hear Orrery: run this in the project's repo`)
         }
-        if (!args.includes('--uninstall')) console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
+        const {config, logs} = install(entries, {script})
+        for (const {url, project, dir} of entries) {
+            console.log(`The launcher now starts sessions for ${project} (${url}) in ${dir}, with ${channelFor(dir, url, project)?.name ?? 'no channel'}, from login on.`)
+        }
+        console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.`)
+        console.log(`Let Orrery start sessions on its Sessions page, if it doesn't yet. Its log: ${logs}`)
+        console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
         process.exit(0)
     } catch (error) {
         log(error.message)
@@ -280,7 +282,7 @@ function serve({url, project, dir}) {
         if (!claim.claimed) return
         const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after)}
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            'claude', '--dangerously-load-development-channels', `server:${channelIn(dir)?.name ?? project}`, '--permission-mode', mode)
+            'claude', '--dangerously-load-development-channels', `server:${channelFor(dir, url, project)?.name ?? project}`, '--permission-mode', mode)
         running.set(launch.id, {tmux: launch.tmux, api, context: launch.context})
         if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
         keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)

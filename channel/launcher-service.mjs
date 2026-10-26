@@ -90,7 +90,16 @@ function platform() {
                 } catch {
                     // It wasn't loaded.
                 }
-                run('launchctl', 'bootstrap', `gui/${uid}`, file)
+                // bootout returns before the old one has gone, and bootstrap fails (5: Input/output error) until it
+                // has: a few tries, half a second apart.
+                for (let tries = 1; ; tries++) {
+                    try {
+                        return run('launchctl', 'bootstrap', `gui/${uid}`, file)
+                    } catch (error) {
+                        if (tries === 10) throw error
+                        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+                    }
+                }
             },
             stop: () => run('launchctl', 'bootout', `gui/${uid}/${LABEL}`),
         }
@@ -111,9 +120,9 @@ function platform() {
 }
 
 /** Adds the project to the list and (re)starts the service with it. Restarting stops the sessions it was running. */
-export function install(entry, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
+export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
     const where = platform()
-    const config = withProject(readConfig(), entry)
+    const config = entries.reduce(withProject, readConfig())
     mkdirSync(dirname(configFile()), {recursive: true})
     writeFileSync(configFile(), `${JSON.stringify(config, null, 2)}\n`)
     mkdirSync(dirname(where.file), {recursive: true})
@@ -123,9 +132,9 @@ export function install(entry, {node = process.execPath, script, path = process.
 }
 
 /** Takes the project off the list, restarting the service without it, or removing it with the last one. */
-export function uninstall(entry, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
+export function uninstall(entries, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
     const where = platform()
-    const config = withoutProject(readConfig(), entry)
+    const config = entries.reduce(withoutProject, readConfig())
     mkdirSync(dirname(configFile()), {recursive: true})
     writeFileSync(configFile(), `${JSON.stringify(config, null, 2)}\n`)
     if (config.projects.length) {
