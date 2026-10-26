@@ -13,6 +13,7 @@ beforeEach(async () => {
     vi.stubGlobal('projectEvents', events)
     renamed = []
     vi.stubGlobal('useStore', () => ({workedBy: async () => {}, renameSession: async (project: string, from: string, to: string) => renamed.push(`${project}:${from}>${to}`)}))
+    vi.stubGlobal('launchTarget', (launch: string) => `launch-${launch}`)
     vi.resetModules()
     sessions = await import('../server/utils/sessions')
 })
@@ -72,8 +73,15 @@ describe('a session', () => {
         expect(sessions.listSessions('larder').find(s => s.id === 'b')).toMatchObject({name: 'larder 1', listening: false})
     })
 
+    it('takes the focus made for its launch as its own', () => {
+        const {id} = sessions.attend('larder', 'a', undefined, undefined, true, undefined, false, 'l9')
+        expect(sessions.currentId('launch-l9')).toBe(id)
+        expect(sessions.sessionIds(id)).toContain('launch-l9')
+        expect(sessions.currentId('launch-l8')).toBe('launch-l8')
+    })
+
     it('started by Orrery says which launch, and counts as one it started while its channel is there', () => {
-        const launch = (id: string) => ({launch: id, tmux: `orrery-larder-${id}`, stopsAt: '2026-10-25T11:00:00.000Z'})
+        const launch = (id: string) => ({launch: id, tmux: `orrery-larder-${id}`, stops_at: '2026-10-25T11:00:00.000Z'})
         const a = sessions.attend('larder', 'a', undefined, undefined, true, launch('l1'))
         sessions.attend('larder', 'b', undefined, undefined)
         sessions.attend('mesa', 'c', undefined, undefined, true, launch('l3'))
@@ -83,7 +91,7 @@ describe('a session', () => {
         a.done()
         expect(sessions.startedSessions('larder')).toBe(0)
         expect(sessions.sessionOfLaunch('larder', 'l1')?.id).toBe('a')
-        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stopsAt).toBe('2026-10-25T11:30:00.000Z')
+        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stops_at).toBe('2026-10-25T11:30:00.000Z')
         // Its launcher saying it ended drops it, by its launch.
         sessions.launchEnded('larder', 'l1')
         sessions.launchEnded('larder', 'l3')
@@ -204,12 +212,12 @@ describe('a session', () => {
     })
 
     it('started by Orrery keeps its launch across a /clear', () => {
-        sessions.attend('larder', 'before', 42, undefined, true, {launch: 'l1', tmux: 'orrery-larder-l1', stopsAt: '2026-10-25T11:00:00.000Z'})
+        sessions.attend('larder', 'before', 42, undefined, true, {launch: 'l1', tmux: 'orrery-larder-l1', stops_at: '2026-10-25T11:00:00.000Z'})
         sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
         sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart'})
         expect(sessions.sessionOfLaunch('larder', 'l1')?.id).toBe('after')
         expect(sessions.startedSessions('larder')).toBe(1)
-        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stopsAt).toBe('2026-10-25T11:30:00.000Z')
+        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stops_at).toBe('2026-10-25T11:30:00.000Z')
         sessions.launchEnded('larder', 'l1')
         expect([sessions.listSessions('larder'), sessions.currentId('before')]).toEqual([[], 'before'])
     })
@@ -300,7 +308,7 @@ describe('stopping a session', () => {
     it("goes through the launcher for one Orrery started", () => {
         vi.stubGlobal('stopLaunch', (project: string, launch: string) => ({project, launch}))
         vi.stubGlobal('launchersOf', () => 1)
-        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stopsAt: '2999-01-01T00:00:00.000Z'})
+        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T00:00:00.000Z'})
         expect(sessions.stopSession('larder', 'b')).toEqual({project: 'larder', launch: 'abc'})
     })
 
@@ -311,7 +319,7 @@ describe('stopping a session', () => {
             throw new Error('not through the launcher')
         })
         vi.stubGlobal('launchersOf', () => 0)
-        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stopsAt: '2999-01-01T00:00:00.000Z'}, true)
+        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T00:00:00.000Z'}, true)
         expect(sessions.stopSession('larder', 'b').name).toBe('larder 1')
         expect(asked).toEqual([{project: 'larder', id: 'b'}])
     })
@@ -319,7 +327,7 @@ describe('stopping a session', () => {
 
 describe('a session Orrery started, after Orrery restarts', () => {
     it("counts as started again once its launcher reports the launch, though its channel connected first", () => {
-        const started = {launch: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', stopsAt: '2999-01-01T00:00:00.000Z'}
+        const started = {launch: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', stops_at: '2999-01-01T00:00:00.000Z'}
         // Orrery doesn't know the launch yet, so the channel connects as an ordinary session, saying its launch.
         sessions.attend('larder', 'b', undefined, undefined, true, undefined, true, started.launch)
         expect(sessions.startedSessions('larder')).toBe(0)
@@ -327,7 +335,7 @@ describe('a session Orrery started, after Orrery restarts', () => {
         expect(sessions.startedSessions('larder')).toBe(1)
         expect(sessions.sessionOfLaunch('larder', started.launch)?.started).toEqual(started)
         // Another project's report of the same id doesn't touch it.
-        sessions.adoptLaunch('mesa', {...started, stopsAt: '2000-01-01T00:00:00.000Z'})
-        expect(sessions.sessionOfLaunch('larder', started.launch)?.started?.stopsAt).toBe(started.stopsAt)
+        sessions.adoptLaunch('mesa', {...started, stops_at: '2000-01-01T00:00:00.000Z'})
+        expect(sessions.sessionOfLaunch('larder', started.launch)?.started?.stops_at).toBe(started.stops_at)
     })
 })

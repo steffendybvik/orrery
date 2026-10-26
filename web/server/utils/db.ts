@@ -492,6 +492,37 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     ALTER TABLE issues ADD COLUMN ships_in TEXT;
     ALTER TABLE projects ADD COLUMN repo TEXT;
+`, `
+    -- A project can take its releases from another (a monorepo's apps going out in one shared release): its
+    -- issues are set for that project's releases, and it has none of its own.
+    ALTER TABLE projects ADD COLUMN releases_from TEXT;
+`, `
+    -- The API's fields are snake_case, as the columns are: the Orrery's own prompt settings follow.
+    UPDATE settings SET key = 'focus_prompt' WHERE key = 'focusPrompt';
+    UPDATE settings SET key = 'chunk_prompt' WHERE key = 'chunkPrompt';
+`, `
+    -- An issue's tasks on the team's tracker (Linear, Jira): a JSON list of ids or URLs.
+    ALTER TABLE issues ADD COLUMN external TEXT NOT NULL DEFAULT '[]';
+`, `
+    -- Not every project ships: one has no releases, its own, or another's (\`releases_from\`). Those with
+    -- releases, or others drawing on them, keep their own; the rest have none until they're turned on.
+    ALTER TABLE projects ADD COLUMN release_mode TEXT NOT NULL DEFAULT 'none';
+    UPDATE projects SET release_mode = 'shared' WHERE releases_from IS NOT NULL;
+    UPDATE projects SET release_mode = 'own' WHERE releases_from IS NULL
+        AND (id IN (SELECT project FROM releases) OR id IN (SELECT releases_from FROM projects WHERE releases_from IS NOT NULL));
+`, `
+    -- Approving a proposal commits it now; those approved before wait no longer: they go on the roadmap, in Todo
+    -- if they were still in the backlog, else where their work already took them (started, done).
+    UPDATE issues SET proposal = NULL, status = CASE WHEN status IN (SELECT id FROM statuses WHERE kind = 'backlog')
+        THEN COALESCE((SELECT id FROM statuses WHERE kind = 'todo' ORDER BY position, id LIMIT 1), status) ELSE status END
+        WHERE proposal = 'approved';
+`, `
+    -- Releases are arranged by hand, from 0 at the top: they start in the order they had, those being
+    -- prepared first, then the shipped ones, latest first.
+    ALTER TABLE releases ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    UPDATE releases SET position = (SELECT n FROM (
+        SELECT project, version, row_number() OVER (PARTITION BY project ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC) - 1 AS n
+        FROM releases) o WHERE o.project = releases.project AND o.version = releases.version);
 `]
 
 let db: DatabaseSync | null = null

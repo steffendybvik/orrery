@@ -80,11 +80,11 @@ const iconButton = 'grid size-6 place-items-center rounded-md text-faint hover:b
           <span class="ml-auto flex items-center gap-1">
             <span
                 class="text-xs text-faint"
-                :title="secret.lastUsed ? `${secret.lastUsed.method} ${secret.lastUsed.host}${secret.lastUsed.path} by ${secret.lastUsed.createdBy}: ${secret.lastUsed.status ?? secret.lastUsed.error}` : undefined"
+                :title="secret.last_used ? `${secret.last_used.method} ${secret.last_used.host}${secret.last_used.path} by ${secret.last_used.created_by}: ${secret.last_used.status ?? secret.last_used.error}` : undefined"
             >
-              <template v-if="secret.lastUsed">
-                used {{ ago(secret.lastUsed.createdAt) }}
-                <span :class="secret.lastUsed.status && secret.lastUsed.status < 400 ? '' : 'text-rose-600 dark:text-rose-400'">· {{ secret.lastUsed.status ?? 'failed' }}</span>
+              <template v-if="secret.last_used">
+                used {{ ago(secret.last_used.created_at) }}
+                <span :class="secret.last_used.status && secret.last_used.status < 400 ? '' : 'text-rose-600 dark:text-rose-400'">· {{ secret.last_used.status ?? 'failed' }}</span>
               </template>
               <template v-else>never used</template>
             </span>

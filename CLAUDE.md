@@ -5,6 +5,8 @@
 These lines are for working on Orrery with Orrery: its own roadmap lives in an Orrery, as project `orrery`
 (issue ids `ORR-n`), at `$ORRERY_URL` (http://localhost:9000 by default; the repo's `.mcp.json` and hooks
 read the same variable, so set it in `.claude/settings.local.json` under `env` when yours runs elsewhere).
+Point it at the Orrery you use, never the playground (`.playground/play`, :9001): that's a demo, thrown away
+with `play reset`.
 How to use it: `curl -s $ORRERY_URL/llms-full.txt`. Without an Orrery running, skip this section.
 
 - Work from an issue: set it to `in-progress` (assignee `claude`) before starting, comment as it moves, `done` when it ships (`canceled`, with a comment why, when it won't).

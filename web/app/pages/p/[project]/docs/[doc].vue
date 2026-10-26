@@ -10,7 +10,7 @@ const project = computed(() => byId(route.params.project as string))
 const summary = computed(() => project.value?.docs.find(d => d.id === route.params.doc))
 // Open, it's seen, and stays seen as it changes in front of you.
 const {seeDoc} = useUnseen()
-watch(() => summary.value?.updatedAt, () => {
+watch(() => summary.value?.updated_at, () => {
     if (project.value && summary.value) seeDoc(project.value.id, summary.value)
 }, {immediate: true})
 
@@ -20,7 +20,7 @@ const missing = ref(false)
 // for the whole visit, so changes coming in while it's open are tinted too.
 const {lastRead, read} = useUnseen()
 const before = ref<{key: string, body?: string} | null>(null)
-watch(() => [route.params.project, route.params.doc, summary.value?.updatedAt] as const, async ([p, d]) => {
+watch(() => [route.params.project, route.params.doc, summary.value?.updated_at] as const, async ([p, d]) => {
     if (!p || !d) return
     try {
         const fetched = await $fetch<Doc>(`/api/projects/${encodeURIComponent(String(p))}/docs/${encodeURIComponent(String(d))}`)
@@ -62,9 +62,9 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
       <header class="mb-8 flex flex-col gap-3 border-b border-line pb-6">
         <h1 class="text-3xl font-semibold tracking-tight text-fg">{{ doc.title }}</h1>
         <div class="flex items-center gap-2 text-xs text-faint">
-          <PersonAvatar :name="doc.createdBy" :size="16" />
-          <span class="text-muted">{{ who(doc.createdBy) }}</span>
-          <span>· updated {{ ago(doc.updatedAt) }}</span>
+          <PersonAvatar :name="doc.created_by" :size="16" />
+          <span class="text-muted">{{ who(doc.created_by) }}</span>
+          <span>· updated {{ ago(doc.updated_at) }}</span>
           <span v-if="doc.protected" class="flex items-center gap-1" title="Only the owner can delete it">· protected</span>
           <span class="ml-auto flex items-center gap-2">
             <SegmentedControl v-model="size" :options="sizes" class="[&_button]:px-2 [&_button]:py-0.5" title="Text size" />

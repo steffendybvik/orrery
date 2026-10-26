@@ -7,6 +7,9 @@ export const colorOf = (color: string) => TINTS[color as keyof typeof TINTS] ?? 
 /** Whether a column's kind is closed (done or canceled): out of the open counts. */
 export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
 
+/** A session's state as the page says it. */
+export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
+
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}
 
 /** Putting an issue in a column: its status. Into Proposed makes it a proposal; a proposal put anywhere
@@ -102,16 +105,18 @@ export function sectionsOf(project: Project, path: string, schedules = 0, sessio
     const base = `/p/${project.id}`
     const on = path.startsWith(`${base}/roadmap`) ? 'roadmap' : path.startsWith(`${base}/releases`) ? 'releases' : path.startsWith(`${base}/docs`) ? 'docs' : path.startsWith(`${base}/schedules`) ? 'schedules'
         : path.startsWith(`${base}/sessions`) ? 'sessions' : path.startsWith(`${base}/settings`) ? 'settings' : path === base || path.startsWith(`${base}/issues`) ? 'issues' : null
-    return [
+    const sections = [
         {id: 'issues' as Section, label: 'Issues', to: base, count: open(project.board.kinds), active: on === 'issues'},
         {id: 'roadmap' as Section, label: 'Roadmap', to: `${base}/roadmap`, count: project.board.chunks.filter(c => c.id).length, active: on === 'roadmap'},
         // Counted: the releases still being prepared.
-        {id: 'releases' as Section, label: 'Releases', to: `${base}/releases`, count: project.releases.filter(r => !r.shippedOn).length, active: on === 'releases'},
+        {id: 'releases' as Section, label: 'Releases', to: `${base}/releases`, count: project.releases.filter(r => !r.shipped_on).length, active: on === 'releases'},
         {id: 'docs' as Section, label: 'Docs', to: `${base}/docs`, count: project.docs.length, active: on === 'docs'},
         {id: 'schedules' as Section, label: 'Schedules', to: `${base}/schedules`, count: schedules, active: on === 'schedules'},
         {id: 'sessions' as Section, label: 'Sessions', to: `${base}/sessions`, count: sessions, active: on === 'sessions'},
         {id: 'settings' as Section, label: 'Settings', to: `${base}/settings`, count: 0, active: on === 'settings'},
     ]
+    // Releases only for a project that has them (not every project ships), unless it's the page on screen.
+    return sections.filter(s => s.id !== 'releases' || project.release_mode !== 'none' || s.active)
 }
 
 /** A release's page. */
@@ -128,7 +133,7 @@ export function releaseChunks(project: Project, version: string): Chunk[] {
 }
 
 /** A changelog for the release, in Markdown, from its issues' titles: what's done, then what isn't yet. */
-export function changelogOf(release: Release, chunks: Chunk[], date = release.shippedOn ?? 'unreleased'): string {
+export function changelogOf(release: Release, chunks: Chunk[], date = release.shipped_on ?? 'unreleased'): string {
     const issues = chunks.flatMap(c => c.tasks)
     const line = (issue: Issue) => `- ${issue.title} (${issue.id})`
     const done = issues.filter(i => i.kind === 'done')

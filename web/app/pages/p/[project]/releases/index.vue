@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// A project's releases, those being prepared first: each with its branch, how far its issues are and whether it shipped,
-// opening its page. New release makes one from a version (and the branch its work gathers on).
+// A project's releases, in the order they're arranged in: each with its branch, how far its issues are and whether it
+// shipped, opening its page. New release makes one from a version (and the branch its work gathers on).
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
 const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
+// Where its releases are made, when it takes them from another project.
+const source = computed(() => project.value?.releases_from ? byId(project.value.releases_from) : undefined)
 
 const making = ref(false)
 const version = ref('')
@@ -44,6 +46,55 @@ function cancel() {
     branchTyped.value = false
 }
 
+// Releases are dragged to rearrange them (or moved with ⌥↑/⌥↓), where they're made; a line shows where one lands.
+// The list moves at once, and the server's order follows.
+const arranges = computed(() => project.value?.release_mode === 'own')
+const order = ref<string[] | null>(null)
+const releases = computed(() => {
+    const all = project.value?.releases ?? []
+    if (!order.value) return all
+    return [...all].sort((a, b) => order.value!.indexOf(a.version) - order.value!.indexOf(b.version))
+})
+watch(() => project.value?.releases, () => order.value = null)
+const dragging = ref<string | null>(null)
+const dropAt = ref<number | null>(null)
+const moveFailed = ref('')
+function onDragOver(event: DragEvent, index: number) {
+    if (!dragging.value) return
+    event.preventDefault()
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    dropAt.value = event.clientY < box.top + box.height / 2 ? index : index + 1
+}
+function onDrop() {
+    if (dragging.value === null || dropAt.value === null) return
+    const from = releases.value.findIndex(r => r.version === dragging.value)
+    move(dragging.value, dropAt.value > from ? dropAt.value - 1 : dropAt.value)
+    onDragEnd()
+}
+function onDragEnd() {
+    dragging.value = null
+    dropAt.value = null
+}
+function nudge(version: string, by: number, event: KeyboardEvent) {
+    const index = releases.value.findIndex(r => r.version === version) + by
+    if (index < 0 || index >= releases.value.length) return
+    move(version, index)
+    nextTick(() => (event.target as HTMLElement).focus())
+}
+async function move(version: string, index: number) {
+    if (!project.value) return
+    const versions = releases.value.map(r => r.version).filter(v => v !== version)
+    versions.splice(index, 0, version)
+    order.value = versions
+    moveFailed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/releases/${encodeURIComponent(version)}`, {method: 'PATCH', body: {position: index}, headers: {'Orrery-Actor': await load()}})
+    } catch (error) {
+        order.value = null
+        moveFailed.value = errorMessage(error)
+    }
+}
+
 useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orrery` : 'Orrery'}))
 </script>
 
@@ -60,12 +111,20 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
         <SectionIcon section="releases" class="mt-0.5 size-4 text-accent-500" />
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Releases</h2>
-          <p class="text-xs text-muted">
+          <p v-if="project.releases_from" class="text-xs text-muted">
+            {{ project.name }} ships in <NuxtLink :to="`/p/${project.releases_from}/releases`" class="text-fg underline underline-offset-2">{{ source?.name ?? project.releases_from }}'s releases</NuxtLink>,
+            made there; each counts {{ project.name }}'s issues here. Set an issue's release on its page.
+          </p>
+          <p v-else-if="project.release_mode === 'none'" class="text-xs text-muted">
+            {{ project.name }} has no releases. <NuxtLink :to="`/p/${project.id}/settings#releases`" class="text-fg underline underline-offset-2">Turn them on in Settings</NuxtLink>
+            when it ships versions, its own or another project's.
+          </p>
+          <p v-else class="text-xs text-muted">
             The versions {{ project.name }} ships, and which issues go out in each. Chunks are themes; a release cuts across them.
             Set an issue's release on its page.
           </p>
         </div>
-        <button v-if="!making" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium whitespace-nowrap text-white hover:opacity-90" @click="startMaking">
+        <button v-if="!making && project.release_mode === 'own'" type="button" class="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent-500 px-2.5 text-xs font-medium whitespace-nowrap text-white hover:opacity-90" @click="startMaking">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
           New release
         </button>
@@ -89,14 +148,33 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       </form>
 
-      <ul v-if="project.releases.length" class="flex flex-col gap-2">
-        <li v-for="release in project.releases" :key="release.version">
-          <NuxtLink :to="releasePath(project.id, release.version)" class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line px-4 py-3 transition-colors hover:bg-hover">
+      <p v-if="moveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ moveFailed }}</p>
+      <ul v-if="releases.length" class="flex flex-col gap-2">
+        <li
+            v-for="(release, index) in releases"
+            :key="release.version"
+            class="relative transition-opacity"
+            :class="dragging === release.version && 'opacity-40'"
+            @dragover="onDragOver($event, index)"
+            @drop.prevent="onDrop"
+        >
+          <span v-if="dropAt === index && dragging" class="pointer-events-none absolute inset-x-2 -top-1.5 h-0.5 rounded-full bg-accent-500" />
+          <span v-if="dropAt === index + 1 && index === releases.length - 1 && dragging" class="pointer-events-none absolute inset-x-2 -bottom-1.5 h-0.5 rounded-full bg-accent-500" />
+          <NuxtLink
+              :to="releasePath(project.id, release.version)"
+              :draggable="arranges"
+              :title="arranges ? 'Drag to rearrange (or ⌥↑ / ⌥↓)' : undefined"
+              :class="arranges && 'cursor-grab active:cursor-grabbing'"
+              @dragstart="dragging = release.version; $event.dataTransfer?.setData('text/plain', release.version)"
+              @dragend="onDragEnd"
+              @keydown.alt.up.prevent="arranges && nudge(release.version, -1, $event)"
+              @keydown.alt.down.prevent="arranges && nudge(release.version, 1, $event)"
+              class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line px-4 py-3 transition-colors hover:bg-hover">
             <span class="font-mono text-[14px] font-medium text-fg">{{ release.version }}</span>
             <span
                 class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-                :class="release.shippedOn ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
-            >{{ release.shippedOn ? `Shipped ${release.shippedOn}` : 'Preparing' }}</span>
+                :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
+            >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : 'Preparing' }}</span>
             <span v-if="release.branch" class="font-mono text-xs text-faint">{{ release.branch }}</span>
             <span class="ml-auto flex items-center gap-3 text-xs text-faint">
               <span>{{ release.issues }} {{ release.issues === 1 ? 'issue' : 'issues' }}</span>
@@ -105,8 +183,9 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
           </NuxtLink>
         </li>
       </ul>
-      <p v-else-if="!making" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">
-        No releases yet. Make one, then set issues for it from their pages.
+      <p v-else-if="!making && project.release_mode !== 'none'" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">
+        <template v-if="project.releases_from">No releases in {{ source?.name ?? project.releases_from }} yet.</template>
+        <template v-else>No releases yet. Make one, then set issues for it from their pages.</template>
       </p>
     </div>
     <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">No project “{{ route.params.project }}”.</div>

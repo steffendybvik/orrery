@@ -4,12 +4,13 @@ import type {Signal, Starts} from '#shared/roadmap'
 
 // The launches live in the module, so each test gets a fresh one, with Nitro's auto-imports stubbed.
 let launches: typeof import('../server/utils/launches')
-let sent: {type: string, project?: string, id?: string, after?: number, minutes?: number, stopsAt?: string}[]
+let sent: {type: string, project?: string, id?: string, after?: number, minutes?: number, stops_at?: string}[]
 let listeners: number
 let started: {larder: number, all: number}
 let starts: Starts | undefined
-let session: {started?: {launch: string, tmux: string, stopsAt: string}} | undefined
+let session: {started?: {launch: string, tmux: string, stops_at: string}} | undefined
 let adopted: string[]
+let focused: {issue: string, session: string}[]
 
 beforeEach(async () => {
     sent = []
@@ -27,11 +28,20 @@ beforeEach(async () => {
     vi.stubGlobal('startedSessions', (project?: string) => project ? started.larder : started.all)
     vi.stubGlobal('sessionOfLaunch', () => session)
     vi.stubGlobal('adoptLaunch', (_project: string, started: {launch: string}) => adopted.push(started.launch))
-    vi.stubGlobal('extendLaunch', (_project: string, _id: string, stopsAt: string) => ({...session, started: {...session!.started!, stopsAt}}))
+    vi.stubGlobal('extendLaunch', (_project: string, _id: string, stops_at: string) => ({...session, started: {...session!.started!, stops_at}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
     // A tick for reading the project, as the database gives, so signals can overlap.
-    vi.stubGlobal('useStore', () => ({starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)), lastSignal: async () => 41}))
+    focused = []
+    vi.stubGlobal('useStore', () => ({
+        starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
+        lastSignal: async () => 41,
+        focus: async (_project: string, issue: string, body: {session: string}) => {
+            if (issue === 'LAR-404') throw Object.assign(new Error('No issue LAR-404'), {statusCode: 404})
+            focused.push({issue, session: body.session})
+            return {id: 42}
+        },
+    }))
     vi.resetModules()
     launches = await import('../server/utils/launches')
 })
@@ -41,7 +51,7 @@ afterEach(() => {
     vi.useRealTimers()
 })
 
-const signal = (id: number, more: Partial<Signal> = {}) => ({id, project: 'larder', kind: 'focus', protected: true, deliveredTo: [], ...more}) as Signal
+const signal = (id: number, more: Partial<Signal> = {}) => ({id, project: 'larder', kind: 'focus', protected: true, delivered_to: [], ...more}) as Signal
 
 describe('starting a session', () => {
     it("happens for the owner's signal that nobody is listening for, once a launcher is there", async () => {
@@ -67,7 +77,7 @@ describe('starting a session', () => {
     it("isn't for a signal aimed at one session, or one that's been delivered", async () => {
         launches.addLauncher('larder')
         expect(await launches.considerLaunch(signal(1, {target: 'window-a'}))).toBeNull()
-        expect(await launches.considerLaunch(signal(1, {deliveredTo: ['larder 1']}))).toBeNull()
+        expect(await launches.considerLaunch(signal(1, {delivered_to: ['larder 1']}))).toBeNull()
         expect(sent).toEqual([])
     })
 
@@ -135,35 +145,47 @@ describe('the owner starting a session by hand', () => {
         launches.launched(launch.id)
         expect(await launches.startLaunch('larder')).toMatchObject({after: 41})
     })
+
+    it('starts it focused on an issue, with a focus only that session hears', async () => {
+        launches.addLauncher('larder')
+        await expect(launches.startLaunch('larder', {issue: 'LAR-404'})).rejects.toThrow('No issue LAR-404')
+        // A refused focus doesn't hold the project's place.
+        expect(launches.launchState('larder').starting).toBe(0)
+        const launch = await launches.startLaunch('larder', {issue: 'LAR-7'})
+        expect(focused).toEqual([{issue: 'LAR-7', session: `launch-${launch.id}`}])
+        // It catches up from the focus made for it.
+        expect(launch.after).toBe(41)
+        expect(sent).toEqual([{type: 'launch', after: 41, minutes: 30}])
+    })
 })
 
 describe('a session Orrery started', () => {
     it('is stopped, or given longer from when it would have stopped, through its launcher', () => {
         expect(() => launches.stopLaunch('larder', 'abc')).toThrow('No session started for launch abc')
-        session = {started: {launch: 'abc', tmux: 'orrery-larder-abc', stopsAt: '2999-01-01T10:00:00.000Z'}}
+        session = {started: {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T10:00:00.000Z'}}
         launches.stopLaunch('larder', 'abc')
-        expect(launches.extendLaunchBy('larder', 'abc', 30).started!.stopsAt).toBe('2999-01-01T10:30:00.000Z')
-        expect(sent).toEqual([{type: 'stop', project: 'larder', id: 'abc'}, {type: 'extend', project: 'larder', id: 'abc', stopsAt: '2999-01-01T10:30:00.000Z'}])
+        expect(launches.extendLaunchBy('larder', 'abc', 30).started!.stops_at).toBe('2999-01-01T10:30:00.000Z')
+        expect(sent).toEqual([{type: 'stop', project: 'larder', id: 'abc'}, {type: 'extend', project: 'larder', id: 'abc', stops_at: '2999-01-01T10:30:00.000Z'}])
     })
 })
 
 describe('a launcher reporting the sessions it runs', () => {
-    const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', stopsAt: '2026-10-25T20:00:00.000Z'}
+    const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', stops_at: '2026-10-25T20:00:00.000Z'}
 
     it('has Orrery know them again after it restarted, whichever of the session and the report comes first', () => {
         // Before the report, a channel claiming the launch isn't known as started.
         expect(launches.launched(running.id)).toBeUndefined()
         launches.reportRunning('larder', [running])
         expect(adopted).toEqual([running.id])
-        expect(launches.launched(running.id)).toEqual({launch: running.id, tmux: running.tmux, stopsAt: running.stopsAt})
+        expect(launches.launched(running.id)).toEqual({launch: running.id, tmux: running.tmux, stops_at: running.stops_at})
     })
 
     it('keeps the stop time the owner moves, and forgets the launch once it has ended', () => {
         launches.reportRunning('larder', [running])
-        session = {started: {launch: running.id, tmux: running.tmux, stopsAt: running.stopsAt}}
+        session = {started: {launch: running.id, tmux: running.tmux, stops_at: running.stops_at}}
         vi.useFakeTimers({now: Date.parse('2026-10-25T19:00:00.000Z')})
         launches.extendLaunchBy('larder', running.id, 30)
-        expect(launches.launched(running.id)?.stopsAt).toBe('2026-10-25T20:30:00.000Z')
+        expect(launches.launched(running.id)?.stops_at).toBe('2026-10-25T20:30:00.000Z')
         launches.launchGone(running.id)
         expect(launches.launched(running.id)).toBeUndefined()
     })

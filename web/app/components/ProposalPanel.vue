@@ -2,8 +2,9 @@
 import type {Choice, Decision, Issue, Picks} from '#shared/roadmap'
 
 // A proposal's decision, as the owner: approve it, ask for changes or reject it, with a note the session
-// on it hears as their comment. Approved, it's still not work until it's committed to the roadmap. With
-// choices, approving sends what's ticked, and Explore on an option asks for changes down that option.
+// on it hears as their comment. Approving puts it on the roadmap (in Todo, unless its work has started); while it's open the panel still
+// says so, with the picks, and can put it up again. With choices, approving sends what's ticked, and Explore
+// on an option asks for changes down that option.
 const props = defineProps<{project: string, issue: Issue}>()
 const {who, load} = useOwner()
 const note = ref('')
@@ -46,7 +47,7 @@ watch([() => props.issue.id, () => JSON.stringify(props.issue.choices), () => JS
 // Decided (approved, changes asked for, rejected), it shows as a summary: what was decided and picked,
 // with Change decision to bring the controls back. Waiting on the owner, it's all there.
 const reopened = ref(false)
-watch([() => props.issue.id, () => props.issue.proposal, () => props.issue.decidedAt], () => reopened.value = false)
+watch([() => props.issue.id, () => props.issue.proposal, () => props.issue.decided_at], () => reopened.value = false)
 const deciding = computed(() => props.issue.proposal === 'pending' || reopened.value)
 /** What was picked, as the lines the summary shows: the question, then the options' titles. */
 const picked = computed(() => props.issue.picks ? props.issue.choices.filter(c => props.issue.picks![c.key]).map(c => ({
@@ -61,20 +62,23 @@ const explored = computed(() => {
 const withNote = () => note.value.trim() ? {note: note.value.trim()} : {}
 const decide = (decision: Decision) => send('/decide', 'POST', {decision, ...decision === 'approved' && props.issue.choices.length ? {picks: picks.value} : {}, ...withNote()})
 const explore = (choice: Choice, option: string) => send('/decide', 'POST', {decision: 'changes', explore: {choice: choice.key, option}, ...withNote()})
-const commit = () => send('', 'PATCH', {proposal: null})
+// Approved, it's work: shown while it's open, from what the decision left on it.
+const approved = computed(() => !props.issue.proposal && !!props.issue.decided_by && !!props.issue.decided_at && !isClosed(props.issue.kind))
+const state = computed(() => props.issue.proposal ?? 'approved')
+const putUpAgain = () => send('', 'PATCH', {proposal: 'pending'})
 </script>
 
 <template>
-  <section v-if="issue.proposal" class="flex flex-col gap-3 rounded-xl bg-well p-4 ring-1 ring-line">
+  <section v-if="issue.proposal || approved" class="flex flex-col gap-3 rounded-xl bg-well p-4 ring-1 ring-line">
     <header class="flex flex-wrap items-center gap-2">
       <StatusIcon column="proposed" />
       <h2 class="text-[13px] font-semibold text-fg">Proposal</h2>
-      <span class="rounded-full px-2 py-px text-[11px] font-medium ring-1" :class="STATE[issue.proposal].chip">{{ STATE[issue.proposal].label }}</span>
-      <span v-if="issue.decidedBy && issue.decidedAt && issue.proposal !== 'pending'" class="text-xs text-faint">
-        {{ who(issue.decidedBy) }} {{ DID[issue.proposal] }} · <span :title="issue.decidedAt">{{ ago(issue.decidedAt) }}</span>
+      <span class="rounded-full px-2 py-px text-[11px] font-medium ring-1" :class="STATE[state].chip">{{ STATE[state].label }}</span>
+      <span v-if="issue.decided_by && issue.decided_at && state !== 'pending'" class="text-xs text-faint">
+        {{ who(issue.decided_by) }} {{ DID[state] }} · <span :title="issue.decided_at">{{ ago(issue.decided_at) }}</span>
       </span>
     </header>
-    <p v-if="issue.decisionNote && issue.proposal !== 'pending'" class="text-[13px] leading-relaxed text-muted">“{{ issue.decisionNote }}”</p>
+    <p v-if="issue.decision_note && state !== 'pending'" class="text-[13px] leading-relaxed text-muted">“{{ issue.decision_note }}”</p>
     <p v-if="explored && issue.proposal === 'changes'" class="text-[13px] text-muted">
       You asked to explore <span class="font-mono text-xs">{{ explored.option?.key }}</span> {{ explored.option?.title }}: the agent adds a choice down it, then puts it up again.
     </p>
@@ -82,10 +86,8 @@ const commit = () => send('', 'PATCH', {proposal: null})
       <li v-for="p in picked" :key="p.key" class="text-muted">{{ p.question }} → <span class="font-medium text-fg">{{ p.titles.join(', ') || 'none' }}</span></li>
     </ul>
     <ProposalChoices v-if="deciding && issue.choices.length" v-model="picks" :issue="issue" @explore="explore" />
-    <p class="text-xs text-muted">
-      It's a proposal, not work yet: it sits in Proposed, out of the progress.
-      <template v-if="issue.proposal === 'approved'">Commit it to put it on the roadmap.</template>
-    </p>
+    <p v-if="approved" class="text-xs text-muted">It's on the roadmap: approving made it work.</p>
+    <p v-else class="text-xs text-muted">It's a proposal, not work yet: it sits in Proposed, out of the progress.</p>
     <template v-if="deciding">
       <textarea
           v-model="note"
@@ -102,8 +104,8 @@ const commit = () => send('', 'PATCH', {proposal: null})
       </div>
     </template>
     <div v-else class="flex flex-wrap items-center gap-2">
-      <button v-if="issue.proposal === 'approved'" type="button" class="h-8 rounded-lg bg-accent-500 px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40" :disabled="busy" title="Make it work: it leaves Proposed for its column" @click="commit">Commit to the roadmap</button>
-      <button type="button" class="h-8 rounded-lg px-2 text-[13px] text-faint hover:text-fg" @click="reopened = true">Change decision</button>
+      <button v-if="approved" type="button" class="h-8 rounded-lg px-2 text-[13px] text-faint hover:text-fg disabled:opacity-40" :disabled="busy" title="Take it off the roadmap and back to Proposed, to decide again" @click="putUpAgain">Put it up again</button>
+      <button v-else type="button" class="h-8 rounded-lg px-2 text-[13px] text-faint hover:text-fg" @click="reopened = true">Change decision</button>
     </div>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
   </section>

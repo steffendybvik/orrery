@@ -3,6 +3,58 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## Unreleased
+
+- **Build from a release:** `ORRERY_BUILD_CONTEXT` builds the image from a ref on GitHub
+  (`https://github.com/steffendybvik/orrery.git#main`) instead of this folder, so the Orrerys you use never
+  pick up a branch you have checked out to work on.
+- **Start a session from anywhere:** a Sessions page lists every project's sessions, and Start session there
+  (or the + by the sidebar's Sessions) picks the project, then optionally an open issue for it to focus on
+  from the start. Projects that can't start one now say why, with a link to turn starting on.
+  `POST …/launches` takes `{issue}`.
+- **Fixed:** a session Orrery starts for a project's very first signal now gets that signal: an `after` of 0
+  is a catch-up too.
+
+## 1.0.0-rc.3 (2026-10-26)
+
+- **Breaking, the API is snake_case:** every field in requests and responses takes its column's name:
+  `created_by`, `created_at`, `updated_at`, `icon_color`, `focus_prompt`, `chunk_prompt`, `shipped_on`,
+  `decided_by`, `decided_at`, `decision_note`, `delivered_to`, `sub_issues`, `skip_open`, `next_run`,
+  `started_at`, `stops_at`, `last_used`. The pages, the channel's tools and the launcher move with it;
+  restart running sessions and launchers after updating, as they still hold the old code. The Orrery's
+  own prompt settings migrate on start.
+- **Breaking, releases are a project setting:** not every project ships, so a project's `release_mode` is `none`,
+  `own` or `shared` (another project's, `releases_from`), under Settings → Releases. New projects have
+  none, and no Releases page, until it's turned on. Existing projects with releases, or others drawing on
+  them, keep their own. A shared release's page leaves out projects with nothing in it.
+- **Rearrange releases:** drag a release on the Releases page (or ⌥↑/⌥↓) to move it; `position` on
+  `POST` and `PATCH …/releases/:release` sets where it goes. A new release goes on top, and existing ones
+  keep the order they had.
+- **Shared releases:** a project can take its releases from another (Settings → Releases, or
+  `releases_from`), so a monorepo's apps ship in one release. Their issues are set for it, and its page
+  shows each project's issues in a section with its progress; a project drawing on it shows its own part
+  and links the whole. `GET …/releases/:release` adds `projects`.
+- **Approving a proposal puts it on the roadmap:** no separate Commit. One still in the backlog goes to
+  Todo, and one whose work has started or finished keeps its status. It keeps who approved it, the note
+  and the picks, and the panel offers Put it up again while it's open. Proposals approved before are
+  committed the same way as the database migrates.
+- **Team tasks:** an issue links to its tasks on the team's tracker (`external`: `CIR-1567`, or a URL),
+  editable under its properties and opening there through App settings → Team tracker
+  (`https://linear.app/your-team/issue/{id}`). `?external=` finds the issues linked to a task, and
+  `create_issue` and `update_issue` take it.
+- **Whose board an issue is on:** every issue has a reference, `orrery-<handle>: DOC-132`, with a Copy
+  ref button by its id and `ref` in the API and the `issue` tool, for commit bodies and PR descriptions.
+  App settings take the handle (your GitHub login, say); without one it's your id.
+- **Many issues at once:** tick issues on any list or board (a row's tick on hover, shift-click for a run,
+  `x`, ⌘A for the page, Esc to clear) and a bar changes them together: Approve, Request changes or Reject
+  proposals with one note, or set status, priority, assignee, labels, chunk or release, or delete them.
+  Each issue goes on its own and the bar lists what was skipped. `PATCH /projects/:project/issues`,
+  `POST …/issues/decide` and `DELETE …/issues` take `{ids}`.
+- **The version in the sidebar:** its foot says which version the Orrery runs (`v1.0.0-rc.3`), linking to
+  that version's changelog, and the dev server adds `· dev`. A release sets it in `web/package.json`.
+- **Finished work stays quiet:** a done or canceled issue is never marked as changed, so a comment on one
+  lights up no row, no sidebar dot and no Mark seen count.
+
 ## 1.0.0-rc.2 (2026-10-25)
 
 - **Fixed, the owner's protections:** an agent can no longer change or run the owner's schedules (and

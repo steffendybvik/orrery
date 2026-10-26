@@ -27,6 +27,7 @@ const FIELDS = {
     status: STATUS,
     priority: PRIORITY,
     labels: {type: 'array', items: {type: 'string'}},
+    external: {type: 'array', items: {type: 'string'}, description: "Its tasks on the team's tracker: ids like CIR-1567, or URLs"},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
     chunk: {type: ['string', 'null'], description: "A chunk's id (a number) or its old name"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
@@ -44,6 +45,7 @@ export const TOOLS = [
             chunk: {type: 'string', description: 'A chunk id, or "none"'},
             release: {type: 'string', description: 'A release\'s version, or "none"'},
             label: {type: 'string'},
+            external: {type: 'string', description: "A team task's id: the issues linked to it"},
             q: {type: 'string', description: 'Text in the id or title'},
             open: {type: 'boolean', description: 'Only issues not done or canceled (default true)'},
         }},
@@ -56,7 +58,7 @@ export const TOOLS = [
     },
     {
         name: 'update_issue',
-        description: 'Changes an issue: any of its fields; proposal "pending" puts it (back) up to the owner, null commits an approved one.',
+        description: 'Changes an issue: any of its fields; proposal "pending" puts it (back) up to the owner; the owner approving it puts it on the roadmap.',
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...FIELDS, proposal: {type: ['string', 'null'], enum: ['pending', null]}}},
     },
     {
@@ -75,7 +77,7 @@ export const TOOLS = [
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
     },
     {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress.", inputSchema: {type: 'object', properties: {}}},
-    {name: 'releases', description: "Lists the project's releases (those being prepared first), with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'releases', description: "Lists the project's releases, in the order they're arranged in, with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
     {name: 'docs', description: "Lists the project's docs: decisions, how things work.", inputSchema: {type: 'object', properties: {}}},
     {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
@@ -116,7 +118,7 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
 
     const run = {
         async issues(args) {
-            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'q']))
+            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'q']))
             let issues = await call('GET', `/issues?${query}`)
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             return issues.length ? issues.map(line).join('\n') : 'No issues match.'
@@ -124,7 +126,7 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
         async issue({id}) {
             const [issue, comments] = await Promise.all([call('GET', issuePath(id)), call('GET', `${issuePath(id)}/comments`)])
             const {tasks, counts, kinds, ...rest} = issue
-            return JSON.stringify({...rest, subIssues: tasks.map(line), comments: comments.map(c => ({by: c.createdBy, at: c.createdAt, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
+            return JSON.stringify({...rest, sub_issues: tasks.map(line), comments: comments.map(c => ({by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
         },
         async create_issue(args) {
             const {proposal, ...fields} = args
@@ -153,7 +155,7 @@ export function orreryTools({api, session, fetch = globalThis.fetch}) {
         },
         async releases() {
             const releases = await call('GET', '/releases')
-            return releases.map(r => `${r.version}${r.shippedOn ? ` (shipped ${r.shippedOn})` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
+            return releases.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
                 || 'No releases yet.'
         },
         async docs() {

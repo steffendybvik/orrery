@@ -28,7 +28,7 @@ watch(show, now => {
 
 // Newest first, the waiting ones among the rest by time; their ring marks them.
 const shown = computed(() => show.value === 'inbox'
-    ? [...lists.value.waiting.items, ...lists.value.inbox.items].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+    ? [...lists.value.waiting.items, ...lists.value.inbox.items].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
     : lists.value[show.value].items)
 const loaded = computed(() => lists.value[show.value].loaded && (show.value !== 'inbox' || lists.value.waiting.loaded))
 const options = computed(() => [
@@ -36,7 +36,7 @@ const options = computed(() => [
     {value: 'waiting' as const, label: `Waiting on you ${lists.value.waiting.items.length}`},
     {value: 'cleared' as const, label: 'Cleared'},
 ])
-const isNew = (n: Notice) => !n.cleared && (n.createdAt > since.value || isWaiting(n))
+const isNew = (n: Notice) => !n.cleared && (n.created_at > since.value || isWaiting(n))
 const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'})
 
@@ -76,15 +76,15 @@ function openCard(notice: Notice, event: MouseEvent) {
       >
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-2.5 pr-12 text-[13px]">
           <span v-if="isNew(notice)" class="size-2 shrink-0 rounded-full bg-accent-500" />
-          <PersonAvatar :name="notice.createdBy" :size="20" />
-          <span class="font-medium text-fg">{{ who(notice.createdBy) }}</span>
+          <PersonAvatar :name="notice.created_by" :size="20" />
+          <span class="font-medium text-fg">{{ who(notice.created_by) }}</span>
           <span class="text-faint">on</span>
           <span class="flex min-w-0 items-center gap-2 px-1">
             <span class="font-mono text-xs text-faint">{{ notice.issue }}</span>
             <span class="truncate text-fg group-hover:underline">{{ notice.title }}</span>
           </span>
           <span class="text-xs text-faint">in {{ projectName(notice.project) }}</span>
-          <span class="ml-auto shrink-0 text-xs text-faint" :title="when(notice.createdAt)">{{ ago(notice.createdAt) }}</span>
+          <span class="ml-auto shrink-0 text-xs text-faint" :title="when(notice.created_at)">{{ ago(notice.created_at) }}</span>
         </div>
         <div class="px-4 py-3">
           <span v-if="isWaiting(notice)" class="mb-2 inline-block rounded-full bg-accent-500/10 px-2 py-0.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">{{ ASKS[notice.asks!] }}</span>

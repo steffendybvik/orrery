@@ -264,6 +264,27 @@ const STEPS: string[] = [`
     );
     ALTER TABLE issues ADD COLUMN ships_in text;
     ALTER TABLE projects ADD COLUMN repo text;
+`, `
+    ALTER TABLE projects ADD COLUMN releases_from text;
+`, `
+    UPDATE settings SET key = 'focus_prompt' WHERE key = 'focusPrompt';
+    UPDATE settings SET key = 'chunk_prompt' WHERE key = 'chunkPrompt';
+`, `
+    ALTER TABLE issues ADD COLUMN external text NOT NULL DEFAULT '[]';
+`, `
+    ALTER TABLE projects ADD COLUMN release_mode text NOT NULL DEFAULT 'none';
+    UPDATE projects SET release_mode = 'shared' WHERE releases_from IS NOT NULL;
+    UPDATE projects SET release_mode = 'own' WHERE releases_from IS NULL
+        AND (id IN (SELECT project FROM releases) OR id IN (SELECT releases_from FROM projects WHERE releases_from IS NOT NULL));
+`, `
+    UPDATE issues SET proposal = NULL, status = CASE WHEN status IN (SELECT id FROM statuses WHERE kind = 'backlog')
+        THEN COALESCE((SELECT id FROM statuses WHERE kind = 'todo' ORDER BY position, id LIMIT 1), status) ELSE status END
+        WHERE proposal = 'approved';
+`, `
+    ALTER TABLE releases ADD COLUMN position integer NOT NULL DEFAULT 0;
+    UPDATE releases SET position = (SELECT n FROM (
+        SELECT project, version, row_number() OVER (PARTITION BY project ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC) - 1 AS n
+        FROM releases) o WHERE o.project = releases.project AND o.version = releases.version);
 `]
 
 /** The transaction the code running now is part of, if any: its connection, and the database it's on. */

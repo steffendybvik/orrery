@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Comment, Issue, IssueEvent} from '#shared/roadmap'
-import {total} from '#shared/roadmap'
+import {issueRef, total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, sub-issues and activity, with its
 // properties beside them. The title and description edit in place, as the owner. j/k go to the next
@@ -22,9 +22,13 @@ watch(found, f => {
     if (f && f.issue.id !== issueId.value) router.replace(`/p/${route.params.project}/issues/${encodeURIComponent(f.issue.id)}`)
 }, {immediate: true})
 const issue = computed(() => found.value?.issue)
+// What says whose board it's on, to put in a commit body or PR description.
+const {settings} = useAppSettings()
+const {owner} = useOwner()
+const ref_ = computed(() => issue.value ? issueRef(settings.value.handle ?? owner.value?.name ?? 'owner', issue.value.id) : '')
 // Open, it's seen, and stays seen as it changes in front of you.
 const {seeIssue} = useUnseen()
-watch(() => issue.value?.updatedAt, () => {
+watch(() => issue.value?.updated_at, () => {
     if (project.value && issue.value) seeIssue(project.value.id, issue.value)
 }, {immediate: true})
 const order = computed(() => project.value ? allIssues(project.value).map(i => i.issue.id) : [])
@@ -36,7 +40,7 @@ watch(() => [project.value?.id, issueId.value] as const, ([p, i]) => {
 
 const comments = ref<Comment[]>([])
 const activity = ref<IssueEvent[]>([])
-watch(() => [project.value?.id, issueId.value, issue.value?.updatedAt] as const, async ([p, i]) => {
+watch(() => [project.value?.id, issueId.value, issue.value?.updated_at] as const, async ([p, i]) => {
     if (!p || !i || !issue.value) return
     const base = `/api/projects/${encodeURIComponent(p)}/issues/${encodeURIComponent(i)}`
     ;[comments.value, activity.value] = await Promise.all([
@@ -58,7 +62,7 @@ function said(event: IssueEvent): string[] {
     if (field === 'notes') return ['edited the description']
     if (field === 'parent') return [after ? `made it a sub-issue of ${after}` : 'made it a top-level issue']
     if (field === 'project') return [`moved it here from ${before}`]
-    if (field === 'proposal') return [after ? PROPOSAL_SAID[after] ?? after : 'committed it']
+    if (field === 'proposal') return [after ? PROPOSAL_SAID[after] ?? after : before === 'approved' ? 'put it on the roadmap' : 'committed it']
     if (field === 'chunk') {
         const title = project.value?.board.chunks.find(c => c.id === after)?.title ?? after
         return [after ? `put it in ${title}` : 'took it out of its chunk']
@@ -68,6 +72,13 @@ function said(event: IssueEvent): string[] {
         return [
             ...now!.filter(l => !was!.includes(l)).map(l => `added the label ${l}`),
             ...was!.filter(l => !now!.includes(l)).map(l => `took off the label ${l}`),
+        ]
+    }
+    if (field === 'external') {
+        const [was, now] = [before, after].map(l => JSON.parse(l ?? '[]') as string[])
+        return [
+            ...now!.filter(t => !was!.includes(t)).map(t => `linked the team task ${t}`),
+            ...was!.filter(t => !now!.includes(t)).map(t => `unlinked the team task ${t}`),
         ]
     }
     return []
@@ -82,12 +93,12 @@ const timeline = computed(() => {
         const words = event.field === 'created' ? [] : said(event)
         if (!words.length) continue
         const last = lines.at(-1)
-        if (last && last.at === event.createdAt && last.by === event.createdBy) last.words!.push(...words)
-        else lines.push({key: `e${event.id}`, at: event.createdAt, by: event.createdBy, words})
+        if (last && last.at === event.created_at && last.by === event.created_by) last.words!.push(...words)
+        else lines.push({key: `e${event.id}`, at: event.created_at, by: event.created_by, words})
     }
     const all: (Entry & {text?: string})[] = [
         ...lines.map(l => ({...l, text: l.words!.length > 1 ? `${l.words!.slice(0, -1).join(', ')} and ${l.words!.at(-1)}` : l.words![0]})),
-        ...comments.value.map(c => ({key: `c${c.id}`, at: c.createdAt, comment: c})),
+        ...comments.value.map(c => ({key: `c${c.id}`, at: c.created_at, comment: c})),
     ]
     return all.sort((a, b) => a.at.localeCompare(b.at))
 })
@@ -220,6 +231,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <div class="flex items-center gap-1.5">
             <span class="font-mono text-xs text-faint">{{ issue.id }}</span>
             <CopyButton :text="issue.id" />
+            <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" />
             <button
                 v-if="madeBy"
                 type="button"
@@ -330,7 +342,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <ol class="relative flex flex-col gap-5 border-l border-line pl-5">
             <li class="text-xs text-faint">
               <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
-              <span class="text-muted">{{ who(issue.createdBy) }}</span> created the issue · <span :title="issue.createdAt">{{ ago(issue.createdAt) }}</span>
+              <span class="text-muted">{{ who(issue.created_by) }}</span> created the issue · <span :title="issue.created_at">{{ ago(issue.created_at) }}</span>
             </li>
             <template v-for="entry in timeline" :key="entry.key">
               <li v-if="!entry.comment" class="text-xs text-faint">
@@ -339,9 +351,9 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               </li>
               <li v-else class="group flex flex-col gap-1.5">
                 <div class="-ml-[31px] flex items-center gap-2 text-xs">
-                  <PersonAvatar :name="entry.comment.createdBy" :size="20" />
-                  <span class="font-medium text-fg">{{ who(entry.comment.createdBy) }}</span>
-                  <span class="text-faint" :title="entry.comment.createdAt">{{ ago(entry.comment.createdAt) }}{{ entry.comment.updatedAt !== entry.comment.createdAt ? ' · edited' : '' }}</span>
+                  <PersonAvatar :name="entry.comment.created_by" :size="20" />
+                  <span class="font-medium text-fg">{{ who(entry.comment.created_by) }}</span>
+                  <span class="text-faint" :title="entry.comment.created_at">{{ ago(entry.comment.created_at) }}{{ entry.comment.updated_at !== entry.comment.created_at ? ' · edited' : '' }}</span>
                   <span
                       v-if="entry.comment.asks"
                       class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"

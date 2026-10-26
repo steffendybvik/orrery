@@ -4,7 +4,8 @@ import {total} from '#shared/roadmap'
 
 // One issue as a row (id, title, labels, status, priority, assignee); a parent shows its
 // sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines.
-// Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`).
+// Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`). Its tick
+// (SelectBox) takes the priority's place on hover, for changing many at once; with any ticked, a shift- or ⌘-click ticks.
 //
 // The tree: each level is INDENT further in, and a sub-issue's line comes down from under its
 // parent's first icon (RAIL from the row's edge) and turns into it. `rails` says, for each level
@@ -18,6 +19,12 @@ const childRails = computed(() => props.depth ? [...props.rails, !props.last] : 
 const {open, isLast} = useIssueLink()
 const {open: openMenu} = useIssueMenu()
 const {changed} = useRoadmaps()
+const {selected, isSelected, toggle} = useSelection()
+const ticked = computed(() => isSelected(props.project, props.issue.id))
+function click(event: MouseEvent) {
+    if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, props.issue.id, event.shiftKey)
+    else open(props.project, props.issue.id)
+}
 
 const isParent = computed(() => props.issue.tasks.length > 0)
 const flash = computed(() => Date.now() - (changed.value[`${props.project}/${props.issue.id}`] ?? 0) < 1500)
@@ -32,12 +39,13 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
   <div
       data-nav
       :data-issue="issue.id"
+      :data-project="project"
       tabindex="0"
       role="button"
       class="group relative flex h-11 cursor-pointer items-center gap-3 border-b border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
-      :class="[isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '', unseen ? 'unseen-row' : '']"
+      :class="[ticked ? 'bg-accent-500/8' : isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '', unseen ? 'unseen-row' : '']"
       :style="{paddingLeft: `${12 + depth * INDENT}px`}"
-      @click="open(project, issue.id)"
+      @click="click"
       @contextmenu="openMenu($event, project, issue.id)"
   >
     <template v-if="depth">
@@ -47,7 +55,10 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
       <span v-if="!last" class="pointer-events-none absolute inset-y-0 w-px bg-faint/55" :style="{left: railAt(depth - 1)}" />
       <span class="pointer-events-none absolute top-0 h-1/2 w-3 rounded-bl-md border-b border-l border-faint/55" :style="{left: railAt(depth - 1)}" />
     </template>
-    <PriorityIcon :priority="issue.priority" class="hidden sm:block" />
+    <span class="relative hidden size-[14px] shrink-0 sm:block">
+      <PriorityIcon :priority="issue.priority" class="transition-opacity" :class="ticked || selected.length ? 'opacity-0' : 'group-hover:opacity-0'" />
+      <SelectBox :project="project" :id="issue.id" class="absolute inset-0 m-auto" />
+    </span>
     <span class="w-16 shrink-0 truncate font-mono text-[11px] text-faint">{{ issue.id }}</span>
     <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
     <span class="flex min-w-0 flex-1 items-center gap-2">

@@ -36,10 +36,10 @@ const at = (iso: string) => new Date(iso)
 describe('schedules', () => {
     it('work out their next run in their timezone', async () => {
         const s = await schedules.create('larder', {title: 'Groom', cron: '0 9 * * 1-5', timezone: 'Europe/Oslo'}, me)
-        expect(s).toMatchObject({column: 'todo', enabled: true, skipOpen: true, ask: false, protected: true, runs: []})
+        expect(s).toMatchObject({column: 'todo', enabled: true, skip_open: true, ask: false, protected: true, runs: []})
         // 09:00 in Oslo is 07:00 or 08:00 UTC, depending on the season.
-        expect(new Date(s.nextRun!).getUTCHours()).toBeGreaterThanOrEqual(7)
-        expect(new Date(s.nextRun!).getUTCMinutes()).toBe(0)
+        expect(new Date(s.next_run!).getUTCHours()).toBeGreaterThanOrEqual(7)
+        expect(new Date(s.next_run!).getUTCMinutes()).toBe(0)
     })
 
     it('refuse a bad cron, a bad zone, a past one-off, or both kinds of time', async () => {
@@ -54,15 +54,15 @@ describe('schedules', () => {
     it('make an issue when due, placed and marked, and run once after downtime', async () => {
         const s = await schedules.create('larder', {title: 'Groom', cron: '0 9 * * *', timezone: 'UTC', chunk: '1', priority: 'P2', labels: ['upkeep'], column: 'in-review'}, me)
         // A week late: it runs once, then waits for its next time.
-        const late = new Date(new Date(s.nextRun!).getTime() + 7 * 86_400_000 + 60_000)
+        const late = new Date(new Date(s.next_run!).getTime() + 7 * 86_400_000 + 60_000)
         expect(await schedules.runDue(late)).toBe(1)
         expect(await schedules.runDue(late)).toBe(0)
         const run = (await schedules.get('larder', s.id)).runs[0]!
         expect(run.outcome).toBe('made')
         const issue = await store.issue('larder', run.issue!)
-        expect(issue).toMatchObject({chunk: '1', priority: 'P2', labels: ['upkeep'], status: 'in-review', schedule: s.id, createdBy: 'skoll', protected: true})
+        expect(issue).toMatchObject({chunk: '1', priority: 'P2', labels: ['upkeep'], status: 'in-review', schedule: s.id, created_by: 'skoll', protected: true})
         expect(issue.title).toMatch(/^Groom · \w{3} \d+ \w{3}$/)
-        expect(new Date((await schedules.get('larder', s.id)).nextRun!).getTime()).toBeGreaterThan(late.getTime())
+        expect(new Date((await schedules.get('larder', s.id)).next_run!).getTime()).toBeGreaterThan(late.getTime())
     })
 
     it('skip while the last run is open, unless run by hand', async () => {
@@ -81,14 +81,14 @@ describe('schedules', () => {
     it("are claimed by one server only", async () => {
         const s = await schedules.create('larder', {title: 'Once', cron: '0 9 * * *', timezone: 'UTC'}, me)
         const other = new Schedules(store)
-        const due = new Date(new Date(s.nextRun!).getTime() + 1000)
+        const due = new Date(new Date(s.next_run!).getTime() + 1000)
         expect(await schedules.runDue(due) + await other.runDue(due)).toBe(1)
     })
 
     it('ask the sessions only when the owner made them', async () => {
         const mine = await schedules.create('larder', {title: 'Mine', cron: '0 9 * * *', timezone: 'UTC', ask: true}, me)
         const theirs = await schedules.create('larder', {title: 'Theirs', cron: '0 9 * * *', timezone: 'UTC', ask: true}, agent)
-        await schedules.runDue(new Date(new Date(mine.nextRun!).getTime() + 1000))
+        await schedules.runDue(new Date(new Date(mine.next_run!).getTime() + 1000))
         const made = async (id: number) => (await schedules.get('larder', id)).runs[0]!.issue
         expect(signals.filter(s => s.kind === 'focus').map(s => [s.issue, s.protected])).toEqual([[await made(mine.id), true], [await made(theirs.id), false]])
     })
@@ -144,14 +144,14 @@ describe('schedules', () => {
     it('run a one-off once and then stop', async () => {
         const s = await schedules.create('larder', {title: 'Once', at: '2099-01-01T09:00:00Z'}, me)
         expect(await schedules.runDue(at('2099-01-02T00:00:00Z'))).toBe(1)
-        expect(await schedules.get('larder', s.id)).toMatchObject({enabled: false, nextRun: undefined})
+        expect(await schedules.get('larder', s.id)).toMatchObject({enabled: false, next_run: undefined})
     })
 
     it('pause and resume, keeping the owner’s from agents', async () => {
         const s = await schedules.create('larder', {title: 'Groom', cron: '0 9 * * *', timezone: 'UTC'}, me)
-        expect(await schedules.update('larder', s.id, {enabled: false}, me)).toMatchObject({enabled: false, nextRun: undefined})
-        expect((await schedules.update('larder', s.id, {enabled: true}, me)).nextRun).toBeTruthy()
-        expect((await schedules.update('larder', s.id, {cron: '30 18 * * *'}, me)).nextRun).toMatch(/T18:30/)
+        expect(await schedules.update('larder', s.id, {enabled: false}, me)).toMatchObject({enabled: false, next_run: undefined})
+        expect((await schedules.update('larder', s.id, {enabled: true}, me)).next_run).toBeTruthy()
+        expect((await schedules.update('larder', s.id, {cron: '30 18 * * *'}, me)).next_run).toMatch(/T18:30/)
         expect((await failure(() => schedules.delete('larder', s.id, agent))).status).toBe(403)
         expect((await failure(() => schedules.update('larder', s.id, {enabled: false}, agent))).status).toBe(403)
         await schedules.delete('larder', s.id, me)

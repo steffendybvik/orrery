@@ -18,7 +18,9 @@ await callOnce('owner', load)
     <ScheduleDialog />
     <NewProjectDialog />
     <NewChunkDialog />
+    <StartSessionDialog />
     <ScheduleMenu />
     <OwnerDialog />
+    <BulkBar />
   </div>
 </template>

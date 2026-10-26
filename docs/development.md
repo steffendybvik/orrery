@@ -16,18 +16,18 @@ stays in the repo's `.data/`.
 
 ## The dev server
 
-`docker-compose.dev.yml` runs the repo with `nuxt dev` in place of the built app, on the same port
-and database: a saved change shows on the page straight away and the server reloads itself, with no
-rebuild. It's this machine's only.
+The [playground](../.playground/README.md) runs the repo with `nuxt dev`, so a saved change shows on the
+page straight away and the server reloads itself, with no rebuild. It's a compose project of its own on
+http://localhost:9001, with a demo database in `.playground/data`, so the branch you're on never touches
+the Orrerys you use:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+.playground/play          # start it, with a demo
+.playground/play reset    # start over with a fresh demo
 ```
 
-Or put `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` so plain `docker compose`
-commands use it. The container has its own `node_modules` and `.nuxt` (volumes), and installs
-packages as it starts, so after a `pnpm-lock.yaml` change, `docker compose restart orrery`. Change
-the Dockerfile and it's `docker compose up -d --build`.
+It's this machine's only. The container has its own `node_modules` and `.nuxt` (volumes), and installs
+packages as it starts.
 
 Without Docker: `pnpm install`, then `pnpm dev` on http://localhost:9000 (Node 24.22.1, pnpm 10.14.0).
 

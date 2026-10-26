@@ -28,11 +28,11 @@ const groups = computed(() => {
         {key: 'paused', title: 'Paused', items: [] as Schedule[]},
     ]
     for (const s of props.schedules) {
-        if (!s.enabled || !s.nextRun) {
+        if (!s.enabled || !s.next_run) {
             named[4]!.items.push(s)
             continue
         }
-        const t = new Date(s.nextRun).getTime()
+        const t = new Date(s.next_run).getTime()
         named[t < edges[0]! ? 0 : t < edges[1]! ? 1 : t < edges[2]! ? 2 : 3]!.items.push(s)
     }
     return named.filter(g => g.items.length)
@@ -103,8 +103,8 @@ const OUTCOME = {
             :aria-label="`${s.enabled ? 'Pause' : 'Resume'} ${s.title}`"
             @click.stop="togglePause(s)"
         >{{ s.enabled ? '❙❙' : '▶' }}</button>
-        <span class="w-36 shrink-0 text-right text-xs" :title="s.nextRun ? when(s.nextRun) : ''">
-          <template v-if="s.enabled && s.nextRun"><span class="text-fg">{{ until(s.nextRun) }}</span> <span class="text-faint">· {{ when(s.nextRun).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
+        <span class="w-36 shrink-0 text-right text-xs" :title="s.next_run ? when(s.next_run) : ''">
+          <template v-if="s.enabled && s.next_run"><span class="text-fg">{{ until(s.next_run) }}</span> <span class="text-faint">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
           <span v-else class="text-faint">{{ ran(s) ? 'ran' : 'paused' }}</span>
         </span>
       </div>

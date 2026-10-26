@@ -96,7 +96,7 @@ async function deliver(signal) {
         ? signal.prompt
         : signal.kind === 'message'
         ? [
-            `${signal.createdBy}'s schedule "${signal.title}" says:`,
+            `${signal.created_by}'s schedule "${signal.title}" says:`,
             '',
             signal.note.split('\n').map(line => `> ${line}`).join('\n'),
             '',
@@ -104,7 +104,7 @@ async function deliver(signal) {
         ].join('\n')
         : !signal.issue
         ? [
-            `${signal.createdBy} asks you to work through ${signal.status ? `the ${signal.status} issues in ` : ''}chunk ${signal.chunk}: ${signal.title} [${[signal.column, signal.priority].filter(Boolean).join(', ')}].`,
+            `${signal.created_by} asks you to work through ${signal.status ? `the ${signal.status} issues in ` : ''}chunk ${signal.chunk}: ${signal.title} [${[signal.column, signal.priority].filter(Boolean).join(', ')}].`,
             signal.note ? `Note: ${signal.note}` : '',
             signal.issues.length
                 ? `Its ${signal.status ?? 'open'} issues, most urgent first:\n${signal.issues.map(i => `- ${i.id}: ${i.title} [${[i.column, i.priority].filter(Boolean).join(', ')}]`).join('\n')}`
@@ -113,7 +113,7 @@ async function deliver(signal) {
         ].filter(Boolean).join('\n')
         : signal.kind === 'comment'
         ? [
-            `${signal.createdBy} commented on ${signal.issue} (${signal.title}):`,
+            `${signal.created_by} commented on ${signal.issue} (${signal.title}):`,
             '',
             signal.note.split('\n').map(line => `> ${line}`).join('\n'),
             '',
@@ -121,7 +121,7 @@ async function deliver(signal) {
             `(the whole thread: curl ${issue}/comments)`,
         ].join('\n')
         : [
-            `${signal.createdBy} asks you to focus on ${signal.issue}: ${signal.title}${where ? ` [${where}]` : ''}.`,
+            `${signal.created_by} asks you to focus on ${signal.issue}: ${signal.title}${where ? ` [${where}]` : ''}.`,
             signal.note ? `Note: ${signal.note}` : '',
             `Read it with: curl ${issue}`,
         ].filter(Boolean).join('\n')
@@ -144,11 +144,13 @@ function quit() {
 }
 
 // Listens to the project's signal stream, and after a drop picks up from the last one it saw.
+// A session Orrery started catches up from its launch's `after`, 0 included (a project's first signal).
 let last = Number(process.env.ORRERY_AFTER) || 0
+const catchUp = process.env.ORRERY_AFTER !== undefined
 await follow({
     url: () => {
         const query = new URLSearchParams(who)
-        if (last) query.set('after', String(last))
+        if (last || catchUp) query.set('after', String(last))
         return `${api}/signals/stream?${query}`
     },
     onOpen: () => log(`listening for ${project}'s signals at ${base}`),

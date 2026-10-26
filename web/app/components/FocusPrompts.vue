@@ -12,18 +12,18 @@ const {load} = useOwner()
 const failed = ref('')
 
 const KINDS = [
-    {key: 'focusPrompt', label: 'Focus on an issue', fallback: DEFAULT_FOCUS_PROMPT, placeholders: PLACEHOLDERS.focus},
-    {key: 'chunkPrompt', label: "Work through a chunk's issues", fallback: DEFAULT_CHUNK_PROMPT, placeholders: PLACEHOLDERS.chunk},
+    {key: 'focus_prompt', label: 'Focus on an issue', fallback: DEFAULT_FOCUS_PROMPT, placeholders: PLACEHOLDERS.focus},
+    {key: 'chunk_prompt', label: "Work through a chunk's issues", fallback: DEFAULT_CHUNK_PROMPT, placeholders: PLACEHOLDERS.chunk},
 ] as const
 type Key = (typeof KINDS)[number]['key']
 
 /** What a template follows when left empty: the Orrery's for a project, else the default. */
 const inherited = (key: Key) => (props.project ? settings.value[key] : null) ?? KINDS.find(k => k.key === key)!.fallback
 const saved = (key: Key) => (props.project ? props.project[key] : settings.value[key]) ?? ''
-const drafts = reactive<Record<Key, string>>({focusPrompt: '', chunkPrompt: ''})
-watch(() => [saved('focusPrompt'), saved('chunkPrompt')], ([focus, chunk]) => {
-    drafts.focusPrompt = focus!
-    drafts.chunkPrompt = chunk!
+const drafts = reactive<Record<Key, string>>({focus_prompt: '', chunk_prompt: ''})
+watch(() => [saved('focus_prompt'), saved('chunk_prompt')], ([focus, chunk]) => {
+    drafts.focus_prompt = focus!
+    drafts.chunk_prompt = chunk!
 }, {immediate: true})
 
 async function save(change: Record<string, unknown>) {
@@ -55,8 +55,8 @@ const ticked = computed(() => [
     ...props.project ? props.project.instructions.filter(i => i.on) : [],
 ].map(i => i.text))
 const SAMPLE = {
-    focusPrompt: {actor: 'you', issue: 'LAR-42', title: 'Scale a recipe by servings', status: 'Todo', priority: 'P1', chunk: 'Recipes', where: 'Todo, P1, Recipes', note: 'before the weekend', url: 'http://localhost:9000/api/projects/larder/issues/LAR-42'},
-    chunkPrompt: {
+    focus_prompt: {actor: 'you', issue: 'LAR-42', title: 'Scale a recipe by servings', status: 'Todo', priority: 'P1', chunk: 'Recipes', where: 'Todo, P1, Recipes', note: 'before the weekend', url: 'http://localhost:9000/api/projects/larder/issues/LAR-42'},
+    chunk_prompt: {
         actor: 'you', chunk: '3', title: 'Recipes', status: 'Todo', priority: 'P2', where: 'Todo, P2', note: '',
         issues: '- LAR-42: Scale a recipe by servings [Todo, P1]\n- LAR-43: Timers inside steps [Todo]', url: 'http://localhost:9000/api/projects/larder/chunks/3',
     },

@@ -3,8 +3,9 @@ import {expect, test} from '@playwright/test'
 
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
 // them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
-// issues starting on the open ones; then a chunk made, edited and removed from its page, and an image
-// in a new issue and a comment; then a changed doc and what changed in it; then a release.
+// issues starting on the open ones, what changed since the owner looked, and ticked issues changed
+// together; then a chunk made, edited and removed from its page, and an image in a new issue and a
+// comment; then a changed doc and what changed in it; then a release, and a project drawing on it.
 test.describe.configure({mode: 'serial'})
 
 const AGENT = {'Orrery-Actor': 'claude'}
@@ -84,8 +85,12 @@ test("an agent's proposal waits until the owner approves it", async ({page, requ
     expect(proposal).toMatchObject({column: 'proposed', assignee: 'ada_lovelace'})
     await page.goto(`/p/larder/issues/${proposal.id}`)
     await page.getByRole('button', {name: 'Approve'}).click()
-    await expect.poll(async () => (await api(request, 'get', `/issues/${proposal.id}`)).proposal).toBe('approved')
-    expect((await api(request, 'get', `/issues/${proposal.id}/comments`)).at(-1)).toMatchObject({body: 'Approved this proposal.', createdBy: 'ada_lovelace'})
+    // Approving puts it on the roadmap: committed, in Todo, keeping who approved it.
+    await expect.poll(async () => (await api(request, 'get', `/issues/${proposal.id}`)).column).toBe('todo')
+    const approved = await api(request, 'get', `/issues/${proposal.id}`)
+    expect(approved.proposal).toBeFalsy()
+    expect(approved.decided_by).toBe('ada_lovelace')
+    expect((await api(request, 'get', `/issues/${proposal.id}/comments`)).at(-1)).toMatchObject({body: 'Approved this proposal.', created_by: 'ada_lovelace'})
 })
 
 test("the owner's picks on a proposal survive a live update before they approve", async ({page, request}) => {
@@ -153,6 +158,28 @@ test("marks what changed since the owner last looked, but not the owner's own ch
     await expect(unseen('Label the jars')).toBeVisible()
     await page.getByRole('button', {name: /Mark \d+ seen/}).click()
     await expect(unseen('Label the jars')).toBeHidden()
+    // A done or canceled issue is never news, whatever happens to it.
+    await api(request, 'patch', `/issues/${issue.id}`, {status: 'done'})
+    await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'All labelled'})
+    await page.waitForTimeout(500)
+    await expect(page.getByRole('button', {name: /Mark \d+ seen/})).toBeHidden()
+    await expect(page.getByTitle(/changed since you last looked/)).toBeHidden()
+})
+
+test('ticks issues and changes them together', async ({page, request}) => {
+    const a = await api(request, 'post', '/issues', {title: 'Sort the spices'})
+    const b = await api(request, 'post', '/issues', {title: 'Date the flour'})
+    await page.goto('/p/larder?view=list')
+    await page.getByRole('checkbox', {name: `Select ${a.id}`}).click()
+    await page.getByRole('checkbox', {name: `Select ${b.id}`}).click()
+    const bar = page.getByRole('toolbar', {name: 'Change the ticked issues'})
+    await expect(bar.getByText('2 selected')).toBeVisible()
+    await bar.getByRole('button', {name: 'Priority'}).click()
+    await page.getByRole('option', {name: 'High'}).click()
+    await expect(bar.getByRole('status')).toHaveText('Changed 2 issues')
+    for (const {id} of [a, b]) expect((await api(request, 'get', `/issues/${id}`)).priority).toBe('P1')
+    await page.keyboard.press('Escape')
+    await expect(bar.getByText('2 selected')).toBeHidden()
 })
 
 test('makes a chunk from the roadmap, renames it, gives it a summary and removes it', async ({page, request}) => {
@@ -164,7 +191,7 @@ test('makes a chunk from the roadmap, renames it, gives it a summary and removes
     await dialog.getByRole('button', {name: /Create chunk/}).click()
     await expect(page).toHaveURL(/\/p\/larder\/roadmap\/\d+$/)
     const id = page.url().split('/').at(-1)!
-    expect(await api(request, 'get', `/chunks/${id}`)).toMatchObject({title: 'Shelves', summary: 'Where things go', createdBy: 'ada_lovelace'})
+    expect(await api(request, 'get', `/chunks/${id}`)).toMatchObject({title: 'Shelves', summary: 'Where things go', created_by: 'ada_lovelace'})
 
     await page.getByRole('heading', {name: 'Shelves'}).click()
     await page.getByLabel('Title', {exact: true}).fill('Shelving')
@@ -244,7 +271,7 @@ test("tints a doc an agent changed, and in it the parts that changed since the o
 })
 
 test('makes a release, sets an issue for it from its page, and drafts its changelog', async ({page, request}) => {
-    await api(request, 'patch', '', {repo: 'https://github.com/you/larder'})
+    await api(request, 'patch', '', {repo: 'https://github.com/you/larder', release_mode: 'own'})
     const issue = await api(request, 'post', '/issues', {title: 'Label the jars', status: 'done'})
     await page.goto('/p/larder/releases')
     await page.getByRole('button', {name: 'New release'}).click()
@@ -265,4 +292,15 @@ test('makes a release, sets an issue for it from its page, and drafts its change
     await expect(page.locator('pre', {hasText: `## 1.0.0 (unreleased)`})).toContainText(`- Label the jars (${issue.id})`)
     await page.getByRole('button', {name: 'Mark shipped today'}).click()
     await expect(page.getByText(/^Shipped \d{4}-\d{2}-\d{2}$/)).toBeVisible()
+})
+
+test("a project drawing on another's releases shows in its release, in a section of its own", async ({page, request}) => {
+    const made = await request.post('/api/projects', {data: {name: 'Pantry', id: 'pantry', release_mode: 'shared', releases_from: 'larder'}, headers: AGENT})
+    expect(made.ok(), await made.text()).toBeTruthy()
+    const added = await request.post('/api/projects/pantry/issues', {data: {title: 'Stock the shelves', status: 'done', release: '1.0.0'}, headers: AGENT})
+    expect(added.ok(), await added.text()).toBeTruthy()
+    await page.goto('/p/larder/releases/1.0.0')
+    await expect(page.getByRole('main').getByRole('link', {name: 'Pantry', exact: true})).toBeVisible()
+    await expect(page.locator('[data-issue]', {hasText: 'Stock the shelves'})).toBeVisible()
+    await expect(page.locator('[data-issue]', {hasText: 'Label the jars'})).toBeVisible()
 })

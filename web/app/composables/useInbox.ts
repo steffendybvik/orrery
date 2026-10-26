@@ -30,14 +30,14 @@ export function useInbox() {
             return new Date().toISOString()
         }
     })
-    const isRead = (n: Notice) => !n.cleared && n.createdAt <= seenAt.value && !isWaiting(n)
+    const isRead = (n: Notice) => !n.cleared && n.created_at <= seenAt.value && !isWaiting(n)
     const waiting = computed(() => notices.value.filter(isWaiting))
     const unread = computed(() => notices.value.filter(n => !isRead(n)).length)
     const read = computed(() => notices.value.filter(isRead).length)
 
     /** Marks them read up to the newest, wherever the waiting ones put it in the list. */
     function seen() {
-        seenAt.value = notices.value.reduce((newest, n) => n.createdAt > newest ? n.createdAt : newest, seenAt.value)
+        seenAt.value = notices.value.reduce((newest, n) => n.created_at > newest ? n.created_at : newest, seenAt.value)
         try {
             localStorage.setItem('orrery-notices-seen', seenAt.value)
         } catch {
@@ -87,9 +87,9 @@ export function useInbox() {
         const inbox = lists.value.inbox
         if (!inbox.loaded || !answered.length) return
         // Only those inside the pages loaded so far; older ones come with their page.
-        const oldest = inbox.more ? inbox.items.at(-1)?.createdAt ?? '' : ''
-        inbox.items = [...inbox.items, ...answered.filter(n => !n.cleared && n.createdAt >= oldest)]
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
+        const oldest = inbox.more ? inbox.items.at(-1)?.created_at ?? '' : ''
+        inbox.items = [...inbox.items, ...answered.filter(n => !n.cleared && n.created_at >= oldest)]
+            .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
     }
 
     return {notices, lists, seenAt, unread, waiting, read, isRead, seen, load, arrived, clear, refresh}
