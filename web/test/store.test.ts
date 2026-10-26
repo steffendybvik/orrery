@@ -822,6 +822,16 @@ describe('starting sessions', () => {
     })
 })
 
+describe('a signal reaching sessions', () => {
+    it('keeps every session that says it got it, however many say so at once', async () => {
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        const signal = await store.focus('larder', jars, {}, {name: 'skoll', owner: true})
+        await Promise.all(['larder 1', 'larder 2', 'pantry'].map(name => store.delivered('larder', signal.id, name)))
+        const [heard] = await store.listSignals('larder', signal.id - 1)
+        expect([...heard!.delivered_to].sort()).toEqual(['larder 1', 'larder 2', 'pantry'])
+    })
+})
+
 describe("what a project's sessions are on", () => {
     it('is the open issues each worked last, newest first, and the last signals that went to it', async () => {
         const owner = {name: 'skoll', owner: true}

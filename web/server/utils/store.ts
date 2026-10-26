@@ -1570,12 +1570,18 @@ export class Store {
             ORDER BY s.id`, project, since)).map(signalOf)
     }
 
-    /** Notes that a session got the signal. */
+    /** Notes that a session got the signal. Two sessions saying so at once both count: the list is only written
+     * over if it's still the one read, else read again. */
     async delivered(project: string, id: number, to: string): Promise<Signal> {
-        const row = await this.get<SignalRow>('SELECT * FROM signals WHERE project = ? AND id = ?', project, id)
-        if (!row) throw notFound(`No signal ${id} in ${project}`)
-        const names = [...new Set([...JSON.parse(row.delivered_to) as string[], to])]
-        await this.run('UPDATE signals SET delivered_to = ? WHERE id = ?', JSON.stringify(names), id)
+        let row: SignalRow | undefined
+        let names: string[] = []
+        for (let tries = 0; ; tries++) {
+            row = await this.get<SignalRow>('SELECT * FROM signals WHERE project = ? AND id = ?', project, id)
+            if (!row) throw notFound(`No signal ${id} in ${project}`)
+            names = [...new Set([...JSON.parse(row.delivered_to) as string[], to])]
+            const {changes} = await this.run('UPDATE signals SET delivered_to = ? WHERE id = ? AND delivered_to = ?', JSON.stringify(names), id, row.delivered_to)
+            if (changes || tries === 9) break
+        }
         const signal = signalOf({...row, delivered_to: JSON.stringify(names)})
         this.onSignal(signal)
         return signal

@@ -94,7 +94,24 @@ export default defineEventHandler(async event => {
     // The owner's signals for every session, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
     const ours = (signal: Signal) => !signal.target || currentId(signal.target) === attended?.id
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.delivered_to.length && ours(signal)
-    const missed = from !== undefined ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && ours(s)) : []
+    // Live signals are heard from before the catch-up is read, and held until it has gone out, so one sent in
+    // between isn't lost; `heard` takes them once it has (those in the catch-up too are left out).
+    const early: Signal[] = []
+    let live: ((signal: Signal) => void) | null = null
+    const hear = (signal: Signal) => live ? live(signal) : early.push(signal)
+    projectEvents.on('signal', hear)
+    const goLive = (deliver: (signal: Signal) => void, already: Set<number>) => {
+        live = deliver
+        early.splice(0).filter(s => !already.has(s.id)).forEach(deliver)
+    }
+    let missed: Signal[]
+    try {
+        missed = from !== undefined ? (await store.listSignals(project, after)).filter(s => s.project === project && s.protected && ours(s)) : []
+    } catch (error) {
+        projectEvents.off('signal', hear)
+        done()
+        throw error
+    }
 
     /** Sends signals one after another, in the order they came, however long each takes to read. */
     let queue: Promise<unknown> = Promise.resolve()
@@ -109,21 +126,19 @@ export default defineEventHandler(async event => {
             if (s.kind === 'comment') return `${s.created_by} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             return `${'prompt' in s ? s.prompt.replace(/\s*\n+\s*/g, ' ') : s.title}\n`
         }
-        let send: (signal: Signal) => void = () => {}
         const stream = new ReadableStream<string>({
             start(controller) {
                 controller.enqueue(`Listening for focus signals on ${project}.\n`)
                 missed.forEach(s => inOrder(async () => controller.enqueue(await line(s))))
-                send = signal => wanted(signal) && inOrder(async () => controller.enqueue(await line(signal)))
-                projectEvents.on('signal', send)
+                goLive(signal => wanted(signal) && inOrder(async () => controller.enqueue(await line(signal))), new Set(missed.map(s => s.id)))
             },
             cancel() {
-                projectEvents.off('signal', send)
+                projectEvents.off('signal', hear)
                 done()
             },
         })
         event.node.req.on('close', () => {
-            projectEvents.off('signal', send)
+            projectEvents.off('signal', hear)
             done()
         })
         setResponseHeaders(event, {'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache'})
@@ -135,6 +150,15 @@ export default defineEventHandler(async event => {
     const stopped = (asked: {project: string, id: string}) => asked.project === project && asked.id === attended?.id
         && stream.push({event: 'stop', data: JSON.stringify(asked)})
     projectEvents.on('session-stop', stopped)
+    const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
+    // Cleaned up however the stream ends, a catch-up that fails included.
+    stream.onClosed(async () => {
+        clearInterval(ping)
+        projectEvents.off('signal', hear)
+        projectEvents.off('session-stop', stopped)
+        done()
+        await stream.close()
+    })
     /** When each repeatable message last went out on this stream. */
     const sent = new Map<string, number>()
     const push = (signal: Signal) => {
@@ -157,26 +181,24 @@ export default defineEventHandler(async event => {
         store.delivered(project, signal.id, sessionName(attended!.id) ?? text('name') ?? 'a session')
             .catch(error => console.error(`[orrery] a repeat for ${project}:`, error))
     }
-    projectEvents.on('signal', send)
-    const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
     stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
     // A session that can hear catches up on scheduled work nobody was there to hear, and on the owner's
-    // comments nobody has answered yet.
-    const unheard = attended && heard ? await store.unheardScheduled(project) : []
-    // A schedule that kept sending the same message while nobody heard it says it once; the copies count as heard.
-    const {kept, repeats} = foldRepeats([...missed, ...unheard.filter(s => !missed.some(m => m.id === s.id))])
-    kept.forEach(push)
-    if (attended && heard) {
-        const name = sessionName(attended.id) ?? text('name') ?? 'a session'
-        for (const s of repeats) await store.delivered(project, s.id, name)
-        await store.carryUnanswered(project, attended.id)
+    // comments nobody has answered yet. A failure there leaves the stream open for what comes next.
+    try {
+        const unheard = attended && heard ? await store.unheardScheduled(project) : []
+        // A schedule that kept sending the same message while nobody heard it says it once; the copies count as heard.
+        const backlog = [...missed, ...unheard.filter(s => !missed.some(m => m.id === s.id))]
+        const {kept, repeats} = foldRepeats(backlog)
+        kept.forEach(push)
+        goLive(send, new Set(backlog.map(s => s.id)))
+        if (attended && heard) {
+            const name = sessionName(attended.id) ?? text('name') ?? 'a session'
+            for (const s of repeats) await store.delivered(project, s.id, name)
+            await store.carryUnanswered(project, attended.id)
+        }
+    } catch (error) {
+        console.error(`[orrery] catching ${project}'s stream up:`, error)
+        if (!live) goLive(send, new Set(missed.map(s => s.id)))
     }
-    stream.onClosed(async () => {
-        clearInterval(ping)
-        projectEvents.off('signal', send)
-        projectEvents.off('session-stop', stopped)
-        done()
-        await stream.close()
-    })
     return stream.send()
 })
