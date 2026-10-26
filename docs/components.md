@@ -154,6 +154,35 @@ Already one component each; use them rather than drawing the same thing again.
 | `PageHeader` | a page's top bar: title, the page's controls, the bell, theme and settings |
 | `ViewToolbar` | an issue list's toolbar (view, grouping, filters) |
 | `DocContents` | a doc's table of contents |
+| `NotificationBell` | the bell in the header: agents' comments, and those waiting on the owner |
+| `ThemeToggle` | light ⇄ dark, following the system until one is picked |
+| `OrreryMark` | the logo's mark, in `currentColor` |
+
+**Dialogs**
+
+The layout (`layouts/default.vue`) mounts the dialogs, each as `Lazy…` behind `openedOnce`: it loads the first
+time it opens, in its own chunk, and then stays. A dialog is opened through the state its composable shares
+(`useNewIssue`, `useNewChunk`, `useStartSession`, `useSchedules`), so any page or ⌘K can open it without
+holding it. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
+mounted from the start, as they listen for keys or show on a right-click.
+
+## Shared behaviour (`composables/`, `utils/`)
+
+Auto-imported, like the components. Reach for these before writing the listener or the fetch again.
+
+| | For |
+|---|---|
+| `useDismiss(element, isOpen, close, {capture?, blur?, resize?})` | closes a menu or picker on a press outside it (and, if asked, when the window loses focus or resizes) |
+| `useHotkeys` | the page's keys (j/k, Enter, Esc, /, ⌘K, x, ⌘A); a row takes part by carrying `data-nav` |
+| `useSelection` | the issues ticked for a change to many (`BulkBar`); rows carry `data-issue` and `data-project` |
+| `useIssueLink` | an issue's page (`pathOf`, `open`), and the last one opened, marked when you come back |
+| `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`) |
+| `useUnseen` | what's changed since the owner last looked (`unseen-row`, `unseen-dot`) |
+| `useTheme` | light, dark or the system's, remembered in this browser |
+| `copyText` | copies text, with a fallback where the clipboard API refuses (`CopyButton` uses it) |
+| `errorMessage(error, verb)` | what a failed request says to show: the server's message, or that Orrery didn't answer |
+| `isTyping(target)` | whether a key went to a field, where single-letter shortcuts mustn't fire |
+| `heroicon(name)` | a project's Heroicon by name, each loaded the first time it's shown; `HEROICONS` lists the names for the picker |
 
 ## Adding to the set
 
