@@ -1230,14 +1230,18 @@ describe('starting an issue', () => {
     it('goes to one session only when two start it at once', async () => {
         const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
         const start = (session: string) => store.claimed('larder', shelves, 'in-progress', session, () => store.updateIssue('larder', shelves, {status: 'in-progress'}))
-        const [first, second] = await Promise.allSettled([start('first'), start('second')])
-        expect(first.status).toBe('fulfilled')
-        expect(second).toMatchObject({status: 'rejected', reason: {statusCode: 409}})
-        expect(await store.workingOn('larder', ['first'])).toHaveLength(1)
-        expect(await store.workingOn('larder', ['second'])).toEqual([])
+        const sessions = ['first', 'second']
+        const results = await Promise.allSettled(sessions.map(start))
+        // Whichever comes first (the database decides) gets it; the other is refused.
+        const won = results.findIndex(r => r.status === 'fulfilled')
+        expect(won).toBeGreaterThanOrEqual(0)
+        expect(results[1 - won]).toMatchObject({status: 'rejected', reason: {statusCode: 409}})
+        const [winner, loser] = [sessions[won]!, sessions[1 - won]!]
+        expect(await store.workingOn('larder', [winner])).toHaveLength(1)
+        expect(await store.workingOn('larder', [loser])).toEqual([])
         // A refusal doesn't hold up the next write, and one without a status doesn't wait.
-        await store.claimed('larder', shelves, 'done', 'second', () => store.updateIssue('larder', shelves, {status: 'done'}))
-        expect(await store.claimed('larder', shelves, undefined, 'second', async () => 'written')).toBe('written')
+        await store.claimed('larder', shelves, 'done', loser, () => store.updateIssue('larder', shelves, {status: 'done'}))
+        expect(await store.claimed('larder', shelves, undefined, loser, async () => 'written')).toBe('written')
     })
 
     it('is free once the session on it is gone, or when it was never started', async () => {
