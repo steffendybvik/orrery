@@ -8,7 +8,7 @@ import type {SessionWork} from '#shared/roadmap'
 useHead({title: 'Sessions · Orrery'})
 const route = useRoute()
 const router = useRouter()
-const {projects, ready, sessions} = useRoadmaps()
+const {projects, ready, sessions, signals} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {open} = useStartSession()
 
@@ -24,9 +24,11 @@ const groups = computed(() => shown.value
     .filter(g => g.sessions.length || g.project.id === only.value))
 const count = computed(() => groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
-// What each session is on, by project, asked again whenever that project's sessions change.
+// What each session is on, by project, asked again whenever that project's sessions change, or a signal to them is
+// sent or delivered (so Last sent keeps up).
 const work = ref<Record<string, Record<string, SessionWork>>>({})
-watch(() => groups.value.map(g => `${g.project.id}:${g.sessions.map(s => `${s.id}/${s.state}`).join(',')}`).join('|'), () => {
+const lastSignal = (project: string) => signals.value.find(s => s.project === project)
+watch(() => groups.value.map(g => `${g.project.id}:${g.sessions.map(s => `${s.id}/${s.state}`).join(',')}:${lastSignal(g.project.id)?.id ?? ''}/${lastSignal(g.project.id)?.delivered_to.length ?? 0}`).join('|'), () => {
     for (const {project, sessions: here} of groups.value) {
         if (!here.length) continue
         $fetch<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(project.id)}/sessions/work`)
