@@ -95,6 +95,10 @@ const everywhere = computed<Entry[]>(() => [
     {key: 'go:mine', group: 'Go to', label: 'My issues and urgent', hint: 'g m', run: () => router.push('/mine')},
     {key: 'go:notifications', group: 'Go to', label: 'Notifications', run: () => router.push('/notifications')},
     {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
+    {key: 'go:getting-started', group: 'Go to', label: 'Getting started', run: () => {
+        useGettingStarted().hide(false)
+        router.push('/getting-started')
+    }},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Reset the filters to the open issues', run: clear}] : []),

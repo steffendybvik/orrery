@@ -51,6 +51,10 @@ test('asks the owner their name on first open', async ({page, request}) => {
     await dialog.getByRole('button').last().click()
     await expect(dialog).toBeHidden()
     expect(await (await request.get('/api/owner')).json()).toMatchObject({name: 'ada_lovelace', named: true})
+    // A new Orrery opens on Getting started: the owner's step ticked, a project the one to do.
+    await expect(page.getByRole('heading', {name: 'Getting started'})).toBeVisible()
+    await expect(page.getByRole('progressbar', {name: 'Steps done'})).toHaveAttribute('aria-valuenow', '1')
+    await expect(page.getByRole('button', {name: 'Try it with a demo project'})).toBeVisible()
 })
 
 test('makes a project', async ({page}) => {
