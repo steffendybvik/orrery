@@ -73,31 +73,33 @@ await new Promise(resolve => setTimeout(resolve, 300))
  * `--dangerously-load-development-channels server:<name>` shows its messages; otherwise it skips them.
  * Claude Code says which in its MCP log for this server (an undocumented file, read here as a hint:
  * `unknown` when it can't be found or doesn't say). The log is kept by the server's name in .mcp.json,
- * which this server can't see, so it reads the newest log under the likeliest name that has one. A repo
- * with a channel per project (`orrery-hub`, `orrery-css`, and `orrery` for another Orrery) keeps a log for
- * each, so a one-project server tries its project's names before the Orrery's and the bare `orrery`. */
+ * which this server can't see, so it reads the newest log under the names it might have: its projects'
+ * (`orrery-hub`, `hub`) and its Orrery's (`orrery-work`), and only without one of those the bare `orrery`, which in a
+ * repo with a channel per project can be another Orrery's. The name that log is under is the server's, as far as it
+ * can tell, for the command that restarts its session with the channel. */
 function registered() {
     try {
         const cache = join(claudeCache(), process.cwd().replace(/[^a-zA-Z0-9]/g, '-'))
-        const own = projects.flatMap(p => [`orrery-${p}`, p])
-        const environment = orrery.environment ? [serverName(orrery.environment)] : []
-        const names = projects.length === 1 ? [...own, ...environment, 'orrery'] : [...environment, ...own, 'orrery']
-        const logs = [...new Set(names)].map(name => {
+        const own = [...projects.flatMap(p => [`orrery-${p}`, p]), ...orrery.environment ? [serverName(orrery.environment)] : []]
+        const logsOf = names => [...new Set(names)].flatMap(name => {
             try {
                 const dir = join(cache, `mcp-logs-${name}`)
-                return readdirSync(dir).map(file => join(dir, file))
+                return readdirSync(dir).map(file => ({name, file: join(dir, file), at: statSync(join(dir, file)).mtimeMs}))
             } catch {
                 return []
             }
-        }).find(files => files.length) ?? []
-        const newest = logs.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0]
-        const text = newest ? readFileSync(newest, 'utf8') : ''
-        if (text.includes('Channel notifications registered')) return 'yes'
-        if (text.includes('Channel notifications skipped')) return 'no'
+        })
+        const logs = logsOf(own)
+        const newest = (logs.length ? logs : logsOf(['orrery'])).sort((a, b) => b.at - a.at)[0]
+        const text = newest ? readFileSync(newest.file, 'utf8') : ''
+        const server = newest?.name
+        if (text.includes('Channel notifications registered')) return {channel: 'yes', server}
+        if (text.includes('Channel notifications skipped')) return {channel: 'no', server}
+        return {channel: 'unknown', server}
     } catch {
         // Claude Code keeps its logs elsewhere now.
     }
-    return 'unknown'
+    return {channel: 'unknown'}
 }
 
 /** Claude Code's cache folder, where its MCP logs are: the usual cache place on each system. */
@@ -138,9 +140,10 @@ if (refused) {
     await new Promise(() => {})
 }
 log(`serving ${projects.join(', ')}${orrery.id ? ` on ${orrery.id}` : ''}`)
-const channel = registered()
-log(`registered as a channel: ${channel}`)
+const {channel, server: registeredAs} = registered()
+log(`registered as a channel: ${channel}${registeredAs ? ` (as ${registeredAs})` : ''}`)
 who.set('channel', channel)
+if (registeredAs) who.set('server', registeredAs)
 
 /** Tells the session about a signal on one of its projects. */
 async function deliver(project, signal, query) {

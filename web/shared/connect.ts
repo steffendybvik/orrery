@@ -43,7 +43,7 @@ export function connectPieces(target: ConnectTarget): ConnectPieces {
     const {origin, repoDir, id, key, isNew} = target
     const name = target.name.replace(/\s+/g, ' ').trim()
     const session = sessionName(target.session ?? '') || undefined
-    const server = target.orrery ? `orrery-${slugify(target.orrery.environment) || 'orrery'}` : id
+    const server = target.orrery ? serverName(target.orrery.environment) : id
 
     const mcpJson = JSON.stringify({
         mcpServers: {[server]: {command: 'node', args: [`${repoDir}/channel/orrery-channel.mjs`], env: {
@@ -130,4 +130,10 @@ export function sessionName(text: string): string {
 /** `text` as one word for a POSIX shell: single-quoted, any `'` closed, escaped and reopened. */
 export function shellQuote(text: string): string {
     return `'${text.replace(/'/g, `'\\''`)}'`
+}
+
+/** The channel's server name for an Orrery, as Connect writes it in .mcp.json: `orrery-<environment>` (`Work` →
+ * `orrery-work`). channel/server-name.mjs is the same for the channel. */
+export function serverName(environment: string): string {
+    return `orrery-${slugify(environment) || 'orrery'}`
 }
