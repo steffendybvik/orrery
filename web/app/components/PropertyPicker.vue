@@ -17,6 +17,8 @@ const props = defineProps<{
     up?: boolean
     /** Its menu as wide as the button (at least the usual), for long options such as issue titles. */
     wide?: boolean
+    /** A field among others, as in a dialog's bar: on the well, as wide as what it shows. */
+    field?: boolean
 }>()
 const model = defineModel<string | string[]>({required: true})
 
@@ -89,11 +91,12 @@ watch(active, index => nextTick(() => list.value?.querySelector(`[data-index="${
 </script>
 
 <template>
-  <div ref="root" class="relative min-w-0 flex-1">
+  <div ref="root" class="relative" :class="field ? 'max-w-56' : 'min-w-0 flex-1'">
     <button
         ref="trigger"
         type="button"
-        class="-ml-1.5 flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[13px] text-fg hover:bg-hover focus:bg-hover focus:outline-none disabled:cursor-default disabled:hover:bg-transparent"
+        class="flex min-w-0 items-center text-left focus:outline-none disabled:cursor-default"
+        :class="field ? 'field h-8 max-w-full gap-1.5 hover:bg-hover' : '-ml-1.5 min-h-7 w-full gap-2 rounded-md px-1.5 py-0.5 text-[13px] text-fg hover:bg-hover focus:bg-hover disabled:hover:bg-transparent'"
         :disabled="disabled"
         :aria-label="label"
         aria-haspopup="listbox"

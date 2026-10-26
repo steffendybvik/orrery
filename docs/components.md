@@ -116,7 +116,7 @@ Already one component each; use them rather than drawing the same thing again.
 
 | Component | For |
 |---|---|
-| `PropertyPicker` | a property as a button with a menu to type in (status, priority, chunk, release, assignee, labels with `multiple`). Prefer it to a native `<select>` |
+| `PropertyPicker` | a property as a button with a menu to type in (status, priority, chunk, release, assignee, labels with `multiple`); `field` for one among a dialog's fields. Prefer it to a native `<select>` |
 | `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message) |
 | `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any |
 | `LabelPicker` | a new issue's labels: tick the project's or make one |

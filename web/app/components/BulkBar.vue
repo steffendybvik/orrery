@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Decision, Issue} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
 
 // The issues ticked on the page (useSelection), changed at once: decided when they're all proposals waiting on the
 // owner, else set (status, priority, assignee, labels added or taken off, and chunk or release within one project),
@@ -79,7 +78,6 @@ const addLabel = pick(value => run('PATCH', '', {labels: {add: [value]}}, 'Label
 const removeLabel = pick(value => run('PATCH', '', {labels: {remove: [value]}}, 'Took the label off'))
 
 const statusOptions = computed(() => places.value.filter(p => p.id !== 'proposed').map(p => ({value: p.id, label: p.label})))
-const priorityOptions = [{value: '', label: 'No priority'}, ...PRIORITIES.map(p => ({value: p, label: `${p} · ${PRIORITY_LABEL[p]}`}))]
 const assigneeOptions = computed(() => {
     const people = new Set([owner.value, 'claude', ...issues.value.flatMap(({project}) => allIssues(project).map(({issue}) => issue.assignee))].filter((n): n is string => !!n))
     return [{value: '', label: 'Unassigned'}, ...[...people].map(p => ({value: p, label: who(p)}))]
@@ -106,7 +104,7 @@ const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs 
         </template>
         <template v-else>
           <PropertyPicker v-model="status" :options="statusOptions" label="Status" up :disabled="busy"><span :class="button">Status</span></PropertyPicker>
-          <PropertyPicker v-model="priority" :options="priorityOptions" label="Priority" up :disabled="busy"><span :class="button">Priority</span></PropertyPicker>
+          <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" up :disabled="busy"><span :class="button">Priority</span></PropertyPicker>
           <PropertyPicker v-model="assignee" :options="assigneeOptions" label="Assignee" placeholder="Find or assign someone…" creatable create-verb="Assign" up :disabled="busy"><span :class="button">Assignee</span></PropertyPicker>
           <PropertyPicker v-model="addLabel" :options="labelsKnown" label="Add a label" placeholder="Find or add a label…" creatable up :disabled="busy"><span :class="button">+ Label</span></PropertyPicker>
           <PropertyPicker v-if="labelsOn.length" v-model="removeLabel" :options="labelsOn" label="Take a label off" up :disabled="busy"><span :class="button">− Label</span></PropertyPicker>

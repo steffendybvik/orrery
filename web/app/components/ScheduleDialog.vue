@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Priority, Schedule} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
 // Writing a schedule, or changing one, as the owner: in a project, whether each run makes an issue or
@@ -51,6 +50,14 @@ const titleInput = ref<HTMLInputElement | null>(null)
 const existing = computed(() => editing.value?.schedule)
 const here = computed(() => byId(project.value))
 const chunks = computed(() => here.value?.board.chunks.filter(c => c.id) ?? [])
+const startOptions = computed(() => starts.value.map(p => ({value: p.id, label: p.label})))
+const chunkOptions = computed(() => [{value: '', label: 'No chunk'}, ...chunks.value.map(c => ({value: c.id, label: c.title}))])
+// The pickers hold strings; the counts are numbers.
+const MINUTES = [5, 10, 15, 20, 30].map(n => ({value: String(n), label: `${n} minutes`}))
+const HOURS = [1, 2, 3, 4, 6, 8, 12].map(n => ({value: String(n), label: n === 1 ? 'hour' : `${n} hours`}))
+const everyMinutesPicked = computed({get: () => String(everyMinutes.value), set: v => everyMinutes.value = Number(v)})
+const everyPicked = computed({get: () => String(every.value), set: v => every.value = Number(v)})
+const label = (options: {value: string, label: string}[], value: string) => options.find(o => o.value === value)?.label
 const known = computed(() => here.value ? [...new Set(allIssues(here.value).flatMap(({issue}) => issue.labels))] : [])
 
 /** A time as `datetime-local` wants it, in this browser's zone. */
@@ -190,9 +197,9 @@ const field = 'h-8 field'
     <section class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">When</span>
       <div class="flex flex-wrap items-center gap-2">
-        <select v-model="kind" aria-label="Repeats" :class="field">
-          <option v-for="k in KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
-        </select>
+        <PropertyPicker v-model="kind" :options="KINDS" label="Repeats" field>
+          <span class="truncate">{{ label(KINDS, kind) }}</span>
+        </PropertyPicker>
         <template v-if="['daily', 'weekdays', 'weekly', 'monthly'].includes(kind)">
           <template v-if="kind === 'monthly'">
             <span class="text-xs text-muted">on day</span>
@@ -203,15 +210,15 @@ const field = 'h-8 field'
         </template>
         <template v-else-if="kind === 'minutes'">
           <span class="text-xs text-muted">every</span>
-          <select v-model.number="everyMinutes" aria-label="Every how many minutes" :class="field">
-            <option v-for="n in [5, 10, 15, 20, 30]" :key="n" :value="n">{{ n }} minutes</option>
-          </select>
+          <PropertyPicker v-model="everyMinutesPicked" :options="MINUTES" label="Every how many minutes" field>
+            <span class="truncate">{{ label(MINUTES, everyMinutesPicked) }}</span>
+          </PropertyPicker>
         </template>
         <template v-else-if="kind === 'hours'">
           <span class="text-xs text-muted">every</span>
-          <select v-model.number="every" aria-label="Every how many hours" :class="field">
-            <option v-for="n in [1, 2, 3, 4, 6, 8, 12]" :key="n" :value="n">{{ n === 1 ? 'hour' : `${n} hours` }}</option>
-          </select>
+          <PropertyPicker v-model="everyPicked" :options="HOURS" label="Every how many hours" field>
+            <span class="truncate">{{ label(HOURS, everyPicked) }}</span>
+          </PropertyPicker>
           <span class="text-xs text-muted">at minute</span>
           <input v-model.number="minute" type="number" min="0" max="59" aria-label="Minute" :class="[field, 'w-16']">
         </template>
@@ -248,17 +255,25 @@ const field = 'h-8 field'
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">Each run makes an issue</span>
       <div class="flex flex-wrap items-center gap-2">
-        <select v-model="column" aria-label="Where it starts" :class="field">
-          <option v-for="p in starts" :key="p.id" :value="p.id">{{ p.label }}</option>
-        </select>
-        <select v-model="priority" aria-label="Priority" :class="field">
-          <option value="">No priority</option>
-          <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
-        </select>
-        <select v-model="chunk" aria-label="Chunk" :class="[field, 'max-w-56']">
-          <option value="">No chunk</option>
-          <option v-for="c in chunks" :key="c.id" :value="c.id">{{ c.title }}</option>
-        </select>
+        <PropertyPicker v-model="column" :options="startOptions" label="Where it starts" field up>
+          <StatusIcon :column="column" />
+          <span class="truncate">{{ label(startOptions, column) }}</span>
+          <template #option="{option}">
+            <StatusIcon :column="option.value" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" field up>
+          <PriorityIcon :priority="priority || undefined" />
+          <span class="truncate" :class="!priority && 'text-muted'">{{ label(PRIORITY_OPTIONS, priority) }}</span>
+          <template #option="{option}">
+            <PriorityIcon :priority="option.value || undefined" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <PropertyPicker v-model="chunk" :options="chunkOptions" label="Chunk" field up>
+          <span class="truncate" :class="!chunk && 'text-muted'">{{ label(chunkOptions, chunk) }}</span>
+        </PropertyPicker>
         <LabelPicker v-model="labels" :labels="known" />
       </div>
       <label class="flex items-center gap-1.5 text-xs text-muted">

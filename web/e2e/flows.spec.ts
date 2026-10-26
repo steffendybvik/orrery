@@ -38,7 +38,8 @@ async function newIssue(page: Page, title: string, where: string) {
     await page.getByRole('button', {name: 'New issue'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'New issue'})
     await dialog.getByLabel('Title').fill(title)
-    await dialog.getByLabel('Where').selectOption(where)
+    await dialog.getByRole('button', {name: 'Where'}).click()
+    await dialog.getByRole('option', {name: where}).click()
     await dialog.getByRole('button', {name: /Create issue/}).click()
     await expect(dialog).toBeHidden()
 }
@@ -64,8 +65,8 @@ test('makes a project', async ({page}) => {
 
 test('adds issues and moves one on the board', async ({page, request}) => {
     await page.goto('/p/larder')
-    await newIssue(page, 'Shelves you can reorder', 'todo')
-    await newIssue(page, 'Expiry badges', 'backlog')
+    await newIssue(page, 'Shelves you can reorder', 'Todo')
+    await newIssue(page, 'Expiry badges', 'Backlog')
     // A new issue opens its page; back to the project, as a board.
     await page.goto('/p/larder')
     await page.getByRole('radio', {name: /Board/}).or(page.getByRole('button', {name: /Board/})).first().click()
