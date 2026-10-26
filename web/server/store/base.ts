@@ -96,8 +96,10 @@ export abstract class StoreBase {
         return rows.map(row => ({...releaseOf(row), ...tally.get(row.version)!}))
     }
 
+    /** A project's docs by title, A–Z, sorted here rather than in SQL so SQLite and Postgres agree on case and accents. */
     protected async docSummaries(project: string): Promise<DocSummary[]> {
-        return (await this.all<DocRow>('SELECT * FROM docs WHERE project = ? ORDER BY position, created_at', project))
+        return (await this.all<DocRow>('SELECT * FROM docs WHERE project = ?', project))
+            .sort((a, b) => a.title.localeCompare(b.title, 'en', {sensitivity: 'base', numeric: true}) || a.id.localeCompare(b.id))
             .map(row => ({id: row.id, title: row.title, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at}))
     }
 
