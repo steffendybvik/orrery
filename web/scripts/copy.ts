@@ -10,9 +10,9 @@ import {PostgresDb, isPostgres} from '../server/utils/postgres'
 
 /** In an order every foreign key is satisfied in, the statuses first (issues point at them). */
 export const TABLES = ['statuses', 'settings', 'projects', 'releases', 'chunks', 'issues', 'comments', 'issue_events', 'issue_sessions',
-    'issue_aliases', 'chunk_aliases', 'docs', 'schedules', 'schedule_runs', 'signals', 'secrets', 'secret_uses', 'uploads'] as const
+    'issue_aliases', 'chunk_aliases', 'docs', 'schedules', 'schedule_runs', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets'] as const
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
-const NUMBERED = ['comments', 'issue_events', 'schedules', 'schedule_runs', 'signals', 'secret_uses']
+const NUMBERED = ['comments', 'issue_events', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets']
 
 // A file is from where the command was run: `pnpm orrery:copy` runs this in web/, and pnpm keeps that in INIT_CWD.
 const file = (where: string) => resolve(process.env.INIT_CWD ?? process.cwd(), where)

@@ -439,6 +439,27 @@ export interface StartedSession {
     launch: string
     tmux: string
     stops_at: string
+    /** What the owner gave it to go on when they started it, if anything. */
+    context?: SessionContext
+}
+
+/** More context for a session, from the owner as they start it: the presets they picked (by name) and their own
+ * words (`instructions`), joined in `text`. It goes with every signal to the session, and back to it after a `/clear`. */
+export interface SessionContext {
+    presets: string[]
+    instructions?: string
+    text: string
+}
+
+/** A saved piece of context the owner can give a session as they start it: the Orrery's (`project` null), for
+ * sessions on any project, or a project's own. */
+export interface Preset {
+    id: number
+    project: string | null
+    name: string
+    text: string
+    created_at: string
+    updated_at: string
 }
 
 /** An agent's comment, as the notification bell and page list it. */

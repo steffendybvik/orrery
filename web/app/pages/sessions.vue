@@ -49,7 +49,7 @@ const count = computed(() => groups.value.reduce((n, g) => n + g.sessions.length
       >
         <SessionDot :session="session" />
         <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
-        <span v-if="session.started" class="shrink-0 text-xs text-faint">started by Orrery</span>
+        <span v-if="session.started" class="shrink-0 truncate text-xs text-faint" :title="session.started.context?.text">started by Orrery<template v-if="session.started.context"> · with {{ contextLabel(session.started.context) }}</template></span>
         <span class="w-20 shrink-0 text-right text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
       </NuxtLink>
     </section>

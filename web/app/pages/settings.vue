@@ -16,6 +16,7 @@ const headings: Heading[] = [
     {id: 'tint', text: 'Background tint', level: 2},
     {id: 'statuses', text: 'Issue statuses', level: 2},
     {id: 'sessions', text: 'What sessions hear', level: 2},
+    {id: 'presets', text: 'Presets', level: 2},
     {id: 'secrets', text: 'Secrets', level: 2},
 ]
 const title = Object.fromEntries(headings.map(h => [h.id, h.text]))
@@ -226,6 +227,17 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <FocusPrompts />
+      </section>
+
+      <section id="presets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.presets }}</h2>
+          <p class="text-xs text-muted">
+            Saved context to give a session as you start it, for sessions on any project (a project can have its own on its
+            Settings tab). Tick any number in Start session; the session gets their text with every signal, and again after a clear.
+          </p>
+        </header>
+        <PresetSettings />
       </section>
 
       <section id="secrets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">

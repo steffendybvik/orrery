@@ -1,4 +1,4 @@
-import type {Chunk, Column, Issue, Kinds, Place, Project, Release} from '#shared/roadmap'
+import type {Chunk, Column, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
 import {CLOSED, TINTS, open, total} from '#shared/roadmap'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
@@ -145,3 +145,6 @@ export function changelogOf(release: Release, chunks: Chunk[], date = release.sh
         ...open.length ? ['', '<!-- Not done yet -->', ...open.map(line)] : [],
     ].join('\n')
 }
+
+/** What a session Orrery started was given to go on, in a few words: its presets, and your own words if any. */
+export const contextLabel = (context: SessionContext) => [...context.presets, ...context.instructions ? ['your words'] : []].join(', ')

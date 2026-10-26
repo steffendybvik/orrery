@@ -3,7 +3,7 @@
 // sub-issues are in the same one. Every change ends with `onChange(project)`, which the server
 // turns into a server-sent event, so open pages update.
 import {randomBytes} from 'node:crypto'
-import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Preset, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, isObject, notFound} from './input'
@@ -116,6 +116,7 @@ interface CommentRow extends Made { id: number, project: string, issue: string, 
 interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
 interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
 interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, shipped_on: string | null, position: number }
+interface PresetRow { id: number, project: string | null, name: string, text: string, created_at: string, updated_at: string }
 interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
@@ -273,6 +274,12 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://linear.app/you/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
+}
+
+/** A preset's name and its text, both needed. */
+export const PRESET_FIELDS: Record<string, Field> = {
+    name: {type: 'string', required: true},
+    text: {type: 'string', required: true},
 }
 
 export const OWNER_FIELDS: Record<string, Field> = {
@@ -626,6 +633,7 @@ export class Store {
             await this.run('DELETE FROM chunk_aliases WHERE project = ?', id)
             await this.run('DELETE FROM signals WHERE project = ?', id)
             await this.run('DELETE FROM schedules WHERE project = ?', id)
+            await this.run('DELETE FROM presets WHERE project = ?', id)
             await this.run('DELETE FROM projects WHERE id = ?', id)
         })
         this.changed(id)
@@ -658,6 +666,54 @@ export class Store {
     /** The handle in issues' references: the owner's, or else their id. */
     private async handle(): Promise<string> {
         return (await this.settings()).handle ?? (await this.ownerOf()).name
+    }
+
+    // Presets
+
+    /** The Orrery's presets, by name; with a project, those a session on it can have: the Orrery's, then its own. */
+    async presets(project?: string): Promise<Preset[]> {
+        if (project) await this.projectRow(project)
+        return await this.all<PresetRow>('SELECT id, project, name, text, created_at, updated_at FROM presets WHERE project IS NULL OR project = ? ORDER BY project IS NOT NULL, lower(name), id', project ?? null)
+    }
+
+    async preset(id: number): Promise<Preset> {
+        const row = Number.isInteger(id) ? await this.get<PresetRow>('SELECT id, project, name, text, created_at, updated_at FROM presets WHERE id = ?', id) : undefined
+        if (!row) throw notFound(`No preset ${id}`)
+        return row
+    }
+
+    /** A new preset, the owner's to make: `{name, text}`, the Orrery's, or with `project` that project's own. */
+    async createPreset(project: string | null, body: unknown, actor = AGENT): Promise<Preset> {
+        this.ownerOnly(actor, 'presets')
+        if (project) await this.projectRow(project)
+        const {name, text} = presetInput(checkInput(body, PRESET_FIELDS))
+        const now = stamp()
+        const row = await this.get<{id: number}>('INSERT INTO presets (project, name, text, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
+            project, name!, text!, actor.name, Number(actor.owner), now, now)
+        return await this.preset(Number(row!.id))
+    }
+
+    /** Renames a preset or changes its text; whose it is stays. */
+    async updatePreset(id: number, body: unknown, actor = AGENT): Promise<Preset> {
+        this.ownerOnly(actor, 'presets')
+        await this.preset(id)
+        const {name, text} = presetInput(checkInput(body, PRESET_FIELDS, true))
+        await this.run('UPDATE presets SET name = coalesce(?, name), text = coalesce(?, text), updated_at = ? WHERE id = ?', name ?? null, text ?? null, stamp(), id)
+        return await this.preset(id)
+    }
+
+    async deletePreset(id: number, actor = AGENT) {
+        this.ownerOnly(actor, 'presets')
+        await this.preset(id)
+        await this.run('DELETE FROM presets WHERE id = ?', id)
+    }
+
+    /** The presets picked for a session on the project, in the order picked: each the Orrery's or the project's own. */
+    async presetsFor(project: string, ids: number[]): Promise<Preset[]> {
+        const usable = await this.presets(project)
+        const unknown = ids.filter(id => !usable.some(p => p.id === id))
+        if (unknown.length) throw badRequest(`No preset ${unknown.join(', ')} for ${project}; its sessions can have ${usable.map(p => `${p.id} (${p.name})`).join(', ') || 'none yet'}`)
+        return [...new Set(ids)].map(id => usable.find(p => p.id === id)!)
     }
 
     // Statuses
@@ -2048,6 +2104,12 @@ function tasksOf(value: Input[string]): string[] {
 
 function nullable(value: Input[string]): string | null {
     return value === undefined || value === null ? null : String(value)
+}
+
+/** A preset's fields as sent, trimmed. */
+function presetInput(input: Input): {name?: string, text?: string} {
+    const trimmed = (value: Input[string]) => value === undefined ? undefined : String(value).trim()
+    return {name: trimmed(input.name), text: trimmed(input.text)}
 }
 
 function stamp() {
