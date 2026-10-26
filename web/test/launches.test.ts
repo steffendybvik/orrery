@@ -142,9 +142,9 @@ describe('starting a session', () => {
 })
 
 describe('the owner starting a session by hand', () => {
-    it("catches up from the latest signal, given the project's opt-in, a launcher and room under its limit", async () => {
+    it("catches up from the latest signal, given the owner's opt-in, a launcher and room under its limit", async () => {
         starts = undefined
-        await expect(launches.startLaunch('larder')).rejects.toThrow("doesn't let Orrery start sessions")
+        await expect(launches.startLaunch('larder')).rejects.toThrow("Orrery doesn't start sessions")
         starts = {limit: 2, minutes: 30}
         await expect(launches.startLaunch('larder')).rejects.toThrow('No launcher is running')
         launches.addLauncher('larder')
