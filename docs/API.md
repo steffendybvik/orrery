@@ -14,7 +14,10 @@ Orrery hands ids out; you can't pick them. An issue is the project's prefix and 
 `LAR-142` (the prefix is the project's `key`). A chunk is a number in its project: `3`.
 Ids never change, and an issue moved to another project gets that project's next id. Ids things
 had before (`MOT-5`, the chunk slug `joints`) are kept as **aliases**: every route and every
-`parent` or `chunk` you send accepts them, and responses list them in `aliases`.
+`parent` or `chunk` you send accepts them (and `?parent=`), and responses list them in `aliases`.
+A number is handed out once: not again after its issue or chunk is deleted, moved away or replaced by
+an import, and not while it's still an alias. Signals follow an issue that moves; those about what's
+deleted or replaced go with it.
 
 ## Who can delete what
 
@@ -36,7 +39,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | `GET /projects/:project` | the project with its board, docs and releases |
 | `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?, starts?}` (the last five the owner's; `starts` is `{limit, minutes}`, see [Starting sessions](#starting-sessions); see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
 | `DELETE /projects/:project` | with its chunks, issues and comments; a 409 while others take their releases from it |
-| `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there |
+| `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there (schedules that made issues in a chunk make them in none) |
 
 ## Chunks
 
@@ -310,7 +313,7 @@ the limits while their channel is connected.
 
 | | |
 |---|---|
-| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}` and `extend` `{id, stops_at}` |
+| `GET /projects/:project/launches/stream` | for the launcher: server-sent `launch` `{id, project, after, minutes, tmux}` (claim it, then start it), `stop` `{id}`, `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through |
 | `POST /projects/:project/launches` | `{issue?, statuses?, release?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); with `statuses` (ids or kinds; `todo` and `started` when only `release` is sent) and `release`, from a focus made the same way on the whole project's issues in them (chunk `all`); 409 without the project's opt-in, a launcher or room under its limit |
 | `GET /projects/:project/launches` | `{launchers, started, starting}`: whether a launcher is there, and the sessions it started and has on their way |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |

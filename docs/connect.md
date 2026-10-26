@@ -116,6 +116,10 @@ its `ORRERY_PROJECTS`; with `*`, name the one with `ORRERY_PROJECT`), or `ORRERY
 stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
 terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`.
 
+Between pieces of work, a session it started gets a fresh context: once it goes idle with no issue in progress
+and no signal waiting, the launcher types `/clear` into it. Its channel stays connected, and the brief after the
+clear hands it the issues still in progress and what's left of a chunk or scope it was working through.
+
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
 are up, when you press **Stop** beside it (in the sessions panel or the project's settings, with **+30 min**

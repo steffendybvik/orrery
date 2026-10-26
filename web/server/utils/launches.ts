@@ -18,11 +18,13 @@ export interface Launch {
     tmux: string
 }
 
-/** What goes down a project's launcher stream: a session to start, or one of its sessions to stop or keep longer. */
+/** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer, or
+ * clear (`/clear`, a fresh context between pieces of work). */
 export type LaunchEvent =
     | {type: 'launch', launch: Launch}
     | {type: 'stop', project: string, id: string}
     | {type: 'extend', project: string, id: string, stops_at: string}
+    | {type: 'clear', project: string, id: string}
 
 /** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
  * `claimed` once a launcher has taken it on. */

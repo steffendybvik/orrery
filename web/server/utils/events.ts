@@ -76,7 +76,16 @@ export const listen = listeners.add
 
 /** A route's `:name` part, decoded. */
 export function param(event: H3Event, name: string): string {
-    return decodeURIComponent(getRouterParam(event, name) ?? '')
+    return decoded(getRouterParam(event, name) ?? '')
+}
+
+/** A part of an address, decoded; as it is when it's no valid escape (`ORR-%E0`), so it's simply not found. */
+export function decoded(part: string): string {
+    try {
+        return decodeURIComponent(part)
+    } catch {
+        return part
+    }
 }
 
 export function commentId(event: H3Event): number {

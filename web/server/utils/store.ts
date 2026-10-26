@@ -6,7 +6,7 @@ import {randomBytes} from 'node:crypto'
 import type {ActivityField, Asks, Board, Choice, Chunk, Comment, Counts, Decision, Doc, DocSummary, Issue, IssueEvent, IssueStatus, Kind, Kinds, Notice, NoticeList, Owner, Picks, Priority, Project, Proposal, Release, ReleaseMode, SessionWork, Settings, Signal, Starts, Upload} from '#shared/roadmap'
 import {ASKS, CLOSED, DECISIONS, KINDS, NOTICE_LISTS, PRIORITIES, RELEASE_MODES, TINTS, emptyKinds, issueRef, keyFor, slugify} from '#shared/roadmap'
 import type {Field, Input} from './input'
-import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
+import {badRequest, checkInput, conflict, forbidden, isObject, notFound} from './input'
 import {describePicks, parseChoices, resolvePicks} from './choices'
 import type {IssueInput, RoadmapFile, TaskFile} from './roadmap'
 import {LEGACY_PLANS, buildBoard, legacyStatus} from './roadmap'
@@ -150,7 +150,7 @@ export const PROJECT_FIELDS: Record<string, Field> = {
 
 /** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
 function parseStarts(value: unknown): string {
-    const {limit, minutes, ...rest} = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
+    const {limit, minutes, ...rest} = (isObject(value) ? value : {})
     const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
     if (Object.keys(rest).length || !whole(limit, 20) || !whole(minutes, 24 * 60)) {
         throw new Error(`should be {limit, minutes}: at most 20 sessions at once, each for 1 to 1440 minutes, not ${JSON.stringify(value)}`)
@@ -222,7 +222,7 @@ export const DECISION_FIELDS: Record<string, Field> = {
 }
 
 function parsePicks(value: unknown): string {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('should be {choice: [options]}')
+    if (!isObject(value)) throw new Error('should be {choice: [options]}')
     for (const [key, picked] of Object.entries(value)) {
         if (!Array.isArray(picked) || picked.some(p => typeof p !== 'string')) throw new Error(`${key} should be a list of option keys`)
     }
@@ -230,7 +230,8 @@ function parsePicks(value: unknown): string {
 }
 
 function parseExplore(value: unknown): string {
-    const {choice, option} = (value ?? {}) as {choice?: unknown, option?: unknown}
+    if (!isObject(value)) throw new Error('should be {choice, option}')
+    const {choice, option} = value
     if (typeof choice !== 'string' || typeof option !== 'string') throw new Error('should be {choice, option}')
     return JSON.stringify({choice, option})
 }
@@ -834,6 +835,7 @@ export class Store {
     async listIssues(project: string, filter: IssueFilter = {}): Promise<IssueRecord[]> {
         const records = this.issueRecords(await this.project(project))
         if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: await this.chunkId(project, filter.chunk)}
+        if (filter.parent && filter.parent !== 'none') filter = {...filter, parent: await this.issueId(project, filter.parent)}
         if (filter.release && filter.release !== 'none') await this.releaseRow(project, filter.release)
         const q = filter.q?.toLowerCase()
         const statuses = filter.status ? await this.statusIds(filter.status) : []
@@ -1080,8 +1082,7 @@ export class Store {
         this.refuse(actor, `Deleting ${id}`, await this.ownedUnder(project, subtree))
         await this.db.transaction(async () => {
             await this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
-            // Its signals too, so a session catching up isn't told about an issue that's gone.
-            await this.run(`DELETE FROM signals WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
+            await this.issuesMoved(project, new Map(subtree.map(old => [old, null])))
             await this.run('DELETE FROM issues WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
         })
@@ -1168,6 +1169,7 @@ export class Store {
             await this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
             for (const {alias, issue} of aliases) await this.run(UPSERT_ISSUE_ALIAS, to, alias, names.get(issue)!)
             for (const [old, next] of names) await this.run(UPSERT_ISSUE_ALIAS, to, old, next)
+            await this.issuesMoved(from, names, to)
             await this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', stamp(), to, names.get(id)!)
             await this.touchProject(from)
             await this.touchProject(to)
@@ -1176,6 +1178,20 @@ export class Store {
         this.changed(from)
         this.changed(to)
         return moved
+    }
+
+    /** What names an issue by id without a foreign key to it, after the issues in `names` moved from
+     * `project` to `to` (under their new id) or went (null): their signals follow them, so a session
+     * catching up is told about the issue where it is now, or not at all; a schedule's runs let go of
+     * one that went. So no id there comes to mean another issue. */
+    private async issuesMoved(project: string, names: Map<string, string | null>, to = project) {
+        for (const [old, next] of names) {
+            if (next) await this.run('UPDATE signals SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, project, old)
+            else {
+                await this.run('DELETE FROM signals WHERE project = ? AND issue = ?', project, old)
+                await this.run('UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)', old, project)
+            }
+        }
     }
 
     /** The issue's id and every id under it. */
@@ -1565,6 +1581,12 @@ export class Store {
         return signal
     }
 
+    /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it or for every session. */
+    async waiting(project: string, ids: string[]): Promise<boolean> {
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
+            AND (target IS NULL OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, ...ids)
+    }
+
     /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next
      * one to connect gets them. */
     async unheardScheduled(project: string): Promise<Signal[]> {
@@ -1616,6 +1638,11 @@ export class Store {
         await this.db.transaction(async () => {
             await this.db.deferConstraints()
             if (replace) {
+                // Nothing keeps pointing at what's replaced, where an id from the file could take its place.
+                const gone = await this.all<{id: string}>('SELECT id FROM issues WHERE project = ?', project)
+                await this.issuesMoved(project, new Map(gone.map(({id}) => [id, null])))
+                await this.run('DELETE FROM signals WHERE project = ? AND chunk IS NOT NULL', project)
+                await this.run('UPDATE schedules SET chunk = NULL WHERE project = ?', project)
                 await this.run('DELETE FROM comments WHERE project = ?', project)
                 await this.run('UPDATE issues SET parent = NULL, chunk = NULL WHERE project = ?', project)
                 await this.run('DELETE FROM issues WHERE project = ?', project)
@@ -1781,13 +1808,13 @@ export class Store {
     /** Hands out the project's next id: KEY-n for an issue, n for a chunk. */
     private async nextId(project: string, kind: 'issue' | 'chunk'): Promise<string> {
         const {key} = await this.projectRow(project)
-        const [column, table] = kind === 'issue' ? ['next_number', 'issues'] as const : ['next_chunk', 'chunks'] as const
+        const [column, table, aliases] = kind === 'issue' ? ['next_number', 'issues', 'issue_aliases'] as const : ['next_chunk', 'chunks', 'chunk_aliases'] as const
         const name = (n: number) => kind === 'issue' ? `${key}-${n}` : String(n)
         // Each number is taken in one statement, so two writers never get the same one; one an import
-        // already used is skipped.
+        // already used, or that's still an id something had, is skipped.
         for (;;) {
             const {n} = (await this.get<{n: number}>(`UPDATE projects SET ${column} = ${column} + 1 WHERE id = ? RETURNING ${column} - 1 AS n`, project))!
-            if (!await this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ?`, project, name(n))) return name(n)
+            if (!await this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ? UNION SELECT 1 FROM ${aliases} WHERE project = ? AND alias = ?`, project, name(n), project, name(n))) return name(n)
         }
     }
 

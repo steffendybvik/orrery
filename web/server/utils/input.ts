@@ -21,9 +21,14 @@ export interface Field {
 
 export type Input = Record<string, string | number | boolean | string[] | Instruction[] | null | undefined>
 
+/** A JSON object: not null, not a list. */
+export function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /** `partial` is an update: nothing is required. */
 export function checkInput(body: unknown, spec: Record<string, Field>, partial = false): Input {
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) throw badRequest('The body should be a JSON object')
+    if (!isObject(body)) throw badRequest('The body should be a JSON object')
     const problems: string[] = []
     const input: Input = {}
     for (const key of Object.keys(body)) {

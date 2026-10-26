@@ -10,7 +10,7 @@ import {createCipheriv, createDecipheriv, createHash, randomBytes} from 'node:cr
 import {createError} from 'h3'
 import type {Secret, SecretUse} from '#shared/roadmap'
 import type {Field} from './input'
-import {badRequest, checkInput, forbidden, notFound} from './input'
+import {badRequest, checkInput, forbidden, isObject, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
 
@@ -280,7 +280,7 @@ function hostsOf(sent: string[]): string[] {
 }
 
 function parseHeaders(value: unknown): string {
-    if (typeof value !== 'object' || value === null || Array.isArray(value) || !Object.values(value).every(v => typeof v === 'string')) {
+    if (!isObject(value) || !Object.values(value).every(v => typeof v === 'string')) {
         throw new Error('should be an object of header names to text')
     }
     return JSON.stringify(value)

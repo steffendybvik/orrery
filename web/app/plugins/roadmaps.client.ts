@@ -1,7 +1,7 @@
 import type {Issue, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
 
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
-// project in place, without a reload. After a dropped connection it loads them all again.
+// project in place, without a reload. After a dropped connection it loads them all again, and the secrets.
 export default defineNuxtPlugin(() => {
     const {projects, ready, live, changed, listeners, launchers, sessions, signals} = useRoadmaps()
 
@@ -39,7 +39,8 @@ export default defineNuxtPlugin(() => {
         const events = new EventSource('/api/events')
         events.addEventListener('open', () => {
             live.value = 'live'
-            if (opened) load()
+            // A secret removed while offline would otherwise show until a reload.
+            if (opened) Promise.all([load(), useSecretList().load()]).catch(() => {})
             opened = true
         })
         events.addEventListener('ready', event => {

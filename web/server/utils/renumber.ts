@@ -1,7 +1,8 @@
 // Ids are the project's: chunks are numbered 1, 2, … and issues KEY-1, KEY-2, … Renumbering a
 // project gives what doesn't have one yet the next free number, in roadmap order (sub-issues right
 // after their parent), and keeps each old id as an alias, so links and agents that use it still find
-// the same thing. Ids already in that form keep it: a number never comes to mean another issue.
+// the same thing. Ids already in that form keep it, and the counters never go back: a number never
+// comes to mean another issue.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
 import type {Db} from './database'
 
@@ -16,26 +17,25 @@ const MOVING = '\u0001'
 type Statement = [sql: string, ...params: SQLInputValue[]]
 type Issue = {id: string, parent: string | null, chunk: string | null}
 
-const KEY = 'SELECT key FROM projects WHERE id = ?'
+const KEY = 'SELECT key, next_number, next_chunk FROM projects WHERE id = ?'
+type Project = {key: string, next_number: number, next_chunk: number}
 const CHUNKS = 'SELECT id FROM chunks WHERE project = ? ORDER BY position, created_at'
 const ISSUES = 'SELECT id, parent, chunk FROM issues WHERE project = ? ORDER BY position, created_at'
 
 /** Run with foreign keys off or deferred: rows point at ids that are changing. */
 export async function renumber(db: Db, project: string) {
-    const {key} = (await db.get<{key: string}>(KEY, project))!
-    const statements = plan(project, key, await db.all<{id: string}>(CHUNKS, project), await db.all<Issue>(ISSUES, project))
+    const statements = plan(project, (await db.get<Project>(KEY, project))!, await db.all<{id: string}>(CHUNKS, project), await db.all<Issue>(ISSUES, project))
     for (const statement of statements) await db.run(...statement)
 }
 
 /** The same, on the raw connection: for the migration step that gave everything its id. */
 export function renumberSync(db: DatabaseSync, project: string) {
-    const {key} = db.prepare(KEY).get(project) as {key: string}
-    const statements = plan(project, key, db.prepare(CHUNKS).all(project) as {id: string}[], db.prepare(ISSUES).all(project) as Issue[])
+    const statements = plan(project, db.prepare(KEY).get(project) as Project, db.prepare(CHUNKS).all(project) as {id: string}[], db.prepare(ISSUES).all(project) as Issue[])
     for (const [sql, ...params] of statements) db.prepare(sql).run(...params)
 }
 
 /** The writes that renumber the project, in order. */
-function plan(project: string, key: string, chunks: {id: string}[], issues: Issue[]): Statement[] {
+function plan(project: string, {key, next_number, next_chunk}: Project, chunks: {id: string}[], issues: Issue[]): Statement[] {
     const statements: Statement[] = []
     const run = (...statement: Statement) => statements.push(statement)
 
@@ -49,9 +49,9 @@ function plan(project: string, key: string, chunks: {id: string}[], issues: Issu
     const top = children.get(null) ?? []
     for (const chunk of [...chunks.map(c => c.id), null]) top.filter(t => t.chunk === chunk).forEach(t => walk(t.id))
 
-    const chunkIds = numbered(chunks.map(c => c.id), /^(\d+)$/, n => String(n))
+    const chunkIds = numbered(chunks.map(c => c.id), /^(\d+)$/, n => String(n), next_chunk)
     const own = new RegExp(`^${key}-(\\d+)$`)
-    const issueIds = numbered(order, own, n => `${key}-${n}`)
+    const issueIds = numbered(order, own, n => `${key}-${n}`, next_number)
 
     for (const [from, to] of chunkIds) {
         run('UPDATE chunks SET id = ? WHERE project = ? AND id = ?', MOVING + to, project, from)
@@ -78,13 +78,17 @@ function plan(project: string, key: string, chunks: {id: string}[], issues: Issu
     // An alias that is now some thing's own id would only mislead.
     run('DELETE FROM chunk_aliases WHERE project = ? AND alias IN (SELECT id FROM chunks WHERE project = ?)', project, project)
     run('DELETE FROM issue_aliases WHERE project = ? AND alias IN (SELECT id FROM issues WHERE project = ?)', project, project)
-    const highest = (ids: Iterable<string>, form: RegExp) => Math.max(0, ...[...ids].map(id => Number(form.exec(id)?.[1] ?? 0)))
-    run('UPDATE projects SET next_number = ?, next_chunk = ? WHERE id = ?', highest(issueIds.values(), own) + 1, highest(chunkIds.values(), /^(\d+)$/) + 1, project)
+    run('UPDATE projects SET next_number = ?, next_chunk = ? WHERE id = ?', after(issueIds.values(), own, next_number), after(chunkIds.values(), /^(\d+)$/, next_chunk), project)
     return statements
 }
 
-/** Keeps the ids already in `form` and gives the rest the next numbers after the highest, in order. */
-function numbered(ids: string[], form: RegExp, name: (n: number) => string): Map<string, string> {
-    let next = Math.max(0, ...ids.map(id => Number(form.exec(id)?.[1] ?? 0))) + 1
+/** Keeps the ids already in `form` and gives the rest the next numbers, from `next` or past the highest. */
+function numbered(ids: string[], form: RegExp, name: (n: number) => string, next: number): Map<string, string> {
+    next = after(ids, form, next)
     return new Map(ids.map(id => [id, form.test(id) ? id : name(next++)]))
+}
+
+/** The number after the highest of `ids` in `form`, or `next` if that's further on. */
+function after(ids: Iterable<string>, form: RegExp, next: number): number {
+    return Math.max(next, ...[...ids].map(id => Number(form.exec(id)?.[1] ?? 0) + 1))
 }
