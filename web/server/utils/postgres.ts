@@ -280,6 +280,11 @@ const STEPS: string[] = [`
     UPDATE issues SET proposal = NULL, status = CASE WHEN status IN (SELECT id FROM statuses WHERE kind = 'backlog')
         THEN COALESCE((SELECT id FROM statuses WHERE kind = 'todo' ORDER BY position, id LIMIT 1), status) ELSE status END
         WHERE proposal = 'approved';
+`, `
+    ALTER TABLE releases ADD COLUMN position integer NOT NULL DEFAULT 0;
+    UPDATE releases SET position = (SELECT n FROM (
+        SELECT project, version, row_number() OVER (PARTITION BY project ORDER BY shipped_on IS NOT NULL, shipped_on DESC, created_at DESC, version DESC) - 1 AS n
+        FROM releases) o WHERE o.project = releases.project AND o.version = releases.version);
 `]
 
 /** The transaction the code running now is part of, if any: its connection, and the database it's on. */
