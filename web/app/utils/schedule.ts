@@ -71,7 +71,8 @@ export function nextTimes(cron: string | null, at: string | null, timezone: stri
     try {
         if (at) return new Date(at) > new Date() ? [new Date(at)] : []
         if (!cron || cron.split(/\s+/).length !== 5) return []
-        return new Cron(cron, {timezone, paused: true}).nextRuns(count)
+        // Read as the server reads it (`sloppyRanges`, see nextRun in server/utils/schedules.ts).
+        return new Cron(cron, {timezone, paused: true, sloppyRanges: true}).nextRuns(count)
     } catch {
         return []
     }

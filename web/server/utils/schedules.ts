@@ -242,7 +242,7 @@ export class Schedules {
         if (cron) {
             if (cron.split(/\s+/).length !== 5) throw badRequest(`"cron" is "${cron}"; use five fields: minute hour day month weekday, e.g. "0 9 * * 1-5"`)
             try {
-                new Cron(cron, {timezone, paused: true})
+                new Cron(cron, {timezone, paused: true, sloppyRanges: true})
             } catch (error) {
                 throw badRequest(`"cron" is "${cron}": ${error instanceof Error ? error.message : error}`)
             }
@@ -272,7 +272,8 @@ export class Schedules {
 export function nextRun(when: {cron: string | null, at: string | null, timezone: string}, from: Date): string | null {
     if (when.at) return new Date(when.at) > from ? when.at : null
     if (!when.cron) return null
-    return new Cron(when.cron, {timezone: when.timezone, paused: true}).nextRun(from)?.toISOString() ?? null
+    // `sloppyRanges` reads a step after a number (`5/10`) as croner 9 did, so a schedule saved with one still runs.
+    return new Cron(when.cron, {timezone: when.timezone, paused: true, sloppyRanges: true}).nextRun(from)?.toISOString() ?? null
 }
 
 /** The day a run is for, as its issue's title ends: `Mon 26 Oct`. */
