@@ -7,7 +7,6 @@ import {noticeKey} from '#shared/roadmap'
 // the ones that were new keep their dot until you leave.
 useHead({title: 'Notifications · Orrery'})
 type Show = 'inbox' | 'waiting' | 'cleared'
-const ASKS = {decision: 'Needs your decision', feedback: 'Needs your feedback'}
 const {notices, lists, seenAt, seen, load, clear} = useInbox()
 const {byId} = useRoadmaps()
 const {open: openIssue} = useIssueLink()
@@ -40,7 +39,6 @@ const options = computed(() => [
 const isNew = (n: Notice) => !n.cleared && (n.created_at > since.value || isWaiting(n))
 /** Only comments clear; a proposal waits until it's decided. */
 const clearable = computed(() => shown.value.filter(n => !n.proposal))
-const choices = (n: Notice) => n.proposal?.choices ? ` · ${n.proposal.choices} ${n.proposal.choices === 1 ? 'choice' : 'choices'}` : ''
 const projectName = (id: string) => byId(id)?.name ?? id
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'})
 
@@ -71,7 +69,7 @@ function openCard(notice: Notice, event: MouseEvent) {
           v-for="notice in shown"
           :key="noticeKey(notice)"
           class="group relative cursor-pointer rounded-xl bg-panel ring-1 transition-colors hover:bg-hover focus-visible:ring-accent-500/60 focus-visible:outline-none"
-          :class="isWaiting(notice) ? 'ring-accent-500/40' : 'ring-line hover:ring-faint/50'"
+          :class="isWaiting(notice) ? 'ring-violet-500/40' : 'ring-line hover:ring-faint/50'"
           tabindex="0"
           role="link"
           :aria-label="`${notice.issue}: ${notice.title}`"
@@ -91,7 +89,7 @@ function openCard(notice: Notice, event: MouseEvent) {
           <span class="ml-auto shrink-0 text-xs text-faint" :title="when(notice.created_at)">{{ ago(notice.created_at) }}</span>
         </div>
         <div class="px-4 py-3">
-          <span v-if="isWaiting(notice)" class="mb-2 inline-block rounded-full bg-accent-500/10 px-2 py-0.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">{{ notice.proposal ? `Proposal: needs your decision${choices(notice)}` : ASKS[notice.asks!] }}</span>
+          <WaitingChip v-if="isWaiting(notice)" :asks="notice.asks!" :proposal="notice.proposal" class="mb-2" />
           <span v-else-if="notice.asks" class="mb-2 inline-block rounded-full px-2 py-0.5 text-[11px] text-faint ring-1 ring-line">{{ notice.answered ? 'Answered' : 'Cleared unanswered' }}</span>
           <MarkdownView :source="notice.body" class="text-[14px] leading-6" />
         </div>
