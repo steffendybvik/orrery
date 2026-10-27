@@ -37,3 +37,39 @@ test("picks where a removed status's issues go", async ({page, request}) => {
     await page.getByRole('button', {name: 'Remove', exact: true}).click()
     await expect.poll(async () => (await (await request.get('/api/statuses')).json()).some((s: {id: string}) => s.id === 'cooling')).toBe(false)
 })
+
+test('a picker works from the keyboard, and Esc in a dialog closes only the picker', async ({page}) => {
+    await page.goto('/p/foundry')
+    await page.getByRole('button', {name: 'New issue'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'New issue'})
+    const priority = dialog.getByRole('button', {name: 'Priority'})
+    await expect(priority).toHaveAttribute('tabindex', '0')
+
+    // Opens on what's picked, so ↵ straight away keeps it, and the focus is back on the button.
+    await priority.focus()
+    await page.keyboard.press('Enter')
+    await expect(dialog.getByRole('option', {name: 'No priority'})).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Enter')
+    await expect(dialog.getByRole('listbox')).toBeHidden()
+    await expect(priority).toHaveText(/No priority$/)
+    await expect(priority).toBeFocused()
+
+    // Typed to narrow, ↵ picks the first that's left, even when what was picked still matches.
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('p')
+    // Headless UI lights an option a frame after the key; a person can't press ↵ inside one.
+    await expect(dialog.locator('[role=option][data-headlessui-state~=active]')).toHaveText(/P0 · Urgent$/)
+    await page.keyboard.press('Enter')
+    await expect(priority).toHaveText(/P0 · Urgent$/)
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('high')
+    await expect(dialog.locator('[role=option][data-headlessui-state~=active]')).toHaveText(/P1 · High$/)
+    await page.keyboard.press('Enter')
+    await expect(priority).toHaveText(/P1 · High$/)
+
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Escape')
+    await expect(dialog.getByRole('listbox')).toBeHidden()
+    await expect(dialog).toBeVisible()
+    await expect(priority).toBeFocused()
+})

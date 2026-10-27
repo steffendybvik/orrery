@@ -4,6 +4,8 @@ The page is built from a small set of pieces. Reach for one of these before writ
 menu by hand, and add to the set rather than copy markup from another page. Components in
 `web/app/components/` are auto-imported by their file name; those in `components/ui/` get a `Ui` prefix.
 
+Under `pnpm dev`, `/ui` shows the kit on one page, each piece in its states.
+
 ## The kit (`components/ui/`)
 
 ### UiButton
@@ -194,3 +196,7 @@ A new component belongs in `components/ui/` when it's a building block with no i
 (a button, a dialog). One that knows the roadmap (a status, a session) goes beside the others in
 `components/`. Either way, open it with a comment that says what it's for and what its props do, add it to
 this page, and move the copies you found onto it in the same change.
+
+Keys, focus and outside-click come from [Headless UI](https://headlessui.com/v1/vue) (`@headlessui/vue`) rather than
+being written again in each component: `PropertyPicker` is its `Combobox`. Something that opens, picks or closes
+(a menu, a listbox, a popover) builds on the matching Headless UI part and only draws it, in the classes above.
