@@ -66,6 +66,7 @@ function askRemove(status: IssueStatus) {
     removing.value = status.id
     into.value = statuses.value.find(s => s.id !== status.id && s.kind === status.kind)?.id ?? ''
 }
+const intoOptions = (status: IssueStatus) => statuses.value.filter(s => s.id !== status.id).map(s => ({value: s.id, label: s.name}))
 async function remove(status: IssueStatus) {
     if (await call(`/${encodeURIComponent(status.id)}`, 'DELETE', undefined, {into: into.value})) removing.value = null
 }
@@ -128,9 +129,9 @@ const field = 'h-7 rounded-md bg-transparent px-1.5 text-[13px] text-fg hover:bg
         </div>
         <div v-if="removing === status.id" class="flex flex-wrap items-center gap-2 px-8 py-1.5 text-xs text-muted">
           Remove {{ status.name }}; its issues and schedules move to
-          <select v-model="into" aria-label="Move its issues to" class="h-7 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:outline-none">
-            <option v-for="s in statuses.filter(s => s.id !== status.id)" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
+          <PropertyPicker v-model="into" :options="intoOptions(status)" label="Move its issues to" placeholder="Find a status…" field small>
+            <span class="truncate">{{ statuses.find(s => s.id === into)?.name ?? into }}</span>
+          </PropertyPicker>
           <UiButton variant="danger" :disabled="busy" @click="remove(status)">Remove</UiButton>
           <UiButton @click="removing = null">Cancel</UiButton>
         </div>

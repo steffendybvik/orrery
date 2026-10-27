@@ -28,7 +28,8 @@ test('makes a schedule, keeps to its project, pauses and removes it', async ({pa
     // The same big button now offers to resume it.
     await expect(page.getByRole('button', {name: 'Resume Groom the backlog', exact: true})).toBeVisible()
     // Kept to another project, it isn't there; the old tab comes here kept to vineyard.
-    await page.getByRole('combobox', {name: 'Project', exact: true}).selectOption('cottage')
+    await page.getByRole('button', {name: 'Project', exact: true}).click()
+    await page.getByRole('option', {name: 'Cottage'}).click()
     await expect(page.getByText('Groom the backlog')).toBeHidden()
     await page.goto('/p/vineyard/schedules')
     await expect(page).toHaveURL(/\/schedules\?project=vineyard/)
