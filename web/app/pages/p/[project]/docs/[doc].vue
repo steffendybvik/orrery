@@ -2,10 +2,11 @@
 import type {Doc} from '#shared/roadmap'
 
 // One doc, its Markdown drawn as a page with its table of contents beside it. Read again when it
-// changes through the API.
+// changes through the API. Its title and text edit in place, and it can be removed, as the owner.
 const route = useRoute()
+const router = useRouter()
 const {byId, ready} = useRoadmaps()
-const {who} = useOwner()
+const {who, load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 const summary = computed(() => project.value?.docs.find(d => d.id === route.params.doc))
 // Open, it's seen, and stays seen as it changes in front of you.
@@ -38,6 +39,76 @@ watch(() => [route.params.project, route.params.doc, summary.value?.updated_at] 
     }
 }, {immediate: true})
 
+// Its title and text, edited together: ⌘↵ saves, Esc leaves it as it was. Saved, your own change isn't
+// tinted as one to read.
+const editing = ref(false)
+const title = ref('')
+const body = ref('')
+const bodyInput = ref<HTMLTextAreaElement | null>(null)
+const editedFrom = ref('')
+const saving = ref(false)
+const saveFailed = ref('')
+// An image pasted, dropped or picked goes in as Markdown where the cursor is.
+const {uploading, failed: uploadError, dragging, upload, reset: resetUploads, onPaste, onDrop} = useImageUpload(body, bodyInput)
+function edit() {
+    if (!doc.value) return
+    resetUploads()
+    title.value = doc.value.title
+    body.value = doc.value.body
+    editedFrom.value = doc.value.updated_at
+    saveFailed.value = ''
+    editing.value = true
+    nextTick(() => bodyInput.value?.focus())
+}
+async function save() {
+    if (!doc.value || uploading.value || !title.value.trim()) return
+    const change = {
+        ...title.value.trim() !== doc.value.title ? {title: title.value.trim()} : {},
+        ...body.value.trim() !== doc.value.body.trim() ? {body: body.value.trim()} : {},
+    }
+    if (!Object.keys(change).length) {
+        editing.value = false
+        return
+    }
+    saving.value = true
+    saveFailed.value = ''
+    try {
+        const saved = await $fetch<Doc>(`/api/projects/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}`, {
+            method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: change,
+        })
+        before.value = {key: `${saved.project}/${saved.id}`, body: saved.body}
+        read(saved.project, saved.id, saved.body)
+        doc.value = saved
+        editing.value = false
+    } catch (error) {
+        saveFailed.value = errorMessage(error)
+    } finally {
+        saving.value = false
+    }
+}
+
+// Removing it, asked once more in place, then on to the project's other docs.
+const removing = ref<'ask' | 'busy' | null>(null)
+const removeFailed = ref('')
+async function remove() {
+    if (!doc.value) return
+    removing.value = 'busy'
+    removeFailed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        router.replace(`/p/${doc.value.project}/docs`)
+    } catch (error) {
+        removing.value = 'ask'
+        removeFailed.value = errorMessage(error, 'remove')
+    }
+}
+watch(() => [route.params.project, route.params.doc], () => {
+    editing.value = false
+    removing.value = null
+    removeFailed.value = ''
+    resetUploads()
+})
+
 const rendered = computed(() => doc.value ? renderMarkdown(doc.value.body, doc.value.title, before.value?.body) : null)
 const headings = computed(() => rendered.value?.headings ?? [])
 const scroller = ref<HTMLElement | null>(null)
@@ -64,7 +135,34 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
     <div v-if="doc && !missing" :key="doc.id" class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8 sm:py-12">
     <article class="min-w-0 max-w-3xl flex-1">
       <header class="mb-8 flex flex-col gap-3 border-b border-line pb-6">
-        <h1 class="text-3xl font-semibold tracking-tight text-fg">{{ doc.title }}</h1>
+        <div class="flex items-start gap-3">
+          <input
+              v-if="editing"
+              v-model="title"
+              aria-label="Title"
+              class="-mx-2 min-w-0 flex-1 rounded-lg bg-well px-2 py-0.5 text-3xl font-semibold tracking-tight text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+              :disabled="saving"
+              @keydown.enter.prevent="save"
+              @keydown.esc.stop.prevent="editing = false"
+          >
+          <h1 v-else class="min-w-0 flex-1 text-3xl font-semibold tracking-tight text-fg">{{ doc.title }}</h1>
+          <div v-if="!editing" class="mt-1.5 flex shrink-0 items-center gap-1">
+            <template v-if="!removing">
+              <UiButton variant="ghost" title="Edit its title and text" @click="edit">
+                <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg>
+                Edit
+              </UiButton>
+              <UiButton variant="danger-ghost" title="Remove this doc" @click="removing = 'ask'">
+                <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+                Remove
+              </UiButton>
+            </template>
+            <UiConfirm v-else inline class="text-xs" :busy="removing === 'busy'" @confirm="remove" @cancel="removing = null">
+              Remove “{{ doc.title }}”?
+            </UiConfirm>
+          </div>
+        </div>
+        <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
         <div class="flex items-center gap-2 text-xs text-faint">
           <PersonAvatar :name="doc.created_by" :size="16" />
           <span class="text-muted">{{ who(doc.created_by) }}</span>
@@ -80,7 +178,43 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
           <span class="unseen-dot" />{{ rendered.changed }} {{ rendered.changed === 1 ? 'part' : 'parts' }} changed since you last read it, tinted below
         </p>
       </header>
-      <MarkdownView :source="doc.body" :title="doc.title" :before="before?.body" :data-size="size" />
+      <section
+          v-if="editing"
+          class="flex flex-col gap-2"
+          @keydown.esc.stop.prevent="editing = false"
+          @dragover.prevent="dragging = true"
+          @dragleave="dragging = false"
+          @drop.prevent="onDrop"
+      >
+        <p v-if="doc.updated_at !== editedFrom" class="text-xs text-amber-600 dark:text-amber-400">
+          It changed while you were editing; saving replaces that change with yours.
+        </p>
+        <textarea
+            ref="bodyInput"
+            v-model="body"
+            aria-label="Text"
+            placeholder="Write it in Markdown (paste or drop an image)"
+            rows="20"
+            class="field-sizing-content min-h-80 w-full resize-y rounded-xl bg-well px-4 py-3 font-mono text-[13px] leading-6 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
+            :class="dragging && 'ring-accent-500/50'"
+            :disabled="saving"
+            @paste="onPaste"
+            @keydown.meta.enter.prevent="save"
+            @keydown.ctrl.enter.prevent="save"
+        />
+        <div class="flex items-center justify-end gap-2">
+          <ImageButton @picked="upload" />
+          <span v-if="saveFailed" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</span>
+          <span v-else-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
+          <span v-else-if="uploadError" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
+          <span v-else class="mr-auto text-xs text-faint">Markdown</span>
+          <UiButton :disabled="saving" @click="editing = false">Cancel <KeyHint>esc</KeyHint></UiButton>
+          <UiButton variant="primary" :disabled="saving || !!uploading || !title.trim()" @click="save">
+            {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+          </UiButton>
+        </div>
+      </section>
+      <MarkdownView v-else :source="doc.body" :title="doc.title" :before="before?.body" :data-size="size" />
       <p class="mt-12 rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PUT /api/projects/{{ doc.project }}/docs/{{ doc.id }}</p>
     </article>
     <aside v-if="headings.length" class="hidden w-56 shrink-0 xl:block">
