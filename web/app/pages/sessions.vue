@@ -17,11 +17,19 @@ const messaging = ref(false)
 const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
 
-// Each project with sessions. A session that hears several projects is listed once, under its own.
+// A session that hears several projects spans them (heardBy): it's listed once, on top under Across projects, and in
+// each project it hears that has sessions of its own as a line saying so (`via`).
+const own = (project: string) => (sessions.value[project] ?? []).filter(s => s.project === project)
+const spanning = computed(() => ordered.value.flatMap(p => own(p.id).filter(s => heardBy(s, projects.value).spans)))
+// Each project with sessions of its own.
 const groups = computed(() => ordered.value
-    .map(project => ({project, sessions: (sessions.value[project.id] ?? []).filter(s => s.project === project.id)}))
+    .map(project => ({
+        project,
+        sessions: own(project.id).filter(s => !heardBy(s, projects.value).spans),
+        via: spanning.value.filter(s => heardBy(s, projects.value).ids.includes(project.id)),
+    }))
     .filter(g => g.sessions.length))
-const count = computed(() => groups.value.reduce((n, g) => n + g.sessions.length, 0))
+const count = computed(() => spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
 const router = useRouter()
 type Tab = 'sessions' | 'setup'
@@ -35,22 +43,25 @@ const tab = computed<Tab>({
 // The contents beside the page on a wide screen, as on App settings: each project's sessions, or the setup's sections.
 const scroller = ref<HTMLElement | null>(null)
 const headings = computed<Heading[]>(() => tab.value === 'sessions'
-    ? groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 2 as const}))
+    ? [
+        ...spanning.value.length ? [{id: 'sessions-across', text: 'Across projects', level: 2 as const}] : [],
+        ...groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 2 as const})),
+    ]
     : [
         {id: 'starts', text: 'Starting sessions', level: 2},
         {id: 'hear', text: 'What sessions hear', level: 2},
         {id: 'presets', text: 'Presets', level: 2},
     ])
 
-// What each session is on, by project, asked again whenever that project's sessions change, or a signal to them is
-// sent or delivered (so Last sent keeps up).
+// What each session is on, by its own project, asked again whenever that project's sessions change, or a signal to them
+// is sent or delivered (so Last sent keeps up).
 const work = ref<Record<string, Record<string, SessionWork>>>({})
 const lastSignal = (project: string) => signals.value.find(s => s.project === project)
-watch(() => groups.value.map(g => `${g.project.id}:${g.sessions.map(s => `${s.id}/${s.state}`).join(',')}:${lastSignal(g.project.id)?.id ?? ''}/${lastSignal(g.project.id)?.delivered_to.length ?? 0}`).join('|'), () => {
-    for (const {project, sessions: here} of groups.value) {
-        if (!here.length) continue
-        $fetch<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(project.id)}/sessions/work`)
-            .then(found => work.value = {...work.value, [project.id]: found})
+const homes = computed(() => ordered.value.filter(p => own(p.id).length).map(p => p.id))
+watch(() => homes.value.map(p => `${p}:${own(p).map(s => `${s.id}/${s.state}`).join(',')}:${lastSignal(p)?.id ?? ''}/${lastSignal(p)?.delivered_to.length ?? 0}`).join('|'), () => {
+    for (const project of homes.value) {
+        $fetch<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(project)}/sessions/work`)
+            .then(found => work.value = {...work.value, [project]: found})
             .catch(() => {})
     }
 }, {immediate: true})
@@ -135,12 +146,29 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
       </section>
     </div>
     <div v-else class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
-      <p v-if="ready && !groups.length" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
+      <p v-if="ready && !count" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         No Claude sessions right now.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
         or open Claude in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
         Orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
       </p>
+      <section v-if="spanning.length" id="sessions-across" class="flex scroll-mt-14 flex-col gap-3">
+        <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h2 class="text-[15px] font-semibold">Across projects</h2>
+          <span class="font-mono text-[11px] text-faint">{{ spanning.length }}</span>
+        </header>
+        <ul class="flex flex-col gap-3">
+          <SessionCard
+              v-for="session in spanning"
+              :key="session.id"
+              :session="session"
+              :project="session.project"
+              :work="work[session.project]?.[session.id]"
+              :lit="lit === session.id"
+              spans
+          />
+        </ul>
+      </section>
       <section v-for="group in groups" :id="`sessions-${group.project.id}`" :key="group.project.id" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
           <NuxtLink :to="`/p/${group.project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-600 dark:hover:text-accent-400">
@@ -158,6 +186,10 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
               :work="work[group.project.id]?.[session.id]"
               :lit="lit === session.id"
           />
+          <li v-for="session in group.via" :key="`via-${session.id}`" class="flex items-center gap-2 px-4 text-xs text-faint">
+            <SessionDot :session="session" />
+            <span>Also hears this, via <NuxtLink :to="{hash: `#session-${session.id}`}" class="text-muted underline-offset-2 hover:text-fg hover:underline">{{ session.name }}</NuxtLink> across projects</span>
+          </li>
         </ul>
       </section>
     </div>

@@ -425,16 +425,17 @@ test("shows a listening session on the Sessions page, and sends it a message onl
     }
 })
 
-test('lists a session that hears two projects once, under its own', async ({page, request, baseURL}) => {
+test('lists a session that hears two projects once, across them', async ({page, request, baseURL}) => {
     const hello = await request.post('/api/sessions', {data: {id: 'e2e-2', project: 'larder', event: 'SessionStart', name: 'kitchen', cwd: '/code/kitchen'}})
     expect(hello.ok(), await hello.text()).toBeTruthy()
     const channels = ['larder', 'pantry'].map(p => hold(baseURL!, `/api/projects/${p}/signals/stream?session=e2e-2&name=kitchen&format=text`))
     try {
         await page.goto('/sessions')
         await expect(page.locator('#session-e2e-2')).toHaveCount(1)
-        await expect(page.locator('#sessions-larder #session-e2e-2')).toContainText('also on Pantry')
-        // The sidebar lists it once too.
-        await expect(page.getByRole('link', {name: /kitchen/})).toHaveCount(1)
+        // Under Across projects, with the two it hears (All projects, while they're the only ones).
+        await expect(page.locator('#sessions-across #session-e2e-2')).toContainText(/All projects|Larder\s*Pantry/)
+        // The sidebar (the page's first aside) lists it once too.
+        await expect(page.locator('aside').first().getByRole('link', {name: /kitchen/})).toHaveCount(1)
     } finally {
         for (const channel of channels) channel.stop()
     }

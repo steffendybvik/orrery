@@ -11,6 +11,14 @@ export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
 /** A session's state as the page says it. */
 export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 
+/** The projects a session hears: its own and the others its channel serves (`also`). One that hears more than one
+ * spans them, and is listed across projects; `all` when that's every project the Orrery has. */
+export function heardBy(session: {project: string, also?: string[]}, projects: {id: string}[]): {ids: string[], spans: boolean, all: boolean} {
+    const ids = [session.project, ...session.also ?? []]
+    const spans = ids.length > 1
+    return {ids, spans, all: spans && projects.every(p => ids.includes(p.id))}
+}
+
 /** The command that starts a session's window again with the channel: its server in the repo's `.mcp.json`, by the
  * name its channel found, else the Orrery's as the Connect page names it (`orrery-<environment>`), keeping the window's name unless it was made up. */
 export function restartCommand(session: {name: string, project: string, server?: string}, environment: string): string {
