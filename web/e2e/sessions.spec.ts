@@ -170,17 +170,25 @@ test('with a session listening, New session on this starts another on the issue'
 
 test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {
     await page.goto('/sessions#presets')
-    await page.getByLabel('New preset name').fill('Review')
-    await page.getByLabel('New preset text').fill("You're reviewing: read the diff and comment, don't change code.")
-    await page.getByRole('button', {name: 'Add preset'}).click()
-    // A preset is a role card with its badge, name and first line; clicking opens it, and New preset the form for another.
+    // New preset opens a dialog with the cursor in its text, what a session is told.
+    await page.getByRole('button', {name: 'New preset'}).click()
+    const writing = page.getByRole('dialog', {name: 'New preset'})
+    await expect(writing.getByLabel('What it tells a session')).toBeFocused()
+    await page.keyboard.type("You're reviewing: read the diff and comment, don't change code.")
+    await writing.getByLabel('Preset name').fill('Review')
+    await writing.getByRole('button', {name: 'Add preset'}).click()
+    // A preset is a role card with its badge, name and first line; clicking it opens it in the same dialog.
+    await expect(writing).toBeHidden()
     await expect(page.locator('#presets')).toContainText("You're reviewing: read the diff")
-    await expect(page.getByLabel('New preset name')).toBeHidden()
     await page.getByRole('button', {name: 'Edit Review'}).click()
-    await expect(page.getByLabel('Preset name', {exact: true})).toHaveValue('Review')
-    // Its badge is its initials until an icon is picked.
-    await page.locator('#presets').getByRole('button', {name: 'shield-check', exact: true}).click()
-    await expect(page.getByRole('button', {name: 'Use its initials'})).toBeVisible()
+    const editing = page.getByRole('dialog', {name: 'Edit Review'})
+    await expect(editing.getByLabel('Preset name')).toHaveValue('Review')
+    // Its badge is its initials until an icon is picked, behind the badge's button; it's kept as the preset is saved.
+    await editing.getByRole('button', {name: 'Badge', exact: true}).click()
+    await editing.getByRole('button', {name: 'shield-check', exact: true}).click()
+    await expect(editing.getByRole('button', {name: 'Use its initials'})).toBeVisible()
+    await editing.getByRole('button', {name: 'Save preset'}).click()
+    await expect(editing).toBeHidden()
     await expect(page.getByRole('button', {name: 'New preset'})).toBeVisible()
     // A template says what it's for, and shows its text only on Edit.
     await expect(page.getByLabel('Focus on an issue', {exact: true})).toBeHidden()
