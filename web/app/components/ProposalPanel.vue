@@ -50,9 +50,10 @@ const reopened = ref(false)
 watch([() => props.issue.id, () => props.issue.proposal, () => props.issue.decided_at], () => reopened.value = false)
 const deciding = computed(() => props.issue.proposal === 'pending' || reopened.value)
 /** What was picked, as the lines the summary shows: the question, then the options' titles. */
-const picked = computed(() => props.issue.picks ? props.issue.choices.filter(c => props.issue.picks![c.key]).map(c => ({
-    key: c.key, question: c.question, titles: c.options.filter(o => props.issue.picks![c.key]!.includes(o.key)).map(o => o.title),
-})) : [])
+const picked = computed(() => props.issue.choices.flatMap(c => {
+    const keys = props.issue.picks?.[c.key]
+    return keys ? [{key: c.key, question: c.question, titles: c.options.filter(o => keys.includes(o.key)).map(o => o.title)}] : []
+}))
 const explored = computed(() => {
     const {explore, choices} = props.issue
     const choice = explore && choices.find(c => c.key === explore.choice)

@@ -53,8 +53,9 @@ const arranges = computed(() => project.value?.release_mode === 'own')
 const order = ref<string[] | null>(null)
 const releases = computed(() => {
     const all = project.value?.releases ?? []
-    if (!order.value) return all
-    return [...all].sort((a, b) => order.value!.indexOf(a.version) - order.value!.indexOf(b.version))
+    const arranged = order.value
+    if (!arranged) return all
+    return [...all].sort((a, b) => arranged.indexOf(a.version) - arranged.indexOf(b.version))
 })
 watch(() => project.value?.releases, () => order.value = null)
 const dragging = ref<string | null>(null)

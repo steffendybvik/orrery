@@ -37,8 +37,8 @@ export abstract class CommentStore extends SignalStore {
             : undefined
         const assignee = !actor.owner && input.asks ? (await this.ownerId()) : asker
         const id = await this.db.transaction(async () => {
-            const {id} = (await this.get<{id: number}>('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
-                project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now))!
+            const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+                project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now)
             if (assignee) {
                 await this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
                 await this.record(project, issue, actor, [['assignee', row.assignee, assignee]])
@@ -63,9 +63,9 @@ export abstract class CommentStore extends SignalStore {
                               AND s.created_at >= c.created_at AND s.delivered_to != '[]')
             ORDER BY c.created_at LIMIT 10`, project)
         for (const comment of waiting) {
-            const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
                 project, comment.issue, 'comment', comment.body, session, comment.created_by, 1, stamp())
-            this.onSignal(signalOf(row!))
+            this.onSignal(signalOf(row))
         }
         return waiting.length
     }
@@ -74,9 +74,9 @@ export abstract class CommentStore extends SignalStore {
      * session on the project when none has, or that one isn't there to hear it. */
     protected async carryComment(project: string, issue: string, body: string, actor: Actor) {
         const target = await this.listeningWorker(project, issue)
-        const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'comment', body, target, actor.name, 1, stamp())
-        this.onSignal(signalOf(row!))
+        this.onSignal(signalOf(row))
     }
 
     /** The owner's comments are theirs: an agent can't reword them. */

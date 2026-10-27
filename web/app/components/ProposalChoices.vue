@@ -13,7 +13,8 @@ const emit = defineEmits<{explore: [choice: Choice, option: string]}>()
 /** The choices that count for the picks so far: the top ones, and those down a ticked option. */
 const live = computed(() => liveChoices(props.issue.choices, picks.value))
 const depth = (choice: Choice): number => {
-    const parent = choice.from && props.issue.choices.find(c => c.key === choice.from!.choice)
+    const {from} = choice
+    const parent = from && props.issue.choices.find(c => c.key === from.choice)
     return parent ? depth(parent) + 1 : 0
 }
 const ticked = (choice: Choice, option: string) => (picks.value[choice.key] ?? []).includes(option)

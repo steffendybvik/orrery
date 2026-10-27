@@ -6,7 +6,7 @@ const {byId, ready} = useRoadmaps()
 const project = computed(() => byId(route.params.project as string))
 // With docs to show, the first one opens, its list down the side.
 watch(() => project.value?.docs[0]?.id, first => {
-    if (first) router.replace(`/p/${project.value!.id}/docs/${first}`)
+    if (first && project.value) router.replace(`/p/${project.value.id}/docs/${first}`)
 }, {immediate: true})
 useHead(() => ({title: project.value ? `Docs · ${project.value.name} · Orrery` : 'Orrery'}))
 const {docUnseen} = useUnseen()

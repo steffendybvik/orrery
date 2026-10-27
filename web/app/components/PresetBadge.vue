@@ -11,7 +11,7 @@ const style = computed(() => ({
     fontSize: `${Math.round(props.size * 0.42)}px`,
     ...color.value ? {color: color.value, background: `color-mix(in srgb, ${color.value} 16%, transparent)`, boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${color.value} 35%, transparent)`} : {},
 }))
-const initials = computed(() => props.preset.name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join(''))
+const initials = computed(() => props.preset.name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w.charAt(0).toUpperCase()).join(''))
 </script>
 
 <template>

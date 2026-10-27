@@ -57,8 +57,9 @@ const here = computed<Entry[]>(() => {
         const at = order.indexOf(found.issue.id)
         const path = pathOf(p.id, found.issue.id)
         const parent = found.parents.at(-1)
-        if (order[at + 1]) entries.push({key: 'issue:next', group: 'Issue', label: 'Next issue', detail: order[at + 1], hint: 'j', run: () => router.replace(pathOf(p.id, order[at + 1]!))})
-        if (at > 0) entries.push({key: 'issue:previous', group: 'Issue', label: 'Previous issue', detail: order[at - 1], hint: 'k', run: () => router.replace(pathOf(p.id, order[at - 1]!))})
+        const [next, previous] = [order[at + 1], at > 0 ? order[at - 1] : undefined]
+        if (next) entries.push({key: 'issue:next', group: 'Issue', label: 'Next issue', detail: next, hint: 'j', run: () => router.replace(pathOf(p.id, next))})
+        if (previous) entries.push({key: 'issue:previous', group: 'Issue', label: 'Previous issue', detail: previous, hint: 'k', run: () => router.replace(pathOf(p.id, previous))})
         if (parent) entries.push({key: 'issue:parent', group: 'Issue', label: 'Open its parent', detail: parent.id, run: () => openIssue(p.id, parent.id)})
         entries.push(
             {key: 'issue:chunk', group: 'Issue', label: 'Open its chunk', detail: found.chunk.title, run: () => router.push(chunkPath(p.id, found.chunk.id))},
@@ -139,7 +140,7 @@ function rank(entry: Entry, text: string, words: string[]): number | null {
     const label = entry.label.toLowerCase()
     if (entry.id && [entry.id, ...(entry.also?.split(' ') ?? [])].some(id => id.toLowerCase() === text)) return 0
     if (label.startsWith(text)) return 1
-    if (label.split(/[\s:/·-]+/).some(w => w.startsWith(words[0]!))) return 2
+    if (label.split(/[\s:/·-]+/).some(w => w.startsWith(words[0] ?? ''))) return 2
     return 3
 }
 
@@ -216,7 +217,7 @@ function run(row: Row | undefined) {
 
 /** ⇥ (⇧⇥ back): to the first row of the next section. */
 function jumpSection(step: 1 | -1) {
-    const starts = sections.value.map(s => rowIndex.value.get(`${s.key}:${s.entries[0]!.key}`)!)
+    const starts = sections.value.flatMap(s => rowIndex.value.get(`${s.key}:${s.entries[0]?.key}`) ?? [])
     const at = starts.findLastIndex(i => i <= active.value)
     active.value = starts[(at + step + starts.length) % starts.length] ?? 0
 }

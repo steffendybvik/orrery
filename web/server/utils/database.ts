@@ -20,6 +20,13 @@ export interface Db {
     transaction<T>(work: () => Promise<T>): Promise<T>
 }
 
+/** The row of a statement that always gives one (an insert or update `RETURNING`, a `count(*)`); none is a bug, not a missing record. */
+export async function one<T>(db: Db, sql: string, ...params: Value[]): Promise<T> {
+    const row = await db.get<T>(sql, ...params)
+    if (row === undefined) throw new Error(`Expected a row from: ${sql.slice(0, 80)}`)
+    return row
+}
+
 /** The transaction the code running now is part of, if any. */
 const current = new AsyncLocalStorage<object>()
 

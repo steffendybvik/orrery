@@ -18,15 +18,16 @@ const none = (): Filters => ({priorities: [], columns: [], assignees: [], labels
 // the Column filter like any other pick; `changed` says they've moved off that, and `clear` goes back to it.
 export function useFilters() {
     const filters = useState<Filters>('filters', none)
-    const {columns: all} = useStatuses()
+    const {columns: all, statuses} = useStatuses()
     const open = computed(() => all.value.filter(c => !isClosed(c.kind)).map(c => c.id))
     const defaults = (): Filters => ({...none(), columns: [...open.value]})
 
-    // The statuses arrive with the settings, so the open columns are ticked once they're known.
+    // The statuses arrive with the settings, so the open columns are ticked once they're known. Until then
+    // the only column is Proposed, which ticked alone would hide every other issue.
     const seeded = useState('filters-seeded', () => false)
     if (import.meta.client && !seeded.value) {
         const stop = watch(open, columns => {
-            if (seeded.value || !columns.length) return
+            if (seeded.value || !statuses.value.length) return
             seeded.value = true
             if (!filters.value.columns.length) filters.value.columns = [...columns]
             queueMicrotask(() => stop())

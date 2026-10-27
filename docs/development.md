@@ -58,8 +58,9 @@ lists them and when to use which: reach for one before writing the markup again.
 issues moved on the board, sub-issues, ⌘K, a proposal approved, a change showing up live in a second
 tab. It starts `nuxt dev` on port 3199 with a fresh `web/.data/e2e.db`, so your own database isn't
 touched. The first time, and after `@playwright/test` is bumped, get its browser with `pnpm exec playwright install
-chromium`. CI runs it in Playwright's own image of that version. A failed run
-leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
+chromium`. With `E2E_POSTGRES_URL` set it runs on that Postgres instead, emptied first, so its database's name
+has to say e2e (`postgres://orrery:orrery@localhost:5432/orrery_e2e`). CI runs it in Playwright's own image of that
+version, once on each database. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
 
 The database's migrations are numbered steps in `web/server/utils/db.ts`, with Postgres's after its baseline in
 `web/server/utils/postgres.ts`: add a step to both, never edit one.

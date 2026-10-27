@@ -13,10 +13,11 @@ let timer: ReturnType<typeof setTimeout> | undefined
 let stopped = false
 async function poll() {
     if (stopped) return
-    if (document.visibilityState === 'visible') {
+    const launch = props.session.started?.launch
+    if (launch && document.visibilityState === 'visible') {
         try {
             const shot = await $fetch<{screen: string | null, at?: string}>(
-                `/api/projects/${encodeURIComponent(props.session.project)}/launches/${props.session.started!.launch}/screen`,
+                `/api/projects/${encodeURIComponent(props.session.project)}/launches/${launch}/screen`,
                 {headers: {'Orrery-Actor': await load()}},
             )
             // Trailing blank lines and spaces are the pane's empty part.

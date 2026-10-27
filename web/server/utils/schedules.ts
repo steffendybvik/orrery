@@ -7,6 +7,7 @@
 import {Cron} from 'croner'
 import type {Priority, Schedule, ScheduleRun} from '#shared/roadmap'
 import {CLOSED, PRIORITIES} from '#shared/roadmap'
+import {one} from './database'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, forbidden, notFound} from './input'
 import type {Actor, Store} from './store'
@@ -77,11 +78,11 @@ export class Schedules {
         const enabled = input.enabled ?? true
         const kind = String(input.kind ?? 'issue')
         if (kind === 'message' && !text(input.notes)?.trim()) throw badRequest('A message schedule needs its message in "notes"')
-        const {id} = (await this.db.get<{id: number}>(`INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
+        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled,
             next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
             project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, await this.place(input.column ?? 'todo'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(enabled),
-            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now))!
+            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
         this.onChange(project)
         return await this.get(project, id)
     }
@@ -236,7 +237,8 @@ export class Schedules {
         }
         const cron = given.cron ? String(given.cron).trim() : null
         const at = given.at ? String(given.at) : null
-        if (!cron === !at) throw badRequest('Send "cron" (when it repeats) or "at" (once), not both or neither')
+        const either = 'Send "cron" (when it repeats) or "at" (once), not both or neither'
+        if (cron && at) throw badRequest(either)
         if (cron) {
             if (cron.split(/\s+/).length !== 5) throw badRequest(`"cron" is "${cron}"; use five fields: minute hour day month weekday, e.g. "0 9 * * 1-5"`)
             try {
@@ -246,7 +248,8 @@ export class Schedules {
             }
             return {cron, at: null, timezone}
         }
-        const time = new Date(at!)
+        if (!at) throw badRequest(either)
+        const time = new Date(at)
         if (Number.isNaN(time.getTime())) throw badRequest(`"at" is "${at}", not a time (e.g. 2026-10-26T09:00:00+01:00)`)
         if (strict && time.getTime() <= Date.now()) throw badRequest(`"at" is ${time.toISOString()}, which has passed`)
         return {cron: null, at: time.toISOString(), timezone}
@@ -268,8 +271,9 @@ export class Schedules {
 /** When it runs next after `from`: the cron's next time, or a one-off's time if that's still ahead. */
 export function nextRun(when: {cron: string | null, at: string | null, timezone: string}, from: Date): string | null {
     if (when.at) return new Date(when.at) > from ? when.at : null
+    if (!when.cron) return null
     // `sloppyRanges` reads a step after a number (`5/10`) as croner 9 did, so a schedule saved with one still runs.
-    return new Cron(when.cron!, {timezone: when.timezone, paused: true, sloppyRanges: true}).nextRun(from)?.toISOString() ?? null
+    return new Cron(when.cron, {timezone: when.timezone, paused: true, sloppyRanges: true}).nextRun(from)?.toISOString() ?? null
 }
 
 /** The day a run is for, as its issue's title ends: `Mon 26 Oct`. */
