@@ -1427,6 +1427,61 @@ describe('starting an issue', () => {
         expect(await store.claimed('larder', shelves, undefined, loser, async () => 'written')).toBe('written')
     })
 
+    it('goes to one session only when many start it at once, whichever started status each asks for (ORR-328)', async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        const sessions = ['s1', 's2', 's3', 's4', 's5', 's6']
+        const results = await Promise.allSettled(sessions.map((session, i) => {
+            const status = i % 2 ? 'started' : 'in-progress'
+            return store.claimed('larder', shelves, status, session, () => store.updateIssue('larder', shelves, {status}))
+        }))
+        const won = results.flatMap((r, i) => r.status === 'fulfilled' ? [sessions[i]!] : [])
+        expect(won).toHaveLength(1)
+        expect(results.filter(r => r.status === 'rejected').every(r => (r as PromiseRejectedResult).reason.statusCode === 409)).toBe(true)
+        for (const session of sessions) expect((await store.workingOn('larder', [session])).map(i => i.id)).toEqual(session === won[0] ? [shelves] : [])
+        expect(await store.takenFrom('larder', shelves, undefined)).toBe(won[0])
+    })
+
+    it('goes to one session when they start it by different ids for it, its own and an old one (ORR-328)', async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        await store.db.run("INSERT INTO issue_aliases (project, alias, issue) VALUES ('larder', 'LAR-99', ?)", shelves)
+        const start = (session: string, id: string) => store.claimed('larder', id, 'started', session, () => store.updateIssue('larder', id, {status: 'started'}))
+        const results = await Promise.allSettled([start('first', shelves), start('second', 'LAR-99')])
+        expect(results.map(r => r.status).sort()).toEqual(['fulfilled', 'rejected'])
+    })
+
+    it("refuses another session's comments and edits racing in once one has started it, and lets its own through (ORR-328)", async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        await store.claimed('larder', shelves, 'started', 'first', () => store.updateIssue('larder', shelves, {status: 'started'}))
+        const writes = await Promise.allSettled([
+            store.claimed('larder', shelves, undefined, 'second', async () => 'comment'),
+            store.claimed('larder', shelves, undefined, 'third', async () => 'edit'),
+            store.claimed('larder', shelves, 'todo', 'second', () => store.updateIssue('larder', shelves, {status: 'todo'})),
+            store.claimed('larder', shelves, undefined, 'first', async () => 'its own'),
+        ])
+        expect(writes.map(r => r.status)).toEqual(['rejected', 'rejected', 'rejected', 'fulfilled'])
+        expect((await store.issue('larder', shelves)).kind).toBe('started')
+    })
+
+    it('stays with its session after a /clear gives it a new id, and not with another (ORR-328)', async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        await store.claimed('larder', shelves, 'started', 'first', () => store.updateIssue('larder', shelves, {status: 'started'}))
+        await store.renameSession('larder', 'first', 'first-cleared')
+        expect(await store.takenFrom('larder', shelves, 'first-cleared')).toBeNull()
+        expect(await store.takenFrom('larder', shelves, 'second')).toBe('first-cleared')
+        expect((await failure(() => store.claim('larder', shelves, 'started', 'second'))).status).toBe(409)
+    })
+
+    it('is held by one session again after it was refused: the loser can start another issue at once (ORR-328)', async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'todo'})).id
+        const jars = (await store.createIssue('larder', {title: 'Jars', status: 'todo'})).id
+        const start = (session: string, id: string) => store.claimed('larder', id, 'started', session, () => store.updateIssue('larder', id, {status: 'started'}))
+        const [a, b] = await Promise.allSettled([start('first', shelves), start('second', shelves)])
+        const loser = a.status === 'rejected' ? 'first' : 'second'
+        expect([a, b].filter(r => r.status === 'rejected')).toHaveLength(1)
+        await start(loser, jars)
+        expect((await store.workingOn('larder', [loser])).map(i => i.id)).toEqual([jars])
+    })
+
     it('is free once the session on it is gone, or when it was never started', async () => {
         const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-progress'})).id
         const jars = (await store.createIssue('larder', {title: 'Jars', status: 'todo'})).id
