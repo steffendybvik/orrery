@@ -7,7 +7,7 @@ docker compose up -d --build        # http://localhost:9000
 That's the built app. On its first start it makes an empty SQLite database in the `orrery-data`
 volume, with nothing to set up. The first time you open it, it asks your name: you're its owner,
 and what you make no one else can delete. Your `Orrery-Actor` header is that name in lowercase snake
-case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings.
+case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → You.
 
 After pulling a new version, `docker compose up -d --build` again; the database moves to the new
 schema by itself.
@@ -104,6 +104,9 @@ A repo's channel and hook point at the server its projects are on, by `ORRERY_UR
 `http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
 
 ## Where each database is
+
+App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file and its backup folder, or
+the Postgres database (never its password).
 
 It's always `/data/orrery.db` in the container, and `/data` is `ORRERY_DATA` when it's set, else the
 project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE_PROJECT_NAME`,
