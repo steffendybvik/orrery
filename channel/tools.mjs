@@ -90,6 +90,20 @@ export const TOOLS = [
         description: 'Writes a doc, new or replacing the one with this id: a decision and why, how something works.',
         inputSchema: {type: 'object', required: ['id', 'title', 'body'], properties: {id: {type: 'string', description: 'lowercase-with-dashes'}, title: {type: 'string'}, body: {type: 'string', description: 'Markdown'}}},
     },
+    {name: 'presets', description: "Lists the presets the project's sessions can be started with (the Orrery's, then the project's own), one line each: id, name, whose, first line.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'preset', description: 'A preset in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
+    {
+        name: 'write_preset',
+        description: "Writes a preset, the context the owner can tick when starting a session: new, or changing the one with this id. Only when the owner asks; it reaches a session only if they tick it.",
+        inputSchema: {type: 'object', properties: {
+            id: {type: 'number', description: 'The preset to change; without it, a new one'},
+            name: {type: 'string'},
+            text: {type: 'string', description: 'What the session is told, in Markdown'},
+            icon: {type: ['string', 'null'], description: "A Heroicon's name for its badge, e.g. shield-check"},
+            color: {type: ['string', 'null'], description: "A tint's name or #rrggbb"},
+            orrery: {type: 'boolean', description: "A new one for every project's sessions, not only this project's"},
+        }},
+    },
     {name: 'secrets', description: 'Lists the secrets you can use in egress, by name, with the hosts each may go to. You never see a value.', inputSchema: {type: 'object', properties: {}}},
     {
         name: 'egress',
@@ -119,7 +133,7 @@ export const TOOLS = [
 ]
 
 /** The tools that work on one project, which take `project` when the server serves several. */
-const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc']
+const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. */
 export function toolsFor(projects) {
@@ -129,7 +143,9 @@ export function toolsFor(projects) {
         ? {...tool, inputSchema: {...tool.inputSchema, required: ['project', ...tool.inputSchema.required ?? []], properties: {project, ...tool.inputSchema.properties}}}
         : tool.name === 'egress'
             ? {...tool, inputSchema: {...tool.inputSchema, properties: {...tool.inputSchema.properties, project: {...project, description: `Which project it's for, when no issue says: ${projects.join(', ')}`}}}}
-            : tool)
+            : tool.name === 'write_preset'
+                ? {...tool, inputSchema: {...tool.inputSchema, properties: {...tool.inputSchema.properties, project: {...project, description: `Whose a new one is, unless it's the Orrery's: ${projects.join(', ')}`}}}}
+                : tool)
 }
 
 /** The tools against an Orrery's API, writing as `claude` from `session`: on one project's (`api`,
@@ -232,6 +248,20 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async write_doc({id, title, body, project}) {
             await call('PUT', `/docs/${encodeURIComponent(id)}`, {title, body}, at(await projectOf({project})))
             return `Saved the doc ${id}.`
+        },
+        async presets(args) {
+            const presets = await call('GET', '/presets', undefined, at(await projectOf(args)))
+            return presets.map(p => `${p.id}: ${p.name} (${p.project ?? 'the Orrery\'s'}) — ${p.text.split('\n')[0]}`).join('\n') || 'No presets yet.'
+        },
+        async preset({id}) {
+            const preset = await call('GET', `/presets/${encodeURIComponent(id)}`, undefined, root)
+            return `# ${preset.name} (${preset.project ?? "the Orrery's"})\n\n${preset.text}`
+        },
+        async write_preset({id, orrery, project, ...fields}) {
+            const preset = id === undefined
+                ? await call('POST', '/presets', fields, orrery ? root : at(await projectOf({project})))
+                : await call('PATCH', `/presets/${encodeURIComponent(id)}`, fields, root)
+            return `Saved the preset ${preset.id}: ${preset.name} (${preset.project ?? "the Orrery's"}).`
         },
         async secrets() {
             const secrets = await call('GET', '/secrets', undefined, root)

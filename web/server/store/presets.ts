@@ -19,9 +19,9 @@ export abstract class PresetStore extends ProjectStore {
         return row
     }
 
-    /** A new preset, the owner's to make: `{name, text, icon?, color?}`, the Orrery's, or with `project` that project's own. */
+    /** A new preset: `{name, text, icon?, color?}`, the Orrery's, or with `project` that project's own. A session
+     * makes one when the owner asks; it only reaches a session the owner starts with it ticked. */
     async createPreset(project: string | null, body: unknown, actor = AGENT): Promise<Preset> {
-        this.ownerOnly(actor, 'presets')
         if (project) await this.projectRow(project)
         const input = checkInput(body, PRESET_FIELDS)
         const {name, text} = presetInput(input)
@@ -33,7 +33,6 @@ export abstract class PresetStore extends ProjectStore {
 
     /** Renames a preset, or changes its text or badge (null takes the icon or colour off); whose it is stays. */
     async updatePreset(id: number, body: unknown, actor = AGENT): Promise<Preset> {
-        this.ownerOnly(actor, 'presets')
         await this.preset(id)
         const input = checkInput(body, PRESET_FIELDS, true)
         const {name, text} = presetInput(input)
@@ -41,9 +40,11 @@ export abstract class PresetStore extends ProjectStore {
         return await this.preset(id)
     }
 
+    /** Removes a preset; one the owner made is theirs to remove. */
     async deletePreset(id: number, actor = AGENT) {
-        this.ownerOnly(actor, 'presets')
-        await this.preset(id)
+        const {name} = await this.preset(id)
+        const {owned} = await this.one<{owned: number}>('SELECT owned FROM presets WHERE id = ?', id)
+        this.refuse(actor, `Deleting preset "${name}"`, owned ? [`preset "${name}"`] : [])
         await this.run('DELETE FROM presets WHERE id = ?', id)
     }
 

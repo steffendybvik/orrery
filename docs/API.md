@@ -395,7 +395,9 @@ The owner sets them (an agent gets a 403):
 Saved pieces of context, `{id, project, name, text, icon, color}`, the owner gives a session as they start it
 (`POST …/launches {presets}`). The Orrery's (`project: null`) are for any project's sessions; a project's own
 for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's name, e.g. `shield-check`) in
-`color` (a tint's name or `#rrggbb`), or its initials without an icon. Orrery ships none. Only the owner makes, changes or removes them (an agent gets a 403).
+`color` (a tint's name or `#rrggbb`), or its initials without an icon. Orrery ships none. A session makes and changes them when the owner asks (the `presets`, `preset` and
+`write_preset` tools), but one only reaches a session the owner starts with it ticked; deleting one the owner made is
+the owner's call (an agent gets a 403).
 
 | | |
 |---|---|
@@ -403,6 +405,7 @@ for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's n
 | `POST /presets` | `{name, text, icon?, color?}` → 201 a new one of the Orrery's |
 | `GET /projects/:project/presets` | those its sessions can have: the Orrery's, then the project's own |
 | `POST /projects/:project/presets` | `{name, text, icon?, color?}` → 201 a new one of the project's own |
+| `GET /presets/:preset` | the preset, the Orrery's or a project's |
 | `PATCH /presets/:preset` | `{name?, text?, icon?, color?}` (null takes the icon or colour off) → the preset, the Orrery's or a project's |
 | `DELETE /presets/:preset` | 204; sessions already started with it keep its text |
 

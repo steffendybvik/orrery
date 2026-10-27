@@ -25,7 +25,7 @@ const issue = (fields: object = {}) => ({id: 'LAR-1', title: 'Shelves', status: 
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'write_preset', 'secrets', 'egress', 'events', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -34,6 +34,21 @@ describe("the channel's tools", () => {
         expect(await call('start_issue', {id: 'LAR-1', comment: 'On it'})).toEqual({error: false, text: 'Started LAR-1 [in-progress, claude] Shelves'})
         expect(calls.map(c => [c.method, c.url, c.body])).toEqual([['PATCH', '/issues/LAR-1', {status: 'started', assignee: 'claude'}], ['POST', '/issues/LAR-1/comments', {body: 'On it'}]])
         expect(calls[0]!.headers).toMatchObject({'Orrery-Actor': 'claude', 'Orrery-Session': 'abc'})
+    })
+
+    it('read presets and write them, new or changed, as the owner asks', async () => {
+        const release = {id: 3, project: 'larder', name: 'Release', text: 'Cut the release.\nThen tag it.'}
+        const {calls, call} = harness({
+            'GET /presets': {body: [{id: 1, project: null, name: 'Review', text: 'Read the diff.'}, release]},
+            'GET /presets/3': {body: release},
+            'POST /presets': {body: {...release, id: 4, name: 'Audit'}},
+            'PATCH /presets/3': {body: release},
+        })
+        expect((await call('presets')).text).toBe("1: Review (the Orrery's) — Read the diff.\n3: Release (larder) — Cut the release.")
+        expect((await call('preset', {id: 3})).text).toBe('# Release (larder)\n\nCut the release.\nThen tag it.')
+        expect((await call('write_preset', {name: 'Audit', text: 'Audit it.'})).text).toBe('Saved the preset 4: Audit (larder).')
+        expect((await call('write_preset', {id: 3, text: 'Cut it.'})).text).toBe('Saved the preset 3: Release (larder).')
+        expect(calls.slice(2).map(c => [c.method, c.url, c.body])).toEqual([['POST', '/presets', {name: 'Audit', text: 'Audit it.'}], ['PATCH', '/presets/3', {text: 'Cut it.'}]])
     })
 
     it("read the Orrery's event log and resolve what they fixed", async () => {
@@ -132,6 +147,14 @@ describe('one channel serving several projects', () => {
         expect(calls[0]!.url).toBe('/projects/larder/docs')
         expect((await call('docs')).text).toBe('Orrery said no: Say which project: larder, pantry')
         expect((await call('docs', {project: 'garden'})).text).toBe('Orrery said no: This server serves larder, pantry, not garden')
+    })
+
+    it("write a new preset for one project, or with orrery for every project's sessions", async () => {
+        const {call, calls} = several({'POST /projects/pantry/presets': {id: 5, project: 'pantry', name: 'Jars', text: 'x'}, 'POST /presets': {id: 6, project: null, name: 'Audit', text: 'y'}})
+        expect((await call('write_preset', {project: 'pantry', name: 'Jars', text: 'x'})).text).toBe('Saved the preset 5: Jars (pantry).')
+        expect((await call('write_preset', {orrery: true, name: 'Audit', text: 'y'})).text).toBe("Saved the preset 6: Audit (the Orrery's).")
+        expect((await call('write_preset', {name: 'Jars', text: 'x'})).text).toBe('Orrery said no: Say which project: larder, pantry')
+        expect(calls.map(c => c.url)).toEqual(['/projects/pantry/presets', '/presets'])
     })
 
     it('list the project argument, required, on the tools that work on one project', () => {

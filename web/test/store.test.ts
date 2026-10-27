@@ -1140,8 +1140,7 @@ describe('presets', () => {
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
 
-    it("are the owner's to make: the Orrery's for any project, or a project's own", async () => {
-        expect((await failure(() => store.createPreset(null, {name: 'Review', text: "You're reviewing."}, claude))).status).toBe(403)
+    it("are the Orrery's for any project, or a project's own", async () => {
         expect((await failure(() => store.createPreset(null, {name: ' ', text: 'x'}, owner))).status).toBe(400)
         const review = await store.createPreset(null, {name: ' Review ', text: "You're reviewing: don't change code."}, owner)
         expect(review).toMatchObject({project: null, name: 'Review', text: "You're reviewing: don't change code."})
@@ -1157,9 +1156,19 @@ describe('presets', () => {
         expect((await failure(() => store.presetsFor('larder', [pantry.id]))).message).toMatch(`No preset ${pantry.id} for larder`)
     })
 
+    it("are made and changed by a session too, but one the owner made is theirs to remove", async () => {
+        const mine = await store.createPreset(null, {name: 'Review', text: 'Read the diff.'}, owner)
+        const its = await store.createPreset('larder', {name: 'Release', text: 'Cut the release.'}, claude)
+        expect(await store.updatePreset(mine.id, {text: 'Read the whole diff.'}, claude)).toMatchObject({name: 'Review', text: 'Read the whole diff.'})
+        const refused = await failure(() => store.deletePreset(mine.id, claude))
+        expect(refused.status).toBe(403)
+        expect(refused.message).toMatch('preset "Review" was made by the owner')
+        await store.deletePreset(its.id, claude)
+        expect((await store.presets('larder')).map(p => p.name)).toEqual(['Review'])
+    })
+
     it('are renamed, rewritten and removed by the owner, and go with their project', async () => {
         const preset = await store.createPreset('larder', {name: 'E2E', text: 'Run the e2e suite.'}, owner)
-        expect((await failure(() => store.updatePreset(preset.id, {text: 'Skip it.'}, claude))).status).toBe(403)
         expect(await store.updatePreset(preset.id, {text: 'Run pnpm test:e2e.'}, owner)).toMatchObject({name: 'E2E', text: 'Run pnpm test:e2e.'})
         expect((await failure(() => store.updatePreset(preset.id, {text: ''}, owner))).status).toBe(400)
         expect((await failure(() => store.updatePreset(preset.id, {name: '   '}, owner))).status).toBe(400)

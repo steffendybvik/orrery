@@ -63,7 +63,7 @@ Then `source ~/.zshrc` and start the session with `shop`.
 The same server gives the session **tools** for its projects' roadmaps, so it works without curl:
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
 `create_issue` (a proposal too, with choices), `update_issue`, `chunks`, `docs`, `doc` and
-`write_doc`; `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
+`write_doc`; `presets`, `preset` and `write_preset`, to read and tweak the context sessions start with; `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
 never sees; and `events` and `resolve_event`, to debug Orrery from its [event log](API.md#event-log). They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
