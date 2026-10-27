@@ -12,7 +12,7 @@
 //   Markdown image) sends no Origin, a browser opening one has to be Orrery's own page, as an EventSource.
 //   The channel, the launcher and curl send no Sec-Fetch headers.
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const STREAM = /^\/api\/projects\/[^/]+\/(signals|launches)\/stream(\?|$)/
+const STREAM = /^\/api\/(projects\/[^/]+\/(signals|launches)|signals)\/stream(\?|$)/
 const LOCAL = /^(localhost|.+\.localhost|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i
 
 export default defineEventHandler(event => {

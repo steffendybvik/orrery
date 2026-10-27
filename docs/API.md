@@ -278,11 +278,12 @@ an agent's P0. A schedule that asks the sessions sends its one focus, saying the
 | `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?, release?, instructions?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk; `all`: every chunk's); `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, and `release` (a version) to those set for it, at any depth |
 | `GET /projects/:project/signals?after=` | the signals after that id, oldest first; `?issue=` or `?chunk=` for the latest about one |
 | `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up); a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
+| `GET /signals/stream?projects=hub,css` | the same for a session on several projects, on one stream: each `signal` says its `project`; `*` follows every project, and each one made later; `404` for a project that doesn't exist |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
 
 A session listens through Orrery's channel (`channel/orrery-channel.mjs` in this repo, an MCP
 server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per Orrery for all of the repo's
-projects in `ORRERY_PROJECTS`; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),
+projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 `GET /settings` says the Orrery's `id` (made once, when it first starts) and `environment`: a channel given
 `ORRERY_ID` refuses an Orrery with another id. A session heard on several projects is listed on each one's
