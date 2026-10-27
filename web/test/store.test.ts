@@ -842,6 +842,25 @@ describe('proposals in the bell', () => {
         await store.decide('larder', id, {decision: 'approved', picks: {k: ['a']}}, owner)
         expect((await store.notices({list: 'waiting'})).map(n => n.issue)).not.toContain(id)
     })
+
+    it('make the issue wait on your decision too, as the bell has it, until you decide', async () => {
+        const agent = {name: 'claude', owner: false}
+        const owner = {name: 'skoll', owner: true}
+        const {id} = await store.createIssue('larder', {title: 'Dark mode', proposal: 'pending'}, agent)
+        const {id: part} = await store.createIssue('larder', {title: 'Its part', parent: id, proposal: 'pending'}, agent)
+        const {id: mine} = await store.createIssue('larder', {title: 'Mine', proposal: 'pending'}, owner)
+        expect((await store.issue('larder', id)).waiting).toBe('decision')
+        // Not one under another proposal, nor the owner's own.
+        expect((await store.issue('larder', part)).waiting).toBeUndefined()
+        expect((await store.issue('larder', mine)).waiting).toBeUndefined()
+        // A question of its own still says what it asks.
+        await store.createComment('larder', id, {body: 'Thoughts?', asks: 'feedback'}, agent)
+        expect((await store.issue('larder', id)).waiting).toBe('feedback')
+        await store.createComment('larder', id, {body: 'Looks good'}, owner)
+        expect((await store.issue('larder', id)).waiting).toBe('decision')
+        await store.decide('larder', id, {decision: 'changes', note: 'Shorter'}, owner)
+        expect((await store.issue('larder', id)).waiting).toBeUndefined()
+    })
 })
 
 describe("the notifications page's lists", () => {
