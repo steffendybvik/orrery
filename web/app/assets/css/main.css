@@ -156,7 +156,9 @@ body {
         & table { @apply block w-full overflow-x-auto border-collapse text-[14.5px]; }
         & th, & td { @apply border border-line px-3 py-1.5 text-left; }
         & th { @apply bg-well font-medium text-fg; }
-        & img { @apply max-w-full rounded-lg; }
+        /* A picture sits in a frame (a band of the well colour, a hairline and a soft shadow), so a screenshot
+           doesn't read as more of the page. */
+        & img { @apply max-w-full rounded-xl border-4 border-well shadow-sm ring-1 ring-line; }
         & h2, & h3 { @apply scroll-mt-6; }
         & input[type="checkbox"] { @apply mr-1.5 accent-accent-500; }
     }
@@ -169,8 +171,8 @@ body {
    `--split`, which the range across the whole picture moves (plugins/compare). */
 .doc .compare {
     --split: 50%;
-    @apply relative isolate w-full overflow-hidden rounded-lg ring-1 ring-line select-none;
-    & img { @apply block w-full max-w-none rounded-none; }
+    @apply relative isolate w-full overflow-hidden rounded-xl border-4 border-well shadow-sm ring-1 ring-line select-none;
+    & img { @apply block w-full max-w-none rounded-none border-0 shadow-none ring-0; }
     & .compare-before {
         @apply absolute inset-0 h-full object-cover object-left-top;
         clip-path: inset(0 calc(100% - var(--split)) 0 0);
