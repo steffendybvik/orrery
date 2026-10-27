@@ -1,18 +1,19 @@
 import type {Issue, Signal} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
 import type {Store} from './store'
+import {known} from '#shared/known'
 
 /** What a chunk focus (or one on the whole project, a release, statuses) asks a session to work through, as
  * it stands now: the chunk, its title as told, and its matching issues, most urgent first. Asked again later,
  * it's what's left of the run: issues finished since have dropped out. */
 export async function scopeOf(store: Store, project: string, signal: Signal) {
     // `none`: the issues in no chunk, which the board keeps as a chunk without an id; `all`: the whole project's.
-    const board = signal.chunk === 'none' || signal.chunk === 'all' ? (await store.project(project)).board : undefined
+    const board = async () => (await store.project(project)).board
     const chunk = signal.chunk === 'all'
-        ? {title: 'every chunk', column: '', priority: undefined as Issue['priority'], tasks: board!.chunks.flatMap(c => c.tasks)}
+        ? {title: 'every chunk', column: '', priority: undefined as Issue['priority'], tasks: (await board()).chunks.flatMap(c => c.tasks)}
         : signal.chunk === 'none'
-            ? board!.chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done', priority: undefined, tasks: []}
-            : await store.chunk(project, signal.chunk!)
+            ? (await board()).chunks.find(c => !c.id) ?? {title: 'No chunk', column: 'done', priority: undefined, tasks: []}
+            : await store.chunk(project, known(signal.chunk, 'the chunk a chunk focus is on'))
     // With a release, the issues set for it, at any depth (a sub-issue's when its parent isn't).
     const tasks: Issue[] = []
     const pick = (issues: Issue[]) => issues.forEach(t => t.release === signal.release ? tasks.push(t) : pick(t.tasks))

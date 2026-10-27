@@ -3,6 +3,7 @@
 import {randomBytes} from 'node:crypto'
 import {createError} from 'h3'
 import type {Instruction} from '#shared/prompt'
+import {known} from '#shared/known'
 
 export interface Field {
     /** `strings` is a list of strings, such as labels; `lines` a list of `{id?, text, on?}`, such as standing
@@ -47,7 +48,7 @@ export function checkInput(body: unknown, spec: Record<string, Field>, partial =
         }
         if (field.type === 'json') {
             try {
-                input[key] = field.parse!(value)
+                input[key] = known(field.parse, `a parse for "${key}"`)(value)
             } catch (error) {
                 problems.push(`"${key}": ${(error as Error).message}`)
             }
@@ -88,7 +89,7 @@ export function checkInput(body: unknown, spec: Record<string, Field>, partial =
         }
         input[key] = value as string | number | boolean
     }
-    if (problems.length) throw badRequest(problems.length === 1 ? problems[0]! : `${problems.length} problems in the body`, problems)
+    if (problems.length) throw badRequest(problems.length > 1 ? `${problems.length} problems in the body` : problems.join(''), problems)
     return input
 }
 

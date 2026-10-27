@@ -12,7 +12,10 @@ const {open, last} = useIssueLink()
 const {load} = useOwner()
 const {of: schedulesOf, edit: editSchedule} = useSchedules()
 /** The schedule that made it, if one did (and still exists). */
-const madeBy = computed(() => issue.value?.schedule && project.value ? schedulesOf(project.value.id).find(s => s.id === issue.value!.schedule) : undefined)
+const madeBy = computed(() => {
+    const schedule = issue.value?.schedule
+    return schedule && project.value ? schedulesOf(project.value.id).find(s => s.id === schedule) : undefined
+})
 
 const project = computed(() => byId(route.params.project as string))
 const issueId = computed(() => route.params.issue as string)

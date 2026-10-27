@@ -23,6 +23,8 @@ watch(() => [props.project.id, props.issue.id, props.issue.updated_at] as const,
 const {look} = useStatuses()
 const PROPOSAL_SAID: Record<string, string> = {pending: 'put it up as a proposal', approved: 'approved the proposal', changes: 'asked for changes to the proposal', rejected: 'rejected the proposal'}
 
+const list = (value?: string) => JSON.parse(value ?? '[]') as string[]
+
 /** One change as words: "moved it to In progress", "assigned Claude". */
 function said(event: IssueEvent): string[] {
     const {field, before, after} = event
@@ -39,17 +41,17 @@ function said(event: IssueEvent): string[] {
         return [after ? `put it in ${title}` : 'took it out of its chunk']
     }
     if (field === 'labels') {
-        const [was, now] = [before, after].map(l => JSON.parse(l ?? '[]') as string[])
+        const [was, now] = [list(before), list(after)]
         return [
-            ...now!.filter(l => !was!.includes(l)).map(l => `added the label ${l}`),
-            ...was!.filter(l => !now!.includes(l)).map(l => `took off the label ${l}`),
+            ...now.filter(l => !was.includes(l)).map(l => `added the label ${l}`),
+            ...was.filter(l => !now.includes(l)).map(l => `took off the label ${l}`),
         ]
     }
     if (field === 'external') {
-        const [was, now] = [before, after].map(l => JSON.parse(l ?? '[]') as string[])
+        const [was, now] = [list(before), list(after)]
         return [
-            ...now!.filter(t => !was!.includes(t)).map(t => `linked the team task ${t}`),
-            ...was!.filter(t => !now!.includes(t)).map(t => `unlinked the team task ${t}`),
+            ...now.filter(t => !was.includes(t)).map(t => `linked the team task ${t}`),
+            ...was.filter(t => !now.includes(t)).map(t => `unlinked the team task ${t}`),
         ]
     }
     return []
@@ -59,16 +61,16 @@ function said(event: IssueEvent): string[] {
  * In progress and assigned Claude"). Made is the line at the top, so `created` isn't repeated. */
 const timeline = computed(() => {
     type Entry = {key: string, at: string, comment?: Comment, by?: string, words?: string[]}
-    const lines: Entry[] = []
+    const lines: (Entry & {words: string[]})[] = []
     for (const event of activity.value) {
         const words = event.field === 'created' ? [] : said(event)
         if (!words.length) continue
         const last = lines.at(-1)
-        if (last && last.at === event.created_at && last.by === event.created_by) last.words!.push(...words)
+        if (last && last.at === event.created_at && last.by === event.created_by) last.words.push(...words)
         else lines.push({key: `e${event.id}`, at: event.created_at, by: event.created_by, words})
     }
     const all: (Entry & {text?: string})[] = [
-        ...lines.map(l => ({...l, text: l.words!.length > 1 ? `${l.words!.slice(0, -1).join(', ')} and ${l.words!.at(-1)}` : l.words![0]})),
+        ...lines.map(l => ({...l, text: l.words.length > 1 ? `${l.words.slice(0, -1).join(', ')} and ${l.words.at(-1)}` : l.words[0]})),
         ...comments.value.map(c => ({key: `c${c.id}`, at: c.created_at, comment: c})),
     ]
     return all.sort((a, b) => a.at.localeCompare(b.at))

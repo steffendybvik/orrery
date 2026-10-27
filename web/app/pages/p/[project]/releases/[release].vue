@@ -23,7 +23,8 @@ const whole = computed(() => source.value?.releases.find(r => r.version === vers
 // Each project's part: on its source, the source's and then each drawing on it with issues in it; else this project's.
 const parts = computed(() => {
     if (!project.value || !release.value) return []
-    const shown = project.value.releases_from ? [project.value] : [project.value, ...projects.value.filter(p => p.releases_from === project.value!.id)]
+    const {id} = project.value
+    const shown = project.value.releases_from ? [project.value] : [project.value, ...projects.value.filter(p => p.releases_from === id)]
     return shown.map(p => {
         const chunks = releaseChunks(p, version.value)
         const tasks = chunks.flatMap(c => c.tasks)

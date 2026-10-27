@@ -65,9 +65,9 @@ export function renderPrompt(template: string, values: Record<string, string | n
         instructions: list,
     }
     const lines = template.split('\n').flatMap(line => {
-        const names = [...line.matchAll(PLACEHOLDER)].map(m => m[1]!).filter(name => Object.hasOwn(all, name))
+        const names = [...line.matchAll(PLACEHOLDER)].flatMap(m => m[1] ?? []).filter(name => Object.hasOwn(all, name))
         if (names.length && names.every(name => !all[name])) return []
-        return [line.replace(PLACEHOLDER, (whole, name: string) => Object.hasOwn(all, name) ? all[name]! : whole)]
+        return [line.replace(PLACEHOLDER, (whole, name: string) => Object.hasOwn(all, name) ? all[name] ?? whole : whole)]
     })
     const text = lines.join('\n').trim()
     return list && !template.includes('{instructions}') ? `${text}\n\nAlso:\n${list}` : text

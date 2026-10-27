@@ -6,8 +6,8 @@ const props = defineProps<{text: string}>()
 const parts = computed(() => props.text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\([^)\s]+\))/g).filter(Boolean).map(part => {
     if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) return {kind: 'code', text: part.slice(1, -1)}
     if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) return {kind: 'bold', text: part.slice(2, -2)}
-    const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part)
-    if (link) return {kind: /^https?:\/\//.test(link[2]!) ? 'link' : 'ref', text: link[1]!, href: link[2]!}
+    const [, text, href] = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part) ?? []
+    if (text && href) return {kind: /^https?:\/\//.test(href) ? 'link' : 'ref', text, href}
     return {kind: 'text', text: part}
 }))
 </script>

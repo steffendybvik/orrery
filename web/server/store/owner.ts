@@ -73,7 +73,7 @@ export abstract class OwnerStore extends StatusStore {
                 WHERE c.owned = 0) AS listed
             WHERE ${which} ${after}
             ORDER BY ${list === 'bell' ? '(asks IS NOT NULL AND NOT answered) DESC, ' : ''}created_at DESC, id DESC ${count ? 'LIMIT ?' : ''}`,
-        ...after ? [before!] : [], ...count ? [count] : []))
+        ...after && before !== undefined ? [before] : [], ...count ? [count] : []))
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 
