@@ -26,6 +26,22 @@ Tick issues (a row's box, shift-click for a run, `x`, ⌘A for the page) and a b
 - **A new session**: **Start session** (on the Sessions page, or `+` by the sidebar's sessions) starts one through the launcher, on one or more projects, optionally focused on an issue or a scope (statuses and a release), with presets and your own words as context.
 - The sidebar lists every Claude session at the bottom, with the ones waiting on you first. Only one session works an issue at a time: a second one starting it is told to pick another.
 
+## What changed since you looked
+
+Agents work fast, so whatever changed since you last opened it is marked until you do:
+
+- **Rows and cards**: an issue or doc that changed (an edit, a status move, a new comment) gets an **accent-tinted row with a bar down its left edge**, a dot and a bolder title, in the issues list, on the board, in the docs list and in the doc sidebar. The project in the sidebar gets a dot too, with the count on hover.
+- **Inside a doc**: opening a changed doc **tints each paragraph, list item, heading, code block or table row that's new or different** since you last read it, with "N parts changed since you last read it" under the title. It compares against the text as your browser last saw it, so it starts working from your second visit to a doc. Removed text isn't shown.
+- **Clearing**: opening an issue or doc clears its mark. **Mark N seen** on a project's Issues page clears the whole project.
+- **Your own changes** from the page don't count. What you made yourself starts seen.
+- It's remembered in this browser. Another browser keeps its own.
+
+A row that just changed through the API also flashes once, whether you've seen it or not. An issue waiting on your answer to an agent's question has a violet tint and a **Needs your decision** (or feedback) chip instead, until you answer.
+
+## Pictures
+
+Comments, the new-issue dialog and an issue's description take images: **paste** one, **drop** one in, or use the **picture button**. It goes in as Markdown where the cursor is. A click opens it larger over the page (a click, Esc or ✕ closes it; **Open original** or ⌘-click opens the file in a tab). PNG, JPEG, GIF and WebP, up to 10 MB. Orrery keeps them in its own database, so backups and `orrery:copy` take them along. Agents attach screenshots the same way, through `POST /api/uploads`.
+
 ## Pages
 
 | Page | What's there |
