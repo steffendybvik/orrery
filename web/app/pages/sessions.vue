@@ -5,7 +5,8 @@ import type {Heading} from '~/utils/markdown'
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
 // Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default). Above them, whether Orrery may start sessions and how it does; below, what sessions hear and the
-// presets to start one with, for every project or, picked in For, one project's own.
+// presets to start one with, for every project or, picked in For, one project's own. Two tabs keep them apart: Sessions,
+// what's running, and Setup, how sessions start and what they hear (`?tab=setup`, or a link to one of its sections).
 useHead({title: 'Sessions · Orrery'})
 const route = useRoute()
 const {projects, ready, sessions, signals} = useRoadmaps()
@@ -22,14 +23,24 @@ const groups = computed(() => ordered.value
     .filter(g => g.sessions.length))
 const count = computed(() => groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
-// The contents beside the page on a wide screen, as on App settings: the settings, and each project's sessions.
+const router = useRouter()
+type Tab = 'sessions' | 'setup'
+const SETUP = ['#starts', '#hear', '#presets']
+const tabs = [{value: 'sessions' as const, label: 'Sessions'}, {value: 'setup' as const, label: 'Setup'}]
+const tab = computed<Tab>({
+    get: () => route.query.tab === 'setup' || SETUP.includes(route.hash) ? 'setup' : 'sessions',
+    set: next => router.replace({query: {...route.query, tab: next === 'setup' ? 'setup' : undefined}, hash: ''}),
+})
+
+// The contents beside the page on a wide screen, as on App settings: each project's sessions, or the setup's sections.
 const scroller = ref<HTMLElement | null>(null)
-const headings = computed<Heading[]>(() => [
-    {id: 'starts', text: 'Starting sessions', level: 2},
-    ...groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 3 as const})),
-    {id: 'hear', text: 'What sessions hear', level: 2},
-    {id: 'presets', text: 'Presets', level: 2},
-])
+const headings = computed<Heading[]>(() => tab.value === 'sessions'
+    ? groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 2 as const}))
+    : [
+        {id: 'starts', text: 'Starting sessions', level: 2},
+        {id: 'hear', text: 'What sessions hear', level: 2},
+        {id: 'presets', text: 'Presets', level: 2},
+    ])
 
 // What each session is on, by project, asked again whenever that project's sessions change, or a signal to them is
 // sent or delivered (so Last sent keeps up).
@@ -64,6 +75,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
   </PageHeader>
 
   <ViewToolbar>
+    <SegmentedControl v-model="tab" :options="tabs" />
     <span class="truncate text-xs text-muted">{{ count ? `${count} ${count === 1 ? 'session' : 'sessions'}` : 'No sessions right now' }}</span>
     <template #end>
       <UiButton class="shrink-0" :disabled="!count" @click="messaging = true">Message sessions</UiButton>
@@ -77,7 +89,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
   <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <div v-else class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-6 sm:px-8">
-    <div class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
+    <div v-if="tab === 'setup'" class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
       <section id="starts" class="flex scroll-mt-14 flex-col gap-2">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
@@ -88,31 +100,6 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         </header>
         <SessionStarts />
         <StartingSessionsGuide />
-      </section>
-      <p v-if="ready && !groups.length" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
-        No Claude sessions right now.
-        <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
-        or open Claude in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
-      </p>
-      <section v-for="group in groups" :id="`sessions-${group.project.id}`" :key="group.project.id" class="flex scroll-mt-14 flex-col gap-3">
-        <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <NuxtLink :to="`/p/${group.project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-600 dark:hover:text-accent-400">
-            <ProjectIcon v-if="group.project.icon && heroicon(group.project.icon)" :icon="group.project.icon" :color="group.project.icon_color" class="size-3.5" />
-            <h2 class="truncate text-[15px] font-semibold">{{ group.project.name }}</h2>
-          </NuxtLink>
-          <span class="font-mono text-[11px] text-faint">{{ group.sessions.length }}</span>
-          <StartSession :project="group.project" class="ml-auto" />
-        </header>
-        <ul class="flex flex-col gap-3">
-          <SessionCard
-              v-for="session in group.sessions"
-              :key="session.id"
-              :session="session"
-              :project="group.project.id"
-              :work="work[group.project.id]?.[session.id]"
-              :lit="lit === session.id"
-          />
-        </ul>
       </section>
       <section id="hear" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
@@ -145,6 +132,34 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
           </p>
         </header>
         <PresetSettings :key="scope" :project="scoped" />
+      </section>
+    </div>
+    <div v-else class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
+      <p v-if="ready && !groups.length" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
+        No Claude sessions right now.
+        <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
+        or open Claude in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
+        Orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
+      </p>
+      <section v-for="group in groups" :id="`sessions-${group.project.id}`" :key="group.project.id" class="flex scroll-mt-14 flex-col gap-3">
+        <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <NuxtLink :to="`/p/${group.project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-600 dark:hover:text-accent-400">
+            <ProjectIcon v-if="group.project.icon && heroicon(group.project.icon)" :icon="group.project.icon" :color="group.project.icon_color" class="size-3.5" />
+            <h2 class="truncate text-[15px] font-semibold">{{ group.project.name }}</h2>
+          </NuxtLink>
+          <span class="font-mono text-[11px] text-faint">{{ group.sessions.length }}</span>
+          <StartSession :project="group.project" class="ml-auto" />
+        </header>
+        <ul class="flex flex-col gap-3">
+          <SessionCard
+              v-for="session in group.sessions"
+              :key="session.id"
+              :session="session"
+              :project="group.project.id"
+              :work="work[group.project.id]?.[session.id]"
+              :lit="lit === session.id"
+          />
+        </ul>
       </section>
     </div>
     <aside class="hidden w-56 shrink-0 xl:block">
