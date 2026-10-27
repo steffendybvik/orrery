@@ -62,7 +62,8 @@ async function mount(on: string | null) {
     mounted.push(wrapper)
     const row = (id: string) => wrapper.find(`input[value="${id}"]`).element.closest('label')!.textContent ?? ''
     const submit = () => wrapper.findAll('button').find(b => b.text().startsWith('Start session'))!
-    await vi.waitFor(() => expect(row('cellar')).toContain('No launcher running'))
+    // Each project's launch state comes in over the (stubbed) API: slow under coverage, so it's given time.
+    await vi.waitFor(() => expect(row('cellar')).toContain('No launcher running'), {timeout: 5000})
     return {wrapper, row, submit}
 }
 

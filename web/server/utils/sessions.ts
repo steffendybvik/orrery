@@ -5,6 +5,7 @@
 // channel carries on under the old one, so the ids a session had before stay aliases of it. A window
 // can run a channel for every project in its repo's `.mcp.json`, only the flagged one heard, so it
 // listens (and can be stopped) through its own project's channel only.
+import {randomInt} from 'node:crypto'
 import type {Session, SessionState, StartedSession} from '#shared/roadmap'
 import {SESSION_NAMES, madeUpName} from '#shared/roadmap'
 
@@ -97,14 +98,19 @@ function add(session: Known) {
     sessions.set(session.id, session)
 }
 
-/** "<project> · <name>", the first of SESSION_NAMES no session on the project has; past them all, "Odin II" and on.
- * With `spanning`, for a session that hears several projects, the bare name ("Odin"), the first no session has: no
+/** "<project> · <name>", the next of NAME_ORDER no session on the project has; past them all, "Odin II" and on.
+ * With `spanning`, for a session that hears several projects, the bare name ("Odin"), the next no session has: no
  * one project is its. */
 function nameFor(project: string, spanning = false): string {
     const taken = new Set((spanning ? [...sessions.values()] : listSessions(project)).map(s => s.name))
     for (let round = 1; ; round++) {
-        const free = SESSION_NAMES.map(name => `${spanning ? '' : `${project} · `}${name}${round > 1 ? ` ${roman(round)}` : ''}`).find(name => !taken.has(name))
-        if (free) return free
+        for (let k = 0; k < NAME_ORDER.length; k++) {
+            const at = (turn + k) % NAME_ORDER.length
+            const name = `${spanning ? '' : `${project} · `}${NAME_ORDER[at]}${round > 1 ? ` ${roman(round)}` : ''}`
+            if (taken.has(name)) continue
+            turn = at + 1
+            return name
+        }
     }
 }
 
@@ -119,6 +125,14 @@ function rename(session: Known) {
     if (spanning === !session.name.includes(' · ') && (spanning || session.name.startsWith(`${session.project} · `))) return
     session.name = nameFor(session.project, spanning)
 }
+
+/** The names in the order they're handed out: each 29 on from the one before (the list's 79 is prime, so every one comes
+ * round once), which scatters the families (Odin, Njord, Brokk, Idun…) rather than walking them one by one. */
+export const NAME_ORDER: string[] = SESSION_NAMES.map((name, i) => ({name, at: i * 30 % SESSION_NAMES.length})) // 30: 29's inverse, mod 79
+    .sort((a, b) => a.at - b.at).map(n => n.name)
+/** Where in NAME_ORDER the next name is looked for: after the last handed out, so they rotate, starting somewhere new
+ * each time Orrery starts. */
+let turn = randomInt(NAME_ORDER.length)
 
 /** 2 → II, 14 → XIV. */
 function roman(n: number): string {

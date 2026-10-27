@@ -16,6 +16,8 @@ beforeEach(async () => {
     vi.stubGlobal('useStore', () => ({workedBy: async () => {}, renameSession: async (project: string, from: string, to: string) => renamed.push(`${project}:${from}>${to}`)}))
     vi.stubGlobal('launchTarget', (launch: string) => `launch-${launch}`)
     vi.resetModules()
+    // Names start at the top of their order here, not somewhere new as when Orrery starts.
+    vi.doMock('node:crypto', async original => ({...await original<typeof import('node:crypto')>(), randomInt: () => 0}))
     sessions = await import('../server/utils/sessions')
 })
 
@@ -25,19 +27,21 @@ afterEach(() => {
 })
 
 describe('a session', () => {
-    it('is named after its project and the first Norse name free there, then on with II', () => {
+    it('takes the Norse names in a scattered order, every one once, then on with II', () => {
+        expect(sessions.NAME_ORDER.slice(0, 4)).toEqual(['Odin', 'Njord', 'Brokk', 'Idun'])
+        expect([...sessions.NAME_ORDER].sort()).toEqual([...SESSION_NAMES].sort())
         for (let i = 0; i < SESSION_NAMES.length; i++) sessions.report({id: `n${i}`, project: 'pantry', event: 'SessionStart'})
-        expect(sessions.listSessions('pantry').map(s => s.name).slice(0, 3)).toEqual(['pantry · Odin', 'pantry · Tor', 'pantry · Frigg'])
+        expect(sessions.listSessions('pantry').map(s => s.name).slice(0, 3)).toEqual(['pantry · Odin', 'pantry · Njord', 'pantry · Brokk'])
         expect(sessions.report({id: 'over', project: 'pantry', event: 'SessionStart'})?.name).toBe('pantry · Odin II')
         sessions.report({id: 'n2', project: 'pantry', event: 'SessionEnd'})
-        expect(sessions.report({id: 'again', project: 'pantry', event: 'SessionStart'})?.name).toBe('pantry · Frigg')
+        expect(sessions.report({id: 'again', project: 'pantry', event: 'SessionStart'})?.name).toBe('pantry · Brokk')
     })
 
-    it('is named after its project, the first name free', () => {
+    it('is named after its project, the names taken in turn rather than the first free again', () => {
         expect(sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Odin')
-        expect(sessions.report({id: 'b', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Tor')
+        expect(sessions.report({id: 'b', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Njord')
         sessions.report({id: 'a', project: 'larder', event: 'SessionEnd'})
-        expect(sessions.report({id: 'c', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Odin')
+        expect(sessions.report({id: 'c', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Brokk')
         expect(sessions.report({id: 'd', project: 'larder', name: 'pantry', event: 'SessionStart'})?.name).toBe('pantry')
         expect(changed.every(p => p === 'larder')).toBe(true)
     })
@@ -45,20 +49,20 @@ describe('a session', () => {
     it('hearing several projects, goes by a bare name no session has, and gets its prefix back on one', () => {
         sessions.report({id: 'solo', project: 'hub', event: 'SessionStart'})
         const hub = sessions.attend('hub', 'span', undefined, undefined)
-        expect(sessions.sessionName('span')).toBe('hub · Tor')
+        expect(sessions.sessionName('span')).toBe('hub · Njord')
         const css = sessions.attend('css', 'span', undefined, undefined)
-        expect(sessions.sessionName('span')).toBe('Odin')
-        expect(sessions.listSessions('css')).toMatchObject([{id: 'span', name: 'Odin', also: ['css']}])
+        expect(sessions.sessionName('span')).toBe('Brokk')
+        expect(sessions.listSessions('css')).toMatchObject([{id: 'span', name: 'Brokk', also: ['css']}])
         // Its bare name is taken across every project, whatever they hear.
         sessions.attend('pos', 'other', undefined, undefined)
         sessions.attend('css', 'other', undefined, undefined)
-        expect(sessions.sessionName('other')).toBe('Tor')
+        expect(sessions.sessionName('other')).toBe('Tjatse')
         // A skipped channel isn't heard, so doesn't count.
         sessions.attend('docs', 'quiet', undefined, undefined)
         sessions.attend('pos', 'quiet', undefined, undefined, false)
-        expect(sessions.sessionName('quiet')).toBe('docs · Odin')
+        expect(sessions.sessionName('quiet')).toBe('docs · Sudre')
         css.done()
-        expect(sessions.sessionName('span')).toBe('hub · Tor')
+        expect(sessions.sessionName('span')).toBe('hub · Saga')
         hub.done()
         // A name it was given stays, however many it hears.
         sessions.attend('hub', 'given', undefined, 'maintenance')
@@ -209,7 +213,7 @@ describe('a session', () => {
         expect(sessions.listSessions('hub')).toMatchObject([{id: 'w', name: 'hub · Odin', listening: false}])
         sessions.attend('docs', 'w', undefined, undefined)
         expect(sessions.listSessions('hub')).toEqual([])
-        expect(sessions.listSessions('docs')).toMatchObject([{id: 'w', name: 'docs · Odin', listening: true}])
+        expect(sessions.listSessions('docs')).toMatchObject([{id: 'w', name: 'docs · Njord', listening: true}])
     })
 
     it("can be stopped only through its own project's channel, which hears the stop", () => {
@@ -265,7 +269,7 @@ describe('a session', () => {
         sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart', source: 'clear'})
         // `claude --resume before` in another terminal.
         sessions.report({id: 'before', pid: 99, project: 'larder', event: 'SessionStart', source: 'resume'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder · Odin', listening: true}, {id: 'before', name: 'larder · Tor', listening: false}])
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder · Odin', listening: true}, {id: 'before', name: 'larder · Njord', listening: false}])
         expect(sessions.currentId('before')).toBe('before')
         // The first window's channel, still on the old id, reaches its own session by its pid.
         sessions.attend('larder', 'before', 42, undefined).done()
