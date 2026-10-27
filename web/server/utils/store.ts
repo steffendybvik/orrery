@@ -5,6 +5,7 @@
 // Each domain is its own file under `server/store/`, one class extending the one before, and `Store` is the last of them:
 // the one the server makes and the routes use.
 import type {Comment} from '#shared/roadmap'
+import {CLOSED} from '#shared/roadmap'
 import type {Input} from './input'
 import {conflict} from './input'
 import type {IssueRecord, CommentRow} from '../store/schema'
@@ -28,9 +29,12 @@ export class Store extends ImportStore {
 
     /** A session's write to an issue, `status` and all, one at a time for the issue: the claim, the write and tying
      * the session to the issue happen together, so two sessions starting it at once can't both pass the claim
-     * before either has it. The second waits, then finds the first on it. */
+     * before either has it. The second waits, then finds the first on it. One without a status only checks the claim. */
     async claimed<T>(project: string, issue: string, status: Input[string], session: string, write: () => Promise<T>): Promise<T> {
-        if (status === undefined) return write()
+        if (status === undefined) {
+            await this.claim(project, issue, undefined, session)
+            return write()
+        }
         const key = `${project}\n${await this.issueId(project, issue)}`
         const run = (this.claiming.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
             await this.claim(project, issue, status, session)
@@ -47,19 +51,27 @@ export class Store extends ImportStore {
         }
     }
 
-    /** Refuses `session` starting an issue (`status` a started one, in review too) that another session already
-     * has started while that one is there to hear: every session is `claude`, so two that heard the same message would
-     * otherwise both take it up. One no session is on any more is free to take over. */
+    /** Refuses `session` a write to an issue another session has started, while that one is there to hear: starting
+     * it, and a comment or an edit too (`status` undefined), as every session is `claude` and two that heard the same
+     * message would otherwise both take it up. Closing it (`status` a closed one) is any session's, and one no session
+     * is on any more is free to take over. */
     async claim(project: string, issue: string, status: Input[string], session: string) {
-        if (status === undefined) return
         issue = await this.issueId(project, issue)
-        const statuses = await this.statuses()
-        const started = (id: string) => statuses.find(s => s.id === id)?.kind === 'started'
-        if (!started(await this.resolveStatus(status)) || !started((await this.issueRow(project, issue)).status)) return
-        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
-        if (worker && worker !== session && this.hears(project, worker)) {
-            throw conflict(`${issue} is already being worked on by another session (${worker}); pick another issue`)
+        if (status !== undefined) {
+            const to = await this.resolveStatus(status)
+            const kind = (await this.statuses()).find(s => s.id === to)?.kind
+            if (kind && CLOSED.includes(kind)) return
         }
+        const worker = await this.takenFrom(project, issue, session)
+        if (worker) throw conflict(`${issue} is already being worked on by another session (${worker}); pick another issue`)
+    }
+
+    /** The other session on an issue: the one that has it started, while it's there to hear, if that isn't `session`. */
+    async takenFrom(project: string, issue: string, session: string | undefined): Promise<string | null> {
+        const {status} = await this.issueRow(project, issue)
+        if ((await this.statuses()).find(s => s.id === status)?.kind !== 'started') return null
+        const worker = await this.listeningWorker(project, issue)
+        return worker && worker !== session ? worker : null
     }
 
     /** The issues in progress (a started status) that one of `sessions` worked last, with their latest comment. */
