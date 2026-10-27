@@ -5,13 +5,16 @@ import type {Heading} from '~/utils/markdown'
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
 // Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default). Above them, whether Orrery may start sessions and how it does; below, what sessions hear and the
-// presets to start one with.
+// presets to start one with, for every project or, picked in For, one project's own.
 useHead({title: 'Sessions · Orrery'})
 const route = useRoute()
 const {projects, ready, sessions, signals} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {open} = useStartSession()
 const messaging = ref(false)
+// Whose session settings the two sections below show: the Orrery's (every project), or one project's own.
+const scope = ref('')
+const scoped = computed(() => projects.value.find(p => p.id === scope.value))
 
 // Each project with sessions. A session that hears several projects is listed once, under its own.
 const groups = computed(() => ordered.value
@@ -113,23 +116,35 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
       </section>
       <section id="hear" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
+          <div class="flex items-center gap-3">
+            <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
+            <select v-model="scope" aria-label="What sessions hear, for" class="h-7 max-w-44 shrink-0 cursor-pointer truncate rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line focus:outline-none">
+            <option value="">Every project</option>
+            <option v-for="p in ordered" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          </div>
           <p class="text-xs text-muted">
-            The message a Claude session gets when you ask it to focus on an issue or work through a chunk, for every project
-            (a project can have its own on its Settings tab). Sessions started before a change hear it once they restart.
+            The message a Claude session gets when you ask it to focus on an issue or work through a chunk. For one project, its
+            own templates (empty follows every project's) and instructions. Sessions started before a change hear it once they restart.
           </p>
         </header>
-        <FocusPrompts />
+        <FocusPrompts :key="scope" :project="scoped" />
       </section>
       <section id="presets" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
+          <div class="flex items-center gap-3">
+            <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
+            <select v-model="scope" aria-label="Presets, for" class="h-7 max-w-44 shrink-0 cursor-pointer truncate rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line focus:outline-none">
+            <option value="">Every project</option>
+            <option v-for="p in ordered" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          </div>
           <p class="text-xs text-muted">
-            Saved context to give a session as you start it, for sessions on any project (a project can have its own on its
-            Settings tab). Tick any number in Start session; the session gets their text with every signal, and again after a clear.
+            Saved context to give a session as you start it, for sessions on any project or, picked here, one project's own.
+            Tick any number in Start session; the session gets their text with every signal, and again after a clear.
           </p>
         </header>
-        <PresetSettings />
+        <PresetSettings :key="scope" :project="scoped" />
       </section>
     </div>
     <aside class="hidden w-56 shrink-0 xl:block">

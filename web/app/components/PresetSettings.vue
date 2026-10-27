@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type {Preset, Project} from '#shared/roadmap'
 
-// Presets: saved pieces of context to give a session as you start it, each a name and its text. On the Sessions page
-// they're the Orrery's, for sessions on any project; with `project`, that project's own. Each is a role card: its
+// Presets: saved pieces of context to give a session as you start it, each a name and its text. Without `project`
+// they're the Orrery's, for sessions on any project; with it, that project's own. Each is a role card: its
 // badge, name and first line; clicking one opens it to change in place (saved on leaving the field, or as the badge
 // is picked). New preset is an empty card that opens the form.
 const props = defineProps<{project?: Project}>()
