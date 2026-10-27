@@ -1,17 +1,16 @@
 // With NUXT_BACKUP_DIR set, backs the database up a few seconds after each change (to a project, the
-// settings and statuses, the owner's name, secrets or schedules), and on start.
+// settings and statuses, the owner's name, secrets or schedules), and on start. A Postgres one is copied
+// whole each time, so it waits a minute after a change instead, for the rest that come with it.
 export default defineNitroPlugin(nitro => {
     const dir = String(useRuntimeConfig().backupDir ?? '')
-    // Postgres is backed up by its own means (a managed service's backups, pg_dump on a schedule).
+    if (!dir) return
     const database = useDatabase()
-    if (!dir || !(database instanceof SqliteDb)) return
-    // In line with the writes: `VACUUM INTO` can't run in the middle of a transaction.
-    const save = () => database.alone(raw => backup(raw, dir))
-        .catch(error => console.error(`[orrery] backing up to ${dir}:`, error))
+    const save = () => backUp(database, dir).catch(error => console.error(`[orrery] backing up to ${dir}:`, error))
+    const wait = database instanceof SqliteDb ? 3000 : 60_000
     let timer: ReturnType<typeof setTimeout> | undefined
     const soon = () => {
         clearTimeout(timer)
-        timer = setTimeout(save, 3000)
+        timer = setTimeout(save, wait)
     }
     save()
     for (const change of ['project', 'removed', 'settings', 'secrets', 'schedules']) projectEvents.on(change, soon)

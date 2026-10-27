@@ -32,7 +32,9 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 
 A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks. A new, empty
 volume starts from the latest one. The live file never goes in the backup folder: a synced SQLite
-file gets corrupted, a snapshot doesn't. These backups are SQLite's: on Postgres they're off.
+file gets corrupted, a snapshot doesn't. On Postgres it's a SQLite snapshot of the database, made a minute after
+a change (the whole database is copied each time), so a backup opens anywhere and a new SQLite Orrery starts from
+it. App settings → This Orrery → Database says when the latest was made, with **Back up now**.
 
 ## Postgres
 
@@ -49,8 +51,9 @@ and `docker compose up -d`: the `postgres` profile adds a Postgres 17 service, i
 change the bundled database's password (it's only reachable from Orrery's container). For a Postgres
 of your own, leave out the profile and point `ORRERY_DATABASE` at it.
 
-Back it up with Postgres's own means: `pg_dump` on a schedule
-(`docker compose exec postgres pg_dump -U orrery orrery > orrery.sql`), or a managed service's
+Orrery backs it up to `ORRERY_BACKUP` as a SQLite snapshot (see [Backups](#backups)). For a large database,
+or to restore into Postgres as it was, back it up with Postgres's own means as well: `pg_dump` on a
+schedule (`docker compose exec postgres pg_dump -U orrery orrery > orrery.sql`), or a managed service's
 backups.
 
 To move an Orrery between SQLite and Postgres, stop it and copy it across, ids and all, into an empty
@@ -105,8 +108,8 @@ A repo's channel and hook point at the server its projects are on, by `ORRERY_UR
 
 ## Where each database is
 
-App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file and its backup folder, or
-the Postgres database (never its password), with how big each is.
+App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file, or the Postgres database
+(never its password), and its backup folder with when the latest backup was made, with how big each is.
 
 It's always `/data/orrery.db` in the container, and `/data` is `ORRERY_DATA` when it's set, else the
 project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE_PROJECT_NAME`,
@@ -126,5 +129,5 @@ NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs
 The database file is made if it isn't there (by default `.data/orrery.db`). A relative path is taken
 from the folder the server starts in, so give `NUXT_DATABASE` an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): Orrery lays down its tables on an empty
-database, and its own backups are off, since Postgres has its own means. The other settings are
+database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
 `NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY` and `NUXT_PUBLIC_ENVIRONMENT`.

@@ -400,11 +400,13 @@ export const TERMINALS = {terminal: 'Terminal', iterm: 'iTerm2', warp: 'Warp', g
 export type TerminalApp = keyof typeof TERMINALS
 
 /** Where this Orrery keeps its data, as App settings shows it (read only): a SQLite file's path, or a Postgres
- * database as `user@host:port/name`, never its password; and the folder a SQLite file is backed up to, if any. */
+ * database as `user@host:port/name`, never its password; the folder it's backed up to, if any, and when the
+ * latest backup there was made. */
 export interface DatabaseInfo {
     kind: 'sqlite' | 'postgres'
     where: string
     backup?: string
+    backed_up_at?: string
     /** How big it is, in bytes: a SQLite file with its `-wal`, or the Postgres database; none when it can't be read. */
     size?: number
     /** The backup folder's files together, in bytes. */
