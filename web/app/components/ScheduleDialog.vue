@@ -5,7 +5,7 @@ import type {Repeat} from '~/utils/schedule'
 // Writing a schedule, or changing one, as the owner: in a project (picked here for a new one), whether each run makes an issue or
 // only sends a message to the project's Claude sessions, what it says, when it runs (presets, or a cron
 // under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
-// sessions to pick it up. One already made can be paused or resumed from here, at once. ⌘↵ saves, Esc
+// sessions to pick it up. One already made can be paused or resumed from here, at once, or removed (asked once more). ⌘↵ saves, Esc
 // closes.
 const {editing, pause} = useSchedules()
 const {byId} = useRoadmaps()
@@ -127,6 +127,22 @@ function toggleDay(d: number) {
 
 function close() {
     editing.value = null
+}
+
+// Removing one already made, after asking once more in place; the issues it made stay.
+const removing = ref<'ask' | 'busy' | null>(null)
+watch(editing, () => removing.value = null)
+async function remove() {
+    if (!existing.value) return
+    removing.value = 'busy'
+    failed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value)}/schedules/${existing.value.id}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        close()
+    } catch (error) {
+        failed.value = errorMessage(error)
+        removing.value = null
+    }
 }
 
 async function save() {
@@ -300,7 +316,11 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     </section>
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
-      <UiButton v-if="existing && !(existing.at && !existing.enabled)" size="md" :disabled="pausing" @click="togglePause">
+      <UiConfirm v-if="existing && removing" inline class="text-xs" :busy="removing === 'busy'" @confirm="remove" @cancel="removing = null">
+        Remove this schedule? The issues it made stay.
+      </UiConfirm>
+      <UiButton v-else-if="existing" variant="danger-ghost" size="md" title="Remove this schedule" @click="removing = 'ask'">Remove</UiButton>
+      <UiButton v-if="existing && !removing && !(existing.at && !existing.enabled)" size="md" :disabled="pausing" @click="togglePause">
         {{ enabled ? '❙❙ Pause' : '▶ Resume' }}
       </UiButton>
       <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>
