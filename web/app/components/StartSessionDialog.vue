@@ -53,11 +53,13 @@ watch(target, now => {
 }, {immediate: true})
 // Asked again as launchers come and go and sessions start, while it's open.
 watch([launchers, sessions], () => target.value && loadStates())
+// At once as well: opening sets `chosen` above, before this watches it, and with nothing ticked the Orrery's presets
+// would otherwise never load.
 watch(chosen, () => {
     issue.value = ''
     if (release.value && !releases.value.includes(release.value)) release.value = ''
     loadPresets()
-})
+}, {immediate: true})
 
 async function loadPresets() {
     const lists = await Promise.all([
