@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {TINTS, issueRef} from '#shared/roadmap'
+import type {DatabaseInfo} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
 // This Orrery's own settings (a project's are on its Settings tab): whose it is, how issues work in every project, and
@@ -108,6 +109,22 @@ async function restrictProposals(on: boolean) {
         await save({restrict_proposals: on})
     } catch (error) {
         proposalsFailed.value = errorMessage(error)
+    }
+}
+
+// Back up now: the same backup each change makes a few seconds after, made at once, with when it was made.
+const backingUp = ref(false)
+const backupFailed = ref('')
+async function backUpNow() {
+    backingUp.value = true
+    backupFailed.value = ''
+    try {
+        const actor = await loadOwner()
+        settings.value.database = await $fetch<DatabaseInfo>('/api/backups', {method: 'POST', headers: {'Orrery-Actor': actor}})
+    } catch (error) {
+        backupFailed.value = errorMessage(error)
+    } finally {
+        backingUp.value = false
     }
 }
 
@@ -295,8 +312,17 @@ async function pick(tint: string | null) {
           <template v-if="settings.database.backup">
             <dt class="text-muted">Backed up to</dt>
             <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.backup">{{ settings.database.backup }}</code><CopyButton :text="settings.database.backup" /></dd>
+            <dt class="text-muted">Latest backup</dt>
+            <dd class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span class="text-fg" :title="settings.database.backed_up_at && new Date(settings.database.backed_up_at).toLocaleString()">{{ settings.database.backed_up_at ? ago(settings.database.backed_up_at) : 'None yet' }}</span>
+              <UiButton :disabled="backingUp" @click="backUpNow">{{ backingUp ? 'Backing up…' : 'Back up now' }}</UiButton>
+              <span v-if="backupFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ backupFailed }}</span>
+            </dd>
           </template>
         </dl>
+        <p v-if="settings.database && !settings.database.backup" class="text-xs text-faint">
+          Not backed up: give Orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker).
+        </p>
       </section>
     </div>
     <aside class="hidden w-56 shrink-0 xl:block">

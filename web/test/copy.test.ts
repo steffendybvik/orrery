@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {TABLES, copy} from '../scripts/copy'
+import {COPIED_TABLES as TABLES, copyDatabase as copy} from '../server/utils/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {Secrets} from '../server/utils/secrets'

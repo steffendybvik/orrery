@@ -26,8 +26,8 @@
 # data in the orrery-pg volume), and ORRERY_DATABASE points Orrery at it; put both in .env to keep them:
 #   COMPOSE_PROFILES=postgres
 #   ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery
-# Or set ORRERY_DATABASE to a Postgres of your own. Orrery's backups are SQLite's only: back Postgres up
-# with its own means (pg_dump on a schedule, or a managed service's backups).
+# Or set ORRERY_DATABASE to a Postgres of your own. Orrery backs Postgres up as a SQLite snapshot too; for a
+# large one, or to restore into Postgres as it was, use its own means as well (pg_dump, a managed service's backups).
 #
 # ORRERY_BUILD_CONTEXT is what the image is built from: this folder by default, or a ref on GitHub, so a
 # branch switched here never ends up in it: ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main

@@ -1,15 +1,15 @@
-import {mkdtempSync, readFileSync} from 'node:fs'
+import {mkdtempSync, readFileSync, readdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
-import {backup, restoreBackup} from '../server/utils/backup'
+import {backUp, backupPostgres, lastBackup, restoreBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
 import {readRoadmap} from '../server/utils/roadmap'
 import {Store, UPLOAD_LIMIT} from '../server/utils/store'
-import {onPostgres, testDb} from './db'
+import {testDb} from './db'
 import type {Actor} from '../server/utils/store'
 
 let store: Store
@@ -1574,15 +1574,30 @@ describe('the database', () => {
         expect((await upgraded.updateIssue('larder', 'LAR-4', {priority: 'P0'})).priority).toBe('P0')
     })
 
-    // Postgres is backed up by its own means.
-    it.skipIf(onPostgres)('is backed up to a folder and restored from it', async () => {
+    // On Postgres as a SQLite snapshot, so a new SQLite Orrery starts from it either way.
+    it('is backed up to a folder and restored from it', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
+        const cloud = join(dir, 'cloud')
         const {id} = await store.createIssue('larder', {title: 'saved'})
-        backup((store.db as SqliteDb).raw, join(dir, 'cloud'))
+        expect(lastBackup(cloud)).toBeUndefined()
+        // Two at once: the second waits for the first rather than writing over it.
+        await Promise.all([backUp(store.db, cloud), backUp(store.db, cloud)])
+        expect(lastBackup(cloud)).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+        // One file each, the latest and today's, with nothing left beside them.
+        expect(readdirSync(cloud).sort()).toEqual(['orrery.db', `orrery-${new Date().toISOString().slice(0, 10)}.db`].sort())
 
         const fresh = join(dir, 'new', 'orrery.db')
-        restoreBackup(fresh, join(dir, 'cloud'))
+        restoreBackup(fresh, cloud)
         expect((await new Store(new SqliteDb(openDb(fresh))).issue('larder', id)).title).toBe('saved')
+    })
+
+    it("is copied whole into a SQLite snapshot, as a Postgres one is, whatever it's on", async () => {
+        const dir = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'cloud')
+        const {id} = await store.createIssue('larder', {title: 'snapped'})
+        await backupPostgres(store.db, dir)
+        expect(readdirSync(dir)).toContain('orrery.db')
+        expect(readdirSync(dir).filter(name => name.includes('partial') || name.endsWith('-wal'))).toEqual([])
+        expect((await new Store(new SqliteDb(openDb(join(dir, 'orrery.db')))).issue('larder', id)).title).toBe('snapped')
     })
 })
 
