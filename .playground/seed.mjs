@@ -23,7 +23,7 @@ if ((await call('GET', '/projects')).length) {
 }
 
 await call('PUT', '/owner', {name: 'Skoll'})
-await call('PATCH', '/settings', {handle: 'skoll', tracker: 'https://linear.app/demo/issue/{id}', starts: {limit: 2, minutes: 30}})
+await call('PATCH', '/settings', {handle: 'skoll', tracker: 'https://tracker.example.com/issue/{id}', starts: {limit: 2, minutes: 30}})
 
 // Primes: its own releases and chunks.
 await call('POST', '/projects', {name: 'Primes', id: 'primes', key: 'PRM', description: 'A library for finding and testing prime numbers'})

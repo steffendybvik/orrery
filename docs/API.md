@@ -413,7 +413,7 @@ gets it.
 
 An issue id is only unique within its Orrery, and an Orrery is one person's board. So when a commit body
 or PR description names an issue, write its `ref` (`orrery-steffendybvik: DOC-132`) as a trailer on a
-line of its own, never a bare id, and never in a title or branch name. The team's tracker (Linear, Jira)
+line of its own, never a bare id, and never in a title or branch name. The team's tracker
 stays the source of truth: its id goes in that repo's own trailer (`Part of CIR-1567`), and in the issue's
 `external`, so the board knows which team task the issue serves. A PR description also links the issue's
 page on this Orrery (`/p/<project>/issues/<id>` on its address, `http://localhost:9010/p/doc/issues/DOC-132`),
