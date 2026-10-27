@@ -2,13 +2,17 @@
 import type {Priority, Schedule} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
-// Writing a schedule, or changing one, as the owner: in a project, whether each run makes an issue or
+// Writing a schedule, or changing one, as the owner: in a project (picked here for a new one), whether each run makes an issue or
 // only sends a message to the project's Claude sessions, what it says, when it runs (presets, or a cron
 // under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
 // sessions to pick it up. One already made can be paused or resumed from here, at once. ⌘↵ saves, Esc
 // closes.
 const {editing, pause} = useSchedules()
 const {byId} = useRoadmaps()
+const {ordered} = useProjectOrder()
+const projectOptions = computed(() => ordered.value.map(p => ({value: p.id, label: p.name})))
+// Each project's sidebar icon, for the project picker.
+const icons = computed(() => new Map(ordered.value.flatMap(p => p.icon && heroicon(p.icon) ? [[p.id, {icon: p.icon, color: p.icon_color}] as const] : [])))
 const {load} = useOwner()
 
 const KINDS: {value: Repeat['kind'], label: string}[] = [
@@ -57,6 +61,10 @@ const existing = computed(() => editing.value?.schedule)
 const here = computed(() => byId(project.value))
 const chunks = computed(() => here.value?.board.chunks.filter(c => c.id) ?? [])
 const known = computed(() => here.value ? [...new Set(allIssues(here.value).flatMap(({issue}) => issue.labels))] : [])
+// Another project picked for a new one: a chunk of the last one isn't one of this one's.
+watch(project, () => {
+    if (chunk.value && !chunks.value.some(c => c.id === chunk.value)) chunk.value = ''
+})
 
 /** A time as `datetime-local` wants it, in this browser's zone. */
 const local = (iso: string) => {
@@ -174,7 +182,15 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <div class="flex items-center gap-2 text-xs text-faint">
       <SectionIcon section="schedules" />
       <span>{{ existing ? 'Edit schedule in' : 'New schedule in' }}</span>
-      <span class="text-fg">{{ here?.name ?? project }}</span>
+      <PropertyPicker v-if="!existing" v-model="project" :options="projectOptions" label="Project" field>
+        <ProjectIcon v-if="icons.has(project)" :icon="icons.get(project)?.icon ?? ''" :color="icons.get(project)?.color" class="size-3.5" />
+        <span class="truncate text-fg">{{ here?.name ?? 'Pick a project' }}</span>
+        <template #option="{option}">
+          <ProjectIcon v-if="icons.has(option.value)" :icon="icons.get(option.value)?.icon ?? ''" :color="icons.get(option.value)?.color" class="size-3.5" />
+          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+        </template>
+      </PropertyPicker>
+      <span v-else class="text-fg">{{ here?.name ?? project }}</span>
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
 
