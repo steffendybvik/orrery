@@ -11,6 +11,7 @@ const {notices, lists, seenAt, seen, load, clear} = useInbox()
 const {byId} = useRoadmaps()
 const {open: openIssue} = useIssueLink()
 const {who} = useOwner()
+const {newErrors} = useLoggedEvents()
 
 const show = ref<Show>('inbox')
 const since = ref(seenAt.value)
@@ -64,6 +65,13 @@ function openCard(notice: Notice, event: MouseEvent) {
   </ViewToolbar>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
+    <div v-if="newErrors.length" class="mx-auto max-w-3xl px-3 pt-4 sm:px-4">
+      <NuxtLink to="/events?level=error" class="flex items-center gap-2 rounded-xl bg-panel px-4 py-2.5 text-[13px] ring-1 ring-rose-500/40 transition-colors hover:bg-hover">
+        <span class="size-2 shrink-0 rounded-full bg-rose-500" />
+        <span class="flex-1 text-fg">{{ newErrors.length }} new kind{{ newErrors.length === 1 ? '' : 's' }} of error: <span class="text-muted">{{ newErrors[0]?.message }}</span></span>
+        <span class="shrink-0 text-xs text-faint">Events →</span>
+      </NuxtLink>
+    </div>
     <ul class="mx-auto flex max-w-3xl flex-col gap-3 px-3 py-4 sm:px-4">
       <li
           v-for="notice in shown"

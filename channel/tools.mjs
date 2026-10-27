@@ -102,6 +102,20 @@ export const TOOLS = [
             issue: {type: 'string', description: 'The issue it is for, kept with the record'},
         }},
     },
+    {
+        name: 'events',
+        description: "The Orrery's event log, newest first, for debugging it: errors (server 5xx, the page's own, failed schedule runs and backups) and, while the owner has Advanced on, what it did (sessions, launchers, schedule runs, backups, migrations, starts). A repeat counts on its row (×n). With details, each with its stack, route and the rest.",
+        inputSchema: {type: 'object', properties: {
+            level: {type: 'string', description: 'error, warn or info; several comma-separated'},
+            kind: {type: 'string', description: 'One (server.error, page.error) or every one under a name (session)'},
+            project: {type: 'string'},
+            since: {type: 'string', description: 'Only those seen since this time (ISO)'},
+            open: {type: 'boolean', description: 'Only those not resolved yet'},
+            details: {type: 'boolean', description: 'Each with its details (stack, route, page…) in full'},
+            limit: {type: 'number', description: '30 by default'},
+        }},
+    },
+    {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
 /** The tools that work on one project, which take `project` when the server serves several. */
@@ -222,6 +236,19 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async secrets() {
             const secrets = await call('GET', '/secrets', undefined, root)
             return secrets.map(s => `${s.name} → ${s.hosts.join(', ')}${s.projects ? ` (only ${s.projects.join(', ')})` : ''}`).join('\n') || 'No secrets yet; the owner sets them on App settings.'
+        },
+        async events({details, limit = 30, ...filter}) {
+            const query = new URLSearchParams(Object.entries({...filter, limit}).filter(([, v]) => v !== undefined && v !== false && v !== '').map(([k, v]) => [k, v === true ? '1' : String(v)]))
+            const events = await call('GET', `/events/log?${query}`, undefined, root)
+            if (!events.length) return 'Nothing in the event log for that.'
+            return events.map(e => [
+                `#${e.id} [${e.level}] ${e.kind}${e.project ? ` (${e.project})` : ''}${e.count > 1 ? ` ×${e.count}` : ''}, last ${e.last_seen}${e.resolved_at ? ', resolved' : ''}: ${e.message}`,
+                ...details && e.details ? [JSON.stringify(e.details, null, 2)] : [],
+            ].join('\n')).join(details ? '\n\n' : '\n')
+        },
+        async resolve_event({id}) {
+            const event = await call('POST', `/events/log/${encodeURIComponent(id)}/resolve`, undefined, root)
+            return `Resolved #${event.id} ${event.kind}: ${event.message}`
         },
         async egress({project, ...args}) {
             const {status, headers, body, truncated} = await call('POST', '/egress', {...args, project: await projectOf({project, issue: args.issue})}, root)

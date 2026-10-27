@@ -60,6 +60,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         'When you need the owner to decide something or give feedback, comment with asks "decision" or "feedback": it waits at the top of their bell until they answer.',
         `When you open a pull request for an issue, link the issue's page (${base}/p/<project>/issues/<id>) in its description, so the owner can jump to it.`,
         'To call an outside service that needs a key, use egress with {{secret:NAME}} where the key goes (secrets lists the names): you never see the value, and never ask the owner for one.',
+        'To debug Orrery itself, read its event log (events, with details for stacks), and resolve_event what you fixed.',
         `The full API is described at ${base}/api/guide.`,
     ].join(' '),
 })

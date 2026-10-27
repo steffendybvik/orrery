@@ -5,7 +5,12 @@ export default defineNitroPlugin(nitro => {
     const dir = String(useRuntimeConfig().backupDir ?? '')
     if (!dir) return
     const database = useDatabase()
-    const save = () => backUp(database, dir).catch(error => console.error(`[orrery] backing up to ${dir}:`, error))
+    const log = useEventLog()
+    const save = () => backUp(database, dir)
+        .then(() => log.note({level: 'info', kind: 'backup.made', message: `Backed up to ${dir}`}), error => {
+            console.error(`[orrery] backing up to ${dir}:`, error)
+            log.note({level: 'error', kind: 'backup.failed', message: `Backing up to ${dir}: ${(error as Error).message}`, details: {stack: (error as Error).stack}})
+        })
     const wait = database instanceof SqliteDb ? 3000 : 60_000
     let timer: ReturnType<typeof setTimeout> | undefined
     const soon = () => {

@@ -23,10 +23,11 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'proposals', text: 'Proposals', level: 2},
         {id: 'tracker', text: 'Team tracker', level: 2},
     ]},
-    {value: 'orrery', label: 'This Orrery', scope: 'This Orrery as a whole: how it looks, the keys its agents use, and where it keeps its data. How sessions start is under Sessions → Setup.', sections: [
+    {value: 'orrery', label: 'This Orrery', scope: 'This Orrery as a whole: how it looks, the keys its agents use, where it keeps its data, and what it shows for looking into problems. How sessions start is under Sessions → Setup.', sections: [
         {id: 'tint', text: 'Background tint', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
         {id: 'database', text: 'Database', level: 2},
+        {id: 'advanced', text: 'Advanced', level: 2},
     ]},
 ]
 const tabs = TABS.map(({value, label}) => ({value, label}))
@@ -109,6 +110,17 @@ async function restrictProposals(on: boolean) {
         await save({restrict_proposals: on})
     } catch (error) {
         proposalsFailed.value = errorMessage(error)
+    }
+}
+
+// Advanced: the Events page and error notices in the bell, and what Orrery does recorded as well as its errors.
+const advancedFailed = ref('')
+async function setAdvanced(on: boolean) {
+    advancedFailed.value = ''
+    try {
+        await save({advanced: on})
+    } catch (error) {
+        advancedFailed.value = errorMessage(error)
     }
 }
 
@@ -331,6 +343,23 @@ async function pick(tint: string | null) {
         <p v-if="settings.database && !settings.database.backup" class="text-xs text-faint">
           Not backed up: give Orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker).
         </p>
+      </section>
+
+      <section v-if="tab === 'orrery'" id="advanced" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.advanced }}</h2>
+          <p class="text-xs text-muted">
+            For looking into a problem. Orrery always keeps a log of its errors, in the server and in this page, on this machine only.
+            With Advanced on, it also records what it does (sessions starting and stopping, launchers, schedule runs, backups,
+            migrations), shows it all on an <NuxtLink to="/events" class="underline underline-offset-2 hover:text-fg">Events</NuxtLink> page,
+            and puts a notice in the bell for each new kind of error.
+          </p>
+        </header>
+        <label class="flex items-center gap-2 text-[13px] text-fg">
+          <input type="checkbox" class="accent-accent-500" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
+          Show the event log, and record what Orrery does
+        </label>
+        <p v-if="advancedFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ advancedFailed }}</p>
       </section>
     </div>
     <aside class="hidden w-56 shrink-0 xl:block">

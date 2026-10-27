@@ -52,13 +52,15 @@ const RUNS = 10
 
 export class Schedules {
     /** `onChange` hears a project's schedules changed or ran; `listening` says how many sessions a project has listening;
-     * `startUntrusted` starts an untrusted run's session, with its message for it alone, and says its tmux session. */
+     * `startUntrusted` starts an untrusted run's session, with its message for it alone, and says its tmux session;
+     * `onRan` hears each run, with what came of it. */
     constructor(
         private readonly store: Store,
         private readonly onChange: (project: string) => void = () => {},
         private readonly listening: (project: string) => number = () => 0,
         private readonly startUntrusted: (project: string, schedule: number, text: string, actor: Actor) => Promise<{tmux: string}> =
             () => Promise.reject(new Error('Orrery starts no sessions here')),
+        private readonly onRan: (schedule: {id: number, project: string, title: string}, run: ScheduleRun, manual: boolean) => void = () => {},
     ) {}
 
     private get db() {
@@ -177,7 +179,9 @@ export class Schedules {
         const record = async (outcome: ScheduleRun['outcome'], issue: string | null, note: string | null): Promise<ScheduleRun> => {
             await this.db.run('INSERT INTO schedule_runs (schedule, at, outcome, issue, note) VALUES (?, ?, ?, ?, ?)', row.id, now.toISOString(), outcome, issue, note)
             this.onChange(row.project)
-            return {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined}
+            const run = {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined}
+            this.onRan(row, run, manual)
+            return run
         }
         const actor: Actor = {name: row.created_by, owner: !!row.owned}
         if (row.kind === 'message') {

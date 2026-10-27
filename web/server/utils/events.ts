@@ -1,9 +1,12 @@
 // The one store the routes share, and the events it sends: `project` (the project, read again)
 // after any change to it, `removed` (its id) once it's deleted, and `signal` (a Signal) when someone
 // asks the sessions on a project to focus on an issue, `schedules` (the project) when its schedules
-// change or run, and `secrets` (the list, no values) when they change or one is used. `/api/events` and the signal streams pass them on.
+// change or run, `secrets` (the list, no values) when they change or one is used, and `logged` ({event, fresh}) when the
+// event log records or resolves one. `/api/events` and the signal streams pass them on.
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
+import type {LoggedEvent} from '#shared/roadmap'
+import {EventLog} from './event-log'
 import {Schedules} from './schedules'
 import {Secrets} from './secrets'
 import {Store} from './store'
@@ -42,10 +45,25 @@ export function useSecrets(): Secrets {
     return secrets
 }
 
+let log: EventLog | null = null
+
+/** The event log, secrets' values scrubbed out of what it keeps. */
+export function useEventLog(): EventLog {
+    log ??= new EventLog(useDatabase(), text => useSecrets().scrub(text),
+        (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
+    return log
+}
+
 let schedules: Schedules | null = null
 
 export function useScheduler(): Schedules {
-    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening, startUntrusted)
+    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening, startUntrusted, (schedule, run, manual) => useEventLog().note({
+        level: run.outcome === 'failed' ? 'error' : 'info',
+        kind: run.outcome === 'skipped' ? 'schedule.skipped' : run.outcome === 'failed' ? 'schedule.failed' : 'schedule.ran',
+        project: schedule.project,
+        message: `${schedule.title}: ${run.outcome === 'made' ? `made ${run.issue}` : run.outcome}${run.note ? `, ${run.note}` : ''}`,
+        details: {schedule: schedule.id, ...run, ...manual ? {manual} : {}},
+    }))
     return schedules
 }
 

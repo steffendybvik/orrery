@@ -3,6 +3,7 @@
 export default defineEventHandler(event => {
     launchGone(param(event, 'launch'))
     launchEnded(param(event, 'project'), param(event, 'launch'))
+    useEventLog().note({level: 'info', kind: 'session.stopped', project: param(event, 'project'), message: 'A session Orrery started has stopped', details: {launch: param(event, 'launch')}})
     setResponseStatus(event, 204)
     return null
 })

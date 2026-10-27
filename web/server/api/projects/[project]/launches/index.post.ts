@@ -27,6 +27,10 @@ export default defineEventHandler(async event => {
     const project = param(event, 'project')
     const context = await contextFor(project, (presets as number[] | null) ?? [], (instructions as string | null) ?? '')
     const launch = await startLaunch(project, {issue: issue || undefined, statuses: (statuses as string[] | null) ?? undefined, release: release || undefined, context, hears: (hears as string[] | null) ?? undefined, actor})
+        .catch((error: {statusCode?: number, message?: string}) => {
+            if (error.statusCode === 409) useEventLog().note({level: 'warn', kind: 'session.refused', project, message: error.message ?? "Couldn't start a session"})
+            throw error
+        })
     setResponseStatus(event, 201)
     return launch
 })
