@@ -2,7 +2,7 @@ import type {APIRequestContext, Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 
 // The main flows, in order, on one fresh Orrery: name the owner, make a project, add issues and move
-// them, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
+// them, the board showing only the filtered statuses, sub-issues, ⌘K, a proposal the owner approves, a change showing up live in another tab, and the
 // issues starting on the open ones, what changed since the owner looked, and ticked issues changed
 // together; then a chunk made, edited and removed from its page, an image in a new issue and a comment,
 // and the owner editing and deleting their own comment; then a changed doc and what changed in it; then a release, and a project drawing on it;
@@ -80,6 +80,23 @@ test('adds issues and moves one on the board', async ({page, request}) => {
     await page.getByRole('menu').getByRole('button', {name: 'Move to In progress'}).click()
     await expect(card.getByRole('img', {name: 'In progress'})).toBeVisible()
     expect(await api(request, 'get', '/issues/LAR-1')).toMatchObject({status: 'in-progress', kind: 'started'})
+})
+
+test('the board leaves out the columns of statuses the filter leaves out', async ({page}) => {
+    await page.goto('/p/larder?view=board')
+    const column = (name: string) => page.getByRole('heading', {level: 2, name, exact: true})
+    await expect(column('Backlog')).toBeVisible()
+    // Closed statuses aren't ticked to begin with, so their columns aren't there either.
+    await expect(column('Done')).toBeHidden()
+    await page.getByRole('button', {name: /^Column/}).click()
+    const menu = page.locator('.glass')
+    await menu.getByRole('button', {name: 'Backlog'}).click()
+    await expect(column('Backlog')).toBeHidden()
+    await expect(page.getByText('Expiry badges')).toBeHidden()
+    await expect(column('In progress')).toBeVisible()
+    await menu.getByRole('button', {name: 'Clear'}).click()
+    await expect(column('Backlog')).toBeVisible()
+    await expect(column('Done')).toBeVisible()
 })
 
 test('shows sub-issues and their progress on the parent', async ({page, request}) => {

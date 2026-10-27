@@ -3,7 +3,8 @@ import type {Chunk, Column, Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // Issues as cards in their columns, started first and closed last. A parent stands for its
-// sub-issues. Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
+// sub-issues. A status the filter leaves out has no column, unless a card is in it (a parent kept for a sub-issue
+// that matches). Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
 // column's header has a tick (GroupTick) for all its cards.
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()
@@ -12,6 +13,7 @@ const {open: openMenu} = useIssueMenu()
 const {columns: order, look} = useStatuses()
 const {selected, isSelected, toggle} = useSelection()
 const {settings} = useAppSettings()
+const {filters} = useFilters()
 function click(event: MouseEvent, issue: Issue) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
     else open(props.project, issue.id)
@@ -20,7 +22,9 @@ const unfolded = ref<Column[]>([])
 
 const columns = computed(() => {
     const issues = props.chunks.flatMap(chunk => chunk.tasks.map(issue => ({issue, chunk})))
+    const picked = filters.value.columns
     return order.value.map(({id}) => ({column: id, cards: issues.filter(({issue}) => issue.column === id)}))
+        .filter(({column, cards}) => !picked.length || picked.includes(column) || cards.length)
 })
 const folded = (column: Column) => isClosed(look(column).kind) && !unfolded.value.includes(column)
 const fold = (column: Column) => unfolded.value = unfolded.value.includes(column) ? unfolded.value.filter(c => c !== column) : [...unfolded.value, column]
