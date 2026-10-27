@@ -4,7 +4,7 @@
 // schema first. Stop the Orrery using the source while it runs, so nothing changes under it.
 import {resolve} from 'node:path'
 import type {Db} from '../server/utils/database'
-import {SqliteDb} from '../server/utils/database'
+import {SqliteDb, one} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb, isPostgres} from '../server/utils/postgres'
 
@@ -20,7 +20,7 @@ const open = (where: string): Db => isPostgres(where) ? new PostgresDb(where) : 
 const describe = (where: string) => isPostgres(where) ? where.replace(/\/\/([^:@/]+):[^@]+@/, '//$1:…@') : file(where)
 
 export async function copy(source: Db, target: Db): Promise<Record<string, number>> {
-    if ((await target.get<{n: number}>('SELECT count(*) AS n FROM projects'))!.n) throw new Error('The target already has projects: copy into an empty Orrery')
+    if ((await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')).n) throw new Error('The target already has projects: copy into an empty Orrery')
     const copied: Record<string, number> = {}
     await target.transaction(async () => {
         await target.deferConstraints()

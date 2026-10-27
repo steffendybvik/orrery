@@ -116,7 +116,8 @@ export class Secrets {
         const hosts = input.hosts === undefined ? was.hosts : hostsOf(input.hosts as string[])
         const projects = input.projects === undefined ? was.projects : await this.projectsOf(input.projects as string[] | null)
         if (!hosts.length) throw badRequest('"hosts" needs at least one host; delete the secret to stop it going anywhere')
-        const wider = hosts.some(h => !was.hosts.includes(h)) || (was.projects !== null && (projects === null || projects.some(p => !was.projects!.includes(p))))
+        const wasIn = was.projects
+        const wider = hosts.some(h => !was.hosts.includes(h)) || (wasIn !== null && (projects === null || projects.some(p => !wasIn.includes(p))))
         if (wider) throw forbidden(`Letting ${name} go somewhere new takes its value again: PUT /api/secrets/${name} with {value, hosts, projects}`)
         const value = this.open(row)
         await this.db.run('UPDATE secrets SET value = ?, hosts = ?, projects = ?, updated_at = ? WHERE name = ?',
@@ -140,7 +141,7 @@ export class Secrets {
         const headers = input.headers ? JSON.parse(String(input.headers)) as Record<string, string> : {}
         const text = input.body === undefined || method === 'GET' || method === 'HEAD' ? undefined : String(input.body)
         const template = String(input.url)
-        const names = [...new Set([template, ...Object.values(headers), text ?? ''].flatMap(part => [...part.matchAll(PLACEHOLDER)].map(m => m[1]!)))]
+        const names = [...new Set([template, ...Object.values(headers), text ?? ''].flatMap(part => [...part.matchAll(PLACEHOLDER)].flatMap(m => m[1] ?? [])))]
         if (!names.length) throw badRequest('Put a secret in the request as {{secret:NAME}}; Orrery only makes requests that use one')
         // Says what the caller says it's for: a guard against using a key in the wrong project by mistake,
         // not a boundary, as nothing proves who's calling.
@@ -310,9 +311,9 @@ function replaceWords(text: string, core: string, by: string): string {
     let from = 0
     for (let at = text.indexOf(core); at >= 0; at = text.indexOf(core, from)) {
         let start = at
-        while (start > from && BASE64.test(text[start - 1]!)) start--
+        while (start > from && BASE64.test(text.charAt(start - 1))) start--
         let end = at + core.length
-        while (end < text.length && BASE64.test(text[end]!)) end++
+        while (end < text.length && BASE64.test(text.charAt(end))) end++
         while (text[end] === '=') end++
         out += text.slice(from, start) + by
         from = end

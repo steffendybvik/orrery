@@ -8,6 +8,7 @@ import type {Instruction} from '#shared/prompt'
 import type {Actor} from './schema'
 import {AGENT, SLUG, STATUS_FIELDS, LEGACY_KINDS, SETTINGS_FIELDS, nullable} from './schema'
 import {StoreBase} from './base'
+import {known} from '#shared/known'
 
 export abstract class StatusStore extends StoreBase {
     /** This Orrery's own settings. */
@@ -46,7 +47,7 @@ export abstract class StatusStore extends StoreBase {
     /** A new status, the owner's to add: `{name, kind, color?, id?, position?}`. */
     async createStatus(body: unknown, actor = AGENT): Promise<IssueStatus> {
         this.ownerOnly(actor, 'statuses')
-        const input = checkInput(body, {...STATUS_FIELDS, color: {...STATUS_FIELDS.color!, required: false}})
+        const input = checkInput(body, {...STATUS_FIELDS, color: {...STATUS_FIELDS.color, required: false}})
         const name = String(input.name).trim()
         const id = input.id ? String(input.id) : slugify(name)
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
@@ -76,7 +77,7 @@ export abstract class StatusStore extends StoreBase {
         this.ownerOnly(actor, 'statuses')
         const status = await this.status(id)
         await this.keepOneOf(status)
-        const used = (await this.get<{n: number}>('SELECT (SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ?) AS n', id, id))!.n
+        const used = (await this.one<{n: number}>('SELECT (SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ?) AS n', id, id)).n
         if (into !== undefined) await this.status(into)
         if (into === id) throw badRequest('Move its issues to another status')
         if (used && !into) throw conflict(`${used} issues or schedules are in ${status.name}; say which status they move to with ?into=`)
@@ -101,7 +102,7 @@ export abstract class StatusStore extends StoreBase {
      * from before statuses (`doing`; `todo` with a `plan`). */
     async resolveStatus(status: Input[string], plan?: Input[string]): Promise<string> {
         const statuses = await this.statuses()
-        const first = (kind: Kind) => statuses.find(s => s.kind === kind)!.id
+        const first = (kind: Kind) => known(statuses.find(s => s.kind === kind), `a ${kind} status`).id
         if (plan !== undefined && (status === undefined || status === 'todo')) return first(plan ? 'todo' : 'backlog')
         if (status === undefined) return first('backlog')
         const text = String(status)

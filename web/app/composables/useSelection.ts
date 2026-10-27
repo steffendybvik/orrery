@@ -12,7 +12,10 @@ export function useSelection() {
     /** The issues on the page, in order, once each (a sub-issue's row counts as its own). */
     function visible(): string[] {
         const els = [...document.querySelectorAll<HTMLElement>('main [data-issue][data-project]')].filter(el => el.offsetParent !== null)
-        return [...new Set(els.map(el => key(el.dataset.project!, el.dataset.issue!)))]
+        return [...new Set(els.flatMap(el => {
+            const {project, issue} = el.dataset
+            return project && issue ? [key(project, issue)] : []
+        }))]
     }
 
     function toggle(project: string, id: string, range = false) {
@@ -47,7 +50,8 @@ export function useSelection() {
             // Let go outside the window, where no pointerup reaches it: the drag is over, and a move back ticks nothing.
             if (!(e.buttons & 1)) return stop()
             const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('main [data-issue][data-project]')
-            if (el && isSelected(el.dataset.project!, el.dataset.issue!) !== on) set([key(el.dataset.project!, el.dataset.issue!)], on)
+            const {project: p, issue} = el?.dataset ?? {}
+            if (p && issue && isSelected(p, issue) !== on) set([key(p, issue)], on)
         }
         const eat = (e: MouseEvent) => (e.stopPropagation(), e.preventDefault())
         const stop = () => {

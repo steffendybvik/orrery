@@ -52,9 +52,9 @@ export abstract class SignalStore extends IssueStore {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
         const target = nullable(input.session) ?? await this.listeningWorker(project, issue)
-        const row = await this.get<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, issue, 'focus', nullable(input.note), target, instructions, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row!)
+        const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
         if (signal.target && signal.target !== EVERY && !await this.heldElsewhere(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
@@ -94,9 +94,9 @@ export abstract class SignalStore extends IssueStore {
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.get<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row!)
+        const signal = signalOf(row)
         this.onSignal(signal)
         return signal
     }
@@ -110,8 +110,9 @@ export abstract class SignalStore extends IssueStore {
     /** The project's signals after `after` (an id), oldest first; or the latest ones about an issue or a chunk. */
     async listSignals(project: string, after = 0, limit = 50, about?: {issue?: string, chunk?: string}): Promise<Signal[]> {
         await this.projectRow(project)
-        if (about?.issue || about?.chunk) {
-            const [column, id] = about.issue ? ['issue', await this.issueId(project, about.issue)] : ['chunk', await this.chunkId(project, about.chunk!)]
+        const which = about?.issue ? ['issue', await this.issueId(project, about.issue)] as const : about?.chunk ? ['chunk', await this.chunkId(project, about.chunk)] as const : undefined
+        if (which) {
+            const [column, id] = which
             return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND ${column} = ? ORDER BY id DESC LIMIT ?`, project, id, limit))
                 .reverse().map(signalOf)
         }
@@ -130,7 +131,7 @@ export abstract class SignalStore extends IssueStore {
             const ids = session.ids ?? [session.id]
             const issues = new Set(worked.filter(w => ids.includes(w.session) && open.has(w.issue)).map(w => w.issue))
             return [session.id, {
-                issues: [...issues].map(issue => open.get(issue)!).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
+                issues: [...issues].flatMap(issue => open.get(issue) ?? []).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
                 signals: recent.filter(s => ids.includes(s.target ?? '') || ((!s.target || s.target === EVERY) && s.delivered_to.includes(session.name))).slice(0, signals),
             }]
         }))
@@ -139,9 +140,9 @@ export abstract class SignalStore extends IssueStore {
     /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */
     async message(project: string, schedule: number, text: string, actor = AGENT): Promise<Signal> {
         await this.projectRow(project)
-        const row = await this.get<SignalRow>('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, schedule, 'message', text, actor.name, Number(actor.owner), stamp())
-        const signal = signalOf(row!)
+        const signal = signalOf(row)
         this.onSignal(signal)
         return signal
     }
@@ -152,9 +153,9 @@ export abstract class SignalStore extends IssueStore {
         await this.projectRow(project)
         const note = typeof text === 'string' ? text.trim() : ''
         if (!note) throw badRequest('Send the message as {"text": "…"}')
-        const row = await this.get<SignalRow>('INSERT INTO signals (project, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
             project, 'message', note, session, actor.name, 1, stamp())
-        const signal = signalOf(row!)
+        const signal = signalOf(row)
         this.onSignal(signal)
         return signal
     }

@@ -92,8 +92,9 @@ watch(editing, now => {
     once.value = repeat.kind === 'once' ? local(repeat.at) : local(new Date(Date.now() + 3600_000).toISOString())
     cron.value = s?.cron ?? '0 9 * * 1-5'
     failed.value = ''
-    nextTick(() => titleInput.value?.focus())
 }, {immediate: true})
+// Its field takes the cursor once it's there: on the first open the dialog is still loading when the watch above runs.
+watch(titleInput, el => el?.focus())
 
 const repeat = computed<Repeat>(() => {
     switch (kind.value) {

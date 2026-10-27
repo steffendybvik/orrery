@@ -247,13 +247,13 @@ export const CHUNK_SIGNAL_FIELDS: Record<string, Field> = {
     release: {type: 'string', nullable: true},
 }
 
-export const STATUS_FIELDS: Record<string, Field> = {
+export const STATUS_FIELDS = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
     name: {type: 'string', required: true},
     kind: {type: 'string', values: KINDS, required: true},
     color: {...TINT, nullable: false},
     position: {type: 'number'},
-}
+} satisfies Record<string, Field>
 
 /** What agents sent before statuses, and what they mean now. */
 export const LEGACY_KINDS: Record<string, Kind> = {doing: 'started', now: 'todo', next: 'todo', later: 'todo'}
@@ -348,9 +348,9 @@ export function tallyReleases(versions: string[], boards: Board[]): Map<string, 
             const own = issue.release && issue.release !== current ? tally.get(issue.release) : undefined
             if (own) own.issues++
             if (issue.tasks.length) walk(issue.tasks, release)
-            else if (release && tally.has(release)) {
-                const into = tally.get(release)!.kinds
-                for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
+            else {
+                const into = release ? tally.get(release)?.kinds : undefined
+                if (into) for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
             }
         }
     }

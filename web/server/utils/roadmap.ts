@@ -4,6 +4,7 @@
 import type {Board, Choice, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Picks, Place, Priority, Proposal} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 import {isObject} from './input'
+import {known} from '#shared/known'
 
 /** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
 export const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
@@ -247,9 +248,9 @@ class Rules {
         const has = (s: IssueStatus) => (counts[s.id] ?? 0) > 0
         if (!total(kinds) && !kinds.canceled) return kinds.proposed ? 'proposed' : this.first('backlog')
         if (!open(kinds)) {
-            return this.statuses.find(s => s.kind === 'done' && has(s))?.id ?? this.statuses.find(s => CLOSED.includes(s.kind) && has(s))!.id
+            return this.statuses.find(s => s.kind === 'done' && has(s))?.id ?? known(this.statuses.find(s => CLOSED.includes(s.kind) && has(s)), 'a closed status with issues').id
         }
-        return this.open.find(has)!.id
+        return known(this.open.find(has), 'an open status with issues').id
     }
 
     sum(issues: {counts: Counts, kinds: Kinds}[]): {counts: Counts, kinds: Kinds} {
@@ -289,7 +290,7 @@ function jsonProblem(text: string, error: unknown): string {
     const position = /position (\d+)/.exec(message)
     if (!position || /line \d+/.test(message)) return message
     const before = text.slice(0, Number(position[1])).split('\n')
-    return `${message} (line ${before.length}, column ${before.at(-1)!.length + 1})`
+    return `${message} (line ${before.length}, column ${(before.at(-1) ?? '').length + 1})`
 }
 
 /** A column as a session reads it: its status's name, or Proposed. */

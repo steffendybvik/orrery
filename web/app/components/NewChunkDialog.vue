@@ -18,8 +18,9 @@ const titleInput = ref<HTMLInputElement | null>(null)
 watch(target, now => {
     if (!now) return
     title.value = summary.value = failed.value = ''
-    nextTick(() => titleInput.value?.focus())
 }, {immediate: true})
+// Its field takes the cursor once it's there: on the first open the dialog is still loading when the watch above runs.
+watch(titleInput, el => el?.focus())
 
 const ready = computed(() => !!title.value.trim() && !saving.value)
 

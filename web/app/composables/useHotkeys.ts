@@ -15,7 +15,8 @@ export function useHotkeys() {
         const items = [...document.querySelectorAll<HTMLElement>('main [data-nav]')].filter(el => el.offsetParent !== null)
         if (!items.length) return
         const at = items.indexOf(document.activeElement as HTMLElement)
-        const next = items[at < 0 ? (step > 0 ? 0 : items.length - 1) : Math.min(Math.max(at + step, 0), items.length - 1)]!
+        const next = items[at < 0 ? (step > 0 ? 0 : items.length - 1) : Math.min(Math.max(at + step, 0), items.length - 1)]
+        if (!next) return
         next.focus({preventScroll: true})
         next.scrollIntoView({block: 'nearest', inline: 'nearest'})
     }

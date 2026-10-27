@@ -20,7 +20,7 @@ export function useStore(): Store {
     store ??= new Store(useDatabase(), id => {
         const read = (reads.get(id) ?? 0) + 1
         reads.set(id, read)
-        store!.project(id).then(project => {
+        useStore().project(id).then(project => {
             if (reads.get(id) === read) projectEvents.emit('project', project)
         }, error => {
             // Only a project that's gone is removed; any other failure leaves the pages as they are.
