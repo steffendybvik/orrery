@@ -3,7 +3,8 @@ import type {Issue, Preset, Project} from '#shared/roadmap'
 import type {LaunchState} from '~/composables/useLaunchState'
 
 // Starting Claude sessions from anywhere, as the owner: pick the projects (every one, those that can't start one
-// now shown with why, and how to change that), one session each. On one project it can focus on an open issue;
+// now shown with why, and how to change that), one session each, hearing only its project; or, when the projects
+// picked are served from one repo, one session there hearing them all. On one project it can focus on an open issue;
 // else it works through a scope, the issues of the statuses ticked (and of a release), most urgent first, or with
 // nothing ticked waits for your work. It can be given more context: presets (the Orrery's, and each project's own)
 // and your own words, which go with every signal to it. Their launchers start them in tmux, for each project's
@@ -27,6 +28,8 @@ const states = ref<Record<string, LaunchState | null>>({})
 const presets = ref<Preset[]>([])
 const picked = ref<number[]>([])
 const instructions = ref('')
+/** One session for every project picked, rather than one each, when they share a repo. */
+const together = ref<'one' | 'each'>('one')
 
 /** Whether a launcher is there and how many are running, for each project that lets Orrery start sessions. */
 async function loadStates() {
@@ -43,6 +46,7 @@ watch(target, now => {
     chosen.value = now.project ? [now.project] : []
     issue.value = release.value = failed.value = instructions.value = ''
     picked.value = []
+    together.value = 'one'
     statuses.value = open.value.filter(p => p.kind === 'todo' || p.kind === 'started').map(p => p.id)
     loadStates()
 }, {immediate: true})
@@ -106,6 +110,15 @@ function scopeOf(project: Project): Issue[] {
     return tasks.filter(t => statuses.value.length ? statuses.value.includes(t.column) : t.kind === 'todo' || t.kind === 'started')
 }
 
+/** Whether the projects picked are served from one repo (a launcher folder in common), so one session can hear them all. */
+const shared = computed(() => {
+    const [first, ...rest] = projects.value
+    return !!first && rest.length > 0
+        && (states.value[first.id]?.folders ?? []).some(dir => rest.every(p => states.value[p.id]?.folders.includes(dir)))
+})
+const oneSession = computed(() => shared.value && together.value === 'one')
+const ways = computed(() => [{value: 'one' as const, label: `One session for all ${projects.value.length}`}, {value: 'each' as const, label: 'A session each'}])
+
 const ready = computed(() => projects.value.length > 0 && projects.value.every(p => !why(p) && !!states.value[p.id]) && !busy.value)
 
 function toggle(status: string) {
@@ -125,17 +138,29 @@ async function start() {
         ...instructions.value.trim() ? {instructions: instructions.value.trim()} : {},
     })
     const refused = new Map<string, string>()
-    for (const p of projects.value) {
+    if (oneSession.value) {
+        // Started from the first project's launcher, hearing every one picked, with every preset ticked.
+        const first = projects.value[0]?.id ?? ''
         try {
-            await $fetch(`/api/projects/${encodeURIComponent(p.id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: body(p.id)})
+            await $fetch(`/api/projects/${encodeURIComponent(first)}/launches`, {
+                method: 'POST', headers: {'Orrery-Actor': actor},
+                body: {...body(first), presets: picked.value, hears: projects.value.map(p => p.id)},
+            })
+        } catch (error) {
+            refused.set(first, errorMessage(error))
+        }
+    }
+    for (const p of oneSession.value ? [] : projects.value) {
+        try {
+            await $fetch(`/api/projects/${encodeURIComponent(p.id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: {...body(p.id), hears: [p.id]}})
         } catch (error) {
             refused.set(p.id, `${p.name}: ${errorMessage(error)}`)
         }
     }
     busy.value = false
     if (refused.size) {
-        // Those that started are on their way; only the refused stay ticked, to try again.
-        chosen.value = chosen.value.filter(id => refused.has(id))
+        // Those that started are on their way; only the refused stay ticked, to try again (all of them, for one session).
+        if (!oneSession.value) chosen.value = chosen.value.filter(id => refused.has(id))
         failed.value = [...refused.values()].join(' · ')
         loadStates()
         return
@@ -155,7 +180,7 @@ async function start() {
     </div>
 
     <div class="flex min-h-0 flex-col gap-1">
-      <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· a session each</span></span>
+      <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· {{ oneSession ? 'one session hearing them all' : 'a session each' }}</span></span>
       <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto" role="group" aria-label="Projects">
         <label
             v-for="p in ordered"
@@ -174,6 +199,11 @@ async function start() {
           </span>
         </label>
       </div>
+    </div>
+
+    <div v-if="shared" class="flex items-center gap-2 px-1">
+      <SegmentedControl v-model="together" :options="ways" class="shrink-0 [&_[role=radio]]:whitespace-nowrap" />
+      <span class="text-xs text-faint">{{ oneSession ? 'They share a repo, so one session there can work them all.' : 'Each hears only its own project.' }}</span>
     </div>
 
     <div v-if="one" class="flex flex-col gap-1">

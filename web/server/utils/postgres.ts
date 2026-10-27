@@ -14,7 +14,7 @@ import type {Db, Value} from './database'
 pg.types.setTypeParser(pg.types.builtins.INT8, value => Number(value))
 
 /** SQLite's step this schema matches (`PRAGMA user_version`). */
-export const BASELINE = 23
+const BASELINE = 23
 
 const KEYS = 'DEFERRABLE INITIALLY IMMEDIATE'
 const SCHEMA = `

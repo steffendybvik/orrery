@@ -187,6 +187,10 @@ export function freezeNote(release: Pick<Release, 'version' | 'frozen_on' | 'shi
 export interface DocSummary {
     id: string
     title: string
+    /** Its first paragraph as plain text, cut to about 160 characters: enough to tell whether to open it. */
+    summary: string
+    /** With a search (`?q=`): the text around its first hit, empty when only the title has it. */
+    match?: string
     created_by: string
     protected: boolean
     created_at: string
@@ -421,7 +425,7 @@ export interface Settings {
     /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;
      * none uses their id. */
     handle: string | null
-    /** Where the team's tracker shows a task, with `{id}` for its id: `https://linear.app/acme/issue/{id}`. */
+    /** Where the team's tracker shows a task, with `{id}` for its id: `https://tracker.example.com/issue/{id}`. */
     tracker: string | null
     /** Whether Orrery starts sessions itself, for any project whose repo has a launcher, and within what; none
      * while the owner hasn't let it. */
@@ -516,7 +520,13 @@ export interface Notice extends Comment {
     title: string
     /** Taken out of the bell; only `GET /notices?list=cleared` lists these. */
     cleared?: boolean
+    /** An agent's proposal waiting on the owner instead of a comment: `asks: decision` until they decide it,
+     * its notes as the body, put up at `created_at`, `id` 0. Clearing doesn't take it out. */
+    proposal?: {choices: number}
 }
+
+/** Tells notices apart: a comment by its id, a proposal by its issue. */
+export const noticeKey = (n: Notice) => n.proposal ? `${n.project}/${n.issue}` : String(n.id)
 
 /** The lists of notices: the bell's, and the notifications page's tabs. */
 export const NOTICE_LISTS = ['bell', 'waiting', 'inbox', 'cleared'] as const
@@ -564,3 +574,22 @@ export function keyFor(name: string): string {
     const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
     return letters.slice(0, 3) || 'ISS'
 }
+
+/** The names Orrery gives sessions that have none of their own, in the order it hands them out, written as in
+ * Norwegian: æsene, vanene, jotnene, a light elf, and dverger (Snorri's svartalver are the same folk). */
+export const SESSION_NAMES = [
+    'Odin', 'Tor', 'Frigg', 'Balder', 'Ty', 'Heimdall', 'Loke', 'Brage', 'Idun', 'Vidar', 'Vale', 'Forsete', 'Ull', 'Hod', 'Hermod',
+    'Siv', 'Saga', 'Eir', 'Høne', 'Mime', 'Magne', 'Mode', 'Nanna', 'Fulla', 'Gna', 'Lovn', 'Snotra', 'Sjøvn', 'Var',
+    'Njord', 'Frøy', 'Frøya', 'Kvase', 'Gullveig',
+    'Ymer', 'Skade', 'Gerd', 'Tjatse', 'Trym', 'Surt', 'Hyme', 'Gyme', 'Æge', 'Ran', 'Angerboda', 'Suttung', 'Bauge', 'Gunnlød',
+    'Vavtrudne', 'Rungne', 'Geirrød', 'Hyrrokkin', 'Bergelme', 'Utgardsloke',
+    'Volund',
+    'Durin', 'Motsogne', 'Dvalin', 'Brokk', 'Sindre', 'Andvare', 'Alvis', 'Regin', 'Fjalar', 'Galar', 'Nordre', 'Sudre', 'Austre',
+    'Vestre', 'Alfrik', 'Lit', 'Ny', 'Nide', 'Fili', 'Kili', 'Oin', 'Torin', 'Bombur', 'Gandalv',
+] as const
+
+const BARE_NAME = new RegExp(`^(${SESSION_NAMES.join('|')})( [IVXLCDM]+)?$`)
+
+/** Whether Orrery made the session's name up, rather than the session or its hooks giving it: `<project> · <name>` for
+ * one that hears its own project, the bare name (`Odin`) for one that hears several. */
+export const madeUpName = (session: {name: string, project: string}) => session.name.startsWith(`${session.project} · `) || BARE_NAME.test(session.name)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// A project's docs: overviews, decisions, how to run it. Written through the API.
+// A project's docs: overviews, decisions, how to run it. Written here or through the API.
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
@@ -17,6 +17,7 @@ const {docUnseen} = useUnseen()
     <template v-if="project">
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
     </template>
+    <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
@@ -41,11 +42,12 @@ const {docUnseen} = useUnseen()
       </div>
       <div v-else class="mx-auto flex max-w-xl flex-col gap-3 px-4 py-20 text-center">
         <p class="text-sm text-muted">{{ project.name }} has no docs yet.</p>
-        <p class="text-xs text-faint">Ask Claude in its repo to add some, e.g. its README:</p>
+        <UiButton variant="primary" class="self-center" @click="useNewDoc().open(project.id)">New doc</UiButton>
+        <p class="mt-3 text-xs text-faint">Or ask Claude in its repo to add some, e.g. its README:</p>
         <pre class="overflow-x-auto rounded-xl bg-well p-3 text-left font-mono text-[11px] text-muted ring-1 ring-line">PUT /api/projects/{{ project.id }}/docs/readme
 {"title": "README", "body": "# …markdown…"}</pre>
       </div>
     </template>
-    <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">No project “{{ route.params.project }}”.</div>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

@@ -71,7 +71,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
           <h3 class="flex-1 text-[15px] font-semibold">Paste this into a Claude session in the repo</h3>
           <CopyButton :text="pieces.prompt" />
         </div>
-        <p class="rounded-lg bg-canvas/60 px-3 py-2.5 font-mono text-[12.5px] leading-relaxed break-all text-fg ring-1 ring-line">{{ pieces.prompt }}</p>
+        <p class="rounded-lg bg-canvas/60 px-3 py-2.5 font-mono text-[12.5px] leading-relaxed wrap-break-word text-fg ring-1 ring-line">{{ pieces.prompt }}</p>
       </section>
 
       <details class="group rounded-2xl bg-well/50 ring-1 ring-line">

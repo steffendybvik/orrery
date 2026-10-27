@@ -113,7 +113,7 @@ export interface SignalRow { id: number, project: string, issue: string | null, 
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
-export const KEY = /^[A-Z][A-Z0-9]{0,9}$/
+const KEY = /^[A-Z][A-Z0-9]{0,9}$/
 /** A release's version: `1.0.0`, `1.0.0-rc.2`, `2026.10`, `v2`; it goes in URLs as it is. */
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 
@@ -263,7 +263,7 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     focus_prompt: {type: 'string', nullable: true},
     chunk_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
-    tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://linear.app/you/issue/{id}'},
+    tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://tracker.example.com/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
     /** `{limit, minutes?, idle_minutes?}` lets Orrery start sessions, for any project with a launcher; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
@@ -392,9 +392,46 @@ export function noReleases(project: string): string {
     return `${project} has no releases; turn them on with PATCH /api/projects/${project} {"release_mode": "own"}`
 }
 
+/** A doc's first paragraph as plain text (no headings, code, pictures or Markdown marks), cut to about 160 characters. */
+export function summaryOf(body: string): string {
+    let fenced = false
+    const lines: string[] = []
+    for (const line of body.split('\n')) {
+        if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
+        else if (fenced || /^\s*(#|<!--|\||---|\*\*\*)/.test(line) || /^\s*!\[[^\]]*\]\([^)]*\)\s*$/.test(line)) {
+            if (lines.length) break
+        } else if (!line.trim()) {
+            if (lines.length) break
+        } else lines.push(line)
+    }
+    const text = lines.join(' ')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/^\s*(>|[-*+]|\d+\.)\s+/, '')
+        .replace(/[*_`]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    if (text.length <= 160) return text
+    const cut = text.slice(0, 160)
+    return `${cut.slice(0, cut.lastIndexOf(' ') > 100 ? cut.lastIndexOf(' ') : 160).replace(/[,;:.]$/, '')}…`
+}
+
+/** The text around the first of `words` (lowercase) in a doc's text, on one line, about 160 characters; empty when
+ * only its title has them. */
+export function matchOf(body: string, words: string[]): string {
+    const lower = body.toLowerCase()
+    const at = Math.min(...words.map(word => lower.indexOf(word)).filter(i => i >= 0))
+    if (!Number.isFinite(at)) return ''
+    let start = Math.max(0, at - 60)
+    let end = Math.min(body.length, at + 100)
+    if (start > 0) start = body.indexOf(' ', start) + 1 || start
+    if (end < body.length) end = body.lastIndexOf(' ', end) > at ? body.lastIndexOf(' ', end) : end
+    return `${start > 0 ? '…' : ''}${body.slice(start, end).replace(/\s+/g, ' ').trim()}${end < body.length ? '…' : ''}`
+}
+
 export function docOf(row: DocRow): Doc {
     return {
-        id: row.id, project: row.project, title: row.title, body: row.body,
+        id: row.id, project: row.project, title: row.title, summary: summaryOf(row.body), body: row.body,
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
 }

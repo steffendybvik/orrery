@@ -6,9 +6,9 @@ import {AGENT, SLUG, DOC_FIELDS, docOf, stamp} from './schema'
 import {ChunkStore} from './chunks'
 
 export abstract class DocStore extends ChunkStore {
-    async listDocs(project: string): Promise<DocSummary[]> {
+    async listDocs(project: string, {q}: {q?: string} = {}): Promise<DocSummary[]> {
         await this.projectRow(project)
-        return await this.docSummaries(project)
+        return await this.docSummaries(project, q)
     }
 
     async doc(project: string, id: string): Promise<Doc> {

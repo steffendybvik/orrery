@@ -81,7 +81,7 @@ describe('starting a session', () => {
         expect(sent).toEqual([{type: 'launch', after: 6, minutes: 30}])
         // The launch on its way covers what comes after it, until its session connects.
         expect(await launches.considerLaunch(signal(8))).toBeNull()
-        expect(launches.launchState('larder')).toEqual({launchers: 1, started: 0, starting: 1, total: 1})
+        expect(launches.launchState('larder')).toEqual({launchers: 1, folders: [], started: 0, starting: 1, total: 1})
         expect(launches.launched(launch!.id)).toMatchObject({launch: launch!.id, tmux: launch!.tmux})
         started = {larder: 1, all: 1}
         expect(await launches.considerLaunch(signal(9))).not.toBeNull()
@@ -165,7 +165,23 @@ describe('the owner starting a session by hand', () => {
         launches.addLauncher('larder')
         started = {larder: 0, all: 2}
         await expect(launches.startLaunch('larder')).rejects.toThrow('Orrery already has its 2 sessions at once')
-        expect(launches.launchState('larder')).toEqual({launchers: 1, started: 0, starting: 0, total: 2})
+        expect(launches.launchState('larder')).toEqual({launchers: 1, folders: [], started: 0, starting: 0, total: 2})
+    })
+
+    it('starts one session hearing several projects only when their launchers share a folder', async () => {
+        const larder = launches.addLauncher('larder', '/src/mono')
+        launches.addLauncher('pantry', '/src/mono')
+        launches.addLauncher('shop', '/src/shop')
+        expect(launches.launchState('larder').folders).toEqual(['/src/mono'])
+        await expect(launches.startLaunch('larder', {hears: ['pantry', 'shop']})).rejects.toThrow("shop isn't served from larder's repo")
+        expect(launches.launchState('larder').starting).toBe(0)
+        // Its own project first, once, whatever order they're sent in.
+        expect(await launches.startLaunch('larder', {hears: ['pantry', 'larder', 'pantry']})).toMatchObject({hears: ['larder', 'pantry']})
+        // One project alone needs no folder in common, nor a launcher that says its folder (an older one).
+        launches.addLauncher('attic')
+        expect(await launches.startLaunch('attic', {hears: ['attic']})).toMatchObject({hears: ['attic']})
+        larder()
+        expect(launches.launchState('larder').folders).toEqual([])
     })
 
     it('starts it focused on an issue, with a focus only that session hears', async () => {

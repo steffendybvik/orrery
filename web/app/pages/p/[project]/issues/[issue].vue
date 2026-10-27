@@ -180,10 +180,10 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
       <article class="flex min-w-0 flex-1 flex-col gap-8 px-4 py-6 sm:px-8 sm:py-10">
         <header class="flex flex-col gap-2">
-          <div class="flex items-center gap-1.5">
-            <span class="font-mono text-xs text-faint">{{ issue.id }}</span>
-            <CopyButton :text="issue.id" />
-            <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" />
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="font-mono text-xs whitespace-nowrap text-faint">{{ issue.id }}</span>
+            <CopyButton :text="issue.id" compact />
+            <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" compact />
             <a v-if="issue.waiting" href="#waiting" title="Go to the question"><WaitingChip :asks="issue.waiting" /></a>
             <button
                 v-if="madeBy"
@@ -297,12 +297,8 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
       </aside>
     </div>
 
-    <div v-else-if="ready && !looking" class="grid place-items-center px-4 py-24 text-center text-sm text-muted">
-      <div class="flex flex-col items-center gap-2">
-        <p>No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}.</p>
-        <p class="text-xs text-faint">It may have moved or been deleted.</p>
-        <NuxtLink :to="project ? `/p/${project.id}` : '/now'" class="mt-2 text-xs text-fg underline">Back</NuxtLink>
-      </div>
-    </div>
+    <NotFound v-else-if="ready && !looking" :to="project ? `/p/${project.id}` : '/now'" :back="project ? `Back to ${project.name}` : 'Go to Now'">
+      No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}
+    </NotFound>
   </div>
 </template>

@@ -79,7 +79,11 @@ export const TOOLS = [
     },
     {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress.", inputSchema: {type: 'object', properties: {}}},
     {name: 'releases', description: "Lists the project's releases, in the order they're arranged in, with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
-    {name: 'docs', description: "Lists the project's docs: decisions, how things work.", inputSchema: {type: 'object', properties: {}}},
+    {
+        name: 'docs',
+        description: "Lists the project's docs (decisions, how things work), each with a line on what it says. Read the ones a task touches before its code.",
+        inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Only docs with every one of these words in their title or text, title hits first, each with the text around its hit'}}},
+    },
     {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'write_doc',
@@ -203,8 +207,9 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 || 'No releases yet.'
         },
         async docs(args) {
-            const docs = await call('GET', '/docs', undefined, at(await projectOf(args)))
-            return docs.map(d => `${d.id}: ${d.title}`).join('\n') || 'No docs yet.'
+            const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''
+            const docs = await call('GET', `/docs${query}`, undefined, at(await projectOf(args)))
+            return docs.map(d => `${d.id}: ${d.title}${d.summary ? ` — ${d.summary}` : ''}${d.match ? `\n    ${d.match}` : ''}`).join('\n') || (args.q ? 'No docs match.' : 'No docs yet.')
         },
         async doc({id, project}) {
             const doc = await call('GET', `/docs/${encodeURIComponent(id)}`, undefined, at(await projectOf({project})))

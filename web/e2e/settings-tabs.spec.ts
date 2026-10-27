@@ -8,7 +8,7 @@ test('splits App settings into tabs by what they reach, and a link opens the rig
     await expect(page.getByText('Who you are on this Orrery')).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Issue statuses'})).toHaveCount(0)
 
-    await page.getByRole('button', {name: 'Issues'}).click()
+    await page.getByRole('radio', {name: 'Issues'}).click()
     await expect(page).toHaveURL(/tab=issues/)
     await expect(page.getByText('How issues work in every project on this Orrery')).toBeVisible()
     for (const name of ['Issue statuses', 'Proposals', 'Team tracker']) await expect(page.getByRole('heading', {name})).toBeVisible()

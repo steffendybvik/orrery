@@ -17,31 +17,17 @@ const chunks = computed(() => project.value?.board.chunks.filter(c => c.id) ?? [
 const listening = computed(() => (sessions.value[target.value?.project ?? ''] ?? []).filter(s => s.listening).length)
 const {places: WHERE} = useStatuses()
 
-const menu = ref<HTMLElement | null>(null)
-const place = ref({left: 0, top: 0})
 const busy = ref(false)
 const failed = ref('')
 const confirming = ref(false)
 const choosingChunk = ref(false)
 const note = ref('')
 
-watch(target, now => {
+watch(target, () => {
     failed.value = ''
     confirming.value = false
     choosingChunk.value = false
     note.value = ''
-    if (!now) return
-    place.value = {left: now.x, top: now.y}
-    // Kept inside the window once it's drawn and its size is known.
-    nextTick(() => {
-        const box = menu.value?.getBoundingClientRect()
-        if (!box) return
-        place.value = {
-            left: Math.max(8, Math.min(now.x, window.innerWidth - box.width - 8)),
-            top: Math.max(8, Math.min(now.y, window.innerHeight - box.height - 8)),
-        }
-        menu.value?.focus()
-    })
 })
 // Closed if the issue goes away (removed elsewhere).
 watch(issue, now => target.value && !now && close())
@@ -75,24 +61,13 @@ async function copyId() {
     if (issue.value && await copyText(issue.value.id)) note.value = `Copied ${issue.value.id}`
 }
 
-useDismiss(menu, () => target.value, close, {capture: true, blur: true, resize: true})
 
 const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover disabled:opacity-50'
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-        v-if="target && issue && project"
-        ref="menu"
-        class="menu fixed z-50 w-64"
-        :style="{left: `${place.left}px`, top: `${place.top}px`}"
-        role="menu"
-        :aria-label="`Actions for ${issue.id}`"
-        tabindex="-1"
-        @keydown.esc.stop="close"
-        @contextmenu.prevent
-    >
+  <UiContextMenu :at="issue && project ? target : null" :label="`Actions for ${issue?.id}`" width="w-64" @close="close">
+    <template v-if="issue && project">
       <div class="flex items-center gap-2 px-2 pt-1.5 pb-1 text-xs">
         <span class="font-mono text-faint">{{ issue.id }}</span>
         <span class="min-w-0 flex-1 truncate text-muted">{{ issue.title }}</span>
@@ -184,6 +159,6 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
 
       <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       <p v-else-if="note" class="px-2 pb-1.5 text-xs text-emerald-600 dark:text-emerald-400">{{ note }}</p>
-    </div>
-  </Teleport>
+    </template>
+  </UiContextMenu>
 </template>

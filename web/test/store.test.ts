@@ -780,6 +780,27 @@ describe('what sessions are told', () => {
     })
 })
 
+describe('docs', () => {
+    it('list with a summary of their first paragraph, and search their title and text', async () => {
+        await store.createDoc('larder', {title: 'Decision: ids', body: '# Decision: ids\n\n![logo](/api/uploads/x)\n\nIssues get the project\'s **prefix** and a number, [handed out](https://x.y) by `Orrery`.\nNever reused.\n\nMore later.'})
+        await store.createDoc('larder', {title: 'Running', body: '```sh\npnpm dev\n```\n\n' + 'word '.repeat(60)})
+        const docs = await store.listDocs('larder')
+        expect(docs.map(d => d.summary)).toEqual([
+            "Issues get the project's prefix and a number, handed out by Orrery. Never reused.",
+            expect.stringMatching(/^(word ){20,}word…$/),
+        ])
+        expect(docs[1]!.summary.length).toBeLessThanOrEqual(161)
+        expect((await store.listDocs('larder', {q: 'REUSED'})).map(d => [d.id, d.match])).toEqual([['decision-ids', expect.stringMatching(/^….*Never reused\..*$/)]])
+        expect((await store.listDocs('larder', {q: 'reused number'})).map(d => d.id)).toEqual(['decision-ids'])
+        expect((await store.listDocs('larder', {q: 'reused pnpm'})).map(d => d.id)).toEqual([])
+        // Title hits first, then A–Z.
+        expect((await store.listDocs('larder', {q: 'running'})).map(d => [d.id, d.match])).toEqual([['running', '']])
+        await store.createDoc('larder', {title: 'About', body: 'See running.'})
+        expect((await store.listDocs('larder', {q: 'running'})).map(d => d.id)).toEqual(['running', 'about'])
+        expect(await store.listDocs('larder', {q: 'nothing like it'})).toEqual([])
+    })
+})
+
 describe('the bell', () => {
     it("clears agents' comments by id or up to a time, leaving them on their issues", async () => {
         const {id} = await store.createIssue('larder', {title: 'A'})
@@ -794,6 +815,32 @@ describe('the bell', () => {
         expect(await store.listComments('larder', id)).toHaveLength(3)
         expect((await store.notices({list: 'cleared'})).map(n => [n.body, n.cleared])).toEqual([['two', true], ['one', true]])
         expect((await failure(() => store.clearNotices({}))).status).toBe(400)
+    })
+})
+
+describe('proposals in the bell', () => {
+    it("wait on the owner until they decide, ahead of the comments, and again when they're put up again", async () => {
+        const agent = {name: 'claude', owner: false}
+        const owner = {name: 'skoll', owner: true}
+        const {id} = await store.createIssue('larder', {title: 'Dark mode', notes: 'Why and how', proposal: 'pending', choices: [{key: 'k', question: 'Which?', options: [{key: 'a', title: 'A'}, {key: 'b', title: 'B'}]}]}, agent)
+        await store.createIssue('larder', {title: 'Its part', parent: id}, agent)
+        await store.createIssue('larder', {title: 'Mine', proposal: 'pending'}, owner)
+        const {id: other} = await store.createIssue('larder', {title: 'B'})
+        await store.createComment('larder', other, {body: 'Ship it?', asks: 'decision'}, agent)
+        const proposal = {id: 0, issue: id, title: 'Dark mode', body: 'Why and how', asks: 'decision', answered: false, proposal: {choices: 1}}
+        expect((await store.notices()).map(n => n.body)).toEqual(['Why and how', 'Ship it?'])
+        expect((await store.notices())[0]).toMatchObject(proposal)
+        expect((await store.notices({list: 'waiting'})).map(n => n.body)).toEqual(['Ship it?', 'Why and how'])
+        expect((await store.notices({list: 'inbox'})).map(n => n.body)).toEqual([])
+        // Clearing leaves it: it goes when it's decided.
+        await store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})
+        expect((await store.notices()).map(n => n.body)).toContain('Why and how')
+        await store.decide('larder', id, {decision: 'changes', note: 'Shorter'}, owner)
+        expect((await store.notices()).map(n => n.body)).not.toContain('Why and how')
+        await store.updateIssue('larder', id, {proposal: 'pending'}, agent)
+        expect((await store.notices({list: 'waiting'})).map(n => n.issue)).toContain(id)
+        await store.decide('larder', id, {decision: 'approved', picks: {k: ['a']}}, owner)
+        expect((await store.notices({list: 'waiting'})).map(n => n.issue)).not.toContain(id)
     })
 })
 
@@ -1201,13 +1248,13 @@ describe('settings', () => {
         const {id} = await store.createIssue('larder', {title: 'Hinges', external: [' CIR-1567 ', 'CIR-1567']})
         expect((await store.issue('larder', id)).external).toEqual(['CIR-1567'])
         await store.createIssue('larder', {title: 'Pins'})
-        expect((await store.updateIssue('larder', id, {external: ['CIR-1567', 'https://linear.app/x/issue/CIR-9']})).external).toEqual(['CIR-1567', 'https://linear.app/x/issue/CIR-9'])
+        expect((await store.updateIssue('larder', id, {external: ['CIR-1567', 'https://tracker.example.com/issue/CIR-9']})).external).toEqual(['CIR-1567', 'https://tracker.example.com/issue/CIR-9'])
         expect((await store.listIssues('larder', {external: 'CIR-1567'})).map(i => i.id)).toEqual([id])
         expect((await store.listActivity('larder', id)).filter(e => e.field === 'external').map(e => [e.before, e.after]))
-            .toEqual([['["CIR-1567"]', '["CIR-1567","https://linear.app/x/issue/CIR-9"]']])
+            .toEqual([['["CIR-1567"]', '["CIR-1567","https://tracker.example.com/issue/CIR-9"]']])
         expect((await store.updateIssue('larder', id, {external: null})).external).toEqual([])
-        expect((await store.updateSettings({tracker: 'https://linear.app/acme/issue/{id}'}, owner)).tracker).toBe('https://linear.app/acme/issue/{id}')
-        expect((await failure(() => store.updateSettings({tracker: 'https://linear.app/acme'}, owner))).status).toBe(400)
+        expect((await store.updateSettings({tracker: 'https://tracker.example.com/issue/{id}'}, owner)).tracker).toBe('https://tracker.example.com/issue/{id}')
+        expect((await failure(() => store.updateSettings({tracker: 'https://tracker.example.com'}, owner))).status).toBe(400)
     })
 })
 

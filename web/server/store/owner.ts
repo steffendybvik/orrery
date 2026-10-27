@@ -53,10 +53,35 @@ export abstract class OwnerStore extends StatusStore {
     }
 
     /** Agents' comments across projects. The `bell`: the latest 30 not cleared, those still waiting on the
-     * owner (a decision or feedback they haven't answered) first. The notifications page's lists, newest
-     * first: `waiting` (every one), and `inbox` (the rest) and `cleared` a page at a time, `limit` of them
-     * (50, at most 200) older than the notice `before`. */
+     * owner (a decision or feedback they haven't answered) first, with agents' proposals waiting on them
+     * ahead of all. The notifications page's lists, newest first: `waiting` (every one, proposals among
+     * them), and `inbox` (the rest) and `cleared` a page at a time, `limit` of them (50, at most 200) older
+     * than the notice `before`. */
     async notices({list = 'bell', before, limit}: {list?: NoticeList, before?: number, limit?: number} = {}): Promise<Notice[]> {
+        const comments = await this.commentNotices({list, before, limit})
+        if (list !== 'bell' && list !== 'waiting') return comments
+        const proposals = await this.proposalNotices()
+        return list === 'bell'
+            ? [...proposals, ...comments]
+            : [...proposals, ...comments].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
+    }
+
+    /** Agents' proposals waiting on the owner (pending, not under another proposal), newest put up first. */
+    private async proposalNotices(): Promise<Notice[]> {
+        const rows = await this.all<{project: string, id: string, title: string, notes: string | null, choices: string, created_by: string, created_at: string, updated_at: string, put_up: string | null}>(`
+            SELECT i.project, i.id, i.title, i.notes, i.choices, i.created_by, i.created_at, i.updated_at,
+                (SELECT max(e.created_at) FROM issue_events e WHERE e.project = i.project AND e.issue = i.id AND e.field = 'proposal' AND e.after = 'pending') AS put_up
+            FROM issues i
+            WHERE i.proposal = 'pending' AND i.owned = 0
+                AND NOT EXISTS (SELECT 1 FROM issues p WHERE p.project = i.project AND p.id = i.parent AND p.proposal IS NOT NULL)`)
+        return rows.map(row => ({
+            id: 0, issue: row.id, body: row.notes ?? '', asks: 'decision' as const, answered: false,
+            created_by: row.created_by, protected: false, created_at: row.put_up ?? row.created_at, updated_at: row.updated_at,
+            project: row.project, title: row.title, proposal: {choices: (JSON.parse(row.choices || '[]') as unknown[]).length},
+        })).sort((a, b) => b.created_at.localeCompare(a.created_at))
+    }
+
+    private async commentNotices({list = 'bell', before, limit}: {list?: NoticeList, before?: number, limit?: number}): Promise<Notice[]> {
         const which = {
             bell: 'cleared = 0',
             waiting: 'cleared = 0 AND asks IS NOT NULL AND NOT answered',

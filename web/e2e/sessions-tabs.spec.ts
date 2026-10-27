@@ -10,14 +10,14 @@ test.beforeAll(async ({request}) => {
 test('the Sessions page keeps what runs and how it is set up on two tabs', async ({page}) => {
     await page.goto('/sessions')
     // The tab, first; the no-sessions note links to Setup too.
-    const setup = page.getByRole('button', {name: 'Setup', exact: true}).first()
+    const setup = page.getByRole('radio', {name: 'Setup', exact: true})
     await expect(setup).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Starting sessions'})).toBeHidden()
     await setup.click()
     await expect(page).toHaveURL(/\/sessions\?tab=setup$/)
     for (const name of ['Starting sessions', 'What sessions hear', 'Presets'])
         await expect(page.getByRole('heading', {name, exact: true})).toBeVisible()
-    await page.getByRole('button', {name: 'Sessions', exact: true}).click()
+    await page.getByRole('radio', {name: 'Sessions', exact: true}).click()
     await expect(page).toHaveURL(/\/sessions$/)
     await expect(page.getByRole('heading', {name: 'Presets', exact: true})).toBeHidden()
     // A link to a Setup section, as Start session's "Presets" link is, lands on Setup.

@@ -1,7 +1,7 @@
 import type {Signal} from '#shared/roadmap'
 
 // `GET /api/projects/:project/signals/stream` → the owner's signals to this project's sessions, as they're
-// sent: server-sent `signal` events (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
+// sent: server-sent `signal` events, `name` (what Orrery calls the session, and again when that changes) (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
 // what it missed), and `stop` when the owner stops the session; or with `?format=text` one plain line each, for Claude Code's Monitor tool. Each
 // open stream counts as a listening session. A channel on several projects can follow them all on one stream
 // instead (`/api/signals/stream`); both go through signal-feed.ts.
@@ -45,14 +45,17 @@ export default defineEventHandler(async event => {
         && stream.push({event: 'stop', data: JSON.stringify(asked)})
     projectEvents.on('session-stop', stopped)
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
+    let unnamed = () => {}
     // Cleaned up however the stream ends, a catch-up that fails included.
     stream.onClosed(async () => {
         clearInterval(ping)
+        unnamed()
         projectEvents.off('session-stop', stopped)
         feed.close()
         await stream.close()
     })
     stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
+    unnamed = sayName(stream, () => feed.attended?.id)
     await streamFeed(stream, feed, text('name'))
     return stream.send()
 })

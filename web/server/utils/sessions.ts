@@ -5,7 +5,9 @@
 // channel carries on under the old one, so the ids a session had before stay aliases of it. A window
 // can run a channel for every project in its repo's `.mcp.json`, only the flagged one heard, so it
 // listens (and can be stopped) through its own project's channel only.
+import {randomInt} from 'node:crypto'
 import type {Session, SessionState, StartedSession} from '#shared/roadmap'
+import {SESSION_NAMES, madeUpName} from '#shared/roadmap'
 
 interface Known extends Session {
     pid?: number
@@ -96,12 +98,48 @@ function add(session: Known) {
     sessions.set(session.id, session)
 }
 
-/** "<project> <n>", the lowest n no session on the project has. */
-function nameFor(project: string): string {
-    const taken = new Set(listSessions(project).map(s => s.name))
-    let n = 1
-    while (taken.has(`${project} ${n}`)) n++
-    return `${project} ${n}`
+/** "<project> · <name>", the next of NAME_ORDER no session on the project has; past them all, "Odin II" and on.
+ * With `spanning`, for a session that hears several projects, the bare name ("Odin"), the next no session has: no
+ * one project is its. */
+function nameFor(project: string, spanning = false): string {
+    const taken = new Set((spanning ? [...sessions.values()] : listSessions(project)).map(s => s.name))
+    for (let round = 1; ; round++) {
+        for (let k = 0; k < NAME_ORDER.length; k++) {
+            const at = (turn + k) % NAME_ORDER.length
+            const name = `${spanning ? '' : `${project} · `}${NAME_ORDER[at]}${round > 1 ? ` ${roman(round)}` : ''}`
+            if (taken.has(name)) continue
+            turn = at + 1
+            return name
+        }
+    }
+}
+
+/** Whether its channel is heard on more than one project. */
+const spans = (session: Known) => [...session.channels?.values() ?? []].filter(c => c.heard).length > 1
+
+/** A made-up name kept to what the session hears: bare while it hears several projects, "<project> · …" once it's
+ * down to one (or moved to another), and left alone while it still fits. */
+function rename(session: Known) {
+    if (!madeUpName(session)) return
+    const spanning = spans(session)
+    if (spanning === !session.name.includes(' · ') && (spanning || session.name.startsWith(`${session.project} · `))) return
+    session.name = nameFor(session.project, spanning)
+}
+
+/** The names in the order they're handed out: each 29 on from the one before (the list's 79 is prime, so every one comes
+ * round once), which scatters the families (Odin, Njord, Brokk, Idun…) rather than walking them one by one. */
+export const NAME_ORDER: string[] = SESSION_NAMES.map((name, i) => ({name, at: i * 30 % SESSION_NAMES.length})) // 30: 29's inverse, mod 79
+    .sort((a, b) => a.at - b.at).map(n => n.name)
+/** Where in NAME_ORDER the next name is looked for: after the last handed out, so they rotate, starting somewhere new
+ * each time Orrery starts. */
+let turn = randomInt(NAME_ORDER.length)
+
+/** 2 → II, 14 → XIV. */
+function roman(n: number): string {
+    const digits: [number, string][] = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]
+    let out = ''
+    for (const [value, digit] of digits) for (; n >= value; n -= value) out += digit
+    return out
 }
 
 function forget(session: Known) {
@@ -242,6 +280,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
         aliases.set(launchTarget(launch), held.id)
     }
     if (name) held.name = name
+    else rename(held)
     if (server) held.server = server
     changedAll(held)
     let open = true
@@ -258,6 +297,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
             if (count.streams > 1) channels.set(project, {streams: count.streams - 1, heard: count.heard - Number(heard), stops: count.stops - Number(stops)})
             else channels.delete(project)
             tally(held)
+            rename(held)
             if (!channels.size && held.stopping) forget(held)
             changedAll(held)
             changed(project)
@@ -268,8 +308,9 @@ export function attend(project: string, id: string | undefined, pid: number | un
 /** Files the session under another project as its own. */
 function moveTo(session: Known, project: string) {
     changed(session.project)
-    if (session.name.startsWith(`${session.project} `)) session.name = nameFor(project)
+    const named = madeUpName(session)
     session.project = project
+    if (named && !spans(session)) session.name = nameFor(project)
     tally(session)
 }
 

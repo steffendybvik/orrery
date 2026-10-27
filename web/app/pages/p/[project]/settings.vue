@@ -54,17 +54,20 @@ const drawing = computed(() => projects.value.filter(p => p.releases_from === pr
 const sources = computed(() => projects.value.filter(p => p.id !== project.value?.id && p.release_mode === 'own'))
 // The choice as the select holds it: `none`, `own`, or `from:<project>`.
 const releaseChoice = computed(() => project.value?.release_mode === 'shared' ? `from:${project.value.releases_from}` : project.value?.release_mode ?? 'none')
+const releaseOptions = computed(() => [
+    {value: 'none', label: 'None'},
+    {value: 'own', label: 'Its own'},
+    ...sources.value.map(source => ({value: `from:${source.id}`, label: `${source.name}'s`})),
+])
 const releasesFailed = ref('')
-async function saveReleaseMode(event: Event) {
+async function saveReleaseMode(next: string) {
     if (!project.value) return
-    const next = (event.target as HTMLSelectElement).value
     const body = next.startsWith('from:') ? {release_mode: 'shared', releases_from: next.slice(5)} : {release_mode: next}
     releasesFailed.value = ''
     try {
         await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body, headers: {'Orrery-Actor': await load()}})
     } catch (error) {
         releasesFailed.value = errorMessage(error)
-        ;(event.target as HTMLSelectElement).value = releaseChoice.value
     }
 }
 
@@ -118,6 +121,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
     <template v-if="project">
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
     </template>
+    <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
@@ -170,17 +174,17 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           </p>
         </header>
         <div class="flex flex-wrap items-center gap-2">
-          <select
-              :value="releaseChoice"
-              aria-label="Its releases"
-              class="h-8 max-w-full rounded-lg bg-well px-2 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:opacity-60"
+          <PropertyPicker
+              :model-value="releaseChoice"
+              :options="releaseOptions"
+              label="Its releases"
+              placeholder="Find a project…"
+              field
               :disabled="!!drawing.length"
-              @change="saveReleaseMode"
+              @update:model-value="saveReleaseMode($event as string)"
           >
-            <option value="none">None</option>
-            <option value="own">Its own</option>
-            <option v-for="source in sources" :key="source.id" :value="`from:${source.id}`">{{ source.name }}'s</option>
-          </select>
+            <span class="truncate">{{ releaseOptions.find(o => o.value === releaseChoice)?.label ?? releaseChoice }}</span>
+          </PropertyPicker>
           <span v-if="drawing.length" class="text-xs text-faint">{{ drawing.map(p => p.name).join(', ') }} {{ drawing.length === 1 ? 'takes its' : 'take their' }} releases from {{ project.name }}.</span>
           <span v-if="releasesFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ releasesFailed }}</span>
         </div>
@@ -231,6 +235,6 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         </form>
       </section>
     </div>
-    <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">No project “{{ route.params.project }}”.</div>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

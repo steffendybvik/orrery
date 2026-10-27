@@ -69,3 +69,14 @@ export function channelFor(dir, url, project) {
         ?? channels[0]
     return found?.channel
 }
+
+/** The projects a channel hears: those it lists (ORRERY_PROJECTS), as `hear` (ORRERY_HEAR, comma-separated) narrows
+ * them to the ones named that it serves; `null` for every project on its Orrery (`*`, and no `hear`). A `hear` naming
+ * none it serves is let go, so a session never ends up hearing nothing. */
+export function narrowed(listed, hear) {
+    const named = (hear ?? '').split(',').map(p => p.trim()).filter(Boolean)
+    const every = listed.includes('*')
+    const served = named.filter(p => every || listed.includes(p))
+    if (served.length) return [...new Set(served)]
+    return every ? null : listed
+}

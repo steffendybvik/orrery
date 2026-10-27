@@ -1,10 +1,14 @@
 import {afterEach, describe, expect, it} from 'vitest'
+import {nextTick} from 'vue'
 import type {VueWrapper} from '@vue/test-utils'
 import {mountSuspended} from '@nuxt/test-utils/runtime'
 import PropertyPicker from '~/components/PropertyPicker.vue'
 
 const mounted: VueWrapper[] = []
 afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
+
+// Headless UI moves the lit option a frame after a key, as the page would.
+const settled = () => new Promise(resolve => requestAnimationFrame(resolve)).then(() => nextTick())
 
 const OPTIONS = [{value: 'todo', label: 'Todo'}, {value: 'in-progress', label: 'In progress'}, {value: 'done', label: 'Done'}]
 
@@ -16,8 +20,9 @@ async function mount(modelValue: string | string[], extra: Record<string, unknow
     })
     mounted.push(wrapper)
     await wrapper.find('button').trigger('click')
-    const key = (k: string) => wrapper.find('input').trigger('keydown', {key: k})
-    const type = (text: string) => wrapper.find('input').setValue(text)
+    await settled()
+    const key = (k: string) => wrapper.find('input').trigger('keydown', {key: k}).then(settled)
+    const type = (text: string) => wrapper.find('input').setValue(text).then(settled).then(settled)
     const rows = () => wrapper.findAll('li').map(li => li.text())
     return {wrapper, updates, key, type, rows}
 }
@@ -39,9 +44,12 @@ describe('PropertyPicker', () => {
         expect(updates).toEqual(['done'])
     })
 
-    it('moves with the arrows, round the ends', async () => {
+    it('moves with the arrows, and stops at the ends', async () => {
         const {updates, key} = await mount('todo')
         await key('ArrowUp')
+        await key('ArrowDown')
+        await key('ArrowDown')
+        await key('ArrowDown')
         await key('Enter')
         expect(updates).toEqual(['done'])
     })
@@ -57,7 +65,8 @@ describe('PropertyPicker', () => {
 
     it('toggles many and stays open, and offers what was typed when it can make one', async () => {
         const {wrapper, updates, key, type, rows} = await mount(['todo'], {multiple: true, creatable: true, createVerb: 'Add'})
-        await wrapper.findAll('li')[0]!.trigger('click')
+        // Headless UI picks on the press, so a drag off the option doesn't pick it.
+        await wrapper.findAll('li')[0]!.trigger('mousedown', {button: 0})
         expect(updates.at(-1)).toEqual([])
         expect(wrapper.find('[role=listbox]').exists()).toBe(true)
         await type('Blocked')

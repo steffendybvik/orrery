@@ -4,7 +4,8 @@ import type {Feed} from '../../utils/signal-feed'
 // server-sent event stream: each `signal` event as `…/projects/:project/signals/stream` sends it (its `project` says
 // whose), and `stop` when the owner stops the session. `*` follows every project, and each one made later too. The
 // session counts as listening on each. `?after=` or `Last-Event-ID` catches up on every one of them (signal ids run
-// across projects); a session Orrery started names its project (`started_for`), whose feed takes its launch.
+// across projects); a session Orrery started names its project (`started_for`), whose feed takes its launch. `name`
+// tells the session what Orrery calls it, and again when that changes.
 export default defineEventHandler(async event => {
     const query = getQuery(event)
     const text = (key: string) => typeof query[key] === 'string' && query[key] ? String(query[key]) : undefined
@@ -24,10 +25,13 @@ export default defineEventHandler(async event => {
     const feeds: Feed[] = []
     const stream = createEventStream(event)
     let closed = false
+    let unnamed: (() => void) | undefined
     const add = async (project: string, catchUp: number | undefined) => {
         const feed = await openFeed(project, listenerOf(text, project === startedFor), catchUp, origin)
         if (closed) return feed.close()
         feeds.push(feed)
+        // Its name before anything it catches up on.
+        unnamed ??= sayName(stream, () => feeds.find(f => f.attended)?.attended?.id)
         await streamFeed(stream, feed, text('name'))
     }
     // The owner stopping this session: its channel ends it.
@@ -55,6 +59,7 @@ export default defineEventHandler(async event => {
         projectEvents.off('session-stop', stopped)
         projectEvents.off('project', made)
         projectEvents.off('removed', removed)
+        unnamed?.()
         feeds.forEach(f => f.close())
         await stream.close()
     })

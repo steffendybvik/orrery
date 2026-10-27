@@ -7,7 +7,8 @@
 // with this server registered under that name in the repo's .mcp.json, one entry per Orrery (an older setup
 // named it after its project, which works the same). ORRERY_PROJECTS lists the projects it serves (`hub,css,pos`),
 // or `*` for every project on the Orrery as it starts; ORRERY_PROJECT names one, as older setups do; the folder's
-// name by default. ORRERY_URL is where Orrery runs (http://localhost:9000 by default), and ORRERY_ID the Orrery
+// name by default. ORRERY_HEAR narrows that to the ones named (the launcher sets it for a session started for some of
+// the repo's projects); one it doesn't serve is let go. ORRERY_URL is where Orrery runs (http://localhost:9000 by default), and ORRERY_ID the Orrery
 // it must be (its id, on its Connect page): another one at that address is refused, so a repo set up for one
 // Orrery never writes to another. Only stderr is for logs: stdout is the MCP connection.
 import {readdirSync, readFileSync, statSync} from 'node:fs'
@@ -16,6 +17,7 @@ import {basename, join} from 'node:path'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
+import {narrowed} from './repo-channels.mjs'
 import {serverName} from './server-name.mjs'
 import {claudeWindow} from './session.mjs'
 import {follow} from './sse.mjs'
@@ -23,10 +25,12 @@ import {orreryTools, toolsFor} from './tools.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 const listed = (process.env.ORRERY_PROJECTS || process.env.ORRERY_PROJECT || basename(process.cwd())).split(',').map(p => p.trim()).filter(Boolean)
-/** `*`: every project on the Orrery, known once it's reached. */
-const every = listed.includes('*')
+/** The projects it serves, as ORRERY_HEAR narrows them: for `*`, those named (`null`, every project on the Orrery,
+ * known once it's reached). */
+const hearing = narrowed(listed, process.env.ORRERY_HEAR)
+const every = hearing === null
 /** The projects it serves (filled in once the Orrery is reached, for `*`). */
-const projects = every ? [] : listed
+const projects = every ? [] : hearing
 const apiOf = project => `${base}/api/projects/${encodeURIComponent(project)}`
 const log = (...parts) => console.error('[orrery channel]', ...parts)
 // Which window this is, so Orrery can list it, aim a signal at it and know who got one.
@@ -48,7 +52,8 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, releases, docs, doc, write_doc): use them instead of curl.',
         ...every || projects.length > 1 ? ['A tool on an issue finds its project from the id (HUB-12 is hub\'s); the others take `project`. Each <channel> block says its project.'] : [],
         'Its messages arrive as <channel ...> blocks and come from the owner through Orrery.',
-        'When one asks you to focus on an issue: read it (issue), start it (start_issue), comment as the work moves (comment), and finish it when it ships (finish_issue).',
+        'When one asks you to focus on an issue: read it (issue), start it (start_issue), read the docs it touches (docs lists them with a line each, doc reads one) before the code, comment as the work moves (comment), and finish it when it ships (finish_issue).',
+        'Docs are where decisions and how things work live: when one turns out wrong or out of date, fix it (write_doc) as part of the work.',
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
         'A proposal waiting on the owner isn\'t work yet: don\'t start, assign or move it until they approve it (Orrery refuses unless they\'ve turned that off); comment on it instead.',
         'When one brings the owner\'s comment on an issue, answer it with a comment on that issue.',
@@ -196,10 +201,23 @@ async function deliver(project, signal, query) {
     // What the owner gave the session as they started it goes with every signal, so it never drifts out.
     if (signal.context) content = `${content}\n\n${signal.context}`
     const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : {schedule: String(signal.schedule)}
-    await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind}}})
+    await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind, ...named ? {session: named} : {}}}})
     log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : `from schedule ${signal.schedule}`)}`)
     // Tells Orrery it got here, so the owner sees which window has it.
     await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST'}).catch(() => {})
+}
+
+/** What Orrery calls this session (`orrery · …`), as its stream says: every signal carries it, and Claude hears it
+ * once, and again when it changes. */
+let named = ''
+async function nameIs(name) {
+    if (!name || name === named) return
+    named = name
+    log(`Orrery calls this session ${name}`)
+    await server.notification({method: 'notifications/claude/channel', params: {
+        content: `Orrery calls this session ${name}: that's how the owner sees it on the Sessions page and in the sidebar.`,
+        meta: {kind: 'name', session: name},
+    }})
 }
 
 /** The owner stopped this session from Orrery: ends its claude process, which takes this server with it. */
@@ -229,6 +247,7 @@ function listen({url, started, label}) {
         onOpen: () => log(`listening for ${label}'s signals at ${base}`),
         onEvent: async ({event, data, id}) => {
             if (event === 'stop') return quit()
+            if (event === 'name') return nameIs(JSON.parse(data).name)
             if (event !== 'signal') return
             last = Math.max(last, Number(id) || 0)
             const signal = JSON.parse(data)

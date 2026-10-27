@@ -211,7 +211,7 @@ async function pick(tint: string | null) {
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.tracker }}</h2>
           <p class="text-xs text-muted">
-            This board is yours; the team's tasks live on its tracker (Linear, Jira). An issue's Team tasks link there:
+            This board is yours; the team's tasks live on its tracker. An issue's Team tasks link there:
             give a task's web address with <span class="font-mono">{id}</span> where its id goes.
           </p>
         </header>
@@ -220,7 +220,7 @@ async function pick(tint: string | null) {
               v-model="tracker"
               type="url"
               aria-label="Team tracker"
-              placeholder="https://linear.app/your-team/issue/{id}"
+              placeholder="https://tracker.example.com/issue/{id}"
               spellcheck="false"
               class="h-8 w-[28rem] max-w-full field font-mono"
               @blur="saveTracker"

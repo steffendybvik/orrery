@@ -19,6 +19,8 @@ const messaging = ref(false)
 // Whose session settings the two sections below show: the Orrery's (every project), or one project's own.
 const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
+const scopeOptions = computed(() => [{value: '', label: 'Every project'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
+const terminalOptions = Object.entries(TERMINALS).map(([value, label]) => ({value, label}))
 
 // A session that hears several projects spans them (heardBy): it's listed once, on top under Across projects, and in
 // each project it hears that has sessions of its own as a line saying so (`via`).
@@ -124,23 +126,24 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
             (on Linux, the system's own terminal).
           </p>
         </header>
-        <select
-            :value="settings.terminal"
-            aria-label="Terminal app"
-            class="h-8 w-56 field"
-            @change="save({terminal: ($event.target as HTMLSelectElement).value as keyof typeof TERMINALS})"
+        <PropertyPicker
+            :model-value="settings.terminal"
+            :options="terminalOptions"
+            label="Terminal app"
+            field
+            class="self-start"
+            @update:model-value="save({terminal: $event as keyof typeof TERMINALS})"
         >
-          <option v-for="(name, key) in TERMINALS" :key="key" :value="key">{{ name }}</option>
-        </select>
+          <span class="w-40 truncate">{{ TERMINALS[settings.terminal] }}</span>
+        </PropertyPicker>
       </section>
       <section id="hear" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
           <div class="flex items-center gap-3">
             <h2 class="text-[15px] font-semibold text-fg">What sessions hear</h2>
-            <select v-model="scope" aria-label="What sessions hear, for" class="h-7 max-w-44 shrink-0 cursor-pointer truncate rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line focus:outline-none">
-            <option value="">Every project</option>
-            <option v-for="p in ordered" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
+            <PropertyPicker v-model="scope" :options="scopeOptions" label="What sessions hear, for" placeholder="Find a project…" field small>
+              <span class="truncate">{{ scopeOptions.find(o => o.value === scope)?.label ?? scope }}</span>
+            </PropertyPicker>
           </div>
           <p class="text-xs text-muted">
             The message a Claude session gets when you ask it to focus on an issue or work through a chunk. For one project, its
@@ -153,10 +156,9 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <header class="flex flex-col gap-0.5">
           <div class="flex items-center gap-3">
             <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
-            <select v-model="scope" aria-label="Presets, for" class="h-7 max-w-44 shrink-0 cursor-pointer truncate rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line focus:outline-none">
-            <option value="">Every project</option>
-            <option v-for="p in ordered" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
+            <PropertyPicker v-model="scope" :options="scopeOptions" label="Presets, for" placeholder="Find a project…" field small>
+              <span class="truncate">{{ scopeOptions.find(o => o.value === scope)?.label ?? scope }}</span>
+            </PropertyPicker>
           </div>
           <p class="text-xs text-muted">
             Saved context to give a session as you start it, for sessions on any project or, picked here, one project's own.
