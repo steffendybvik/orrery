@@ -263,7 +263,7 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     focus_prompt: {type: 'string', nullable: true},
     chunk_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
-    tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://linear.app/you/issue/{id}'},
+    tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://tracker.example.com/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
     /** `{limit, minutes?, idle_minutes?}` lets Orrery start sessions, for any project with a launcher; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},

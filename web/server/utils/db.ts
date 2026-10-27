@@ -502,7 +502,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     UPDATE settings SET key = 'focus_prompt' WHERE key = 'focusPrompt';
     UPDATE settings SET key = 'chunk_prompt' WHERE key = 'chunkPrompt';
 `, `
-    -- An issue's tasks on the team's tracker (Linear, Jira): a JSON list of ids or URLs.
+    -- An issue's tasks on the team's tracker: a JSON list of ids or URLs.
     ALTER TABLE issues ADD COLUMN external TEXT NOT NULL DEFAULT '[]';
 `, `
     -- Not every project ships: one has no releases, its own, or another's (\`releases_from\`). Those with

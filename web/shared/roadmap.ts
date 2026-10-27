@@ -425,7 +425,7 @@ export interface Settings {
     /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;
      * none uses their id. */
     handle: string | null
-    /** Where the team's tracker shows a task, with `{id}` for its id: `https://linear.app/acme/issue/{id}`. */
+    /** Where the team's tracker shows a task, with `{id}` for its id: `https://tracker.example.com/issue/{id}`. */
     tracker: string | null
     /** Whether Orrery starts sessions itself, for any project whose repo has a launcher, and within what; none
      * while the owner hasn't let it. */
