@@ -1,29 +1,20 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
 import {TERMINALS} from '#shared/roadmap'
+import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 
-// A session Orrery started, beside its row: how long it has left (or that it runs until stopped), Watch (its launcher
-// opens a terminal on it) with the command that attaches to its tmux session to copy, and the owner's +30 min (for
-// one with a time) and Stop.
+// A session Orrery started, at the end of its card's first row: Watch (its launcher opens a terminal on it) and Show
+// screen (`viewing`, its live screen on the page) out front, the rest under ⋯: the command that attaches to its tmux
+// session to copy, the owner's +30 min (for one with a time) and Stop, which asks once more, as whatever the session
+// was in the middle of goes with it. Headless UI's Menu does the keys, focus and outside-click.
 const props = defineProps<{session: Session}>()
+const viewing = defineModel<boolean>('viewing', {default: false})
 const {load} = useOwner()
 const busy = ref<'stop' | 'extend' | 'watch' | null>(null)
 const {settings} = useAppSettings()
 const failed = ref('')
-
-// Ticks once a minute, so the time left stays right on an open page.
-const now = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | undefined
-onMounted(() => timer = setInterval(() => now.value = Date.now(), 60_000))
-onBeforeUnmount(() => clearInterval(timer))
-const left = computed(() => {
-    const stopsAt = props.session.started?.stops_at
-    if (!stopsAt) return 'running'
-    const minutes = Math.round((Date.parse(stopsAt) - now.value) / 60_000)
-    // Past its time, it's waiting to finish what it's on.
-    if (minutes <= 0) return 'stops when done'
-    return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m left` : `${minutes}m left`
-})
+const stopping = ref(false)
+const note = ref('')
 
 async function act(what: 'stop' | 'extend' | 'watch') {
     const launch = props.session.started?.launch
@@ -34,28 +25,61 @@ async function act(what: 'stop' | 'extend' | 'watch') {
         await $fetch(`/api/projects/${encodeURIComponent(props.session.project)}/launches/${launch}/${what}`, {
             method: 'POST', headers: {'Orrery-Actor': await load()}, body: what === 'extend' ? {minutes: 30} : {},
         })
+        stopping.value = false
     } catch (error) {
         failed.value = errorMessage(error)
     } finally {
         busy.value = null
     }
 }
+
+async function copyAttach() {
+    if (props.session.started && await copyText(`tmux attach -t ${props.session.started.tmux}`)) {
+        note.value = 'Copied'
+        setTimeout(() => note.value = '', 2000)
+    }
+}
 </script>
 
 <template>
-  <span v-if="session.started" class="flex shrink-0 items-center gap-1.5 text-xs text-faint">
-    <span :title="session.started.stops_at ? `Orrery started it; it stops at ${new Date(session.started.stops_at).toLocaleTimeString()}, or once it's done after that` : 'Orrery started it; it runs until stopped'">started · {{ left }}</span>
-    <UiButton
-        size="xs"
-        :disabled="!!busy"
-        :title="`Open ${TERMINALS[settings.terminal]} on ${session.name}, on its launcher's machine`"
-        @click="act('watch')"
-    >
-      {{ busy === 'watch' ? 'Opening…' : 'Watch' }}
-    </UiButton>
-    <CopyButton :text="`tmux attach -t ${session.started.tmux}`" label="" :name="`tmux attach -t ${session.started.tmux}`" />
-    <UiButton v-if="session.started.stops_at" size="xs" :disabled="!!busy" title="Give it 30 more minutes" @click="act('extend')">+30 min</UiButton>
-    <UiButton variant="danger-outline" size="xs" :disabled="!!busy" :title="`Stop ${session.name} now`" @click="act('stop')">{{ busy === 'stop' ? 'Stopping…' : 'Stop' }}</UiButton>
+  <span v-if="session.started" class="flex shrink-0 items-center gap-1.5 text-xs">
     <span v-if="failed" class="text-rose-600 dark:text-rose-400">{{ failed }}</span>
+    <span v-if="note" class="text-faint">{{ note }}</span>
+    <template v-if="stopping">
+      <span class="text-muted">Stop {{ session.name }}?</span>
+      <UiButton variant="danger-outline" size="xs" :disabled="!!busy" @click="act('stop')">{{ busy === 'stop' ? 'Stopping…' : 'Stop' }}</UiButton>
+      <UiButton size="xs" :disabled="!!busy" @click="stopping = false">Cancel</UiButton>
+    </template>
+    <template v-else>
+      <UiButton
+          size="xs"
+          :disabled="!!busy"
+          :title="`Open ${TERMINALS[settings.terminal]} on ${session.name}, on its launcher's machine`"
+          @click="act('watch')"
+      >
+        {{ busy === 'watch' ? 'Opening…' : 'Watch' }}
+      </UiButton>
+      <UiButton size="xs" :aria-expanded="viewing" @click="viewing = !viewing">{{ viewing ? 'Hide screen' : 'Show screen' }}</UiButton>
+      <Menu as="div" class="relative">
+        <MenuButton as="template">
+          <UiButton size="xs" square :aria-label="`More for ${session.name}`" :title="`More for ${session.name}`">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+          </UiButton>
+        </MenuButton>
+        <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-60">
+          <MenuItem v-if="session.started.stops_at" v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" :disabled="!!busy" @click="act('extend')">+30 minutes</UiMenuItem>
+          </MenuItem>
+          <MenuItem v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" @click="copyAttach">
+              <span class="min-w-0 flex-1 truncate">Copy <code class="font-mono text-[11px]">tmux attach -t {{ session.started.tmux }}</code></span>
+            </UiMenuItem>
+          </MenuItem>
+          <MenuItem v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" danger @click="stopping = true">Stop…</UiMenuItem>
+          </MenuItem>
+        </MenuItems>
+      </Menu>
+    </template>
   </span>
 </template>

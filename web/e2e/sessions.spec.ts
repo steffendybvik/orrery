@@ -33,7 +33,8 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await page.goto('/sessions')
         const card = page.locator('#session-e2e-1')
         await expect(card).toContainText('kitchen shelves')
-        await expect(card.getByText('listening')).toBeVisible()
+        // Listening, so it says nothing about hearing signals.
+        await expect(card.getByText("can't hear signals")).toBeHidden()
         await card.getByLabel('Message kitchen shelves').fill('Use the oak hinges, not pine.')
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
