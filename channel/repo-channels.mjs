@@ -70,6 +70,13 @@ export function channelFor(dir, url, project) {
     return found?.channel
 }
 
+/** Whether a session for `project` here, told nothing to hear, hears every project on the Orrery at `url`: its
+ * channel serves `*`. */
+export function servesEvery(dir, url, project) {
+    const channel = channelFor(dir, url, project)
+    return !!channel && served(channel).every
+}
+
 /** The projects a channel hears: those it lists (ORRERY_PROJECTS), as `hear` (ORRERY_HEAR, comma-separated) narrows
  * them to the ones named that it serves; `null` for every project on its Orrery (`*`, and no `hear`). A `hear` naming
  * none it serves is let go, so a session never ends up hearing nothing. */
