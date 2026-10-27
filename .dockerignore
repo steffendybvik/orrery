@@ -4,5 +4,10 @@
 **/.data
 .git
 .env
+.env.*
+!.env.example
+.claude/settings.local.json
+.playground/data
+.playground/backup
 *.log
 .DS_Store
