@@ -128,13 +128,17 @@ describe('StartSessionDialog', () => {
         expect(wrapper.text()).toContain('ORRERY_PROJECTS=*')
         expect(submit().attributes('disabled')).toBeDefined()
 
-        // Scullery's launcher runs where the channel serves every project; Larder, before it, doesn't.
+        // Scullery's launcher runs where the channel serves every project; Larder, before it, doesn't. The first dialog
+        // goes before the next opens: two open at once race for the page, and under coverage the second can lose.
+        mounted.splice(0).forEach(w => w.unmount())
+        useStartSession().close()
         Object.assign(STATES.scullery!, {every: true})
         try {
             const {wrapper: again, submit: start} = await mount(null)
             await vi.waitFor(() => expect(again.text()).toContain("One session hearing every project, projects made later too, started in Scullery's repo."))
             expect(again.text()).toContain('none ticked: one session hearing every project')
-            await again.findAll('button').find(b => b.text().includes('Reviewer'))!.trigger('click')
+            await vi.waitFor(() => expect(again.findAll('[aria-label="Presets"] button').length).toBeGreaterThan(0))
+            await again.findAll('[aria-label="Presets"] button').find(b => b.text().includes('Reviewer'))!.trigger('click')
             await again.find('textarea').setValue('Triage what came in overnight')
             expect(start().attributes('disabled')).toBeUndefined()
             await again.find('form').trigger('submit')
