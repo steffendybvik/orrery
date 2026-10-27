@@ -161,6 +161,21 @@ export async function openFeed(project: string, who: Listener, from: number | un
 /** Sends the feed's signals on a server-sent event stream as `signal` events, each with its id: what it missed and
  * what it should hear as it connects (scheduled work nobody heard, the owner's unanswered comments), then each as
  * it's sent. Several feeds can share a stream. */
+/** Tells the session on a stream its name as a `name` event `{name}`: once it's known, and again whenever it changes
+ * (a move to another project, a name its hooks give). Says how to stop. */
+export function sayName(stream: {push: (message: {event: string, data: string}) => unknown}, session: () => string | undefined): () => void {
+    let said: string | undefined
+    const say = () => {
+        const name = sessionName(session())
+        if (!name || name === said) return
+        said = name
+        stream.push({event: 'name', data: JSON.stringify({name})})
+    }
+    say()
+    projectEvents.on('sessions', say)
+    return () => projectEvents.off('sessions', say)
+}
+
 export async function streamFeed(stream: {push: (message: {id?: string, event: string, data: string}) => unknown}, feed: Feed, name?: string) {
     const {project, attended, heard} = feed
     const store = useStore()

@@ -1,5 +1,6 @@
 import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {SESSION_NAMES} from '#shared/roadmap'
 
 // The sessions live in the module, so each test gets a fresh one; `projectEvents` is a Nitro auto-import.
 let sessions: typeof import('../server/utils/sessions')
@@ -24,11 +25,19 @@ afterEach(() => {
 })
 
 describe('a session', () => {
-    it('is named after its project, the lowest number free', () => {
-        expect(sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})?.name).toBe('larder 1')
-        expect(sessions.report({id: 'b', project: 'larder', event: 'SessionStart'})?.name).toBe('larder 2')
+    it('is named after its project and the first Norse name free there, then on with II', () => {
+        for (let i = 0; i < SESSION_NAMES.length; i++) sessions.report({id: `n${i}`, project: 'pantry', event: 'SessionStart'})
+        expect(sessions.listSessions('pantry').map(s => s.name).slice(0, 3)).toEqual(['pantry · Odin', 'pantry · Tor', 'pantry · Frigg'])
+        expect(sessions.report({id: 'over', project: 'pantry', event: 'SessionStart'})?.name).toBe('pantry · Odin II')
+        sessions.report({id: 'n2', project: 'pantry', event: 'SessionEnd'})
+        expect(sessions.report({id: 'again', project: 'pantry', event: 'SessionStart'})?.name).toBe('pantry · Frigg')
+    })
+
+    it('is named after its project, the first name free', () => {
+        expect(sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Odin')
+        expect(sessions.report({id: 'b', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Tor')
         sessions.report({id: 'a', project: 'larder', event: 'SessionEnd'})
-        expect(sessions.report({id: 'c', project: 'larder', event: 'SessionStart'})?.name).toBe('larder 1')
+        expect(sessions.report({id: 'c', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Odin')
         expect(sessions.report({id: 'd', project: 'larder', name: 'pantry', event: 'SessionStart'})?.name).toBe('pantry')
         expect(changed.every(p => p === 'larder')).toBe(true)
     })
@@ -68,10 +77,10 @@ describe('a session', () => {
     it('first heard of by its pid takes its id when a hook brings it, and keeps no pid in public', () => {
         expect(sessions.report({pid: 42, project: 'larder', event: 'SessionStart'})?.id).toBe('pid-42')
         const now = sessions.report({id: 'abc', pid: 42, project: 'larder', cwd: '/repo', event: 'UserPromptSubmit'})!
-        expect(now).toMatchObject({id: 'abc', name: 'larder 1', cwd: '/repo', state: 'working'})
+        expect(now).toMatchObject({id: 'abc', name: 'larder · Odin', cwd: '/repo', state: 'working'})
         expect(now).not.toHaveProperty('pid')
         expect(sessions.listSessions().map(s => s.id)).toEqual(['abc'])
-        expect(sessions.sessionName('abc')).toBe('larder 1')
+        expect(sessions.sessionName('abc')).toBe('larder · Odin')
         expect(sessions.sessionName(undefined)).toBeUndefined()
     })
 
@@ -82,7 +91,7 @@ describe('a session', () => {
         expect(sessions.listSessions('larder')[0]!.listening).toBe(false)
         // A session started without the channel flag connects but wouldn't hear.
         expect(sessions.attend('larder', 'b', undefined, undefined, false)).toMatchObject({id: 'b'})
-        expect(sessions.listSessions('larder').find(s => s.id === 'b')).toMatchObject({name: 'larder 1', listening: false})
+        expect(sessions.listSessions('larder').find(s => s.id === 'b')).toMatchObject({name: 'larder · Odin', listening: false})
     })
 
     it('takes the focus made for its launch as its own', () => {
@@ -173,10 +182,10 @@ describe('a session', () => {
 
     it("moves to the heard channel's project when a skipped one connected first", () => {
         sessions.attend('hub', 'w', undefined, undefined, false)
-        expect(sessions.listSessions('hub')).toMatchObject([{id: 'w', name: 'hub 1', listening: false}])
+        expect(sessions.listSessions('hub')).toMatchObject([{id: 'w', name: 'hub · Odin', listening: false}])
         sessions.attend('docs', 'w', undefined, undefined)
         expect(sessions.listSessions('hub')).toEqual([])
-        expect(sessions.listSessions('docs')).toMatchObject([{id: 'w', name: 'docs 1', listening: true}])
+        expect(sessions.listSessions('docs')).toMatchObject([{id: 'w', name: 'docs · Odin', listening: true}])
     })
 
     it("can be stopped only through its own project's channel, which hears the stop", () => {
@@ -196,13 +205,13 @@ describe('a session', () => {
     it('outlives a /clear: the new id takes it over by its pid, and the old one stays an alias', () => {
         const channel = sessions.attend('larder', 'before', 42, undefined)
         sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'before', name: 'larder 1', listening: true, state: 'idle'}])
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'before', name: 'larder · Odin', listening: true, state: 'idle'}])
         sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder 1', listening: true}])
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder · Odin', listening: true}])
         // The channel, connected before, now goes by the new id; its old one still finds the session.
         expect(channel.id).toBe('after')
         expect([sessions.currentId('before'), sessions.currentId('other')]).toEqual(['after', 'other'])
-        expect([sessions.hearing('larder', 'before'), sessions.sessionName('before')]).toEqual([true, 'larder 1'])
+        expect([sessions.hearing('larder', 'before'), sessions.sessionName('before')]).toEqual([true, 'larder · Odin'])
         // Its channel goes on reporting with the old id, which doesn't take the session back to it.
         sessions.report({id: 'before', project: 'larder', event: 'working'})
         expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', state: 'working'}])
@@ -232,7 +241,7 @@ describe('a session', () => {
         sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart', source: 'clear'})
         // `claude --resume before` in another terminal.
         sessions.report({id: 'before', pid: 99, project: 'larder', event: 'SessionStart', source: 'resume'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder 1', listening: true}, {id: 'before', name: 'larder 2', listening: false}])
+        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder · Odin', listening: true}, {id: 'before', name: 'larder · Tor', listening: false}])
         expect(sessions.currentId('before')).toBe('before')
         // The first window's channel, still on the old id, reaches its own session by its pid.
         sessions.attend('larder', 'before', 42, undefined).done()
@@ -340,7 +349,7 @@ describe('stopping a session', () => {
         const second = sessions.attend('larder', 'a', undefined, undefined, false, undefined, true)
         expect(sessions.listSessions('larder')[0]!.reachable).toBe(true)
         expect(() => sessions.stopSession('mesa', 'a')).toThrow('No session a in mesa')
-        expect(sessions.stopSession('larder', 'a').name).toBe('larder 1')
+        expect(sessions.stopSession('larder', 'a').name).toBe('larder · Odin')
         expect(asked).toEqual([{project: 'larder', id: 'a'}])
         // An id it had before a /clear still reaches it.
         sessions.report({id: 'a', pid: 7, project: 'larder', event: 'SessionEnd', reason: 'clear'})
@@ -368,7 +377,7 @@ describe('stopping a session', () => {
         })
         vi.stubGlobal('launchersOf', () => 0)
         sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T00:00:00.000Z'}, true)
-        expect(sessions.stopSession('larder', 'b').name).toBe('larder 1')
+        expect(sessions.stopSession('larder', 'b').name).toBe('larder · Odin')
         expect(asked).toEqual([{project: 'larder', id: 'b'}])
     })
 })
@@ -405,5 +414,21 @@ describe('a message to every session', () => {
         expect(ids(['pantry'], ['idle', 'working'])).toEqual(['a', 'b'])
         expect(ids(['larder'], ['idle', 'working'])).toEqual(['a'])
         expect(ids(['mesa'])).toEqual([])
+    })
+})
+
+describe("a session's stream", () => {
+    it('tells it its name once known, and again only when it changes', async () => {
+        vi.stubGlobal('sessionName', sessions.sessionName)
+        const {sayName} = await import('../server/utils/signal-feed')
+        const pushed: string[] = []
+        const stop = sayName({push: ({event, data}) => pushed.push(`${event} ${JSON.parse(data).name}`)}, () => 'a')
+        expect(pushed).toEqual([])
+        sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})
+        sessions.report({id: 'a', project: 'larder', event: 'UserPromptSubmit'})
+        sessions.report({id: 'a', project: 'larder', name: 'pantry', event: 'SessionStart'})
+        stop()
+        sessions.report({id: 'a', project: 'larder', name: 'cellar', event: 'SessionStart'})
+        expect(pushed).toEqual(['name larder · Odin', 'name pantry'])
     })
 })

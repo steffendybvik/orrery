@@ -282,7 +282,7 @@ an agent's P0. A schedule that asks the sessions sends its one focus, saying the
 | `POST /projects/:project/issues/:issue/focus` | `{note?, instructions?}` → `{signal, listeners}`: sends it, and says how many sessions heard |
 | `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?, release?, instructions?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk; `all`: every chunk's); `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, and `release` (a version) to those set for it, at any depth |
 | `GET /projects/:project/signals?after=` | the signals after that id, oldest first; `?issue=` or `?chunk=` for the latest about one |
-| `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up); a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
+| `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up), and `name` `{name}`: what Orrery calls the session, once it's known and again when it changes; a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
 | `GET /signals/stream?projects=hub,css` | the same for a session on several projects, on one stream: each `signal` says its `project`; `*` follows every project, and each one made later; `404` for a project that doesn't exist |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
 
@@ -303,7 +303,9 @@ the channel.
 The Claude sessions working on a project, live (not stored): their name, what they're doing and
 whether they're listening. Hooks report state (`channel/orrery-hook.mjs` on `SessionStart`,
 `UserPromptSubmit`, `Stop`, `Notification`, `SessionEnd`); the channel's connection says it's
-listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION` names it. A `/clear`
+listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION` names it. One with no name of its
+own is `<project> · <name>`, the first Norse name no session on the project has (Odin, Tor, Frigg… then `Odin II`),
+renamed for a project it moves to. A `/clear`
 gives the window a new id while its channel stays connected: the session keeps its name and listening,
 and its old ids still find it.
 

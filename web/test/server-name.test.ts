@@ -12,8 +12,8 @@ describe("the channel's server name", () => {
     })
 
     it("restarts a session with the server its channel found, else the Orrery's as Connect names it", () => {
-        expect(restartCommand({name: 'hub 2', project: 'hub', server: 'orrery-hub'}, 'Work')).toBe('claude --dangerously-load-development-channels server:orrery-hub')
-        expect(restartCommand({name: 'hub 2', project: 'hub'}, 'Work')).toBe('claude --dangerously-load-development-channels server:orrery-work')
+        expect(restartCommand({name: 'hub · Tor', project: 'hub', server: 'orrery-hub'}, 'Work')).toBe('claude --dangerously-load-development-channels server:orrery-hub')
+        expect(restartCommand({name: 'hub · Tor', project: 'hub'}, 'Work')).toBe('claude --dangerously-load-development-channels server:orrery-work')
         expect(restartCommand({name: 'reviewer', project: 'hub', server: 'shop'}, 'Work')).toBe('ORRERY_SESSION=reviewer claude --dangerously-load-development-channels server:shop')
     })
 })

@@ -196,10 +196,23 @@ async function deliver(project, signal, query) {
     // What the owner gave the session as they started it goes with every signal, so it never drifts out.
     if (signal.context) content = `${content}\n\n${signal.context}`
     const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : {schedule: String(signal.schedule)}
-    await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind}}})
+    await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind, ...named ? {session: named} : {}}}})
     log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : `from schedule ${signal.schedule}`)}`)
     // Tells Orrery it got here, so the owner sees which window has it.
     await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST'}).catch(() => {})
+}
+
+/** What Orrery calls this session (`orrery · Odin`), as its stream says: every signal carries it, and Claude hears it
+ * once, and again when it changes. */
+let named = ''
+async function nameIs(name) {
+    if (!name || name === named) return
+    named = name
+    log(`Orrery calls this session ${name}`)
+    await server.notification({method: 'notifications/claude/channel', params: {
+        content: `Orrery calls this session ${name}: that's how the owner sees it on the Sessions page and in the sidebar.`,
+        meta: {kind: 'name', session: name},
+    }})
 }
 
 /** The owner stopped this session from Orrery: ends its claude process, which takes this server with it. */
@@ -229,6 +242,7 @@ function listen({url, started, label}) {
         onOpen: () => log(`listening for ${label}'s signals at ${base}`),
         onEvent: async ({event, data, id}) => {
             if (event === 'stop') return quit()
+            if (event === 'name') return nameIs(JSON.parse(data).name)
             if (event !== 'signal') return
             last = Math.max(last, Number(id) || 0)
             const signal = JSON.parse(data)

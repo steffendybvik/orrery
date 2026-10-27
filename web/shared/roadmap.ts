@@ -564,3 +564,19 @@ export function keyFor(name: string): string {
     const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
     return letters.slice(0, 3) || 'ISS'
 }
+
+/** The names Orrery gives sessions that have none of their own, in the order it hands them out, written as in
+ * Norwegian: æsene, vanene, jotnene, a light elf, and dverger (Snorri's svartalver are the same folk). */
+export const SESSION_NAMES = [
+    'Odin', 'Tor', 'Frigg', 'Balder', 'Ty', 'Heimdall', 'Loke', 'Brage', 'Idun', 'Vidar', 'Vale', 'Forsete', 'Ull', 'Hod', 'Hermod',
+    'Siv', 'Saga', 'Eir', 'Høne', 'Mime', 'Magne', 'Mode', 'Nanna', 'Fulla', 'Gna', 'Lovn', 'Snotra', 'Sjøvn', 'Var',
+    'Njord', 'Frøy', 'Frøya', 'Kvase', 'Gullveig',
+    'Ymer', 'Skade', 'Gerd', 'Tjatse', 'Trym', 'Surt', 'Hyme', 'Gyme', 'Æge', 'Ran', 'Angerboda', 'Suttung', 'Bauge', 'Gunnlød',
+    'Vavtrudne', 'Rungne', 'Geirrød', 'Hyrrokkin', 'Bergelme', 'Utgardsloke',
+    'Volund',
+    'Durin', 'Motsogne', 'Dvalin', 'Brokk', 'Sindre', 'Andvare', 'Alvis', 'Regin', 'Fjalar', 'Galar', 'Nordre', 'Sudre', 'Austre',
+    'Vestre', 'Alfrik', 'Lit', 'Ny', 'Nide', 'Fili', 'Kili', 'Oin', 'Torin', 'Bombur', 'Gandalv',
+] as const
+
+/** Whether Orrery made the session's name up (`<project> · <name>`), rather than the session or its hooks giving it. */
+export const madeUpName = (session: {name: string, project: string}) => session.name.startsWith(`${session.project} · `)

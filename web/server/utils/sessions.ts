@@ -6,6 +6,7 @@
 // can run a channel for every project in its repo's `.mcp.json`, only the flagged one heard, so it
 // listens (and can be stopped) through its own project's channel only.
 import type {Session, SessionState, StartedSession} from '#shared/roadmap'
+import {SESSION_NAMES, madeUpName} from '#shared/roadmap'
 
 interface Known extends Session {
     pid?: number
@@ -96,12 +97,21 @@ function add(session: Known) {
     sessions.set(session.id, session)
 }
 
-/** "<project> <n>", the lowest n no session on the project has. */
+/** "<project> · <name>", the first of SESSION_NAMES no session on the project has; past them all, "Odin II" and on. */
 function nameFor(project: string): string {
     const taken = new Set(listSessions(project).map(s => s.name))
-    let n = 1
-    while (taken.has(`${project} ${n}`)) n++
-    return `${project} ${n}`
+    for (let round = 1; ; round++) {
+        const free = SESSION_NAMES.map(name => `${project} · ${name}${round > 1 ? ` ${roman(round)}` : ''}`).find(name => !taken.has(name))
+        if (free) return free
+    }
+}
+
+/** 2 → II, 14 → XIV. */
+function roman(n: number): string {
+    const digits: [number, string][] = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]
+    let out = ''
+    for (const [value, digit] of digits) for (; n >= value; n -= value) out += digit
+    return out
 }
 
 function forget(session: Known) {
@@ -268,7 +278,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
 /** Files the session under another project as its own. */
 function moveTo(session: Known, project: string) {
     changed(session.project)
-    if (session.name.startsWith(`${session.project} `)) session.name = nameFor(project)
+    if (madeUpName(session)) session.name = nameFor(project)
     session.project = project
     tally(session)
 }
