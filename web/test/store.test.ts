@@ -797,6 +797,32 @@ describe('the bell', () => {
     })
 })
 
+describe('proposals in the bell', () => {
+    it("wait on the owner until they decide, ahead of the comments, and again when they're put up again", async () => {
+        const agent = {name: 'claude', owner: false}
+        const owner = {name: 'skoll', owner: true}
+        const {id} = await store.createIssue('larder', {title: 'Dark mode', notes: 'Why and how', proposal: 'pending', choices: [{key: 'k', question: 'Which?', options: [{key: 'a', title: 'A'}, {key: 'b', title: 'B'}]}]}, agent)
+        await store.createIssue('larder', {title: 'Its part', parent: id}, agent)
+        await store.createIssue('larder', {title: 'Mine', proposal: 'pending'}, owner)
+        const {id: other} = await store.createIssue('larder', {title: 'B'})
+        await store.createComment('larder', other, {body: 'Ship it?', asks: 'decision'}, agent)
+        const proposal = {id: 0, issue: id, title: 'Dark mode', body: 'Why and how', asks: 'decision', answered: false, proposal: {choices: 1}}
+        expect((await store.notices()).map(n => n.body)).toEqual(['Why and how', 'Ship it?'])
+        expect((await store.notices())[0]).toMatchObject(proposal)
+        expect((await store.notices({list: 'waiting'})).map(n => n.body)).toEqual(['Ship it?', 'Why and how'])
+        expect((await store.notices({list: 'inbox'})).map(n => n.body)).toEqual([])
+        // Clearing leaves it: it goes when it's decided.
+        await store.clearNotices({before: new Date(Date.now() + 1000).toISOString()})
+        expect((await store.notices()).map(n => n.body)).toContain('Why and how')
+        await store.decide('larder', id, {decision: 'changes', note: 'Shorter'}, owner)
+        expect((await store.notices()).map(n => n.body)).not.toContain('Why and how')
+        await store.updateIssue('larder', id, {proposal: 'pending'}, agent)
+        expect((await store.notices({list: 'waiting'})).map(n => n.issue)).toContain(id)
+        await store.decide('larder', id, {decision: 'approved', picks: {k: ['a']}}, owner)
+        expect((await store.notices({list: 'waiting'})).map(n => n.issue)).not.toContain(id)
+    })
+})
+
 describe("the notifications page's lists", () => {
     it('splits waiting from the inbox, and pages the inbox and the cleared ones newest first', async () => {
         const {id} = await store.createIssue('larder', {title: 'A'})

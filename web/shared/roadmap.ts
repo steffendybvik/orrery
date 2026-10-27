@@ -516,7 +516,13 @@ export interface Notice extends Comment {
     title: string
     /** Taken out of the bell; only `GET /notices?list=cleared` lists these. */
     cleared?: boolean
+    /** An agent's proposal waiting on the owner instead of a comment: `asks: decision` until they decide it,
+     * its notes as the body, put up at `created_at`, `id` 0. Clearing doesn't take it out. */
+    proposal?: {choices: number}
 }
+
+/** Tells notices apart: a comment by its id, a proposal by its issue. */
+export const noticeKey = (n: Notice) => n.proposal ? `${n.project}/${n.issue}` : String(n.id)
 
 /** The lists of notices: the bell's, and the notifications page's tabs. */
 export const NOTICE_LISTS = ['bell', 'waiting', 'inbox', 'cleared'] as const

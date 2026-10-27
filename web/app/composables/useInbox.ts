@@ -1,4 +1,5 @@
-import type {Notice} from '#shared/roadmap'
+import type {Issue, Notice, Project} from '#shared/roadmap'
+import {noticeKey} from '#shared/roadmap'
 
 /** Waits on the owner: a decision or feedback they haven't answered on the issue, and not cleared. */
 export const isWaiting = (n: Notice) => !n.cleared && !!n.asks && !n.answered
@@ -15,7 +16,8 @@ const PAGE = 50
 // The bell and the notifications page: agents' comments, newest first; those after `seenAt` (remembered
 // in this browser) are new, and those waiting on the owner count until answered. The bell holds the latest
 // 30; the page's lists (waiting, the rest of the inbox, cleared) load a page at a time and change in place.
-// Clearing takes them out of the bell for good (they stay on their issues, and under Cleared).
+// Clearing takes them out of the bell for good (they stay on their issues, and under Cleared). Agents'
+// proposals waiting on the owner lead the bell as decisions, until decided; clearing leaves them.
 export function useInbox() {
     const notices = useState<Notice[]>('notices', () => [])
     const lists = useState<Record<PageList, Loaded>>('notice-lists', () => ({
@@ -66,7 +68,7 @@ export function useInbox() {
     async function clear(ids?: number[]) {
         const owner = await useOwner().load()
         const gone = ids ? new Set(ids) : undefined
-        const going = (n: Notice) => gone ? gone.has(n.id) : isRead(n)
+        const going = (n: Notice) => !n.proposal && (gone ? gone.has(n.id) : isRead(n))
         notices.value = notices.value.filter(n => !going(n))
         for (const list of ['waiting', 'inbox'] as const) lists.value[list].items = lists.value[list].items.filter(n => !going(n))
         lists.value.cleared.loaded = false
@@ -82,8 +84,9 @@ export function useInbox() {
         if (!lists.value.waiting.loaded) return
         const before = lists.value.waiting.items
         await load('waiting')
-        const still = new Set(lists.value.waiting.items.map(n => n.id))
-        const answered = before.filter(n => !still.has(n.id)).map(n => notices.value.find(b => b.id === n.id) ?? {...n, answered: true})
+        const still = new Set(lists.value.waiting.items.map(noticeKey))
+        // A decided proposal just goes; it was never a comment.
+        const answered = before.filter(n => !n.proposal && !still.has(noticeKey(n))).map(n => notices.value.find(b => b.id === n.id) ?? {...n, answered: true})
         const inbox = lists.value.inbox
         if (!inbox.loaded || !answered.length) return
         // Only those inside the pages loaded so far; older ones come with their page.
@@ -92,5 +95,18 @@ export function useInbox() {
             .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
     }
 
-    return {notices, lists, seenAt, unread, waiting, read, isRead, seen, load, arrived, clear, refresh}
+    /** A project from the events stream: reads the bell again when its agents' proposals waiting on the owner
+     * (or what they say) aren't what the bell shows, e.g. one put up, or decided on another tab. */
+    function projectChanged(project: Project) {
+        const pending: string[] = []
+        const walk = (issues: Issue[]) => issues.forEach(i => {
+            if (i.proposal === 'pending' && !i.protected) pending.push(`${project.id}/${i.id}@${i.updated_at}`)
+            else if (!i.proposal) walk(i.tasks)
+        })
+        project.board.chunks.forEach(c => walk(c.tasks))
+        const shown = notices.value.filter(n => n.proposal && n.project === project.id).map(n => `${noticeKey(n)}@${n.updated_at}`)
+        if (pending.sort().join() !== shown.sort().join()) refresh()
+    }
+
+    return {notices, lists, seenAt, unread, waiting, read, isRead, seen, load, arrived, clear, refresh, projectChanged}
 }
