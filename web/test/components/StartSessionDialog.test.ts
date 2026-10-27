@@ -116,7 +116,7 @@ describe('StartSessionDialog', () => {
         const again = (await mount('larder')).wrapper
         await again.find('input[value="scullery"]').setValue(true)
         await vi.waitFor(() => expect(again.text()).toContain('One session for all 2'))
-        await again.findAll('button').find(b => b.text() === 'A session each')?.trigger('click')
+        await again.findAll('[role=radio]').find(b => b.text() === 'A session each')!.trigger('click')
         await again.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(2))
         expect(sent.map(s => [s.project, (s.body as {hears: string[]}).hears])).toEqual([['larder', ['larder']], ['scullery', ['scullery']]])
