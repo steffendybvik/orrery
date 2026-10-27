@@ -148,7 +148,6 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
             <h2 class="truncate text-[15px] font-semibold">{{ group.project.name }}</h2>
           </NuxtLink>
           <span class="font-mono text-[11px] text-faint">{{ group.sessions.length }}</span>
-          <StartSession :project="group.project" class="ml-auto" />
         </header>
         <ul class="flex flex-col gap-3">
           <SessionCard
