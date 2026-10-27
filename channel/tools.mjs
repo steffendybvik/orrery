@@ -82,7 +82,7 @@ export const TOOLS = [
     {
         name: 'docs',
         description: "Lists the project's docs (decisions, how things work), each with a line on what it says. Read the ones a task touches before its code.",
-        inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Only docs with this in their title or text'}}},
+        inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Only docs with every one of these words in their title or text, title hits first, each with the text around its hit'}}},
     },
     {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
@@ -209,7 +209,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async docs(args) {
             const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''
             const docs = await call('GET', `/docs${query}`, undefined, at(await projectOf(args)))
-            return docs.map(d => `${d.id}: ${d.title}${d.summary ? ` — ${d.summary}` : ''}`).join('\n') || (args.q ? 'No docs match.' : 'No docs yet.')
+            return docs.map(d => `${d.id}: ${d.title}${d.summary ? ` — ${d.summary}` : ''}${d.match ? `\n    ${d.match}` : ''}`).join('\n') || (args.q ? 'No docs match.' : 'No docs yet.')
         },
         async doc({id, project}) {
             const doc = await call('GET', `/docs/${encodeURIComponent(id)}`, undefined, at(await projectOf({project})))

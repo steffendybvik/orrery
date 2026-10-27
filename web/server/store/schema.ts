@@ -416,6 +416,19 @@ export function summaryOf(body: string): string {
     return `${cut.slice(0, cut.lastIndexOf(' ') > 100 ? cut.lastIndexOf(' ') : 160).replace(/[,;:.]$/, '')}…`
 }
 
+/** The text around the first of `words` (lowercase) in a doc's text, on one line, about 160 characters; empty when
+ * only its title has them. */
+export function matchOf(body: string, words: string[]): string {
+    const lower = body.toLowerCase()
+    const at = Math.min(...words.map(word => lower.indexOf(word)).filter(i => i >= 0))
+    if (!Number.isFinite(at)) return ''
+    let start = Math.max(0, at - 60)
+    let end = Math.min(body.length, at + 100)
+    if (start > 0) start = body.indexOf(' ', start) + 1 || start
+    if (end < body.length) end = body.lastIndexOf(' ', end) > at ? body.lastIndexOf(' ', end) : end
+    return `${start > 0 ? '…' : ''}${body.slice(start, end).replace(/\s+/g, ' ').trim()}${end < body.length ? '…' : ''}`
+}
+
 export function docOf(row: DocRow): Doc {
     return {
         id: row.id, project: row.project, title: row.title, summary: summaryOf(row.body), body: row.body,

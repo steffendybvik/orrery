@@ -790,8 +790,13 @@ describe('docs', () => {
             expect.stringMatching(/^(word ){20,}word…$/),
         ])
         expect(docs[1]!.summary.length).toBeLessThanOrEqual(161)
-        expect((await store.listDocs('larder', {q: 'REUSED'})).map(d => d.id)).toEqual(['decision-ids'])
-        expect((await store.listDocs('larder', {q: 'running'})).map(d => d.id)).toEqual(['running'])
+        expect((await store.listDocs('larder', {q: 'REUSED'})).map(d => [d.id, d.match])).toEqual([['decision-ids', expect.stringMatching(/^….*Never reused\..*$/)]])
+        expect((await store.listDocs('larder', {q: 'reused number'})).map(d => d.id)).toEqual(['decision-ids'])
+        expect((await store.listDocs('larder', {q: 'reused pnpm'})).map(d => d.id)).toEqual([])
+        // Title hits first, then A–Z.
+        expect((await store.listDocs('larder', {q: 'running'})).map(d => [d.id, d.match])).toEqual([['running', '']])
+        await store.createDoc('larder', {title: 'About', body: 'See running.'})
+        expect((await store.listDocs('larder', {q: 'running'})).map(d => d.id)).toEqual(['running', 'about'])
         expect(await store.listDocs('larder', {q: 'nothing like it'})).toEqual([])
     })
 })

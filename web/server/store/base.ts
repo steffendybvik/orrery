@@ -9,7 +9,7 @@ import type {Db, Value} from '../utils/database'
 import {one} from '../utils/database'
 import type {Instruction} from '#shared/prompt'
 import type {IssueRecord, ChunkRecord, Actor, ProjectRow, ChunkRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
-import {OPEN_ASK, tallyReleases, releaseOf, noReleases, nullable, stamp, summaryOf} from './schema'
+import {OPEN_ASK, tallyReleases, releaseOf, noReleases, nullable, stamp, summaryOf, matchOf} from './schema'
 import {known} from '#shared/known'
 
 export abstract class StoreBase {
@@ -98,14 +98,20 @@ export abstract class StoreBase {
         return rows.map(row => ({...releaseOf(row), ...known(tally.get(row.version), `a tally for ${row.version}`)}))
     }
 
-    /** A project's docs by title, A–Z, sorted here rather than in SQL so SQLite and Postgres agree on case and accents. */
-    /** The project's docs without their text, A–Z; with `q`, only those with it in their title or text. */
+    /** A project's docs without their text, by title, A–Z, sorted here rather than in SQL so SQLite and Postgres agree on
+     * case and accents. With `q`, only those with every word of it in their title or text, any order and case: the ones
+     * with them all in the title first, each with `match`, the text around its first hit. */
     protected async docSummaries(project: string, q = ''): Promise<DocSummary[]> {
-        const needle = q.trim().toLowerCase()
+        const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+        const inTitle = (row: DocRow) => words.every(word => row.title.toLowerCase().includes(word))
         return (await this.all<DocRow>('SELECT * FROM docs WHERE project = ?', project))
-            .filter(row => !needle || row.title.toLowerCase().includes(needle) || row.body.toLowerCase().includes(needle))
-            .sort((a, b) => a.title.localeCompare(b.title, 'en', {sensitivity: 'base', numeric: true}) || a.id.localeCompare(b.id))
-            .map(row => ({id: row.id, title: row.title, summary: summaryOf(row.body), created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at}))
+            .filter(row => words.every(word => `${row.title}\n${row.body}`.toLowerCase().includes(word)))
+            .sort((a, b) => Number(inTitle(b)) - Number(inTitle(a))
+                || a.title.localeCompare(b.title, 'en', {sensitivity: 'base', numeric: true}) || a.id.localeCompare(b.id))
+            .map(row => ({
+                id: row.id, title: row.title, summary: summaryOf(row.body), ...words.length ? {match: matchOf(row.body, words)} : {},
+                created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
+            }))
     }
 
     protected async board(project: string): Promise<Board> {

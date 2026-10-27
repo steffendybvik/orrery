@@ -189,6 +189,8 @@ export interface DocSummary {
     title: string
     /** Its first paragraph as plain text, cut to about 160 characters: enough to tell whether to open it. */
     summary: string
+    /** With a search (`?q=`): the text around its first hit, empty when only the title has it. */
+    match?: string
     created_by: string
     protected: boolean
     created_at: string
