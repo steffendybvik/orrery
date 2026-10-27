@@ -9,22 +9,22 @@ import SessionMessage from '~/components/SessionMessage.vue'
 // emptying the box lets it go, so the next words are plain.
 let sent: unknown[] = []
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
-registerEndpoint('/api/projects/larder/presets', () => [
+registerEndpoint('/api/projects/greenhouse/presets', () => [
     {id: 1, project: null, name: 'Review', text: 'Read the diff.'},
-    {id: 2, project: 'larder', name: 'Release', text: 'Cut the release.'},
+    {id: 2, project: 'greenhouse', name: 'Release', text: 'Cut the release.'},
 ])
-registerEndpoint('/api/projects/larder/sessions/shelves/message', {method: 'POST', handler: async event => {
+registerEndpoint('/api/projects/greenhouse/sessions/shelves/message', {method: 'POST', handler: async event => {
     sent.push(await readBody(event))
     return {}
 }})
 
-const session = {id: 'shelves', name: 'shelves', project: 'larder', state: 'idle', listening: true, since: '', started_at: ''} as Session
+const session = {id: 'shelves', name: 'shelves', project: 'greenhouse', state: 'idle', listening: true, since: '', started_at: ''} as Session
 const mounted: VueWrapper[] = []
 beforeEach(() => sent = [])
 afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
 
 async function mount() {
-    const wrapper = await mountSuspended(SessionMessage, {props: {session, project: 'larder'}, attachTo: document.body})
+    const wrapper = await mountSuspended(SessionMessage, {props: {session, project: 'greenhouse'}, attachTo: document.body})
     mounted.push(wrapper)
     const pick = async (name: string) => {
         await wrapper.find('button[aria-label="Pick a preset"]').trigger('click')

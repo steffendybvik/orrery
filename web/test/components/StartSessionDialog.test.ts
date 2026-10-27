@@ -14,7 +14,7 @@ let refusing: string[] = []
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 registerEndpoint('/api/presets', () => [{id: 1, project: null, name: 'Reviewer', text: 'Review it first'}])
 const STATES: Record<string, object> = {
-    larder: {launchers: 1, folders: ['/src/kitchen'], every: false, started: 0, starting: 0, total: 0},
+    greenhouse: {launchers: 1, folders: ['/src/kitchen'], every: false, started: 0, starting: 0, total: 0},
     pantry: {launchers: 1, folders: ['/src/pantry'], every: false, started: 0, starting: 0, total: 0},
     cellar: {launchers: 0, folders: [], every: false, started: 0, starting: 0, total: 0},
     loft: {launchers: 1, folders: ['/src/loft'], every: false, started: 1, starting: 0, total: 1},
@@ -44,7 +44,7 @@ beforeEach(() => {
     sent = []
     refusing = []
     useRoadmaps().projects.value = [
-        project('larder', {limit: 2, minutes: 30}), project('pantry', {limit: 2}), project('cellar', {limit: 2}), project('loft', {limit: 1}), project('attic', null), project('scullery', {limit: 2}),
+        project('greenhouse', {limit: 2, minutes: 30}), project('pantry', {limit: 2}), project('cellar', {limit: 2}), project('loft', {limit: 1}), project('attic', null), project('scullery', {limit: 2}),
     ]
     useAppSettings().settings.value.statuses = [
         {id: 'backlog', name: 'Backlog', kind: 'backlog', color: 'slate'},
@@ -74,22 +74,22 @@ describe('StartSessionDialog', () => {
         const {row, wrapper} = await mount(null)
         expect(row('attic')).toContain("Orrery doesn't start sessions")
         expect(row('loft')).toContain('At the limit of 1')
-        expect(row('larder')).toContain('30 min')
+        expect(row('greenhouse')).toContain('30 min')
         expect(row('pantry')).toContain('until stopped')
         expect(wrapper.find('input[value="cellar"]').attributes('disabled')).toBeDefined()
     })
 
     it('starts one on the project it opened on, through its Todo and In progress issues, as the owner', async () => {
-        const {row, submit, wrapper} = await mount('larder')
-        expect(row('larder')).toContain('2 issues')
+        const {row, submit, wrapper} = await mount('greenhouse')
+        expect(row('greenhouse')).toContain('2 issues')
         await vi.waitFor(() => expect(submit().attributes('disabled')).toBeUndefined())
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(useStartSession().target.value).toBeNull())
-        expect(sent).toEqual([{project: 'larder', actor: 'skoll', body: {statuses: ['todo', 'in-progress'], presets: [], hears: ['larder']}}])
+        expect(sent).toEqual([{project: 'greenhouse', actor: 'skoll', body: {statuses: ['todo', 'in-progress'], presets: [], hears: ['greenhouse']}}])
     })
 
     it("gives each project's session the Orrery's presets ticked and only its own", async () => {
-        const {wrapper} = await mount('larder')
+        const {wrapper} = await mount('greenhouse')
         await wrapper.find('input[value="pantry"]').setValue(true)
         await vi.waitFor(() => expect(wrapper.findAll('[aria-label="Presets"] button')).toHaveLength(3))
         for (const button of wrapper.findAll('[aria-label="Presets"] button')) await button.trigger('click')
@@ -97,30 +97,30 @@ describe('StartSessionDialog', () => {
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(2))
         expect(sent.map(s => [s.project, s.body])).toEqual([
-            ['larder', {statuses: ['todo', 'in-progress'], presets: [1, 11], instructions: 'Run the e2e suite', hears: ['larder']}],
+            ['greenhouse', {statuses: ['todo', 'in-progress'], presets: [1, 11], instructions: 'Run the e2e suite', hears: ['greenhouse']}],
             ['pantry', {statuses: ['todo', 'in-progress'], presets: [1, 12], instructions: 'Run the e2e suite', hears: ['pantry']}],
         ])
-        // Larder and Pantry are in repos of their own, so there's no starting one session for both.
+        // Greenhouse and Pantry are in repos of their own, so there's no starting one session for both.
         expect(wrapper.text()).not.toContain('One session for all')
     })
 
     it('starts one session hearing projects served from one repo, or a session each', async () => {
-        const {wrapper} = await mount('larder')
+        const {wrapper} = await mount('greenhouse')
         await wrapper.find('input[value="scullery"]').setValue(true)
         await vi.waitFor(() => expect(wrapper.text()).toContain('One session for all 2'))
         expect(wrapper.text()).toContain('one session hearing them all')
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(1))
-        expect(sent[0]).toMatchObject({project: 'larder', body: {hears: ['larder', 'scullery']}})
+        expect(sent[0]).toMatchObject({project: 'greenhouse', body: {hears: ['greenhouse', 'scullery']}})
 
         sent = []
-        const again = (await mount('larder')).wrapper
+        const again = (await mount('greenhouse')).wrapper
         await again.find('input[value="scullery"]').setValue(true)
         await vi.waitFor(() => expect(again.text()).toContain('One session for all 2'))
         await again.findAll('[role=radio]').find(b => b.text() === 'A session each')!.trigger('click')
         await again.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(2))
-        expect(sent.map(s => [s.project, (s.body as {hears: string[]}).hears])).toEqual([['larder', ['larder']], ['scullery', ['scullery']]])
+        expect(sent.map(s => [s.project, (s.body as {hears: string[]}).hears])).toEqual([['greenhouse', ['greenhouse']], ['scullery', ['scullery']]])
     })
 
     it('starts one session hearing every project with none ticked, where a launcher serves them all', async () => {
@@ -128,7 +128,7 @@ describe('StartSessionDialog', () => {
         expect(wrapper.text()).toContain('ORRERY_PROJECTS=*')
         expect(submit().attributes('disabled')).toBeDefined()
 
-        // Scullery's launcher runs where the channel serves every project; Larder, before it, doesn't. The first dialog
+        // Scullery's launcher runs where the channel serves every project; Greenhouse, before it, doesn't. The first dialog
         // goes before the next opens: two open at once race for the page, and under coverage the second can lose.
         mounted.splice(0).forEach(w => w.unmount())
         useStartSession().close()
@@ -152,12 +152,12 @@ describe('StartSessionDialog', () => {
 
     it('keeps a refused project ticked, with why, and lets the rest go', async () => {
         refusing = ['pantry']
-        const {wrapper} = await mount('larder')
+        const {wrapper} = await mount('greenhouse')
         await wrapper.find('input[value="pantry"]').setValue(true)
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(wrapper.text()).toContain('Pantry: Orrery already has its 2 sessions at once'))
-        expect(sent.map(s => s.project)).toEqual(['larder'])
-        expect((wrapper.find('input[value="larder"]').element as HTMLInputElement).checked).toBe(false)
+        expect(sent.map(s => s.project)).toEqual(['greenhouse'])
+        expect((wrapper.find('input[value="greenhouse"]').element as HTMLInputElement).checked).toBe(false)
         expect((wrapper.find('input[value="pantry"]').element as HTMLInputElement).checked).toBe(true)
         expect(useStartSession().target.value).not.toBeNull()
     })

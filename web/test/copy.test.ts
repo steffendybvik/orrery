@@ -17,15 +17,15 @@ async function filled() {
     const store = new Store(new SqliteDb(openDb(':memory:')))
     const owner = {name: 'skoll', owner: true}
     await store.nameOwner({name: 'Skoll'})
-    await store.createProject({name: 'Larder', key: 'LAR'}, owner)
-    await store.createChunk('larder', {title: 'Shelves'})
-    const parent = await store.createIssue('larder', {title: 'Shelf labels', chunk: '1', status: 'todo'}, owner)
-    const child = await store.createIssue('larder', {title: 'Print them', parent: parent.id, status: 'started'})
-    await store.createComment('larder', child.id, {body: 'Which printer?', asks: 'decision'})
-    await store.createComment('larder', child.id, {body: 'The office one'}, owner)
+    await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
+    await store.createChunk('greenhouse', {title: 'Shelves'})
+    const parent = await store.createIssue('greenhouse', {title: 'Shelf labels', chunk: '1', status: 'todo'}, owner)
+    const child = await store.createIssue('greenhouse', {title: 'Print them', parent: parent.id, status: 'started'})
+    await store.createComment('greenhouse', child.id, {body: 'Which printer?', asks: 'decision'})
+    await store.createComment('greenhouse', child.id, {body: 'The office one'}, owner)
     await store.createStatus({name: 'Blocked', kind: 'started', color: 'rose'}, owner)
-    await store.putDoc('larder', 'readme', {title: 'Readme', body: '# Larder'})
-    await store.focus('larder', child.id, {session: 'window-a'}, owner)
+    await store.putDoc('greenhouse', 'readme', {title: 'Readme', body: '# Greenhouse'})
+    await store.focus('greenhouse', child.id, {session: 'window-a'}, owner)
     await store.updateSettings({tint: 'teal'}, owner)
     await secretsOf(store).set('STRIPE_KEY', {value: 'sk_live_abcdef123456', hosts: ['api.stripe.com']}, owner)
     await secretsOf(store).egress({url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}})
@@ -35,8 +35,8 @@ async function filled() {
 
 const everything = async (store: Store) => ({
     projects: await store.listBoards(), statuses: await store.statuses(), settings: await store.settings(), owner: await store.ownerOf(),
-    comments: await store.listComments('larder', 'LAR-2'), activity: (await store.listActivity('larder', 'LAR-2')).map(({id, ...e}) => e),
-    doc: await store.doc('larder', 'readme'), signals: await store.listSignals('larder'),
+    comments: await store.listComments('greenhouse', 'GRE-2'), activity: (await store.listActivity('greenhouse', 'GRE-2')).map(({id, ...e}) => e),
+    doc: await store.doc('greenhouse', 'readme'), signals: await store.listSignals('greenhouse'),
     secret: await secretsOf(store).get('STRIPE_KEY'),
     uploads: await Promise.all((await store.db.all<{id: string}>('SELECT id FROM uploads')).map(({id}) => store.upload(id))),
 })
@@ -49,8 +49,8 @@ describe('copying an Orrery', () => {
         expect(copied).toMatchObject({projects: 1, issues: 2, comments: 2, statuses: 7, docs: 1, signals: 2, secrets: 1, secret_uses: 1, uploads: 1})
         expect(await everything(target)).toEqual(await everything(source))
         // New things get ids after the copied ones.
-        expect((await target.createIssue('larder', {title: 'Next'})).id).toBe('LAR-3')
-        expect((await target.createComment('larder', 'LAR-1', {body: 'later'})).id).toBeGreaterThan(2)
+        expect((await target.createIssue('greenhouse', {title: 'Next'})).id).toBe('GRE-3')
+        expect((await target.createComment('greenhouse', 'GRE-1', {body: 'later'})).id).toBeGreaterThan(2)
     })
 
     it('takes it back again unchanged', async () => {

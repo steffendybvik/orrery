@@ -11,7 +11,7 @@ JSON, and its fields are snake_case (`created_at`, `icon_color`), as the databas
 ## Ids
 
 Orrery hands ids out; you can't pick them. An issue is the project's prefix and a number:
-`LAR-142` (the prefix is the project's `key`). A chunk is a number in its project: `3`.
+`GRE-142` (the prefix is the project's `key`). A chunk is a number in its project: `3`.
 Ids never change, and an issue moved to another project gets that project's next id. Ids things
 had before (`MOT-5`, the chunk slug `joints`) are kept as **aliases**: every route and every
 `parent` or `chunk` you send accepts them (and `?parent=`), and responses list them in `aliases`.
@@ -486,9 +486,9 @@ fields are refused, so typos show); 403 for the owner's things; 404; 409 for a t
 
 ```sh
 H='Content-Type: application/json'; A='Orrery-Actor: claude'; O=http://localhost:9000/api
-curl -X POST $O/projects -H "$H" -H "$A" -d '{"name": "Larder", "id": "larder", "key": "LAR"}'
-curl -X POST $O/projects/larder/import -H "$H" -H "$A" --data @docs/roadmap.json
-curl -X PATCH $O/projects/larder/issues/LAR-42 -H "$H" -H "$A" -d '{"status": "in-progress", "assignee": "claude"}'
-curl -X POST $O/projects/larder/issues/LAR-42/comments -H "$H" -H "$A" -d '{"body": "Started on `shelf.ts`"}'
-jq -Rs '{title: "README", body: .}' README.md | curl -X PUT $O/projects/larder/docs/readme -H "$H" -H "$A" --data @-
+curl -X POST $O/projects -H "$H" -H "$A" -d '{"name": "Greenhouse", "id": "greenhouse", "key": "GRE"}'
+curl -X POST $O/projects/greenhouse/import -H "$H" -H "$A" --data @docs/roadmap.json
+curl -X PATCH $O/projects/greenhouse/issues/GRE-42 -H "$H" -H "$A" -d '{"status": "in-progress", "assignee": "claude"}'
+curl -X POST $O/projects/greenhouse/issues/GRE-42/comments -H "$H" -H "$A" -d '{"body": "Started on `shelf.ts`"}'
+jq -Rs '{title: "README", body: .}' README.md | curl -X PUT $O/projects/greenhouse/docs/readme -H "$H" -H "$A" --data @-
 ```

@@ -10,7 +10,7 @@ const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), 
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
-    useRoadmaps().projects.value = [project('larder'), project('pantry'), project('cellar')]
+    useRoadmaps().projects.value = [project('greenhouse'), project('pantry'), project('cellar')]
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
@@ -29,18 +29,18 @@ describe('FilterBar', () => {
     it('narrows the pages across projects to the projects ticked, and Clear shows them all again', async () => {
         const {menu, button} = await mount('/mine')
         const {shows, filters} = useFilters()
-        expect(['larder', 'pantry', 'cellar'].every(shows)).toBe(true)
+        expect(['greenhouse', 'pantry', 'cellar'].every(shows)).toBe(true)
         await menu('Project')!.trigger('click')
         await button('Pantry')!.trigger('click')
         expect(filters.value.projects).toEqual(['pantry'])
-        expect([shows('larder'), shows('pantry'), shows('cellar')]).toEqual([false, true, false])
+        expect([shows('greenhouse'), shows('pantry'), shows('cellar')]).toEqual([false, true, false])
         await button('Clear')!.trigger('click')
         expect(filters.value.projects).toEqual([])
-        expect(shows('larder')).toBe(true)
+        expect(shows('greenhouse')).toBe(true)
     })
 
     it("isn't offered on a project's own pages", async () => {
-        const {menu} = await mount('/p/larder')
+        const {menu} = await mount('/p/greenhouse')
         expect(menu('Priority')).toBeDefined()
         expect(menu('Project')).toBeUndefined()
     })
