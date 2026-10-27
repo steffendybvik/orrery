@@ -8,7 +8,8 @@ const postgres = process.env.E2E_POSTGRES_URL
 
 export default defineConfig({
     testDir: 'e2e',
-    // One Orrery, one story: the flows build on each other.
+    // One Orrery, one story: the flows build on each other. Files run in name order, and flows.spec.ts expects an
+    // owner with no name yet, so a spec that names one must sort after it.
     workers: 1,
     retries: process.env.CI ? 1 : 0,
     reporter: process.env.CI ? [['list'], ['html', {open: 'never'}]] : 'list',

@@ -18,6 +18,7 @@ const headings: Heading[] = [
     {id: 'statuses', text: 'Issue statuses', level: 2},
     {id: 'watch', text: 'Watching sessions', level: 2},
     {id: 'secrets', text: 'Secrets', level: 2},
+    {id: 'database', text: 'Database', level: 2},
 ]
 const title = Object.fromEntries(headings.map(h => [h.id, h.text]))
 const scroller = ref<HTMLElement | null>(null)
@@ -272,6 +273,25 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <SecretSettings />
+      </section>
+
+      <section id="database" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.database }}</h2>
+          <p class="text-xs text-muted">
+            Where this Orrery keeps everything. It's set as Orrery starts (<code>ORRERY_DATABASE</code>), not here: to move to
+            Postgres or a hosted database, copy the data over with <code>pnpm orrery:copy</code> and start Orrery on the new one
+            (<a href="https://github.com/steffendybvik/orrery/blob/main/docs/running.md#postgres" target="_blank" rel="noopener" class="underline underline-offset-2 hover:text-fg">how</a>).
+          </p>
+        </header>
+        <dl v-if="settings.database" class="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[13px]">
+          <dt class="text-muted">{{ settings.database.kind === 'postgres' ? 'Postgres' : 'SQLite file' }}</dt>
+          <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.where">{{ settings.database.where }}</code><CopyButton :text="settings.database.where" /></dd>
+          <template v-if="settings.database.backup">
+            <dt class="text-muted">Backed up to</dt>
+            <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.backup">{{ settings.database.backup }}</code><CopyButton :text="settings.database.backup" /></dd>
+          </template>
+        </dl>
       </section>
     </div>
     <aside class="hidden w-56 shrink-0 xl:block">

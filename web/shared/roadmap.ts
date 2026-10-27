@@ -392,12 +392,22 @@ export interface Starts {
 export const TERMINALS = {terminal: 'Terminal', iterm: 'iTerm2', warp: 'Warp', ghostty: 'Ghostty'} as const
 export type TerminalApp = keyof typeof TERMINALS
 
+/** Where this Orrery keeps its data, as App settings shows it (read only): a SQLite file's path, or a Postgres
+ * database as `user@host:port/name`, never its password; and the folder a SQLite file is backed up to, if any. */
+export interface DatabaseInfo {
+    kind: 'sqlite' | 'postgres'
+    where: string
+    backup?: string
+}
+
 export interface Settings {
     /** This Orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
      * talking to the same Orrery (ORRERY_ID), whatever its address. */
     id: string
     /** Which Orrery this is (`personal`, `work`), as it's run; a channel serving it is named `orrery-<environment>`. */
     environment?: string
+    /** Where its data is (`GET /api/settings` only). */
+    database?: DatabaseInfo
     /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
     tint: string | null
     /** The issue statuses, in board order. */
