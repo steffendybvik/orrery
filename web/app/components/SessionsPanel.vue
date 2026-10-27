@@ -73,7 +73,7 @@ async function startOn() {
     failed.value = null
     try {
         const owner = await load()
-        await $fetch(`/api/projects/${encodeURIComponent(props.project)}/launches`, {method: 'POST', headers: {'Orrery-Actor': owner}, body: {issue: props.issue}})
+        await $fetch(`/api/projects/${encodeURIComponent(props.project)}/launches`, {method: 'POST', headers: {'Orrery-Actor': owner}, body: {issue: props.issue, hears: [props.project]}})
     } catch (error) {
         failed.value = errorMessage(error, 'start')
     } finally {
