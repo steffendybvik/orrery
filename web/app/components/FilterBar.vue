@@ -25,7 +25,7 @@ const columns = computed(() => order.value.map(c => ({value: c.id as Column, lab
 </script>
 
 <template>
-  <div class="flex min-w-0 items-center gap-1.5">
+  <div class="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-none">
     <label class="group flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-well px-2 ring-1 ring-line focus-within:ring-accent-500/50 sm:w-56 sm:flex-none">
       <svg class="size-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
       <input

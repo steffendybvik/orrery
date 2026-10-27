@@ -64,9 +64,13 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
     <span class="flex min-w-0 flex-1 items-center gap-2">
       <span v-if="unseen" class="unseen-dot" title="Changed since you last opened it" />
       <span class="min-w-0 truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-semibold' : '']"><InlineText :text="issue.title" /></span>
-      <WaitingChip v-if="issue.waiting" :asks="issue.waiting" />
+      <template v-if="issue.waiting">
+        <WaitingChip :asks="issue.waiting" class="max-sm:hidden" />
+        <!-- On a phone the title needs the room: the chip's dot alone, the row tinted as ever. -->
+        <span class="size-2 shrink-0 rounded-full bg-violet-500 sm:hidden" role="img" :aria-label="issue.waiting === 'decision' ? 'Needs your decision' : 'Needs your feedback'" :title="issue.waiting === 'decision' ? 'Needs your decision' : 'Needs your feedback'" />
+      </template>
       <span v-if="issue.schedule" class="shrink-0 text-faint" title="Made by a schedule"><SectionIcon section="schedules" class="size-3" /></span>
-      <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line" :title="`${issue.kinds.done} of ${total(issue.kinds)} sub-issues done`"><ProgressRing :kinds="issue.kinds" :size="13" /></span>
+      <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line max-sm:hidden" :title="`${issue.kinds.done} of ${total(issue.kinds)} sub-issues done`"><ProgressRing :kinds="issue.kinds" :size="13" /></span>
     </span>
     <NuxtLink
         v-if="chunk"
