@@ -1,6 +1,6 @@
-// How much room this Orrery's data takes, for App settings → Database: a SQLite file with the `-wal` beside it, and
-// its backup folder's files; or the Postgres database, as it reports itself. Any of it that can't be read (a file
-// not there yet, no permission on a managed Postgres) is left out.
+// How much room this Orrery's data takes, for App settings → Database: a SQLite file with the `-wal` beside it, or the
+// Postgres database, as it reports itself; and its backup folder's files. Any of it that can't be read (a file not
+// there yet, no permission on a managed Postgres) is left out.
 import {readdirSync, statSync} from 'node:fs'
 import {join} from 'node:path'
 import type {DatabaseInfo} from '#shared/roadmap'

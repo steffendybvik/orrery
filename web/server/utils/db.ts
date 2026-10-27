@@ -1,7 +1,7 @@
 // The database: one SQLite file (`NUXT_DATABASE`, `.data/orrery.db` by default). Node's own
 // `node:sqlite` is synchronous, so writes from several sessions never interleave.
 import {mkdirSync} from 'node:fs'
-import {restoreBackup} from './backup'
+import {lastBackup, restoreBackup} from './backup'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
@@ -592,12 +592,14 @@ function useDb(): DatabaseSync {
 export function describeDatabase(): DatabaseInfo {
     const config = useRuntimeConfig()
     const setting = String(config.database)
+    const dir = String(config.backupDir ?? '')
+    const at = dir ? lastBackup(dir) : undefined
+    const backup = dir ? {backup: resolve(dir), ...at ? {backed_up_at: at} : {}} : {}
     if (isPostgres(setting)) {
         const url = new URL(setting)
-        return {kind: 'postgres', where: `${url.username ? `${decodeURIComponent(url.username)}@` : ''}${url.host}${url.pathname}`}
+        return {kind: 'postgres', where: `${url.username ? `${decodeURIComponent(url.username)}@` : ''}${url.host}${url.pathname}`, ...backup}
     }
-    const backup = String(config.backupDir ?? '')
-    return {kind: 'sqlite', where: resolve(setting), ...backup ? {backup: resolve(backup)} : {}}
+    return {kind: 'sqlite', where: resolve(setting), ...backup}
 }
 
 /** The open database as the store awaits it: Postgres when the setting is a `postgres://` URL, else the
