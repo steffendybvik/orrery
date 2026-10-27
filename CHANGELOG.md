@@ -3,6 +3,35 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.8 (2026-10-27)
+
+- **Proposals wait in the bell:** an agent's proposal waiting on you now leads the bell and *Waiting on you* as a
+  decision, with a violet *Proposal: needs your decision · N choices* chip, so one with no comment no longer sits
+  unnoticed in Proposed. It goes when you decide it and can't be cleared before. `GET /notices` carries it as
+  `{id: 0, asks: "decision", proposal: {choices}}`.
+- **One violet for waiting:** the bell's *Needs your decision* chip, and a waiting card's ring, are the same violet
+  as on rows, cards and the issue page, where they were amber.
+- **Docs first for agents:** every place that tells an agent how to work (the channel, focus and chunk prompts,
+  CLAUDE.md, CONTRIBUTING) says to read the docs a task touches before the code, and to fix a doc that turns out
+  wrong. `GET /projects/:project/docs` gives each doc a `summary` and takes `?q=` (every word, title hits first,
+  each with a `match` snippet); the channel's `docs` tool takes `q` too.
+- **A session knows its name:** its signal stream sends a `name` event once Orrery knows it, and again when it
+  changes; the channel tells Claude once, and every channel message carries `session="…"`.
+- **The waiting question renders its Markdown:** the quote at the top of Activity shows bold, code and links as
+  the comment below does, still cut to three lines; a click (not on a link) or Enter shows it in the thread.
+- **Phone fixes:** a waiting row shows the chip's violet dot alone and the sub-issue progress steps aside, so the
+  title gets the room; the toolbar's search fills its line; an issue's header keeps its id, Copy and Copy ref whole
+  (icons alone on a phone), with Team tasks' Edit beside its chips.
+- **Connect wraps at spaces:** the line to paste no longer breaks in the middle of words.
+- **Schedules' empty state:** a dashed box whose **Make one** opens the New schedule dialog, instead of naming a
+  button that's gone.
+- **The session limit is over every project:** Starting sessions' guide said per project.
+- **The playground seeds again:** since rc.6 `play reset` stopped after Primes; the start limit now goes in the
+  settings.
+- **Docs brought up to rc.7:** README and `docs/` checked against the code, and `docs/API.md` against every route.
+- **Cleanup:** values only their own file uses are no longer exported, so Nitro stops auto-importing them across
+  the server.
+
 ## 1.0.0-rc.7 (2026-10-27)
 
 - **Sessions and Setup tabs:** the Sessions page has two tabs. Sessions shows what's running, by project; Setup
