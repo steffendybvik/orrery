@@ -13,8 +13,11 @@ the database schema are the public surface, and a database always migrates forwa
   and put it up again, but changing its status, assignee or release is a 403 until the owner approves it. It's one
   setting in App settings → Proposals, on by default, and the board's Proposed column shows a lock while it's on.
 - **Tidier session settings:** each message template on the Sessions page says what it's for and whose it is, with
-  Preview and Edit; its text opens on Edit. Each preset is a row with its name and first line, Edit and remove, and
-  New preset opens the form for another. A project's Settings tab gets the same.
+  Preview and Edit; its text opens on Edit. A project's Settings tab gets the same.
+- **Presets read as roles:** each preset has a badge, an icon and colour you pick (its initials until you do), and
+  shows as a card: in Presets (click one to edit its name, text and badge; New preset is an empty card) and in
+  Start session (picked with a tick). A session started with presets shows their badges by its name. Through the
+  API a preset takes `icon` (a Heroicon's name) and `color` (a tint or `#rrggbb`).
 - **Pictures in a frame:** a picture in an issue, a comment or a doc sits in a frame (a band of the well colour, a
   hairline and a soft shadow), so a screenshot doesn't read as more of the page. The Before/After slider gets the same.
 - **A focus goes to one session:** a focus, a chunk's or a schedule's message aimed at no session goes to one
