@@ -4,13 +4,14 @@ import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
-// Start session starts one on any project, or several. Above them, whether Orrery may start sessions and how it does; below, what sessions hear and the
+// Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default). Above them, whether Orrery may start sessions and how it does; below, what sessions hear and the
 // presets to start one with.
 useHead({title: 'Sessions · Orrery'})
 const route = useRoute()
 const {projects, ready, sessions, signals} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {open} = useStartSession()
+const messaging = ref(false)
 
 // Each project with sessions. A session that hears several projects is listed once, under its own.
 const groups = computed(() => ordered.value
@@ -62,6 +63,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
   <ViewToolbar>
     <span class="truncate text-xs text-muted">{{ count ? `${count} ${count === 1 ? 'session' : 'sessions'}` : 'No sessions right now' }}</span>
     <template #end>
+      <UiButton class="shrink-0" :disabled="!count" @click="messaging = true">Message sessions</UiButton>
       <UiButton variant="primary" class="shrink-0" @click="open()">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         Start session
@@ -137,4 +139,5 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     </aside>
     </div>
   </div>
+  <MessageSessionsDialog :open="messaging" @close="messaging = false" />
 </template>
