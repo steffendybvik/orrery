@@ -1133,7 +1133,7 @@ describe('presets', () => {
         expect((await failure(() => store.createPreset(null, {name: 'Review', text: ' \n '}, owner))).status).toBe(400)
         const made = await store.createPreset(null, {name: ' Review ', text: ' Read the diff. '}, owner)
         expect(made).toMatchObject({name: 'Review', text: 'Read the diff.'})
-        expect((await failure(() => store.updatePreset(made.id, {text: ' '}, owner))).status).toBe(400)
+        expect((await failure(() => store.updatePreset(made.id, {text: ' '}))).status).toBe(400)
         expect((await store.preset(made.id)).text).toBe('Read the diff.')
     })
 
@@ -1159,7 +1159,7 @@ describe('presets', () => {
     it("are made and changed by a session too, but one the owner made is theirs to remove", async () => {
         const mine = await store.createPreset(null, {name: 'Review', text: 'Read the diff.'}, owner)
         const its = await store.createPreset('larder', {name: 'Release', text: 'Cut the release.'}, claude)
-        expect(await store.updatePreset(mine.id, {text: 'Read the whole diff.'}, claude)).toMatchObject({name: 'Review', text: 'Read the whole diff.'})
+        expect(await store.updatePreset(mine.id, {text: 'Read the whole diff.'})).toMatchObject({name: 'Review', text: 'Read the whole diff.'})
         const refused = await failure(() => store.deletePreset(mine.id, claude))
         expect(refused.status).toBe(403)
         expect(refused.message).toMatch('preset "Review" was made by the owner')
@@ -1169,9 +1169,9 @@ describe('presets', () => {
 
     it('are renamed, rewritten and removed by the owner, and go with their project', async () => {
         const preset = await store.createPreset('larder', {name: 'E2E', text: 'Run the e2e suite.'}, owner)
-        expect(await store.updatePreset(preset.id, {text: 'Run pnpm test:e2e.'}, owner)).toMatchObject({name: 'E2E', text: 'Run pnpm test:e2e.'})
-        expect((await failure(() => store.updatePreset(preset.id, {text: ''}, owner))).status).toBe(400)
-        expect((await failure(() => store.updatePreset(preset.id, {name: '   '}, owner))).status).toBe(400)
+        expect(await store.updatePreset(preset.id, {text: 'Run pnpm test:e2e.'})).toMatchObject({name: 'E2E', text: 'Run pnpm test:e2e.'})
+        expect((await failure(() => store.updatePreset(preset.id, {text: ''}))).status).toBe(400)
+        expect((await failure(() => store.updatePreset(preset.id, {name: '   '}))).status).toBe(400)
         await store.deletePreset(preset.id, owner)
         expect((await failure(() => store.preset(preset.id))).status).toBe(404)
         await store.createPreset('larder', {name: 'E2E', text: 'Run the e2e suite.'}, owner)
@@ -1182,10 +1182,10 @@ describe('presets', () => {
         const review = await store.createPreset(null, {name: 'Review', text: 'Read the diff.', icon: 'shield-check', color: 'violet'}, owner)
         expect(review).toMatchObject({icon: 'shield-check', color: 'violet'})
         expect((await store.createPreset(null, {name: 'Test', text: 'Run the tests.'}, owner))).toMatchObject({icon: null, color: null})
-        expect((await failure(() => store.updatePreset(review.id, {icon: 'Shield Check'}, owner))).status).toBe(400)
-        expect((await failure(() => store.updatePreset(review.id, {color: 'plaid'}, owner))).status).toBe(400)
-        expect(await store.updatePreset(review.id, {color: '#3b82f6'}, owner)).toMatchObject({icon: 'shield-check', color: '#3b82f6', text: 'Read the diff.'})
-        expect(await store.updatePreset(review.id, {icon: null}, owner)).toMatchObject({icon: null, color: '#3b82f6'})
+        expect((await failure(() => store.updatePreset(review.id, {icon: 'Shield Check'}))).status).toBe(400)
+        expect((await failure(() => store.updatePreset(review.id, {color: 'plaid'}))).status).toBe(400)
+        expect(await store.updatePreset(review.id, {color: '#3b82f6'})).toMatchObject({icon: 'shield-check', color: '#3b82f6', text: 'Read the diff.'})
+        expect(await store.updatePreset(review.id, {icon: null})).toMatchObject({icon: null, color: '#3b82f6'})
     })
 })
 

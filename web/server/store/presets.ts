@@ -32,7 +32,7 @@ export abstract class PresetStore extends ProjectStore {
     }
 
     /** Renames a preset, or changes its text or badge (null takes the icon or colour off); whose it is stays. */
-    async updatePreset(id: number, body: unknown, actor = AGENT): Promise<Preset> {
+    async updatePreset(id: number, body: unknown): Promise<Preset> {
         await this.preset(id)
         const input = checkInput(body, PRESET_FIELDS, true)
         const {name, text} = presetInput(input)
