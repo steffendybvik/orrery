@@ -45,10 +45,12 @@ export function renderMarkdown(source: string, title?: string, before?: string):
         link.rel = 'noopener noreferrer'
     })
     compareImages(page)
-    // An image Orrery keeps opens at full size, as a screenshot shrunk to a comment's width is hard to read.
+    // An image Orrery keeps opens larger, as a screenshot shrunk to a comment's width is hard to read: over the page
+    // (plugins/image-view), or in a tab of its own on ⌘-click.
     page.querySelectorAll<HTMLImageElement>('img[src^="/api/uploads/"]').forEach(image => {
         if (image.closest('a, .compare')) return
         const link = page.createElement('a')
+        link.className = 'image-link'
         link.href = image.getAttribute('src') ?? ''
         link.target = '_blank'
         link.rel = 'noopener'
@@ -112,7 +114,7 @@ function compareOf(page: Document, before: HTMLImageElement, after: HTMLImageEle
     const line = page.createElement('span')
     line.className = 'compare-line'
     line.setAttribute('aria-hidden', 'true')
-    // The labels open each picture at full size.
+    // The labels open each picture larger, as an image's link does.
     const labels = ([[before, 'Before'], [after, 'After']] as const).map(([image, text]) => {
         const label = page.createElement('a')
         label.className = `compare-label compare-label-${text.toLowerCase()}`

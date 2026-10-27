@@ -41,6 +41,7 @@ const projectDialog = openedOnce(() => newProject.value)
     <LazyStartSessionDialog v-if="sessionDialog" />
     <ScheduleMenu />
     <OwnerDialog />
+    <ImageView />
     <BulkBar />
   </div>
 </template>
