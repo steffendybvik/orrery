@@ -5,27 +5,14 @@ const {menu, edit} = useSchedules()
 const {load} = useOwner()
 const {open: openIssue} = useIssueLink()
 
-const box = ref<HTMLElement | null>(null)
-const place = ref({left: 0, top: 0})
 const busy = ref(false)
 const failed = ref('')
 const confirming = ref(false)
 const close = () => menu.value = null
 
-watch(menu, now => {
+watch(menu, () => {
     failed.value = ''
     confirming.value = false
-    if (!now) return
-    place.value = {left: now.x, top: now.y}
-    nextTick(() => {
-        const rect = box.value?.getBoundingClientRect()
-        if (!rect) return
-        place.value = {
-            left: Math.max(8, Math.min(now.x, window.innerWidth - rect.width - 8)),
-            top: Math.max(8, Math.min(now.y, window.innerHeight - rect.height - 8)),
-        }
-        box.value?.focus()
-    })
 })
 
 const s = computed(() => menu.value?.schedule)
@@ -63,23 +50,12 @@ function editIt() {
     close()
 }
 
-useDismiss(box, () => menu.value, close, {capture: true, blur: true})
 
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-        v-if="menu && s"
-        ref="box"
-        class="menu fixed z-50 w-60"
-        :style="{left: `${place.left}px`, top: `${place.top}px`}"
-        role="menu"
-        :aria-label="`Actions for ${s.title}`"
-        tabindex="-1"
-        @keydown.esc.stop="close"
-        @contextmenu.prevent
-    >
+  <UiContextMenu :at="s ? menu : null" :label="`Actions for ${s?.title}`" width="w-60" @close="close">
+    <template v-if="s">
       <div class="truncate px-2 pt-1.5 pb-1 text-xs text-muted">{{ s.title }}</div>
       <div v-if="!confirming" class="flex flex-col border-t border-line pt-1">
         <UiMenuItem :disabled="busy" @click="runNow">▶ Run now</UiMenuItem>
@@ -91,6 +67,6 @@ useDismiss(box, () => menu.value, close, {capture: true, blur: true})
         Remove this schedule? The issues it made stay.
       </UiConfirm>
       <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
-    </div>
-  </Teleport>
+    </template>
+  </UiContextMenu>
 </template>
