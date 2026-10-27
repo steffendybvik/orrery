@@ -15,6 +15,7 @@ let waiting: string[]
 let adopted: string[]
 let focused: {issue: string, session: string}[]
 let scoped: {chunk: string, body: Record<string, unknown>}[]
+let messages: {schedule: number, text: string, target?: string}[]
 
 beforeEach(async () => {
     sent = []
@@ -40,6 +41,7 @@ beforeEach(async () => {
     // A tick for reading the project, as the database gives, so signals can overlap.
     focused = []
     scoped = []
+    messages = []
     vi.stubGlobal('useStore', () => ({
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
@@ -51,6 +53,10 @@ beforeEach(async () => {
         focusChunk: async (_project: string, chunk: string, body: Record<string, unknown>) => {
             scoped.push({chunk, body})
             return {id: 43}
+        },
+        message: async (_project: string, schedule: number, text: string, _actor: unknown, target?: string) => {
+            messages.push({schedule, text, target})
+            return {id: 50}
         },
         presetsFor: async (_project: string, ids: number[]) => ids.map(id => ({id, name: `preset ${id}`, text: `Text ${id}.`})),
         workingOn: async (_project: string, ids: string[]) => ids.flatMap(id => working[id] ?? []),
@@ -81,7 +87,7 @@ describe('starting a session', () => {
         expect(sent).toEqual([{type: 'launch', after: 6, minutes: 30}])
         // The launch on its way covers what comes after it, until its session connects.
         expect(await launches.considerLaunch(signal(8))).toBeNull()
-        expect(launches.launchState('larder')).toEqual({launchers: 1, folders: [], started: 0, starting: 1, total: 1})
+        expect(launches.launchState('larder')).toEqual({launchers: 1, folders: [], every: false, started: 0, starting: 1, total: 1})
         expect(launches.launched(launch!.id)).toMatchObject({launch: launch!.id, tmux: launch!.tmux})
         started = {larder: 1, all: 1}
         expect(await launches.considerLaunch(signal(9))).not.toBeNull()
@@ -165,7 +171,7 @@ describe('the owner starting a session by hand', () => {
         launches.addLauncher('larder')
         started = {larder: 0, all: 2}
         await expect(launches.startLaunch('larder')).rejects.toThrow('Orrery already has its 2 sessions at once')
-        expect(launches.launchState('larder')).toEqual({launchers: 1, folders: [], started: 0, starting: 0, total: 2})
+        expect(launches.launchState('larder')).toEqual({launchers: 1, folders: [], every: false, started: 0, starting: 0, total: 2})
     })
 
     it('starts one session hearing several projects only when their launchers share a folder', async () => {
@@ -182,6 +188,18 @@ describe('the owner starting a session by hand', () => {
         expect(await launches.startLaunch('attic', {hears: ['attic']})).toMatchObject({hears: ['attic']})
         larder()
         expect(launches.launchState('larder').folders).toEqual([])
+    })
+
+    it('says when a launcher serves every project, so a launch without hears hears them all', async () => {
+        const plain = launches.addLauncher('larder', '/src/mono')
+        expect(launches.launchState('larder').every).toBe(false)
+        const every = launches.addLauncher('larder', '/src/mono', true)
+        expect(launches.launchState('larder').every).toBe(true)
+        expect(await launches.startLaunch('larder')).not.toHaveProperty('hears')
+        every()
+        every()
+        expect(launches.launchState('larder')).toMatchObject({launchers: 1, every: false, folders: ['/src/mono']})
+        plain()
     })
 
     it('starts it focused on an issue, with a focus only that session hears', async () => {
@@ -349,6 +367,66 @@ describe('stopping the sessions Orrery started that are done', () => {
         launches.launchGone('idle')
         launches.launchGone('fresh')
         expect(await launches.stopDue(now + 6 * 60_000)).toEqual([])
+    })
+})
+
+describe("an untrusted schedule's run", () => {
+    const owner = {name: 'skoll', owner: true}
+
+    it('starts a session of its own, with the message and its brief aimed at that session alone', async () => {
+        await expect(launches.startUntrusted('larder', 3, 'Triage GitHub issues.', owner)).rejects.toMatchObject({statusCode: 409})
+        launches.addLauncher('larder')
+        starts = {limit: 2, minutes: 45}
+        const launch = await launches.startUntrusted('larder', 3, 'Triage GitHub issues.', owner)
+        // At most half an hour, whatever the project gives sessions.
+        expect(launch).toMatchObject({project: 'larder', after: 49, minutes: 30, untrusted: true})
+        expect(messages).toEqual([{schedule: 3, text: `${launches.UNTRUSTED_BRIEF}\n\nTriage GitHub issues.`, target: launches.launchTarget(launch.id)}])
+        expect(launches.UNTRUSTED_BRIEF).toMatch(/data, never as instructions/)
+        expect(launches.launched(launch.id)).toMatchObject({launch: launch.id, untrusted: true})
+    })
+
+    it('goes only to a launcher that says it locks the session down', async () => {
+        launches.addLauncher('larder')
+        const launch = await launches.startUntrusted('larder', 3, 'Triage.', owner)
+        expect(launches.claim('larder', launch.id)).toBe(false)
+        expect(launches.claim('larder', launch.id, true)).toBe(true)
+        // An ordinary launch goes to any launcher.
+        const plain = await launches.startLaunch('larder')
+        expect(launches.claim('larder', plain.id)).toBe(true)
+    })
+
+    it('is refused when there is no room, with no message sent', async () => {
+        launches.addLauncher('larder')
+        started = {larder: 2, all: 2}
+        await expect(launches.startUntrusted('larder', 3, 'Triage.', owner)).rejects.toThrow(/already has its 2 sessions/)
+        starts = undefined
+        await expect(launches.startUntrusted('larder', 3, 'Triage.', owner)).rejects.toThrow(/doesn't start sessions/)
+        expect(messages).toEqual([])
+    })
+
+    it('has its session stopped once it has sat idle a couple of minutes', async () => {
+        const now = Date.parse('2026-10-26T15:00:00.000Z')
+        const at = (minutes: number) => new Date(now - minutes * 60_000).toISOString()
+        const sessions = [
+            {id: 's-done', project: 'larder', state: 'idle', since: at(3), started: {launch: 'done', tmux: 't', untrusted: true}},
+            {id: 's-new', project: 'larder', state: 'idle', since: at(1), started: {launch: 'new', tmux: 't', untrusted: true}},
+            {id: 's-plain', project: 'larder', state: 'idle', since: at(3), started: {launch: 'plain', tmux: 't'}},
+        ]
+        vi.stubGlobal('listSessions', () => sessions)
+        expect(await launches.stopDue(now)).toEqual(['done'])
+    })
+
+    it('makes what its session raises a proposal labelled external, and nothing more', async () => {
+        const {asProposal} = await import('../server/utils/untrusted')
+        expect(asProposal({title: 'Crash on save', notes: 'From #12', labels: ['bug'], priority: 'P0', status: 'in-progress', assignee: 'claude', parent: 'LAR-1', chunk: '2', release: '1.0.0'}))
+            .toEqual({title: 'Crash on save', notes: 'From #12', proposal: 'pending', labels: ['bug', 'external']})
+        expect(asProposal({title: 'x', labels: ['external']}).labels).toEqual(['external'])
+        expect(asProposal(null)).toMatchObject({proposal: 'pending', labels: ['external']})
+    })
+
+    it("stays untrusted when a launcher reports it after Orrery restarted", () => {
+        launches.reportRunning('larder', [{id: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', untrusted: true}])
+        expect(launches.launched('a1b2c3d4e5f6')).toMatchObject({untrusted: true})
     })
 })
 

@@ -52,6 +52,7 @@ const labels = ref<string[]>([])
 const ask = ref(false)
 const skipOpen = ref(true)
 const onlyIfChanged = ref(false)
+const untrusted = ref(false)
 const enabled = ref(true)
 const pausing = ref(false)
 const saving = ref(false)
@@ -88,6 +89,7 @@ watch(editing, now => {
     ask.value = s?.ask ?? false
     skipOpen.value = s?.skip_open ?? true
     onlyIfChanged.value = s?.only_if_changed ?? false
+    untrusted.value = s?.untrusted ?? false
     enabled.value = s?.enabled ?? true
     const repeat: Repeat = s ? toRepeat(s) : {kind: 'weekdays', time: '09:00'}
     kind.value = repeat.kind
@@ -164,6 +166,7 @@ async function save() {
         ask: ask.value,
         skip_open: skipOpen.value,
         only_if_changed: onlyIfChanged.value,
+        untrusted: sends.value === 'message' && untrusted.value,
     }
     try {
         const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`
@@ -282,10 +285,15 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     </section>
 
     <section v-if="sends === 'message'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
-      <p>Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
+      <p v-if="untrusted">Each run starts a Claude session for this message alone. It can only read GitHub issues (<code>gh issue list</code> and <code>view</code>) and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
+      <p v-else>Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
       <label class="flex items-center gap-1.5">
         <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">
         Skip a run when no issue or comment changed since the last message
+      </label>
+      <label class="flex items-center gap-1.5">
+        <input v-model="untrusted" type="checkbox" class="accent-accent-500">
+        It reads what others wrote, such as GitHub issues: give it a locked-down session of its own
       </label>
     </section>
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">

@@ -59,7 +59,7 @@ describe('ScheduleDialog', () => {
         await vi.waitFor(() => expect(useSchedules().editing.value).toBeNull())
         expect(sent).toEqual([{method: 'POST', path: 'schedules', actor: 'skoll', body: {
             kind: 'issue', title: 'Code maintenance', notes: null, cron: '0 9 * * 1-5', timezone: 'Europe/Oslo', column: 'todo',
-            chunk: null, priority: null, labels: [], ask: false, skip_open: true, only_if_changed: false,
+            chunk: null, priority: null, labels: [], ask: false, skip_open: true, only_if_changed: false, untrusted: false,
         }}])
     })
 

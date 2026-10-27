@@ -3,16 +3,19 @@ import type {Column} from '#shared/roadmap'
 import {PRIORITIES} from '#shared/roadmap'
 
 // Search (`/`; Esc clears it, as the browser does a search field, which only says so with `search`),
-// then the priority, column, assignee and label filters, shared by every view. The assignees and labels
-// to pick from are the ones on this project's issues (every project's off a project's pages).
+// then the priority, column, assignee and label filters, shared by every view, and off a project's pages the
+// project. The assignees and labels to pick from are the ones on this project's issues (every project's off a
+// project's pages).
 const {filters, changed, clear} = useFilters()
 const {projects, byId} = useRoadmaps()
+const {ordered} = useProjectOrder()
 const {who} = useOwner()
 const route = useRoute()
-const issues = computed(() => {
-    const here = byId(route.params.project as string | undefined)
-    return (here ? [here] : projects.value).flatMap(p => allIssues(p).map(({issue}) => issue))
-})
+const here = computed(() => byId(route.params.project as string | undefined))
+const issues = computed(() => (here.value ? [here.value] : projects.value).flatMap(p => allIssues(p).map(({issue}) => issue)))
+const projectOptions = computed(() => ordered.value.map(p => ({value: p.id, label: p.name})))
+/** Each project's icon in the Project filter, as in the sidebar. */
+const icons = computed(() => new Map(ordered.value.flatMap(p => p.icon && heroicon(p.icon) ? [[p.id, {icon: p.icon, color: p.icon_color}] as const] : [])))
 const sorted = (names: Iterable<string>) => [...new Set(names)].sort((a, b) => a.localeCompare(b))
 const assignees = computed(() => [
     ...sorted(issues.value.flatMap(i => i.assignee ? [i.assignee] : [])).map(name => ({value: name, label: who(name)})),
@@ -40,6 +43,9 @@ const columns = computed(() => order.value.map(c => ({value: c.id as Column, lab
       >
       <KeyHint v-if="!filters.query" class="hidden group-focus-within:hidden sm:inline-flex">/</KeyHint>
     </label>
+    <FilterMenu v-if="!here && projectOptions.length > 1" v-model="filters.projects" label="Project" :options="projectOptions" class="hidden sm:block">
+      <template #option="{value}"><ProjectIcon v-if="icons.has(value)" :icon="icons.get(value)?.icon ?? ''" :color="icons.get(value)?.color" class="size-3.5" /></template>
+    </FilterMenu>
     <FilterMenu v-model="filters.priorities" label="Priority" :options="priorities" class="hidden sm:block">
       <template #option="{value}"><PriorityIcon :priority="value === 'none' ? undefined : value" /></template>
     </FilterMenu>
@@ -50,6 +56,6 @@ const columns = computed(() => order.value.map(c => ({value: c.id as Column, lab
       <template #option="{value}"><PersonAvatar v-if="value !== 'none'" :name="value" :size="14" /><span v-else class="size-3.5 rounded-full border border-dashed border-faint" /></template>
     </FilterMenu>
     <FilterMenu v-if="labels.length" v-model="filters.labels" label="Label" :options="labels" class="hidden sm:block" />
-    <UiButton v-if="changed" variant="ghost" class="shrink-0" title="Back to the open issues" @click="clear">Clear</UiButton>
+    <UiButton v-if="changed || (!here && filters.projects.length)" variant="ghost" class="shrink-0" title="Back to the open issues" @click="clear">Clear</UiButton>
   </div>
 </template>

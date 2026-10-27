@@ -99,7 +99,7 @@ const OUTCOME = {
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
               :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
-          >{{ s.kind === 'message' ? 'Messages sessions' : 'Makes an issue' }}</span>
+          >{{ s.kind === 'message' ? s.untrusted ? 'Own locked-down session' : 'Messages sessions' : 'Makes an issue' }}</span>
         </div>
         <span v-if="gist(s)" class="truncate text-xs text-muted">{{ gist(s) }}</span>
         <span class="truncate text-xs text-faint">

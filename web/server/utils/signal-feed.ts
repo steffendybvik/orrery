@@ -33,7 +33,8 @@ export async function openFeed(project: string, who: Listener, from: number | un
     await store.project(project)
     const {heard} = who
     const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server) : null
-    const stopListening = heard ? listen(project) : () => {}
+    // An untrusted run's session hears only its own message, so it isn't someone there to hear the owner's signals.
+    const stopListening = heard && !who.started?.untrusted ? listen(project) : () => {}
     const done = () => {
         stopListening()
         attended?.done()

@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os'
 import {basename, join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {channelFor, channelsIn, narrowed, projectsIn} from '../../channel/repo-channels.mjs'
+import {channelFor, channelsIn, narrowed, projectsIn, servesEvery} from '../../channel/repo-channels.mjs'
 
 const channel = (env: Record<string, string>) => ({command: 'node', args: ['/code/orrery/channel/orrery-channel.mjs'], env})
 
@@ -76,6 +76,20 @@ describe("a repo's channels", () => {
         expect(channelFor(every, WORK, 'shop').name).toBe('orrery-work')
         expect(channelFor(mono(), WORK, 'nobody').name).toBe('orrery-larder')
         expect(channelFor(mkdtempSync(join(tmpdir(), 'orrery-none-')), WORK, 'pantry')).toBeUndefined()
+    })
+})
+
+describe('a launcher serving every project', () => {
+    it("says so where its project's channel serves `*`", () => {
+        const dir = repo({
+            'orrery-personal': channel({ORRERY_URL: PERSONAL, ORRERY_PROJECTS: 'orrery'}),
+            'orrery-work': channel({ORRERY_URL: WORK, ORRERY_PROJECTS: 'hub,*'}),
+        })
+        expect(servesEvery(dir, WORK, 'hub')).toBe(true)
+        expect(servesEvery(dir, WORK, 'shop')).toBe(true)
+        expect(servesEvery(dir, PERSONAL, 'orrery')).toBe(false)
+        expect(servesEvery(mono(), WORK, 'shelves')).toBe(false)
+        expect(servesEvery(mkdtempSync(join(tmpdir(), 'orrery-none-')), WORK, 'hub')).toBe(false)
     })
 })
 

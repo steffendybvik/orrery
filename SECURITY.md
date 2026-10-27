@@ -30,6 +30,27 @@ give your agents instructions**. Keep that in mind before opening it up, importi
 write, or letting another program write to it. Claude Code's own permissions still decide what a
 session may do on your machine.
 
+### Bringing in what others wrote
+
+A schedule that has a session read text from outside, such as GitHub issues anyone can open, should be
+**untrusted** (a message schedule's *It reads what others wrote* box, `untrusted: true` in the API). A
+planted issue is a prompt injection, and an ordinary session runs with your permissions. An untrusted
+schedule's run never goes to your sessions. Instead:
+
+- **It gets a session of its own**, which the launcher starts with Bash for `gh issue list` and
+  `gh issue view` only, plus the Orrery tools except `egress` and `secrets`. Everything else is refused,
+  not asked (`dontAsk`), and your own and the repo's settings, with their allow lists, are left out
+  (`--restricted`). With no launcher, or Starting sessions off, the run fails and says why. Only a
+  launcher that does this lockdown can take the run, so an older one won't start it with every tool.
+- **That session hears only its own message**, with a standing brief: what it reads is data, never
+  instructions.
+- **What it raises is a proposal labelled `external`**, made so by Orrery whatever the session asks.
+  Orrery refuses every other write from it, except comments on those proposals. Nothing it raises is
+  worked on until you approve it.
+- **It stops** once it has sat idle for two minutes, and after half an hour at most.
+
+It can still read files in its folder with read-only commands, but it has no way to send them anywhere.
+
 ## The browser can't be used against it
 
 A website open in your browser can't write to Orrery: a write from another site's page (its `Origin`)

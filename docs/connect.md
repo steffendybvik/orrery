@@ -44,7 +44,8 @@ In the repo's `.mcp.json`, one server for this Orrery, named after it (`orrery-<
 server (`hub,css,pos`), or `*` for every project on the Orrery as the session starts. A tool on an issue finds its
 project from the id (`HUB-12` is hub's); the others take `project`, and each `<channel>` message says its project.
 `ORRERY_HEAR` in a session's environment narrows that to the projects it names (`ORRERY_HEAR=hub claude …` hears only
-hub); a session Orrery starts gets it from Start session, so one started for Hub hears Hub alone.
+hub); a session Orrery starts gets it from Start session, so one started for Hub hears Hub alone, and one started
+with no project ticked gets none, so where the channel lists `*` it hears every project.
 `ORRERY_ID` is the Orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another Orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
@@ -136,7 +137,9 @@ focus on a single issue ends the chunk or scope it was working through.
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
 are up, when you press **Stop** beside it (on the Sessions page, with **+30 min** to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
-(`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
+(`ORRERY_PERMISSION_MODE` picks another). An untrusted schedule's session is the exception: it's locked down to
+`gh issue list`/`view` and the Orrery tools (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)), so a
+launcher from before rc.9 needs restarting before it will take one. The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
 The limits are the Orrery's, on the Sessions page's Setup tab: how many at once counts every project's sessions together. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.

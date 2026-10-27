@@ -23,7 +23,7 @@ Tick issues (a row's box, shift-click for a run, `x`, ⌘A for the page) and a b
 - **A chunk's issues of one status**: on the chunk's page, each status group has **Focus on all Todo** (or In progress, Backlog, …). Pick one session or all, and they work through just those issues, most urgent first.
 - **A new issue**: the new-issue dialog (`c`) has a checkbox that sends it to the listening sessions as it's made.
 - **One session**: on the **Sessions** page, a listening session's card takes a message that only it hears.
-- **A new session**: **Start session** (on the Sessions page, or `+` by the sidebar's sessions) starts one through the launcher, on one or more projects (a session each, hearing only its project; or, for projects in one repo, one session hearing them all), optionally focused on an issue or a scope (statuses and a release), with presets and your own words as context.
+- **A new session**: **Start session** (on the Sessions page, or `+` by the sidebar's sessions) starts one through the launcher, on one or more projects (a session each, hearing only its project; or, for projects in one repo, one session hearing them all; or none ticked, for one session hearing every project, started where a launcher's channel serves `*`), optionally focused on an issue or a scope (statuses and a release), with presets and your own words as context.
 - The sidebar lists every Claude session at the bottom, with the ones waiting on you first. A session's channel tells it the name it has here, so you can both call it that. Only one session works an issue at a time: a second one starting it is told to pick another.
 
 ## What changed since you looked
@@ -46,8 +46,8 @@ Comments, the new-issue dialog and an issue's description take images: **paste**
 
 | Page | What's there |
 |---|---|
-| **Now** (`/now`) | Everything started, and urgent or high-priority Todo, across projects |
-| **My issues** (`/mine`) | **Waiting on you** on top (issues with an agent's question you haven't answered, or an agent's proposal you haven't decided, in any project), then open urgent (P0) issues anywhere, then what's assigned to you, proposals first |
+| **Now** (`/now`) | Everything started, and urgent or high-priority Todo, across projects. Its filters include **Project**, to narrow it to some |
+| **My issues** (`/mine`) | **Waiting on you** on top (issues with an agent's question you haven't answered, or an agent's proposal you haven't decided, in any project), then open urgent (P0) issues anywhere, then what's assigned to you, proposals first. Filtered like Now, **Project** included |
 | A project's **Issues** | A list (grouped by status or chunk) or a board, with search and filters for priority, column, assignee and label. It starts on the open issues: tick Done or Canceled under **Column** to see those too, and **Clear** to go back. The board has a column only for the statuses ticked |
 | An **issue's page** | Its title and description edit in place. Status, priority, assignee, labels and chunk change on the right. A question an agent asked you shows at the top, with **Answer**, until you do. A picture opens larger over the page on a click. Also sub-issues, the sessions panel, and the activity: comments with a quiet line for every change between them (who moved it, assigned it, relabelled it, and when) |
 | **Roadmap** | Chunks as cards in their columns. A chunk's page has its summary, priority, progress, issues and the sessions panel |

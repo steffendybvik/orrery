@@ -137,11 +137,11 @@ export abstract class SignalStore extends IssueStore {
         }))
     }
 
-    /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */
-    async message(project: string, schedule: number, text: string, actor = AGENT): Promise<Signal> {
+    /** Sends a schedule's message to the project's sessions, or to one (`target`): about no issue, as the schedule's maker. */
+    async message(project: string, schedule: number, text: string, actor = AGENT, target?: string): Promise<Signal> {
         await this.projectRow(project)
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, schedule, 'message', text, actor.name, Number(actor.owner), stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, schedule, 'message', text, target ?? null, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal
