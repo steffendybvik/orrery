@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Issue, Session} from '#shared/roadmap'
+import {nameBesideProject} from '#shared/roadmap'
 
 // Every project with its progress and how many issues are started; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
@@ -278,7 +279,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd, session.started?.context?.presets.length ? `as ${session.started.context.presets.join(', ')}` : ''].filter(Boolean).join(' · ')"
         >
           <SessionDot :session="session" />
-          <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
+          <span class="min-w-0 flex-1 truncate">{{ nameBesideProject(session) }}</span>
           <span class="flex min-w-0 max-w-[40%] items-center gap-1 text-[11px] text-faint">
             <span v-if="spanLabel(session)" class="truncate">{{ spanLabel(session) }}</span>
             <template v-else>
