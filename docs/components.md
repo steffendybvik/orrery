@@ -45,7 +45,9 @@ depends on the stylesheet's order, not the attribute's. To hide it on a phone us
 ### UiDialog
 
 A dialog over the dimmed page: a form on the glass panel, near the top, scrolling with the page when it's
-taller than the window.
+taller than the window. It's Headless UI's `Dialog`: the focus stays inside while it's open and goes back after, and
+the page under it doesn't scroll. It draws in a portal on the page's body, so a component test finds it there
+(`new DOMWrapper(document.body)`), not inside the component.
 
 ```vue
 <UiDialog :open="target" label="New chunk" @close="close" @submit="create">
@@ -66,18 +68,40 @@ taller than the window.
 ### `menu` and UiMenuItem
 
 A menu or popover is a `menu` (a CSS utility: the glass panel, rounded, padded, a column), with where it sits and
-how wide beside it. Its lines are `UiMenuItem`s.
+how wide beside it. Its lines are `UiMenuItem`s. A menu that opens from a button is Headless UI's `Menu`, each line a
+`MenuItem` around a `UiMenuItem`:
 
 ```vue
-<div v-if="open" ref="panel" class="menu fixed z-50 w-64" role="menu" :style="...">
-  <UiMenuItem @click="copyId"><ClipboardIcon class="size-3.5 text-faint" /> Copy id</UiMenuItem>
-  <UiMenuItem :active="picked === c.id" @click="pick(c.id)">{{ c.title }}</UiMenuItem>
-  <UiMenuItem muted @click="back">‹ Back</UiMenuItem>
-  <UiMenuItem danger @click="confirming = true">Remove…</UiMenuItem>
-</div>
+<Menu as="div" class="relative">
+  <MenuButton as="template"><UiButton size="xs">Focus on all</UiButton></MenuButton>
+  <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-56">
+    <MenuItem v-for="s in sessions" :key="s.id" v-slot="{active}" as="template">
+      <UiMenuItem :lit="active" @click="focus(s)">{{ s.name }}</UiMenuItem>
+    </MenuItem>
+  </MenuItems>
+</Menu>
 ```
 
-`active` marks the current pick, `muted` a quieter line (Back, None), `danger` one that removes something.
+`active` marks the current pick, `muted` a quieter line (Back, None), `danger` one that removes something, and `lit`
+the line ↑↓ are on (Headless UI's `active`), drawn as a hover is.
+
+### UiContextMenu
+
+A menu at the pointer, for a right-click. Headless UI has none, so this is the one place that draws one: it keeps
+the panel inside the window, takes the focus as it opens, and closes on Esc, a press outside it, or the window losing
+focus or changing size.
+
+```vue
+<UiContextMenu :at="issue ? target : null" :label="`Actions for ${issue?.id}`" width="w-64" @close="close">
+  <template v-if="issue">
+    <UiMenuItem @click="copyId"><ClipboardIcon class="size-3.5 text-faint" /> Copy id</UiMenuItem>
+    <UiMenuItem danger @click="confirming = true">Remove…</UiMenuItem>
+  </template>
+</UiContextMenu>
+```
+
+`at` is where the right-click was (`{x, y}`); nothing closes it. Its lines can change in place (a chunk list, a
+confirm), as a Headless UI `Menu` can't: one closes on any pick.
 
 ### UiConfirm
 
@@ -121,9 +145,9 @@ Already one component each; use them rather than drawing the same thing again.
 | Component | For |
 |---|---|
 | `PropertyPicker` | a property as a button with a menu to type in (status, priority, chunk, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `chunkOptions(chunks)` (utils/roadmap) are the usual option lists |
-| `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message) |
-| `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any |
-| `LabelPicker` | a new issue's labels: tick the project's or make one |
+| `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message, a page's tabs): Headless UI's `RadioGroup`, one Tab stop with ←→ moving the choice |
+| `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any: Headless UI's `Listbox` (`multiple`) |
+| `LabelPicker` | a new issue's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
 | `SelectBox` | the tick on an issue's row or card, for changing many at once |
 
 **Showing**
@@ -178,7 +202,7 @@ Auto-imported, like the components. Reach for these before writing the listener 
 
 | | For |
 |---|---|
-| `useDismiss(element, isOpen, close, {capture?, blur?, resize?})` | closes a menu or picker on a press outside it (and, if asked, when the window loses focus or resizes) |
+| `useDismiss(element, isOpen, close, {capture?, blur?, resize?})` | closes something on a press outside it (and, if asked, when the window loses focus or resizes); only `UiContextMenu` needs it, as Headless UI's parts close themselves |
 | `useHotkeys` | the page's keys (j/k, Enter, Esc, /, ⌘K, x, ⌘A); a row takes part by carrying `data-nav` |
 | `useSelection` | the issues ticked for a change to many (`BulkBar`); rows carry `data-issue` and `data-project` |
 | `useIssueLink` | an issue's page (`pathOf`, `open`), and the last one opened, marked when you come back |
@@ -198,5 +222,18 @@ A new component belongs in `components/ui/` when it's a building block with no i
 this page, and move the copies you found onto it in the same change.
 
 Keys, focus and outside-click come from [Headless UI](https://headlessui.com/v1/vue) (`@headlessui/vue`) rather than
-being written again in each component: `PropertyPicker` is its `Combobox`. Something that opens, picks or closes
-(a menu, a listbox, a popover) builds on the matching Headless UI part and only draws it, in the classes above.
+being written again in each component:
+
+| Ours | Headless UI |
+|---|---|
+| `UiDialog` (every dialog, ⌘K), `ImageView` | `Dialog` |
+| `PropertyPicker`, `LabelPicker` | `Combobox` |
+| `FilterMenu` | `Listbox` |
+| `SegmentedControl` | `RadioGroup` |
+| `StatusFocus` | `Menu` |
+
+Something new that opens, picks or closes builds on the matching part and only draws it, in the classes above. Two
+things stay our own, as Headless UI (v1) has nothing that fits: the right-click menus (`UiContextMenu`), and ⌘K's
+list, which jumps a section on ⇥ and opens "N more" in place (it says the same to a screen reader, as a combobox).
+Folding (the sidebar's projects, a list's groups) stays a button with `aria-expanded`, since Headless UI's
+`Disclosure` can't be opened or closed from outside, and the folds are kept between visits.

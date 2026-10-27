@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
+
 // The kit in one place (docs/components.md), so a new screen reuses its pieces rather than copying them. Only
 // under `nuxt dev`: a built Orrery says Not found here.
 if (!import.meta.dev) throw createError({statusCode: 404, statusMessage: 'Not found'})
@@ -19,6 +21,9 @@ const priority = ref('')
 const labels = ref(['design'])
 const labelOptions = computed(() => [...new Set(['design', 'maintenance', 'security', ...labels.value])].map(l => ({value: l, label: l})))
 const view = ref<'list' | 'board'>('list')
+const filtered = ref<string[]>([])
+const at = ref<{x: number, y: number} | null>(null)
+const picked = ref('')
 const dialog = ref(false)
 const confirming = ref(false)
 </script>
@@ -71,6 +76,32 @@ const confirming = ref(false)
           </PropertyPicker>
           <span class="text-xs text-faint"><code>field</code>, <code>field small</code></span>
         </div>
+      </section>
+
+      <section class="flex flex-col gap-3 border-t border-line pt-6">
+        <h2 class="label">FilterMenu, Menu and UiContextMenu</h2>
+        <div class="flex flex-wrap items-center gap-2">
+          <FilterMenu v-model="filtered" label="Priority" :options="PRIORITY_OPTIONS.filter(o => o.value)">
+            <template #option="{value}"><PriorityIcon :priority="value" /></template>
+          </FilterMenu>
+          <Menu as="div" class="relative">
+            <MenuButton as="template"><UiButton size="xs">A menu</UiButton></MenuButton>
+            <MenuItems class="menu absolute top-full left-0 z-40 mt-1.5 w-48">
+              <MenuItem v-for="name in ['Copy id', 'Open']" :key="name" v-slot="{active}" as="template">
+                <UiMenuItem :lit="active" @click="picked = name">{{ name }}</UiMenuItem>
+              </MenuItem>
+              <MenuItem v-slot="{active}" as="template"><UiMenuItem :lit="active" danger @click="picked = 'Remove'">Remove…</UiMenuItem></MenuItem>
+            </MenuItems>
+          </Menu>
+          <div class="grid h-7 place-items-center rounded-md border border-dashed border-line px-3 text-xs text-muted" @contextmenu.prevent="at = {x: $event.clientX, y: $event.clientY}">
+            Right-click here
+          </div>
+          <span v-if="picked" class="text-xs text-faint">Picked {{ picked }}</span>
+        </div>
+        <UiContextMenu :at="at" label="Example menu" width="w-48" @close="at = null">
+          <UiMenuItem v-for="name in ['Copy id', 'Open']" :key="name" @click="picked = name; at = null">{{ name }}</UiMenuItem>
+          <UiMenuItem danger @click="picked = 'Remove'; at = null">Remove…</UiMenuItem>
+        </UiContextMenu>
       </section>
 
       <section class="flex flex-col gap-3 border-t border-line pt-6">
