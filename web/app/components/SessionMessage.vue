@@ -2,7 +2,8 @@
 import type {Session} from '#shared/roadmap'
 
 // The owner's own words to one listening session, through its channel on `project`: it reads them as a message
-// to it alone, nothing typed into its terminal. Enter sends, Shift-Enter starts a new line.
+// to it alone, nothing typed into its terminal. Enter sends, Shift-Enter starts a new line; Send shows once there's
+// something to send.
 const props = defineProps<{session: Session, project: string}>()
 const {load} = useOwner()
 const text = ref('')
@@ -40,13 +41,15 @@ async function send() {
           v-model="text"
           rows="1"
           :aria-label="`Message ${session.name}`"
-          :placeholder="`Message ${session.name}… (only it hears this)`"
-          class="field-sizing-content max-h-40 min-h-8 flex-1 resize-none rounded-lg bg-well px-3 py-1.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+          :placeholder="`Message ${session.name}…`"
+          title="Only it hears this. Enter sends; Shift-Enter for a new line"
+          class="field-sizing-content max-h-40 min-h-7 flex-1 resize-none rounded-lg bg-well px-3 py-1 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
           @keydown.enter.exact.prevent="send"
       />
       <button
+          v-if="text.trim() || busy || sent"
           type="submit"
-          class="h-8 shrink-0 rounded-lg px-3 text-xs font-medium text-accent-600 ring-1 ring-accent-500/40 hover:bg-accent-500/10 disabled:opacity-40 dark:text-accent-400"
+          class="h-7 shrink-0 rounded-lg px-3 text-xs font-medium text-accent-600 ring-1 ring-accent-500/40 hover:bg-accent-500/10 disabled:opacity-40 dark:text-accent-400"
           :disabled="!text.trim() || busy"
       >
         {{ busy ? 'Sending…' : sent ? 'Sent' : 'Send' }}
