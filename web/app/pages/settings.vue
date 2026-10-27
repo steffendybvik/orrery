@@ -309,9 +309,17 @@ async function pick(tint: string | null) {
         <dl v-if="settings.database" class="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[13px]">
           <dt class="text-muted">{{ settings.database.kind === 'postgres' ? 'Postgres' : 'SQLite file' }}</dt>
           <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.where">{{ settings.database.where }}</code><CopyButton :text="settings.database.where" /></dd>
+          <template v-if="settings.database.size !== undefined">
+            <dt class="text-muted">Size</dt>
+            <dd class="text-fg tabular-nums" :title="`${settings.database.size.toLocaleString()} bytes`">{{ bytes(settings.database.size) }}</dd>
+          </template>
           <template v-if="settings.database.backup">
             <dt class="text-muted">Backed up to</dt>
             <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.backup">{{ settings.database.backup }}</code><CopyButton :text="settings.database.backup" /></dd>
+            <template v-if="settings.database.backup_size !== undefined">
+              <dt class="text-muted">Backups</dt>
+              <dd class="text-fg tabular-nums" :title="`${settings.database.backup_size.toLocaleString()} bytes`">{{ bytes(settings.database.backup_size) }}</dd>
+            </template>
             <dt class="text-muted">Latest backup</dt>
             <dd class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <span class="text-fg" :title="settings.database.backed_up_at && new Date(settings.database.backed_up_at).toLocaleString()">{{ settings.database.backed_up_at ? ago(settings.database.backed_up_at) : 'None yet' }}</span>

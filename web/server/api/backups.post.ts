@@ -5,6 +5,8 @@ export default defineEventHandler(async event => {
     if (!actor.owner) throw forbidden('Only the owner backs the database up; send Orrery-Actor: <owner>')
     const dir = String(useRuntimeConfig().backupDir ?? '')
     if (!dir) throw conflict('Orrery has no backup folder: set ORRERY_BACKUP (NUXT_BACKUP_DIR outside Docker) and restart it')
-    await backUp(useDatabase(), dir)
-    return describeDatabase()
+    const db = useDatabase()
+    await backUp(db, dir)
+    const database = describeDatabase()
+    return {...database, ...await databaseSize(database, db)}
 })

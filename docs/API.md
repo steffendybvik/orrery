@@ -184,7 +184,7 @@ instead of `done` when it won't ship.
 | | |
 |---|---|
 | `GET /projects/:project/issues/:issue/comments` | oldest first |
-| `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked. Until then the issue reads `waiting: "decision"` or `"feedback"` (its latest open ask), and the app marks it on its row, card and page |
+| `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked. Until then the issue reads `waiting: "decision"` or `"feedback"` (its latest open ask), and the app marks it on its row, card and page. An agent's proposal waiting on the owner (pending, not under another proposal) reads `waiting: "decision"` too, with no ask of its own open, until they decide it |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
 | `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release` or `project` (moved in from `before`) |
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell), led by agents' proposals waiting on the owner: `{id: 0, issue, title, body: <its notes>, asks: "decision", answered: false, proposal: {choices: <how many>}}`, there until the owner decides it (clearing leaves it). `?list=waiting` is every one still waiting, proposals among them; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
@@ -215,12 +215,16 @@ the project's listening sessions at it (the owner's schedules only, as with ever
 is listening, the next to connect within a day gets it). With `skip_open` (the default) a run is skipped
 while the last run's issue isn't done; with `only_if_changed`, a message run is skipped (`nothing changed`) when no
 issue or comment in the project changed since the last run it sent. Missed runs while Orrery was down run once when it's back.
+An `untrusted` message schedule, one whose session reads what others wrote (GitHub issues), never messages the project's
+sessions: each run has a launcher start a locked-down session for its message alone, or fails saying why (no launcher,
+Starting sessions off, the limit). That session's new issues are made proposals labelled `external`, and its other
+writes are refused (403), except comments on those proposals (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)).
 
 | | |
 |---|---|
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
-| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
+| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, untrusted?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}`; the owner's, only by the owner |
 
@@ -292,10 +296,12 @@ projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dang
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 `GET /settings` says the Orrery's `id` (made once, when it first starts) and `environment`: a channel given
 `ORRERY_ID` refuses an Orrery with another id. It also says where the data is, read only: `database: {kind, where,
-backup?, backed_up_at?}`, `kind` `sqlite` (`where` the file's path) or `postgres` (`where` as `user@host:port/name`,
-never the password), `backup` the folder it's backed up to, if any (a Postgres one as a SQLite snapshot), and
-`backed_up_at` when the latest backup there was made. `POST /backups` (the owner's) backs it up now and answers
-with `database`; 409 without a backup folder. A session heard on several projects is listed on each one's
+backup?, backed_up_at?, size?, backup_size?}`, `kind` `sqlite` (`where` the file's path) or `postgres` (`where` as
+`user@host:port/name`, never the password), `backup` the folder it's backed up to, if any (a Postgres one as a SQLite
+snapshot), and `backed_up_at` when the latest backup there was made. `size` is how big it is in bytes (a SQLite file with
+its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
+it can't be read. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without a backup
+folder. A session heard on several projects is listed on each one's
 group on the Sessions page, with the others in `also`. A channel that finds the name its server goes by in the
 repo's `.mcp.json` sends it (`?server=`), and the session lists it as `server`, for the command that restarts it with
 the channel.
@@ -349,9 +355,9 @@ with review instructions in it.
 | `GET /projects/:project/launches/stream?dir=&every=1` | for the launcher, running in the folder `dir` (projects whose launchers share one are in one repo), with `every=1` where its channel serves every project (`*`): server-sent `launch` `{id, project, after, minutes?, tmux, context?, hears?}` (claim it, then start it with `hears` as its session's `ORRERY_HEAR`, then start it; no `minutes`: until stopped), `stop` `{id}` (the owner stopped it, or it's done and past its time or idle too long), `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through; `watch` `{id, terminal}`: the owner pressed Watch, so the launcher running that session opens a terminal on its machine attached to it, in that app; and `view` `{id}`: the owner is viewing that session's screen, so its launcher sends it (`POST …/screen`) about once a second until told nobody is |
 | `POST /projects/:project/launches` | `{issue?, statuses?, release?, presets?, instructions?, hears?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); with `statuses` (ids or kinds; `todo` and `started` when only `release` is sent) and `release`, from a focus made the same way on the whole project's issues in them (chunk `all`); `presets` (ids, the Orrery's or the project's) and `instructions` (text) give it context; `hears` (project ids) is what the session hears: the project alone, or it and others whose launchers run in the same folder, as one session (without it, what the repo's channel lists); 400 for another project's preset; 409 without the project's opt-in, a launcher or room under the limit, or for a project in `hears` not served from its folder |
 | `GET /projects/:project/launches` | `{launchers, folders, every, started, starting, total}`: whether a launcher is there, the folders its launchers run in, whether one serves every project (so a launch without `hears` hears them all), the sessions it started and has on their way, and `total`, those on every project, which the limit counts |
-| `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true` |
+| `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true`. An untrusted schedule's launch (`untrusted: true`) goes only to one that sends `?untrusted=yes`, saying it starts it locked down |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
-| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at?, context?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again, with the context they were given (a launch Orrery still knows keeps its own) |
+| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at?, context?, untrusted?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again, with the context they were given (a launch Orrery still knows keeps its own) |
 | `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
 | `POST /projects/:project/launches/:launch/watch` | the session: the owner watching it; its launcher opens a terminal attached to it, in the app `GET /settings` names (`terminal`: `terminal`, `iterm`, `warp` or `ghostty`, set with `PATCH /settings {terminal}`; on Linux the system's own terminal); 409 when no launcher is running for the project |
 | `GET /projects/:project/launches/:launch/screen` | `{screen, at?}`: the owner viewing its screen, read only, polled about once a second; the launcher sends the tmux pane as text for as long as this is asked for, and `screen` is null until the first comes in; 409 when no launcher is running for the project |

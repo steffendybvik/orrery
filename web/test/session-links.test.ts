@@ -6,17 +6,23 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 type Event = {method: string, path: string, headers: Record<string, string>, params: Record<string, string>}
 let worked: [project: string, issue: string, session: string][]
 let claims: [project: string, issue: string, session: string][]
+let made: unknown[]
 
 beforeEach(async () => {
     worked = []
     claims = []
+    made = []
     const store = {
         claim: async (project: string, issue: string, _status: unknown, session: string) => void claims.push([project, issue, session]),
         ownerOf: async () => ({name: 'skoll'}),
         createComment: async (_project: string, _issue: string, body: object) => ({id: 1, ...body}),
         workedBy: async (project: string, issue: string, session: string) => void worked.push([project, issue, session]),
         claimed: async (_project: string, _issue: string, _status: unknown, _session: string, write: () => Promise<unknown>) => write(),
-        createIssue: async (project: string) => ({project, id: 'LAR-9'}),
+        createIssue: async (project: string, body: unknown) => {
+            made.push(body)
+            return {project, id: 'LAR-9'}
+        },
+        issue: async (_project: string, id: string) => id === 'LAR-7' ? {proposal: 'pending', labels: ['external']} : {labels: []},
         updateIssue: async (project: string, id: string, body: {project?: string}) => ({project: body.project ?? project, id: body.project ? 'PAN-4' : id}),
     }
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
@@ -27,12 +33,17 @@ beforeEach(async () => {
     vi.stubGlobal('readBody', async (event: Event & {body?: unknown}) => event.body)
     vi.stubGlobal('actorOf', async () => ({name: 'claude', owner: false}))
     vi.stubGlobal('created', (_event: Event, value: unknown) => value)
+    vi.stubGlobal('untrustedSession', (id: string) => id === 'locked')
+    vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
     vi.resetModules()
     const {workedOn, claimFor} = await import('../server/utils/actor')
     const {decoded} = await import('../server/utils/events')
     vi.stubGlobal('workedOn', workedOn)
     vi.stubGlobal('claimFor', claimFor)
     vi.stubGlobal('decoded', decoded)
+    const {asProposal, EXTERNAL} = await import('../server/utils/untrusted')
+    vi.stubGlobal('asProposal', asProposal)
+    vi.stubGlobal('EXTERNAL', EXTERNAL)
 })
 
 afterEach(() => vi.unstubAllGlobals())
@@ -74,5 +85,28 @@ describe("a session's writes", () => {
         expect(() => middleware(event('PATCH', '/api/projects/larder/issues/LAR-%E0', {}))).not.toThrow()
         await settle()
         expect(worked).toEqual([['larder', 'LAR-%E0', 'abc']])
+    })
+})
+
+describe("an untrusted schedule's session", () => {
+    it('makes every issue it raises a proposal labelled external', async () => {
+        const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
+        await create(event('POST', '/api/projects/larder/issues', {project: 'larder'}, {title: 'Run this', status: 'in-progress', priority: 'P0'}, 'locked'))
+        await create(event('POST', '/api/projects/larder/issues', {project: 'larder'}, {title: 'Mine', priority: 'P0'}))
+        expect(made).toEqual([{title: 'Run this', notes: undefined, proposal: 'pending', labels: ['external']}, {title: 'Mine', priority: 'P0'}])
+    })
+
+    it('may only raise proposals and comment on them; any other write is refused', async () => {
+        const guard = (await import('../server/middleware/untrusted')).default as unknown as (event: object) => Promise<void>
+        const tries = async (method: string, path: string, session = 'locked') => guard(event(method, path, {}, undefined, session)).then(() => 'ok', (e: {statusCode: number}) => e.statusCode)
+        expect(await tries('GET', '/api/projects/larder/issues/LAR-1')).toBe('ok')
+        expect(await tries('POST', '/api/projects/larder/issues')).toBe('ok')
+        expect(await tries('POST', '/api/projects/larder/issues/LAR-7/comments')).toBe('ok')
+        expect(await tries('POST', '/api/projects/larder/issues/LAR-1/comments')).toBe(403)
+        expect(await tries('PATCH', '/api/projects/larder/issues/LAR-7')).toBe(403)
+        expect(await tries('PUT', '/api/projects/larder/docs/setup')).toBe(403)
+        expect(await tries('POST', '/api/egress')).toBe(403)
+        // Any other session writes as it always has.
+        expect(await tries('PATCH', '/api/projects/larder/issues/LAR-1', 'abc')).toBe('ok')
     })
 })

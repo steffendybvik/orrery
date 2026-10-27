@@ -359,6 +359,9 @@ export interface Schedule {
     skip_open: boolean
     /** A message schedule: skips a run when no issue or comment in the project changed since the last one it sent. */
     only_if_changed: boolean
+    /** A message schedule whose session reads what others wrote (GitHub issues): its message goes to a session
+     * started for it alone, with only `gh issue list/view` and the Orrery tools, and what that session raises is a proposal. */
+    untrusted: boolean
     enabled: boolean
     /** When it runs next; none once it's paused or a one-off has run. */
     next_run?: string
@@ -404,6 +407,10 @@ export interface DatabaseInfo {
     where: string
     backup?: string
     backed_up_at?: string
+    /** How big it is, in bytes: a SQLite file with its `-wal`, or the Postgres database; none when it can't be read. */
+    size?: number
+    /** The backup folder's files together, in bytes. */
+    backup_size?: number
 }
 
 export interface Settings {
@@ -491,6 +498,9 @@ export interface StartedSession {
     stops_at?: string
     /** What the owner gave it to go on when they started it, if anything. */
     context?: SessionContext
+    /** Started for an untrusted schedule's run: it reads what others wrote, so it hears only that run's message,
+     * has only `gh issue list/view` and the Orrery tools, and what it raises is a proposal. */
+    untrusted?: boolean
 }
 
 /** More context for a session, from the owner as they start it: the presets they picked (by name) and their own

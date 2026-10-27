@@ -129,6 +129,12 @@ export abstract class StoreBase {
             }
             return found
         }
+        // An agent's proposal waiting on the owner (pending, not under another proposal, as the bell has it) waits on
+        // their decision too, when no question of its own is open.
+        const proposals = new Set(issues.filter(row => row.proposal).map(row => row.id))
+        for (const row of issues) {
+            if (row.proposal === 'pending' && !row.owned && !(row.parent && proposals.has(row.parent)) && !waiting.has(row.id)) waiting.set(row.id, 'decision')
+        }
         const issueAliases = await aliases('issue_aliases', 'issue')
         const chunkAliases = await aliases('chunk_aliases', 'chunk')
         const children = new Map<string | null, IssueRow[]>()
