@@ -1,6 +1,6 @@
 // Fills an empty playground Orrery with a demo, through its API, as the owner (Skoll, the wolf who chases the sun)
 // and an agent (claude), with Skoll's brother Hate, who chases the moon, to assign to:
-// a prime-number library with releases, chunks, sub-issues and starts allowed; its command line, sharing its
+// sessions Orrery may start; a prime-number library with releases, chunks and sub-issues; its command line, sharing its
 // releases as a monorepo's app would; graph algorithms with no releases; a proposal with choices, a question
 // waiting in the bell, and a doc. An Orrery that already has projects is left alone.
 //   node .playground/seed.mjs [http://localhost:9001]
@@ -23,11 +23,11 @@ if ((await call('GET', '/projects')).length) {
 }
 
 await call('PUT', '/owner', {name: 'Skoll'})
-await call('PATCH', '/settings', {handle: 'skoll', tracker: 'https://linear.app/demo/issue/{id}'})
+await call('PATCH', '/settings', {handle: 'skoll', tracker: 'https://linear.app/demo/issue/{id}', starts: {limit: 2, minutes: 30}})
 
-// Primes: its own releases, chunks, and sessions Orrery may start.
+// Primes: its own releases and chunks.
 await call('POST', '/projects', {name: 'Primes', id: 'primes', key: 'PRM', description: 'A library for finding and testing prime numbers'})
-await call('PATCH', '/projects/primes', {release_mode: 'own', repo: 'https://github.com/demo/primes', starts: {limit: 2, minutes: 30}})
+await call('PATCH', '/projects/primes', {release_mode: 'own', repo: 'https://github.com/demo/primes'})
 const primes = (path, body, actor) => call('POST', `/projects/primes${path}`, body, actor)
 const sieves = await primes('/chunks', {title: 'Sieves', summary: 'Every prime up to n, fast.'})
 const tests = await primes('/chunks', {title: 'Primality tests', summary: 'Whether one number is prime, without listing the rest.'})
