@@ -128,7 +128,7 @@ export function sessionName(text: string): string {
 }
 
 /** `text` as one word for a POSIX shell: single-quoted, any `'` closed, escaped and reopened. */
-export function shellQuote(text: string): string {
+function shellQuote(text: string): string {
     return `'${text.replace(/'/g, `'\\''`)}'`
 }
 
