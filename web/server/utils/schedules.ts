@@ -7,9 +7,16 @@
 // session for it alone (launches.ts), or fails saying why. The timer
 // (server/plugins/schedules.ts) calls `runDue`; a run is claimed by moving `next_run` on first, so two
 // servers (a reloading `nuxt dev`) can't run it twice, and after downtime a schedule runs once.
+//
+// Or a schedule runs `on` an event instead of a clock (ORR-341, shared/happenings.ts): `hear` gets each one, and
+// a schedule whose pattern and `on_filter` it fits runs about it, once per subject (an issue bounced in and out of a
+// status runs it once), not within a minute of its last run, and never on what a schedule's own run did.
+import {AsyncLocalStorage} from 'node:async_hooks'
 import {Cron} from 'croner'
+import type {OnFilter, OrreryEvent} from '#shared/happenings'
+import {EVENT_PATTERN, matchesType} from '#shared/happenings'
 import type {Priority, Schedule, ScheduleRun} from '#shared/roadmap'
-import {CLOSED, PRIORITIES} from '#shared/roadmap'
+import {CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
 import {one} from './database'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, forbidden, notFound} from './input'
@@ -19,18 +26,39 @@ import {AGENT} from './store'
 interface ScheduleRow {
     id: number, project: string, kind: 'issue' | 'message', title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
     place: string, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, only_if_changed: number, untrusted: number, enabled: number,
-    next_run: string | null, created_by: string, owned: number, created_at: string, updated_at: string
+    next_run: string | null, on_event: string | null, on_filter: string | null, created_by: string, owned: number, created_at: string, updated_at: string
 }
-interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null }
+interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null, subject: string | null }
+
+/** The schedule whose run is under way, so what its run does (the issue it makes) runs no schedule. */
+export const scheduleRunning = new AsyncLocalStorage<number>()
+
+/** How long after a run an event schedule waits before it runs again, so a burst runs it once. */
+const COOLDOWN = 60_000
+
+/** `on_filter` as it's sent (`to`, `from`, `by` owner or session, and `level`, each optional), as it's stored. */
+function parseFilter(value: unknown): string {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('send an object: {"to": "in-review"}')
+    const {to, from, by, level, ...rest} = value as Record<string, unknown>
+    const extra = Object.keys(rest)
+    if (extra.length) throw new Error(`"${extra[0]}" isn't one; use to, from, by or level`)
+    for (const [key, given] of Object.entries({to, from})) if (given !== undefined && typeof given !== 'string') throw new Error(`"${key}" is a value, e.g. "in-review"`)
+    if (by !== undefined && by !== 'owner' && by !== 'session') throw new Error('"by" is "owner" or "session"')
+    if (level !== undefined && !EVENT_LEVELS.includes(level as never)) throw new Error(`"level" is one of ${EVENT_LEVELS.join(', ')}`)
+    return JSON.stringify(Object.fromEntries(Object.entries({to, from, by, level}).filter(([, v]) => v !== undefined && v !== '')))
+}
 
 const SCHEDULE_FIELDS: Record<string, Field> = {
     /** `issue` (the default) makes an issue each run; `message` sends `notes` to the sessions instead. */
     kind: {type: 'string', values: ['issue', 'message']},
     title: {type: 'string', required: true},
     notes: {type: 'string', nullable: true},
-    /** Five fields (minute hour day month weekday), e.g. `0 9 * * 1-5`; or `at`, once. */
+    /** Five fields (minute hour day month weekday), e.g. `0 9 * * 1-5`; or `at`, once; or `on`, an event. */
     cron: {type: 'string', nullable: true},
     at: {type: 'string', nullable: true},
+    /** An event's type, `*` for any part of it: `issue.status`, `release.*`, `*.failed` (shared/happenings.ts). */
+    on: {type: 'string', nullable: true},
+    on_filter: {type: 'json', nullable: true, parse: parseFilter},
     /** An IANA zone, e.g. `Europe/Oslo`; the server's when left out. */
     timezone: {type: 'string'},
     /** Where its issues start: an open status's id, or a kind (`todo`). */
@@ -84,16 +112,16 @@ export class Schedules {
     async create(project: string, body: unknown, actor = AGENT): Promise<Schedule> {
         await this.store.project(project)
         const input = checkInput(body, SCHEDULE_FIELDS)
-        const when = this.when({cron: input.cron, at: input.at, timezone: input.timezone}, true)
+        const when = this.when({cron: input.cron, at: input.at, on: input.on, timezone: input.timezone}, true)
         const chunk = await this.chunk(project, input.chunk)
         const now = new Date().toISOString()
         const enabled = input.enabled ?? true
         const kind = String(input.kind ?? 'issue')
         if (kind === 'message' && !text(input.notes)?.trim()) throw badRequest('A message schedule needs its message in "notes"')
         if (input.untrusted && kind !== 'message') throw badRequest('Only a message schedule is untrusted: send "kind": "message"')
-        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
-            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, await this.place(input.column ?? 'todo'), chunk,
+        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
+            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), when.timezone, await this.place(input.column ?? 'todo'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false),
             Number(input.untrusted ?? false), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
@@ -107,12 +135,15 @@ export class Schedules {
         const row = await this.row(project, id)
         if (row.owned && !actor.owner) throw forbidden(`Changing schedule ${id}: it's the owner's; only they can change it`)
         const input = checkInput(body, SCHEDULE_FIELDS, true)
-        const timing = input.cron !== undefined || input.at !== undefined || input.timezone !== undefined
+        const timing = input.cron !== undefined || input.at !== undefined || input.on !== undefined || input.timezone !== undefined
+        // Setting one of cron, at and on lets go of the others.
         const when = this.when({
-            cron: input.cron !== undefined ? input.cron : input.at ? null : row.cron,
-            at: input.at !== undefined ? input.at : input.cron ? null : row.at,
+            cron: input.cron !== undefined ? input.cron : input.at || input.on ? null : row.cron,
+            at: input.at !== undefined ? input.at : input.cron || input.on ? null : row.at,
+            on: input.on !== undefined ? input.on : input.cron || input.at ? null : row.on_event,
             timezone: input.timezone ?? row.timezone,
         }, timing)
+        const filter = filterOf(when.on, input.on_filter !== undefined ? input.on_filter : row.on_filter)
         const enabled = input.enabled === undefined ? !!row.enabled : !!input.enabled
         const next = enabled && (timing || !row.enabled || !row.next_run) ? nextRun(when, new Date()) : enabled ? row.next_run : null
         const kind = String(input.kind ?? row.kind)
@@ -124,7 +155,7 @@ export class Schedules {
             kind: input.kind,
             title: input.title === undefined ? undefined : String(input.title).trim(),
             notes: input.notes === undefined ? undefined : text(input.notes),
-            cron: when.cron, at: when.at, timezone: when.timezone,
+            cron: when.cron, at: when.at, on_event: when.on, on_filter: filter, timezone: when.timezone,
             place: input.column === undefined ? undefined : await this.place(input.column),
             chunk: input.chunk === undefined ? undefined : await this.chunk(project, input.chunk),
             priority: input.priority === undefined ? undefined : text(input.priority),
@@ -174,30 +205,79 @@ export class Schedules {
         return await this.run(row, new Date(), true)
     }
 
-    /** Makes the issue and asks the sessions; the run is recorded whatever happens. */
-    private async run(row: ScheduleRow, now: Date, manual: boolean): Promise<ScheduleRun> {
+    /** Runs the event schedules `event` is for, each once per subject and not within a minute of its last run; none when a
+     * schedule's run (`cause`) did it, so one can't set another off, or itself. Says how many ran. */
+    async hear(event: OrreryEvent, cause?: number, now = new Date()): Promise<number> {
+        if (cause !== undefined) return 0
+        const rows = await this.db.all<ScheduleRow>(`SELECT * FROM schedules WHERE enabled = 1 AND on_event IS NOT NULL${event.project ? ' AND project = ?' : ''}`,
+            ...event.project ? [event.project] : [])
+        let ran = 0
+        for (const row of rows) {
+            if (!matchesType(row.on_event ?? '', event.type) || !await this.fits(row, event)) continue
+            if (event.subject && await this.db.get('SELECT 1 FROM schedule_runs WHERE schedule = ? AND subject = ?', row.id, event.subject)) continue
+            const last = await this.db.get<{at: string}>('SELECT at FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT 1', row.id)
+            if (last && now.getTime() - new Date(last.at).getTime() < COOLDOWN) continue
+            await this.run(row, now, false, event)
+            ran++
+        }
+        return ran
+    }
+
+    /** Whether the event says what the schedule's `on_filter` asks for. */
+    private async fits(row: ScheduleRow, event: OrreryEvent): Promise<boolean> {
+        const filter = row.on_filter ? JSON.parse(row.on_filter) as OnFilter : {}
+        if (filter.by && (!event.by || event.by.owner !== (filter.by === 'owner'))) return false
+        if (filter.level && event.level !== filter.level) return false
+        if (filter.to !== undefined && !await this.valueFits(event.type, event.to, filter.to, event.from)) return false
+        if (filter.from !== undefined && !await this.valueFits(event.type, event.from, filter.from, event.to)) return false
+        return true
+    }
+
+    /** A value fits as it is, as a status of the kind asked for (`done`), or as one a list gained (a label added) or
+     * lost against `other`, the value on the change's far side. */
+    private async valueFits(type: string, value: string | undefined, want: string, other: string | undefined): Promise<boolean> {
+        if (value === undefined) return false
+        if (value === want) return true
+        if (type === 'issue.status' && KINDS.includes(want as never)) return (await this.store.status(value).catch(() => null))?.kind === want
+        if (value.startsWith('[')) {
+            const list = (raw: string | undefined) => raw?.startsWith('[') ? JSON.parse(raw) as unknown[] : []
+            return list(value).includes(want) && !list(other).includes(want)
+        }
+        return false
+    }
+
+    /** Makes the issue and asks the sessions; the run is recorded whatever happens. What it does runs no schedule. */
+    private run(row: ScheduleRow, now: Date, manual: boolean, event?: OrreryEvent): Promise<ScheduleRun> {
+        return scheduleRunning.run(row.id, () => this.runIt(row, now, manual, event))
+    }
+
+    private async runIt(row: ScheduleRow, now: Date, manual: boolean, event?: OrreryEvent): Promise<ScheduleRun> {
         const record = async (outcome: ScheduleRun['outcome'], issue: string | null, note: string | null): Promise<ScheduleRun> => {
-            await this.db.run('INSERT INTO schedule_runs (schedule, at, outcome, issue, note) VALUES (?, ?, ?, ?, ?)', row.id, now.toISOString(), outcome, issue, note)
+            await this.db.run('INSERT INTO schedule_runs (schedule, at, outcome, issue, note, subject) VALUES (?, ?, ?, ?, ?, ?)',
+                row.id, now.toISOString(), outcome, issue, note, event?.subject ?? null)
             this.onChange(row.project)
-            const run = {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined}
+            const run = {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined, ...event?.subject ? {subject: event.subject} : {}}
             this.onRan(row, run, manual)
             return run
         }
         const actor: Actor = {name: row.created_by, owner: !!row.owned}
+        // What it ran on, said by ids for the session to read with its tools, never another's words.
+        const about = event ? aboutEvent(event) : null
+        const words = [row.notes ?? (row.kind === 'message' ? row.title : null), about].filter(Boolean).join('\n\n')
         if (row.kind === 'message') {
             // Only the owner's signals reach sessions, as with every signal.
             if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
-            if (row.only_if_changed && !manual && !await this.changedSinceSent(row)) return await record('skipped', null, 'nothing changed')
+            if (row.only_if_changed && !manual && !event && !await this.changedSinceSent(row)) return await record('skipped', null, 'nothing changed')
             if (row.untrusted) {
                 // Never to the project's sessions: to one started for it, or nowhere.
                 try {
-                    const {tmux} = await this.startUntrusted(row.project, row.id, row.notes ?? row.title, actor)
+                    const {tmux} = await this.startUntrusted(row.project, row.id, words, actor)
                     return await record('sent', null, `started a locked-down session for it (${tmux})`)
                 } catch (error) {
                     return await record('failed', null, `untrusted, so it needs a session of its own: ${error instanceof Error ? error.message : String(error)}`)
                 }
             }
-            await this.store.message(row.project, row.id, row.notes ?? row.title, actor)
+            await this.store.message(row.project, row.id, words, actor)
             const heard = this.listening(row.project)
             return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
         }
@@ -207,8 +287,8 @@ export class Schedules {
         }
         try {
             const issue = await this.store.createIssue(row.project, {
-                title: `${row.title} · ${day(now, row.timezone)}`,
-                ...row.notes ? {notes: row.notes} : {},
+                title: `${row.title} · ${event ? event.subject ?? event.type : day(now, row.timezone)}`,
+                ...words ? {notes: words} : {},
                 ...row.chunk ? {chunk: row.chunk} : {},
                 ...row.priority ? {priority: row.priority} : {},
                 ...row.labels !== '[]' ? {labels: JSON.parse(row.labels) as string[]} : {},
@@ -266,8 +346,8 @@ export class Schedules {
         return (await this.store.chunk(project, String(chunk))).id
     }
 
-    /** Exactly one of a cron (that parses) and a time to run once (in the future, when `strict`), in a known zone. */
-    private when(given: {cron: unknown, at: unknown, timezone: unknown}, strict: boolean): {cron: string | null, at: string | null, timezone: string} {
+    /** Exactly one of a cron (that parses), a time to run once (in the future, when `strict`) and an event, in a known zone. */
+    private when(given: {cron: unknown, at: unknown, on: unknown, timezone: unknown}, strict: boolean): {cron: string | null, at: string | null, on: string | null, timezone: string} {
         const timezone = given.timezone ? String(given.timezone) : Intl.DateTimeFormat().resolvedOptions().timeZone
         try {
             new Intl.DateTimeFormat('en', {timeZone: timezone})
@@ -276,8 +356,13 @@ export class Schedules {
         }
         const cron = given.cron ? String(given.cron).trim() : null
         const at = given.at ? String(given.at) : null
-        const either = 'Send "cron" (when it repeats) or "at" (once), not both or neither'
-        if (cron && at) throw badRequest(either)
+        const on = given.on ? String(given.on).trim() : null
+        const either = 'Send one of "cron" (when it repeats), "at" (once) and "on" (an event)'
+        if ([cron, at, on].filter(Boolean).length > 1) throw badRequest(either)
+        if (on) {
+            if (!EVENT_PATTERN.test(on)) throw badRequest(`"on" is "${on}"; use an event's type, with * for any part: issue.status, release.*, *.failed`)
+            return {cron: null, at: null, on, timezone}
+        }
         if (cron) {
             if (cron.split(/\s+/).length !== 5) throw badRequest(`"cron" is "${cron}"; use five fields: minute hour day month weekday, e.g. "0 9 * * 1-5"`)
             try {
@@ -285,23 +370,24 @@ export class Schedules {
             } catch (error) {
                 throw badRequest(`"cron" is "${cron}": ${error instanceof Error ? error.message : error}`)
             }
-            return {cron, at: null, timezone}
+            return {cron, at: null, on: null, timezone}
         }
         if (!at) throw badRequest(either)
         const time = new Date(at)
         if (Number.isNaN(time.getTime())) throw badRequest(`"at" is "${at}", not a time (e.g. 2026-10-26T09:00:00+01:00)`)
         if (strict && time.getTime() <= Date.now()) throw badRequest(`"at" is ${time.toISOString()}, which has passed`)
-        return {cron: null, at: time.toISOString(), timezone}
+        return {cron: null, at: time.toISOString(), on: null, timezone}
     }
 
     private async scheduleOf(row: ScheduleRow): Promise<Schedule> {
         const runs = (await this.db.all<RunRow>('SELECT * FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT ?', row.id, RUNS))
         return {
             id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
-            cron: row.cron ?? undefined, at: row.at ?? undefined, timezone: row.timezone,
+            cron: row.cron ?? undefined, at: row.at ?? undefined, on: row.on_event ?? undefined,
+            ...row.on_filter ? {on_filter: JSON.parse(row.on_filter) as OnFilter} : {}, timezone: row.timezone,
             column: row.place, chunk: row.chunk ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
             ask: !!row.ask, skip_open: !!row.skip_open, only_if_changed: !!row.only_if_changed, untrusted: !!row.untrusted, enabled: !!row.enabled, next_run: row.next_run ?? undefined,
-            runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined})),
+            runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined, ...r.subject ? {subject: r.subject} : {}})),
             created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
         }
     }
@@ -322,4 +408,16 @@ function day(at: Date, timezone: string): string {
 
 function text(value: unknown): string | null {
     return value === undefined || value === null || value === '' ? null : String(value)
+}
+
+/** The filter kept with an event schedule, as stored; none on a clock's. */
+function filterOf(on: string | null, filter: unknown): string | null {
+    return on && typeof filter === 'string' && filter !== '{}' ? filter : null
+}
+
+/** What an event run was about, as its issue's description or message ends: the event, its subject and the change. */
+function aboutEvent(event: OrreryEvent): string {
+    const change = event.from !== undefined || event.to !== undefined ? ` (${event.from ?? 'none'} → ${event.to ?? 'none'})` : ''
+    const by = event.by ? `, by ${event.by.name}` : ''
+    return `On ${event.type}${event.subject ? `: ${event.subject}` : ''}${change}${by}.`
 }

@@ -220,15 +220,33 @@ sessions: each run has a launcher start a locked-down session for its message al
 Starting sessions off, the limit). That session's new issues are made proposals labelled `external`, and its other
 writes are refused (403), except comments on those proposals (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)).
 
+**On an event.** Instead of `cron` or `at`, a schedule can run `on` something that happens. An event's type is
+`thing.what`. Every change to an issue is `issue.<field>` (`issue.created`, `issue.status`, `issue.labels`,
+`issue.release`, `issue.proposal`… and `issue.deleted`). Comments are `comment.added` and `comment.asks`, a session
+asking the owner. Releases are `release.created`, `.frozen`, `.thawed`, `.shipped`, `.unshipped` and `.deleted`;
+chunks `chunk.created`; docs `doc.created`, `.changed` and `.deleted`. Each kind the [event log](#event-log)
+records counts too (`server.error`, `page.error`, `backup.failed`, `session.started`, `launcher.gone`…), even with
+Advanced off. A repeat of an open error isn't one. `on` is a type or a pattern, `*` for any part (`release.*`,
+`*.failed`, `*`). `on_filter` says what the event must also say:
+- `to` / `from`: the value it changed to or from (a status's id or kind, a label added, a release's version).
+- `by`: `owner` or `session`.
+- `level`: the event log's.
+
+Such a schedule runs once per subject (an issue bounced in and out of a status runs it once), not within a minute
+of its last run, and never on what a schedule's run did. Its issue's title ends with the subject (`Review · ORR-12`),
+and its description or message ends with what happened by ids, never another's words:
+`On issue.status: ORR-12 (in-progress → in-review), by claude.` An event about the Orrery as a whole (a server error)
+goes to every project's schedules; any other, only its own project's.
+
 | | |
 |---|---|
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
-| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, untrusted?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
+| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron, at or on (with on_filter?), timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, untrusted?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `on` an event (above); setting one lets go of the others, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
-| `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}`; the owner's, only by the owner |
+| `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?, subject?}`; the owner's, only by the owner |
 
-Each schedule carries `next_run` and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why).
+Each schedule carries `next_run` (none for one on an event) and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why), and an event run's `subject`.
 
 ## Secrets
 

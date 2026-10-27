@@ -115,7 +115,8 @@ const OUTCOME = {
         <span class="text-faint">· {{ ago(s.runs[0].at) }}</span>
       </span>
       <span class="shrink-0 self-start pt-0.5 text-right text-xs sm:w-36" :title="s.next_run ? when(s.next_run) : ''">
-        <template v-if="s.enabled && s.next_run"><span class="text-fg">{{ soon(s.next_run) }}</span> <span class="hidden text-faint sm:inline">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
+        <span v-if="s.enabled && s.on" class="text-muted" :title="`Runs on ${s.on}, once per subject`">on event</span>
+        <template v-else-if="s.enabled && s.next_run"><span class="text-fg">{{ soon(s.next_run) }}</span> <span class="hidden text-faint sm:inline">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
         <span v-else-if="ran(s)" class="text-faint">ran</span>
         <span v-else class="rounded-full bg-well px-2 py-0.5 font-medium text-muted">Paused</span>
       </span>
