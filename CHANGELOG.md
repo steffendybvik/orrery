@@ -15,6 +15,8 @@ the database schema are the public surface, and a database always migrates forwa
 - **Tidier session settings:** each message template on the Sessions page says what it's for and whose it is, with
   Preview and Edit; its text opens on Edit. Each preset is a row with its name and first line, Edit and remove, and
   New preset opens the form for another. A project's Settings tab gets the same.
+- **Pictures in a frame:** a picture in an issue, a comment or a doc sits in a frame (a band of the well colour, a
+  hairline and a soft shadow), so a screenshot doesn't read as more of the page. The Before/After slider gets the same.
 - **A focus goes to one session:** a focus, a chunk's or a schedule's message aimed at no session goes to one
   session, not every one: the session already on the issue, else an idle one, else the next to go idle (within a
   day). The issue and chunk menus offer *Ask all N sessions* beside *Ask a session*; through the API it's
