@@ -242,8 +242,6 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
       </ListView>
       <p v-else class="px-4 py-16 text-center text-sm text-muted">{{ active ? 'No issue in this chunk matches the filters.' : 'No issues in this chunk yet.' }}</p>
     </template>
-    <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">
-      No chunk “{{ route.params.chunk }}”. <NuxtLink :to="`/p/${route.params.project}/roadmap`" class="ml-1 text-fg underline">Back to the roadmap</NuxtLink>
-    </div>
+    <NotFound v-else-if="ready" :to="`/p/${route.params.project}/roadmap`" back="Back to the roadmap">No chunk “{{ route.params.chunk }}”</NotFound>
   </div>
 </template>

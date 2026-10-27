@@ -155,6 +155,7 @@ Already one component each; use them rather than drawing the same thing again.
 |---|---|
 | `PageHeader` | a page's top bar: title, the page's controls, the bell, theme and settings |
 | `ViewToolbar` | an issue list's toolbar (view, grouping, filters) |
+| `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
 | `GettingStarted` | a new Orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on Now |
 | `NotificationBell` | the bell in the header: agents' comments, and those and their proposals waiting on the owner |
