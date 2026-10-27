@@ -13,6 +13,7 @@ export const DEFAULT_FOCUS_PROMPT = [
     '{actor} asks you to focus on {issue}: {title} [{where}].',
     'Note: {note}',
     'Read it with: curl {url}',
+    'Read the project docs it touches before the code, and fix any that turn out wrong.',
 ].join('\n')
 
 export const DEFAULT_CHUNK_PROMPT = [
@@ -20,7 +21,7 @@ export const DEFAULT_CHUNK_PROMPT = [
     'Note: {note}',
     'Its {status} issues, most urgent first:',
     '{issues}',
-    'Take them one at a time as you would a focus on each (in-progress, comments, done). Read them with: curl {url}',
+    'Take them one at a time as you would a focus on each (in-progress, the docs they touch, comments, done). Read them with: curl {url}',
 ].join('\n')
 
 /** The placeholders each template fills, with what they become. */

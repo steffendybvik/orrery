@@ -9,3 +9,4 @@
 - [ ] `pnpm test` and `pnpm typecheck` pass
 - [ ] A database change is a new migration step
 - [ ] `docs/API.md` is up to date with any API change
+- [ ] The docs this touches (`docs/`, the project's decisions) say what it does now

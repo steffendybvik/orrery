@@ -780,6 +780,22 @@ describe('what sessions are told', () => {
     })
 })
 
+describe('docs', () => {
+    it('list with a summary of their first paragraph, and search their title and text', async () => {
+        await store.createDoc('larder', {title: 'Decision: ids', body: '# Decision: ids\n\n![logo](/api/uploads/x)\n\nIssues get the project\'s **prefix** and a number, [handed out](https://x.y) by `Orrery`.\nNever reused.\n\nMore later.'})
+        await store.createDoc('larder', {title: 'Running', body: '```sh\npnpm dev\n```\n\n' + 'word '.repeat(60)})
+        const docs = await store.listDocs('larder')
+        expect(docs.map(d => d.summary)).toEqual([
+            "Issues get the project's prefix and a number, handed out by Orrery. Never reused.",
+            expect.stringMatching(/^(word ){20,}word…$/),
+        ])
+        expect(docs[1]!.summary.length).toBeLessThanOrEqual(161)
+        expect((await store.listDocs('larder', {q: 'REUSED'})).map(d => d.id)).toEqual(['decision-ids'])
+        expect((await store.listDocs('larder', {q: 'running'})).map(d => d.id)).toEqual(['running'])
+        expect(await store.listDocs('larder', {q: 'nothing like it'})).toEqual([])
+    })
+})
+
 describe('the bell', () => {
     it("clears agents' comments by id or up to a time, leaving them on their issues", async () => {
         const {id} = await store.createIssue('larder', {title: 'A'})

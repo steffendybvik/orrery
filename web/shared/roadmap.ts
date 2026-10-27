@@ -187,6 +187,8 @@ export function freezeNote(release: Pick<Release, 'version' | 'frozen_on' | 'shi
 export interface DocSummary {
     id: string
     title: string
+    /** Its first paragraph as plain text, cut to about 160 characters: enough to tell whether to open it. */
+    summary: string
     created_by: string
     protected: boolean
     created_at: string

@@ -9,7 +9,7 @@ import type {Db, Value} from '../utils/database'
 import {one} from '../utils/database'
 import type {Instruction} from '#shared/prompt'
 import type {IssueRecord, ChunkRecord, Actor, ProjectRow, ChunkRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
-import {OPEN_ASK, tallyReleases, releaseOf, noReleases, nullable, stamp} from './schema'
+import {OPEN_ASK, tallyReleases, releaseOf, noReleases, nullable, stamp, summaryOf} from './schema'
 import {known} from '#shared/known'
 
 export abstract class StoreBase {
@@ -99,10 +99,13 @@ export abstract class StoreBase {
     }
 
     /** A project's docs by title, A–Z, sorted here rather than in SQL so SQLite and Postgres agree on case and accents. */
-    protected async docSummaries(project: string): Promise<DocSummary[]> {
+    /** The project's docs without their text, A–Z; with `q`, only those with it in their title or text. */
+    protected async docSummaries(project: string, q = ''): Promise<DocSummary[]> {
+        const needle = q.trim().toLowerCase()
         return (await this.all<DocRow>('SELECT * FROM docs WHERE project = ?', project))
+            .filter(row => !needle || row.title.toLowerCase().includes(needle) || row.body.toLowerCase().includes(needle))
             .sort((a, b) => a.title.localeCompare(b.title, 'en', {sensitivity: 'base', numeric: true}) || a.id.localeCompare(b.id))
-            .map(row => ({id: row.id, title: row.title, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at}))
+            .map(row => ({id: row.id, title: row.title, summary: summaryOf(row.body), created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at}))
     }
 
     protected async board(project: string): Promise<Board> {

@@ -392,9 +392,33 @@ export function noReleases(project: string): string {
     return `${project} has no releases; turn them on with PATCH /api/projects/${project} {"release_mode": "own"}`
 }
 
+/** A doc's first paragraph as plain text (no headings, code, pictures or Markdown marks), cut to about 160 characters. */
+export function summaryOf(body: string): string {
+    let fenced = false
+    const lines: string[] = []
+    for (const line of body.split('\n')) {
+        if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
+        else if (fenced || /^\s*(#|<!--|\||---|\*\*\*)/.test(line) || /^\s*!\[[^\]]*\]\([^)]*\)\s*$/.test(line)) {
+            if (lines.length) break
+        } else if (!line.trim()) {
+            if (lines.length) break
+        } else lines.push(line)
+    }
+    const text = lines.join(' ')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/^\s*(>|[-*+]|\d+\.)\s+/, '')
+        .replace(/[*_`]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    if (text.length <= 160) return text
+    const cut = text.slice(0, 160)
+    return `${cut.slice(0, cut.lastIndexOf(' ') > 100 ? cut.lastIndexOf(' ') : 160).replace(/[,;:.]$/, '')}…`
+}
+
 export function docOf(row: DocRow): Doc {
     return {
-        id: row.id, project: row.project, title: row.title, body: row.body,
+        id: row.id, project: row.project, title: row.title, summary: summaryOf(row.body), body: row.body,
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
 }

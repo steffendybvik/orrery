@@ -10,6 +10,7 @@ with `play reset`.
 How to use it: `curl -s $ORRERY_URL/llms-full.txt`. Without an Orrery running, skip this section.
 
 - Work from an issue: set it to `in-progress` (assignee `claude`) before starting, comment as it moves, `done` when it ships (`canceled`, with a comment why, when it won't).
+- Read the project's docs that the task touches before the code (the `docs` tool lists them with a line each; `q` searches), and fix any that turn out wrong as part of the work.
 - Knowledge (decisions, how things work) goes in the project's docs.
 - A pull request's body links its issue at the Orrery's own address, `$ORRERY_URL/p/orrery/issues/ORR-n`, so the owner can jump to it.
 - Send `Orrery-Actor: claude` on every write. Orrery hands out ids; don't send one.
