@@ -1339,11 +1339,27 @@ describe('starting an issue', () => {
         await store.workedBy('larder', shelves, 'first')
         const refused = await failure(() => store.claim('larder', shelves, 'in-progress', 'second'))
         expect(refused).toEqual({status: 409, message: `${shelves} is already being worked on by another session (first); pick another issue`})
-        // In review is still its work. Its own session starts it again, any session closes it, and a write
-        // without a status is let be.
+        // In review is still its work. Its own session starts it again, and any session closes it.
         expect((await failure(() => store.claim('larder', shelves, 'in-review', 'second'))).status).toBe(409)
         await store.claim('larder', shelves, 'started', 'first')
         await store.claim('larder', shelves, 'done', 'second')
+        expect(await store.takenFrom('larder', shelves, 'second')).toBe('first')
+        expect(await store.takenFrom('larder', shelves, 'first')).toBeNull()
+    })
+
+    it("refuses another session's comment or edit too, not only starting it (ORR-287)", async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-review'})).id
+        await store.workedBy('larder', shelves, 'first')
+        // A write without a status (a comment, an edit), or one moving it back, is the work too.
+        expect((await failure(() => store.claim('larder', shelves, undefined, 'second'))).status).toBe(409)
+        expect((await failure(() => store.claim('larder', shelves, 'todo', 'second'))).status).toBe(409)
+        expect((await failure(() => store.claimed('larder', shelves, undefined, 'second', async () => 'written'))).status).toBe(409)
+        expect(await store.claimed('larder', shelves, undefined, 'first', async () => 'written')).toBe('written')
+        // Once it's closed, or its session is gone, anyone may.
+        store.hears = (_project, session) => session !== 'first'
+        await store.claim('larder', shelves, undefined, 'second')
+        store.hears = () => true
+        await store.updateIssue('larder', shelves, {status: 'done'})
         await store.claim('larder', shelves, undefined, 'second')
     })
 

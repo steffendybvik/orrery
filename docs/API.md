@@ -401,9 +401,11 @@ for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's n
 `/api/guide` is this reference alone. A Claude session with Orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
 make these calls for it. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
-to the issue, so the owner's comments on it go to that session. Such a write that starts an issue another
-session has started (in progress or in review), while that session is still listening, is refused with a 409:
-pick another issue. Two sessions starting the same issue at once are taken one after the other, so only the first
+to the issue, so the owner's comments on it go to that session. Such a write to an issue another session has
+started (in progress or in review), while that session is still listening, is refused with a 409: starting it, a
+comment or an edit alike, so pick another issue. Closing it (done, canceled) is any session's, and the owner's
+writes are never refused. A chunk's list marks such an issue `(another session is on it: skip it)` for the
+other sessions. Two sessions starting the same issue at once are taken one after the other, so only the first
 gets it.
 
 An issue id is only unique within its Orrery, and an Orrery is one person's board. So when a commit body

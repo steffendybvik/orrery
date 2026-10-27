@@ -5,10 +5,15 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 // store are Nitro auto-imports, stood in for here.
 type Event = {method: string, path: string, headers: Record<string, string>, params: Record<string, string>}
 let worked: [project: string, issue: string, session: string][]
+let claims: [project: string, issue: string, session: string][]
 
 beforeEach(async () => {
     worked = []
+    claims = []
     const store = {
+        claim: async (project: string, issue: string, _status: unknown, session: string) => void claims.push([project, issue, session]),
+        ownerOf: async () => ({name: 'skoll'}),
+        createComment: async (_project: string, _issue: string, body: object) => ({id: 1, ...body}),
         workedBy: async (project: string, issue: string, session: string) => void worked.push([project, issue, session]),
         claimed: async (_project: string, _issue: string, _status: unknown, _session: string, write: () => Promise<unknown>) => write(),
         createIssue: async (project: string) => ({project, id: 'LAR-9'}),
@@ -23,9 +28,10 @@ beforeEach(async () => {
     vi.stubGlobal('actorOf', async () => ({name: 'claude', owner: false}))
     vi.stubGlobal('created', (_event: Event, value: unknown) => value)
     vi.resetModules()
-    const {workedOn} = await import('../server/utils/actor')
+    const {workedOn, claimFor} = await import('../server/utils/actor')
     const {decoded} = await import('../server/utils/events')
     vi.stubGlobal('workedOn', workedOn)
+    vi.stubGlobal('claimFor', claimFor)
     vi.stubGlobal('decoded', decoded)
 })
 
@@ -36,6 +42,16 @@ const event = (method: string, path: string, params: Record<string, string>, bod
 const settle = () => new Promise(resolve => setTimeout(resolve))
 
 describe("a session's writes", () => {
+    it("are checked against the issue's claim when they comment, unless the owner makes them", async () => {
+        const comment = (await import('../server/api/projects/[project]/issues/[issue]/comments/index.post')).default as unknown as (event: object) => Promise<unknown>
+        const at = {project: 'larder', issue: 'LAR-1'}
+        await comment(event('POST', '/api/projects/larder/issues/LAR-1/comments', at, {body: 'Done the hinges'}))
+        await comment(event('POST', '/api/projects/larder/issues/LAR-1/comments', at, {body: 'Without a session'}, ''))
+        const owners = {...event('POST', '/api/projects/larder/issues/LAR-1/comments', at, {body: 'Mine'}), headers: {'orrery-session': 'abc', 'orrery-actor': 'Skoll'}}
+        await comment(owners)
+        expect(claims).toEqual([['larder', 'LAR-1', 'abc']])
+    })
+
     it('make an issue it creates its work, so it hears the decision on its proposal', async () => {
         const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
         await create(event('POST', '/api/projects/larder/issues', {project: 'larder'}, {title: 'Shelves', proposal: 'pending'}))
