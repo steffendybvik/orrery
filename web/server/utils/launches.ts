@@ -47,9 +47,18 @@ export const launchersOf = launchers.count
 /** The folders each project's launchers run in, as they say (`?dir=`), counted: projects with a folder in common
  * are served by one repo, so one session there can hear them all. */
 const folders = new Map<string, Map<string, number>>()
-/** Counts a project's launcher in, in its folder when it says, until `done` is called. */
-export function addLauncher(project: string, dir?: string): () => void {
-    const done = launchers.add(project)
+/** How many of each project's launchers run where its channel serves every project (`*`, `?every=1`), so a session
+ * started there hearing no one project hears them all. */
+const everywhere = counter('everywhere')
+/** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, until
+ * `done` is called. */
+export function addLauncher(project: string, dir?: string, every = false): () => void {
+    const gone = launchers.add(project)
+    const away = every ? everywhere.add(project) : () => {}
+    const done = () => {
+        away()
+        gone()
+    }
     if (!dir) return done
     const counts = folders.get(project) ?? new Map<string, number>()
     folders.set(project, counts.set(dir, (counts.get(dir) ?? 0) + 1))
@@ -317,6 +326,6 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
 
 /** For the project's settings: its launchers, the sessions it has started and on their way, and those on every
  * project, which the limit counts. */
-export function launchState(project: string): {launchers: number, folders: string[], started: number, starting: number, total: number} {
-    return {launchers: launchersOf(project), folders: foldersOf(project), started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
+export function launchState(project: string): {launchers: number, folders: string[], every: boolean, started: number, starting: number, total: number} {
+    return {launchers: launchersOf(project), folders: foldersOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
 }
