@@ -2,13 +2,17 @@
 import type {Priority, Schedule} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
-// Writing a schedule, or changing one, as the owner: in a project, whether each run makes an issue or
+// Writing a schedule, or changing one, as the owner: in a project (picked here for a new one), whether each run makes an issue or
 // only sends a message to the project's Claude sessions, what it says, when it runs (presets, or a cron
 // under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
 // sessions to pick it up. One already made can be paused or resumed from here, at once. ⌘↵ saves, Esc
 // closes.
 const {editing, pause} = useSchedules()
 const {byId} = useRoadmaps()
+const {ordered} = useProjectOrder()
+const projectOptions = computed(() => ordered.value.map(p => ({value: p.id, label: p.name})))
+// Each project's sidebar icon, for the project picker.
+const icons = computed(() => new Map(ordered.value.flatMap(p => p.icon && heroicon(p.icon) ? [[p.id, {icon: p.icon, color: p.icon_color}] as const] : [])))
 const {load} = useOwner()
 
 const KINDS: {value: Repeat['kind'], label: string}[] = [
@@ -57,6 +61,10 @@ const existing = computed(() => editing.value?.schedule)
 const here = computed(() => byId(project.value))
 const chunks = computed(() => here.value?.board.chunks.filter(c => c.id) ?? [])
 const known = computed(() => here.value ? [...new Set(allIssues(here.value).flatMap(({issue}) => issue.labels))] : [])
+// Another project picked for a new one: a chunk of the last one isn't one of this one's.
+watch(project, () => {
+    if (chunk.value && !chunks.value.some(c => c.id === chunk.value)) chunk.value = ''
+})
 
 /** A time as `datetime-local` wants it, in this browser's zone. */
 const local = (iso: string) => {
@@ -174,7 +182,15 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <div class="flex items-center gap-2 text-xs text-faint">
       <SectionIcon section="schedules" />
       <span>{{ existing ? 'Edit schedule in' : 'New schedule in' }}</span>
-      <span class="text-fg">{{ here?.name ?? project }}</span>
+      <PropertyPicker v-if="!existing" v-model="project" :options="projectOptions" label="Project" field>
+        <ProjectIcon v-if="icons.has(project)" :icon="icons.get(project)?.icon ?? ''" :color="icons.get(project)?.color" class="size-3.5" />
+        <span class="truncate text-fg">{{ here?.name ?? 'Pick a project' }}</span>
+        <template #option="{option}">
+          <ProjectIcon v-if="icons.has(option.value)" :icon="icons.get(option.value)?.icon ?? ''" :color="icons.get(option.value)?.color" class="size-3.5" />
+          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+        </template>
+      </PropertyPicker>
+      <span v-else class="text-fg">{{ here?.name ?? project }}</span>
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
 
@@ -224,28 +240,25 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         </template>
         <input v-else-if="kind === 'once'" v-model="once" type="datetime-local" aria-label="When" :class="field">
         <input v-else v-model="cron" placeholder="minute hour day month weekday" aria-label="Cron" :class="[field, 'w-52 font-mono']">
+        <label class="ml-auto flex items-center gap-2 text-xs text-muted">
+          Timezone
+          <input v-model="timezone" aria-label="Timezone" :class="[field, 'w-40']">
+        </label>
       </div>
-      <div v-if="kind === 'weekly'" class="flex gap-1">
+      <div v-if="kind === 'weekly'" class="flex gap-0.5 self-start rounded-lg bg-well p-0.5 ring-1 ring-line">
         <button
             v-for="d in [1, 2, 3, 4, 5, 6, 0]"
             :key="d"
             type="button"
-            class="h-7 w-10 rounded-md text-xs ring-1"
-            :class="days.includes(d) ? 'bg-accent-500/15 font-medium text-accent-700 ring-accent-500/40 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover'"
+            class="h-7 w-11 rounded-md text-xs font-medium transition-colors"
+            :class="days.includes(d) ? 'bg-accent-500 text-white shadow-sm' : 'text-muted hover:text-fg'"
             :aria-pressed="days.includes(d)"
             @click="toggleDay(d)"
         >{{ DAYS[d] }}</button>
       </div>
-      <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">
-        <template v-if="upcoming.length">
-          <span>Next:</span>
-          <span v-for="t in upcoming" :key="t.toISOString()" class="rounded bg-well px-1.5 py-px text-muted ring-1 ring-line">{{ when(t, timezone) }}</span>
-        </template>
+      <p class="text-xs text-faint">
+        <template v-if="upcoming.length">Next runs <span class="text-muted">{{ upcoming.map(t => when(t, timezone)).join(' · ') }}</span></template>
         <span v-else class="text-rose-600 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
-        <label class="ml-auto flex items-center gap-1">
-          <span>Timezone</span>
-          <input v-model="timezone" aria-label="Timezone" class="h-6 w-36 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:outline-none">
-        </label>
       </p>
     </section>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Every project's schedules, a card for each project that has any (ScheduleList), in the sidebar's order;
-// `?project=` keeps to one (a project's old Schedules tab comes here that way), shown even with none. A new one is
-// made on the project picked for it, or from its card.
+// `?project=` keeps to one (a project's old Schedules tab comes here that way), shown even with none. New schedule
+// opens the dialog on the project kept to, else the first, and the project is picked there; a card's own makes one on it.
 useHead({title: 'Schedules · Orrery'})
 const route = useRoute()
 const router = useRouter()
@@ -18,11 +18,10 @@ const cards = computed(() => ordered.value
     .filter(c => only.value ? c.project.id === only.value : c.schedules.length))
 const active = computed(() => all.value.filter(s => s.enabled).length)
 
-/** The project a new schedule goes on, picked from the select; it opens the dialog and resets. */
-const picked = computed({
-    get: () => '',
-    set: (project: string) => project && edit(project),
-})
+function newSchedule() {
+    const project = only.value || ordered.value[0]?.id
+    if (project) edit(project)
+}
 </script>
 
 <template>
@@ -38,10 +37,10 @@ const picked = computed({
     </select>
     <span class="text-xs text-muted">{{ all.length ? `${active} running, ${all.length - active} paused` : 'Nothing scheduled' }}</span>
     <template v-if="ordered.length && !only" #end>
-      <select v-model="picked" aria-label="New schedule in" class="h-7 shrink-0 cursor-pointer rounded-md bg-accent-500 px-2.5 text-xs font-medium text-white hover:opacity-90 focus:outline-none">
-        <option value="" disabled>+ New schedule in…</option>
-        <option v-for="p in ordered" :key="p.id" :value="p.id">{{ p.name }}</option>
-      </select>
+      <UiButton variant="primary" class="shrink-0" @click="newSchedule">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New schedule
+      </UiButton>
     </template>
   </ViewToolbar>
 
