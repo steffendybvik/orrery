@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Priority} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
 
 // A chunk's page: its summary, priority and progress, the Claude sessions to point at it, and its issues
 // by status, each status with a button to point the sessions at just those. Its title and summary edit
@@ -139,19 +138,24 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'
             <span class="font-mono text-faint">{{ chunk.id }}</span>
             <CopyButton :text="chunk.id" />
           </span>
-          <label v-if="chunk.id" class="flex items-center gap-1.5 text-muted">
+          <PropertyPicker
+              v-if="chunk.id"
+              :model-value="chunk.priority ?? ''"
+              :options="PRIORITY_OPTIONS"
+              label="Chunk priority"
+              placeholder="Find a priority…"
+              field
+              small
+              :disabled="saving"
+              @update:model-value="setPriority($event as Priority | '')"
+          >
             <PriorityIcon :priority="chunk.priority" />
-            <select
-                :value="chunk.priority ?? ''"
-                aria-label="Priority"
-                class="h-7 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:opacity-50"
-                :disabled="saving"
-                @change="setPriority(($event.target as HTMLSelectElement).value as Priority | '')"
-            >
-              <option value="">No priority</option>
-              <option v-for="p in PRIORITIES" :key="p" :value="p">{{ p }} · {{ PRIORITY_LABEL[p] }}</option>
-            </select>
-          </label>
+            <span class="truncate" :class="!chunk.priority && 'text-faint'">{{ chunk.priority ? `${chunk.priority} · ${PRIORITY_LABEL[chunk.priority]}` : 'No priority' }}</span>
+            <template #option="{option}">
+              <PriorityIcon :priority="option.value || undefined" />
+              <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+            </template>
+          </PropertyPicker>
           <span v-if="chunk.id" class="ml-auto flex items-center gap-2">
             <UiConfirm v-if="confirmingRemove" inline :busy="saving" @confirm="remove" @cancel="confirmingRemove = false">
               Remove chunk {{ chunk.id }}? Its {{ chunk.tasks.length }} {{ chunk.tasks.length === 1 ? 'issue stays' : 'issues stay' }}, in no chunk.

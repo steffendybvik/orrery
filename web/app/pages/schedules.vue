@@ -17,6 +17,7 @@ const cards = computed(() => ordered.value
     .map(project => ({project, schedules: byProject.value[project.id] ?? []}))
     .filter(c => only.value ? c.project.id === only.value : c.schedules.length))
 const active = computed(() => all.value.filter(s => s.enabled).length)
+const projectOptions = computed(() => [{value: '', label: 'All projects'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
 
 function newSchedule() {
     const project = only.value || ordered.value[0]?.id
@@ -31,10 +32,9 @@ function newSchedule() {
   </PageHeader>
 
   <ViewToolbar>
-    <select v-model="only" aria-label="Project" class="h-7 max-w-44 cursor-pointer truncate rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line focus:outline-none">
-      <option value="">All projects</option>
-      <option v-for="p in ordered" :key="p.id" :value="p.id">{{ p.name }}</option>
-    </select>
+    <PropertyPicker v-model="only" :options="projectOptions" label="Project" field small>
+      <span class="truncate">{{ projectOptions.find(o => o.value === only)?.label ?? only }}</span>
+    </PropertyPicker>
     <span class="text-xs text-muted">{{ all.length ? `${active} running, ${all.length - active} paused` : 'Nothing scheduled' }}</span>
     <template v-if="ordered.length && !only" #end>
       <UiButton variant="primary" class="shrink-0" @click="newSchedule">
