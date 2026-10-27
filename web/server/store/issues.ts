@@ -93,6 +93,11 @@ export abstract class IssueStore extends ReleaseStore {
         if (input.proposal === null && row.proposal && !actor.owner) {
             throw forbidden(`Committing ${id} is the owner's call until they approve it: it's ${row.proposal === 'pending' ? 'waiting on them' : row.proposal === 'changes' ? 'waiting on changes' : 'rejected'}`)
         }
+        // While it waits on the owner, it isn't work yet: an agent can still comment, edit it and put it up again.
+        const moves = (['status', 'plan', 'assignee', 'release'] as const).filter(field => input[field] !== undefined && !(field === 'assignee' && input.proposal === 'pending'))
+        if (moves.length && !actor.owner && (row.proposal === 'pending' || row.proposal === 'changes') && (await this.settings()).restrict_proposals) {
+            throw forbidden(`${id} is a proposal waiting on the owner, so its ${moves.length === 1 ? moves[0] : `${moves.slice(0, -1).join(', ')} and ${moves.at(-1)}`} ${moves.length === 1 ? "isn't" : "aren't"} yours to change until they approve it`)
+        }
 
         const parent = input.parent === undefined ? row.parent : input.parent === null ? null : await this.issueId(project, String(input.parent))
         let chunk = input.chunk === undefined ? undefined : input.chunk === null ? null : await this.chunkId(project, String(input.chunk))

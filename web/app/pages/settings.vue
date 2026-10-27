@@ -13,6 +13,7 @@ const headings: Heading[] = [
     {id: 'name', text: 'Your name', level: 2},
     {id: 'handle', text: 'Your handle', level: 2},
     {id: 'tracker', text: 'Team tracker', level: 2},
+    {id: 'proposals', text: 'Proposals', level: 2},
     {id: 'tint', text: 'Background tint', level: 2},
     {id: 'statuses', text: 'Issue statuses', level: 2},
     {id: 'watch', text: 'Watching sessions', level: 2},
@@ -78,6 +79,17 @@ async function saveTracker() {
         await save({tracker: next || null})
     } catch (error) {
         trackerFailed.value = errorMessage(error)
+    }
+}
+
+// Whether agents keep off a proposal until you decide it; saved as it's ticked.
+const proposalsFailed = ref('')
+async function restrictProposals(on: boolean) {
+    proposalsFailed.value = ''
+    try {
+        await save({restrict_proposals: on})
+    } catch (error) {
+        proposalsFailed.value = errorMessage(error)
     }
 }
 
@@ -166,6 +178,21 @@ async function pick(tint: string | null) {
           >
           <span v-if="trackerFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ trackerFailed }}</span>
         </form>
+      </section>
+
+      <section id="proposals" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
+          <p class="text-xs text-muted">
+            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
+            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
+          </p>
+        </header>
+        <label class="flex items-center gap-2 text-[13px] text-fg">
+          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
+          Keep agents off proposals until you approve them
+        </label>
+        <p v-if="proposalsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ proposalsFailed }}</p>
       </section>
 
       <section id="tint" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">

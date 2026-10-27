@@ -1,11 +1,12 @@
-// Whether a project's launcher is there and how many sessions it has started or has on their way
-// (`GET /launches`), shared by everything on the page that shows it: asked again only when the project's
-// launchers or sessions change, once however many show it. `install` is what installs the launcher, run
+// Whether a project's launcher is there and how many sessions it has started or has on their way, and every
+// project's together, which the limit counts (`GET /launches`), shared by everything on the page that shows it:
+// asked again when any project's launchers or sessions change, once however many show it. `install` is what installs the launcher, run
 // in the project's repo: this Orrery's checkout, where it knows it.
 export interface LaunchState {
     launchers: number
     started: number
     starting: number
+    total: number
 }
 
 /** The ask on its way for each project, so several asking at once share it. */
@@ -28,7 +29,7 @@ export function useLaunchState(project: MaybeRefOrGetter<string>) {
         asking.set(id, ask)
         return ask
     }
-    watch(() => [toValue(project), launchers.value[toValue(project)], sessions.value[toValue(project)]], refresh, {immediate: true})
+    watch(() => [toValue(project), launchers.value, sessions.value], refresh, {immediate: true})
 
     return {state: computed(() => all.value[toValue(project)] ?? null), refresh, install}
 }

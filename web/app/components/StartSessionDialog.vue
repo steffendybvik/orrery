@@ -74,7 +74,7 @@ function why(project: Project): string | null {
     const state = states.value[project.id]
     if (!state) return null
     if (!state.launchers) return 'No launcher running'
-    if (state.started + state.starting >= project.starts.limit) return `At its limit of ${project.starts.limit}`
+    if (state.total >= project.starts.limit) return `At the limit of ${project.starts.limit}`
     return null
 }
 
@@ -125,11 +125,9 @@ async function start() {
         ...instructions.value.trim() ? {instructions: instructions.value.trim()} : {},
     })
     const refused = new Map<string, string>()
-    let first: string | undefined
     for (const p of projects.value) {
         try {
             await $fetch(`/api/projects/${encodeURIComponent(p.id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: body(p.id)})
-            first ??= p.id
         } catch (error) {
             refused.set(p.id, `${p.name}: ${errorMessage(error)}`)
         }
@@ -143,7 +141,8 @@ async function start() {
         return
     }
     close()
-    if (first) router.push({path: '/sessions', query: {project: first}})
+    // They're listed with every other session, on the Sessions page.
+    router.push('/sessions')
 }
 
 const field = 'h-8 w-full field'
@@ -210,18 +209,28 @@ const field = 'h-8 w-full field'
 
     <div v-if="projects.length" class="flex flex-col gap-1.5">
       <span class="label px-1">Context <span class="font-normal normal-case text-faint">· optional, goes with every signal to it</span></span>
-      <div v-if="presets.length" class="flex flex-wrap gap-1.5" role="group" aria-label="Presets">
+      <div v-if="presets.length" class="grid gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
         <button
             v-for="p in presets"
             :key="p.id"
             type="button"
             :aria-pressed="picked.includes(p.id)"
             :title="p.text"
-            class="flex h-7 items-center gap-1 rounded-full px-2.5 text-xs ring-1"
-            :class="picked.includes(p.id) ? 'bg-accent-500/10 text-fg ring-accent-500/40' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
+            class="flex min-w-0 items-center gap-2 rounded-lg p-2 text-left ring-1 transition-colors"
+            :class="picked.includes(p.id) ? 'bg-accent-500/10 ring-accent-500/50' : 'ring-line hover:bg-hover'"
             @click="pick(p.id)"
         >
-          {{ p.name }}<span v-if="p.project && projects.length > 1" class="text-faint">· {{ projectName(p.project) }}</span>
+          <PresetBadge :preset="p" :size="24" />
+          <span class="flex min-w-0 flex-1 flex-col">
+            <span class="truncate text-xs font-medium text-fg">{{ p.name }}<span v-if="p.project && projects.length > 1" class="font-normal text-faint"> · {{ projectName(p.project) }}</span></span>
+            <span class="truncate text-[11px] text-muted">{{ firstLine(p.text) }}</span>
+          </span>
+          <span
+              class="grid size-4 shrink-0 place-items-center rounded-full"
+              :class="picked.includes(p.id) ? 'bg-accent-500 text-white' : 'ring-1 ring-inset ring-line'"
+          >
+            <svg v-if="picked.includes(p.id)" class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+          </span>
         </button>
       </div>
       <textarea

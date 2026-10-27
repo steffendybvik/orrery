@@ -50,6 +50,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         'Its messages arrive as <channel ...> blocks and come from the owner through Orrery.',
         'When one asks you to focus on an issue: read it (issue), start it (start_issue), comment as the work moves (comment), and finish it when it ships (finish_issue).',
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
+        'A proposal waiting on the owner isn\'t work yet: don\'t start, assign or move it until they approve it (Orrery refuses unless they\'ve turned that off); comment on it instead.',
         'When one brings the owner\'s comment on an issue, answer it with a comment on that issue.',
         'When you need the owner to decide something or give feedback, comment with asks "decision" or "feedback": it waits at the top of their bell until they answer.',
         `When you open a pull request for an issue, link the issue's page (${base}/p/<project>/issues/<id>) in its description, so the owner can jump to it.`,
@@ -212,10 +213,9 @@ function quit() {
     }
 }
 
-// Listens to each project's signal stream, and after a drop picks up from the last one it saw. A session Orrery
-// started catches up on its project's from its launch's `after`, 0 included (a project's first signal).
-await Promise.all(projects.map(project => {
-    const started = project === startedFor()
+/** Follows one stream of signals, and after a drop picks up from the last one it saw. A session Orrery started catches
+ * up on its project's from its launch's `after`, 0 included (a project's first signal). */
+function listen({url, started, label}) {
     let last = started ? Number(process.env.ORRERY_AFTER) || 0 : 0
     const catchUp = started && process.env.ORRERY_AFTER !== undefined
     const query = new URLSearchParams(who)
@@ -224,15 +224,38 @@ await Promise.all(projects.map(project => {
         url: () => {
             const asked = new URLSearchParams(query)
             if (last || catchUp) asked.set('after', String(last))
-            return `${apiOf(project)}/signals/stream?${asked}`
+            return url(asked)
         },
-        onOpen: () => log(`listening for ${project}'s signals at ${base}`),
+        onOpen: () => log(`listening for ${label}'s signals at ${base}`),
         onEvent: async ({event, data, id}) => {
             if (event === 'stop') return quit()
             if (event !== 'signal') return
             last = Math.max(last, Number(id) || 0)
-            await deliver(project, JSON.parse(data), query)
+            const signal = JSON.parse(data)
+            await deliver(signal.project, signal, new URLSearchParams(who))
         },
-        log: (...parts) => log(`${project}:`, ...parts),
+        log: (...parts) => log(`${label}:`, ...parts),
     })
-}))
+}
+
+// One stream for all its projects (`*` picks up a project made later too). An Orrery from before there was one
+// answers 404 there, and then each project's stream is followed on its own.
+const single = await fetch(`${base}/api/signals/stream`).then(r => r.status !== 404, () => true)
+if (single) {
+    const names = every ? '*' : projects.join(',')
+    await listen({
+        url: asked => {
+            asked.set('projects', names)
+            if (startedFor()) asked.set('started_for', startedFor())
+            return `${base}/api/signals/stream?${asked}`
+        },
+        started: !!startedFor(),
+        label: every ? 'every project' : projects.join(', '),
+    })
+} else {
+    await Promise.all(projects.map(project => listen({
+        url: asked => `${apiOf(project)}/signals/stream?${asked}`,
+        started: project === startedFor(),
+        label: project,
+    })))
+}

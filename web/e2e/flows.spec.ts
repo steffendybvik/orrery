@@ -7,7 +7,7 @@ import {expect, test} from '@playwright/test'
 // together; then a chunk made, edited and removed from its page, an image in a new issue and a comment,
 // and the owner editing and deleting their own comment; then a changed doc and what changed in it; then a release, and a project drawing on it;
 // then the session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
-// a session's card and a message to it alone, Focus on this starting one, a preset, a schedule, the bell, and the
+// a session's card and a message to it alone, a message to every idle session, Focus on this starting one, a preset, a schedule, the bell, and the
 // pages that span projects.
 test.describe.configure({mode: 'serial'})
 
@@ -420,14 +420,6 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
         await expect(card.getByText(/message: Use the oak hinges/)).toBeVisible()
-
-        // Kept to one project, and a project's old Sessions tab comes here.
-        await page.getByRole('combobox', {name: 'Project', exact: true}).selectOption('pantry')
-        await expect(page).toHaveURL(/\/sessions\?project=pantry/)
-        await expect(page.locator('#session-e2e-1')).toBeHidden()
-        await page.goto('/p/larder/sessions')
-        await expect(page).toHaveURL(/\/sessions\?project=larder/)
-        await expect(page.locator('#session-e2e-1')).toBeVisible()
     } finally {
         channel.stop()
     }
@@ -443,11 +435,84 @@ test('lists a session that hears two projects once, under its own', async ({page
         await expect(page.locator('#sessions-larder #session-e2e-2')).toContainText('also on Pantry')
         // The sidebar lists it once too.
         await expect(page.getByRole('link', {name: /kitchen/})).toHaveCount(1)
-        // Kept to the other project, it's found there.
-        await page.goto('/sessions?project=pantry')
-        await expect(page.locator('#sessions-pantry #session-e2e-2')).toContainText('also on Larder')
     } finally {
         for (const channel of channels) channel.stop()
+    }
+})
+
+test('sends a focus aimed at no session to one, the first free, and to every one when asked', async ({request, baseURL}) => {
+    const OWNER = {'Orrery-Actor': 'ada_lovelace'}
+    const ids = ['e2e-p1', 'e2e-p2']
+    for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'larder', event: 'SessionStart', name: id}})
+    const streams = ids.map(id => hold(baseURL!, `/api/projects/larder/signals/stream?session=${id}&name=${id}&format=text`))
+    const heard = (title: string) => streams.map(s => s.said.text.includes(title))
+    const quiet = () => new Promise(resolve => setTimeout(resolve, 500))
+    const focus = async (title: string, body: object) => {
+        const issue = await api(request, 'post', '/issues', {title, status: 'todo'})
+        return (await api(request, 'post', `/issues/${issue.id}/focus`, body, OWNER)).signal.id as number
+    }
+    const sent: number[] = []
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
+        // Aimed at no session: one of the two idle ones hears it.
+        sent.push(await focus('Sort the spices', {}))
+        await expect.poll(() => heard('Sort the spices').filter(Boolean).length).toBe(1)
+        await quiet()
+        expect(heard('Sort the spices').filter(Boolean)).toHaveLength(1)
+        // Aimed at every session: both do.
+        sent.push(await focus('Label the tins', {session: '*'}))
+        await expect.poll(() => heard('Label the tins')).toEqual([true, true])
+        // With both busy it waits, and goes to the first to go idle.
+        for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'larder', event: 'UserPromptSubmit'}})
+        sent.push(await focus('Wipe the shelf', {}))
+        await quiet()
+        expect(heard('Wipe the shelf')).toEqual([false, false])
+        await request.post('/api/sessions', {data: {id: 'e2e-p2', project: 'larder', event: 'Stop'}})
+        await expect.poll(() => heard('Wipe the shelf')).toEqual([false, true])
+    } finally {
+        for (const id of sent) await request.post(`/api/projects/larder/signals/${id}/delivered?name=e2e`)
+        for (const stream of streams) stream.stop()
+    }
+})
+
+test('follows several projects on one stream, as one session', async ({request, baseURL}) => {
+    const OWNER = {'Orrery-Actor': 'ada_lovelace'}
+    const stream = hold(baseURL!, '/api/signals/stream?projects=larder,pantry&session=e2e-m&name=multi')
+    const multi = async () => (await api(request, 'get', '/sessions')).find((s: {id: string}) => s.id === 'e2e-m')
+    try {
+        await expect.poll(multi).toMatchObject({listening: true, also: ['pantry']})
+        const made = await request.post('/api/projects/pantry/issues', {data: {title: 'Count the jars', status: 'todo'}, headers: AGENT})
+        const {id} = await made.json()
+        const {signal} = await (await request.post(`/api/projects/pantry/issues/${id}/focus`, {data: {session: 'e2e-m'}, headers: OWNER})).json()
+        await expect.poll(() => stream.said.text).toContain('Count the jars')
+        expect(stream.said.text).toContain('"project":"pantry"')
+        await request.post(`/api/projects/pantry/signals/${signal.id}/delivered?name=multi`)
+        // A project that doesn't exist is refused, not followed.
+        expect((await request.get('/api/signals/stream?projects=larder,attic')).status()).toBe(404)
+    } finally {
+        stream.stop()
+    }
+    await expect.poll(async () => (await multi())?.listening).toBe(false)
+})
+
+test('messages every idle session at once from the Sessions page, not the busy ones', async ({page, request, baseURL}) => {
+    const ids = ['e2e-b1', 'e2e-b2']
+    for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'larder', event: 'SessionStart', name: id}})
+    const streams = ids.map(id => hold(baseURL!, `/api/projects/larder/signals/stream?session=${id}&name=${id}&format=text`))
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
+        await request.post('/api/sessions', {data: {id: 'e2e-b2', project: 'larder', event: 'UserPromptSubmit'}})
+        await page.goto('/sessions')
+        await page.getByRole('button', {name: 'Message sessions'}).click()
+        const dialog = page.getByRole('dialog', {name: 'Message sessions'})
+        await expect(dialog).toContainText('Reaches e2e-b1')
+        await dialog.getByLabel('Message', {exact: true}).fill('Pick a Todo issue if you are free.')
+        await dialog.getByRole('button', {name: /^Send to 1/}).click()
+        await expect(dialog.getByRole('status')).toHaveText('Sent to e2e-b1')
+        await expect.poll(() => streams[0]!.said.text).toContain('Pick a Todo issue if you are free.')
+        expect(streams[1]!.said.text).not.toContain('Pick a Todo issue')
+    } finally {
+        for (const stream of streams) stream.stop()
     }
 })
 
@@ -471,7 +536,19 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     await page.getByLabel('New preset name').fill('Review')
     await page.getByLabel('New preset text').fill("You're reviewing: read the diff and comment, don't change code.")
     await page.getByRole('button', {name: 'Add preset'}).click()
+    // A preset is a role card with its badge, name and first line; clicking opens it, and New preset the form for another.
+    await expect(page.locator('#presets')).toContainText("You're reviewing: read the diff")
+    await expect(page.getByLabel('New preset name')).toBeHidden()
+    await page.getByRole('button', {name: 'Edit Review'}).click()
     await expect(page.getByLabel('Preset name', {exact: true})).toHaveValue('Review')
+    // Its badge is its initials until an icon is picked.
+    await page.locator('#presets').getByRole('button', {name: 'shield-check', exact: true}).click()
+    await expect(page.getByRole('button', {name: 'Use its initials'})).toBeVisible()
+    await expect(page.getByRole('button', {name: 'New preset'})).toBeVisible()
+    // A template says what it's for, and shows its text only on Edit.
+    await expect(page.getByLabel('Focus on an issue', {exact: true})).toBeHidden()
+    await page.getByRole('button', {name: 'Edit Focus on an issue'}).click()
+    await expect(page.getByLabel('Focus on an issue', {exact: true})).toBeVisible()
     await page.goto('/sessions')
     await page.getByRole('button', {name: 'Start session'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'Start session'})
@@ -483,7 +560,7 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
 
 test('makes a schedule, keeps to its project, pauses and removes it', async ({page, request}) => {
     await page.goto('/schedules?project=larder')
-    await page.getByRole('button', {name: 'New schedule'}).click()
+    await page.getByRole('button', {name: 'New schedule in Larder'}).click()
     const dialog = page.getByRole('dialog', {name: 'New schedule'})
     await dialog.getByLabel('Title').fill('Groom the backlog')
     await dialog.getByRole('button', {name: /Create schedule/}).click()

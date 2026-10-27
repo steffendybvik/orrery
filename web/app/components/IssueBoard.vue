@@ -11,6 +11,7 @@ const {issueUnseen} = useUnseen()
 const {open: openMenu} = useIssueMenu()
 const {columns: order, look} = useStatuses()
 const {selected, isSelected, toggle} = useSelection()
+const {settings} = useAppSettings()
 function click(event: MouseEvent, issue: Issue) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
     else open(props.project, issue.id)
@@ -39,6 +40,14 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
         <StatusIcon :column="column" />
         <h2 class="text-[13px] font-medium">{{ look(column).label }}</h2>
         <span class="font-mono text-[11px] text-faint tabular-nums">{{ cards.length }}</span>
+        <span
+            v-if="column === 'proposed' && settings.restrict_proposals"
+            class="text-faint"
+            title="Only you move these: sessions wait for your approval (App settings → Proposals)"
+            aria-label="Only you move proposals"
+        >
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+        </span>
         <UiButton v-if="isClosed(look(column).kind) && cards.length" variant="ghost" size="xs" class="ml-auto" @click="fold(column)">
           {{ folded(column) ? 'Show' : 'Fold' }}
         </UiButton>

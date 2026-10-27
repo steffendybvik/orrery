@@ -413,6 +413,9 @@ export interface Settings {
     starts: Starts | null
     /** The terminal app Watch opens a session Orrery started in, on its launcher's machine. */
     terminal: TerminalApp
+    /** Whether a proposal waiting on the owner (pending, or changes asked for) is theirs alone until they decide:
+     * an agent can't start it, change its status, assign it or put it in a release. On unless the owner turns it off. */
+    restrict_proposals: boolean
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */
@@ -484,6 +487,10 @@ export interface Preset {
     project: string | null
     name: string
     text: string
+    /** Its badge: a Heroicon's name (`shield-check`) in a colour (a tint's name or `#rrggbb`); without an icon,
+     * its initials. */
+    icon: string | null
+    color: string | null
     created_at: string
     updated_at: string
 }

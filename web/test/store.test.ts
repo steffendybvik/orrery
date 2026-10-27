@@ -313,6 +313,28 @@ describe('proposals', () => {
         const {id: tag} = await store.createIssue('larder', {title: 'Tag', assignee: 'claude'}, claude)
         expect((await store.updateIssue('larder', tag, {proposal: 'pending', assignee: 'claude'}, claude)).assignee).toBe('owner')
     })
+
+    it("can't be started, assigned or put in a release by an agent while they wait, unless the owner allows it", async () => {
+        expect((await store.settings()).restrict_proposals).toBe(true)
+        const {id} = await store.createIssue('larder', {title: 'Button', proposal: 'pending'}, claude)
+        for (const change of [{status: 'in-progress'}, {plan: 'now'}, {assignee: 'claude'}, {release: '1.0.0'}]) {
+            expect((await failure(() => store.updateIssue('larder', id, change, claude))).status).toBe(403)
+        }
+        // Still open to the agent: its words, and putting it up again after changes.
+        expect((await store.updateIssue('larder', id, {notes: 'Rounder', title: 'Round button'}, claude)).title).toBe('Round button')
+        await store.decide('larder', id, {decision: 'changes'}, owner)
+        expect((await failure(() => store.updateIssue('larder', id, {status: 'in-progress'}, claude))).status).toBe(403)
+        expect((await store.updateIssue('larder', id, {proposal: 'pending', assignee: 'claude'}, claude)).proposal).toBe('pending')
+        // The owner moves it as they like; with the setting off, so can an agent.
+        expect((await store.updateIssue('larder', id, {status: 'in-progress'}, owner)).status).toBe('in-progress')
+        expect((await failure(() => store.updateSettings({restrict_proposals: false}, claude))).status).toBe(403)
+        await store.updateSettings({restrict_proposals: false}, owner)
+        expect((await store.updateIssue('larder', id, {status: 'todo'}, claude)).status).toBe('todo')
+        // Approved, it's work like any other.
+        await store.updateSettings({restrict_proposals: true}, owner)
+        await store.decide('larder', id, {decision: 'approved'}, owner)
+        expect((await store.updateIssue('larder', id, {status: 'in-progress'}, claude)).status).toBe('in-progress')
+    })
 })
 
 describe('proposals with choices', () => {
@@ -915,6 +937,31 @@ describe('a signal reaching sessions', () => {
     })
 })
 
+describe('a focus aimed at no session', () => {
+    it("goes to the session already on its issue while it's listening, else to one Orrery picks", async () => {
+        const owner = {name: 'skoll', owner: true}
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        expect((await store.focus('larder', jars, {}, owner)).target).toBeUndefined()
+        await store.workedBy('larder', jars, 'a')
+        store.hears = () => true
+        expect((await store.focus('larder', jars, {}, owner)).target).toBe('a')
+        expect((await store.focus('larder', jars, {session: '*'}, owner)).target).toBe('*')
+        store.hears = () => false
+        expect((await store.focus('larder', jars, {}, owner)).target).toBeUndefined()
+    })
+
+    it('waits for the next session to go idle while nobody has heard it', async () => {
+        const owner = {name: 'skoll', owner: true}
+        const jars = (await store.createIssue('larder', {title: 'Jars'})).id
+        const one = await store.focus('larder', jars, {}, owner)
+        await store.focus('larder', jars, {session: 'b'}, owner)
+        const chunk = await store.focusChunk('larder', 'all', {}, owner)
+        expect((await store.pooledWaiting('larder')).map(s => s.id)).toEqual([one.id, chunk.id])
+        await store.delivered('larder', one.id, 'pantry')
+        expect((await store.pooledWaiting('larder')).map(s => s.id)).toEqual([chunk.id])
+    })
+})
+
 describe("what a project's sessions are on", () => {
     it('is the open issues each worked last, newest first, and the last signals that went to it', async () => {
         const owner = {name: 'skoll', owner: true}
@@ -928,7 +975,7 @@ describe("what a project's sessions are on", () => {
         store.hears = (_project, session) => session !== 'a'
         await store.focus('larder', shelves, {session: 'b'}, owner)
         store.hears = () => true
-        const everyone = await store.focus('larder', jars, {}, owner)
+        const everyone = await store.focus('larder', jars, {session: '*'}, owner)
         await store.delivered('larder', everyone.id, 'pantry')
         const work = await store.sessionWork('larder', [{id: 'a', name: 'larder 1'}, {id: 'b', name: 'pantry'}])
         expect(work.a!.issues.map(i => i.id)).toEqual([jars])
@@ -1040,6 +1087,15 @@ describe('presets', () => {
         await store.createPreset('larder', {name: 'E2E', text: 'Run the e2e suite.'}, owner)
         await store.deleteProject('larder', owner)
         expect(await store.presets()).toEqual([])
+    })
+    it('have a badge: an icon and a colour, each taken off with null', async () => {
+        const review = await store.createPreset(null, {name: 'Review', text: 'Read the diff.', icon: 'shield-check', color: 'violet'}, owner)
+        expect(review).toMatchObject({icon: 'shield-check', color: 'violet'})
+        expect((await store.createPreset(null, {name: 'Test', text: 'Run the tests.'}, owner))).toMatchObject({icon: null, color: null})
+        expect((await failure(() => store.updatePreset(review.id, {icon: 'Shield Check'}, owner))).status).toBe(400)
+        expect((await failure(() => store.updatePreset(review.id, {color: 'plaid'}, owner))).status).toBe(400)
+        expect(await store.updatePreset(review.id, {color: '#3b82f6'}, owner)).toMatchObject({icon: 'shield-check', color: '#3b82f6', text: 'Read the diff.'})
+        expect(await store.updatePreset(review.id, {icon: null}, owner)).toMatchObject({icon: null, color: '#3b82f6'})
     })
 })
 

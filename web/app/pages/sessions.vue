@@ -3,28 +3,20 @@ import type {SessionWork} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
-// actions and a message box (SessionCard). `?project=` keeps to one project; a project's old Sessions tab comes
-// here that way, and a sidebar row opens its session (`#session-<id>`), lit up for a moment. Start session starts
-// one on any project. Above them, whether Orrery may start sessions and how it does; below, what sessions hear and the
+// actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
+// Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default). Above them, whether Orrery may start sessions and how it does; below, what sessions hear and the
 // presets to start one with.
 useHead({title: 'Sessions · Orrery'})
 const route = useRoute()
-const router = useRouter()
 const {projects, ready, sessions, signals} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {open} = useStartSession()
+const messaging = ref(false)
 
-/** The project the page keeps to, from `?project=`; none for all. */
-const only = computed({
-    get: () => (route.query.project as string | undefined) ?? '',
-    set: id => router.replace({query: id ? {project: id} : {}, hash: route.hash}),
-})
-const shown = computed(() => ordered.value.filter(p => !only.value || p.id === only.value))
-// Each project with sessions; the one kept to shows even with none, to say so. A session that hears several projects
-// is listed once, under its own, unless the page keeps to one of the others: then it's found there.
-const groups = computed(() => shown.value
-    .map(project => ({project, sessions: (sessions.value[project.id] ?? []).filter(s => s.project === project.id || only.value === project.id)}))
-    .filter(g => g.sessions.length || g.project.id === only.value))
+// Each project with sessions. A session that hears several projects is listed once, under its own.
+const groups = computed(() => ordered.value
+    .map(project => ({project, sessions: (sessions.value[project.id] ?? []).filter(s => s.project === project.id)}))
+    .filter(g => g.sessions.length))
 const count = computed(() => groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
 // The contents beside the page on a wide screen, as on App settings: the settings, and each project's sessions.
@@ -69,13 +61,10 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
   </PageHeader>
 
   <ViewToolbar>
-    <select v-model="only" aria-label="Project" class="h-7 max-w-44 cursor-pointer truncate rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line focus:outline-none">
-      <option value="">All projects</option>
-      <option v-for="p in ordered" :key="p.id" :value="p.id">{{ p.name }}</option>
-    </select>
     <span class="truncate text-xs text-muted">{{ count ? `${count} ${count === 1 ? 'session' : 'sessions'}` : 'No sessions right now' }}</span>
     <template #end>
-      <UiButton variant="primary" class="shrink-0" @click="open(only || undefined)">
+      <UiButton class="shrink-0" :disabled="!count" @click="messaging = true">Message sessions</UiButton>
+      <UiButton variant="primary" class="shrink-0" @click="open()">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         Start session
       </UiButton>
@@ -111,7 +100,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
           <span class="font-mono text-[11px] text-faint">{{ group.sessions.length }}</span>
           <StartSession :project="group.project" class="ml-auto" />
         </header>
-        <ul v-if="group.sessions.length" class="flex flex-col gap-3">
+        <ul class="flex flex-col gap-3">
           <SessionCard
               v-for="session in group.sessions"
               :key="session.id"
@@ -121,11 +110,6 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
               :lit="lit === session.id"
           />
         </ul>
-        <p v-else class="rounded-xl border border-dashed border-line px-4 py-8 text-center text-[13px] leading-relaxed text-muted">
-          No Claude session on {{ group.project.name }} has said hello yet.
-          <NuxtLink :to="`/connect?project=${group.project.id}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
-          to see it here.
-        </p>
       </section>
       <section id="hear" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
@@ -155,4 +139,5 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     </aside>
     </div>
   </div>
+  <MessageSessionsDialog :open="messaging" @close="messaging = false" />
 </template>

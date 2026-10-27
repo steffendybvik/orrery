@@ -65,8 +65,9 @@ async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Re
 const moveTo = (column: Column) => send('', 'PATCH', columnPatch(column, issue.value?.proposal))
 const setPriority = (priority: Priority | null) => send('', 'PATCH', {priority})
 const setChunk = (chunk: string | null) => send('', 'PATCH', {chunk})
-const focus = () => send('/focus', 'POST', {}, () => {
-    note.value = `Sent to ${listening.value === 1 ? 'the listening session' : `${listening.value} sessions`}`
+// Aimed at no session, Orrery picks one (the one already on it, else an idle one); `every` asks them all.
+const focus = (every = false) => send('/focus', 'POST', every ? {session: '*'} : {}, () => {
+    note.value = every ? `Sent to all ${listening.value} sessions` : listening.value === 1 ? 'Sent to the listening session' : 'Sent to one session, the first free'
 })
 const remove = () => send('', 'DELETE')
 
@@ -139,9 +140,13 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
             <span class="flex-1">Move to chunk</span>
             <span class="max-w-24 truncate text-xs text-faint">{{ found?.chunk.id ? found.chunk.title : 'None' }}</span>
           </UiMenuItem>
-          <UiMenuItem v-if="listening && !isClosed(issue.kind)" :disabled="busy" @click="focus">
+          <UiMenuItem v-if="listening && !isClosed(issue.kind)" :disabled="busy" @click="focus()">
             <svg class="size-3.5 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
-            Ask {{ listening === 1 ? 'the session' : `all ${listening} sessions` }} to focus on it
+            Ask {{ listening === 1 ? 'the session' : 'a session' }} to focus on it
+          </UiMenuItem>
+          <UiMenuItem v-if="listening > 1 && !isClosed(issue.kind)" :disabled="busy" @click="focus(true)">
+            <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
+            Ask all {{ listening }} sessions to focus on it
           </UiMenuItem>
           <UiMenuItem @click="copyId">
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>

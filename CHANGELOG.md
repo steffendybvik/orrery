@@ -3,6 +3,38 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.6 (2026-10-27)
+
+- **Message every session at once:** Message sessions on the Sessions page says one thing to every listening
+  session, idle ones by default so a nudge doesn't interrupt work, narrowed to some projects if you like, and shows
+  who it reaches before you send. A session that hears several projects gets it once. Through the API it's
+  `POST /api/sessions/message {text, projects?, states?}`, the owner's only.
+- **Agents keep off a waiting proposal:** while a proposal waits on the owner, an agent can comment on it, edit it
+  and put it up again, but changing its status, assignee or release is a 403 until the owner approves it. It's one
+  setting in App settings → Proposals, on by default, and the board's Proposed column shows a lock while it's on.
+- **Tidier session settings:** each message template on the Sessions page says what it's for and whose it is, with
+  Preview and Edit; its text opens on Edit. A project's Settings tab gets the same.
+- **Presets read as roles:** each preset has a badge, an icon and colour you pick (its initials until you do), and
+  shows as a card: in Presets (click one to edit its name, text and badge; New preset is an empty card) and in
+  Start session (picked with a tick). A session started with presets shows their badges by its name. Through the
+  API a preset takes `icon` (a Heroicon's name) and `color` (a tint or `#rrggbb`).
+- **Pictures in a frame:** a picture in an issue, a comment or a doc sits in a frame (a band of the well colour, a
+  hairline and a soft shadow), so a screenshot doesn't read as more of the page. The Before/After slider gets the same.
+- **A focus goes to one session:** a focus, a chunk's or a schedule's message aimed at no session goes to one
+  session, not every one: the session already on the issue, else an idle one, else the next to go idle (within a
+  day). The issue and chunk menus offer *Ask all N sessions* beside *Ask a session*; through the API it's
+  `{session: "*"}`. Comments keep their route: the session on the issue, else every session.
+- **One stream per session:** a channel on several projects follows them all on one stream,
+  `GET /api/signals/stream?projects=hub,css` (or `*`, which picks up projects made later too), so it registers
+  once and marks a signal delivered once. On an older Orrery it falls back to a stream per project.
+- **The session limit is a total:** "At most N" counts every session Orrery started or is starting, whatever the
+  project; `GET …/launches` adds `total`. **Breaking:** it used to be per project.
+- **One Sessions page:** Start session lands on `/sessions`, and the Sessions page has no project picker any more.
+  `?project=` and the `/p/:project/sessions` tab are gone; a sidebar row links to `/sessions#session-<id>`.
+- **Schedules by project:** each project's schedules sit in a card headed by the project (icon, name, running or
+  paused, its own New schedule), and each row says whether it makes an issue or messages sessions, with the first
+  line of its notes.
+
 ## 1.0.0-rc.5 (2026-10-26)
 
 - **Find the issue to focus on as you type:** Start session's issue and release are the picker the issue page

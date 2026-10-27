@@ -2,39 +2,41 @@
 import type {Preset} from '#shared/roadmap'
 import {badRequest, checkInput, notFound} from '../utils/input'
 import type {PresetRow} from './schema'
-import {AGENT, PRESET_FIELDS, presetInput, stamp} from './schema'
+import {AGENT, PRESET_FIELDS, nullable, presetInput, stamp} from './schema'
 import {ProjectStore} from './projects'
 
 export abstract class PresetStore extends ProjectStore {
     /** The Orrery's presets, by name; with a project, those a session on it can have: the Orrery's, then its own. */
     async presets(project?: string): Promise<Preset[]> {
         if (project) await this.projectRow(project)
-        return await this.all<PresetRow>('SELECT id, project, name, text, created_at, updated_at FROM presets WHERE project IS NULL OR project = ? ORDER BY project IS NOT NULL, lower(name), id', project ?? null)
+        return await this.all<PresetRow>('SELECT id, project, name, text, icon, color, created_at, updated_at FROM presets WHERE project IS NULL OR project = ? ORDER BY project IS NOT NULL, lower(name), id', project ?? null)
     }
 
     async preset(id: number): Promise<Preset> {
-        const row = Number.isInteger(id) ? await this.get<PresetRow>('SELECT id, project, name, text, created_at, updated_at FROM presets WHERE id = ?', id) : undefined
+        const row = Number.isInteger(id) ? await this.get<PresetRow>('SELECT id, project, name, text, icon, color, created_at, updated_at FROM presets WHERE id = ?', id) : undefined
         if (!row) throw notFound(`No preset ${id}`)
         return row
     }
 
-    /** A new preset, the owner's to make: `{name, text}`, the Orrery's, or with `project` that project's own. */
+    /** A new preset, the owner's to make: `{name, text, icon?, color?}`, the Orrery's, or with `project` that project's own. */
     async createPreset(project: string | null, body: unknown, actor = AGENT): Promise<Preset> {
         this.ownerOnly(actor, 'presets')
         if (project) await this.projectRow(project)
-        const {name, text} = presetInput(checkInput(body, PRESET_FIELDS))
+        const input = checkInput(body, PRESET_FIELDS)
+        const {name, text} = presetInput(input)
         const now = stamp()
-        const row = await this.get<{id: number}>('INSERT INTO presets (project, name, text, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
-            project, name!, text!, actor.name, Number(actor.owner), now, now)
+        const row = await this.get<{id: number}>('INSERT INTO presets (project, name, text, icon, color, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+            project, name!, text!, nullable(input.icon), nullable(input.color), actor.name, Number(actor.owner), now, now)
         return await this.preset(Number(row!.id))
     }
 
-    /** Renames a preset or changes its text; whose it is stays. */
+    /** Renames a preset, or changes its text or badge (null takes the icon or colour off); whose it is stays. */
     async updatePreset(id: number, body: unknown, actor = AGENT): Promise<Preset> {
         this.ownerOnly(actor, 'presets')
         await this.preset(id)
-        const {name, text} = presetInput(checkInput(body, PRESET_FIELDS, true))
-        await this.run('UPDATE presets SET name = coalesce(?, name), text = coalesce(?, text), updated_at = ? WHERE id = ?', name ?? null, text ?? null, stamp(), id)
+        const input = checkInput(body, PRESET_FIELDS, true)
+        const {name, text} = presetInput(input)
+        await this.update('presets', 'id = ?', [id], {name, text, icon: input.icon, color: input.color})
         return await this.preset(id)
     }
 

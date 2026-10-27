@@ -1,13 +1,14 @@
 // Sessions Orrery starts itself, with no terminal. When the owner's signal reaches a project nobody is
 // listening on, and the owner lets Orrery start sessions (the Orrery's `starts`), Orrery asks the
 // project's launchers (channel/orrery-launcher.mjs, running on the host in the repo) to start one in tmux,
-// within the limit on each project. The first launcher to
+// within the limit, which counts every session it has started, whatever the project. The first launcher to
 // claim the launch starts it; its channel catches up from that signal. The session runs until the owner stops
 // it, or Orrery has its launcher stop it once its time is up or it has sat idle too long (the setting's `minutes`
 // and `idle_minutes`, when set), and only while it's idle with nothing open.
 import {randomBytes} from 'node:crypto'
 import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
+import {EVERY} from './pool'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
  * catch up from; `minutes` how long it has, none until stopped; `tmux` names the tmux session it runs in;
@@ -60,7 +61,7 @@ function emit(event: LaunchEvent) {
 export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const {project} = signal
     // One aimed at a session only that session hears, and a delivered one has been heard.
-    if (!signal.protected || signal.target || signal.delivered_to.length) return null
+    if (!signal.protected || signal.target && signal.target !== EVERY || signal.delivered_to.length) return null
     if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
     const id = randomBytes(6).toString('hex')
     const held: Launch & {at: number, claimed: boolean} = {id, project, after: signal.id - 1, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
@@ -92,7 +93,7 @@ export async function startLaunch(project: string, {issue, statuses, release, co
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`Orrery doesn't start sessions; turn it on in App settings`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
-    if (startedSessions(project) + pendingOn(project) >= starts.limit) throw conflict(`${project} already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
+    if (startedSessions() + pendingOn() >= starts.limit) throw conflict(`Orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     const id = randomBytes(6).toString('hex')
     // Held from here, so the limit counts it while its focus is made.
     const held = {id, project, after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...context ? {context} : {}, at: Date.now(), claimed: false}
@@ -136,11 +137,11 @@ export function launchContext(project: string, id: string): SessionContext | und
 /** What a session started with a scope but no statuses works through: the open work that's ready. */
 export const SCOPE_STATUSES = ['todo', 'started']
 
-/** What a new session on the project gets; none when the owner hasn't let it have sessions started, or its
- * limit is reached. */
+/** What a new session on the project gets; none when the owner hasn't let it have sessions started, or the
+ * limit is reached by the sessions running and on their way on every project, the one asking for it among them. */
 async function allowedStarts(project: string): Promise<Starts | null> {
     const starts = await useStore().starts(project)
-    return starts && startedSessions(project) < starts.limit ? starts : null
+    return starts && startedSessions() + pendingOn() <= starts.limit ? starts : null
 }
 
 /** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. */
@@ -288,7 +289,8 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
     return extendLaunch(project, id, stopsAt)!
 }
 
-/** For the project's settings: its launchers, and the sessions it has started and on their way. */
-export function launchState(project: string): {launchers: number, started: number, starting: number} {
-    return {launchers: launchersOf(project), started: startedSessions(project), starting: pendingOn(project)}
+/** For the project's settings: its launchers, the sessions it has started and on their way, and those on every
+ * project, which the limit counts. */
+export function launchState(project: string): {launchers: number, started: number, starting: number, total: number} {
+    return {launchers: launchersOf(project), started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
 }
