@@ -19,7 +19,7 @@ Every button and button-shaped link.
 
 | Prop | Values | |
 |---|---|---|
-| `variant` | `secondary` (default), `primary`, `ghost`, `danger`, `danger-outline`, `danger-ghost`, `success` | see below |
+| `variant` | `secondary` (default), `primary`, `ghost`, `danger`, `danger-outline`, `danger-ghost`, `success`, `success-outline`, `warning-outline` | see below |
 | `size` | `sm` (default, h-7), `xs` (h-6), `md` (h-8) | `md` in dialogs and forms, `xs` in rows and beside text |
 | `square` | | an icon's size, for a button with only an icon (give it an `aria-label`) |
 | `type` | `button` (default), `submit` | |
@@ -32,6 +32,8 @@ Every button and button-shaped link.
 - **danger-outline:** asks to remove (Delete project…).
 - **danger-ghost:** a quiet remove, red only on hover (the trash icon on a release, Delete on a comment).
 - **success:** approves (a proposal).
+- **success-outline**, **warning-outline:** a step that moves something on, coloured like the state it leads
+  to (Mark shipped in green, Freeze features in amber, as their badges are).
 
 Classes given where it's used should only *place* it: `ml-auto`, `flex-1`, `w-full`, `shrink-0`, `self-end`. A
 class that changes how it looks (padding, colour, height) fights the component's own, and which one wins
