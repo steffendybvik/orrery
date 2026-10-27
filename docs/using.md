@@ -24,7 +24,7 @@ Tick issues (a row's box, shift-click for a run, `x`, ⌘A for the page) and a b
 - **A new issue**: the new-issue dialog (`c`) has a checkbox that sends it to the listening sessions as it's made.
 - **One session**: on the **Sessions** page, a listening session's card takes a message that only it hears.
 - **A new session**: **Start session** (on the Sessions page, or `+` by the sidebar's sessions) starts one through the launcher, on one or more projects, optionally focused on an issue or a scope (statuses and a release), with presets and your own words as context.
-- The sidebar lists every Claude session at the bottom, with the ones waiting on you first. Only one session works an issue at a time: a second one starting it is told to pick another.
+- The sidebar lists every Claude session at the bottom, with the ones waiting on you first. A session's channel tells it the name it has here, so you can both call it that. Only one session works an issue at a time: a second one starting it is told to pick another.
 
 ## What changed since you looked
 

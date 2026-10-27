@@ -1,5 +1,5 @@
 import type {Chunk, Column, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
-import {CLOSED, PRIORITIES, TINTS, open, total} from '#shared/roadmap'
+import {CLOSED, PRIORITIES, TINTS, madeUpName, open, total} from '#shared/roadmap'
 import {serverName} from '#shared/connect'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
@@ -23,7 +23,7 @@ export function heardBy(session: {project: string, also?: string[]}, projects: {
  * name its channel found, else the Orrery's as the Connect page names it (`orrery-<environment>`), keeping the window's name unless it was made up. */
 export function restartCommand(session: {name: string, project: string, server?: string}, environment: string): string {
     const server = session.server ?? serverName(environment)
-    return `${session.name.startsWith(`${session.project} `) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${server}`
+    return `${madeUpName(session) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${server}`
 }
 
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}
