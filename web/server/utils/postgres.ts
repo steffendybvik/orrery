@@ -325,6 +325,8 @@ const STEPS: string[] = [`
         resolved_at text
     );
     CREATE INDEX events_last_seen ON events (last_seen);
+`, `
+    ALTER TABLE signals ADD COLUMN preset text;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether
