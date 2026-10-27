@@ -255,7 +255,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <NuxtLink
             v-for="{session, project} in allSessions"
             :key="session.id"
-            :to="`/sessions?project=${project.id}#session-${session.id}`"
+            :to="`/sessions#session-${session.id}`"
             class="flex items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
             :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd].filter(Boolean).join(' · ')"
         >

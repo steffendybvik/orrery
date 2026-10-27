@@ -37,7 +37,7 @@ async function saveStarts(on = !!settings.value.starts) {
     <div class="flex flex-wrap items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
       <span>At most</span>
       <input v-model.number="limit" type="number" min="1" max="20" aria-label="Sessions at once" :class="field" :disabled="!settings.starts" @change="saveStarts()">
-      <span>at once on each project. Stop each after</span>
+      <span>at once, over every project. Stop each after</span>
       <input v-model.number="minutes" type="number" min="1" max="1440" placeholder="never" aria-label="Minutes each" :class="field" :disabled="!settings.starts" @change="saveStarts()">
       <span>minutes, or once idle for</span>
       <input v-model.number="idleMinutes" type="number" min="1" max="1440" placeholder="never" aria-label="Idle minutes" :class="field" :disabled="!settings.starts" @change="saveStarts()">

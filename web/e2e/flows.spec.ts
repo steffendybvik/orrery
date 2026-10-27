@@ -420,14 +420,6 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
         await expect(card.getByText(/message: Use the oak hinges/)).toBeVisible()
-
-        // Kept to one project, and a project's old Sessions tab comes here.
-        await page.getByRole('combobox', {name: 'Project', exact: true}).selectOption('pantry')
-        await expect(page).toHaveURL(/\/sessions\?project=pantry/)
-        await expect(page.locator('#session-e2e-1')).toBeHidden()
-        await page.goto('/p/larder/sessions')
-        await expect(page).toHaveURL(/\/sessions\?project=larder/)
-        await expect(page.locator('#session-e2e-1')).toBeVisible()
     } finally {
         channel.stop()
     }
@@ -443,9 +435,6 @@ test('lists a session that hears two projects once, under its own', async ({page
         await expect(page.locator('#sessions-larder #session-e2e-2')).toContainText('also on Pantry')
         // The sidebar lists it once too.
         await expect(page.getByRole('link', {name: /kitchen/})).toHaveCount(1)
-        // Kept to the other project, it's found there.
-        await page.goto('/sessions?project=pantry')
-        await expect(page.locator('#sessions-pantry #session-e2e-2')).toContainText('also on Larder')
     } finally {
         for (const channel of channels) channel.stop()
     }
@@ -538,7 +527,7 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
 
 test('makes a schedule, keeps to its project, pauses and removes it', async ({page, request}) => {
     await page.goto('/schedules?project=larder')
-    await page.getByRole('button', {name: 'New schedule'}).click()
+    await page.getByRole('button', {name: 'New schedule in Larder'}).click()
     const dialog = page.getByRole('dialog', {name: 'New schedule'})
     await dialog.getByLabel('Title').fill('Groom the backlog')
     await dialog.getByRole('button', {name: /Create schedule/}).click()
