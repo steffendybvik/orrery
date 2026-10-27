@@ -3,8 +3,9 @@ import type {Session, Signal} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
 // a button to point one (or all) at this issue, or at working through this chunk. With nobody listening, when
-// Orrery may start sessions and the project's launcher is there, the same focus starts one. Under them, the
-// focus signals sent about it and who got them.
+// Orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
+// New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
+// got them.
 const props = defineProps<{project: string, issue?: string, chunk?: string}>()
 const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.chunk})
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
@@ -18,9 +19,14 @@ const listening = computed(() => sessions.value.filter(s => s.listening))
 // Whether a focus sent with nobody listening has a session started for it.
 const {state: launch} = useLaunchState(() => props.project)
 const canStart = computed(() => !listening.value.length && !!byId(props.project)?.starts && !!launch.value?.launchers)
+// Whether a new session can start for this issue alongside those listening: a launcher, and room under the limit.
+const canStartAnother = computed(() => {
+    const starts = byId(props.project)?.starts
+    return !!props.issue && !!listening.value.length && !!starts && !!launch.value?.launchers && launch.value.total < starts.limit
+})
 const sent = ref<Signal[]>([])
 const sending = ref<string | null>(null)
-const failed = ref(false)
+const failed = ref<string | null>(null)
 
 const STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 
@@ -47,7 +53,7 @@ watch(() => offered.value.map(i => `${i.id}:${i.on}`).join(), () => ticked.value
 
 async function focus(session: Session | null) {
     sending.value = session?.id ?? 'all'
-    failed.value = false
+    failed.value = null
     try {
         const owner = await load()
         const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
@@ -55,16 +61,32 @@ async function focus(session: Session | null) {
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
     } catch {
-        failed.value = true
+        failed.value = "Couldn't send. Is Orrery running?"
+    } finally {
+        sending.value = null
+    }
+}
+
+/** Starts a new session through the launcher, focused on this issue alone; it shows up above as it arrives. */
+async function startOn() {
+    sending.value = 'new'
+    failed.value = null
+    try {
+        const owner = await load()
+        await $fetch(`/api/projects/${encodeURIComponent(props.project)}/launches`, {method: 'POST', headers: {'Orrery-Actor': owner}, body: {issue: props.issue}})
+    } catch (error) {
+        failed.value = errorMessage(error, 'start')
     } finally {
         sending.value = null
     }
 }
 
 const nameOf = (id?: string) => sessions.value.find(s => s.id === id)?.name ?? 'a session'
-/** Who a signal was for: a session, every session, or (a comment aside) the one Orrery picks. */
+/** Who a signal was for: a session, every session, one started for it (aimed at `launch-<id>` until it connects),
+ * or (a comment aside) the one Orrery picks. */
 const aimed = (signal: Signal) => signal.target === '*' || !signal.target && signal.kind === 'comment' ? 'every session'
-    : signal.target ? nameOf(signal.target) : 'one session'
+    : signal.target?.startsWith('launch-') && !sessions.value.some(s => s.id === signal.target) ? 'a new session'
+        : signal.target ? nameOf(signal.target) : 'one session'
 const {environment} = useRuntimeConfig().public
 const restart = (session: Session) => restartCommand({name: session.name, project: props.project, server: session.server}, String(environment || 'personal'))
 </script>
@@ -75,12 +97,19 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
       <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
       <h2 class="text-[13px] font-medium text-fg">Claude sessions</h2>
       <span class="text-xs text-faint">{{ listening.length ? `${listening.length} listening` : 'none listening' }}</span>
-      <UiButton
-          v-if="listening.length > 1"
-          class="ml-auto"
-          :disabled="!!sending"
-          @click="focus(null)"
-      >Focus all on this</UiButton>
+      <span v-if="listening.length" class="ml-auto flex items-center gap-2">
+        <UiButton
+            v-if="canStartAnother"
+            :disabled="!!sending"
+            :title="`Orrery starts another Claude session on ${project}, working on this issue alone`"
+            @click="startOn"
+        >{{ sending === 'new' ? 'Starting…' : 'New session on this' }}</UiButton>
+        <UiButton
+            v-if="listening.length > 1"
+            :disabled="!!sending"
+            @click="focus(null)"
+        >Focus all on this</UiButton>
+      </span>
       <button
           v-else-if="canStart"
           type="button"
@@ -133,7 +162,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
       <NuxtLink :to="`/connect?project=${project}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
       to point it at issues from here.
     </p>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">Couldn't send. Is Orrery running?</p>
+    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
 
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
       <li v-for="signal in sent.slice(-5)" :key="signal.id" class="flex flex-wrap items-center gap-x-1.5">
