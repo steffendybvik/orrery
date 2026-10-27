@@ -1,14 +1,18 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Signal} from '#shared/roadmap'
 
-// Which session takes a signal aimed at no session; `currentId` and `sessionNow` are Nitro auto-imports.
+// Which session takes a signal aimed at no session; `currentId`, `sessionNow` and `listSessions` are Nitro auto-imports.
 let pool: typeof import('../server/utils/pool')
 let states: Record<string, string>
+/** The other projects each session hears (`also`), for one that spans several; its own project is larder. */
+let spans: Record<string, string[]>
 
 beforeEach(async () => {
     states = {}
+    spans = {}
     vi.stubGlobal('currentId', (id: string) => id === 'old' ? 'a' : id)
-    vi.stubGlobal('sessionNow', (id: string) => states[id] ? {state: states[id]} : undefined)
+    vi.stubGlobal('sessionNow', (id: string) => states[id] ? {state: states[id], ...spans[id] ? {also: spans[id]} : {}} : undefined)
+    vi.stubGlobal('listSessions', () => Object.keys(states).map(id => ({id, project: 'larder', state: states[id], listening: true, ...spans[id] ? {also: spans[id]} : {}})))
     vi.resetModules()
     pool = await import('../server/utils/pool')
 })
@@ -29,6 +33,16 @@ describe('a signal aimed at no session', () => {
         expect(pool.take(signal(1), 'larder', 'a')).toBe(true)
         expect(pool.take(signal(1), 'larder', 'b')).toBe(false)
         expect(pool.take(signal(1), 'larder', 'old')).toBe(true)
+    })
+
+    it("goes to the project's own idle session before one that spans several projects (ORR-283)", () => {
+        states = {span: 'idle', own: 'idle'}
+        spans = {span: ['pantry']}
+        expect(pool.take(signal(1), 'larder', 'span')).toBe(false)
+        expect(pool.take(signal(1), 'larder', 'own')).toBe(true)
+        // With the project's own busy, the spanning one takes it.
+        states.own = 'working'
+        expect(pool.take(signal(2), 'larder', 'span')).toBe(true)
     })
 
     it('waits while every session is busy, and goes to the first to go idle', () => {
