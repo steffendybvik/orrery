@@ -177,8 +177,9 @@ describe('the owner starting a session by hand', () => {
         expect(launches.launchState('larder').starting).toBe(0)
         // Its own project first, once, whatever order they're sent in.
         expect(await launches.startLaunch('larder', {hears: ['pantry', 'larder', 'pantry']})).toMatchObject({hears: ['larder', 'pantry']})
-        // One project alone needs no folder in common.
-        expect(await launches.startLaunch('shop', {hears: ['shop']})).toMatchObject({hears: ['shop']})
+        // One project alone needs no folder in common, nor a launcher that says its folder (an older one).
+        launches.addLauncher('attic')
+        expect(await launches.startLaunch('attic', {hears: ['attic']})).toMatchObject({hears: ['attic']})
         larder()
         expect(launches.launchState('larder').folders).toEqual([])
     })

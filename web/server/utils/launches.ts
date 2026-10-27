@@ -115,7 +115,7 @@ export async function startLaunch(project: string, {issue, statuses, release, co
     if (!starts) throw conflict(`Orrery doesn't start sessions; turn it on in App settings`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
     if (hears) hears = [project, ...new Set(hears.filter(p => p !== project))]
-    const apart = hears?.filter(p => !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
+    const apart = hears?.filter(p => p !== project && !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
     if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
     if (startedSessions() + pendingOn() >= starts.limit) throw conflict(`Orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     const id = randomBytes(6).toString('hex')
