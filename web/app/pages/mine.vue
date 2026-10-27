@@ -6,17 +6,17 @@
 useHead({title: 'My issues · Orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {matches} = useFilters()
+const {matches, shows} = useFilters()
 const {name: owner, load} = useOwner()
 onMounted(load)
 
-const waiting = computed(() => ordered.value
+const waiting = computed(() => ordered.value.filter(p => shows(p.id))
     .map(project => ({project, issues: allIssues(project).filter(({issue}) => issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
-const urgent = computed(() => ordered.value
+const urgent = computed(() => ordered.value.filter(p => shows(p.id))
     .map(project => ({project, issues: urgentIssues(project).filter(({issue}) => !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
-const mine = computed(() => ordered.value
+const mine = computed(() => ordered.value.filter(p => shows(p.id))
     .map(project => ({project, issues: myIssues(project, owner.value).filter(({issue}) => issue.priority !== 'P0' && !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
 const lists = computed(() => [
