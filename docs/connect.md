@@ -100,9 +100,10 @@ issues it had in progress and their latest comment, so it carries on with them.
 
 ## 4. Optionally, let Orrery start sessions
 
-Orrery can start a session itself when you send the project work and nobody is listening, or when you
-press **Start session** on the Sessions page, so nobody has to open a terminal. Turn it on once, for every
-project, under Starting sessions at the top of the Sessions page (how many at once, how many minutes each), then install the
+Orrery can start a session itself when you send the project work and nobody is listening, when you
+press **Start session** on the Sessions page, or **New session on this** on an issue, so nobody has to open a terminal.
+Turn it on once, for every project, under Starting sessions on the Sessions page's **Setup** tab (how many at once, how
+many minutes each), then install the
 launcher once, in the repo:
 
 ```bash
@@ -132,9 +133,8 @@ focus on a single issue ends the chunk or scope it was working through.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
-are up, when you press **Stop** beside it (in the sessions panel or the project's settings, with **+30 min**
-to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
+are up, when you press **Stop** beside it (on the Sessions page, with **+30 min** to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
-The limits are the Orrery's, on the Sessions page, and apply to each project. The cap is time, not cost:
+The limits are the Orrery's, on the Sessions page's Setup tab: how many at once counts every project's sessions together. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.
