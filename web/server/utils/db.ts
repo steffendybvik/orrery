@@ -548,6 +548,10 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- The day a release's features froze: from then on it takes fixes, tests and docs, by preference.
     ALTER TABLE releases ADD COLUMN frozen_on TEXT;
+`, `
+    -- A preset's badge: a Heroicon and a colour (a tint's name or #rrggbb); without an icon, its initials.
+    ALTER TABLE presets ADD COLUMN icon TEXT;
+    ALTER TABLE presets ADD COLUMN color TEXT;
 `]
 
 let db: DatabaseSync | null = null

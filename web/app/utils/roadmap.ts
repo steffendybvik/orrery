@@ -159,4 +159,6 @@ export function changelogOf(release: Release, chunks: Chunk[], date = release.sh
 }
 
 /** What a session Orrery started was given to go on, in a few words: its presets, and your own words if any. */
+/** A text's first line that isn't blank, as a one-line summary of it (a preset's "what it does"). */
+export const firstLine = (text: string) => text.split('\n').find(l => l.trim())?.trim() ?? ''
 export const contextLabel = (context: SessionContext) => [...context.presets, ...context.instructions ? ['your words'] : []].join(', ')

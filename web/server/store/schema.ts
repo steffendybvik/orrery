@@ -107,7 +107,7 @@ export interface CommentRow extends Made { id: number, project: string, issue: s
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, position: number }
-export interface PresetRow { id: number, project: string | null, name: string, text: string, created_at: string, updated_at: string }
+export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, created_at: string, updated_at: string }
 export interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
@@ -271,10 +271,12 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
 }
 
-/** A preset's name and its text, both needed. */
+/** A preset's name and its text, both needed; its badge's icon and colour, neither. */
 export const PRESET_FIELDS: Record<string, Field> = {
     name: {type: 'string', required: true},
     text: {type: 'string', required: true},
+    icon: {type: 'string', nullable: true, pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, hint: "use a Heroicon's name, e.g. shield-check"},
+    color: TINT,
 }
 
 export const OWNER_FIELDS: Record<string, Field> = {

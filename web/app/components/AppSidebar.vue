@@ -257,7 +257,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             :key="session.id"
             :to="`/sessions#session-${session.id}`"
             class="flex items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
-            :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd].filter(Boolean).join(' · ')"
+            :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd, session.started?.context?.presets.length ? `as ${session.started.context.presets.join(', ')}` : ''].filter(Boolean).join(' · ')"
         >
           <SessionDot :session="session" />
           <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>

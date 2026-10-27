@@ -13,6 +13,10 @@ const {projects} = useRoadmaps()
 const elsewhere = computed(() => [props.session.project, ...props.session.also ?? []]
     .filter(id => id !== props.project).map(id => projects.value.find(p => p.id === id)?.name ?? id))
 const viewing = ref(false)
+/** The presets it was started with, as badges by its name: the roles it plays. */
+const {load, badgesFor} = usePresetBadges()
+watchEffect(() => props.session.started?.context?.presets.length && load(props.session.project))
+const roles = computed(() => badgesFor(props.session.project, props.session.started?.context?.presets ?? []))
 
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
     : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message: ${s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
@@ -30,6 +34,9 @@ const restart = (session: Session) => restartCommand(session, String(environment
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
       <SessionDot :session="session" />
       <span class="min-w-0 truncate text-[14px] font-medium text-fg">{{ session.name }}</span>
+      <span v-if="roles.length" class="flex items-center gap-1" :aria-label="`As ${roles.map(r => r.name).join(', ')}`">
+        <span v-for="role in roles" :key="role.name" :title="role.name" class="inline-flex"><PresetBadge :preset="role" :size="18" /></span>
+      </span>
       <span class="text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
         {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
       </span>

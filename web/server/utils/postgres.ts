@@ -304,6 +304,9 @@ const STEPS: string[] = [`
     UPDATE projects SET starts = NULL;
 `, `
     ALTER TABLE releases ADD COLUMN frozen_on text;
+`, `
+    ALTER TABLE presets ADD COLUMN icon text;
+    ALTER TABLE presets ADD COLUMN color text;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether
