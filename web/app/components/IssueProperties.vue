@@ -116,10 +116,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
     </dd>
 
     <dt class="label">Team tasks</dt>
-    <dd class="flex min-w-0 flex-col items-start gap-1">
-      <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. CIR-1567…" multiple creatable :disabled="saving">
-        <span class="text-faint">{{ issue.external.length ? 'Edit' : 'None' }}</span>
-      </PropertyPicker>
+    <dd class="flex min-w-0 flex-wrap items-center gap-1">
       <span v-if="taskLinks.length" class="flex min-w-0 flex-wrap gap-1">
         <component
             :is="link.url ? 'a' : 'span'"
@@ -133,6 +130,9 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
             :title="link.url ? `Open ${link.task} on the team's tracker` : 'Set the tracker in App settings to link it'"
         >{{ link.task }}</component>
       </span>
+      <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. CIR-1567…" multiple creatable :disabled="saving">
+        <span class="text-faint">{{ issue.external.length ? 'Edit' : 'None' }}</span>
+      </PropertyPicker>
     </dd>
 
     <dt class="label">Project</dt>

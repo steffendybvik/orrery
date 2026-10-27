@@ -180,10 +180,10 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
       <article class="flex min-w-0 flex-1 flex-col gap-8 px-4 py-6 sm:px-8 sm:py-10">
         <header class="flex flex-col gap-2">
-          <div class="flex items-center gap-1.5">
-            <span class="font-mono text-xs text-faint">{{ issue.id }}</span>
-            <CopyButton :text="issue.id" />
-            <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" />
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="font-mono text-xs whitespace-nowrap text-faint">{{ issue.id }}</span>
+            <CopyButton :text="issue.id" compact />
+            <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" compact />
             <a v-if="issue.waiting" href="#waiting" title="Go to the question"><WaitingChip :asks="issue.waiting" /></a>
             <button
                 v-if="madeBy"
