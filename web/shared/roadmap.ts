@@ -487,6 +487,10 @@ export interface Preset {
     project: string | null
     name: string
     text: string
+    /** Its badge: a Heroicon's name (`shield-check`) in a colour (a tint's name or `#rrggbb`); without an icon,
+     * its initials. */
+    icon: string | null
+    color: string | null
     created_at: string
     updated_at: string
 }

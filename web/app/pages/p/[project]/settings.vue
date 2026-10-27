@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import {TINTS} from '#shared/roadmap'
-
 // A project's settings: its name, where its code is, whether it has releases and whose, its icon in the sidebar and the icon's colour, and deleting
 // the project, for good. Its schedules and sessions are on the Schedules and Sessions pages, kept to it.
 const route = useRoute()
@@ -72,16 +70,7 @@ async function saveReleaseMode(event: Event) {
 
 // Its icon: any Heroicon, found by name, in a colour (or the text's). The sidebar shows it in place of
 // the progress ring.
-const search = ref('')
-const custom = ref('#3b82f6')
-watch(() => project.value?.icon_color, now => {
-    if (now?.startsWith('#')) custom.value = now
-}, {immediate: true})
 const iconFailed = ref('')
-const shown = computed(() => {
-    const words = search.value.trim().toLowerCase().split(/[\s-]+/).filter(Boolean)
-    return HEROICONS.filter(name => words.every(word => name.includes(word)))
-})
 async function saveIcon(change: {icon?: string | null, icon_color?: string | null}) {
     if (!project.value) return
     iconFailed.value = ''
@@ -209,57 +198,9 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
           </div>
           <UiButton v-if="project.icon" class="shrink-0" @click="saveIcon({icon: null})">Use the ring</UiButton>
         </header>
-        <div class="flex flex-col gap-2 rounded-xl border border-line p-3">
-          <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Icon colour">
-            <span class="mr-1 text-xs text-muted">Colour</span>
-            <button
-                type="button"
-                class="flex h-7 items-center rounded-lg px-2.5 text-xs ring-1 transition-colors"
-                :class="!project.icon_color ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line hover:bg-hover'"
-                :aria-pressed="!project.icon_color"
-                title="Follows the text, as the sidebar's other icons do"
-                @click="saveIcon({icon_color: null})"
-            >None</button>
-            <button
-                v-for="(color, tint) in TINTS"
-                :key="tint"
-                type="button"
-                class="grid size-7 place-items-center rounded-lg ring-1 transition-colors"
-                :class="project.icon_color === tint ? 'bg-active ring-faint/60' : 'ring-line hover:bg-hover'"
-                :title="tint"
-                :aria-label="tint"
-                :aria-pressed="project.icon_color === tint"
-                @click="saveIcon({icon_color: tint})"
-            >
-              <span class="size-3.5 rounded-full ring-1 ring-black/10" :style="{background: color}" />
-            </button>
-            <label
-                class="flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs ring-1"
-                :class="project.icon_color?.startsWith('#') ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line'"
-            >
-              <input v-model="custom" type="color" aria-label="Custom icon colour" class="size-4 cursor-pointer rounded border-0 bg-transparent p-0" @change="saveIcon({icon_color: custom})">
-              Custom
-            </label>
-          </div>
-          <input v-model="search" type="search" placeholder="Find an icon: cart, lock, bolt…" aria-label="Find an icon" spellcheck="false" class="h-8 field">
-          <div class="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1 overflow-y-auto">
-            <button
-                v-for="name in shown"
-                :key="name"
-                type="button"
-                class="grid h-9 place-items-center rounded-lg transition-colors"
-                :class="project.icon === name ? 'bg-accent-500/15 text-accent-600 ring-1 ring-accent-500/40 dark:text-accent-300' : 'text-muted hover:bg-hover hover:text-fg'"
-                :title="name"
-                :aria-label="name"
-                :aria-pressed="project.icon === name"
-                @click="saveIcon({icon: name})"
-            >
-              <ProjectIcon :icon="name" :color="project.icon === name ? project.icon_color : null" class="size-4" />
-            </button>
-          </div>
-          <p v-if="!shown.length" class="px-1 py-4 text-center text-xs text-faint">No icon called “{{ search }}”.</p>
+        <IconPicker :icon="project.icon ?? null" :color="project.icon_color ?? null" @change="change => saveIcon({icon: change.icon, icon_color: change.color})">
           <p v-if="iconFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ iconFailed }}</p>
-        </div>
+        </IconPicker>
       </section>
 
       <section class="flex flex-col gap-3 border-t border-line pt-8">

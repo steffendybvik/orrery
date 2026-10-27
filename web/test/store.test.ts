@@ -1088,6 +1088,15 @@ describe('presets', () => {
         await store.deleteProject('larder', owner)
         expect(await store.presets()).toEqual([])
     })
+    it('have a badge: an icon and a colour, each taken off with null', async () => {
+        const review = await store.createPreset(null, {name: 'Review', text: 'Read the diff.', icon: 'shield-check', color: 'violet'}, owner)
+        expect(review).toMatchObject({icon: 'shield-check', color: 'violet'})
+        expect((await store.createPreset(null, {name: 'Test', text: 'Run the tests.'}, owner))).toMatchObject({icon: null, color: null})
+        expect((await failure(() => store.updatePreset(review.id, {icon: 'Shield Check'}, owner))).status).toBe(400)
+        expect((await failure(() => store.updatePreset(review.id, {color: 'plaid'}, owner))).status).toBe(400)
+        expect(await store.updatePreset(review.id, {color: '#3b82f6'}, owner)).toMatchObject({icon: 'shield-check', color: '#3b82f6', text: 'Read the diff.'})
+        expect(await store.updatePreset(review.id, {icon: null}, owner)).toMatchObject({icon: null, color: '#3b82f6'})
+    })
 })
 
 describe('statuses', () => {
