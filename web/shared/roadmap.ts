@@ -588,5 +588,8 @@ export const SESSION_NAMES = [
     'Vestre', 'Alfrik', 'Lit', 'Ny', 'Nide', 'Fili', 'Kili', 'Oin', 'Torin', 'Bombur', 'Gandalv',
 ] as const
 
-/** Whether Orrery made the session's name up (`<project> · <name>`), rather than the session or its hooks giving it. */
-export const madeUpName = (session: {name: string, project: string}) => session.name.startsWith(`${session.project} · `)
+const BARE_NAME = new RegExp(`^(${SESSION_NAMES.join('|')})( [IVXLCDM]+)?$`)
+
+/** Whether Orrery made the session's name up, rather than the session or its hooks giving it: `<project> · <name>` for
+ * one that hears its own project, the bare name (`Odin`) for one that hears several. */
+export const madeUpName = (session: {name: string, project: string}) => session.name.startsWith(`${session.project} · `) || BARE_NAME.test(session.name)

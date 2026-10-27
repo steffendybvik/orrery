@@ -42,6 +42,30 @@ describe('a session', () => {
         expect(changed.every(p => p === 'larder')).toBe(true)
     })
 
+    it('hearing several projects, goes by a bare name no session has, and gets its prefix back on one', () => {
+        sessions.report({id: 'solo', project: 'hub', event: 'SessionStart'})
+        const hub = sessions.attend('hub', 'span', undefined, undefined)
+        expect(sessions.sessionName('span')).toBe('hub · Tor')
+        const css = sessions.attend('css', 'span', undefined, undefined)
+        expect(sessions.sessionName('span')).toBe('Odin')
+        expect(sessions.listSessions('css')).toMatchObject([{id: 'span', name: 'Odin', also: ['css']}])
+        // Its bare name is taken across every project, whatever they hear.
+        sessions.attend('pos', 'other', undefined, undefined)
+        sessions.attend('css', 'other', undefined, undefined)
+        expect(sessions.sessionName('other')).toBe('Tor')
+        // A skipped channel isn't heard, so doesn't count.
+        sessions.attend('docs', 'quiet', undefined, undefined)
+        sessions.attend('pos', 'quiet', undefined, undefined, false)
+        expect(sessions.sessionName('quiet')).toBe('docs · Odin')
+        css.done()
+        expect(sessions.sessionName('span')).toBe('hub · Tor')
+        hub.done()
+        // A name it was given stays, however many it hears.
+        sessions.attend('hub', 'given', undefined, 'maintenance')
+        sessions.attend('css', 'given', undefined, 'maintenance')
+        expect(sessions.sessionName('given')).toBe('maintenance')
+    })
+
     it('follows its hooks: working, idle, and waiting when asked for a permission', () => {
         const state = (event: string, message?: string) => sessions.report({id: 'a', project: 'larder', event, message})?.state
         expect(state('SessionStart')).toBe('idle')
