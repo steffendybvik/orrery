@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Project} from '#shared/roadmap'
 
-// A project's docs down the side of the docs pages (a row of tabs on a phone).
+// A project's docs down the side of the docs pages (a row of tabs on a phone), and New doc after them.
 defineProps<{project: Project}>()
 const route = useRoute()
 const {docUnseen} = useUnseen()
@@ -22,5 +22,13 @@ const {docUnseen} = useUnseen()
       <span class="truncate" :class="docUnseen(project.id, doc) ? 'font-semibold text-fg' : ''">{{ doc.title }}</span>
       <span v-if="docUnseen(project.id, doc)" class="unseen-dot" title="Changed since you last opened it" />
     </NuxtLink>
+    <button
+        type="button"
+        class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:mt-1 md:shrink"
+        @click="useNewDoc().open(project.id)"
+    >
+      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+      New doc
+    </button>
   </nav>
 </template>

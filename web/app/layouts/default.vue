@@ -15,11 +15,13 @@ function openedOnce(open: () => unknown) {
 }
 const {target: newIssue} = useNewIssue()
 const {target: newChunk} = useNewChunk()
+const {target: newDoc} = useNewDoc()
 const {target: startSession} = useStartSession()
 const {editing: schedule} = useSchedules()
 const newProject = useState('new-project', () => false)
 const issueDialog = openedOnce(() => newIssue.value)
 const chunkDialog = openedOnce(() => newChunk.value)
+const docDialog = openedOnce(() => newDoc.value)
 const sessionDialog = openedOnce(() => startSession.value)
 const scheduleDialog = openedOnce(() => schedule.value)
 const projectDialog = openedOnce(() => newProject.value)
@@ -38,6 +40,7 @@ const projectDialog = openedOnce(() => newProject.value)
     <LazyScheduleDialog v-if="scheduleDialog" />
     <LazyNewProjectDialog v-if="projectDialog" />
     <LazyNewChunkDialog v-if="chunkDialog" />
+    <LazyNewDocDialog v-if="docDialog" />
     <LazyStartSessionDialog v-if="sessionDialog" />
     <ScheduleMenu />
     <OwnerDialog />
