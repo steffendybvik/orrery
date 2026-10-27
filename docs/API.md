@@ -444,6 +444,9 @@ bearer tokens. Info is kept a week, warnings and errors a month, and 5000 rows a
 - `POST /events/log/:id/resolve`: it's dealt with; the next one like it starts a row of its own.
 - `POST /events/log {message, stack?, page?, build?}` → 201: the page reporting its own error (`page.error`).
 
+A session reads it with the channel's `events` tool (`details` for stacks) and marks what it fixed with
+`resolve_event`, so the owner can hand Claude a problem to debug.
+
 ## Columns
 
 Computed, never written: a leaf issue that's a proposal (or under one) is in Proposed, else in its

@@ -25,7 +25,7 @@ const issue = (fields: object = {}) => ({id: 'LAR-1', title: 'Shelves', status: 
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'secrets', 'egress'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -34,6 +34,15 @@ describe("the channel's tools", () => {
         expect(await call('start_issue', {id: 'LAR-1', comment: 'On it'})).toEqual({error: false, text: 'Started LAR-1 [in-progress, claude] Shelves'})
         expect(calls.map(c => [c.method, c.url, c.body])).toEqual([['PATCH', '/issues/LAR-1', {status: 'started', assignee: 'claude'}], ['POST', '/issues/LAR-1/comments', {body: 'On it'}]])
         expect(calls[0]!.headers).toMatchObject({'Orrery-Actor': 'claude', 'Orrery-Session': 'abc'})
+    })
+
+    it("read the Orrery's event log and resolve what they fixed", async () => {
+        const event = {id: 4, level: 'error', kind: 'page.error', message: 'x is undefined', details: {page: '/mine', stack: 'at setup'}, count: 3, first_seen: '2026-10-27T20:00:00Z', last_seen: '2026-10-27T20:05:00Z'}
+        const {calls, call} = harness({'GET /events/log': {body: [event]}, 'POST /events/log/4/resolve': {body: {...event, resolved_at: '2026-10-27T21:00:00Z'}}})
+        expect((await call('events', {level: 'error', open: true})).text).toBe('#4 [error] page.error ×3, last 2026-10-27T20:05:00Z: x is undefined')
+        expect(calls[0]?.url).toBe('/events/log?level=error&open=1&limit=30')
+        expect((await call('events', {details: true})).text).toContain('"stack": "at setup"')
+        expect((await call('resolve_event', {id: 4})).text).toBe('Resolved #4 page.error: x is undefined')
     })
 
     it("call outside services through the Orrery's egress, for their project", async () => {
