@@ -99,3 +99,22 @@ test("a chunk's Focus on all is a menu the keys work", async ({page, request, ba
         streams.forEach(s => s.stop())
     }
 })
+
+test("a new issue's labels: one made by typing it, and ticked", async ({page, request}) => {
+    await page.goto('/p/foundry')
+    await page.getByRole('button', {name: 'New issue'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'New issue'})
+    await dialog.getByLabel('Title').fill('Bank the kiln')
+    await dialog.getByRole('button', {name: 'Labels'}).click()
+    await page.keyboard.type('kiln')
+    await expect(dialog.getByRole('option', {name: /Add “\s*kiln\s*”/})).toBeVisible()
+    await page.keyboard.press('Enter')
+    // Many can be ticked, so it stays open, the new one ticked.
+    await expect(dialog.getByRole('option', {name: 'kiln', exact: true})).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('button', {name: 'Labels'})).toContainText('kiln')
+    await dialog.getByRole('button', {name: /Create issue/}).click()
+    await expect(dialog).toBeHidden()
+    await expect.poll(async () => (await api(request, 'get', '/issues')).find((i: {title: string}) => i.title === 'Bank the kiln')?.labels).toEqual(['kiln'])
+})
