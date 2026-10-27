@@ -1191,8 +1191,8 @@ describe('settings', () => {
         expect((await store.listActivity('larder', id)).filter(e => e.field === 'external').map(e => [e.before, e.after]))
             .toEqual([['["CIR-1567"]', '["CIR-1567","https://linear.app/x/issue/CIR-9"]']])
         expect((await store.updateIssue('larder', id, {external: null})).external).toEqual([])
-        expect((await store.updateSettings({tracker: 'https://linear.app/circuly/issue/{id}'}, owner)).tracker).toBe('https://linear.app/circuly/issue/{id}')
-        expect((await failure(() => store.updateSettings({tracker: 'https://linear.app/circuly'}, owner))).status).toBe(400)
+        expect((await store.updateSettings({tracker: 'https://linear.app/acme/issue/{id}'}, owner)).tracker).toBe('https://linear.app/acme/issue/{id}')
+        expect((await failure(() => store.updateSettings({tracker: 'https://linear.app/acme'}, owner))).status).toBe(400)
     })
 })
 
