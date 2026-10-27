@@ -20,7 +20,10 @@ export default defineEventHandler(async event => {
         id: text('id'), pid: Number(body.pid) || undefined, project: body.project, name: text('name'),
         cwd: text('cwd'), event: body.event, message: text('message'), command: text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
     })
-    if (session && body.event === 'Stop') considerClear(session.project, session.id)
+    if (session && body.event === 'Stop') {
+        considerClear(session.project, session.id)
+        carryOn(session.project, session.id)
+    }
     const source = text('source')
     if (!session || body.event !== 'SessionStart') return session
     // Back from Orrery's clear with part of its run left: a focus on the rest starts its next turn.
