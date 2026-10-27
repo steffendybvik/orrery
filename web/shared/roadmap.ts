@@ -353,6 +353,8 @@ export interface Schedule {
     ask: boolean
     /** Skips a run while the issue from the last one isn't done. */
     skip_open: boolean
+    /** A message schedule: skips a run when no issue or comment in the project changed since the last one it sent. */
+    only_if_changed: boolean
     enabled: boolean
     /** When it runs next; none once it's paused or a one-off has run. */
     next_run?: string
