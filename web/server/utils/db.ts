@@ -552,6 +552,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- A preset's badge: a Heroicon and a colour (a tint's name or #rrggbb); without an icon, its initials.
     ALTER TABLE presets ADD COLUMN icon TEXT;
     ALTER TABLE presets ADD COLUMN color TEXT;
+`, `
+    -- A message schedule that skips a run when nothing in its project changed since the last one it sent.
+    ALTER TABLE schedules ADD COLUMN only_if_changed INTEGER NOT NULL DEFAULT 0;
 `]
 
 let db: DatabaseSync | null = null

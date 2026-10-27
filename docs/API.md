@@ -213,13 +213,14 @@ time a schedule makes an issue (its title plus the day, e.g.
 `Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
 the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
 is listening, the next to connect within a day gets it). With `skip_open` (the default) a run is skipped
-while the last run's issue isn't done. Missed runs while Orrery was down run once when it's back.
+while the last run's issue isn't done; with `only_if_changed`, a message run is skipped (`nothing changed`) when no
+issue or comment in the project changed since the last run it sent. Missed runs while Orrery was down run once when it's back.
 
 | | |
 |---|---|
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
-| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
+| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}`; the owner's, only by the owner |
 

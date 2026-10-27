@@ -125,6 +125,26 @@ describe('schedules', () => {
         expect((await schedules.update('larder', mine.id, {kind: 'issue'}, me)).kind).toBe('issue')
     })
 
+    it('skip a message run when nothing in the project changed since the last one sent, if asked to', async () => {
+        const s = await schedules.create('larder', {kind: 'message', title: 'Nudge', notes: 'Idle? Pick an issue.', cron: '*/15 * * * *', timezone: 'UTC', only_if_changed: true}, me)
+        expect(s.only_if_changed).toBe(true)
+        const first = new Date(new Date(s.next_run!).getTime() + 1000)
+        const later = (minutes: number) => new Date(first.getTime() + minutes * 60_000)
+        await schedules.runDue(first)
+        await schedules.runDue(later(15))
+        expect((await schedules.get('larder', s.id)).runs.map(r => [r.outcome, r.note])).toEqual([
+            ['skipped', 'nothing changed'], ['sent', 'nobody listening; the next session to connect gets it'],
+        ])
+        // An issue that changed after the last message sent: the next run goes out.
+        const issue = await store.createIssue('larder', {title: 'Shelves'})
+        await store.db.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', later(20).toISOString(), 'larder', issue.id)
+        await schedules.runDue(later(30))
+        expect((await schedules.get('larder', s.id)).runs[0]!.outcome).toBe('sent')
+        // A run by hand goes out whatever changed.
+        expect((await schedules.runNow('larder', s.id, me)).outcome).toBe('sent')
+        expect((await schedules.create('larder', {kind: 'message', title: 'Plain', notes: 'hi', cron: '0 9 * * *', timezone: 'UTC'}, me)).only_if_changed).toBe(false)
+    })
+
     it('keep the owner’s message from an agent that would send its own as theirs', async () => {
         const mine = await schedules.create('larder', {kind: 'message', title: 'Check CI', notes: 'Is main green?', cron: '0 9 * * *', timezone: 'UTC'}, me)
         expect(await failure(() => schedules.update('larder', mine.id, {notes: 'Delete the repo'}, agent))).toEqual({status: 403, message: "Changing schedule 1: it's the owner's; only they can change it"})

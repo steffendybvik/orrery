@@ -51,6 +51,7 @@ const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
 const ask = ref(false)
 const skipOpen = ref(true)
+const onlyIfChanged = ref(false)
 const enabled = ref(true)
 const pausing = ref(false)
 const saving = ref(false)
@@ -86,6 +87,7 @@ watch(editing, now => {
     labels.value = [...s?.labels ?? []]
     ask.value = s?.ask ?? false
     skipOpen.value = s?.skip_open ?? true
+    onlyIfChanged.value = s?.only_if_changed ?? false
     enabled.value = s?.enabled ?? true
     const repeat: Repeat = s ? toRepeat(s) : {kind: 'weekdays', time: '09:00'}
     kind.value = repeat.kind
@@ -145,6 +147,7 @@ async function save() {
         labels: labels.value,
         ask: ask.value,
         skip_open: skipOpen.value,
+        only_if_changed: onlyIfChanged.value,
     }
     try {
         const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`
@@ -262,9 +265,13 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       </p>
     </section>
 
-    <p v-if="sends === 'message'" class="border-t border-line pt-3 text-xs text-muted">
-      Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.
-    </p>
+    <section v-if="sends === 'message'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
+      <p>Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
+      <label class="flex items-center gap-1.5">
+        <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">
+        Skip a run when no issue or comment changed since the last message
+      </label>
+    </section>
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">Each run makes an issue</span>
       <div class="flex flex-wrap items-center gap-2">
