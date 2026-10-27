@@ -315,6 +315,8 @@ export interface Signal {
     schedule?: number
     kind: 'focus' | 'comment' | 'message'
     note?: string
+    /** A message the owner sent from a preset: its name, as it was then. */
+    preset?: string
     /** The session it's for; none means every session on the project. */
     target?: string
     /** The names of the sessions it reached. */
