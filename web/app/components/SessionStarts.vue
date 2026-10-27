@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Whether Orrery may start Claude sessions itself, with no terminal: the owner's one opt-in, for every project whose
-// repo has a launcher installed (how many at once on each, and, if they like, how long each runs and how long one
+// repo has a launcher installed (how many at once, over every project, and, if they like, how long each runs and how long one
 // may sit idle; blank runs it until stopped). On the Sessions page, above the sessions.
 const {settings, save: saveSettings} = useAppSettings()
 const failed = ref('')
