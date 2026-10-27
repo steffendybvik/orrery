@@ -7,7 +7,8 @@
 // with this server registered under that name in the repo's .mcp.json, one entry per Orrery (an older setup
 // named it after its project, which works the same). ORRERY_PROJECTS lists the projects it serves (`hub,css,pos`),
 // or `*` for every project on the Orrery as it starts; ORRERY_PROJECT names one, as older setups do; the folder's
-// name by default. ORRERY_URL is where Orrery runs (http://localhost:9000 by default), and ORRERY_ID the Orrery
+// name by default. ORRERY_HEAR narrows that to the ones named (the launcher sets it for a session started for some of
+// the repo's projects); one it doesn't serve is let go. ORRERY_URL is where Orrery runs (http://localhost:9000 by default), and ORRERY_ID the Orrery
 // it must be (its id, on its Connect page): another one at that address is refused, so a repo set up for one
 // Orrery never writes to another. Only stderr is for logs: stdout is the MCP connection.
 import {readdirSync, readFileSync, statSync} from 'node:fs'
@@ -16,6 +17,7 @@ import {basename, join} from 'node:path'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
+import {narrowed} from './repo-channels.mjs'
 import {serverName} from './server-name.mjs'
 import {claudeWindow} from './session.mjs'
 import {follow} from './sse.mjs'
@@ -23,10 +25,12 @@ import {orreryTools, toolsFor} from './tools.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 const listed = (process.env.ORRERY_PROJECTS || process.env.ORRERY_PROJECT || basename(process.cwd())).split(',').map(p => p.trim()).filter(Boolean)
-/** `*`: every project on the Orrery, known once it's reached. */
-const every = listed.includes('*')
+/** The projects it serves, as ORRERY_HEAR narrows them: for `*`, those named (`null`, every project on the Orrery,
+ * known once it's reached). */
+const hearing = narrowed(listed, process.env.ORRERY_HEAR)
+const every = hearing === null
 /** The projects it serves (filled in once the Orrery is reached, for `*`). */
-const projects = every ? [] : listed
+const projects = every ? [] : hearing
 const apiOf = project => `${base}/api/projects/${encodeURIComponent(project)}`
 const log = (...parts) => console.error('[orrery channel]', ...parts)
 // Which window this is, so Orrery can list it, aim a signal at it and know who got one.

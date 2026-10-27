@@ -1,9 +1,11 @@
 // Whether a project's launcher is there and how many sessions it has started or has on their way, and every
 // project's together, which the limit counts (`GET /launches`), shared by everything on the page that shows it:
 // asked again when any project's launchers or sessions change, once however many show it. `install` is what installs the launcher, run
-// in the project's repo: this Orrery's checkout, where it knows it.
+// in the project's repo: this Orrery's checkout, where it knows it. `folders`: where its launchers run, so projects
+// served from one repo can share a session.
 export interface LaunchState {
     launchers: number
+    folders: string[]
     started: number
     starting: number
     total: number

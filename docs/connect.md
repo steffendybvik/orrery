@@ -43,6 +43,8 @@ In the repo's `.mcp.json`, one server for this Orrery, named after it (`orrery-<
 `ORRERY_PROJECTS` lists the repo's projects on it: a monorepo with an app per project has them all in the one
 server (`hub,css,pos`), or `*` for every project on the Orrery as the session starts. A tool on an issue finds its
 project from the id (`HUB-12` is hub's); the others take `project`, and each `<channel>` message says its project.
+`ORRERY_HEAR` in a session's environment narrows that to the projects it names (`ORRERY_HEAR=hub claude …` hears only
+hub); a session Orrery starts gets it from Start session, so one started for Hub hears Hub alone.
 `ORRERY_ID` is the Orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another Orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
