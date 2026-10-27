@@ -5,7 +5,7 @@ describe('a focus prompt', () => {
     const values = {actor: 'skoll_fenrisson', issue: 'LAR-4', title: 'Pantry', where: 'Todo, P1', url: 'http://o/api/projects/larder/issues/LAR-4'}
 
     it('fills the placeholders and leaves out a line that comes out empty', () => {
-        expect(renderPrompt(DEFAULT_FOCUS_PROMPT, values)).toBe('skoll_fenrisson asks you to focus on LAR-4: Pantry [Todo, P1].\nRead it with: curl http://o/api/projects/larder/issues/LAR-4')
+        expect(renderPrompt(DEFAULT_FOCUS_PROMPT, values)).toBe('skoll_fenrisson asks you to focus on LAR-4: Pantry [Todo, P1].\nRead it with: curl http://o/api/projects/larder/issues/LAR-4\nRead the project docs it touches before the code, and fix any that turn out wrong.')
         expect(renderPrompt(DEFAULT_FOCUS_PROMPT, {...values, note: 'soon'})).toContain('\nNote: soon\n')
     })
 

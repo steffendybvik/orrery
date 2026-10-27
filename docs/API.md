@@ -172,7 +172,7 @@ instead of `done` when it won't ship.
 
 | | |
 |---|---|
-| `GET /projects/:project/docs` | without their text, by title, A–Z (a `position` sent with a doc is kept but no longer orders them) |
+| `GET /projects/:project/docs` | without their text but with a `summary` (the first paragraph as plain text, about 160 characters), by title, A–Z (a `position` sent with a doc is kept but no longer orders them). `?q=` keeps those with every word of it in their title or text (any order or case), the ones with them all in the title first, each with a `match`: about 160 characters of text around its first hit |
 | `POST /projects/:project/docs` | `{title, body?, id?}`; `body` is Markdown |
 | `GET /projects/:project/docs/:doc` | with its Markdown |
 | `PUT /projects/:project/docs/:doc` | `{title, body?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync |

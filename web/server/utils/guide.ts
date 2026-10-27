@@ -27,6 +27,8 @@ things work) in the project's docs. Name yourself on every write with the header
 Ids are handed out by Orrery: issues are the project's prefix and a number (\`LAR-142\`), chunks a number.
 When you need the owner to decide something or give feedback, ask in a comment on the issue with
 \`"asks": "decision"\` (or \`"feedback"\`): it waits at the top of their bell until they answer.
+Before the code, read the project's docs a task touches (\`GET /api/projects/<project>/docs\` lists them with a summary
+each, \`?q=\` searches them), and fix one when it turns out wrong.
 When you open a pull request for an issue, link the issue's page (${origin}/p/<project>/issues/<id>) in its
 description, so the owner can jump to it.
 
