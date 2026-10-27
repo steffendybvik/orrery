@@ -181,3 +181,29 @@ describe('schedules', () => {
         expect(await schedules.list('larder')).toEqual([])
     })
 })
+
+describe('an untrusted schedule', () => {
+    it('is a message schedule only', async () => {
+        expect(await failure(() => schedules.create('larder', {title: 'Triage', cron: '0 9 * * *', untrusted: true}, me))).toMatchObject({status: 400})
+        const s = await schedules.create('larder', {kind: 'message', title: 'Triage', notes: 'Review GitHub issues.', cron: '0 9 * * *', timezone: 'UTC', untrusted: true}, me)
+        expect(s.untrusted).toBe(true)
+        expect(await failure(() => schedules.update('larder', s.id, {kind: 'issue'}, me))).toMatchObject({status: 400})
+        expect((await schedules.update('larder', s.id, {untrusted: false}, me)).untrusted).toBe(false)
+    })
+
+    it('starts a session of its own each run, never messaging the sessions, and fails saying why when it cannot', async () => {
+        const asked: {project: string, schedule: number, text: string}[] = []
+        let room = true
+        const own = new Schedules(store, () => {}, () => 3, async (project, schedule, text) => {
+            if (!room) throw new Error('No launcher is running for larder')
+            asked.push({project, schedule, text})
+            return {tmux: 'orrery-larder-abc'}
+        })
+        const s = await own.create('larder', {kind: 'message', title: 'Triage', notes: 'Review GitHub issues.', cron: '0 9 * * *', timezone: 'UTC', untrusted: true}, me)
+        expect(await own.runNow('larder', s.id, me)).toMatchObject({outcome: 'sent', note: 'started a locked-down session for it (orrery-larder-abc)'})
+        expect(asked).toEqual([{project: 'larder', schedule: s.id, text: 'Review GitHub issues.'}])
+        room = false
+        expect(await own.runNow('larder', s.id, me)).toMatchObject({outcome: 'failed', note: 'untrusted, so it needs a session of its own: No launcher is running for larder'})
+        expect(signals.filter(x => x.kind === 'message')).toEqual([])
+    })
+})

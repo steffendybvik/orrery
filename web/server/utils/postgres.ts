@@ -309,6 +309,8 @@ const STEPS: string[] = [`
     ALTER TABLE presets ADD COLUMN color text;
 `, `
     ALTER TABLE schedules ADD COLUMN only_if_changed integer NOT NULL DEFAULT 0;
+`, `
+    ALTER TABLE schedules ADD COLUMN untrusted integer NOT NULL DEFAULT 0;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether

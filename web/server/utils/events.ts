@@ -45,7 +45,7 @@ export function useSecrets(): Secrets {
 let schedules: Schedules | null = null
 
 export function useScheduler(): Schedules {
-    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening)
+    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening, startUntrusted)
     return schedules
 }
 
