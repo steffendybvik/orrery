@@ -4,8 +4,9 @@ import type {Project, Schedule} from '#shared/roadmap'
 // A project's schedules as a card: the project at its head, with its own New schedule, then its schedules, soonest
 // first, paused (and one-offs that have run) last. A row says what it does (makes an issue, or messages the
 // sessions) and what it says, when it repeats, when it runs next and how its last run went; clicking edits it,
-// right-clicking opens its menu. Its play button leads the row and says its state at a glance, like a music
-// player's: a filled one with ❙❙ while it runs (press to pause), an outlined one with ▶ while it's paused.
+// right-clicking or its ⋯ opens its menu (run now, pause, edit, remove). Its play button leads the row and says
+// its state at a glance, like a music player's: a filled one with ❙❙ while it runs (press to pause), an outlined
+// one with ▶ while it's paused.
 const props = defineProps<{project: Project, schedules: Schedule[]}>()
 const {edit, openMenu, pause} = useSchedules()
 const {open: openIssue} = useIssueLink()
@@ -118,6 +119,15 @@ const OUTCOME = {
         <span v-else-if="ran(s)" class="text-faint">ran</span>
         <span v-else class="rounded-full bg-well px-2 py-0.5 font-medium text-muted">Paused</span>
       </span>
+      <button
+          type="button"
+          class="grid size-7 shrink-0 place-items-center self-start rounded-md text-faint hover:bg-active hover:text-fg"
+          :title="`More for ${s.title}: run now, pause, remove`"
+          :aria-label="`More for ${s.title}`"
+          @click.stop="openMenu($event, s)"
+      >
+        <svg class="size-4" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
+      </button>
     </div>
   </section>
 </template>
