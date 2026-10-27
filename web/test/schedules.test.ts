@@ -40,6 +40,11 @@ describe('schedules', () => {
         expect(new Date(s.next_run!).getUTCMinutes()).toBe(0)
     })
 
+    it('read a step after a number as croner 9 did, so schedules saved with one keep running', async () => {
+        const s = await schedules.create('larder', {title: 'Water', cron: '5/10 * * * *', timezone: 'UTC'}, me)
+        expect(new Date(s.next_run!).getUTCMinutes() % 10).toBe(5)
+    })
+
     it('refuse a bad cron, a bad zone, a past one-off, or both kinds of time', async () => {
         expect((await failure(() => schedules.create('larder', {title: 'x', cron: '0 9 * *'}))).status).toBe(400)
         expect((await failure(() => schedules.create('larder', {title: 'x', cron: '0 99 * * *'}))).status).toBe(400)
