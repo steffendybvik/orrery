@@ -123,7 +123,7 @@ export function idsFor(name: string): {id: string, key: string} {
 }
 
 /** A window's name as ORRERY_SESSION takes it: lowercase letters, digits and dashes, safe in a shell. */
-export function sessionName(text: string): string {
+function sessionName(text: string): string {
     return slugify(text)
 }
 

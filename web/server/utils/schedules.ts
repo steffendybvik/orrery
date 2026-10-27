@@ -21,7 +21,7 @@ interface ScheduleRow {
 }
 interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null }
 
-export const SCHEDULE_FIELDS: Record<string, Field> = {
+const SCHEDULE_FIELDS: Record<string, Field> = {
     /** `issue` (the default) makes an issue each run; `message` sends `notes` to the sessions instead. */
     kind: {type: 'string', values: ['issue', 'message']},
     title: {type: 'string', required: true},
@@ -283,7 +283,7 @@ export class Schedules {
 }
 
 /** When it runs next after `from`: the cron's next time, or a one-off's time if that's still ahead. */
-export function nextRun(when: {cron: string | null, at: string | null, timezone: string}, from: Date): string | null {
+function nextRun(when: {cron: string | null, at: string | null, timezone: string}, from: Date): string | null {
     if (when.at) return new Date(when.at) > from ? when.at : null
     if (!when.cron) return null
     // `sloppyRanges` reads a step after a number (`5/10`) as croner 9 did, so a schedule saved with one still runs.
