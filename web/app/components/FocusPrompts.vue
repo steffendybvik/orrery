@@ -6,14 +6,15 @@ import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, PLACEHOLDERS, renderPrompt} 
 // What a Claude session hears when asked to focus: the two templates (an issue, a chunk's issues) and the
 // standing instructions added to every focus. On the Sessions page they're the Orrery's; with `project`, that
 // project's own templates (empty follows the Orrery's), its own instructions, and the Orrery's it switches off.
+// Each template shows what it's for and whose it is; its text opens with Edit.
 const props = defineProps<{project?: Project}>()
 const {settings, save: saveSettings} = useAppSettings()
 const {load} = useOwner()
 const failed = ref('')
 
 const KINDS = [
-    {key: 'focus_prompt', label: 'Focus on an issue', fallback: DEFAULT_FOCUS_PROMPT, placeholders: PLACEHOLDERS.focus},
-    {key: 'chunk_prompt', label: "Work through a chunk's issues", fallback: DEFAULT_CHUNK_PROMPT, placeholders: PLACEHOLDERS.chunk},
+    {key: 'focus_prompt', label: 'Focus on an issue', about: 'What a session hears when you ask it to work on one issue.', fallback: DEFAULT_FOCUS_PROMPT, placeholders: PLACEHOLDERS.focus},
+    {key: 'chunk_prompt', label: "Work through a chunk's issues", about: "What a session hears when you ask it to work through a chunk's or a release's issues.", fallback: DEFAULT_CHUNK_PROMPT, placeholders: PLACEHOLDERS.chunk},
 ] as const
 type Key = (typeof KINDS)[number]['key']
 
@@ -63,6 +64,13 @@ const SAMPLE = {
 }
 const preview = (key: Key) => renderPrompt(drafts[key].trim() || inherited(key), SAMPLE[key], ticked.value)
 const showing = ref<Key | null>(null)
+const editing = ref<Key | null>(null)
+/** Whose template a session hears now. */
+const whose = (key: Key) => saved(key) ? (props.project ? `${props.project.name}'s own` : 'your own') : (props.project ? "the Orrery's" : 'the default')
+function edit(key: Key) {
+    if (editing.value === key) saveTemplate(key)
+    editing.value = editing.value === key ? null : key
+}
 
 // The standing instructions: added, edited in place (saved on leaving the field), ticked by default or not, removed.
 const adding = ref('')
@@ -95,28 +103,38 @@ const line = 'h-8 min-w-0 flex-1 field'
 <template>
   <div class="flex flex-col gap-5">
     <div v-for="kind in KINDS" :key="kind.key" class="flex flex-col gap-1.5">
-      <div class="flex items-center gap-2">
-        <h3 class="text-[13px] font-medium text-fg">{{ kind.label }}</h3>
-        <span v-if="!saved(kind.key)" class="text-xs text-faint">{{ project ? "the Orrery's" : 'the default' }}</span>
-        <button v-else type="button" class="text-xs text-faint underline-offset-2 hover:text-fg hover:underline" @click="reset(kind.key)">
-          Reset to {{ project ? "the Orrery's" : 'the default' }}
-        </button>
-        <button type="button" class="ml-auto text-xs text-muted hover:text-fg" :aria-expanded="showing === kind.key" @click="showing = showing === kind.key ? null : kind.key">
+      <div class="flex items-start gap-2">
+        <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h3 class="flex items-baseline gap-2 text-[13px] font-medium text-fg">
+            {{ kind.label }}
+            <span class="text-xs font-normal text-faint">{{ whose(kind.key) }}</span>
+          </h3>
+          <p class="text-xs text-muted">{{ kind.about }}</p>
+        </div>
+        <UiButton variant="ghost" size="xs" class="shrink-0" :aria-expanded="showing === kind.key" @click="showing = showing === kind.key ? null : kind.key">
           {{ showing === kind.key ? 'Hide preview' : 'Preview' }}
-        </button>
+        </UiButton>
+        <UiButton size="xs" class="shrink-0" :aria-expanded="editing === kind.key" :aria-label="`${editing === kind.key ? 'Done editing' : 'Edit'} ${kind.label}`" @click="edit(kind.key)">
+          {{ editing === kind.key ? 'Done' : 'Edit' }}
+        </UiButton>
       </div>
-      <textarea
-          v-model="drafts[kind.key]"
-          rows="4"
-          :placeholder="inherited(kind.key)"
-          :aria-label="kind.label"
-          :class="field"
-          @blur="saveTemplate(kind.key)"
-      />
-      <p class="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-faint">
-        <span v-for="(what, name) in kind.placeholders" :key="name" :title="what" class="font-mono">{{ '{' + name + '}' }}</span>
-        <span>· a line whose placeholders are all empty is left out</span>
-      </p>
+      <template v-if="editing === kind.key">
+        <textarea
+            v-model="drafts[kind.key]"
+            rows="4"
+            :placeholder="inherited(kind.key)"
+            :aria-label="kind.label"
+            :class="field"
+            @blur="saveTemplate(kind.key)"
+        />
+        <p class="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-faint">
+          <span v-for="(what, name) in kind.placeholders" :key="name" :title="what" class="font-mono">{{ '{' + name + '}' }}</span>
+          <span>· a line whose placeholders are all empty is left out</span>
+          <button v-if="saved(kind.key)" type="button" class="ml-auto underline-offset-2 hover:text-fg hover:underline" @click="reset(kind.key)">
+            Reset to {{ project ? "the Orrery's" : 'the default' }}
+          </button>
+        </p>
+      </template>
       <pre v-if="showing === kind.key" class="rounded-lg bg-well/60 px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap text-muted ring-1 ring-line">{{ preview(kind.key) }}</pre>
     </div>
 
