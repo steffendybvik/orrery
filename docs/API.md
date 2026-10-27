@@ -304,8 +304,7 @@ The Claude sessions working on a project, live (not stored): their name, what th
 whether they're listening. Hooks report state (`channel/orrery-hook.mjs` on `SessionStart`,
 `UserPromptSubmit`, `Stop`, `Notification`, `SessionEnd`); the channel's connection says it's
 listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION` names it. One with no name of its
-own is `<project> · <name>`, the first Norse name no session on the project has (Odin, Tor, Frigg… then `Odin II`),
-renamed for a project it moves to. A `/clear`
+own gets one made up, starting with its project, renamed for a project it moves to. A `/clear`
 gives the window a new id while its channel stays connected: the session keeps its name and listening,
 and its old ids still find it.
 

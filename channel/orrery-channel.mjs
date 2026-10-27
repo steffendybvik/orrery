@@ -202,7 +202,7 @@ async function deliver(project, signal, query) {
     await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST'}).catch(() => {})
 }
 
-/** What Orrery calls this session (`orrery · Odin`), as its stream says: every signal carries it, and Claude hears it
+/** What Orrery calls this session (`orrery · …`), as its stream says: every signal carries it, and Claude hears it
  * once, and again when it changes. */
 let named = ''
 async function nameIs(name) {
