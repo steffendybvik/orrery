@@ -7,7 +7,7 @@ import {expect, test} from '@playwright/test'
 // together; then a chunk made, edited and removed from its page, an image in a new issue and a comment,
 // and the owner editing and deleting their own comment; then a changed doc and what changed in it; then a release, and a project drawing on it;
 // then the session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
-// a session's card and a message to it alone, Focus on this starting one, a preset, a schedule, the bell, and the
+// a session's card and a message to it alone, a message to every idle session, Focus on this starting one, a preset, a schedule, the bell, and the
 // pages that span projects.
 test.describe.configure({mode: 'serial'})
 
@@ -493,6 +493,27 @@ test('follows several projects on one stream, as one session', async ({request, 
         stream.stop()
     }
     await expect.poll(async () => (await multi())?.listening).toBe(false)
+})
+
+test('messages every idle session at once from the Sessions page, not the busy ones', async ({page, request, baseURL}) => {
+    const ids = ['e2e-b1', 'e2e-b2']
+    for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'larder', event: 'SessionStart', name: id}})
+    const streams = ids.map(id => hold(baseURL!, `/api/projects/larder/signals/stream?session=${id}&name=${id}&format=text`))
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
+        await request.post('/api/sessions', {data: {id: 'e2e-b2', project: 'larder', event: 'UserPromptSubmit'}})
+        await page.goto('/sessions')
+        await page.getByRole('button', {name: 'Message sessions'}).click()
+        const dialog = page.getByRole('dialog', {name: 'Message sessions'})
+        await expect(dialog).toContainText('Reaches e2e-b1')
+        await dialog.getByLabel('Message', {exact: true}).fill('Pick a Todo issue if you are free.')
+        await dialog.getByRole('button', {name: /^Send to 1/}).click()
+        await expect(dialog.getByRole('status')).toHaveText('Sent to e2e-b1')
+        await expect.poll(() => streams[0]!.said.text).toContain('Pick a Todo issue if you are free.')
+        expect(streams[1]!.said.text).not.toContain('Pick a Todo issue')
+    } finally {
+        for (const stream of streams) stream.stop()
+    }
 })
 
 test('with nobody listening and a launcher there, Focus on this starts a session', async ({page, request, baseURL}) => {

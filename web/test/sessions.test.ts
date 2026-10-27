@@ -387,3 +387,23 @@ describe('a session Orrery started, after Orrery restarts', () => {
         expect(sessions.sessionOfLaunch('larder', started.launch)?.started?.stops_at).toBe(started.stops_at)
     })
 })
+
+describe('a message to every session', () => {
+    it('reaches each listening one once, idle by default, narrowed by project', () => {
+        sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})
+        sessions.attend('larder', 'a', undefined, undefined)
+        // One session hearing two projects is one recipient.
+        sessions.attend('pantry', 'a', undefined, undefined)
+        sessions.report({id: 'b', project: 'pantry', event: 'SessionStart'})
+        sessions.attend('pantry', 'b', undefined, undefined)
+        sessions.report({id: 'b', project: 'pantry', event: 'UserPromptSubmit'})
+        // Not listening: its channel can't hear it.
+        sessions.report({id: 'c', project: 'larder', event: 'SessionStart'})
+        const ids = (projects?: string[], states?: Parameters<typeof sessions.recipients>[1]) => sessions.recipients(projects, states).map(s => s.id)
+        expect(ids()).toEqual(['a'])
+        expect(ids(undefined, ['idle', 'working'])).toEqual(['a', 'b'])
+        expect(ids(['pantry'], ['idle', 'working'])).toEqual(['a', 'b'])
+        expect(ids(['larder'], ['idle', 'working'])).toEqual(['a'])
+        expect(ids(['mesa'])).toEqual([])
+    })
+})

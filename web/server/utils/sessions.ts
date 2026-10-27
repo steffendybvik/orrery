@@ -335,6 +335,13 @@ export function listSessions(project?: string): Session[] {
         .sort((a, b) => a.started_at.localeCompare(b.started_at)).map(publicOf)
 }
 
+/** The sessions a message to every session reaches: each listening one once, however many projects it hears, in
+ * `states` (idle when left out), on any of `projects` (its own or one it also hears) when given. */
+export function recipients(projects?: string[], states: SessionState[] = ['idle']): Session[] {
+    return listSessions().filter(s => s.listening && states.includes(s.state)
+        && (!projects?.length || projects.some(p => s.project === p || s.also?.includes(p))))
+}
+
 /** The session as it is now, with when its hooks last said it went idle; nothing for one Orrery doesn't know. */
 export function sessionNow(id: string): (Session & {idleAt?: number}) | undefined {
     const session = sessions.get(currentId(id))
