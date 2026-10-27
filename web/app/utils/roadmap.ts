@@ -7,6 +7,9 @@ export const colorOf = (color: string) => TINTS[color as keyof typeof TINTS] ?? 
 
 /** Whether a column's kind is closed (done or canceled): out of the open counts. */
 export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
+/** For the waiting chip: an issue's choices' count while it's a proposal waiting on the owner, which it waits on as a
+ * decision (`waiting`), as the bell has it. */
+export const pendingProposal = (issue: Issue): {choices: number} | undefined => issue.proposal === 'pending' && issue.waiting === 'decision' ? {choices: issue.choices.length} : undefined
 
 /** A session's state as the page says it. */
 export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}

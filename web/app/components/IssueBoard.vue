@@ -91,7 +91,7 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" class="mt-0.5" />
             <p class="line-clamp-3 min-w-0 flex-1 text-[13px] leading-snug" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', issueUnseen(project, issue) ? 'font-semibold' : '']"><InlineText :text="issue.title" /></p>
           </div>
-          <WaitingChip v-if="issue.waiting" :asks="issue.waiting" class="self-start" />
+          <WaitingChip v-if="issue.waiting" :asks="issue.waiting" :proposal="pendingProposal(issue)" class="self-start" />
           <div class="flex flex-wrap items-center gap-1.5">
             <span class="grid size-5 place-items-center rounded ring-1 ring-line"><PriorityIcon :priority="issue.priority" :size="12" /></span>
             <span v-if="issue.tasks.length" class="flex h-5 items-center gap-1 rounded px-1.5 font-mono text-[10px] text-faint ring-1 ring-line"><ProgressRing :kinds="issue.kinds" bare :size="11" />{{ subs(issue) }}</span>

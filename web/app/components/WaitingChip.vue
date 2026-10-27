@@ -3,7 +3,8 @@ import type {Asks} from '#shared/roadmap'
 
 // Says an issue waits on the owner: an agent asked for a decision or feedback, and no comment of theirs has come
 // since (`issue.waiting`). On rows, cards, the issue page and Notifications; it goes once they comment. With
-// `proposal` (its choices' count), an agent's proposal waiting on them, until they decide it.
+// `proposal` (its choices' count), an agent's proposal waiting on them, until they decide it: in the bell, and on its
+// row and card.
 const props = defineProps<{asks: Asks, proposal?: {choices: number}}>()
 const label = computed(() => props.proposal
     ? `Proposal: needs your decision${props.proposal.choices ? ` · ${props.proposal.choices} ${props.proposal.choices === 1 ? 'choice' : 'choices'}` : ''}`
