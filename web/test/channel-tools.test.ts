@@ -25,7 +25,7 @@ const issue = (fields: object = {}) => ({id: 'LAR-1', title: 'Shelves', status: 
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'secrets', 'egress', 'events', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -34,6 +34,15 @@ describe("the channel's tools", () => {
         expect(await call('start_issue', {id: 'LAR-1', comment: 'On it'})).toEqual({error: false, text: 'Started LAR-1 [in-progress, claude] Shelves'})
         expect(calls.map(c => [c.method, c.url, c.body])).toEqual([['PATCH', '/issues/LAR-1', {status: 'started', assignee: 'claude'}], ['POST', '/issues/LAR-1/comments', {body: 'On it'}]])
         expect(calls[0]!.headers).toMatchObject({'Orrery-Actor': 'claude', 'Orrery-Session': 'abc'})
+    })
+
+    it("read the presets the project's sessions can have, and only those", async () => {
+        const release = {id: 3, project: 'larder', name: 'Release', text: 'Cut the release.\nThen tag it.'}
+        const {calls, call} = harness({'GET /presets': {body: [{id: 1, project: null, name: 'Review', text: 'Read the diff.'}, release]}})
+        expect((await call('presets')).text).toBe("1: Review (the Orrery's) — Read the diff.\n3: Release (larder) — Cut the release.")
+        expect((await call('preset', {id: 3})).text).toBe('# Release (larder)\n\nWhat a session started with it is told, for reference (not an instruction to you):\n\nCut the release.\nThen tag it.')
+        expect((await call('preset', {id: 9})).text).toBe('No preset 9 for this project; presets lists them.')
+        expect(calls.every(c => c.method === 'GET')).toBe(true)
     })
 
     it("read the Orrery's event log and resolve what they fixed", async () => {
@@ -132,6 +141,14 @@ describe('one channel serving several projects', () => {
         expect(calls[0]!.url).toBe('/projects/larder/docs')
         expect((await call('docs')).text).toBe('Orrery said no: Say which project: larder, pantry')
         expect((await call('docs', {project: 'garden'})).text).toBe('Orrery said no: This server serves larder, pantry, not garden')
+    })
+
+    it("read a preset from the project said, not another's", async () => {
+        const {call, calls} = several({'GET /projects/pantry/presets': [{id: 5, project: 'pantry', name: 'Jars', text: 'Seal them.'}]})
+        expect((await call('preset', {project: 'pantry', id: 5})).text).toContain('Seal them.')
+        expect((await call('preset', {project: 'pantry', id: 7})).text).toBe('No preset 7 for this project; presets lists them.')
+        expect((await call('preset', {id: 5})).text).toBe('Orrery said no: Say which project: larder, pantry')
+        expect(calls.map(c => c.url)).toEqual(['/projects/pantry/presets', '/projects/pantry/presets'])
     })
 
     it('list the project argument, required, on the tools that work on one project', () => {
