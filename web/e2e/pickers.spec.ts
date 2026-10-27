@@ -7,8 +7,9 @@ test.describe.configure({mode: 'serial'})
 
 const api = projectApi('foundry')
 
+// Made once; a retry of the file finds it there already.
 test.beforeAll(async ({request}) => {
-    await makeProject(request, {name: 'Foundry', key: 'FDY'})
+    if (!(await request.get('/api/projects/foundry')).ok()) await makeProject(request, {name: 'Foundry', key: 'FDY'})
 })
 
 test("picks a project's releases", async ({page, request}) => {
@@ -107,7 +108,8 @@ test("a new issue's labels: one made by typing it, and ticked", async ({page, re
     await dialog.getByLabel('Title').fill('Bank the kiln')
     await dialog.getByRole('button', {name: 'Labels'}).click()
     await page.keyboard.type('kiln')
-    await expect(dialog.getByRole('option', {name: /Add “\s*kiln\s*”/})).toBeVisible()
+    // Lit a frame after the key, as Headless UI does; a person can't press ↵ inside one.
+    await expect(dialog.getByRole('option', {name: /Add “\s*kiln\s*”/})).toHaveAttribute('data-headlessui-state', /active/)
     await page.keyboard.press('Enter')
     // Many can be ticked, so it stays open, the new one ticked.
     await expect(dialog.getByRole('option', {name: 'kiln', exact: true})).toHaveAttribute('aria-selected', 'true')

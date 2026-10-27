@@ -25,6 +25,7 @@ const filtered = ref<string[]>([])
 const at = ref<{x: number, y: number} | null>(null)
 const picked = ref('')
 const dialog = ref(false)
+const said = ref('')
 const confirming = ref(false)
 </script>
 
@@ -81,7 +82,7 @@ const confirming = ref(false)
       <section class="flex flex-col gap-3 border-t border-line pt-6">
         <h2 class="label">FilterMenu, Menu and UiContextMenu</h2>
         <div class="flex flex-wrap items-center gap-2">
-          <FilterMenu v-model="filtered" label="Priority" :options="PRIORITY_OPTIONS.filter(o => o.value)">
+          <FilterMenu v-model="filtered" label="Urgency" :options="PRIORITY_OPTIONS.filter(o => o.value)">
             <template #option="{value}"><PriorityIcon :priority="value" /></template>
           </FilterMenu>
           <Menu as="div" class="relative">
@@ -96,7 +97,7 @@ const confirming = ref(false)
           <div class="grid h-7 place-items-center rounded-md border border-dashed border-line px-3 text-xs text-muted" @contextmenu.prevent="at = {x: $event.clientX, y: $event.clientY}">
             Right-click here
           </div>
-          <span v-if="picked" class="text-xs text-faint">Picked {{ picked }}</span>
+          <span v-if="picked" class="text-xs text-faint" role="status">Last: {{ picked }}</span>
         </div>
         <UiContextMenu :at="at" label="Example menu" width="w-48" @close="at = null">
           <UiMenuItem v-for="name in ['Copy id', 'Open']" :key="name" @click="picked = name; at = null">{{ name }}</UiMenuItem>
@@ -113,12 +114,13 @@ const confirming = ref(false)
         <h2 class="label">UiDialog and UiConfirm</h2>
         <div class="flex flex-wrap items-center gap-2">
           <UiButton @click="dialog = true">Open a dialog</UiButton>
-          <UiConfirm v-if="confirming" inline @confirm="confirming = false" @cancel="confirming = false">Remove this example?</UiConfirm>
+          <UiConfirm v-if="confirming" inline @confirm="confirming = false; picked = 'Removed'" @cancel="confirming = false">Remove this example?</UiConfirm>
           <UiButton v-else variant="danger-outline" @click="confirming = true">Remove…</UiButton>
         </div>
-        <UiDialog :open="dialog" label="Example dialog" width="md" @close="dialog = false" @submit="dialog = false">
+        <UiDialog :open="dialog" label="Example dialog" width="md" @close="dialog = false" @submit="dialog = false; picked = `Submitted ${said}`">
           <h2 class="text-[15px] font-semibold text-fg">Example dialog</h2>
-          <p class="text-xs text-muted">Esc or a press outside closes it; ⌘↵ submits.</p>
+          <p class="text-xs text-muted">Esc or a press outside closes it; ↵ in the field and ⌘↵ submit.</p>
+          <input v-model="said" aria-label="Something to say" class="h-8 field">
           <div class="flex items-center gap-2 border-t border-line pt-3">
             <UiButton class="ml-auto" @click="dialog = false">Cancel</UiButton>
             <UiButton type="submit" variant="primary" size="md">Done</UiButton>
