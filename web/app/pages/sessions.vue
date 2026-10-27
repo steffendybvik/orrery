@@ -5,9 +5,10 @@ import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
-// Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default). Above them, whether Orrery may start sessions and how it does; below, what sessions hear and the
-// presets to start one with, for every project or, picked in For, one project's own. Two tabs keep them apart: Sessions,
-// what's running, and Setup, how sessions start and what they hear (`?tab=setup`, or a link to one of its sections).
+// Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default).
+// Two tabs keep them apart: Sessions, what's running, and Setup (`?tab=setup`, or a link to one of its sections): first the
+// presets to start one with, as they're used most, then whether Orrery may start sessions and how, and what sessions hear;
+// presets and what they hear for every project or, picked in For, one project's own.
 useHead({title: 'Sessions · Orrery'})
 const route = useRoute()
 const {projects, ready, sessions, signals} = useRoadmaps()
@@ -38,7 +39,7 @@ const count = computed(() => spanning.value.length + groups.value.reduce((n, g) 
 
 const router = useRouter()
 type Tab = 'sessions' | 'setup'
-const SETUP = ['#starts', '#watch', '#hear', '#presets']
+const SETUP = ['#presets', '#starts', '#watch', '#hear']
 const tabs = [{value: 'sessions' as const, label: 'Sessions'}, {value: 'setup' as const, label: 'Setup'}]
 const tab = computed<Tab>({
     get: () => route.query.tab === 'setup' || SETUP.includes(route.hash) ? 'setup' : 'sessions',
@@ -53,10 +54,10 @@ const headings = computed<Heading[]>(() => tab.value === 'sessions'
         ...groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 2 as const})),
     ]
     : [
+        {id: 'presets', text: 'Presets', level: 2},
         {id: 'starts', text: 'Starting sessions', level: 2},
         {id: 'watch', text: 'Watching sessions', level: 2},
         {id: 'hear', text: 'What sessions hear', level: 2},
-        {id: 'presets', text: 'Presets', level: 2},
     ])
 
 // What each session is on, by its own project, asked again whenever that project's sessions change, or a signal to them
@@ -107,7 +108,22 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     <EmptyProjects v-if="ready && !projects.length" />
     <div v-else class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-6 sm:px-8">
     <div v-if="tab === 'setup'" class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
-      <section id="starts" class="flex scroll-mt-14 flex-col gap-2">
+      <section id="presets" class="flex scroll-mt-14 flex-col gap-2">
+        <header class="flex flex-col gap-0.5">
+          <div class="flex items-center gap-3">
+            <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
+            <PropertyPicker v-model="scope" :options="scopeOptions" label="Presets, for" placeholder="Find a project…" field small>
+              <span class="truncate">{{ scopeOptions.find(o => o.value === scope)?.label ?? scope }}</span>
+            </PropertyPicker>
+          </div>
+          <p class="text-xs text-muted">
+            Saved context to give a session as you start it, for sessions on any project or, picked here, one project's own.
+            Tick any number in Start session; the session gets their text with every signal, and again after a clear.
+          </p>
+        </header>
+        <PresetSettings :key="scope" :project="scoped" />
+      </section>
+      <section id="starts" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
           <p class="text-xs text-muted">
@@ -151,21 +167,6 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
           </p>
         </header>
         <FocusPrompts :key="scope" :project="scoped" />
-      </section>
-      <section id="presets" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
-        <header class="flex flex-col gap-0.5">
-          <div class="flex items-center gap-3">
-            <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
-            <PropertyPicker v-model="scope" :options="scopeOptions" label="Presets, for" placeholder="Find a project…" field small>
-              <span class="truncate">{{ scopeOptions.find(o => o.value === scope)?.label ?? scope }}</span>
-            </PropertyPicker>
-          </div>
-          <p class="text-xs text-muted">
-            Saved context to give a session as you start it, for sessions on any project or, picked here, one project's own.
-            Tick any number in Start session; the session gets their text with every signal, and again after a clear.
-          </p>
-        </header>
-        <PresetSettings :key="scope" :project="scoped" />
       </section>
     </div>
     <div v-else class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
