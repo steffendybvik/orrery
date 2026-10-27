@@ -184,6 +184,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             <span class="font-mono text-xs text-faint">{{ issue.id }}</span>
             <CopyButton :text="issue.id" />
             <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" />
+            <a v-if="issue.waiting" href="#waiting" title="Go to the question"><WaitingChip :asks="issue.waiting" /></a>
             <button
                 v-if="madeBy"
                 type="button"

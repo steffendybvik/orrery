@@ -832,6 +832,21 @@ describe('comments that wait on the owner', () => {
         expect((await failure(() => store.createComment('larder', id, {body: 'x', asks: 'vibes'}, agent))).status).toBe(400)
     })
 
+    it('say on the issue what it waits on the owner for, until they comment', async () => {
+        const {id} = await store.createIssue('larder', {title: 'A'})
+        const agent = {name: 'claude', owner: false}
+        const skoll = {name: 'skoll', owner: true}
+        expect((await store.issue('larder', id)).waiting).toBeUndefined()
+        await store.createComment('larder', id, {body: 'Ship it?', asks: 'decision'}, agent)
+        expect((await store.issue('larder', id)).waiting).toBe('decision')
+        // The latest open question is the one it waits on.
+        await store.createComment('larder', id, {body: 'And the copy?', asks: 'feedback'}, agent)
+        expect((await store.issue('larder', id)).waiting).toBe('feedback')
+        // The owner's own question isn't one they wait on.
+        await store.createComment('larder', id, {body: 'Yes, ship it', asks: 'decision'}, skoll)
+        expect((await store.issue('larder', id)).waiting).toBeUndefined()
+    })
+
     it("make the issue the owner's until they answer, then the asker's again", async () => {
         const {id} = await store.createIssue('larder', {title: 'A', assignee: 'claude'})
         const agent = {name: 'claude', owner: false}

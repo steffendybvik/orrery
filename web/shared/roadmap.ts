@@ -114,6 +114,8 @@ export interface Issue {
     counts: Counts
     kinds: Kinds
     comments: number
+    /** An agent's question on it the owner hasn't answered yet (no comment of theirs after it): what it waits for. */
+    waiting?: Asks
     /** Ids it had before (e.g. `MOT-5`), which still find it. */
     aliases: string[]
     /** The schedule that made it, if one did. */

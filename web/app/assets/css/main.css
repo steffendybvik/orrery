@@ -204,6 +204,13 @@ body {
     box-shadow: inset 2px 0 0 var(--color-accent-500);
     &:hover { background-color: color-mix(in oklab, var(--color-accent-500) 15%, transparent); }
 }
+/* An issue waiting on the owner's answer (a decision or feedback an agent asked for): a violet tint and bar,
+   apart from the accent's "changed since you looked", and wins over it. */
+.waiting-row {
+    background-color: color-mix(in oklab, var(--color-violet-500) 10%, transparent);
+    box-shadow: inset 3px 0 0 var(--color-violet-500);
+    &:hover { background-color: color-mix(in oklab, var(--color-violet-500) 16%, transparent); }
+}
 .unseen-dot {
     @apply size-2 shrink-0 rounded-full bg-accent-500;
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent-500) 25%, transparent);

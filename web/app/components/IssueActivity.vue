@@ -76,6 +76,17 @@ const timeline = computed(() => {
     return all.sort((a, b) => a.at.localeCompare(b.at))
 })
 
+// While the issue waits on the owner (`issue.waiting`), the question it waits on, quoted at the top: a click on it
+// shows it in the thread, Answer goes to the comment box.
+const question = computed(() => props.issue.waiting ? comments.value.findLast(c => c.asks && c.answered === false) : undefined)
+const answerBox = ref<HTMLElement | null>(null)
+function showQuestion() {
+    if (question.value) document.getElementById(`comment-${question.value.id}`)?.scrollIntoView({behavior: 'smooth', block: 'center'})
+}
+function answer() {
+    answerBox.value?.scrollIntoView({behavior: 'smooth', block: 'center'})
+    answerBox.value?.querySelector('textarea')?.focus({preventScroll: true})
+}
 // The owner's own comments edit in place, and come out after asking once more in place.
 const editingComment = ref<number | null>(null)
 const removingComment = ref<{id: number, busy?: boolean, failed?: string} | null>(null)
@@ -102,6 +113,14 @@ async function removeComment(id: number) {
 <template>
   <section class="flex flex-col gap-3">
     <h2 class="label">Activity</h2>
+    <div v-if="question" id="waiting" class="flex scroll-mt-20 flex-col gap-2 rounded-xl bg-violet-500/8 p-3 ring-1 ring-violet-500/35">
+      <div class="flex items-center gap-2 text-xs">
+        <WaitingChip :asks="question.asks!" />
+        <span class="text-muted">{{ who(question.created_by) }} asked {{ ago(question.created_at) }}</span>
+        <UiButton variant="primary" size="xs" class="ml-auto" @click="answer">Answer</UiButton>
+      </div>
+      <button type="button" class="line-clamp-3 text-left text-[13px] text-fg hover:underline" title="Show it in the thread" @click="showQuestion">{{ question.body }}</button>
+    </div>
     <ol class="relative flex flex-col gap-5 border-l border-line pl-5">
       <li class="text-xs text-faint">
         <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
@@ -112,7 +131,7 @@ async function removeComment(id: number) {
           <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
           <span class="text-muted">{{ who(entry.by!) }}</span> {{ entry.text }} · <span :title="entry.at">{{ ago(entry.at) }}</span>
         </li>
-        <li v-else class="group flex flex-col gap-1.5">
+        <li v-else :id="`comment-${entry.comment.id}`" class="group flex scroll-mt-20 flex-col gap-1.5">
           <div class="-ml-[31px] flex items-center gap-2 text-xs">
             <PersonAvatar :name="entry.comment.created_by" :size="20" />
             <span class="font-medium text-fg">{{ who(entry.comment.created_by) }}</span>
@@ -120,7 +139,7 @@ async function removeComment(id: number) {
             <span
                 v-if="entry.comment.asks"
                 class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
-                :class="entry.comment.answered ? 'text-faint ring-line' : 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300'"
+                :class="entry.comment.answered ? 'text-faint ring-line' : 'bg-violet-500/12 text-violet-700 ring-violet-500/35 dark:text-violet-300'"
             >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
             <UiConfirm
                 v-if="removingComment?.id === entry.comment.id"
@@ -156,6 +175,8 @@ async function removeComment(id: number) {
         </li>
       </template>
     </ol>
-    <CommentBox :project="project.id" :issue="issue.id" @posted="c => comments = [...comments.filter(x => x.id !== c.id), c]" />
+    <div ref="answerBox">
+      <CommentBox :project="project.id" :issue="issue.id" @posted="c => comments = [...comments.filter(x => x.id !== c.id), c]" />
+    </div>
   </section>
 </template>

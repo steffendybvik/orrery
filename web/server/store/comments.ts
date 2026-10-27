@@ -2,7 +2,7 @@
 import type {Comment, IssueEvent} from '#shared/roadmap'
 import {checkInput} from '../utils/input'
 import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
-import {AGENT, COMMENT_FIELDS, ANSWERED, commentOf, eventOf, signalOf, nullable, stamp} from './schema'
+import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, commentOf, eventOf, signalOf, nullable, stamp} from './schema'
 import {SignalStore} from './signals'
 
 export abstract class CommentStore extends SignalStore {
@@ -31,8 +31,7 @@ export abstract class CommentStore extends SignalStore {
         const input = checkInput(body, COMMENT_FIELDS)
         const now = stamp()
         const asker = actor.owner && row.assignee === (await this.ownerId())
-            ? (await this.get<{created_by: string}>(`SELECT c.created_by FROM comments c WHERE c.project = ? AND c.issue = ? AND c.asks IS NOT NULL AND c.owned = 0
-                AND NOT EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)
+            ? (await this.get<{created_by: string}>(`SELECT c.created_by FROM comments c WHERE c.project = ? AND c.issue = ? AND ${OPEN_ASK}
                 ORDER BY c.id DESC LIMIT 1`, project, issue))?.created_by
             : undefined
         const assignee = !actor.owner && input.asks ? (await this.ownerId()) : asker
