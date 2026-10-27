@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
+import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {getHeader, readBody, setResponseStatus} from 'h3'
 import type {Project} from '#shared/roadmap'
@@ -58,8 +59,9 @@ afterEach(() => {
 
 async function mount(on: string | null) {
     useStartSession().open(on)
-    const wrapper = await mountSuspended(StartSessionDialog, {global: {stubs: {teleport: true}}})
-    mounted.push(wrapper)
+    mounted.push(await mountSuspended(StartSessionDialog, {attachTo: document.body}))
+    // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
+    const wrapper = new DOMWrapper(document.body)
     const row = (id: string) => wrapper.find(`input[value="${id}"]`).element.closest('label')!.textContent ?? ''
     const submit = () => wrapper.findAll('button').find(b => b.text().startsWith('Start session'))!
     // Each project's launch state comes in over the (stubbed) API: slow under coverage, so it's given time.
@@ -115,7 +117,7 @@ describe('StartSessionDialog', () => {
         const again = (await mount('larder')).wrapper
         await again.find('input[value="scullery"]').setValue(true)
         await vi.waitFor(() => expect(again.text()).toContain('One session for all 2'))
-        await again.findAll('button').find(b => b.text() === 'A session each')?.trigger('click')
+        await again.findAll('[role=radio]').find(b => b.text() === 'A session each')!.trigger('click')
         await again.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(2))
         expect(sent.map(s => [s.project, (s.body as {hears: string[]}).hears])).toEqual([['larder', ['larder']], ['scullery', ['scullery']]])
