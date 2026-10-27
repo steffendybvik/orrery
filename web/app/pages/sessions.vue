@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {SessionWork} from '#shared/roadmap'
+import {TERMINALS} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
@@ -12,6 +13,8 @@ const route = useRoute()
 const {projects, ready, sessions, signals} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {open} = useStartSession()
+// Which terminal Watch opens, under Setup: it's about the sessions Orrery starts, so it lives with them.
+const {settings, save} = useAppSettings()
 const messaging = ref(false)
 // Whose session settings the two sections below show: the Orrery's (every project), or one project's own.
 const scope = ref('')
@@ -33,7 +36,7 @@ const count = computed(() => spanning.value.length + groups.value.reduce((n, g) 
 
 const router = useRouter()
 type Tab = 'sessions' | 'setup'
-const SETUP = ['#starts', '#hear', '#presets']
+const SETUP = ['#starts', '#watch', '#hear', '#presets']
 const tabs = [{value: 'sessions' as const, label: 'Sessions'}, {value: 'setup' as const, label: 'Setup'}]
 const tab = computed<Tab>({
     get: () => route.query.tab === 'setup' || SETUP.includes(route.hash) ? 'setup' : 'sessions',
@@ -49,6 +52,7 @@ const headings = computed<Heading[]>(() => tab.value === 'sessions'
     ]
     : [
         {id: 'starts', text: 'Starting sessions', level: 2},
+        {id: 'watch', text: 'Watching sessions', level: 2},
         {id: 'hear', text: 'What sessions hear', level: 2},
         {id: 'presets', text: 'Presets', level: 2},
     ])
@@ -111,6 +115,23 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         </header>
         <SessionStarts />
         <StartingSessionsGuide />
+      </section>
+      <section id="watch" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Watching sessions</h2>
+          <p class="text-xs text-muted">
+            Watch on a session Orrery started opens a terminal attached to it, on the machine its launcher runs on, in this app
+            (on Linux, the system's own terminal).
+          </p>
+        </header>
+        <select
+            :value="settings.terminal"
+            aria-label="Terminal app"
+            class="h-8 w-56 field"
+            @change="save({terminal: ($event.target as HTMLSelectElement).value as keyof typeof TERMINALS})"
+        >
+          <option v-for="(name, key) in TERMINALS" :key="key" :value="key">{{ name }}</option>
+        </select>
       </section>
       <section id="hear" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">

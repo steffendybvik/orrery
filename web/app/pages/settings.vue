@@ -1,26 +1,43 @@
 <script setup lang="ts">
-import {TERMINALS, TINTS, issueRef} from '#shared/roadmap'
+import {TINTS, issueRef} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
-// This Orrery's own settings (a project's are on its Settings tab): whose it is, and its tint, a colour
-// the backgrounds take on, so one Orrery (personal, work) looks unlike another at a glance.
+// This Orrery's own settings (a project's are on its Settings tab): whose it is, how issues work in every project, and
+// the Orrery itself: its tint, a colour the backgrounds take on, so one Orrery (personal, work) looks unlike another at a
+// glance, its secrets and where its data is.
 useHead({title: 'App settings · Orrery'})
 const {settings, tintColor, save} = useAppSettings()
 const {environment} = useRuntimeConfig().public
 const failed = ref('')
-// The sections, listed beside them on a wide screen; each section's heading is its title here.
-const headings: Heading[] = [
-    {id: 'name', text: 'Your name', level: 2},
-    {id: 'handle', text: 'Your handle', level: 2},
-    {id: 'tracker', text: 'Team tracker', level: 2},
-    {id: 'proposals', text: 'Proposals', level: 2},
-    {id: 'tint', text: 'Background tint', level: 2},
-    {id: 'statuses', text: 'Issue statuses', level: 2},
-    {id: 'watch', text: 'Watching sessions', level: 2},
-    {id: 'secrets', text: 'Secrets', level: 2},
-    {id: 'database', text: 'Database', level: 2},
+// The settings by what they reach (ORR-285), each tab saying so: you, how issues work in every project, and this Orrery as
+// a whole. A link to a section (`#tint`) opens its tab. How sessions start and what they hear is on the Sessions page.
+type Tab = 'you' | 'issues' | 'orrery'
+const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = [
+    {value: 'you', label: 'You', scope: 'Who you are on this Orrery, and how your issues are named outside it.', sections: [
+        {id: 'name', text: 'Your name', level: 2},
+        {id: 'handle', text: 'Your handle', level: 2},
+    ]},
+    {value: 'issues', label: 'Issues', scope: "How issues work in every project on this Orrery. A project's own settings are on its Settings tab.", sections: [
+        {id: 'statuses', text: 'Issue statuses', level: 2},
+        {id: 'proposals', text: 'Proposals', level: 2},
+        {id: 'tracker', text: 'Team tracker', level: 2},
+    ]},
+    {value: 'orrery', label: 'This Orrery', scope: 'This Orrery as a whole: how it looks, the keys its agents use, and where it keeps its data. How sessions start is under Sessions → Setup.', sections: [
+        {id: 'tint', text: 'Background tint', level: 2},
+        {id: 'secrets', text: 'Secrets', level: 2},
+        {id: 'database', text: 'Database', level: 2},
+    ]},
 ]
-const title = Object.fromEntries(headings.map(h => [h.id, h.text]))
+const tabs = TABS.map(({value, label}) => ({value, label}))
+const route = useRoute()
+const router = useRouter()
+const tab = computed<Tab>({
+    get: () => TABS.find(t => t.value === route.query.tab)?.value ?? TABS.find(t => t.sections.some(h => `#${h.id}` === route.hash))?.value ?? 'you',
+    set: next => router.replace({query: {...route.query, tab: next === 'you' ? undefined : next}, hash: ''}),
+})
+// The sections, listed beside them on a wide screen; each section's heading is its title here.
+const headings = computed(() => TABS.find(t => t.value === tab.value)?.sections ?? [])
+const title = Object.fromEntries(TABS.flatMap(t => t.sections).map(h => [h.id, h.text]))
 const scroller = ref<HTMLElement | null>(null)
 const custom = ref('#3b82f6')
 watch(tintColor, now => {
@@ -110,10 +127,16 @@ async function pick(tint: string | null) {
     <h1 class="truncate text-sm font-medium">App settings</h1>
   </PageHeader>
 
+  <ViewToolbar>
+    <SegmentedControl v-model="tab" :options="tabs" />
+  </ViewToolbar>
+
   <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8">
-    <div class="flex min-w-0 max-w-3xl flex-1 flex-col gap-8">
-      <section id="name" class="scroll-mt-6 flex flex-col gap-3">
+    <div class="flex min-w-0 max-w-3xl flex-1 flex-col gap-8 [&>section+section]:border-t [&>section+section]:border-line [&>section+section]:pt-8">
+      <p class="-mb-2 text-xs text-muted">{{ TABS.find(t => t.value === tab)?.scope }}</p>
+
+      <section v-if="tab === 'you'" id="name" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.name }}</h2>
           <p class="text-xs text-muted">
@@ -134,7 +157,7 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
-      <section id="handle" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+      <section v-if="tab === 'you'" id="handle" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.handle }}</h2>
           <p class="text-xs text-muted">
@@ -158,7 +181,33 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
-      <section id="tracker" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+      <section v-if="tab === 'issues'" id="statuses" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.statuses }}</h2>
+          <p class="text-xs text-muted">
+            The columns every project's issues move through. Each belongs to a kind, which is what Orrery and your agents go by:
+            add a status to a kind (In review, Blocked) and it counts, shows and signals like the rest of its kind.
+          </p>
+        </header>
+        <StatusSettings />
+      </section>
+
+      <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
+          <p class="text-xs text-muted">
+            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
+            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
+          </p>
+        </header>
+        <label class="flex items-center gap-2 text-[13px] text-fg">
+          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
+          Keep agents off proposals until you approve them
+        </label>
+        <p v-if="proposalsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ proposalsFailed }}</p>
+      </section>
+
+      <section v-if="tab === 'issues'" id="tracker" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.tracker }}</h2>
           <p class="text-xs text-muted">
@@ -181,22 +230,7 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
-      <section id="proposals" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
-          <p class="text-xs text-muted">
-            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
-            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
-          </p>
-        </header>
-        <label class="flex items-center gap-2 text-[13px] text-fg">
-          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
-          Keep agents off proposals until you approve them
-        </label>
-        <p v-if="proposalsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ proposalsFailed }}</p>
-      </section>
-
-      <section id="tint" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+      <section v-if="tab === 'orrery'" id="tint" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.tint }}</h2>
           <p class="text-xs text-muted">
@@ -234,36 +268,7 @@ async function pick(tint: string | null) {
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       </section>
 
-      <section id="statuses" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.statuses }}</h2>
-          <p class="text-xs text-muted">
-            The columns every project's issues move through. Each belongs to a kind, which is what Orrery and your agents go by:
-            add a status to a kind (In review, Blocked) and it counts, shows and signals like the rest of its kind.
-          </p>
-        </header>
-        <StatusSettings />
-      </section>
-
-      <section id="watch" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.watch }}</h2>
-          <p class="text-xs text-muted">
-            Watch on a session Orrery started opens a terminal attached to it, on the machine its launcher runs on, in this app
-            (on Linux, the system's own terminal).
-          </p>
-        </header>
-        <select
-            :value="settings.terminal"
-            aria-label="Terminal app"
-            class="h-8 w-56 field"
-            @change="save({terminal: ($event.target as HTMLSelectElement).value as keyof typeof TERMINALS})"
-        >
-          <option v-for="(name, key) in TERMINALS" :key="key" :value="key">{{ name }}</option>
-        </select>
-      </section>
-
-      <section id="secrets" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+      <section v-if="tab === 'orrery'" id="secrets" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.secrets }}</h2>
           <p class="text-xs text-muted">
@@ -275,7 +280,7 @@ async function pick(tint: string | null) {
         <SecretSettings />
       </section>
 
-      <section id="database" class="scroll-mt-6 flex flex-col gap-3 border-t border-line pt-8">
+      <section v-if="tab === 'orrery'" id="database" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.database }}</h2>
           <p class="text-xs text-muted">
