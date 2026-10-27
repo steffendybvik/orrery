@@ -45,7 +45,7 @@ async function mount(schedule?: Schedule) {
     mounted.push(await mountSuspended(ScheduleDialog, {attachTo: document.body}))
     // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
     const wrapper = new DOMWrapper(document.body)
-    const button = (text: string) => wrapper.findAll('button').find(b => b.text().startsWith(text))!
+    const button = (text: string) => wrapper.findAll('button, [role=radio]').find(b => b.text().startsWith(text))!
     const submit = () => wrapper.find('form').trigger('submit')
     return {wrapper, button, submit}
 }
