@@ -82,7 +82,7 @@ describe('starting a session', () => {
         expect(sent).toEqual([{type: 'launch', after: 6, minutes: 30}])
         // The launch on its way covers what comes after it, until its session connects.
         expect(await launches.considerLaunch(signal(8))).toBeNull()
-        expect(launches.launchState('larder')).toEqual({launchers: 1, started: 0, starting: 1})
+        expect(launches.launchState('larder')).toEqual({launchers: 1, started: 0, starting: 1, total: 1})
         expect(launches.launched(launch!.id)).toMatchObject({launch: launch!.id, tmux: launch!.tmux})
         started = {larder: 1, all: 1}
         expect(await launches.considerLaunch(signal(9))).not.toBeNull()
@@ -112,14 +112,14 @@ describe('starting a session', () => {
         expect(launches.claim('larder', 'nope')).toBe(false)
     })
 
-    it("needs the owner's opt-in, and stays within the project's limit, whatever other projects run", async () => {
+    it("needs the owner's opt-in, and stays within the limit, counting every project's sessions", async () => {
         launches.addLauncher('larder')
         starts = undefined
         expect(await launches.considerLaunch(signal(1))).toBeNull()
         starts = {limit: 2, minutes: 30}
-        started = {larder: 2, all: 2}
+        started = {larder: 0, all: 2}
         expect(await launches.considerLaunch(signal(2))).toBeNull()
-        started = {larder: 1, all: 9}
+        started = {larder: 0, all: 1}
         expect(await launches.considerLaunch(signal(3))).not.toBeNull()
         // A refused launch isn't left holding the project's place.
         expect(launches.launchState('larder').starting).toBe(1)
@@ -155,11 +155,18 @@ describe('the owner starting a session by hand', () => {
         expect(launches.claim('larder', launch.id)).toBe(true)
         // The one on its way counts toward the limit, with those running.
         started = {larder: 1, all: 1}
-        await expect(launches.startLaunch('larder')).rejects.toThrow('already has its 2 sessions at once')
+        await expect(launches.startLaunch('larder')).rejects.toThrow('Orrery already has its 2 sessions at once')
         // Someone listening doesn't stop the owner starting another.
         listeners = 1
         launches.launched(launch.id)
         expect(await launches.startLaunch('larder')).toMatchObject({after: 41})
+    })
+
+    it("is refused once other projects' sessions fill the limit", async () => {
+        launches.addLauncher('larder')
+        started = {larder: 0, all: 2}
+        await expect(launches.startLaunch('larder')).rejects.toThrow('Orrery already has its 2 sessions at once')
+        expect(launches.launchState('larder')).toEqual({launchers: 1, started: 0, starting: 0, total: 2})
     })
 
     it('starts it focused on an issue, with a focus only that session hears', async () => {

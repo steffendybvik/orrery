@@ -74,7 +74,7 @@ function why(project: Project): string | null {
     const state = states.value[project.id]
     if (!state) return null
     if (!state.launchers) return 'No launcher running'
-    if (state.started + state.starting >= project.starts.limit) return `At its limit of ${project.starts.limit}`
+    if (state.total >= project.starts.limit) return `At the limit of ${project.starts.limit}`
     return null
 }
 
@@ -125,11 +125,9 @@ async function start() {
         ...instructions.value.trim() ? {instructions: instructions.value.trim()} : {},
     })
     const refused = new Map<string, string>()
-    let first: string | undefined
     for (const p of projects.value) {
         try {
             await $fetch(`/api/projects/${encodeURIComponent(p.id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: body(p.id)})
-            first ??= p.id
         } catch (error) {
             refused.set(p.id, `${p.name}: ${errorMessage(error)}`)
         }
@@ -143,7 +141,8 @@ async function start() {
         return
     }
     close()
-    if (first) router.push({path: '/sessions', query: {project: first}})
+    // They're listed with every other session, on the Sessions page.
+    router.push('/sessions')
 }
 
 const field = 'h-8 w-full field'
