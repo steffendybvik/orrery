@@ -17,7 +17,8 @@ async function mount(modelValue: string[]) {
     })
     mounted.push(wrapper)
     const toggle = () => wrapper.find('button[aria-expanded]')
-    const option = (text: string) => wrapper.findAll('button').find(b => b.text() === text)!
+    // Headless UI's Listbox ticks an option on its click, and Clear is a button under them.
+    const option = (text: string) => wrapper.findAll('[role=option], button').find(b => b.text() === text)!
     const model = () => wrapper.props('modelValue') as string[]
     return {wrapper, toggle, option, model}
 }
@@ -48,10 +49,11 @@ describe('FilterMenu', () => {
         const {wrapper, toggle} = await mount([])
         await toggle().trigger('click')
         expect(toggle().attributes('aria-expanded')).toBe('true')
-        await wrapper.find('div').trigger('keydown', {key: 'Escape'})
+        await wrapper.find('[role=listbox]').trigger('keydown', {key: 'Escape'})
         expect(toggle().attributes('aria-expanded')).toBe('false')
         await toggle().trigger('click')
-        document.body.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}))
+        expect(toggle().attributes('aria-expanded')).toBe('true')
+        for (const type of ['pointerdown', 'mousedown', 'click']) document.body.dispatchEvent(new MouseEvent(type, {bubbles: true}))
         await nextTick()
         expect(toggle().attributes('aria-expanded')).toBe('false')
     })
