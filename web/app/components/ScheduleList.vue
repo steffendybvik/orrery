@@ -4,7 +4,8 @@ import type {Project, Schedule} from '#shared/roadmap'
 // A project's schedules as a card: the project at its head, with its own New schedule, then its schedules, soonest
 // first, paused (and one-offs that have run) last. A row says what it does (makes an issue, or messages the
 // sessions) and what it says, when it repeats, when it runs next and how its last run went; clicking edits it,
-// right-clicking opens its menu, and its pause button (on hover, or while paused) pauses or resumes it.
+// right-clicking opens its menu. Its play button leads the row and says its state at a glance, like a music
+// player's: a filled one with ❙❙ while it runs (press to pause), an outlined one with ▶ while it's paused.
 const props = defineProps<{project: Project, schedules: Schedule[]}>()
 const {edit, openMenu, pause} = useSchedules()
 const {open: openIssue} = useIssueLink()
@@ -69,12 +70,29 @@ const OUTCOME = {
         data-nav
         tabindex="0"
         role="button"
-        class="group flex cursor-pointer items-start gap-3 border-b border-line/60 px-4 py-3 text-sm outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-active"
-        :class="!s.enabled && 'opacity-60'"
+        class="group flex cursor-pointer items-center gap-3 border-b border-line/60 px-4 py-3 text-sm outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-active"
         @click="edit(s.project, s)"
         @contextmenu="openMenu($event, s)"
     >
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+      <button
+          v-if="!ran(s)"
+          type="button"
+          class="grid size-9 shrink-0 place-items-center rounded-full transition hover:scale-105 active:scale-95 disabled:opacity-50"
+          :class="s.enabled
+            ? 'bg-accent-500 text-zinc-950 shadow-sm shadow-accent-600/30 hover:bg-accent-400'
+            : 'border-2 border-line text-muted hover:border-accent-500 hover:text-accent-600 dark:hover:text-accent-400'"
+          :disabled="pausing.has(s.id)"
+          :title="s.enabled ? 'Running: pause it' : 'Paused: resume it'"
+          :aria-label="`${s.enabled ? 'Pause' : 'Resume'} ${s.title}`"
+          @click.stop="togglePause(s)"
+      >
+        <svg v-if="s.enabled" class="size-3.5" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1.5" /><rect x="14" y="4" width="5" height="16" rx="1.5" /></svg>
+        <svg v-else class="ml-0.5 size-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z" /></svg>
+      </button>
+      <span v-else class="grid size-9 shrink-0 place-items-center rounded-full border-2 border-dashed border-line text-faint" title="A one-off that has run">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+      </span>
+      <div class="flex min-w-0 flex-1 flex-col gap-0.5" :class="!s.enabled && 'opacity-60'">
         <div class="flex min-w-0 items-center gap-2">
           <span class="truncate font-medium text-fg">{{ s.title }}</span>
           <span
@@ -87,7 +105,7 @@ const OUTCOME = {
           {{ describe(s) }}<template v-if="s.kind === 'issue' && s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template><template v-if="s.kind === 'issue' && s.labels.length"> · {{ s.labels.join(', ') }}</template>
         </span>
       </div>
-      <span v-if="s.runs[0]" class="mt-0.5 hidden shrink-0 items-center gap-1 text-xs md:flex" :class="OUTCOME[s.runs[0].outcome]" :title="s.runs[0].note ?? ''">
+      <span v-if="s.runs[0]" class="hidden shrink-0 items-center gap-1 self-start pt-0.5 text-xs md:flex" :class="[OUTCOME[s.runs[0].outcome], !s.enabled && 'opacity-60']" :title="s.runs[0].note ?? ''">
         <template v-if="s.runs[0].outcome === 'made'">
           ✓ made
           <button type="button" class="font-mono hover:underline" @click.stop="openIssue(s.project, s.runs[0].issue!)">{{ s.runs[0].issue }}</button>
@@ -95,19 +113,10 @@ const OUTCOME = {
         <template v-else>{{ {sent: '✉ sent', skipped: '⤼ skipped', failed: '✗ failed'}[s.runs[0].outcome] }}</template>
         <span class="text-faint">· {{ ago(s.runs[0].at) }}</span>
       </span>
-      <button
-          v-if="!ran(s)"
-          type="button"
-          class="flex size-7 shrink-0 items-center justify-center rounded-md text-xs text-muted transition-opacity hover:bg-active hover:text-fg focus-visible:opacity-100 disabled:opacity-40"
-          :class="s.enabled && 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'"
-          :disabled="pausing.has(s.id)"
-          :title="s.enabled ? 'Pause' : 'Resume'"
-          :aria-label="`${s.enabled ? 'Pause' : 'Resume'} ${s.title}`"
-          @click.stop="togglePause(s)"
-      >{{ s.enabled ? '❙❙' : '▶' }}</button>
-      <span class="mt-0.5 shrink-0 text-right text-xs sm:w-36" :title="s.next_run ? when(s.next_run) : ''">
+      <span class="shrink-0 self-start pt-0.5 text-right text-xs sm:w-36" :title="s.next_run ? when(s.next_run) : ''">
         <template v-if="s.enabled && s.next_run"><span class="text-fg">{{ soon(s) }}</span> <span class="hidden text-faint sm:inline">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
-        <span v-else class="text-faint">{{ ran(s) ? 'ran' : 'paused' }}</span>
+        <span v-else-if="ran(s)" class="text-faint">ran</span>
+        <span v-else class="rounded-full bg-well px-2 py-0.5 font-medium text-muted">Paused</span>
       </span>
     </div>
   </section>

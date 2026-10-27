@@ -572,6 +572,8 @@ test('makes a schedule, keeps to its project, pauses and removes it', async ({pa
 
     await page.getByRole('button', {name: 'Pause Groom the backlog', exact: true}).click()
     await expect.poll(async () => (await api(request, 'get', '/schedules'))[0].enabled).toBe(false)
+    // The same big button now offers to resume it.
+    await expect(page.getByRole('button', {name: 'Resume Groom the backlog', exact: true})).toBeVisible()
     // Kept to another project, it isn't there; the old tab comes here kept to larder.
     await page.getByRole('combobox', {name: 'Project', exact: true}).selectOption('pantry')
     await expect(page.getByText('Groom the backlog')).toBeHidden()
