@@ -76,8 +76,9 @@ const timeline = computed(() => {
     return all.sort((a, b) => a.at.localeCompare(b.at))
 })
 
-// While the issue waits on the owner (`issue.waiting`), the question it waits on, quoted at the top: a click on it
-// shows it in the thread, Answer goes to the comment box.
+// While the issue waits on the owner (`issue.waiting`), the question it waits on, quoted at the top with its Markdown
+// rendered and cut to three lines: a click on it (not on a link in it) shows it in the thread, Answer goes to the
+// comment box.
 const question = computed(() => props.issue.waiting ? comments.value.findLast(c => c.asks && c.answered === false) : undefined)
 const answerBox = ref<HTMLElement | null>(null)
 function showQuestion() {
@@ -119,7 +120,16 @@ async function removeComment(id: number) {
         <span class="text-muted">{{ who(question.created_by) }} asked {{ ago(question.created_at) }}</span>
         <UiButton variant="primary" size="xs" class="ml-auto" @click="answer">Answer</UiButton>
       </div>
-      <button type="button" class="line-clamp-3 text-left text-[13px] text-fg hover:underline" title="Show it in the thread" @click="showQuestion">{{ question.body }}</button>
+      <div
+          role="button"
+          tabindex="0"
+          class="line-clamp-3 cursor-pointer rounded-md text-left text-fg hover:[&_p]:underline focus-visible:ring-2 focus-visible:ring-accent-500/60 focus-visible:outline-none"
+          title="Show it in the thread"
+          @click="!($event.target as HTMLElement).closest('a') && showQuestion()"
+          @keydown.enter.self="showQuestion"
+      >
+        <MarkdownView :source="question.body" class="text-[13px] leading-5" />
+      </div>
     </div>
     <ol class="relative flex flex-col gap-5 border-l border-line pl-5">
       <li class="text-xs text-faint">
