@@ -55,6 +55,17 @@ describe('CommandPalette', () => {
         expect(chosen()).toContain('Label jar 1')
     })
 
+    it('points a screen reader at the row ↑↓ are on', async () => {
+        const {wrapper, input, key} = await mount()
+        const lit = () => wrapper.find(`#${input().attributes('aria-activedescendant')}`)
+        expect(input().attributes('role')).toBe('combobox')
+        expect(lit().attributes('aria-selected')).toBe('true')
+        const first = lit().text()
+        await key('ArrowDown')
+        expect(lit().attributes('aria-selected')).toBe('true')
+        expect(lit().text()).not.toBe(first)
+    })
+
     it('moves with ↑↓ round the ends, and ⇥ to the next section', async () => {
         const {input, key, chosen} = await mount()
         await input().setValue('larder')

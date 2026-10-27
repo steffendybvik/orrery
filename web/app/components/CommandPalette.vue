@@ -6,6 +6,8 @@ import {PRIORITIES} from '#shared/roadmap'
 // projects, this one first) and Go to. Typing finds Projects, Issues, Chunks, Docs and Commands, a few of
 // each with "N more" to open the rest, best match first; an exact issue id is the Top hit. `>` searches
 // commands only, `#` issues, `@` projects, chunks and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
+// It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't jump a
+// section on ⇥ or open "N more" in place, but says the same to a screen reader (the row the input points at).
 interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, id?: string, run: () => unknown }
 type SectionKey = 'top' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'chunks' | 'docs' | 'commands'
 interface Section { key: SectionKey, title: string, entries: Entry[], hidden: number }
@@ -245,16 +247,22 @@ function onKey(event: KeyboardEvent) {
           class="h-12 flex-1 bg-transparent text-sm text-fg placeholder:text-faint focus:outline-none"
           placeholder="Type a command, or find a project, chunk, doc or issue…"
           aria-label="Type a command or search"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="palette-list"
+          aria-autocomplete="list"
+          :aria-activedescendant="rows.length ? `palette-row-${active}` : undefined"
           @keydown="onKey"
       >
       <KeyHint>esc</KeyHint>
     </div>
-    <div ref="list" class="overflow-y-auto p-1" role="listbox">
+    <div id="palette-list" ref="list" class="overflow-y-auto p-1" role="listbox" aria-label="Results">
       <section v-for="(s, i) in sections" :key="s.key" :aria-label="s.title" class="pb-1" :class="i > 0 && 'mt-1 border-t border-line'">
         <h3 class="label px-3 pt-2.5 pb-1">{{ s.title }}</h3>
         <div
             v-for="entry in s.entries"
             :key="entry.key"
+            :id="`palette-row-${rowIndex.get(`${s.key}:${entry.key}`)}`"
             role="option"
             :data-row="rowIndex.get(`${s.key}:${entry.key}`)"
             :aria-selected="rowIndex.get(`${s.key}:${entry.key}`) === active"
@@ -270,6 +278,7 @@ function onKey(event: KeyboardEvent) {
         </div>
         <div
             v-if="s.hidden"
+            :id="`palette-row-${rowIndex.get(`${s.key}:more`)}`"
             role="option"
             :data-row="rowIndex.get(`${s.key}:more`)"
             :aria-selected="rowIndex.get(`${s.key}:more`) === active"
