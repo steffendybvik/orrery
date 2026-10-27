@@ -19,9 +19,9 @@ onBeforeUnmount(() => clearInterval(clock))
 const sorted = computed(() => [...props.schedules].sort((a, b) => (a.enabled && a.next_run ? a.next_run : '~').localeCompare(b.enabled && b.next_run ? b.next_run : '~')))
 const active = computed(() => props.schedules.filter(s => s.enabled).length)
 /** How long until it runs, kept right by the clock. */
-function soon(s: Schedule): string {
+function soon(at: string): string {
     void now.value
-    return until(s.next_run!)
+    return until(at)
 }
 
 // The schedules being paused or resumed, so a double click doesn't send it twice.
@@ -114,7 +114,7 @@ const OUTCOME = {
         <span class="text-faint">· {{ ago(s.runs[0].at) }}</span>
       </span>
       <span class="shrink-0 self-start pt-0.5 text-right text-xs sm:w-36" :title="s.next_run ? when(s.next_run) : ''">
-        <template v-if="s.enabled && s.next_run"><span class="text-fg">{{ soon(s) }}</span> <span class="hidden text-faint sm:inline">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
+        <template v-if="s.enabled && s.next_run"><span class="text-fg">{{ soon(s.next_run) }}</span> <span class="hidden text-faint sm:inline">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
         <span v-else-if="ran(s)" class="text-faint">ran</span>
         <span v-else class="rounded-full bg-well px-2 py-0.5 font-medium text-muted">Paused</span>
       </span>

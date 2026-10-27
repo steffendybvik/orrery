@@ -19,12 +19,12 @@ const KINDS = [
 type Key = (typeof KINDS)[number]['key']
 
 /** What a template follows when left empty: the Orrery's for a project, else the default. */
-const inherited = (key: Key) => (props.project ? settings.value[key] : null) ?? KINDS.find(k => k.key === key)!.fallback
+const inherited = (key: Key) => (props.project ? settings.value[key] : null) ?? KINDS.find(k => k.key === key)?.fallback ?? ''
 const saved = (key: Key) => (props.project ? props.project[key] : settings.value[key]) ?? ''
 const drafts = reactive<Record<Key, string>>({focus_prompt: '', chunk_prompt: ''})
-watch(() => [saved('focus_prompt'), saved('chunk_prompt')], ([focus, chunk]) => {
-    drafts.focus_prompt = focus!
-    drafts.chunk_prompt = chunk!
+watch(() => [saved('focus_prompt'), saved('chunk_prompt')] as const, ([focus, chunk]) => {
+    drafts.focus_prompt = focus
+    drafts.chunk_prompt = chunk
 }, {immediate: true})
 
 async function save(change: Record<string, unknown>) {
@@ -92,7 +92,8 @@ const toggle = (line: Instruction) => saveLines(own.value.map(l => l.id === line
 const remove = (line: Instruction) => saveLines(own.value.filter(l => l.id !== line.id))
 /** On a project, one of the Orrery's instructions switched on or off for it. */
 function mute(line: Instruction) {
-    const muted = props.project!.muted
+    if (!props.project) return
+    const muted = props.project.muted
     save({muted: muted.includes(line.id) ? muted.filter(id => id !== line.id) : [...muted, line.id]})
 }
 

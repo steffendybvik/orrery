@@ -10,7 +10,7 @@ const colour = computed(() => {
     for (const char of shown.value) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
     return COLOURS[hash % COLOURS.length]
 })
-const initials = computed(() => shown.value.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join(''))
+const initials = computed(() => shown.value.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w.charAt(0).toUpperCase()).join(''))
 </script>
 
 <template>

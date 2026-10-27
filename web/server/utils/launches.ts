@@ -226,8 +226,8 @@ export function overdueAfter(minutes?: number): number {
  * the session, in the app the settings name. Needs a launcher there to do it. */
 export function watchLaunch(project: string, id: string, terminal: TerminalApp): Session {
     const session = sessionOfLaunch(project, id)
-    if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
-    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to open a terminal; attach by hand with tmux attach -t ${session.started!.tmux}`)
+    if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to open a terminal; attach by hand with tmux attach -t ${session.started.tmux}`)
     emit({type: 'watch', project, id, terminal})
     return session
 }
@@ -248,8 +248,8 @@ const SCREEN_MAX = 64 * 1024
  * last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. */
 export function viewLaunch(project: string, id: string, now = Date.now()): {screen: string | null, at?: string} {
     const session = sessionOfLaunch(project, id)
-    if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
-    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to show its screen; attach by hand with tmux attach -t ${session.started!.tmux}`)
+    if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to show its screen; attach by hand with tmux attach -t ${session.started.tmux}`)
     viewed.set(id, now)
     const shot = screens.get(id)
     if ((!shot || now - shot.at > FRESH_FOR) && now - (asked.get(id) ?? -Infinity) > FRESH_FOR) {
@@ -286,7 +286,9 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
     emit({type: 'extend', project, id, stops_at: stopsAt})
     const known = reported.get(id)
     if (known) known.stops_at = stopsAt
-    return extendLaunch(project, id, stopsAt)!
+    const extended = extendLaunch(project, id, stopsAt)
+    if (!extended) throw notFound(`No session started for launch ${id} in ${project}`)
+    return extended
 }
 
 /** For the project's settings: its launchers, the sessions it has started and on their way, and those on every

@@ -57,7 +57,8 @@ function pick(value: string) {
 }
 
 function choose() {
-    if (active.value < shown.value.length) pick(shown.value[active.value]!.value)
+    const option = shown.value[active.value]
+    if (option) pick(option.value)
     else if (isNew.value) pick(typed.value)
 }
 

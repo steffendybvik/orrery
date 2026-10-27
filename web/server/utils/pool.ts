@@ -29,7 +29,10 @@ export function take(signal: Signal, project: string, session: string | undefine
     if (session && sessionNow(session)?.state !== 'idle') return false
     taken.set(signal.id, {session: session ?? '', project})
     // Only the latest matter: an old one was delivered long since, or nobody took it up.
-    if (taken.size > 500) taken.delete(taken.keys().next().value!)
+    if (taken.size > 500) for (const oldest of taken.keys()) {
+        taken.delete(oldest)
+        break
+    }
     return true
 }
 

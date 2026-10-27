@@ -58,7 +58,7 @@ export function resolvePicks(choices: Choice[], sent: Picks): Picks {
     for (const choice of choices) picks[choice.key] = sent[choice.key] ?? choice.recommended
     const resolved: Picks = {}
     for (const choice of liveChoices(choices, picks)) {
-        const picked = picks[choice.key]!
+        const picked = picks[choice.key] ?? []
         const unknown = picked.filter(p => !choice.options.some(o => o.key === p))
         if (unknown.length) throw new Error(`${choice.key} has no option ${unknown.join(', ')}`)
         if (choice.pick === 'one' && picked.length !== 1) throw new Error(`pick one option for ${choice.key} (${choice.question})`)
@@ -73,7 +73,7 @@ export function resolvePicks(choices: Choice[], sent: Picks): Picks {
 export function describePicks(choices: Choice[], picks: Picks): string {
     const label = (key: string) => /^[A-Z][0-9]?$/.test(key)
     return choices.filter(c => picks[c.key]).map(c => {
-        const chosen = c.options.filter(o => picks[c.key]!.includes(o.key)).map(o => label(o.key) ? `**${o.key}** ${o.title}` : `**${o.title}**`)
+        const chosen = c.options.filter(o => (picks[c.key] ?? []).includes(o.key)).map(o => label(o.key) ? `**${o.key}** ${o.title}` : `**${o.title}**`)
         return `- ${c.question} → ${chosen.length ? chosen.join(', ') : 'none'}`
     }).join('\n')
 }
