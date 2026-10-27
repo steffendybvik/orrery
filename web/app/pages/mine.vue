@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // What waits on the owner's answer on top: every issue in any project with an agent's question they haven't
-// answered (`waiting`). Then every open urgent (P0) issue, whoever has it; then every open issue assigned to the
-// owner, by project: what waits on them (proposals first) and what they took on. Sub-issues included; each issue
-// shows once, in the first list it's in.
+// answered, or an agent's proposal they haven't decided (`waiting`). Then every open urgent (P0) issue, whoever
+// has it; then every open issue assigned to the owner, by project: what waits on them (proposals first) and what
+// they took on. Sub-issues included; each issue shows once, in the first list it's in.
 useHead({title: 'My issues · Orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()

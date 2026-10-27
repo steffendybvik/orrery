@@ -392,6 +392,11 @@ export function sessionNow(id: string): (Session & {idleAt?: number}) | undefine
     return session && {...publicOf(session), idleAt: session.idleAt}
 }
 
+/** Whether the session (by any id it has had) was started for an untrusted schedule's run. */
+export function untrustedSession(id: string): boolean {
+    return !!sessions.get(currentId(id))?.started?.untrusted
+}
+
 /** When the session's hooks last said it went idle; nothing when they never have (no hooks, or none yet). */
 export function idleAt(id: string): number | undefined {
     return sessions.get(currentId(id))?.idleAt

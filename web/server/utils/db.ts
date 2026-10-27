@@ -557,6 +557,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- A message schedule that skips a run when nothing in its project changed since the last one it sent.
     ALTER TABLE schedules ADD COLUMN only_if_changed INTEGER NOT NULL DEFAULT 0;
 `, `
+    -- A message schedule that brings in what others wrote (GitHub issues): its run gets a locked-down session of its own.
+    ALTER TABLE schedules ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0;
+`, `
     -- The event log: what Orrery did and what went wrong (server/utils/event-log.ts). A repeat of one that isn't
     -- resolved counts on its row. Not tied to a project row, so what happened in one outlives it.
     CREATE TABLE events (

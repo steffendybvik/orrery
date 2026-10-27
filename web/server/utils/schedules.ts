@@ -2,7 +2,9 @@
 // in its project (marked with the schedule) and, with `ask`, points the project's listening Claude
 // sessions at it; or, as a `message` schedule, sends its message to the sessions with no issue. An issue
 // run is skipped while the last one's issue is still open (`skip_open`), a message run when nothing in the
-// project changed since the last one sent (`only_if_changed`). The timer
+// project changed since the last one sent (`only_if_changed`). An `untrusted` message schedule brings in what others
+// wrote (GitHub issues), so its message is never sent to the project's sessions: each run starts a locked-down
+// session for it alone (launches.ts), or fails saying why. The timer
 // (server/plugins/schedules.ts) calls `runDue`; a run is claimed by moving `next_run` on first, so two
 // servers (a reloading `nuxt dev`) can't run it twice, and after downtime a schedule runs once.
 import {Cron} from 'croner'
@@ -16,7 +18,7 @@ import {AGENT} from './store'
 
 interface ScheduleRow {
     id: number, project: string, kind: 'issue' | 'message', title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
-    place: string, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, only_if_changed: number, enabled: number,
+    place: string, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, only_if_changed: number, untrusted: number, enabled: number,
     next_run: string | null, created_by: string, owned: number, created_at: string, updated_at: string
 }
 interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null }
@@ -40,6 +42,8 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
     skip_open: {type: 'boolean'},
     /** A message schedule skips a run when no issue or comment in the project changed since the last one it sent. */
     only_if_changed: {type: 'boolean'},
+    /** A message schedule that brings in what others wrote: each run gets a locked-down session of its own. */
+    untrusted: {type: 'boolean'},
     enabled: {type: 'boolean'},
 }
 
@@ -48,11 +52,14 @@ const RUNS = 10
 
 export class Schedules {
     /** `onChange` hears a project's schedules changed or ran; `listening` says how many sessions a project has listening;
+     * `startUntrusted` starts an untrusted run's session, with its message for it alone, and says its tmux session;
      * `onRan` hears each run, with what came of it. */
     constructor(
         private readonly store: Store,
         private readonly onChange: (project: string) => void = () => {},
         private readonly listening: (project: string) => number = () => 0,
+        private readonly startUntrusted: (project: string, schedule: number, text: string, actor: Actor) => Promise<{tmux: string}> =
+            () => Promise.reject(new Error('Orrery starts no sessions here')),
         private readonly onRan: (schedule: {id: number, project: string, title: string}, run: ScheduleRun, manual: boolean) => void = () => {},
     ) {}
 
@@ -83,10 +90,12 @@ export class Schedules {
         const enabled = input.enabled ?? true
         const kind = String(input.kind ?? 'issue')
         if (kind === 'message' && !text(input.notes)?.trim()) throw badRequest('A message schedule needs its message in "notes"')
+        if (input.untrusted && kind !== 'message') throw badRequest('Only a message schedule is untrusted: send "kind": "message"')
         const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
-            enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
             project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.timezone, await this.place(input.column ?? 'todo'), chunk,
-            text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false), Number(enabled),
+            text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false),
+            Number(input.untrusted ?? false), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
         this.onChange(project)
         return await this.get(project, id)
@@ -109,6 +118,8 @@ export class Schedules {
         const kind = String(input.kind ?? row.kind)
         const message = input.notes === undefined ? row.notes : text(input.notes)
         if (kind === 'message' && !message?.trim()) throw badRequest('A message schedule needs its message in "notes"')
+        const untrusted = input.untrusted === undefined ? !!row.untrusted : !!input.untrusted
+        if (untrusted && kind !== 'message') throw badRequest('Only a message schedule is untrusted: send "kind": "message", or "untrusted": false')
         const set: Record<string, unknown> = {
             kind: input.kind,
             title: input.title === undefined ? undefined : String(input.title).trim(),
@@ -121,6 +132,7 @@ export class Schedules {
             ask: input.ask === undefined ? undefined : Number(input.ask),
             skip_open: input.skip_open === undefined ? undefined : Number(input.skip_open),
             only_if_changed: input.only_if_changed === undefined ? undefined : Number(input.only_if_changed),
+            untrusted: input.untrusted === undefined ? undefined : Number(input.untrusted),
             enabled: Number(enabled),
             next_run: next,
             updated_at: new Date().toISOString(),
@@ -176,6 +188,15 @@ export class Schedules {
             // Only the owner's signals reach sessions, as with every signal.
             if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
             if (row.only_if_changed && !manual && !await this.changedSinceSent(row)) return await record('skipped', null, 'nothing changed')
+            if (row.untrusted) {
+                // Never to the project's sessions: to one started for it, or nowhere.
+                try {
+                    const {tmux} = await this.startUntrusted(row.project, row.id, row.notes ?? row.title, actor)
+                    return await record('sent', null, `started a locked-down session for it (${tmux})`)
+                } catch (error) {
+                    return await record('failed', null, `untrusted, so it needs a session of its own: ${error instanceof Error ? error.message : String(error)}`)
+                }
+            }
             await this.store.message(row.project, row.id, row.notes ?? row.title, actor)
             const heard = this.listening(row.project)
             return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
@@ -279,7 +300,7 @@ export class Schedules {
             id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
             cron: row.cron ?? undefined, at: row.at ?? undefined, timezone: row.timezone,
             column: row.place, chunk: row.chunk ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
-            ask: !!row.ask, skip_open: !!row.skip_open, only_if_changed: !!row.only_if_changed, enabled: !!row.enabled, next_run: row.next_run ?? undefined,
+            ask: !!row.ask, skip_open: !!row.skip_open, only_if_changed: !!row.only_if_changed, untrusted: !!row.untrusted, enabled: !!row.enabled, next_run: row.next_run ?? undefined,
             runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined})),
             created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
         }

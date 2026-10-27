@@ -57,7 +57,7 @@ export function useEventLog(): EventLog {
 let schedules: Schedules | null = null
 
 export function useScheduler(): Schedules {
-    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening, (schedule, run, manual) => useEventLog().note({
+    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening, startUntrusted, (schedule, run, manual) => useEventLog().note({
         level: run.outcome === 'failed' ? 'error' : 'info',
         kind: run.outcome === 'skipped' ? 'schedule.skipped' : run.outcome === 'failed' ? 'schedule.failed' : 'schedule.ran',
         project: schedule.project,
