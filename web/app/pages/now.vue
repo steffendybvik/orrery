@@ -6,10 +6,10 @@ import type {Issue} from '#shared/roadmap'
 useHead({title: 'Now · Orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {matches, active} = useFilters()
+const {matches, active, shows} = useFilters()
 const gettingStarted = useGettingStarted()
 
-const groups = computed(() => ordered.value.map(project => {
+const groups = computed(() => ordered.value.filter(p => shows(p.id)).map(project => {
     const issues = project.board.chunks.flatMap(chunk => chunk.tasks
         .filter(isNow)
         .map(issue => ({issue: active.value ? {...issue, tasks: filterTree(issue.tasks, matches)} : issue, chunk})))

@@ -8,12 +8,15 @@ export interface Filters {
     assignees: string[]
     /** An issue with any of these labels; empty shows all. */
     labels: string[]
+    /** Project ids, on the pages across projects (My issues, Now); empty shows all. A project's own pages ignore it. */
+    projects: string[]
     query: string
 }
 
-const none = (): Filters => ({priorities: [], columns: [], assignees: [], labels: [], query: ''})
+const none = (): Filters => ({priorities: [], columns: [], assignees: [], labels: [], projects: [], query: ''})
 
-// The filters over issues (priority, column, assignee, label, text in the id or title), shared by every view.
+// The filters over issues (priority, column, assignee, label, text in the id or title), shared by every view, and
+// the project, on the views across projects.
 // They start on the open columns (Done and Canceled left out, whatever the statuses are called), ticked in
 // the Column filter like any other pick; `changed` says they've moved off that, and `clear` goes back to it.
 export function useFilters() {
@@ -54,9 +57,14 @@ export function useFilters() {
             && (!text || issue.id.toLowerCase().includes(text) || issue.title.toLowerCase().includes(text))
     }
 
+    /** Whether a project's issues show on a page across projects. */
+    function shows(project: string): boolean {
+        return !filters.value.projects.length || filters.value.projects.includes(project)
+    }
+
     function clear() {
         filters.value = defaults()
     }
 
-    return {filters, active, changed, matches, clear}
+    return {filters, active, changed, matches, shows, clear}
 }
