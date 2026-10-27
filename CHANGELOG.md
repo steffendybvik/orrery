@@ -3,6 +3,29 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.7 (2026-10-27)
+
+- **Sessions and Setup tabs:** the Sessions page has two tabs. Sessions shows what's running, by project; Setup
+  holds starting sessions, what sessions hear and presets. A link to a setup section (Start session's Presets,
+  Getting started's *turn it on*) opens Setup, and with no sessions running the empty note links there too.
+- **Session settings in one place:** What sessions hear and Presets each have a **For** picker on the Sessions
+  page, every project or one project's own, and leave a project's Settings. A project's own standing
+  instructions stay editable there.
+- **Play and pause on each schedule:** a round button leads each schedule's row, filled with pause while it runs
+  and outlined with play while it's paused, so you can see at a glance whether it runs.
+- **A dialog's field is focused the first time:** pressing `c` (or opening New project, chunk or schedule) the
+  first time focused nothing, so typing or Esc did nothing; the field is focused from the first open now.
+- **A project shows its issues on a slow start:** the issue filters waited for no statuses and ticked Proposed
+  alone, so a project could show no issues until Clear. They're set once the statuses arrive.
+- **Saved schedules keep running on croner 11:** a step after a number (`5/10`) is still read as from 5 every 10.
+- **No local env files in the image's build:** `.env.*` files and the playground's data stay out of the Docker
+  build context.
+- **Cleanup:** the app and server are linted with eslint in CI, non-null assertions are guards (new ones fail
+  lint), helpers only their file uses aren't exported, and an issue's activity is its own component.
+- **More tests:** component tests (the proposal choices, the Approve panel and the property picker), e2e for the
+  keys and the phone layout, and the e2e flows run on Postgres as well as SQLite.
+- **Dependencies:** `nuxt`, `marked` and the MCP SDK patches, `croner` 11 and `eslint` 10.
+
 ## 1.0.0-rc.6 (2026-10-27)
 
 - **Message every session at once:** Message sessions on the Sessions page says one thing to every listening
