@@ -405,6 +405,10 @@ export interface DatabaseInfo {
     kind: 'sqlite' | 'postgres'
     where: string
     backup?: string
+    /** How big it is, in bytes: a SQLite file with its `-wal`, or the Postgres database; none when it can't be read. */
+    size?: number
+    /** The backup folder's files together, in bytes. */
+    backup_size?: number
 }
 
 export interface Settings {

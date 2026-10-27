@@ -106,7 +106,7 @@ A repo's channel and hook point at the server its projects are on, by `ORRERY_UR
 ## Where each database is
 
 App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file and its backup folder, or
-the Postgres database (never its password).
+the Postgres database (never its password), with how big each is.
 
 It's always `/data/orrery.db` in the container, and `/data` is `ORRERY_DATA` when it's set, else the
 project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE_PROJECT_NAME`,
