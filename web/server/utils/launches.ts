@@ -12,7 +12,8 @@ import {EVERY} from './pool'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
  * catch up from; `minutes` how long it has, none until stopped; `tmux` names the tmux session it runs in;
- * `context` what the owner gave it to go on. */
+ * `context` what the owner gave it to go on; `hears` the projects its session hears (its own first), which
+ * the launcher passes on as ORRERY_HEAR; none, as its repo's channel says. */
 export interface Launch {
     id: string
     project: string
@@ -20,6 +21,7 @@ export interface Launch {
     minutes?: number
     tmux: string
     context?: SessionContext
+    hears?: string[]
 }
 
 /** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer,
@@ -42,8 +44,27 @@ const reported = new Map<string, {project: string, tmux: string, stops_at?: stri
 /** How many launchers each project has connected. */
 const launchers = counter('launchers')
 export const launchersOf = launchers.count
-/** Counts a project's launcher in until `done` is called. */
-export const addLauncher = launchers.add
+/** The folders each project's launchers run in, as they say (`?dir=`), counted: projects with a folder in common
+ * are served by one repo, so one session there can hear them all. */
+const folders = new Map<string, Map<string, number>>()
+/** Counts a project's launcher in, in its folder when it says, until `done` is called. */
+export function addLauncher(project: string, dir?: string): () => void {
+    const done = launchers.add(project)
+    if (!dir) return done
+    const counts = folders.get(project) ?? new Map<string, number>()
+    folders.set(project, counts.set(dir, (counts.get(dir) ?? 0) + 1))
+    let counted = true
+    return () => {
+        if (!counted) return
+        counted = false
+        const left = (counts.get(dir) ?? 1) - 1
+        if (left > 0) counts.set(dir, left)
+        else counts.delete(dir)
+        done()
+    }
+}
+/** The folders a project's launchers run in. */
+export const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
 
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) if (Date.now() - launch.at > PENDING_FOR) pending.delete(id)
@@ -89,14 +110,17 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release, context, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, actor?: Actor} = {}): Promise<Launch> {
+export async function startLaunch(project: string, {issue, statuses, release, context, hears, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], actor?: Actor} = {}): Promise<Launch> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`Orrery doesn't start sessions; turn it on in App settings`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
+    if (hears) hears = [project, ...new Set(hears.filter(p => p !== project))]
+    const apart = hears?.filter(p => !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
+    if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
     if (startedSessions() + pendingOn() >= starts.limit) throw conflict(`Orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     const id = randomBytes(6).toString('hex')
     // Held from here, so the limit counts it while its focus is made.
-    const held = {id, project, after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...context ? {context} : {}, at: Date.now(), claimed: false}
+    const held = {id, project, after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...context ? {context} : {}, ...hears ? {hears} : {}, at: Date.now(), claimed: false}
     pending.set(id, held)
     try {
         const session = launchTarget(id)
@@ -293,6 +317,6 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
 
 /** For the project's settings: its launchers, the sessions it has started and on their way, and those on every
  * project, which the limit counts. */
-export function launchState(project: string): {launchers: number, started: number, starting: number, total: number} {
-    return {launchers: launchersOf(project), started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
+export function launchState(project: string): {launchers: number, folders: string[], started: number, starting: number, total: number} {
+    return {launchers: launchersOf(project), folders: foldersOf(project), started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
 }

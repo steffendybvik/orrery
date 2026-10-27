@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os'
 import {basename, join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {channelFor, channelsIn, projectsIn} from '../../channel/repo-channels.mjs'
+import {channelFor, channelsIn, narrowed, projectsIn} from '../../channel/repo-channels.mjs'
 
 const channel = (env: Record<string, string>) => ({command: 'node', args: ['/code/orrery/channel/orrery-channel.mjs'], env})
 
@@ -76,5 +76,22 @@ describe("a repo's channels", () => {
         expect(channelFor(every, WORK, 'shop').name).toBe('orrery-work')
         expect(channelFor(mono(), WORK, 'nobody').name).toBe('orrery-larder')
         expect(channelFor(mkdtempSync(join(tmpdir(), 'orrery-none-')), WORK, 'pantry')).toBeUndefined()
+    })
+})
+
+describe('what a session hears (ORRERY_HEAR)', () => {
+    it('hears what its channel lists without it', () => {
+        expect(narrowed(['hub', 'css'], undefined)).toEqual(['hub', 'css'])
+        expect(narrowed(['*'], '')).toBeNull()
+    })
+
+    it('narrows to the projects named that it serves', () => {
+        expect(narrowed(['hub', 'css', 'pos'], 'css, hub')).toEqual(['css', 'hub'])
+        expect(narrowed(['hub', 'css'], 'css,shop')).toEqual(['css'])
+        expect(narrowed(['*'], 'hub,pos')).toEqual(['hub', 'pos'])
+    })
+
+    it("lets go of a list naming none it serves, so it never hears nothing", () => {
+        expect(narrowed(['hub', 'css'], 'shop')).toEqual(['hub', 'css'])
     })
 })

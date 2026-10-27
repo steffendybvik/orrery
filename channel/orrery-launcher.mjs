@@ -8,7 +8,8 @@
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
 // The projects are ORRERY_PROJECT, else every one the channels in .mcp.json name (each channel's ORRERY_PROJECTS,
 // or its ORRERY_PROJECT), else the folder's name, each on its channel's Orrery (see repo-channels.mjs), and each
-// project's sessions load the channel that serves it. Orrery asks only once the owner lets it start sessions (Starting sessions, on the Sessions page): when the
+// project's sessions load the channel that serves it. A launch can name the projects its session hears (Start session
+// with several of the repo's projects, or one alone), which it gets as ORRERY_HEAR. Orrery asks only once the owner lets it start sessions (Starting sessions, on the Sessions page): when the
 // owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
 // this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open), with the channel, in
@@ -301,7 +302,7 @@ function serve({url, project, dir}) {
     async function start(launch) {
         const claim = await fetch(`${api}/launches/${launch.id}/claim`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after)}
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}}
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             'claude', '--dangerously-load-development-channels', `server:${channelFor(dir, url, project)?.name ?? project}`, '--permission-mode', mode)
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
@@ -313,7 +314,8 @@ function serve({url, project, dir}) {
     }
 
     return follow({
-        url: () => `${api}/launches/stream`,
+        // The folder it serves from, so Orrery knows which projects share one and can share a session.
+        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 await report(api)
