@@ -2,9 +2,9 @@
 import type {Session, SessionWork} from '#shared/roadmap'
 
 // One Claude session on the Sessions page. Its name, then one quiet line: what it's doing and since when, its time
-// left (one Orrery started), the folder it runs in and the context it was given; only a session that can't hear signals
-// says so. One Orrery started has Watch and Show screen out front, the rest under ⋯; any other with its channel
-// running, a Stop that ends it through the channel. A listening one takes a message. Then what it's on now (`work`,
+// left (one Orrery started with a time), the folder it runs in and the context it was given; only a session that
+// can't hear signals says so. One Orrery started has Watch and Show screen out front, the rest under ⋯; any other
+// with its channel running, a Stop that ends it through the channel. A listening one takes a message. Then what it's on now (`work`,
 // on `project`): its issues in progress, the rest it worked folded under them, and the latest thing it was sent, the
 // rest folded too. One that hears other projects too says which: listed across projects (`spans`), every project it
 // hears as a chip, or All projects. `lit` marks the one a link pointed at.
@@ -38,9 +38,9 @@ let timer: ReturnType<typeof setInterval> | undefined
 onMounted(() => timer = setInterval(() => now.value = Date.now(), 60_000))
 onBeforeUnmount(() => clearInterval(timer))
 const left = computed(() => {
+    // One that runs until stopped (no time set in Starting sessions) says nothing.
     const stopsAt = props.session.started?.stops_at
-    if (!props.session.started) return null
-    if (!stopsAt) return 'until stopped'
+    if (!stopsAt) return null
     const minutes = Math.round((Date.parse(stopsAt) - now.value) / 60_000)
     // Past its time, it's waiting to finish what it's on.
     if (minutes <= 0) return 'stops when done'
@@ -76,7 +76,7 @@ const restart = (session: Session) => restartCommand(session, String(environment
         </div>
         <p class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-faint">
           <span class="whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-600 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}</span>
-          <span v-if="left" class="whitespace-nowrap" :title="session.started?.stops_at ? `Orrery started it; it stops at ${new Date(session.started.stops_at).toLocaleTimeString()}, or once it's done after that` : 'Orrery started it; it runs until stopped'">· {{ left }}</span>
+          <span v-if="left" class="whitespace-nowrap" :title="session.started?.stops_at && `Orrery started it; it stops at ${new Date(session.started.stops_at).toLocaleTimeString()}, or once it's done after that`">· {{ left }}</span>
           <span v-if="folder" class="whitespace-nowrap" :title="session.cwd">· in <span class="font-mono">{{ folder }}/</span></span>
           <span v-if="session.started?.context">· with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></span>
           <span v-if="session.listening && !spans && elsewhere.length" :title="`One session: it hears ${elsewhere.join(', ')} too`">· also on {{ elsewhere.join(', ') }}</span>
