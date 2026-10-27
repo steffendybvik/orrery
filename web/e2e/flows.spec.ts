@@ -486,6 +486,26 @@ test('sends a focus aimed at no session to one, the first free, and to every one
     }
 })
 
+test('follows several projects on one stream, as one session', async ({request, baseURL}) => {
+    const OWNER = {'Orrery-Actor': 'ada_lovelace'}
+    const stream = hold(baseURL!, '/api/signals/stream?projects=larder,pantry&session=e2e-m&name=multi')
+    const multi = async () => (await api(request, 'get', '/sessions')).find((s: {id: string}) => s.id === 'e2e-m')
+    try {
+        await expect.poll(multi).toMatchObject({listening: true, also: ['pantry']})
+        const made = await request.post('/api/projects/pantry/issues', {data: {title: 'Count the jars', status: 'todo'}, headers: AGENT})
+        const {id} = await made.json()
+        const {signal} = await (await request.post(`/api/projects/pantry/issues/${id}/focus`, {data: {session: 'e2e-m'}, headers: OWNER})).json()
+        await expect.poll(() => stream.said.text).toContain('Count the jars')
+        expect(stream.said.text).toContain('"project":"pantry"')
+        await request.post(`/api/projects/pantry/signals/${signal.id}/delivered?name=multi`)
+        // A project that doesn't exist is refused, not followed.
+        expect((await request.get('/api/signals/stream?projects=larder,attic')).status()).toBe(404)
+    } finally {
+        stream.stop()
+    }
+    await expect.poll(async () => (await multi())?.listening).toBe(false)
+})
+
 test('with nobody listening and a launcher there, Focus on this starts a session', async ({page, request, baseURL}) => {
     const issue = await api(request, 'post', '/issues', {title: 'Oil the hinges', status: 'todo'})
     // The session from before has gone: nobody listens on larder now.
