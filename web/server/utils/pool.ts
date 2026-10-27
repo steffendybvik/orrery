@@ -1,6 +1,7 @@
 // A focus, a chunk's or a schedule's message aimed at no session goes to one session, not every one: the session
 // already on its issue (made its target as it's sent), else a listening session that's idle when it comes, else the
-// next one to go idle. Aimed at `*`, it goes to every session, as all of them used to. Each such signal is taken by
+// next one to go idle. The project's own sessions come first: one that spans several projects (its channel hears
+// others too) takes it only while none of them is free. Aimed at `*`, it goes to every session, as all of them used to. Each such signal is taken by
 // the first session free to, here in memory (Orrery is one process), so two streams can't both send it on.
 import type {Signal} from '#shared/roadmap'
 
@@ -21,12 +22,15 @@ export function aimedAt(signal: Signal, session: string | undefined): boolean {
 const taken = new Map<number, {session: string, project: string}>()
 
 /** The session takes the pooled signal if no session has and it's free for it: idle, or with no hooks to say
- * (a stream with no session, such as the Monitor tool's, takes it as it comes). Says whether it's the session's. */
+ * (a stream with no session, such as the Monitor tool's, takes it as it comes), and, spanning projects, with none of
+ * the project's own sessions listening and idle, which take it instead. Says whether it's the session's. */
 export function take(signal: Signal, project: string, session: string | undefined): boolean {
     if (signal.delivered_to.length) return false
     const had = taken.get(signal.id)
     if (had) return !!session && currentId(had.session) === currentId(session)
-    if (session && sessionNow(session)?.state !== 'idle') return false
+    const now = session ? sessionNow(session) : undefined
+    if (session && now?.state !== 'idle') return false
+    if (now?.also?.length && listSessions(project).some(s => s.project === project && !s.also?.length && s.listening && s.state === 'idle')) return false
     taken.set(signal.id, {session: session ?? '', project})
     // Only the latest matter: an old one was delivered long since, or nobody took it up.
     if (taken.size > 500) for (const oldest of taken.keys()) {
