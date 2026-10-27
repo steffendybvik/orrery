@@ -1,6 +1,6 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
-# tag has to pass before `release.yml` publishes anything. The e2e flows run on every pull request that
-# isn't a draft (so before it merges), on a release tag, and by hand (Run workflow).
+# tag has to pass before `release.yml` publishes anything. The e2e flows run, on SQLite and on Postgres, on every
+# pull request that isn't a draft (so before it merges), on a release tag, and by hand (Run workflow).
 name: CI
 
 on:
@@ -73,15 +73,31 @@ jobs:
       - id: version
         run: echo "version=$(jq -r '.devDependencies["@playwright/test"]' web/package.json)" >> "$GITHUB_OUTPUT"
 
+  # Once on SQLite and once on Postgres: the service only starts for the Postgres run (no image, no service).
   e2e:
     needs: playwright
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
     # Playwright's own image has the browser and the system libraries it needs. Installing those with apt on
     # every run took from 10 seconds to 11 minutes, as Ubuntu's mirror allowed.
     container:
       image: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
       options: --ipc=host
+    services:
+      postgres:
+        image: ${{ matrix.database == 'postgres' && 'postgres:17-alpine' || '' }}
+        env:
+          POSTGRES_USER: orrery
+          POSTGRES_PASSWORD: orrery
+          POSTGRES_DB: orrery_e2e
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # The job runs in a container, so the service is reached by its name.
+      E2E_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgres://orrery:orrery@postgres:5432/orrery_e2e' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -95,7 +111,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.database }}
           path: web/playwright-report/
           retention-days: 7
 
