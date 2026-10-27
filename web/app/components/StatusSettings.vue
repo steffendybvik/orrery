@@ -43,9 +43,8 @@ function rename(status: IssueStatus, event: Event) {
 
 /** Swaps it with its neighbour in the kind. */
 function move(list: IssueStatus[], i: number, step: -1 | 1) {
-    const other = list[i + step]
-    if (!other) return
-    const [a, b] = [list[i]!, other]
+    const [a, b] = [list[i], list[i + step]]
+    if (!a || !b) return
     patch(a, {position: b.position}).then(ok => ok && patch(b, {position: a.position}))
 }
 

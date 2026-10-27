@@ -68,7 +68,8 @@ export type Picks = Record<string, string[]>
 export function liveChoices(choices: Choice[], picks: Picks): Choice[] {
     const live: Choice[] = []
     for (const choice of choices) {
-        if (!choice.from || (live.some(c => c.key === choice.from!.choice) && (picks[choice.from.choice] ?? []).includes(choice.from.option))) live.push(choice)
+        const from = choice.from
+        if (!from || (live.some(c => c.key === from.choice) && (picks[from.choice] ?? []).includes(from.option))) live.push(choice)
     }
     return live
 }
@@ -176,8 +177,8 @@ export const isFrozen = (release: Pick<Release, 'frozen_on' | 'shipped_on'> | un
 
 /** What a session hears about an issue set for a release in feature freeze: a preference, never a refusal. */
 export function freezeNote(release: Pick<Release, 'version' | 'frozen_on' | 'shipped_on'> | undefined): string | null {
-    if (!isFrozen(release)) return null
-    return `${release!.version} is in feature freeze (since ${release!.frozen_on}): it takes fixes, tests and docs. Put a new feature on the next release instead, so this one can go out.`
+    if (!release || !isFrozen(release)) return null
+    return `${release.version} is in feature freeze (since ${release.frozen_on}): it takes fixes, tests and docs. Put a new feature on the next release instead, so this one can go out.`
 }
 
 /** A doc without its text, as a project lists it. */

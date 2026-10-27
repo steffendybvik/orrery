@@ -17,7 +17,7 @@ let timer: ReturnType<typeof setInterval> | undefined
 onMounted(() => timer = setInterval(() => now.value = Date.now(), 60_000))
 onBeforeUnmount(() => clearInterval(timer))
 const left = computed(() => {
-    const stopsAt = props.session.started!.stops_at
+    const stopsAt = props.session.started?.stops_at
     if (!stopsAt) return 'running'
     const minutes = Math.round((Date.parse(stopsAt) - now.value) / 60_000)
     // Past its time, it's waiting to finish what it's on.
@@ -26,10 +26,12 @@ const left = computed(() => {
 })
 
 async function act(what: 'stop' | 'extend' | 'watch') {
+    const launch = props.session.started?.launch
+    if (!launch) return
     busy.value = what
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.session.project)}/launches/${props.session.started!.launch}/${what}`, {
+        await $fetch(`/api/projects/${encodeURIComponent(props.session.project)}/launches/${launch}/${what}`, {
             method: 'POST', headers: {'Orrery-Actor': await load()}, body: what === 'extend' ? {minutes: 30} : {},
         })
     } catch (error) {

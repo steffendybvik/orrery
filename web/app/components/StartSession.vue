@@ -11,8 +11,12 @@ const {open} = useStartSession()
 const {state, install} = useLaunchState(() => props.project.id)
 
 const full = computed(() => !!state.value && !!props.project.starts && state.value.total >= props.project.starts.limit)
-const why = computed(() => !state.value?.launchers ? `No launcher is running for ${props.project.name}: install one in its repo with ${install}`
-    : full.value ? `Orrery already has its ${props.project.starts!.limit} at once` : `Start a Claude session on ${props.project.name} ${props.project.starts!.minutes ? `for ${props.project.starts!.minutes} minutes` : 'until you stop it'}`)
+const why = computed(() => {
+    const {name, starts} = props.project
+    if (!state.value?.launchers) return `No launcher is running for ${name}: install one in its repo with ${install}`
+    if (starts && full.value) return `Orrery already has its ${starts.limit} at once`
+    return `Start a Claude session on ${name} ${starts?.minutes ? `for ${starts.minutes} minutes` : 'until you stop it'}`
+})
 </script>
 
 <template>

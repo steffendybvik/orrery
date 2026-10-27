@@ -43,7 +43,7 @@ export default defineEventHandler(async event => {
     }
     const removed = (id: string) => {
         const gone = feeds.findIndex(f => f.project === id)
-        if (gone !== -1) feeds.splice(gone, 1)[0]!.close()
+        if (gone !== -1) feeds.splice(gone, 1)[0]?.close()
         following.delete(id)
     }
     projectEvents.on('project', made)

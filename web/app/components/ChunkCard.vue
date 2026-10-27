@@ -8,7 +8,10 @@ const {open: openMenu} = useChunkMenu()
 const {columns, look} = useStatuses()
 const share = computed(() => progress(props.chunk.kinds))
 // Where its open issues are (and its proposals), a dot per column.
-const spread = computed(() => columns.value.filter(c => !isClosed(c.kind) && props.chunk.counts[c.id]).map(c => ({column: c.id, n: props.chunk.counts[c.id]!})))
+const spread = computed(() => columns.value.flatMap(c => {
+    const n = props.chunk.counts[c.id]
+    return !isClosed(c.kind) && n ? [{column: c.id, n}] : []
+}))
 </script>
 
 <template>

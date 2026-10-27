@@ -82,9 +82,9 @@ export function useUnseen() {
             delete all[docKey(project, id)]
             if (body.length <= READ_LIMIT) all[docKey(project, id)] = body
             let total = Object.values(all).reduce((sum, text) => sum + text.length, 0)
-            for (const key of Object.keys(all)) {
+            for (const [key, text] of Object.entries(all)) {
                 if (total <= READ_TOTAL) break
-                total -= all[key]!.length
+                total -= text.length
                 delete all[key]
             }
             localStorage.setItem(READ, JSON.stringify(all))

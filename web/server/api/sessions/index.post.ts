@@ -26,7 +26,8 @@ export default defineEventHandler(async event => {
     // Back from Orrery's clear with part of its run left: a focus on the rest starts its next turn.
     if (source === 'clear' && session.started) resumeRun(body.project, session.id).catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
     const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
-    const work = source && Object.hasOwn(RESUMED, source) ? await briefFor(body.project, session.id, RESUMED[source]!, api).catch(() => undefined) : undefined
+    const happened = source && Object.hasOwn(RESUMED, source) ? RESUMED[source] : undefined
+    const work = happened ? await briefFor(body.project, session.id, happened, api).catch(() => undefined) : undefined
     // Its launch as its hook says (before its channel has connected) or as Orrery knows it.
     const launch = text('started') ?? session.started?.launch
     const context = launch ? launchContext(body.project, launch) : undefined
@@ -54,8 +55,8 @@ async function briefFor(project: string, session: string, happened: string, api:
                 issue.last ? `  last comment, by ${issue.last.created_by}: ${said(issue.last.body)}` : '',
             ].filter(Boolean).join('\n')),
         ] : [],
-        ...left.length ? [
-            `${issues.length ? 'After those, it' : 'It'} was working through ${scope!.title} in project "${project}"; these are left, most urgent first. Take them one at a time (in-progress, comments, done):`,
+        ...scope && left.length ? [
+            `${issues.length ? 'After those, it' : 'It'} was working through ${scope.title} in project "${project}"; these are left, most urgent first. Take them one at a time (in-progress, comments, done):`,
             ...left.map(t => issueLine({...t, priority: t.priority ?? null}, statuses)),
         ] : [],
         `Read each in full (the issue tool, or curl ${api}/issues/<id>) before going on.`,

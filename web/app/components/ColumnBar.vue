@@ -8,7 +8,10 @@ const {statuses, look} = useStatuses()
 const parts = computed(() => {
     const order = (['done', 'started', 'todo', 'backlog'] as const).flatMap(kind => statuses.value.filter(s => s.kind === kind))
     const all = order.reduce((sum, s) => sum + (props.counts[s.id] ?? 0), 0) || 1
-    return order.filter(s => props.counts[s.id]).map(s => ({column: s.id, width: `${(props.counts[s.id]! / all) * 100}%`}))
+    return order.flatMap(s => {
+        const n = props.counts[s.id]
+        return n ? [{column: s.id, width: `${(n / all) * 100}%`}] : []
+    })
 })
 </script>
 

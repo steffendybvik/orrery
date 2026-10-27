@@ -6,9 +6,11 @@ import {badRequest, forbidden, notFound} from '../utils/input'
 import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db, Value} from '../utils/database'
+import {one} from '../utils/database'
 import type {Instruction} from '#shared/prompt'
 import type {IssueRecord, ChunkRecord, Actor, ProjectRow, ChunkRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
 import {tallyReleases, releaseOf, noReleases, nullable, stamp} from './schema'
+import {known} from '#shared/known'
 
 export abstract class StoreBase {
     constructor(
@@ -93,7 +95,7 @@ export abstract class StoreBase {
             project.releases_from ?? project.id)
         const boards = project.releases_from ? [board] : [board, ...await Promise.all((await this.drawingOn(project.id)).map(id => this.board(id)))]
         const tally = tallyReleases(rows.map(r => r.version), boards)
-        return rows.map(row => ({...releaseOf(row), ...tally.get(row.version)!}))
+        return rows.map(row => ({...releaseOf(row), ...known(tally.get(row.version), `a tally for ${row.version}`)}))
     }
 
     /** A project's docs by title, A–Z, sorted here rather than in SQL so SQLite and Postgres agree on case and accents. */
@@ -209,7 +211,7 @@ export abstract class StoreBase {
         // Each number is taken in one statement, so two writers never get the same one; one an import
         // already used, or that's still an id something had, is skipped.
         for (;;) {
-            const {n} = (await this.get<{n: number}>(`UPDATE projects SET ${column} = ${column} + 1 WHERE id = ? RETURNING ${column} - 1 AS n`, project))!
+            const {n} = await this.one<{n: number}>(`UPDATE projects SET ${column} = ${column} + 1 WHERE id = ? RETURNING ${column} - 1 AS n`, project)
             if (!await this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ? UNION SELECT 1 FROM ${aliases} WHERE project = ? AND alias = ?`, project, name(n), project, name(n))) return name(n)
         }
     }
@@ -336,6 +338,10 @@ export abstract class StoreBase {
 
     protected get<T>(sql: string, ...params: Value[]) {
         return this.db.get<T>(sql, ...params)
+    }
+
+    protected one<T>(sql: string, ...params: Value[]) {
+        return one<T>(this.db, sql, ...params)
     }
 
     protected all<T>(sql: string, ...params: Value[]) {

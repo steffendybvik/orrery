@@ -87,7 +87,7 @@ function find(id?: string, pid?: number): Known | undefined {
 function clearedIn(project: string, cwd: string | undefined): Known | undefined {
     const since = Date.now() - CLEARED_FOR
     return [...sessions.values()].filter(s => s.project === project && s.cwd === cwd && (s.cleared ?? 0) > since)
-        .sort((a, b) => b.cleared! - a.cleared!)[0]
+        .sort((a, b) => (b.cleared ?? 0) - (a.cleared ?? 0))[0]
 }
 
 /** A session new to Orrery under an id another one had before: that id is its own now. */
@@ -186,7 +186,8 @@ export function issueWrites(command: string, project: string): {project: string,
     for (const part of command.split(/&&|\|\||;|\n|\|/)) {
         if (!/\bcurl\b/.test(part) || !/-X\s*['"]?(PATCH|POST|PUT)\b|(^|\s)(-d|--data(-\w+)?)(\s|=|$)/.test(part)) continue
         for (const match of part.matchAll(/(?:\/projects\/([\w.-]+)\/issues)?\/([A-Z][A-Z0-9]*-\d+)\b/g)) {
-            const write = {project: match[1] ? decodeURIComponent(match[1]) : project, issue: match[2]!}
+            if (!match[2]) continue
+            const write = {project: match[1] ? decodeURIComponent(match[1]) : project, issue: match[2]}
             found.set(`${write.project}/${write.issue}`, write)
         }
     }
@@ -251,11 +252,13 @@ export function attend(project: string, id: string | undefined, pid: number | un
         done: () => {
             if (!open) return
             open = false
-            const count = held.channels!.get(project)!
-            if (count.streams > 1) held.channels!.set(project, {streams: count.streams - 1, heard: count.heard - Number(heard), stops: count.stops - Number(stops)})
-            else held.channels!.delete(project)
+            const channels = held.channels
+            const count = channels?.get(project)
+            if (!channels || !count) return
+            if (count.streams > 1) channels.set(project, {streams: count.streams - 1, heard: count.heard - Number(heard), stops: count.stops - Number(stops)})
+            else channels.delete(project)
             tally(held)
-            if (!held.channels!.size && held.stopping) forget(held)
+            if (!channels.size && held.stopping) forget(held)
             changedAll(held)
             changed(project)
         },

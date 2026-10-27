@@ -4,6 +4,7 @@ import {badRequest, checkInput, conflict} from '../utils/input'
 import type {ReleaseDetail} from './schema'
 import {AGENT, RELEASE_FIELDS, tallyReleases, noReleases, nullable, stamp} from './schema'
 import {DocStore} from './docs'
+import {known} from '#shared/known'
 
 export abstract class ReleaseStore extends DocStore {
     async listReleases(project: string): Promise<Release[]> {
@@ -16,16 +17,16 @@ export abstract class ReleaseStore extends DocStore {
         await this.releaseRow(project, version)
         const own = await this.project(project)
         const drawing = own.releases_from ? [] : await Promise.all((await this.drawingOn(project)).map(id => this.project(id)))
-        const parts = [own, ...drawing].map(p => {
+        const part = (p: typeof own) => {
             const tasks: Issue[] = []
             const walk = (issues: Issue[]) => issues.forEach(issue => issue.release === version ? tasks.push(issue) : walk(issue.tasks))
             p.board.chunks.forEach(c => walk(c.tasks))
-            const {issues, kinds} = p.releases.find(r => r.version === version)!
+            const {issues, kinds} = known(p.releases.find(r => r.version === version), `release ${version} in ${p.id}`)
             return {project: p.id, name: p.name, issues, kinds, tasks}
-        })
+        }
         // A source's own row counts every project; its part here is only its own issues.
-        if (drawing.length) parts[0] = {...parts[0]!, ...tallyReleases([version], [own.board]).get(version)!}
-        return {...own.releases.find(r => r.version === version)!, project, tasks: parts[0]!.tasks, projects: parts}
+        const mine = drawing.length ? {...part(own), ...known(tallyReleases([version], [own.board]).get(version), `a tally for ${version}`)} : part(own)
+        return {...known(own.releases.find(r => r.version === version), `release ${version}`), project, tasks: mine.tasks, projects: [mine, ...drawing.map(part)]}
     }
 
     /** Refuses changing a release from a project that takes its releases from another. */

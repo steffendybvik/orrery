@@ -7,6 +7,7 @@ import {UPSERT_ISSUE_ALIAS} from '../utils/renumber'
 import type {BulkResult, IssueDetail, Actor} from './schema'
 import {BULK_FIELDS, AGENT, DECISION_FIELDS, DECIDED, stamp} from './schema'
 import {CommentStore} from './comments'
+import {known} from '#shared/known'
 
 export abstract class BulkStore extends CommentStore {
     /** Runs `work` for each issue on its own, so one refusal doesn't stop the rest, and says each one's outcome. */
@@ -165,26 +166,27 @@ export abstract class BulkStore extends CommentStore {
             await this.db.deferConstraints()
             const names = new Map<string, string>()
             for (const old of subtree) names.set(old, await this.nextId(to, 'issue'))
+            const renamed = (old: string) => known(names.get(old), `a new id for ${old}`)
             const links = await this.all<{id: string, parent: string | null}>(`SELECT id, parent FROM issues WHERE project = ? AND id IN (${marks})`, from, ...subtree)
             const comments = await this.all<{id: number, issue: string}>(`SELECT id, issue FROM comments WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
             const aliases = await this.all<{alias: string, issue: string}>(`SELECT alias, issue FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
             const position = await this.nextPosition('issues', to)
             for (const link of links) {
-                const next = names.get(link.id)!
+                const next = renamed(link.id)
                 await this.run(`UPDATE issues SET project = ?, id = ?, parent = ?, chunk = ?, ships_in = ${ships}, position = position + ? WHERE project = ? AND id = ?`,
-                    to, next, link.id === id ? parentId : names.get(link.parent!) ?? null, link.id === id && !parentId ? chunkId : null, position, from, link.id)
+                    to, next, link.id === id ? parentId : link.parent ? names.get(link.parent) ?? null : null, link.id === id && !parentId ? chunkId : null, position, from, link.id)
             }
-            for (const comment of comments) await this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, names.get(comment.issue)!, comment.id)
+            for (const comment of comments) await this.run('UPDATE comments SET project = ?, issue = ? WHERE id = ?', to, renamed(comment.issue), comment.id)
             for (const [old, next] of names) await this.run('UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, from, old)
-            await this.record(to, names.get(id)!, actor, [['project', from, to]])
+            await this.record(to, renamed(id), actor, [['project', from, to]])
             await this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${marks})`, from, ...subtree)
-            for (const {alias, issue} of aliases) await this.run(UPSERT_ISSUE_ALIAS, to, alias, names.get(issue)!)
+            for (const {alias, issue} of aliases) await this.run(UPSERT_ISSUE_ALIAS, to, alias, renamed(issue))
             for (const [old, next] of names) await this.run(UPSERT_ISSUE_ALIAS, to, old, next)
             await this.issuesMoved(from, names, to)
-            await this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', stamp(), to, names.get(id)!)
+            await this.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', stamp(), to, renamed(id))
             await this.touchProject(from)
             await this.touchProject(to)
-            return names.get(id)!
+            return renamed(id)
         })
         this.changed(from)
         this.changed(to)
