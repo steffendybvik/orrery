@@ -1,6 +1,6 @@
 // Signals to sessions (a focus, a comment, a message) and the uploads they carry.
 import {randomBytes} from 'node:crypto'
-import type {Asks, Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
+import type {Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, forbidden, notFound} from '../utils/input'
 import type {Actor, SignalRow} from './schema'
@@ -189,7 +189,7 @@ export abstract class SignalStore extends IssueStore {
      * over if it's still the one read, else read again. */
     async delivered(project: string, id: number, to: string): Promise<Signal> {
         let row: SignalRow | undefined
-        let names: string[] = []
+        let names: string[]
         for (let tries = 0; ; tries++) {
             row = await this.get<SignalRow>('SELECT * FROM signals WHERE project = ? AND id = ?', project, id)
             if (!row) throw notFound(`No signal ${id} in ${project}`)

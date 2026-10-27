@@ -29,7 +29,10 @@ const confirming = ref(false)
 // Cleared (Esc, Clear), the last batch's outcome goes too; a batch's own reticking leaves it.
 watch(selected, now => {
     confirming.value = false
-    if (!now.length && !busy.value) said.value = '', failed.value = []
+    if (!now.length && !busy.value) {
+        said.value = ''
+        failed.value = []
+    }
 }, {flush: 'sync'})
 
 /** Sends one call per project, then says how it went and keeps only the refused ones ticked. */

@@ -54,6 +54,7 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
       - run: pnpm typecheck
+      - run: pnpm lint
 
   # The main flows in a real browser, against `nuxt dev` with a fresh database: on every pull request
   # that isn't a draft, each push to it included, so nothing merges without them; on a release tag; and

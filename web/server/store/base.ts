@@ -8,7 +8,7 @@ import {buildBoard} from '../utils/roadmap'
 import type {Db, Value} from '../utils/database'
 import type {Instruction} from '#shared/prompt'
 import type {IssueRecord, ChunkRecord, Actor, ProjectRow, ChunkRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
-import {KEY, tallyReleases, releaseOf, noReleases, nullable, stamp} from './schema'
+import {tallyReleases, releaseOf, noReleases, nullable, stamp} from './schema'
 
 export abstract class StoreBase {
     constructor(

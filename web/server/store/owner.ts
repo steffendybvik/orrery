@@ -3,7 +3,7 @@ import type {Notice, NoticeList, Owner} from '#shared/roadmap'
 import {NOTICE_LISTS} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, forbidden} from '../utils/input'
-import type {Actor, CommentRow} from './schema'
+import type {CommentRow} from './schema'
 import {AGENT, OWNER_FIELDS, actorId, ANSWERED, commentOf} from './schema'
 import {StatusStore} from './statuses'
 

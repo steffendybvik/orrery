@@ -10,6 +10,7 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
@@ -27,12 +28,14 @@
     "vue-router": "^5.4.0"
   },
   "devDependencies": {
-    "jiti": "2.7.0",
+    "@nuxt/eslint-config": "^1.17.0",
     "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.0.0",
     "@types/pg": "8.23.1",
     "@vitest/coverage-v8": "5.0.5",
+    "eslint": "^9.39.5",
+    "jiti": "2.7.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vitest": "^5.0.5",

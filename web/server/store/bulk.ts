@@ -5,7 +5,7 @@ import {badRequest, checkInput, forbidden} from '../utils/input'
 import {describePicks, resolvePicks} from '../utils/choices'
 import {UPSERT_ISSUE_ALIAS} from '../utils/renumber'
 import type {BulkResult, IssueDetail, Actor} from './schema'
-import {BULK_FIELDS, AGENT, KEY, DECISION_FIELDS, DECIDED, stamp} from './schema'
+import {BULK_FIELDS, AGENT, DECISION_FIELDS, DECIDED, stamp} from './schema'
 import {CommentStore} from './comments'
 
 export abstract class BulkStore extends CommentStore {
