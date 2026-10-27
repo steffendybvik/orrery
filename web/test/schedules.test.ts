@@ -1,7 +1,5 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {Signal} from '#shared/roadmap'
-import {openDb} from '../server/utils/db'
-import {SqliteDb} from '../server/utils/database'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'

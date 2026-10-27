@@ -8,7 +8,7 @@ useHead({title: 'Notifications · Orrery'})
 type Show = 'inbox' | 'waiting' | 'cleared'
 const ASKS = {decision: 'Needs your decision', feedback: 'Needs your feedback'}
 const {notices, lists, seenAt, seen, load, clear} = useInbox()
-const {projects, byId} = useRoadmaps()
+const {byId} = useRoadmaps()
 const {open: openIssue} = useIssueLink()
 const {who} = useOwner()
 

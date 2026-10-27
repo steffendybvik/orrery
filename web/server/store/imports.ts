@@ -4,7 +4,7 @@ import {conflict} from '../utils/input'
 import type {RoadmapFile, TaskFile} from '../utils/roadmap'
 import {legacyStatus} from '../utils/roadmap'
 import {renumber} from '../utils/renumber'
-import {AGENT, KEY, stamp} from './schema'
+import {AGENT, stamp} from './schema'
 import {BulkStore} from './bulk'
 
 export abstract class ImportStore extends BulkStore {
