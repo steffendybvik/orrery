@@ -2,13 +2,17 @@
 import type {Priority, Schedule} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
-// Writing a schedule, or changing one, as the owner: in a project, whether each run makes an issue or
+// Writing a schedule, or changing one, as the owner: in a project (picked here for a new one), whether each run makes an issue or
 // only sends a message to the project's Claude sessions, what it says, when it runs (presets, or a cron
 // under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
-// sessions to pick it up. One already made can be paused or resumed from here, at once. ⌘↵ saves, Esc
+// sessions to pick it up. One already made can be paused or resumed from here, at once, or removed (asked once more). ⌘↵ saves, Esc
 // closes.
 const {editing, pause} = useSchedules()
 const {byId} = useRoadmaps()
+const {ordered} = useProjectOrder()
+const projectOptions = computed(() => ordered.value.map(p => ({value: p.id, label: p.name})))
+// Each project's sidebar icon, for the project picker.
+const icons = computed(() => new Map(ordered.value.flatMap(p => p.icon && heroicon(p.icon) ? [[p.id, {icon: p.icon, color: p.icon_color}] as const] : [])))
 const {load} = useOwner()
 
 const KINDS: {value: Repeat['kind'], label: string}[] = [
@@ -47,6 +51,7 @@ const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
 const ask = ref(false)
 const skipOpen = ref(true)
+const onlyIfChanged = ref(false)
 const enabled = ref(true)
 const pausing = ref(false)
 const saving = ref(false)
@@ -57,6 +62,10 @@ const existing = computed(() => editing.value?.schedule)
 const here = computed(() => byId(project.value))
 const chunks = computed(() => here.value?.board.chunks.filter(c => c.id) ?? [])
 const known = computed(() => here.value ? [...new Set(allIssues(here.value).flatMap(({issue}) => issue.labels))] : [])
+// Another project picked for a new one: a chunk of the last one isn't one of this one's.
+watch(project, () => {
+    if (chunk.value && !chunks.value.some(c => c.id === chunk.value)) chunk.value = ''
+})
 
 /** A time as `datetime-local` wants it, in this browser's zone. */
 const local = (iso: string) => {
@@ -78,6 +87,7 @@ watch(editing, now => {
     labels.value = [...s?.labels ?? []]
     ask.value = s?.ask ?? false
     skipOpen.value = s?.skip_open ?? true
+    onlyIfChanged.value = s?.only_if_changed ?? false
     enabled.value = s?.enabled ?? true
     const repeat: Repeat = s ? toRepeat(s) : {kind: 'weekdays', time: '09:00'}
     kind.value = repeat.kind
@@ -92,8 +102,9 @@ watch(editing, now => {
     once.value = repeat.kind === 'once' ? local(repeat.at) : local(new Date(Date.now() + 3600_000).toISOString())
     cron.value = s?.cron ?? '0 9 * * 1-5'
     failed.value = ''
-    nextTick(() => titleInput.value?.focus())
 }, {immediate: true})
+// Its field takes the cursor once it's there: on the first open the dialog is still loading when the watch above runs.
+watch(titleInput, el => el?.focus())
 
 const repeat = computed<Repeat>(() => {
     switch (kind.value) {
@@ -120,6 +131,22 @@ function close() {
     editing.value = null
 }
 
+// Removing one already made, after asking once more in place; the issues it made stay.
+const removing = ref<'ask' | 'busy' | null>(null)
+watch(editing, () => removing.value = null)
+async function remove() {
+    if (!existing.value) return
+    removing.value = 'busy'
+    failed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(project.value)}/schedules/${existing.value.id}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        close()
+    } catch (error) {
+        failed.value = errorMessage(error)
+        removing.value = null
+    }
+}
+
 async function save() {
     if (!ready.value) return
     saving.value = true
@@ -136,6 +163,7 @@ async function save() {
         labels: labels.value,
         ask: ask.value,
         skip_open: skipOpen.value,
+        only_if_changed: onlyIfChanged.value,
     }
     try {
         const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`
@@ -173,7 +201,15 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <div class="flex items-center gap-2 text-xs text-faint">
       <SectionIcon section="schedules" />
       <span>{{ existing ? 'Edit schedule in' : 'New schedule in' }}</span>
-      <span class="text-fg">{{ here?.name ?? project }}</span>
+      <PropertyPicker v-if="!existing" v-model="project" :options="projectOptions" label="Project" field>
+        <ProjectIcon v-if="icons.has(project)" :icon="icons.get(project)?.icon ?? ''" :color="icons.get(project)?.color" class="size-3.5" />
+        <span class="truncate text-fg">{{ here?.name ?? 'Pick a project' }}</span>
+        <template #option="{option}">
+          <ProjectIcon v-if="icons.has(option.value)" :icon="icons.get(option.value)?.icon ?? ''" :color="icons.get(option.value)?.color" class="size-3.5" />
+          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+        </template>
+      </PropertyPicker>
+      <span v-else class="text-fg">{{ here?.name ?? project }}</span>
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
 
@@ -223,34 +259,35 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         </template>
         <input v-else-if="kind === 'once'" v-model="once" type="datetime-local" aria-label="When" :class="field">
         <input v-else v-model="cron" placeholder="minute hour day month weekday" aria-label="Cron" :class="[field, 'w-52 font-mono']">
+        <label class="ml-auto flex items-center gap-2 text-xs text-muted">
+          Timezone
+          <input v-model="timezone" aria-label="Timezone" :class="[field, 'w-40']">
+        </label>
       </div>
-      <div v-if="kind === 'weekly'" class="flex gap-1">
+      <div v-if="kind === 'weekly'" class="flex gap-0.5 self-start rounded-lg bg-well p-0.5 ring-1 ring-line">
         <button
             v-for="d in [1, 2, 3, 4, 5, 6, 0]"
             :key="d"
             type="button"
-            class="h-7 w-10 rounded-md text-xs ring-1"
-            :class="days.includes(d) ? 'bg-accent-500/15 font-medium text-accent-700 ring-accent-500/40 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover'"
+            class="h-7 w-11 rounded-md text-xs font-medium transition-colors"
+            :class="days.includes(d) ? 'bg-accent-500 text-white shadow-sm' : 'text-muted hover:text-fg'"
             :aria-pressed="days.includes(d)"
             @click="toggleDay(d)"
         >{{ DAYS[d] }}</button>
       </div>
-      <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">
-        <template v-if="upcoming.length">
-          <span>Next:</span>
-          <span v-for="t in upcoming" :key="t.toISOString()" class="rounded bg-well px-1.5 py-px text-muted ring-1 ring-line">{{ when(t, timezone) }}</span>
-        </template>
+      <p class="text-xs text-faint">
+        <template v-if="upcoming.length">Next runs <span class="text-muted">{{ upcoming.map(t => when(t, timezone)).join(' · ') }}</span></template>
         <span v-else class="text-rose-600 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
-        <label class="ml-auto flex items-center gap-1">
-          <span>Timezone</span>
-          <input v-model="timezone" aria-label="Timezone" class="h-6 w-36 rounded-md bg-well px-1.5 text-xs text-fg ring-1 ring-line focus:outline-none">
-        </label>
       </p>
     </section>
 
-    <p v-if="sends === 'message'" class="border-t border-line pt-3 text-xs text-muted">
-      Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.
-    </p>
+    <section v-if="sends === 'message'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
+      <p>Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
+      <label class="flex items-center gap-1.5">
+        <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">
+        Skip a run when no issue or comment changed since the last message
+      </label>
+    </section>
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">Each run makes an issue</span>
       <div class="flex flex-wrap items-center gap-2">
@@ -286,7 +323,11 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     </section>
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
-      <UiButton v-if="existing && !(existing.at && !existing.enabled)" size="md" :disabled="pausing" @click="togglePause">
+      <UiConfirm v-if="existing && removing" inline class="text-xs" :busy="removing === 'busy'" @confirm="remove" @cancel="removing = null">
+        Remove this schedule? The issues it made stay.
+      </UiConfirm>
+      <UiButton v-else-if="existing" variant="danger-ghost" size="md" title="Remove this schedule" @click="removing = 'ask'">Remove</UiButton>
+      <UiButton v-if="existing && !removing && !(existing.at && !existing.enabled)" size="md" :disabled="pausing" @click="togglePause">
         {{ enabled ? '❙❙ Pause' : '▶ Resume' }}
       </UiButton>
       <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>

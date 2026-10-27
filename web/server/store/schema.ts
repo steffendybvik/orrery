@@ -112,10 +112,10 @@ export interface SignalRow { id: number, project: string, issue: string | null, 
 
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
-export const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
+const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
 export const KEY = /^[A-Z][A-Z0-9]{0,9}$/
 /** A release's version: `1.0.0`, `1.0.0-rc.2`, `2026.10`, `v2`; it goes in URLs as it is. */
-export const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
+const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 
 export const PROJECT_FIELDS: Record<string, Field> = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
@@ -139,7 +139,7 @@ export const PROJECT_FIELDS: Record<string, Field> = {
 }
 
 /** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
-export function parseStarts(value: unknown): string {
+function parseStarts(value: unknown): string {
     const {limit, minutes, idle_minutes, ...rest} = (isObject(value) ? value : {})
     const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
     const maybe = (n: unknown) => n === undefined || n === null || whole(n, 24 * 60)
@@ -213,7 +213,7 @@ export const DECISION_FIELDS: Record<string, Field> = {
     explore: {type: 'json', parse: parseExplore},
 }
 
-export function parsePicks(value: unknown): string {
+function parsePicks(value: unknown): string {
     if (!isObject(value)) throw new Error('should be {choice: [options]}')
     for (const [key, picked] of Object.entries(value)) {
         if (!Array.isArray(picked) || picked.some(p => typeof p !== 'string')) throw new Error(`${key} should be a list of option keys`)
@@ -221,7 +221,7 @@ export function parsePicks(value: unknown): string {
     return JSON.stringify(value)
 }
 
-export function parseExplore(value: unknown): string {
+function parseExplore(value: unknown): string {
     if (!isObject(value)) throw new Error('should be {choice, option}')
     const {choice, option} = value
     if (typeof choice !== 'string' || typeof option !== 'string') throw new Error('should be {choice, option}')
@@ -247,13 +247,13 @@ export const CHUNK_SIGNAL_FIELDS: Record<string, Field> = {
     release: {type: 'string', nullable: true},
 }
 
-export const STATUS_FIELDS: Record<string, Field> = {
+export const STATUS_FIELDS = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
     name: {type: 'string', required: true},
     kind: {type: 'string', values: KINDS, required: true},
     color: {...TINT, nullable: false},
     position: {type: 'number'},
-}
+} satisfies Record<string, Field>
 
 /** What agents sent before statuses, and what they mean now. */
 export const LEGACY_KINDS: Record<string, Kind> = {doing: 'started', now: 'todo', next: 'todo', later: 'todo'}
@@ -314,7 +314,10 @@ export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
 ]
 
 /** Whether the owner has commented on the issue since comment `c`. */
-export const ANSWERED = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id) AS answered'
+const SINCE = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)'
+export const ANSWERED = `${SINCE} AS answered`
+/** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. */
+export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`
 
 
 export function commentOf(row: CommentRow): Comment {
@@ -348,9 +351,9 @@ export function tallyReleases(versions: string[], boards: Board[]): Map<string, 
             const own = issue.release && issue.release !== current ? tally.get(issue.release) : undefined
             if (own) own.issues++
             if (issue.tasks.length) walk(issue.tasks, release)
-            else if (release && tally.has(release)) {
-                const into = tally.get(release)!.kinds
-                for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
+            else {
+                const into = release ? tally.get(release)?.kinds : undefined
+                if (into) for (const kind of Object.keys(into) as (keyof Kinds)[]) into[kind] += issue.kinds[kind]
             }
         }
     }

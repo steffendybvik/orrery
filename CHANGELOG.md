@@ -3,6 +3,65 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.7 (2026-10-27)
+
+- **Sessions and Setup tabs:** the Sessions page has two tabs. Sessions shows what's running, by project; Setup
+  holds starting sessions, what sessions hear and presets. A link to a setup section (Start session's Presets,
+  Getting started's *turn it on*) opens Setup, and with no sessions running the empty note links there too.
+- **Session settings in one place:** What sessions hear and Presets each have a **For** picker on the Sessions
+  page, every project or one project's own, and leave a project's Settings. A project's own standing
+  instructions stay editable there.
+- **Waiting on you:** when an agent asks you for a decision or feedback, the issue says so until you answer: a
+  violet "Needs your decision" (or feedback) chip and tint on its row and card, the question quoted at the top of its
+  Activity with Answer, and *Waiting on you* first on My issues. Through the API an issue carries
+  `waiting: "decision" | "feedback"`.
+- **Sessions across projects:** a session that hears several projects (`ORRERY_PROJECTS=a,b` or `*`) is listed once,
+  in an **Across projects** group on the Sessions page with chips for what it hears, and each project says it also
+  hears it. The sidebar labels it *All projects* or *N projects*. A focus, chunk focus or schedule message aimed at no
+  session goes to one of the project's own idle sessions first; a spanning session takes it only when none is free.
+- **A claimed issue stays with its session:** another session's comment, comment edit or issue edit on an issue a
+  listening session has started is a 409, as starting it already was. Closing it, and the owner's writes, are never
+  refused, and a chunk's issue list tells each session which issues another one holds.
+- **New session on this:** an issue's Claude sessions panel can start a fresh session on it, through the launcher,
+  while others are listening, when the limit has room; before, it could only start one when none was listening.
+- **App settings in tabs:** **You**, **Issues** (statuses, proposals, tracker) and **This Orrery** (tint, secrets,
+  database), each saying what it reaches; a link to a section opens its tab. Watching sessions moves to Sessions →
+  Setup.
+- **Where the data is:** App settings → Database shows the SQLite file and its backups, or the Postgres database as
+  `user@host:port/name` (never the password), each with Copy, and how to move. `GET /api/settings` carries
+  `database: {kind, where, backup?}`.
+- **Skip a message when nothing changed:** a message schedule can skip a run unless an issue or comment in its project
+  changed since the last message it sent (`only_if_changed`, off by default), so a frequent nudge stops waking an idle
+  session for nothing. *Run now* always sends. The database gains a column for it, migrated on start.
+- **New schedule picks its project:** the Schedules toolbar's New schedule is a button, and the project is picked in
+  the dialog, with the same searchable picker as its other fields.
+- **Remove a schedule without right-clicking:** its dialog has Remove, asking once more, and each row has a ⋯ with the
+  right-click menu.
+- **Pictures open over the page:** clicking a picture in a description or comment (or a slider's Before/After label)
+  opens it larger over the dimmed page; a click, Esc or ✕ closes it. Open original and ⌘-click still open a tab.
+- **The board shows only the statuses filtered for:** a status unticked in the Column filter has no column, unless a
+  card is still in it. Done and Canceled, unticked by default, are off the board until ticked or the filter is cleared.
+- **Release steps look like where they lead:** Freeze features is amber with a snowflake, Thaw features has a sun,
+  and Mark shipped today is green with a tick.
+- **One Start session on the Sessions page:** the per-project Start session buttons are gone; the toolbar's dialog
+  already picks the project and says when one can't start.
+- **Play and pause on each schedule:** a round button leads each schedule's row, filled with pause while it runs
+  and outlined with play while it's paused, so you can see at a glance whether it runs.
+- **A dialog's field is focused the first time:** pressing `c` (or opening New project, chunk or schedule) the
+  first time focused nothing, so typing or Esc did nothing; the field is focused from the first open now.
+- **A project shows its issues on a slow start:** the issue filters waited for no statuses and ticked Proposed
+  alone, so a project could show no issues until Clear. They're set once the statuses arrive.
+- **Saved schedules keep running on croner 11:** a step after a number (`5/10`) is still read as from 5 every 10.
+- **No local env files in the image's build:** `.env.*` files and the playground's data stay out of the Docker
+  build context.
+- **Cleanup:** the app and server are linted with eslint in CI, non-null assertions are guards (new ones fail
+  lint), helpers only their file uses aren't exported, and an issue's activity is its own component.
+- **More tests:** component tests (the proposal choices, the Approve panel, the property picker, the owner, new
+  issue, message, start session and schedule dialogs, ⌘K's keys, the row tick, the filter menu and the issue menu),
+  e2e for the keys and the phone layout, screenshot checks of the board, the list and an issue's page, and the e2e
+  flows run on Postgres as well as SQLite.
+- **Dependencies:** `nuxt`, `marked` and the MCP SDK patches, `croner` 11 and `eslint` 10.
+
 ## 1.0.0-rc.6 (2026-10-27)
 
 - **Message every session at once:** Message sessions on the Sessions page says one thing to every listening

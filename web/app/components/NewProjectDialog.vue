@@ -24,8 +24,9 @@ watch(shown, now => {
     if (!now) return
     name.value = key.value = id.value = description.value = failed.value = ''
     keyTouched.value = idTouched.value = false
-    nextTick(() => nameInput.value?.focus())
 }, {immediate: true})
+// Its field takes the cursor once it's there: on the first open the dialog is still loading when the watch above runs.
+watch(nameInput, el => el?.focus())
 watch(name, now => {
     if (!keyTouched.value) key.value = keyFor(now)
     if (!idTouched.value) id.value = slugify(now)

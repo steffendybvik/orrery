@@ -5,7 +5,7 @@ import type {Component} from 'vue'
 const files = import.meta.glob<{default: Component}>('../../node_modules/@heroicons/vue/16/solid/esm/*Icon.js')
 const loaders = new Map(Object.entries(files).map(([path, load]) => [
     // A dash before each word and number, but not inside `3D` or `2X2` (`square-3-stack-3d`, `squares-2x2`).
-    path.split('/').pop()!.replace(/Icon\.js$/, '').replace(/([a-z])(?=[0-9A-Z])|([0-9A-Z])(?=[A-Z][a-z])/g, '$1$2-').toLowerCase(),
+    path.slice(path.lastIndexOf('/') + 1).replace(/Icon\.js$/, '').replace(/([a-z])(?=[0-9A-Z])|([0-9A-Z])(?=[A-Z][a-z])/g, '$1$2-').toLowerCase(),
     load,
 ]))
 

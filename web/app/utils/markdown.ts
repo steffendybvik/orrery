@@ -23,8 +23,8 @@ function blocksOf(root: ParentNode): {element: Element, key: string}[] {
  * Markdown as last read), each block that's new or different since gets the `changed` class; `changed`
  * counts them. */
 export function renderMarkdown(source: string, title?: string, before?: string): {html: string, headings: Heading[], changed: number} {
-    const first = /^\s*#\s+(.+)\n/.exec(source)
-    const body = first && first[1]!.trim().toLowerCase() === title?.trim().toLowerCase() ? source.slice(first[0].length) : source
+    const [heading, text] = /^\s*#\s+(.+)\n/.exec(source) ?? []
+    const body = heading && text && text.trim().toLowerCase() === title?.trim().toLowerCase() ? source.slice(heading.length) : source
     const clean = DOMPurify.sanitize(marked.parse(body, {async: false, gfm: true}), {USE_PROFILES: {html: true}})
 
     const page = new DOMParser().parseFromString(`<div>${clean}</div>`, 'text/html')
@@ -45,11 +45,13 @@ export function renderMarkdown(source: string, title?: string, before?: string):
         link.rel = 'noopener noreferrer'
     })
     compareImages(page)
-    // An image Orrery keeps opens at full size, as a screenshot shrunk to a comment's width is hard to read.
+    // An image Orrery keeps opens larger, as a screenshot shrunk to a comment's width is hard to read: over the page
+    // (plugins/image-view), or in a tab of its own on ⌘-click.
     page.querySelectorAll<HTMLImageElement>('img[src^="/api/uploads/"]').forEach(image => {
         if (image.closest('a, .compare')) return
         const link = page.createElement('a')
-        link.href = image.getAttribute('src')!
+        link.className = 'image-link'
+        link.href = image.getAttribute('src') ?? ''
         link.target = '_blank'
         link.rel = 'noopener'
         image.replaceWith(link)
@@ -69,7 +71,7 @@ export function renderMarkdown(source: string, title?: string, before?: string):
             }
         }
     }
-    return {html: page.body.firstElementChild!.innerHTML, headings, changed}
+    return {html: page.body.firstElementChild?.innerHTML ?? '', headings, changed}
 }
 
 /** Whether the node holds nothing to read: whitespace, or a line break. */
@@ -83,8 +85,8 @@ function blank(node: Node): boolean {
  * Markdown still reads as two pictures. */
 function compareImages(page: Document) {
     for (const before of [...page.querySelectorAll<HTMLImageElement>('p > img')]) {
-        if (!/^before\b/i.test(before.alt)) continue
-        const paragraph = before.parentElement!
+        const paragraph = before.parentElement
+        if (!paragraph || !/^before\b/i.test(before.alt)) continue
         const rest = [...paragraph.childNodes].filter(node => node !== before && !blank(node))
         // The same paragraph: the two pictures and nothing else, before first.
         let after = rest.length === 1 && rest[0] instanceof HTMLImageElement && paragraph.firstElementChild === before ? rest[0] : undefined
@@ -93,7 +95,7 @@ function compareImages(page: Document) {
         if (!rest.length) {
             const next = paragraph.nextElementSibling
             const own = next?.tagName === 'P' ? [...next.childNodes].filter(node => !blank(node)) : []
-            if (own.length === 1 && own[0] instanceof HTMLImageElement) [after, remove] = [own[0], next!]
+            if (next && own.length === 1 && own[0] instanceof HTMLImageElement) [after, remove] = [own[0], next]
         }
         if (!after || !/^after\b/i.test(after.alt)) continue
         paragraph.replaceWith(compareOf(page, before, after))
@@ -112,14 +114,14 @@ function compareOf(page: Document, before: HTMLImageElement, after: HTMLImageEle
     const line = page.createElement('span')
     line.className = 'compare-line'
     line.setAttribute('aria-hidden', 'true')
-    // The labels open each picture at full size.
-    const labels = [[before, 'Before'], [after, 'After']].map(([image, text]) => {
+    // The labels open each picture larger, as an image's link does.
+    const labels = ([[before, 'Before'], [after, 'After']] as const).map(([image, text]) => {
         const label = page.createElement('a')
-        label.className = `compare-label compare-label-${(text as string).toLowerCase()}`
-        label.href = (image as HTMLImageElement).getAttribute('src')!
+        label.className = `compare-label compare-label-${text.toLowerCase()}`
+        label.href = image.getAttribute('src') ?? ''
         label.target = '_blank'
         label.rel = 'noopener'
-        label.textContent = text as string
+        label.textContent = text
         return label
     })
     figure.append(after, before, line, range, ...labels)

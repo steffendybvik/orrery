@@ -1,9 +1,10 @@
 // The column rules: every leaf issue goes where its status puts it, and parents and chunks follow their
 // leaves. Also checks a roadmap in the `roadmap.json` format (chunks of tasks with a status and a plan),
 // which `POST /api/projects/:project/import` takes.
-import type {Board, Choice, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Picks, Place, Priority, Proposal} from '#shared/roadmap'
+import type {Asks, Board, Choice, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Picks, Place, Priority, Proposal} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 import {isObject} from './input'
+import {known} from '#shared/known'
 
 /** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
 export const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
@@ -180,6 +181,7 @@ export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> 
     picks?: Picks
     explore?: {choice: string, option: string}
     comments?: number
+    waiting?: Asks
     aliases?: string[]
     schedule?: number
     release?: string
@@ -237,8 +239,8 @@ class Rules {
             kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
         }
         const column = this.columnOf(counts, kinds)
-        const {id, title, priority, assignee, labels, external = [], status, notes, proposal, decided_by, decided_at, decision_note, choices = [], picks, explore, comments = 0, aliases = [], schedule, release, created_by = '', protected: owned = false, created_at = '', updated_at = ''} = task
-        return {id, title, priority, assignee, labels, external, status, notes, proposal, decided_by, decided_at, decision_note, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, aliases, schedule, release, created_by, protected: owned, created_at, updated_at, tasks}
+        const {id, title, priority, assignee, labels, external = [], status, notes, proposal, decided_by, decided_at, decision_note, choices = [], picks, explore, comments = 0, waiting, aliases = [], schedule, release, created_by = '', protected: owned = false, created_at = '', updated_at = ''} = task
+        return {id, title, priority, assignee, labels, external, status, notes, proposal, decided_by, decided_at, decision_note, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, waiting, aliases, schedule, release, created_by, protected: owned, created_at, updated_at, tasks}
     }
 
     /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.
@@ -247,9 +249,9 @@ class Rules {
         const has = (s: IssueStatus) => (counts[s.id] ?? 0) > 0
         if (!total(kinds) && !kinds.canceled) return kinds.proposed ? 'proposed' : this.first('backlog')
         if (!open(kinds)) {
-            return this.statuses.find(s => s.kind === 'done' && has(s))?.id ?? this.statuses.find(s => CLOSED.includes(s.kind) && has(s))!.id
+            return this.statuses.find(s => s.kind === 'done' && has(s))?.id ?? known(this.statuses.find(s => CLOSED.includes(s.kind) && has(s)), 'a closed status with issues').id
         }
-        return this.open.find(has)!.id
+        return known(this.open.find(has), 'an open status with issues').id
     }
 
     sum(issues: {counts: Counts, kinds: Kinds}[]): {counts: Counts, kinds: Kinds} {
@@ -289,7 +291,7 @@ function jsonProblem(text: string, error: unknown): string {
     const position = /position (\d+)/.exec(message)
     if (!position || /line \d+/.test(message)) return message
     const before = text.slice(0, Number(position[1])).split('\n')
-    return `${message} (line ${before.length}, column ${before.at(-1)!.length + 1})`
+    return `${message} (line ${before.length}, column ${(before.at(-1) ?? '').length + 1})`
 }
 
 /** A column as a session reads it: its status's name, or Proposed. */

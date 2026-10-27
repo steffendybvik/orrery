@@ -5,6 +5,7 @@
 // comes to mean another issue.
 import type {DatabaseSync, SQLInputValue} from 'node:sqlite'
 import type {Db} from './database'
+import {one} from './database'
 
 /** An id an issue had, pointed at its id now (replacing where it pointed before). */
 export const UPSERT_ISSUE_ALIAS = 'INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?) ON CONFLICT (project, alias) DO UPDATE SET issue = excluded.issue'
@@ -24,7 +25,7 @@ const ISSUES = 'SELECT id, parent, chunk FROM issues WHERE project = ? ORDER BY 
 
 /** Run with foreign keys off or deferred: rows point at ids that are changing. */
 export async function renumber(db: Db, project: string) {
-    const statements = plan(project, (await db.get<Project>(KEY, project))!, await db.all<{id: string}>(CHUNKS, project), await db.all<Issue>(ISSUES, project))
+    const statements = plan(project, await one<Project>(db, KEY, project), await db.all<{id: string}>(CHUNKS, project), await db.all<Issue>(ISSUES, project))
     for (const statement of statements) await db.run(...statement)
 }
 

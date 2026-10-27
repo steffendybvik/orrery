@@ -1,8 +1,6 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import type {ConnectTarget} from '#shared/connect'
 import {connectPieces, idsFor} from '#shared/connect'
-import {openDb} from '../server/utils/db'
-import {SqliteDb} from '../server/utils/database'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 

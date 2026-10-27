@@ -54,11 +54,11 @@ export async function openFeed(project: string, who: Listener, from: number | un
         const templates = await store.prompts(project)
         const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
         const name = (column: string) => columnName(column, statuses)
-        if (signal.kind === 'message' && signal.schedule === undefined) return {...signal, title: null, column: null, priority: null, chunk: null}
         if (signal.kind === 'message') {
+            if (signal.schedule === undefined) return {...signal, title: null, column: null, priority: null, chunk: null}
             let title = 'a schedule'
             try {
-                title = (await useScheduler().get(project, signal.schedule!)).title
+                title = (await useScheduler().get(project, signal.schedule)).title
             } catch {
                 // The schedule is gone since; its message still stands.
             }
@@ -67,14 +67,17 @@ export async function openFeed(project: string, who: Listener, from: number | un
         if (!signal.issue) {
             const {chunk, title, wanted, open: matching} = await scopeOf(store, project, signal)
             const open = matching.map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
+            // Another session's, while it's there: refused to this one (Store.claim), so it's marked to skip.
+            const me = who.session ? currentId(who.session) : undefined
+            const taken = new Set(me ? (await Promise.all(open.map(async i => await store.takenFrom(project, i.id, me) ? i.id : null))).filter(Boolean) : [])
             const status = wanted.length ? wanted.map(s => statuses.find(st => st.id === s)?.name ?? s).join(' or ') : undefined
-            const query = new URLSearchParams({...signal.chunk === 'all' ? {} : {chunk: signal.chunk!}, ...signal.status ? {status: signal.status} : {}, ...signal.release ? {release: signal.release} : {}})
+            const query = new URLSearchParams({...!signal.chunk || signal.chunk === 'all' ? {} : {chunk: signal.chunk}, ...signal.status ? {status: signal.status} : {}, ...signal.release ? {release: signal.release} : {}})
             const prompt = renderPrompt(templates.chunk, {
                 actor: signal.created_by, chunk: signal.chunk, title, status: status ?? 'open', priority: chunk.priority,
                 where: where(name(chunk.column), chunk.priority), note: signal.note,
-                issues: open.map(i => issueLine(i, statuses)).join('\n') || '- none left',
-                url: signal.chunk === 'none' || signal.chunk === 'all' || signal.release || signal.status?.includes(',')
-                    ? `'${api}/issues?${query}'` : `${api}/chunks/${encodeURIComponent(signal.chunk!)}`,
+                issues: open.map(i => issueLine(i, statuses) + (taken.has(i.id) ? ' (another session is on it: skip it)' : '')).join('\n') || '- none left',
+                url: !signal.chunk || signal.chunk === 'none' || signal.chunk === 'all' || signal.release || signal.status?.includes(',')
+                    ? `'${api}/issues?${query}'` : `${api}/chunks/${encodeURIComponent(signal.chunk)}`,
             }, await withFreeze(signal.release)).replace(' []', '')
             return {...signal, status, title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
         }
@@ -189,7 +192,7 @@ export async function streamFeed(stream: {push: (message: {id?: string, event: s
     const send = (signal: Signal) => {
         if (!feed.wanted(signal) || !feed.mine(signal)) return
         if (!unread(signal)) return push(signal)
-        store.delivered(project, signal.id, sessionName(attended!.id) ?? name ?? 'a session')
+        store.delivered(project, signal.id, (attended && sessionName(attended.id)) ?? name ?? 'a session')
             .catch(error => console.error(`[orrery] a repeat for ${project}:`, error))
     }
     feed.onIdle(send)

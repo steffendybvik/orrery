@@ -307,6 +307,8 @@ const STEPS: string[] = [`
 `, `
     ALTER TABLE presets ADD COLUMN icon text;
     ALTER TABLE presets ADD COLUMN color text;
+`, `
+    ALTER TABLE schedules ADD COLUMN only_if_changed integer NOT NULL DEFAULT 0;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether
@@ -349,7 +351,7 @@ export class PostgresDb implements Db {
     }
 
     async transaction<T>(work: () => Promise<T>): Promise<T> {
-        if (this.inside()) return work()
+        if (this.ongoing()) return work()
         await this.ready
         const client = await this.pool.connect()
         const transaction = {db: this, client, open: true}
@@ -367,9 +369,10 @@ export class PostgresDb implements Db {
         }
     }
 
-    private inside(): boolean {
+    /** The open transaction of this database the code running now is part of, if any. */
+    private ongoing() {
         const transaction = current.getStore()
-        return transaction?.db === this && transaction.open
+        return transaction?.db === this && transaction.open ? transaction : undefined
     }
 
     async close() {
@@ -380,7 +383,8 @@ export class PostgresDb implements Db {
         await this.ready
         const text = numbered(sql)
         const values = params.map(value => typeof value === 'bigint' ? Number(value) : value)
-        return this.inside() ? current.getStore()!.client.query(text, values) : this.pool.query(text, values)
+        const transaction = this.ongoing()
+        return transaction ? transaction.client.query(text, values) : this.pool.query(text, values)
     }
 
     /** Lays down the baseline on an empty database, then the steps after it; one server at a time. */

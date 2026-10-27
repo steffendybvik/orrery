@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type {Kinds} from '#shared/roadmap'
 import {emptyKinds, isFrozen} from '#shared/roadmap'
+import {CheckIcon, SunIcon} from '@heroicons/vue/16/solid'
 
 // A release's page: whether it shipped (and when), the branch its work gathers on with its PRs (when the
 // project says where its code is), its notes, a changelog drafted from its issues, and every one of those
@@ -23,7 +24,8 @@ const whole = computed(() => source.value?.releases.find(r => r.version === vers
 // Each project's part: on its source, the source's and then each drawing on it with issues in it; else this project's.
 const parts = computed(() => {
     if (!project.value || !release.value) return []
-    const shown = project.value.releases_from ? [project.value] : [project.value, ...projects.value.filter(p => p.releases_from === project.value!.id)]
+    const {id} = project.value
+    const shown = project.value.releases_from ? [project.value] : [project.value, ...projects.value.filter(p => p.releases_from === id)]
     return shown.map(p => {
         const chunks = releaseChunks(p, version.value)
         const tasks = chunks.flatMap(c => c.tasks)
@@ -156,10 +158,19 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
               :title="isFrozen(release) ? 'Feature freeze: fixes, tests and docs; a new feature goes on the next release' : undefined"
           >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : isFrozen(release) ? `Frozen ${release.frozen_on}` : 'Preparing' }}</span>
           <template v-if="!release.shipped_on">
-            <UiButton v-if="!release.frozen_on" :disabled="saving" title="From now on it takes fixes, tests and docs; a new feature goes on the next release" @click="freeze">Freeze features</UiButton>
-            <UiButton v-else :disabled="saving" @click="thaw">Thaw</UiButton>
+            <UiButton v-if="!release.frozen_on" variant="warning-outline" :disabled="saving" title="From now on it takes fixes, tests and docs; a new feature goes on the next release" @click="freeze">
+              <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 2 3-2M9 20l3-2 3 2M4 10.5l2.6-1.5-.1-3.5M20 13.5 17.4 15l.1 3.5M4 13.5 6.6 15l-.1 3.5M20 10.5 17.4 9l.1-3.5" /></svg>
+              Freeze features
+            </UiButton>
+            <UiButton v-else :disabled="saving" title="Back to preparing: it takes new features again" @click="thaw">
+              <SunIcon class="size-3.5" />
+              Thaw features
+            </UiButton>
           </template>
-          <UiButton v-if="!release.shipped_on" :disabled="saving" @click="ship">Mark shipped today</UiButton>
+          <UiButton v-if="!release.shipped_on" variant="success-outline" :disabled="saving" @click="ship">
+            <CheckIcon class="size-3.5" />
+            Mark shipped today
+          </UiButton>
           <UiButton v-else :disabled="saving" @click="unship">Not shipped yet</UiButton>
           <span class="ml-auto flex items-center gap-2">
             <UiConfirm v-if="confirmingRemove" inline :busy="saving" @confirm="remove" @cancel="confirmingRemove = false">

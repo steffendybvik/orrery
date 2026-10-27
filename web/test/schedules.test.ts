@@ -1,7 +1,5 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {Signal} from '#shared/roadmap'
-import {openDb} from '../server/utils/db'
-import {SqliteDb} from '../server/utils/database'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -40,6 +38,11 @@ describe('schedules', () => {
         // 09:00 in Oslo is 07:00 or 08:00 UTC, depending on the season.
         expect(new Date(s.next_run!).getUTCHours()).toBeGreaterThanOrEqual(7)
         expect(new Date(s.next_run!).getUTCMinutes()).toBe(0)
+    })
+
+    it('read a step after a number as croner 9 did, so schedules saved with one keep running', async () => {
+        const s = await schedules.create('larder', {title: 'Water', cron: '5/10 * * * *', timezone: 'UTC'}, me)
+        expect(new Date(s.next_run!).getUTCMinutes() % 10).toBe(5)
     })
 
     it('refuse a bad cron, a bad zone, a past one-off, or both kinds of time', async () => {
@@ -120,6 +123,26 @@ describe('schedules', () => {
         expect(message!.issue).toBeUndefined()
         expect((await store.unheardScheduled('larder')).map(s => s.id)).toEqual([message!.id])
         expect((await schedules.update('larder', mine.id, {kind: 'issue'}, me)).kind).toBe('issue')
+    })
+
+    it('skip a message run when nothing in the project changed since the last one sent, if asked to', async () => {
+        const s = await schedules.create('larder', {kind: 'message', title: 'Nudge', notes: 'Idle? Pick an issue.', cron: '*/15 * * * *', timezone: 'UTC', only_if_changed: true}, me)
+        expect(s.only_if_changed).toBe(true)
+        const first = new Date(new Date(s.next_run!).getTime() + 1000)
+        const later = (minutes: number) => new Date(first.getTime() + minutes * 60_000)
+        await schedules.runDue(first)
+        await schedules.runDue(later(15))
+        expect((await schedules.get('larder', s.id)).runs.map(r => [r.outcome, r.note])).toEqual([
+            ['skipped', 'nothing changed'], ['sent', 'nobody listening; the next session to connect gets it'],
+        ])
+        // An issue that changed after the last message sent: the next run goes out.
+        const issue = await store.createIssue('larder', {title: 'Shelves'})
+        await store.db.run('UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?', later(20).toISOString(), 'larder', issue.id)
+        await schedules.runDue(later(30))
+        expect((await schedules.get('larder', s.id)).runs[0]!.outcome).toBe('sent')
+        // A run by hand goes out whatever changed.
+        expect((await schedules.runNow('larder', s.id, me)).outcome).toBe('sent')
+        expect((await schedules.create('larder', {kind: 'message', title: 'Plain', notes: 'hi', cron: '0 9 * * *', timezone: 'UTC'}, me)).only_if_changed).toBe(false)
     })
 
     it('keep the owner’s message from an agent that would send its own as theirs', async () => {

@@ -4,6 +4,7 @@ import {badRequest, checkInput, notFound} from '../utils/input'
 import type {PresetRow} from './schema'
 import {AGENT, PRESET_FIELDS, nullable, presetInput, stamp} from './schema'
 import {ProjectStore} from './projects'
+import {known} from '#shared/known'
 
 export abstract class PresetStore extends ProjectStore {
     /** The Orrery's presets, by name; with a project, those a session on it can have: the Orrery's, then its own. */
@@ -25,9 +26,9 @@ export abstract class PresetStore extends ProjectStore {
         const input = checkInput(body, PRESET_FIELDS)
         const {name, text} = presetInput(input)
         const now = stamp()
-        const row = await this.get<{id: number}>('INSERT INTO presets (project, name, text, icon, color, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
-            project, name!, text!, nullable(input.icon), nullable(input.color), actor.name, Number(actor.owner), now, now)
-        return await this.preset(Number(row!.id))
+        const row = await this.one<{id: number}>('INSERT INTO presets (project, name, text, icon, color, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+            project, known(name, 'a name'), known(text, 'a text'), nullable(input.icon), nullable(input.color), actor.name, Number(actor.owner), now, now)
+        return await this.preset(Number(row.id))
     }
 
     /** Renames a preset, or changes its text or badge (null takes the icon or colour off); whose it is stays. */
@@ -51,6 +52,6 @@ export abstract class PresetStore extends ProjectStore {
         const usable = await this.presets(project)
         const unknown = ids.filter(id => !usable.some(p => p.id === id))
         if (unknown.length) throw badRequest(`No preset ${unknown.join(', ')} for ${project}; its sessions can have ${usable.map(p => `${p.id} (${p.name})`).join(', ') || 'none yet'}`)
-        return [...new Set(ids)].map(id => usable.find(p => p.id === id)!)
+        return [...new Set(ids)].map(id => known(usable.find(p => p.id === id), `preset ${id}`))
     }
 }

@@ -58,7 +58,7 @@ const {isOpen, set: setFolds, toggle} = useProjectFolds()
 const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p => isOpen(p.id)))
 
 // Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged. One that hears
-// several projects is listed once, under its own, with the others in its tooltip.
+// several projects is listed once, as spanning them (All projects, or how many), with them in its tooltip.
 const {open: startSession} = useStartSession()
 /** Whether any project lets Orrery start sessions, so Start session has somewhere to go. */
 const canStart = computed(() => ordered.value.some(p => p.starts))
@@ -68,6 +68,11 @@ const allSessions = computed(() => ordered.value
 
 /** The other projects a session hears, by name. */
 const alsoNames = (session: Session) => (session.also ?? []).map(id => projects.value.find(p => p.id === id)?.name ?? id)
+/** Where a session that spans projects says it is, in place of its own project's name. */
+const spanLabel = (session: Session) => {
+    const heard = heardBy(session, projects.value)
+    return heard.all ? 'All projects' : heard.spans ? `${heard.ids.length} projects` : null
+}
 
 function nudge(id: string, by: number, event: KeyboardEvent) {
     const from = ordered.value.findIndex(p => p.id === id)
@@ -262,8 +267,11 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           <SessionDot :session="session" />
           <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
           <span class="flex min-w-0 max-w-[40%] items-center gap-1 text-[11px] text-faint">
-            <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3" />
-            <span class="truncate">{{ project.name }}</span>
+            <span v-if="spanLabel(session)" class="truncate">{{ spanLabel(session) }}</span>
+            <template v-else>
+              <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3" />
+              <span class="truncate">{{ project.name }}</span>
+            </template>
           </span>
           <span class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
         </NuxtLink>

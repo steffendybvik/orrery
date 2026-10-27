@@ -3,7 +3,7 @@ import type {Notice, NoticeList, Owner} from '#shared/roadmap'
 import {NOTICE_LISTS} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, forbidden} from '../utils/input'
-import type {Actor, CommentRow} from './schema'
+import type {CommentRow} from './schema'
 import {AGENT, OWNER_FIELDS, actorId, ANSWERED, commentOf} from './schema'
 import {StatusStore} from './statuses'
 
@@ -73,7 +73,7 @@ export abstract class OwnerStore extends StatusStore {
                 WHERE c.owned = 0) AS listed
             WHERE ${which} ${after}
             ORDER BY ${list === 'bell' ? '(asks IS NOT NULL AND NOT answered) DESC, ' : ''}created_at DESC, id DESC ${count ? 'LIMIT ?' : ''}`,
-        ...after ? [before!] : [], ...count ? [count] : []))
+        ...after && before !== undefined ? [before] : [], ...count ? [count] : []))
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 

@@ -3,7 +3,8 @@ import type {Chunk, Column, Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // Issues as cards in their columns, started first and closed last. A parent stands for its
-// sub-issues. Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
+// sub-issues. A status the filter leaves out has no column, unless a card is in it (a parent kept for a sub-issue
+// that matches). Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
 // column's header has a tick (GroupTick) for all its cards.
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()
@@ -12,6 +13,7 @@ const {open: openMenu} = useIssueMenu()
 const {columns: order, look} = useStatuses()
 const {selected, isSelected, toggle} = useSelection()
 const {settings} = useAppSettings()
+const {filters} = useFilters()
 function click(event: MouseEvent, issue: Issue) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
     else open(props.project, issue.id)
@@ -20,7 +22,9 @@ const unfolded = ref<Column[]>([])
 
 const columns = computed(() => {
     const issues = props.chunks.flatMap(chunk => chunk.tasks.map(issue => ({issue, chunk})))
+    const picked = filters.value.columns
     return order.value.map(({id}) => ({column: id, cards: issues.filter(({issue}) => issue.column === id)}))
+        .filter(({column, cards}) => !picked.length || picked.includes(column) || cards.length)
 })
 const folded = (column: Column) => isClosed(look(column).kind) && !unfolded.value.includes(column)
 const fold = (column: Column) => unfolded.value = unfolded.value.includes(column) ? unfolded.value.filter(c => c !== column) : [...unfolded.value, column]
@@ -72,7 +76,7 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             tabindex="0"
             role="button"
             class="group flex cursor-pointer flex-col gap-2 rounded-xl border bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
-            :class="[isSelected(project, issue.id) ? 'border-accent-500/60 bg-accent-500/5' : isLast(project, issue.id) ? 'border-faint/50' : 'border-line', issueUnseen(project, issue) && 'unseen-row']"
+            :class="[isSelected(project, issue.id) ? 'border-accent-500/60 bg-accent-500/5' : isLast(project, issue.id) ? 'border-faint/50' : 'border-line', issue.waiting ? 'waiting-row' : issueUnseen(project, issue) && 'unseen-row']"
             @click="click($event, issue)"
             @contextmenu="openMenu($event, project, issue.id)"
         >
@@ -87,6 +91,7 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" class="mt-0.5" />
             <p class="line-clamp-3 min-w-0 flex-1 text-[13px] leading-snug" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', issueUnseen(project, issue) ? 'font-semibold' : '']"><InlineText :text="issue.title" /></p>
           </div>
+          <WaitingChip v-if="issue.waiting" :asks="issue.waiting" class="self-start" />
           <div class="flex flex-wrap items-center gap-1.5">
             <span class="grid size-5 place-items-center rounded ring-1 ring-line"><PriorityIcon :priority="issue.priority" :size="12" /></span>
             <span v-if="issue.tasks.length" class="flex h-5 items-center gap-1 rounded px-1.5 font-mono text-[10px] text-faint ring-1 ring-line"><ProgressRing :kinds="issue.kinds" bare :size="11" />{{ subs(issue) }}</span>

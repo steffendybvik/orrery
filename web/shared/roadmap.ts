@@ -68,7 +68,8 @@ export type Picks = Record<string, string[]>
 export function liveChoices(choices: Choice[], picks: Picks): Choice[] {
     const live: Choice[] = []
     for (const choice of choices) {
-        if (!choice.from || (live.some(c => c.key === choice.from!.choice) && (picks[choice.from.choice] ?? []).includes(choice.from.option))) live.push(choice)
+        const from = choice.from
+        if (!from || (live.some(c => c.key === from.choice) && (picks[from.choice] ?? []).includes(from.option))) live.push(choice)
     }
     return live
 }
@@ -113,6 +114,8 @@ export interface Issue {
     counts: Counts
     kinds: Kinds
     comments: number
+    /** An agent's question on it the owner hasn't answered yet (no comment of theirs after it): what it waits for. */
+    waiting?: Asks
     /** Ids it had before (e.g. `MOT-5`), which still find it. */
     aliases: string[]
     /** The schedule that made it, if one did. */
@@ -176,8 +179,8 @@ export const isFrozen = (release: Pick<Release, 'frozen_on' | 'shipped_on'> | un
 
 /** What a session hears about an issue set for a release in feature freeze: a preference, never a refusal. */
 export function freezeNote(release: Pick<Release, 'version' | 'frozen_on' | 'shipped_on'> | undefined): string | null {
-    if (!isFrozen(release)) return null
-    return `${release!.version} is in feature freeze (since ${release!.frozen_on}): it takes fixes, tests and docs. Put a new feature on the next release instead, so this one can go out.`
+    if (!release || !isFrozen(release)) return null
+    return `${release.version} is in feature freeze (since ${release.frozen_on}): it takes fixes, tests and docs. Put a new feature on the next release instead, so this one can go out.`
 }
 
 /** A doc without its text, as a project lists it. */
@@ -350,6 +353,8 @@ export interface Schedule {
     ask: boolean
     /** Skips a run while the issue from the last one isn't done. */
     skip_open: boolean
+    /** A message schedule: skips a run when no issue or comment in the project changed since the last one it sent. */
+    only_if_changed: boolean
     enabled: boolean
     /** When it runs next; none once it's paused or a one-off has run. */
     next_run?: string
@@ -387,12 +392,22 @@ export interface Starts {
 export const TERMINALS = {terminal: 'Terminal', iterm: 'iTerm2', warp: 'Warp', ghostty: 'Ghostty'} as const
 export type TerminalApp = keyof typeof TERMINALS
 
+/** Where this Orrery keeps its data, as App settings shows it (read only): a SQLite file's path, or a Postgres
+ * database as `user@host:port/name`, never its password; and the folder a SQLite file is backed up to, if any. */
+export interface DatabaseInfo {
+    kind: 'sqlite' | 'postgres'
+    where: string
+    backup?: string
+}
+
 export interface Settings {
     /** This Orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
      * talking to the same Orrery (ORRERY_ID), whatever its address. */
     id: string
     /** Which Orrery this is (`personal`, `work`), as it's run; a channel serving it is named `orrery-<environment>`. */
     environment?: string
+    /** Where its data is (`GET /api/settings` only). */
+    database?: DatabaseInfo
     /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
     tint: string | null
     /** The issue statuses, in board order. */
@@ -406,7 +421,7 @@ export interface Settings {
     /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;
      * none uses their id. */
     handle: string | null
-    /** Where the team's tracker shows a task, with `{id}` for its id: `https://linear.app/circuly/issue/{id}`. */
+    /** Where the team's tracker shows a task, with `{id}` for its id: `https://linear.app/acme/issue/{id}`. */
     tracker: string | null
     /** Whether Orrery starts sessions itself, for any project whose repo has a launcher, and within what; none
      * while the owner hasn't let it. */

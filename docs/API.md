@@ -184,7 +184,7 @@ instead of `done` when it won't ship.
 | | |
 |---|---|
 | `GET /projects/:project/issues/:issue/comments` | oldest first |
-| `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked |
+| `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked. Until then the issue reads `waiting: "decision"` or `"feedback"` (its latest open ask), and the app marks it on its row, card and page |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
 | `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release` or `project` (moved in from `before`) |
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell). `?list=waiting` is every one still waiting; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
@@ -213,13 +213,14 @@ time a schedule makes an issue (its title plus the day, e.g.
 `Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
 the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
 is listening, the next to connect within a day gets it). With `skip_open` (the default) a run is skipped
-while the last run's issue isn't done. Missed runs while Orrery was down run once when it's back.
+while the last run's issue isn't done; with `only_if_changed`, a message run is skipped (`nothing changed`) when no
+issue or comment in the project changed since the last run it sent. Missed runs while Orrery was down run once when it's back.
 
 | | |
 |---|---|
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
-| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
+| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron or at, timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?}`; the owner's, only by the owner |
 
@@ -290,7 +291,9 @@ server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per O
 projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 `GET /settings` says the Orrery's `id` (made once, when it first starts) and `environment`: a channel given
-`ORRERY_ID` refuses an Orrery with another id. A session heard on several projects is listed on each one's
+`ORRERY_ID` refuses an Orrery with another id. It also says where the data is, read only: `database: {kind, where,
+backup?}`, `kind` `sqlite` (`where` the file's path) or `postgres` (`where` as `user@host:port/name`, never the
+password), and `backup` the folder a SQLite file is copied to, if any. A session heard on several projects is listed on each one's
 group on the Sessions page, with the others in `also`. A channel that finds the name its server goes by in the
 repo's `.mcp.json` sends it (`?server=`), and the session lists it as `server`, for the command that restarts it with
 the channel.
@@ -354,7 +357,8 @@ with review instructions in it.
 `POST …/focus` takes `{session}` to reach one session, or `{session: "*"}` for every session on the project.
 Without it, one session gets it, and Orrery picks which: for an issue, the session already on it if that one is
 listening; else whichever listening session is idle when it comes; else, with every one busy, the next to go idle
-(within a day). A schedule's message goes the same way. A focus on one session makes it the issue's session, unless another listening session has the issue started:
+(within a day). The project's own sessions come first: a session whose channel hears several projects
+(`ORRERY_PROJECTS`) gets it only while none of the project's own is listening and idle. A schedule's message goes the same way. A focus on one session makes it the issue's session, unless another listening session has the issue started:
 then it stays with that one, and the session asked gets the 409 if it tries to start it. Each signal lists the sessions it reached in `delivered_to`
 (`POST /projects/:project/signals/:signal/delivered`, sent by the channel).
 
@@ -398,9 +402,11 @@ for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's n
 `/api/guide` is this reference alone. A Claude session with Orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
 make these calls for it. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
-to the issue, so the owner's comments on it go to that session. Such a write that starts an issue another
-session has started (in progress or in review), while that session is still listening, is refused with a 409:
-pick another issue. Two sessions starting the same issue at once are taken one after the other, so only the first
+to the issue, so the owner's comments on it go to that session. Such a write to an issue another session has
+started (in progress or in review), while that session is still listening, is refused with a 409: starting it, a
+comment or an edit alike, so pick another issue. Closing it (done, canceled) is any session's, and the owner's
+writes are never refused. A chunk's list marks such an issue `(another session is on it: skip it)` for the
+other sessions. Two sessions starting the same issue at once are taken one after the other, so only the first
 gets it.
 
 An issue id is only unique within its Orrery, and an Orrery is one person's board. So when a commit body

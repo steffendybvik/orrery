@@ -1,14 +1,16 @@
 // What every part of the store stands on: the database, telling open pages of a change, reading rows and
 // records, the owner's protection, and writing.
-import type {ActivityField, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Notice, Picks, Project, Release, Settings, Signal, Starts} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Notice, Picks, Project, Release, Settings, Signal, Starts} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, forbidden, notFound} from '../utils/input'
 import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db, Value} from '../utils/database'
+import {one} from '../utils/database'
 import type {Instruction} from '#shared/prompt'
 import type {IssueRecord, ChunkRecord, Actor, ProjectRow, ChunkRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
-import {KEY, tallyReleases, releaseOf, noReleases, nullable, stamp} from './schema'
+import {OPEN_ASK, tallyReleases, releaseOf, noReleases, nullable, stamp} from './schema'
+import {known} from '#shared/known'
 
 export abstract class StoreBase {
     constructor(
@@ -93,7 +95,7 @@ export abstract class StoreBase {
             project.releases_from ?? project.id)
         const boards = project.releases_from ? [board] : [board, ...await Promise.all((await this.drawingOn(project.id)).map(id => this.board(id)))]
         const tally = tallyReleases(rows.map(r => r.version), boards)
-        return rows.map(row => ({...releaseOf(row), ...tally.get(row.version)!}))
+        return rows.map(row => ({...releaseOf(row), ...known(tally.get(row.version), `a tally for ${row.version}`)}))
     }
 
     /** A project's docs by title, A–Z, sorted here rather than in SQL so SQLite and Postgres agree on case and accents. */
@@ -108,6 +110,9 @@ export abstract class StoreBase {
         const issues = await this.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
         const comments = new Map((await this.all<{issue: string, n: number}>('SELECT issue, count(*) AS n FROM comments WHERE project = ? GROUP BY issue', project))
             .map(r => [r.issue, r.n]))
+        // Each issue's latest question from an agent that no comment of the owner's has come after.
+        const waiting = new Map((await this.all<{issue: string, asks: Asks}>(`SELECT c.issue, c.asks FROM comments c WHERE c.project = ? AND ${OPEN_ASK} ORDER BY c.id`, project))
+            .map(r => [r.issue, r.asks]))
         const aliases = async (table: 'issue_aliases' | 'chunk_aliases', column: 'issue' | 'chunk') => {
             const found = new Map<string, string[]>()
             for (const row of await this.all<{alias: string, of: string}>(`SELECT alias, ${column} AS of FROM ${table} WHERE project = ? ORDER BY alias`, project)) {
@@ -137,6 +142,7 @@ export abstract class StoreBase {
             picks: row.picks ? JSON.parse(row.picks) as Picks : undefined,
             explore: row.explore ? JSON.parse(row.explore) as {choice: string, option: string} : undefined,
             comments: comments.get(row.id) ?? 0,
+            waiting: waiting.get(row.id),
             aliases: issueAliases.get(row.id) ?? [],
             schedule: row.schedule ?? undefined,
             release: row.ships_in ?? undefined,
@@ -209,7 +215,7 @@ export abstract class StoreBase {
         // Each number is taken in one statement, so two writers never get the same one; one an import
         // already used, or that's still an id something had, is skipped.
         for (;;) {
-            const {n} = (await this.get<{n: number}>(`UPDATE projects SET ${column} = ${column} + 1 WHERE id = ? RETURNING ${column} - 1 AS n`, project))!
+            const {n} = await this.one<{n: number}>(`UPDATE projects SET ${column} = ${column} + 1 WHERE id = ? RETURNING ${column} - 1 AS n`, project)
             if (!await this.get(`SELECT 1 FROM ${table} WHERE project = ? AND id = ? UNION SELECT 1 FROM ${aliases} WHERE project = ? AND alias = ?`, project, name(n), project, name(n))) return name(n)
         }
     }
@@ -336,6 +342,10 @@ export abstract class StoreBase {
 
     protected get<T>(sql: string, ...params: Value[]) {
         return this.db.get<T>(sql, ...params)
+    }
+
+    protected one<T>(sql: string, ...params: Value[]) {
+        return one<T>(this.db, sql, ...params)
     }
 
     protected all<T>(sql: string, ...params: Value[]) {

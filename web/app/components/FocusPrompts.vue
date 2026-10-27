@@ -4,7 +4,7 @@ import type {Project} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, PLACEHOLDERS, renderPrompt} from '#shared/prompt'
 
 // What a Claude session hears when asked to focus: the two templates (an issue, a chunk's issues) and the
-// standing instructions added to every focus. On the Sessions page they're the Orrery's; with `project`, that
+// standing instructions added to every focus. Without `project` they're the Orrery's (every project's); with it, that
 // project's own templates (empty follows the Orrery's), its own instructions, and the Orrery's it switches off.
 // Each template shows what it's for and whose it is; its text opens with Edit.
 const props = defineProps<{project?: Project}>()
@@ -19,12 +19,12 @@ const KINDS = [
 type Key = (typeof KINDS)[number]['key']
 
 /** What a template follows when left empty: the Orrery's for a project, else the default. */
-const inherited = (key: Key) => (props.project ? settings.value[key] : null) ?? KINDS.find(k => k.key === key)!.fallback
+const inherited = (key: Key) => (props.project ? settings.value[key] : null) ?? KINDS.find(k => k.key === key)?.fallback ?? ''
 const saved = (key: Key) => (props.project ? props.project[key] : settings.value[key]) ?? ''
 const drafts = reactive<Record<Key, string>>({focus_prompt: '', chunk_prompt: ''})
-watch(() => [saved('focus_prompt'), saved('chunk_prompt')], ([focus, chunk]) => {
-    drafts.focus_prompt = focus!
-    drafts.chunk_prompt = chunk!
+watch(() => [saved('focus_prompt'), saved('chunk_prompt')] as const, ([focus, chunk]) => {
+    drafts.focus_prompt = focus
+    drafts.chunk_prompt = chunk
 }, {immediate: true})
 
 async function save(change: Record<string, unknown>) {
@@ -92,7 +92,8 @@ const toggle = (line: Instruction) => saveLines(own.value.map(l => l.id === line
 const remove = (line: Instruction) => saveLines(own.value.filter(l => l.id !== line.id))
 /** On a project, one of the Orrery's instructions switched on or off for it. */
 function mute(line: Instruction) {
-    const muted = props.project!.muted
+    if (!props.project) return
+    const muted = props.project.muted
     save({muted: muted.includes(line.id) ? muted.filter(id => id !== line.id) : [...muted, line.id]})
 }
 
@@ -143,7 +144,7 @@ const line = 'h-8 min-w-0 flex-1 field'
         <h3 class="text-[13px] font-medium text-fg">Standing instructions</h3>
         <p class="text-xs text-muted">
           Lines added to every focus, such as "commit whenever a piece works". Ticked ones go by default; the focus panel lets you
-          change that for one send.<template v-if="project"> The Orrery's are on the Sessions page; switch them off for this project here.</template>
+          change that for one send.<template v-if="project"> Every project's are under Every project; switch them off for this one here.</template>
         </p>
       </div>
 

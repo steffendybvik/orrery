@@ -832,6 +832,21 @@ describe('comments that wait on the owner', () => {
         expect((await failure(() => store.createComment('larder', id, {body: 'x', asks: 'vibes'}, agent))).status).toBe(400)
     })
 
+    it('say on the issue what it waits on the owner for, until they comment', async () => {
+        const {id} = await store.createIssue('larder', {title: 'A'})
+        const agent = {name: 'claude', owner: false}
+        const skoll = {name: 'skoll', owner: true}
+        expect((await store.issue('larder', id)).waiting).toBeUndefined()
+        await store.createComment('larder', id, {body: 'Ship it?', asks: 'decision'}, agent)
+        expect((await store.issue('larder', id)).waiting).toBe('decision')
+        // The latest open question is the one it waits on.
+        await store.createComment('larder', id, {body: 'And the copy?', asks: 'feedback'}, agent)
+        expect((await store.issue('larder', id)).waiting).toBe('feedback')
+        // The owner's own question isn't one they wait on.
+        await store.createComment('larder', id, {body: 'Yes, ship it', asks: 'decision'}, skoll)
+        expect((await store.issue('larder', id)).waiting).toBeUndefined()
+    })
+
     it("make the issue the owner's until they answer, then the asker's again", async () => {
         const {id} = await store.createIssue('larder', {title: 'A', assignee: 'claude'})
         const agent = {name: 'claude', owner: false}
@@ -1191,8 +1206,8 @@ describe('settings', () => {
         expect((await store.listActivity('larder', id)).filter(e => e.field === 'external').map(e => [e.before, e.after]))
             .toEqual([['["CIR-1567"]', '["CIR-1567","https://linear.app/x/issue/CIR-9"]']])
         expect((await store.updateIssue('larder', id, {external: null})).external).toEqual([])
-        expect((await store.updateSettings({tracker: 'https://linear.app/circuly/issue/{id}'}, owner)).tracker).toBe('https://linear.app/circuly/issue/{id}')
-        expect((await failure(() => store.updateSettings({tracker: 'https://linear.app/circuly'}, owner))).status).toBe(400)
+        expect((await store.updateSettings({tracker: 'https://linear.app/acme/issue/{id}'}, owner)).tracker).toBe('https://linear.app/acme/issue/{id}')
+        expect((await failure(() => store.updateSettings({tracker: 'https://linear.app/acme'}, owner))).status).toBe(400)
     })
 })
 
@@ -1324,11 +1339,27 @@ describe('starting an issue', () => {
         await store.workedBy('larder', shelves, 'first')
         const refused = await failure(() => store.claim('larder', shelves, 'in-progress', 'second'))
         expect(refused).toEqual({status: 409, message: `${shelves} is already being worked on by another session (first); pick another issue`})
-        // In review is still its work. Its own session starts it again, any session closes it, and a write
-        // without a status is let be.
+        // In review is still its work. Its own session starts it again, and any session closes it.
         expect((await failure(() => store.claim('larder', shelves, 'in-review', 'second'))).status).toBe(409)
         await store.claim('larder', shelves, 'started', 'first')
         await store.claim('larder', shelves, 'done', 'second')
+        expect(await store.takenFrom('larder', shelves, 'second')).toBe('first')
+        expect(await store.takenFrom('larder', shelves, 'first')).toBeNull()
+    })
+
+    it("refuses another session's comment or edit too, not only starting it (ORR-287)", async () => {
+        const shelves = (await store.createIssue('larder', {title: 'Shelves', status: 'in-review'})).id
+        await store.workedBy('larder', shelves, 'first')
+        // A write without a status (a comment, an edit), or one moving it back, is the work too.
+        expect((await failure(() => store.claim('larder', shelves, undefined, 'second'))).status).toBe(409)
+        expect((await failure(() => store.claim('larder', shelves, 'todo', 'second'))).status).toBe(409)
+        expect((await failure(() => store.claimed('larder', shelves, undefined, 'second', async () => 'written'))).status).toBe(409)
+        expect(await store.claimed('larder', shelves, undefined, 'first', async () => 'written')).toBe('written')
+        // Once it's closed, or its session is gone, anyone may.
+        store.hears = (_project, session) => session !== 'first'
+        await store.claim('larder', shelves, undefined, 'second')
+        store.hears = () => true
+        await store.updateIssue('larder', shelves, {status: 'done'})
         await store.claim('larder', shelves, undefined, 'second')
     })
 

@@ -145,7 +145,6 @@ async function start() {
     router.push('/sessions')
 }
 
-const field = 'h-8 w-full field'
 </script>
 
 <template>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// Every open urgent (P0) issue in every project, whoever has it, on top; then every open issue assigned
-// to the owner, by project: what waits on them (proposals first) and what they took on. Sub-issues
-// included; an urgent one of theirs shows once, on top.
+// What waits on the owner's answer on top: every issue in any project with an agent's question they haven't
+// answered (`waiting`). Then every open urgent (P0) issue, whoever has it; then every open issue assigned to the
+// owner, by project: what waits on them (proposals first) and what they took on. Sub-issues included; each issue
+// shows once, in the first list it's in.
 useHead({title: 'My issues · Orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -9,13 +10,17 @@ const {matches} = useFilters()
 const {name: owner, load} = useOwner()
 onMounted(load)
 
+const waiting = computed(() => ordered.value
+    .map(project => ({project, issues: allIssues(project).filter(({issue}) => issue.waiting && matches(issue))}))
+    .filter(g => g.issues.length))
 const urgent = computed(() => ordered.value
-    .map(project => ({project, issues: urgentIssues(project).filter(({issue}) => matches(issue))}))
+    .map(project => ({project, issues: urgentIssues(project).filter(({issue}) => !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
 const mine = computed(() => ordered.value
-    .map(project => ({project, issues: myIssues(project, owner.value).filter(({issue}) => issue.priority !== 'P0' && matches(issue))}))
+    .map(project => ({project, issues: myIssues(project, owner.value).filter(({issue}) => issue.priority !== 'P0' && !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
 const lists = computed(() => [
+    {id: 'waiting', title: 'Waiting on you', hint: 'an agent asked for your decision or feedback: answer with a comment', groups: waiting.value},
     {id: 'urgent', title: 'Urgent', hint: 'P0 in any project, whoever has it', groups: urgent.value},
     {id: 'mine', title: 'Assigned to you', hint: '', groups: mine.value},
 ].filter(l => l.groups.length))
@@ -34,9 +39,10 @@ const lists = computed(() => [
   <div class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <template v-else>
-      <div v-for="list in lists" :key="list.id" :class="list.id === 'mine' && lists.length > 1 && 'mt-6'">
+      <div v-for="(list, i) in lists" :key="list.id" :class="i > 0 && 'mt-6'">
         <h2 class="flex items-center gap-2 px-3 pt-4 pb-2">
           <PriorityIcon v-if="list.id === 'urgent'" priority="P0" :size="14" />
+          <span v-else-if="list.id === 'waiting'" class="size-2 rounded-full bg-violet-500" />
           <span class="label">{{ list.title }}</span>
           <span v-if="list.hint" class="text-[11px] text-faint">{{ list.hint }}</span>
         </h2>

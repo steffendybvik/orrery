@@ -16,3 +16,10 @@ export function workedOn(event: H3Event, issue: {project: string, id: string}) {
     // The channel's id may be from before a `/clear`: the issue goes to the session as it is now.
     if (session) useStore().workedBy(issue.project, issue.id, currentId(session)).catch(() => {})
 }
+
+/** Refuses a session's (`Orrery-Session`) write to an issue another session is on (`Store.claim`), a comment as much
+ * as starting it, so two sessions don't both take it up. The owner's writes never are. */
+export async function claimFor(event: H3Event, project: string, issue: string) {
+    const session = getHeader(event, 'orrery-session')?.trim()
+    if (session && !(await actorOf(event)).owner) await useStore().claim(project, issue, undefined, currentId(session))
+}

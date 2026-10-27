@@ -13,12 +13,13 @@
     "build": "pnpm --dir web build",
     "preview": "pnpm --dir web preview",
     "typecheck": "pnpm --dir web typecheck",
+    "lint": "pnpm --dir web lint",
     "test": "pnpm --dir web test",
     "test:coverage": "pnpm --dir web test:coverage",
     "test:e2e": "pnpm --dir web test:e2e",
     "orrery:copy": "pnpm --dir web orrery:copy"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1"
+    "@modelcontextprotocol/sdk": "1.32.2"
   }
 }
