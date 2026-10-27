@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs'
 import {describe, expect, it} from 'vitest'
 import type {IssueStatus} from '#shared/roadmap'
-import {DEFAULT_STATUSES, freezeNote, total} from '#shared/roadmap'
+import {DEFAULT_STATUSES, freezeNote, nameBesideProject, total} from '#shared/roadmap'
 import type {BoardInput, IssueInput, TaskFile} from '../server/utils/roadmap'
 import {RoadmapError, buildBoard, checkRoadmap, issueLine, legacyStatus, readRoadmap} from '../server/utils/roadmap'
 
@@ -146,5 +146,14 @@ describe('a release in feature freeze', () => {
         expect(freezeNote({version: '1.0.0', frozen_on: '2026-10-20', shipped_on: '2026-10-26'})).toBeNull()
         expect(freezeNote({version: '1.0.0'})).toBeNull()
         expect(freezeNote(undefined)).toBeNull()
+    })
+})
+
+describe("a session's name beside its project", () => {
+    it('drops the project Orrery put in front, and leaves any other name be', () => {
+        expect(nameBesideProject({name: 'orrery · Odin', project: 'orrery'})).toBe('Odin')
+        expect(nameBesideProject({name: 'Odin', project: 'orrery'})).toBe('Odin')
+        expect(nameBesideProject({name: 'hub · fixing CI', project: 'orrery'})).toBe('hub · fixing CI')
+        expect(nameBesideProject({name: 'orrery · ', project: 'orrery'})).toBe('orrery · ')
     })
 })

@@ -630,3 +630,7 @@ const BARE_NAME = new RegExp(`^(${SESSION_NAMES.join('|')})( [IVXLCDM]+)?$`)
 /** Whether Orrery made the session's name up, rather than the session or its hooks giving it: `<project> · <name>` for
  * one that hears its own project, the bare name (`Odin`) for one that hears several. */
 export const madeUpName = (session: {name: string, project: string}) => session.name.startsWith(`${session.project} · `) || BARE_NAME.test(session.name)
+
+/** Its name where its project already shows beside it: `Odin` for `orrery · Odin`; any other name as it is. */
+export const nameBesideProject = (session: {name: string, project: string}) =>
+    session.name.startsWith(`${session.project} · `) ? session.name.slice(session.project.length + 3) || session.name : session.name
