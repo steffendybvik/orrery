@@ -515,7 +515,16 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     await page.getByLabel('New preset name').fill('Review')
     await page.getByLabel('New preset text').fill("You're reviewing: read the diff and comment, don't change code.")
     await page.getByRole('button', {name: 'Add preset'}).click()
+    // A preset is a row with its name and first line; Edit opens it, and New preset the form for another.
+    await expect(page.locator('#presets')).toContainText("You're reviewing: read the diff")
+    await expect(page.getByLabel('New preset name')).toBeHidden()
+    await page.getByRole('button', {name: 'Edit Review'}).click()
     await expect(page.getByLabel('Preset name', {exact: true})).toHaveValue('Review')
+    await expect(page.getByRole('button', {name: 'New preset'})).toBeVisible()
+    // A template says what it's for, and shows its text only on Edit.
+    await expect(page.getByLabel('Focus on an issue', {exact: true})).toBeHidden()
+    await page.getByRole('button', {name: 'Edit Focus on an issue'}).click()
+    await expect(page.getByLabel('Focus on an issue', {exact: true})).toBeVisible()
     await page.goto('/sessions')
     await page.getByRole('button', {name: 'Start session'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'Start session'})
