@@ -5,6 +5,16 @@ the database schema are the public surface, and a database always migrates forwa
 
 ## 1.0.0-rc.6 (2026-10-27)
 
+- **Message every session at once:** Message sessions on the Sessions page says one thing to every listening
+  session, idle ones by default so a nudge doesn't interrupt work, narrowed to some projects if you like, and shows
+  who it reaches before you send. A session that hears several projects gets it once. Through the API it's
+  `POST /api/sessions/message {text, projects?, states?}`, the owner's only.
+- **Agents keep off a waiting proposal:** while a proposal waits on the owner, an agent can comment on it, edit it
+  and put it up again, but changing its status, assignee or release is a 403 until the owner approves it. It's one
+  setting in App settings → Proposals, on by default, and the board's Proposed column shows a lock while it's on.
+- **Tidier session settings:** each message template on the Sessions page says what it's for and whose it is, with
+  Preview and Edit; its text opens on Edit. Each preset is a row with its name and first line, Edit and remove, and
+  New preset opens the form for another. A project's Settings tab gets the same.
 - **A focus goes to one session:** a focus, a chunk's or a schedule's message aimed at no session goes to one
   session, not every one: the session already on the issue, else an idle one, else the next to go idle (within a
   day). The issue and chunk menus offer *Ask all N sessions* beside *Ask a session*; through the API it's
