@@ -1397,18 +1397,18 @@ describe('a message to one session', () => {
     })
 
     it("from a preset is its text as the owner sent it, labelled by the preset's name as it was then", async () => {
-        const release = await store.createPreset('larder', {name: 'Release', text: 'Cut the release.'}, owner)
+        const release = await store.createPreset('greenhouse', {name: 'Release', text: 'Cut the release.'}, owner)
         await store.createProject({name: 'pantry', key: 'PAN'})
         const jars = await store.createPreset('pantry', {name: 'Jars', text: 'Mind the jars.'}, owner)
-        const signal = await store.messageSession('larder', 'abc', 'Cut the release, for rc.9.', owner, release.id)
+        const signal = await store.messageSession('greenhouse', 'abc', 'Cut the release, for rc.9.', owner, release.id)
         expect(signal).toMatchObject({kind: 'message', note: 'Cut the release, for rc.9.', preset: 'Release', target: 'abc'})
         await store.updatePreset(release.id, {name: 'Ship it'}, owner)
-        expect((await store.listSignals('larder')).find(s => s.id === signal.id)!.preset).toBe('Release')
+        expect((await store.listSignals('greenhouse')).find(s => s.id === signal.id)!.preset).toBe('Release')
         // Another project's preset, one that isn't there, or not an id, is refused; without one, it's plain words.
-        expect((await failure(() => store.messageSession('larder', 'abc', 'Hi', owner, jars.id))).status).toBe(400)
-        expect((await failure(() => store.messageSession('larder', 'abc', 'Hi', owner, 999))).status).toBe(400)
-        expect((await failure(() => store.messageSession('larder', 'abc', 'Hi', owner, 'Release'))).status).toBe(400)
-        expect((await store.messageSession('larder', 'abc', 'Hi', owner)).preset).toBeUndefined()
+        expect((await failure(() => store.messageSession('greenhouse', 'abc', 'Hi', owner, jars.id))).status).toBe(400)
+        expect((await failure(() => store.messageSession('greenhouse', 'abc', 'Hi', owner, 999))).status).toBe(400)
+        expect((await failure(() => store.messageSession('greenhouse', 'abc', 'Hi', owner, 'Release'))).status).toBe(400)
+        expect((await store.messageSession('greenhouse', 'abc', 'Hi', owner)).preset).toBeUndefined()
     })
 })
 
