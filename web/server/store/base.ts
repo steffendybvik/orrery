@@ -14,7 +14,8 @@ import {known} from '#shared/known'
 
 export abstract class StoreBase {
     constructor(
-        readonly db: Db,
+        /** Changed only when the owner moves the database (`rebindDatabase`). */
+        public db: Db,
         protected readonly onChange: (project: string) => void = () => {},
         protected readonly onSignal: (signal: Signal) => void = () => {},
         protected readonly onNotice: (notice: Notice) => void = () => {},

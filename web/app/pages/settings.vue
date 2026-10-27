@@ -313,14 +313,17 @@ async function pick(tint: string | null) {
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.database }}</h2>
           <p class="text-xs text-muted">
-            Where this Orrery keeps everything. It's set as Orrery starts (<code>ORRERY_DATABASE</code>), not here: to move to
-            Postgres or a hosted database, copy the data over with <code>pnpm orrery:copy</code> and start Orrery on the new one
+            Where this Orrery keeps everything: a SQLite file on this machine, or Postgres, yours or a hosted one. Move it here
+            from localhost, or set it as Orrery starts with <code>ORRERY_DATABASE</code>
             (<a href="https://github.com/steffendybvik/orrery/blob/main/docs/running.md#postgres" target="_blank" rel="noopener" class="underline underline-offset-2 hover:text-fg">how</a>).
           </p>
         </header>
         <dl v-if="settings.database" class="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[13px]">
           <dt class="text-muted">{{ settings.database.kind === 'postgres' ? 'Postgres' : 'SQLite file' }}</dt>
-          <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.where">{{ settings.database.where }}</code><CopyButton :text="settings.database.where" /></dd>
+          <dd class="flex min-w-0 items-center gap-1.5">
+            <code class="truncate font-mono text-xs text-fg" :title="settings.database.where">{{ settings.database.where }}</code><CopyButton :text="settings.database.where" />
+            <span v-if="settings.database.moved" class="shrink-0 text-xs text-faint">moved here from App settings</span>
+          </dd>
           <template v-if="settings.database.size !== undefined">
             <dt class="text-muted">Size</dt>
             <dd class="text-fg tabular-nums" :title="`${settings.database.size.toLocaleString()} bytes`">{{ bytes(settings.database.size) }}</dd>
@@ -342,6 +345,10 @@ async function pick(tint: string | null) {
         </dl>
         <p v-if="settings.database && !settings.database.backup" class="text-xs text-faint">
           Not backed up: give Orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker).
+        </p>
+        <DatabaseMove v-if="settings.database?.movable" :database="settings.database" />
+        <p v-else-if="settings.database" class="text-xs text-faint">
+          <code>ORRERY_DATABASE</code> names this Postgres, so it's moved there: copy the data with <code>pnpm orrery:copy</code>, change it and restart Orrery.
         </p>
       </section>
 

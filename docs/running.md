@@ -56,7 +56,21 @@ or to restore into Postgres as it was, back it up with Postgres's own means as w
 schedule (`docker compose exec postgres pg_dump -U orrery orrery > orrery.sql`), or a managed service's
 backups.
 
-To move an Orrery between SQLite and Postgres, stop it and copy it across, ids and all, into an empty
+### Moving it from the app
+
+App settings → This Orrery → Database → **Move to another database…**, on the Orrery's own machine (localhost):
+pick a SQLite file or Postgres (its URL, or host, port, name, user and password), and Orrery checks it first. An
+empty one has everything copied in, ids and all; an Orrery's own (one you ran on before, or after a reinstall) is
+run on as it is. Orrery switches at once, no restart, and keeps the choice beside its SQLite file
+(`orrery.db.moved.json`, in Docker in the data volume, with the URL's password in it), so it starts on it again.
+The database it leaves stays as it was: moving back to it runs on it as it was then. A SQLite file named without a
+leading `/` goes in the data folder; in Docker only the data volume outlives the container.
+
+When `ORRERY_DATABASE` names Postgres it's set there, and the app can't move it.
+
+### From the command line
+
+To move an Orrery between SQLite and Postgres without the app, stop it and copy it across, ids and all, into an empty
 one (both ends are brought up to the latest schema first):
 
 ```sh
@@ -109,7 +123,8 @@ A repo's channel and hook point at the server its projects are on, by `ORRERY_UR
 ## Where each database is
 
 App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file, or the Postgres database
-(never its password), and its backup folder with when the latest backup was made, with how big each is.
+(never its password), and its backup folder with when the latest backup was made, with how big each is. One moved
+from the app says so.
 
 It's always `/data/orrery.db` in the container, and `/data` is `ORRERY_DATA` when it's set, else the
 project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE_PROJECT_NAME`,

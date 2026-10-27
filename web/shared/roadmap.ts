@@ -411,6 +411,22 @@ export interface DatabaseInfo {
     size?: number
     /** The backup folder's files together, in bytes. */
     backup_size?: number
+    /** Whether the owner can move it from App settings: not when NUXT_DATABASE (ORRERY_DATABASE) is Postgres. */
+    movable?: boolean
+    /** Whether it was moved there from App settings, rather than set as Orrery starts. */
+    moved?: boolean
+}
+
+/** A database the owner could move to, as `POST /api/database/check` finds it. */
+export interface DatabaseCheck {
+    kind: 'sqlite' | 'postgres'
+    /** Where it is, as App settings shows it (no password). */
+    where: string
+    /** `empty`: nothing in it yet, so everything can be copied in; `orrery`: an Orrery's own, to run on as it is;
+     * `current`: the one Orrery runs on now; `other`: something else's tables, which Orrery leaves alone. */
+    state: 'empty' | 'orrery' | 'current' | 'other'
+    /** An Orrery's projects, when it is one. */
+    projects?: number
 }
 
 export interface Settings {

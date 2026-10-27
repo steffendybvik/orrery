@@ -58,7 +58,8 @@ const KIND = /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)*$/
 export class EventLog {
     /** `scrub` takes secrets' values out of what's kept; `onLogged` hears each event written, `fresh` when it's a row of its own. */
     constructor(
-        private readonly db: Db,
+        /** Changed only when the owner moves the database (`rebindDatabase`). */
+        public db: Db,
         private readonly scrub: (text: string) => Promise<string> = async text => text,
         private readonly onLogged: (event: LoggedEvent, fresh: boolean) => void = () => {},
         private readonly now: () => Date = () => new Date(),

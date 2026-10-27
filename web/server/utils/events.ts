@@ -6,6 +6,7 @@
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import type {LoggedEvent} from '#shared/roadmap'
+import type {Db} from './database'
 import {EventLog} from './event-log'
 import {Schedules} from './schedules'
 import {Secrets} from './secrets'
@@ -52,6 +53,13 @@ export function useEventLog(): EventLog {
     log ??= new EventLog(useDatabase(), text => useSecrets().scrub(text),
         (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
     return log
+}
+
+/** Points what holds the database at the one the owner moved to (server/utils/move.ts); the secrets and schedules
+ * reach it through the store. */
+export function rebindDatabase(db: Db) {
+    if (store) store.db = db
+    if (log) log.db = db
 }
 
 let schedules: Schedules | null = null
