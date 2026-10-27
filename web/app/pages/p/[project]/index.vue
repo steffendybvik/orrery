@@ -49,6 +49,7 @@ onMounted(() => nextTick(() => {
       <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
       <span v-if="project.description" class="hidden min-w-0 truncate text-xs text-faint lg:inline">{{ project.description }}</span>
     </template>
+    <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
   <ViewToolbar v-if="project">
@@ -89,8 +90,6 @@ onMounted(() => nextTick(() => {
       <IssueBoard v-else-if="view === 'board'" :chunks="chunks" :project="project.id" />
       <ListView v-else :chunks="chunks" :project="project.id" :group="group" />
     </template>
-    <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-center text-sm text-muted">
-      No project “{{ route.params.project }}”. <NuxtLink to="/now" class="ml-1 text-fg underline">Go to Now</NuxtLink>
-    </div>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

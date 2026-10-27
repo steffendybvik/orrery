@@ -297,12 +297,8 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
       </aside>
     </div>
 
-    <div v-else-if="ready && !looking" class="grid place-items-center px-4 py-24 text-center text-sm text-muted">
-      <div class="flex flex-col items-center gap-2">
-        <p>No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}.</p>
-        <p class="text-xs text-faint">It may have moved or been deleted.</p>
-        <NuxtLink :to="project ? `/p/${project.id}` : '/now'" class="mt-2 text-xs text-fg underline">Back</NuxtLink>
-      </div>
-    </div>
+    <NotFound v-else-if="ready && !looking" :to="project ? `/p/${project.id}` : '/now'" :back="project ? `Back to ${project.name}` : 'Go to Now'">
+      No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}
+    </NotFound>
   </div>
 </template>

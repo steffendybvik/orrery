@@ -223,7 +223,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
       </div>
     </aside>
     </div>
-    <div v-else-if="missing && ready" class="grid place-items-center px-4 py-24 text-sm text-muted">No doc “{{ route.params.doc }}”.</div>
+    <NotFound v-else-if="missing && ready" :to="`/p/${route.params.project}/docs`" back="Back to the docs">No doc “{{ route.params.doc }}”</NotFound>
   </div>
   </div>
 </template>

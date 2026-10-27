@@ -21,6 +21,7 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
       <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
       <ProgressRing :kinds="project.board.kinds" class="max-sm:hidden" />
     </template>
+    <h1 v-else-if="ready" class="truncate text-sm font-medium">Not found</h1>
   </PageHeader>
 
   <ViewToolbar v-if="project">
@@ -45,6 +46,6 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
       <div v-else-if="!chunks.length" class="grid place-items-center px-4 py-24 text-sm text-muted">No chunk has an issue that matches the filters.</div>
       <BoardView v-else :chunks="chunks" :project="project.id" />
     </template>
-    <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">No project “{{ route.params.project }}”.</div>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

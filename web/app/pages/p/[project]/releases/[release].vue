@@ -284,8 +284,6 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <p v-else class="px-4 py-16 text-center text-sm text-muted">No issues set for this release yet. Pick it under Release on an issue’s page.</p>
       </template>
     </template>
-    <div v-else-if="ready" class="grid place-items-center px-4 py-24 text-sm text-muted">
-      No release “{{ route.params.release }}”. <NuxtLink :to="`/p/${route.params.project}/releases`" class="ml-1 text-fg underline">Back to the releases</NuxtLink>
-    </div>
+    <NotFound v-else-if="ready" :to="`/p/${route.params.project}/releases`" back="Back to the releases">No release “{{ route.params.release }}”</NotFound>
   </div>
 </template>
