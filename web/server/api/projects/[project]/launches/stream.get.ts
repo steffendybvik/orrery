@@ -11,6 +11,8 @@ export default defineEventHandler(async event => {
     const stream = createEventStream(event)
     const {dir, every} = getQuery(event)
     const done = addLauncher(project, typeof dir === 'string' && dir ? dir : undefined, every === '1')
+    const where = typeof dir === 'string' && dir ? {dir} : {}
+    useEventLog().note({level: 'info', kind: 'launcher.connected', project, message: 'A launcher connected', details: where})
     const send = (sent: LaunchEvent) => {
         if (sent.type === 'launch') {
             if (sent.launch.project === project) stream.push({id: sent.launch.id, event: 'launch', data: JSON.stringify(sent.launch)})
@@ -26,6 +28,7 @@ export default defineEventHandler(async event => {
         clearInterval(ping)
         projectEvents.off('launches', send)
         done()
+        useEventLog().note({level: 'info', kind: 'launcher.gone', project, message: 'A launcher went', details: where})
         await stream.close()
     })
     return stream.send()

@@ -35,6 +35,7 @@ export abstract class StatusStore extends StoreBase {
             starts: (value('starts') as Starts | null | undefined) ?? null,
             terminal: (value('terminal') as TerminalApp | undefined) ?? 'terminal',
             restrict_proposals: (value('restrict_proposals') as boolean | undefined) ?? true,
+            advanced: (value('advanced') as boolean | undefined) ?? false,
         }
     }
 

@@ -1,4 +1,4 @@
-import type {Issue, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
+import type {Issue, LoggedEvent, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
 
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
 // project in place, without a reload. After a dropped connection it loads them all again, and the secrets; one
@@ -14,6 +14,7 @@ export default defineNuxtPlugin(() => {
         projects.value = await $fetch<Project[]>('/api/projects', {query: {expand: 'board'}})
         ready.value = true
         useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
+        await useLoggedEvents().loadNew()
         await useSchedules().load()
         const all = await $fetch<Session[]>('/api/sessions').catch(() => [])
         // Under each project it's on, as the `sessions` event lists them: its own and the others its channel hears.
@@ -102,6 +103,10 @@ export default defineNuxtPlugin(() => {
         })
         events.addEventListener('secrets', event => {
             useSecretList().secrets.value = JSON.parse((event as MessageEvent).data) as Secret[]
+        })
+        events.addEventListener('logged', event => {
+            const {event: logged, fresh} = JSON.parse((event as MessageEvent).data) as {event: LoggedEvent, fresh: boolean}
+            useLoggedEvents().arrived(logged, fresh)
         })
         events.addEventListener('removed', event => {
             const id = (event as MessageEvent).data as string

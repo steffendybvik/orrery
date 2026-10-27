@@ -556,6 +556,22 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- A message schedule that skips a run when nothing in its project changed since the last one it sent.
     ALTER TABLE schedules ADD COLUMN only_if_changed INTEGER NOT NULL DEFAULT 0;
+`, `
+    -- The event log: what Orrery did and what went wrong (server/utils/event-log.ts). A repeat of one that isn't
+    -- resolved counts on its row. Not tied to a project row, so what happened in one outlives it.
+    CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        level TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        project TEXT,
+        message TEXT NOT NULL,
+        details TEXT,
+        count INTEGER NOT NULL DEFAULT 1,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        resolved_at TEXT
+    );
+    CREATE INDEX events_last_seen ON events (last_seen);
 `]
 
 let db: DatabaseSync | null = null
@@ -619,7 +635,20 @@ export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
     })
     if (opened.prepare('PRAGMA foreign_key_check').all().length) throw new Error(`${path}: a migration left rows pointing at nothing`)
     opened.exec('PRAGMA foreign_keys = ON')
+    if (version < Math.min(upTo, MIGRATIONS.length)) migrated = {from: version, to: Math.min(upTo, MIGRATIONS.length)}
     return opened
+}
+
+/** The steps the last file opened was brought up by, for the event log; null when it was up to date. */
+let migrated: {from: number, to: number} | null = null
+
+/** The migration the open database had as it opened (SQLite's steps, or Postgres's), once; then null. */
+export function takeMigration(): {from: number, to: number} | null {
+    const database = useDatabase()
+    const ran = database instanceof PostgresDb ? database.migrated : migrated
+    if (database instanceof PostgresDb) database.migrated = null
+    else migrated = null
+    return ran
 }
 
 /** Runs `work` in one transaction: all of it lands, or none of it. */

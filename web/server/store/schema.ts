@@ -271,6 +271,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
     /** Keeps agents off a proposal while it waits on the owner; false lets them. */
     restrict_proposals: {type: 'boolean'},
+    /** Shows the Events page and error notices in the bell, and records what Orrery did as well as its errors. */
+    advanced: {type: 'boolean'},
 }
 
 /** A preset's name and its text, both needed; its badge's icon and colour, neither. */

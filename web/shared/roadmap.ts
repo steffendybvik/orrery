@@ -435,6 +435,31 @@ export interface Settings {
     /** Whether a proposal waiting on the owner (pending, or changes asked for) is theirs alone until they decide:
      * an agent can't start it, change its status, assign it or put it in a release. On unless the owner turns it off. */
     restrict_proposals: boolean
+    /** Shows what's for looking into problems: the Events page, and a notice in the bell for each new kind of error.
+     * Off by default; errors are recorded either way, what Orrery did only while it's on. */
+    advanced: boolean
+}
+
+/** How much an event matters: something went wrong, something looks off, or what Orrery did. */
+export const EVENT_LEVELS = ['error', 'warn', 'info'] as const
+export type EventLevel = (typeof EVENT_LEVELS)[number]
+
+/** A line in the event log (`GET /api/events/log`): what Orrery did or what went wrong, its `kind` a dotted name
+ * (`server.error`, `page.error`, `session.started`, `launcher.gone`, `schedule.ran`, `backup.made`…). The same one again,
+ * while it isn't resolved, adds to its `count` and moves `last_seen` on, rather than taking a row of its own. */
+export interface LoggedEvent {
+    id: number
+    level: EventLevel
+    kind: string
+    project?: string
+    message: string
+    /** What else there is to know (a route, a stack, a version), never a request's body or headers or a secret's value. */
+    details?: Record<string, unknown>
+    count: number
+    first_seen: string
+    last_seen: string
+    /** When someone said it's dealt with; the next one starts a row of its own. */
+    resolved_at?: string
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */

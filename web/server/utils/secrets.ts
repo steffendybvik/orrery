@@ -258,6 +258,19 @@ export class Secrets {
         return `v1:${Buffer.concat([iv, cipher.getAuthTag(), sealed]).toString('base64')}`
     }
 
+    /** `text` with every secret's value taken out, the way an answer is (for the event log); one that can't be opened is let be. */
+    async scrub(text: string): Promise<string> {
+        const secrets = new Map<string, {value: string}>()
+        for (const row of await this.db.all<SecretRow>('SELECT * FROM secrets')) {
+            try {
+                secrets.set(row.name, {value: this.open(row)})
+            } catch {
+                // Sealed with another key: not one this Orrery can send, so not one it would log.
+            }
+        }
+        return secrets.size ? scrubber(secrets).scrub(text) : text
+    }
+
     private open(row: SecretRow): string {
         const key = this.cipherKey()
         try {

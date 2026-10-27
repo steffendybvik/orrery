@@ -369,7 +369,7 @@ then it stays with that one, and the session asked gets the 409 if it tries to s
 A focus reaches a session as its `prompt`: a template filled in, with standing instructions after it.
 The owner sets them (an agent gets a 403):
 
-- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?, terminal?, restrict_proposals?}`: the Orrery's (`terminal`: the app Watch opens; `restrict_proposals`: see [Proposals](#proposals); `starts`: see [Starting sessions](#starting-sessions)). A template is text with
+- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?, terminal?, restrict_proposals?, advanced?}`: the Orrery's (`terminal`: the app Watch opens; `restrict_proposals`: see [Proposals](#proposals); `advanced`: see [Event log](#event-log); `starts`: see [Starting sessions](#starting-sessions)). A template is text with
   placeholders (`{issue}`, `{title}`, `{status}`, `{priority}`, `{chunk}`, `{where}`, `{note}`, `{url}`,
   `{actor}`; a chunk's also `{issues}`), and a line whose placeholders all come out empty is left out.
   `null` or `""` goes back to the default. `instructions` is a list of `{text, on?, id?}`, lines such as
@@ -420,6 +420,30 @@ page on this Orrery (`/p/<project>/issues/<id>` on its address, `http://localhos
 so the owner can jump from the PR to it. The owner sets the
 handle with `PATCH /settings {handle}` (their GitHub login, say; `null` uses their id).
 
+## Event log
+
+What Orrery did and what went wrong, kept in its own database and never sent anywhere, for looking into a
+problem. **Errors** are recorded always: a 5xx the server answers with (`server.error`), an error in the page
+(`page.error`), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What Orrery did** is
+recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → This Orrery):
+sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
+`session.refused`), launchers coming and going (`launcher.connected`, `launcher.gone`), schedule runs and skips
+(`schedule.ran`, `schedule.skipped`), backups, migrations and server starts (`backup.made`, `migration.ran`,
+`server.started`). Advanced also shows the Events page and counts each new kind of error in the bell.
+
+Each event is `{id, level, kind, project?, message, details?, count, first_seen, last_seen, resolved_at?}`, with
+`level` one of `error`, `warn`, `info`. The same one again (level, kind, project and message), while it isn't
+resolved, adds to `count` and moves `last_seen` on, rather than taking a row of its own. No request bodies, headers
+or secret values are kept: secrets are scrubbed out as they are from an answer, and so are passwords in addresses and
+bearer tokens. Info is kept a week, warnings and errors a month, and 5000 rows at most.
+
+- `GET /events/log?level=&kind=&project=&since=&open=1&limit=`: newest first, by `last_seen`. `level` is one or more,
+  comma-separated; `kind` one (`server.error`) or every one under a name (`session`); `open=1` leaves out resolved
+  ones. 200 by default, 1000 at most. A daily schedule can ask for `?level=error&open=1&since=…` and turn what's new
+  into issues.
+- `POST /events/log/:id/resolve`: it's dealt with; the next one like it starts a row of its own.
+- `POST /events/log {message, stack?, page?, build?}` → 201: the page reporting its own error (`page.error`).
+
 ## Columns
 
 Computed, never written: a leaf issue that's a proposal (or under one) is in Proposed, else in its
@@ -444,6 +468,7 @@ fields are refused, so typos show); 403 for the owner's things; 404; 409 for a t
 - `listeners` and `launchers` (`{project, count}`): sessions listening for signals, and launchers that start them
 - `sessions` (`{project, sessions}`), `signal` (one sent), and `notice` (a comment for the owner's bell)
 - `schedules` (`{project, schedules}`, after a change or a run) and `secrets` (the list, never a value)
+- `logged` (`{event, fresh}`): the [event log](#event-log) recorded or resolved one; `fresh` when it's a row of its own
 
 ## Example
 
