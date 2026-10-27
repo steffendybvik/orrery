@@ -44,8 +44,9 @@ watch(target, now => {
     column.value = WHERE.value.find(w => w.kind === 'backlog')?.id ?? 'backlog'
     ask.value = false
     failed.value = ''
-    nextTick(() => titleInput.value?.focus())
 }, {immediate: true})
+// Its field takes the cursor once it's there: on the first open the dialog is still loading when the watch above runs.
+watch(titleInput, el => el?.focus())
 
 async function create() {
     if (!project.value || !title.value.trim() || saving.value || uploading.value) return
