@@ -17,13 +17,13 @@ import {AGENT} from './store'
 interface SecretRow { name: string, value: string, last4: string, hosts: string, projects: string | null, created_by: string, owned: number, created_at: string, updated_at: string }
 interface UseRow { id: number, secret: string, method: string, host: string, path: string, project: string | null, issue: string | null, status: number | null, error: string | null, created_by: string, created_at: string }
 
-export const SECRET_NAME = /^[A-Z][A-Z0-9_]{0,63}$/
+const SECRET_NAME = /^[A-Z][A-Z0-9_]{0,63}$/
 /** A host name, with a port when it isn't https's own: `api.stripe.com`, `deploy.lan:8443`. */
 const HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/
 const PLACEHOLDER = /\{\{secret:([A-Za-z0-9_]+)\}\}/g
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const
 
-export const SECRET_FIELDS: Record<string, Field> = {
+const SECRET_FIELDS: Record<string, Field> = {
     value: {type: 'string', required: true},
     hosts: {type: 'strings', required: true},
     /** None (or null) lets every project use it. */
@@ -35,7 +35,7 @@ const NARROW_FIELDS: Record<string, Field> = {
     projects: {type: 'strings', nullable: true},
 }
 
-export const EGRESS_FIELDS: Record<string, Field> = {
+const EGRESS_FIELDS: Record<string, Field> = {
     url: {type: 'string', required: true},
     method: {type: 'string', values: METHODS},
     headers: {type: 'json', parse: parseHeaders},

@@ -7,7 +7,7 @@ import {isObject} from './input'
 import {known} from '#shared/known'
 
 /** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
-export const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
+const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
 export const LEGACY_PLANS = ['now', 'next', 'later'] as const
 
 /** A roadmap in the `roadmap.json` format, once checked. */
