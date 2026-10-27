@@ -290,7 +290,9 @@ server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per O
 projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 `GET /settings` says the Orrery's `id` (made once, when it first starts) and `environment`: a channel given
-`ORRERY_ID` refuses an Orrery with another id. A session heard on several projects is listed on each one's
+`ORRERY_ID` refuses an Orrery with another id. It also says where the data is, read only: `database: {kind, where,
+backup?}`, `kind` `sqlite` (`where` the file's path) or `postgres` (`where` as `user@host:port/name`, never the
+password), and `backup` the folder a SQLite file is copied to, if any. A session heard on several projects is listed on each one's
 group on the Sessions page, with the others in `also`. A channel that finds the name its server goes by in the
 repo's `.mcp.json` sends it (`?server=`), and the session lists it as `server`, for the command that restarts it with
 the channel.

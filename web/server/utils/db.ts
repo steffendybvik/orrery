@@ -3,6 +3,7 @@
 import {mkdirSync} from 'node:fs'
 import {restoreBackup} from './backup'
 import {renumberSync} from './renumber'
+import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
 import {SqliteDb} from './database'
 import {PostgresDb, isPostgres} from './postgres'
@@ -563,6 +564,18 @@ function useDb(): DatabaseSync {
     restoreBackup(path, String(config.backupDir ?? ''))
     db = openDb(path)
     return db
+}
+
+/** Where the data is, to show the owner: the SQLite file's full path, or the Postgres database without its password. */
+export function describeDatabase(): DatabaseInfo {
+    const config = useRuntimeConfig()
+    const setting = String(config.database)
+    if (isPostgres(setting)) {
+        const url = new URL(setting)
+        return {kind: 'postgres', where: `${url.username ? `${decodeURIComponent(url.username)}@` : ''}${url.host}${url.pathname}`}
+    }
+    const backup = String(config.backupDir ?? '')
+    return {kind: 'sqlite', where: resolve(setting), ...backup ? {backup: resolve(backup)} : {}}
 }
 
 /** The open database as the store awaits it: Postgres when the setting is a `postgres://` URL, else the
