@@ -39,3 +39,8 @@ fix(orrery): keep a chunk's priority when it's renamed
 ```
 
 A body only when the why isn't obvious. Pull requests get squashed, so the title is what lands.
+
+## Releases
+
+Pull requests go into the branch of the release being prepared (`v<version>`), not `main`, and leave `CHANGELOG.md` to
+the release. [Releasing Orrery](docs/releasing.md) has how one is shipped and the next begins.
