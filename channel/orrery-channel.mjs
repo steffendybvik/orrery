@@ -50,6 +50,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         'Its messages arrive as <channel ...> blocks and come from the owner through Orrery.',
         'When one asks you to focus on an issue: read it (issue), start it (start_issue), comment as the work moves (comment), and finish it when it ships (finish_issue).',
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
+        'A proposal waiting on the owner isn\'t work yet: don\'t start, assign or move it until they approve it (Orrery refuses unless they\'ve turned that off); comment on it instead.',
         'When one brings the owner\'s comment on an issue, answer it with a comment on that issue.',
         'When you need the owner to decide something or give feedback, comment with asks "decision" or "feedback": it waits at the top of their bell until they answer.',
         `When you open a pull request for an issue, link the issue's page (${base}/p/<project>/issues/<id>) in its description, so the owner can jump to it.`,

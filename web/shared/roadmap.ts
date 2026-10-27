@@ -413,6 +413,9 @@ export interface Settings {
     starts: Starts | null
     /** The terminal app Watch opens a session Orrery started in, on its launcher's machine. */
     terminal: TerminalApp
+    /** Whether a proposal waiting on the owner (pending, or changes asked for) is theirs alone until they decide:
+     * an agent can't start it, change its status, assign it or put it in a release. On unless the owner turns it off. */
+    restrict_proposals: boolean
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */

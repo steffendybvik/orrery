@@ -269,6 +269,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     starts: {type: 'json', nullable: true, parse: parseStarts},
     /** The terminal app Watch opens; null is Terminal. */
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
+    /** Keeps agents off a proposal while it waits on the owner; false lets them. */
+    restrict_proposals: {type: 'boolean'},
 }
 
 /** A preset's name and its text, both needed. */

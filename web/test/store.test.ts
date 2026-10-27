@@ -313,6 +313,28 @@ describe('proposals', () => {
         const {id: tag} = await store.createIssue('larder', {title: 'Tag', assignee: 'claude'}, claude)
         expect((await store.updateIssue('larder', tag, {proposal: 'pending', assignee: 'claude'}, claude)).assignee).toBe('owner')
     })
+
+    it("can't be started, assigned or put in a release by an agent while they wait, unless the owner allows it", async () => {
+        expect((await store.settings()).restrict_proposals).toBe(true)
+        const {id} = await store.createIssue('larder', {title: 'Button', proposal: 'pending'}, claude)
+        for (const change of [{status: 'in-progress'}, {plan: 'now'}, {assignee: 'claude'}, {release: '1.0.0'}]) {
+            expect((await failure(() => store.updateIssue('larder', id, change, claude))).status).toBe(403)
+        }
+        // Still open to the agent: its words, and putting it up again after changes.
+        expect((await store.updateIssue('larder', id, {notes: 'Rounder', title: 'Round button'}, claude)).title).toBe('Round button')
+        await store.decide('larder', id, {decision: 'changes'}, owner)
+        expect((await failure(() => store.updateIssue('larder', id, {status: 'in-progress'}, claude))).status).toBe(403)
+        expect((await store.updateIssue('larder', id, {proposal: 'pending', assignee: 'claude'}, claude)).proposal).toBe('pending')
+        // The owner moves it as they like; with the setting off, so can an agent.
+        expect((await store.updateIssue('larder', id, {status: 'in-progress'}, owner)).status).toBe('in-progress')
+        expect((await failure(() => store.updateSettings({restrict_proposals: false}, claude))).status).toBe(403)
+        await store.updateSettings({restrict_proposals: false}, owner)
+        expect((await store.updateIssue('larder', id, {status: 'todo'}, claude)).status).toBe('todo')
+        // Approved, it's work like any other.
+        await store.updateSettings({restrict_proposals: true}, owner)
+        await store.decide('larder', id, {decision: 'approved'}, owner)
+        expect((await store.updateIssue('larder', id, {status: 'in-progress'}, claude)).status).toBe('in-progress')
+    })
 })
 
 describe('proposals with choices', () => {

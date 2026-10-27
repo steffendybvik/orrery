@@ -140,6 +140,10 @@ A proposal is an issue that isn't work yet: something put to the owner to approv
   `decided_at`, `decision_note` and `picks`, and `proposal` goes to none. `PATCH {proposal: "pending"}` puts it
   up again. The owner can also commit a proposal without deciding, with `PATCH {proposal: null}` (and a
   `status` to place it); an agent can't (403). A rejected one stays in Proposed until the owner deletes or commits it
+- **Proposals are the owner's until they decide** (`restrict_proposals` in `GET /settings`, on unless the owner
+  turns it off with `PATCH /settings {restrict_proposals: false}`): while one waits (`pending`, or `changes`
+  asked for), an agent can't change its `status`, `assignee` or `release` (403), so no session starts or builds it
+  before it's approved. Comments, its notes and choices, and putting it up again stay open
 
 ## Statuses
 
@@ -359,7 +363,7 @@ then it stays with that one, and the session asked gets the 409 if it tries to s
 A focus reaches a session as its `prompt`: a template filled in, with standing instructions after it.
 The owner sets them (an agent gets a 403):
 
-- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?, terminal?}`: the Orrery's (`terminal`: the app Watch opens; `starts`: see [Starting sessions](#starting-sessions)). A template is text with
+- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?, terminal?, restrict_proposals?}`: the Orrery's (`terminal`: the app Watch opens; `restrict_proposals`: see [Proposals](#proposals); `starts`: see [Starting sessions](#starting-sessions)). A template is text with
   placeholders (`{issue}`, `{title}`, `{status}`, `{priority}`, `{chunk}`, `{where}`, `{note}`, `{url}`,
   `{actor}`; a chunk's also `{issues}`), and a line whose placeholders all come out empty is left out.
   `null` or `""` goes back to the default. `instructions` is a list of `{text, on?, id?}`, lines such as
