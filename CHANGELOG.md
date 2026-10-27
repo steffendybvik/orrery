@@ -3,6 +3,23 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.6 (2026-10-27)
+
+- **A focus goes to one session:** a focus, a chunk's or a schedule's message aimed at no session goes to one
+  session, not every one: the session already on the issue, else an idle one, else the next to go idle (within a
+  day). The issue and chunk menus offer *Ask all N sessions* beside *Ask a session*; through the API it's
+  `{session: "*"}`. Comments keep their route: the session on the issue, else every session.
+- **One stream per session:** a channel on several projects follows them all on one stream,
+  `GET /api/signals/stream?projects=hub,css` (or `*`, which picks up projects made later too), so it registers
+  once and marks a signal delivered once. On an older Orrery it falls back to a stream per project.
+- **The session limit is a total:** "At most N" counts every session Orrery started or is starting, whatever the
+  project; `GET …/launches` adds `total`. **Breaking:** it used to be per project.
+- **One Sessions page:** Start session lands on `/sessions`, and the Sessions page has no project picker any more.
+  `?project=` and the `/p/:project/sessions` tab are gone; a sidebar row links to `/sessions#session-<id>`.
+- **Schedules by project:** each project's schedules sit in a card headed by the project (icon, name, running or
+  paused, its own New schedule), and each row says whether it makes an issue or messages sessions, with the first
+  line of its notes.
+
 ## 1.0.0-rc.5 (2026-10-26)
 
 - **Find the issue to focus on as you type:** Start session's issue and release are the picker the issue page
