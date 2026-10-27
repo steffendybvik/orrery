@@ -1395,6 +1395,21 @@ describe('a message to one session', () => {
         // Nobody else catches up on it, but the session it's for does, if it wasn't there to hear it.
         expect((await store.unheardScheduled('larder')).map(s => s.target)).toEqual(['abc'])
     })
+
+    it("from a preset is its text as the owner sent it, labelled by the preset's name as it was then", async () => {
+        const release = await store.createPreset('larder', {name: 'Release', text: 'Cut the release.'}, owner)
+        await store.createProject({name: 'pantry', key: 'PAN'})
+        const jars = await store.createPreset('pantry', {name: 'Jars', text: 'Mind the jars.'}, owner)
+        const signal = await store.messageSession('larder', 'abc', 'Cut the release, for rc.9.', owner, release.id)
+        expect(signal).toMatchObject({kind: 'message', note: 'Cut the release, for rc.9.', preset: 'Release', target: 'abc'})
+        await store.updatePreset(release.id, {name: 'Ship it'}, owner)
+        expect((await store.listSignals('larder')).find(s => s.id === signal.id)!.preset).toBe('Release')
+        // Another project's preset, one that isn't there, or not an id, is refused; without one, it's plain words.
+        expect((await failure(() => store.messageSession('larder', 'abc', 'Hi', owner, jars.id))).status).toBe(400)
+        expect((await failure(() => store.messageSession('larder', 'abc', 'Hi', owner, 999))).status).toBe(400)
+        expect((await failure(() => store.messageSession('larder', 'abc', 'Hi', owner, 'Release'))).status).toBe(400)
+        expect((await store.messageSession('larder', 'abc', 'Hi', owner)).preset).toBeUndefined()
+    })
 })
 
 describe('starting an issue', () => {

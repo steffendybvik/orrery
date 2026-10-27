@@ -575,6 +575,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         resolved_at TEXT
     );
     CREATE INDEX events_last_seen ON events (last_seen);
+`, `
+    -- A message the owner sent from a preset: the preset's name, as it was then, to label it by.
+    ALTER TABLE signals ADD COLUMN preset TEXT;
 `]
 
 let db: DatabaseSync | null = null
