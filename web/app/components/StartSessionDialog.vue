@@ -74,7 +74,7 @@ function why(project: Project): string | null {
     const state = states.value[project.id]
     if (!state) return null
     if (!state.launchers) return 'No launcher running'
-    if (state.started + state.starting >= project.starts.limit) return `At its limit of ${project.starts.limit}`
+    if (state.total >= project.starts.limit) return `At the limit of ${project.starts.limit}`
     return null
 }
 
