@@ -7,7 +7,7 @@ import {expect, test} from '@playwright/test'
 // together; then a chunk made, edited and removed from its page, an image in a new issue and a comment,
 // and the owner editing and deleting their own comment; then a changed doc and what changed in it; then a release, and a project drawing on it;
 // then the session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
-// a session's card and a message to it alone, a message to every idle session, Focus on this starting one, a preset, a schedule, the bell, and the
+// a session's card and a message to it alone, a message to every idle session, Focus on this starting one and New session on this another, a preset, a schedule, the bell, and the
 // pages that span projects.
 test.describe.configure({mode: 'serial'})
 
@@ -529,6 +529,25 @@ test('with nobody listening and a launcher there, Focus on this starts a session
         await expect.poll(() => launcher.said.text).toContain('event: launch')
     } finally {
         launcher.stop()
+    }
+})
+
+test('with a session listening, New session on this starts another on the issue', async ({page, request, baseURL}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Sweep the steps', status: 'todo'})
+    await request.post('/api/sessions', {data: {id: 'e2e-n1', project: 'larder', event: 'SessionStart', name: 'e2e-n1'}})
+    const stream = hold(baseURL!, '/api/projects/larder/signals/stream?session=e2e-n1&name=e2e-n1&format=text')
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await page.goto(`/p/larder/issues/${issue.id}`)
+        await expect(page.getByRole('button', {name: 'Focus on this', exact: true})).toBeVisible()
+        await page.getByRole('button', {name: 'New session on this'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: launch')
+        // It's the new session's alone: the one listening isn't asked.
+        expect(stream.said.text).not.toContain('Sweep the steps')
+    } finally {
+        launcher.stop()
+        stream.stop()
     }
 })
 
