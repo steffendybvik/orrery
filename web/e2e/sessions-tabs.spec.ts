@@ -1,0 +1,26 @@
+import {expect, test} from '@playwright/test'
+
+// The Sessions page's two tabs: Sessions, what's running, and Setup, how sessions start and what they hear. A link to
+// one of Setup's sections opens Setup. The owner is named if no one has yet.
+test.beforeAll(async ({request}) => {
+    if (!(await (await request.get('/api/owner')).json()).named) await request.put('/api/owner', {data: {name: 'Ada Lovelace'}})
+    if ((await request.get('/api/projects/tabs')).status() === 404) await request.post('/api/projects', {data: {name: 'Tabs'}})
+})
+
+test('the Sessions page keeps what runs and how it is set up on two tabs', async ({page}) => {
+    await page.goto('/sessions')
+    // The tab, first; the no-sessions note links to Setup too.
+    const setup = page.getByRole('button', {name: 'Setup', exact: true}).first()
+    await expect(setup).toBeVisible()
+    await expect(page.getByRole('heading', {name: 'Starting sessions'})).toBeHidden()
+    await setup.click()
+    await expect(page).toHaveURL(/\/sessions\?tab=setup$/)
+    for (const name of ['Starting sessions', 'What sessions hear', 'Presets'])
+        await expect(page.getByRole('heading', {name, exact: true})).toBeVisible()
+    await page.getByRole('button', {name: 'Sessions', exact: true}).click()
+    await expect(page).toHaveURL(/\/sessions$/)
+    await expect(page.getByRole('heading', {name: 'Presets', exact: true})).toBeHidden()
+    // A link to a Setup section, as Start session's "Presets" link is, lands on Setup.
+    await page.goto('/sessions#presets')
+    await expect(page.getByRole('heading', {name: 'Presets', exact: true})).toBeVisible()
+})
