@@ -9,8 +9,10 @@
 // The projects are ORRERY_PROJECT, else every one the channels in .mcp.json name (each channel's ORRERY_PROJECTS,
 // or its ORRERY_PROJECT), else the folder's name, each on its channel's Orrery (see repo-channels.mjs), and each
 // project's sessions load the channel that serves it. A launch can name the projects its session hears (Start session
-// with several of the repo's projects, or one alone), which it gets as ORRERY_HEAR. Orrery asks only once the owner lets it start sessions (Starting sessions, on the Sessions page): when the
-// owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
+// with several of the repo's projects, or one alone), which it gets as ORRERY_HEAR; one naming none hears what the
+// channel lists, every project with `*`. Orrery asks only once the owner lets it start sessions (Starting sessions,
+// on the Sessions page): when the owner's signal finds nobody listening, or the owner presses Start session, within
+// the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
 // this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt; an untrusted schedule's session
@@ -30,7 +32,7 @@ import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {adoptable, configFile, install, readConfig, uninstall} from './launcher-service.mjs'
 import {lockedDown} from './locked-down.mjs'
-import {channelFor, projectsIn} from './repo-channels.mjs'
+import {channelFor, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
 
@@ -327,8 +329,9 @@ function serve({url, project, dir}) {
     }
 
     return follow({
-        // The folder it serves from, so Orrery knows which projects share one and can share a session.
-        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}`,
+        // The folder it serves from, so Orrery knows which projects share one and can share a session, and whether its
+        // channel serves every project, so a session started here hearing no one project hears them all.
+        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 await report(api)

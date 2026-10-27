@@ -7,7 +7,8 @@ import {Combobox, ComboboxButton, ComboboxInput, ComboboxOption, ComboboxOptions
 // `creatable` offers what was typed when nothing has that name (a new label, someone not assigned yet).
 // `field` draws the button as a text field, sized to what it shows, for a row of them in a form (New issue);
 // with `small` too, a toolbar's size (h-7, as the buttons beside it).
-// Headless UI's Combobox does the keys, focus and outside-click; this only draws it.
+// Headless UI's Combobox does the keys, focus and outside-click; this only draws it. The menu opens from the
+// button's left edge, or from its right when the window has no room for it that way.
 export interface PickerOption { value: string, label: string }
 
 const props = defineProps<{
@@ -56,6 +57,17 @@ function pick(value: string | string[]) {
 // lit instead (its own Home key), so ↵ picks what was typed for.
 watch(query, () => nextTick(() => (input.value?.$el as HTMLElement | undefined)?.dispatchEvent(new KeyboardEvent('keydown', {key: 'Home'}))))
 
+/** How wide the menu is at least (`w-60`), and the room it keeps from the window's edge. */
+const MENU = 240
+const EDGE = 8
+const fromRight = ref(false)
+
+// Measured as it opens, from the button: the menu goes to the side it fits on.
+function placing() {
+    const box = (trigger.value?.$el as HTMLElement | undefined)?.getBoundingClientRect()
+    fromRight.value = !!box && box.left + Math.max(MENU, box.width) > window.innerWidth - EDGE && box.right - MENU >= EDGE
+}
+
 // Closed from inside (a pick, Esc), the focus goes back to the button, as the field it was in goes;
 // closed by pressing elsewhere, it stays where it went. What was typed goes too, before it opens again on what's picked.
 function closing(vnode: VNode) {
@@ -91,8 +103,9 @@ function closing(vnode: VNode) {
     </ComboboxButton>
     <div
         v-if="open"
-        class="glass absolute left-0 z-40 animate-fade-up rounded-xl p-1"
-        :class="[up ? 'bottom-full mb-1' : 'top-full mt-1', wide ? 'right-0 min-w-60' : 'w-60']"
+        class="glass absolute z-40 animate-fade-up rounded-xl p-1"
+        :class="[up ? 'bottom-full mb-1' : 'top-full mt-1', fromRight ? 'right-0' : 'left-0', wide ? 'w-full min-w-60' : 'w-60']"
+        @vue:before-mount="placing"
         @vue:before-unmount="closing"
     >
       <ComboboxInput

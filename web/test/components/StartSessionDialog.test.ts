@@ -7,18 +7,18 @@ import type {Project} from '#shared/roadmap'
 import StartSessionDialog from '~/components/StartSessionDialog.vue'
 
 // Starting sessions as the owner: why a project can't, what each project's launch is sent (the scope, the Orrery's
-// presets ticked and only its own, its project alone to hear), one session for projects served from one repo, and a
-// refused one staying ticked to try again.
+// presets ticked and only its own, its project alone to hear), one session for projects served from one repo, none
+// ticked for one session hearing every project, and a refused one staying ticked to try again.
 let sent: {project: string, actor?: string, body: unknown}[] = []
 let refusing: string[] = []
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 registerEndpoint('/api/presets', () => [{id: 1, project: null, name: 'Reviewer', text: 'Review it first'}])
 const STATES: Record<string, object> = {
-    larder: {launchers: 1, folders: ['/src/kitchen'], started: 0, starting: 0, total: 0},
-    pantry: {launchers: 1, folders: ['/src/pantry'], started: 0, starting: 0, total: 0},
-    cellar: {launchers: 0, folders: [], started: 0, starting: 0, total: 0},
-    loft: {launchers: 1, folders: ['/src/loft'], started: 1, starting: 0, total: 1},
-    scullery: {launchers: 1, folders: ['/src/kitchen'], started: 0, starting: 0, total: 0},
+    larder: {launchers: 1, folders: ['/src/kitchen'], every: false, started: 0, starting: 0, total: 0},
+    pantry: {launchers: 1, folders: ['/src/pantry'], every: false, started: 0, starting: 0, total: 0},
+    cellar: {launchers: 0, folders: [], every: false, started: 0, starting: 0, total: 0},
+    loft: {launchers: 1, folders: ['/src/loft'], every: false, started: 1, starting: 0, total: 1},
+    scullery: {launchers: 1, folders: ['/src/kitchen'], every: false, started: 0, starting: 0, total: 0},
 }
 for (const [n, id] of Object.keys(STATES).entries()) {
     registerEndpoint(`/api/projects/${id}/presets`, () => [{id: 1, project: null, name: 'Reviewer', text: ''}, {id: 11 + n, project: id, name: `${id} hand`, text: ''}])
@@ -121,6 +121,29 @@ describe('StartSessionDialog', () => {
         await again.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(2))
         expect(sent.map(s => [s.project, (s.body as {hears: string[]}).hears])).toEqual([['larder', ['larder']], ['scullery', ['scullery']]])
+    })
+
+    it('starts one session hearing every project with none ticked, where a launcher serves them all', async () => {
+        const {wrapper, submit} = await mount(null)
+        expect(wrapper.text()).toContain('ORRERY_PROJECTS=*')
+        expect(submit().attributes('disabled')).toBeDefined()
+
+        // Scullery's launcher runs where the channel serves every project; Larder, before it, doesn't.
+        Object.assign(STATES.scullery!, {every: true})
+        try {
+            const {wrapper: again, submit: start} = await mount(null)
+            await vi.waitFor(() => expect(again.text()).toContain("One session hearing every project, projects made later too, started in Scullery's repo."))
+            expect(again.text()).toContain('none ticked: one session hearing every project')
+            await again.findAll('button').find(b => b.text().includes('Reviewer'))!.trigger('click')
+            await again.find('textarea').setValue('Triage what came in overnight')
+            expect(start().attributes('disabled')).toBeUndefined()
+            await again.find('form').trigger('submit')
+            await vi.waitFor(() => expect(sent).toHaveLength(1))
+            // No `hears`, so it hears what the channel serves, and no scope: nothing was ticked to work through.
+            expect(sent[0]).toEqual({project: 'scullery', actor: 'skoll', body: {presets: [1], instructions: 'Triage what came in overnight'}})
+        } finally {
+            Object.assign(STATES.scullery!, {every: false})
+        }
     })
 
     it('keeps a refused project ticked, with why, and lets the rest go', async () => {
