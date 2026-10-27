@@ -59,8 +59,9 @@ async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Re
 }
 
 const setPriority = (priority: Priority | null) => send('', 'PATCH', {priority})
-const focus = () => send('/focus', 'POST', {}, () => {
-    note.value = `Sent to ${listening.value === 1 ? 'the listening session' : `${listening.value} sessions`}`
+// Aimed at no session, Orrery picks one (the one already on it, else an idle one); `every` asks them all.
+const focus = (every = false) => send('/focus', 'POST', every ? {session: '*'} : {}, () => {
+    note.value = every ? `Sent to all ${listening.value} sessions` : listening.value === 1 ? 'Sent to the listening session' : 'Sent to one session, the first free'
 })
 const remove = () => send('', 'DELETE')
 
@@ -123,9 +124,13 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
         </div>
 
         <div class="flex flex-col border-t border-line pt-1">
-          <UiMenuItem v-if="listening && !isClosed(chunk.kind)" :disabled="busy" @click="focus">
+          <UiMenuItem v-if="listening && !isClosed(chunk.kind)" :disabled="busy" @click="focus()">
             <svg class="size-3.5 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
-            Ask {{ listening === 1 ? 'the session' : `all ${listening} sessions` }} to work through it
+            Ask {{ listening === 1 ? 'the session' : 'a session' }} to work through it
+          </UiMenuItem>
+          <UiMenuItem v-if="listening > 1 && !isClosed(chunk.kind)" :disabled="busy" @click="focus(true)">
+            <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
+            Ask all {{ listening }} sessions to work through it
           </UiMenuItem>
           <UiMenuItem @click="newIssue">
             <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>

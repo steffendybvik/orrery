@@ -440,6 +440,41 @@ test('lists a session that hears two projects once, under its own', async ({page
     }
 })
 
+test('sends a focus aimed at no session to one, the first free, and to every one when asked', async ({request, baseURL}) => {
+    const OWNER = {'Orrery-Actor': 'ada_lovelace'}
+    const ids = ['e2e-p1', 'e2e-p2']
+    for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'larder', event: 'SessionStart', name: id}})
+    const streams = ids.map(id => hold(baseURL!, `/api/projects/larder/signals/stream?session=${id}&name=${id}&format=text`))
+    const heard = (title: string) => streams.map(s => s.said.text.includes(title))
+    const quiet = () => new Promise(resolve => setTimeout(resolve, 500))
+    const focus = async (title: string, body: object) => {
+        const issue = await api(request, 'post', '/issues', {title, status: 'todo'})
+        return (await api(request, 'post', `/issues/${issue.id}/focus`, body, OWNER)).signal.id as number
+    }
+    const sent: number[] = []
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
+        // Aimed at no session: one of the two idle ones hears it.
+        sent.push(await focus('Sort the spices', {}))
+        await expect.poll(() => heard('Sort the spices').filter(Boolean).length).toBe(1)
+        await quiet()
+        expect(heard('Sort the spices').filter(Boolean)).toHaveLength(1)
+        // Aimed at every session: both do.
+        sent.push(await focus('Label the tins', {session: '*'}))
+        await expect.poll(() => heard('Label the tins')).toEqual([true, true])
+        // With both busy it waits, and goes to the first to go idle.
+        for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'larder', event: 'UserPromptSubmit'}})
+        sent.push(await focus('Wipe the shelf', {}))
+        await quiet()
+        expect(heard('Wipe the shelf')).toEqual([false, false])
+        await request.post('/api/sessions', {data: {id: 'e2e-p2', project: 'larder', event: 'Stop'}})
+        await expect.poll(() => heard('Wipe the shelf')).toEqual([false, true])
+    } finally {
+        for (const id of sent) await request.post(`/api/projects/larder/signals/${id}/delivered?name=e2e`)
+        for (const stream of streams) stream.stop()
+    }
+})
+
 test('with nobody listening and a launcher there, Focus on this starts a session', async ({page, request, baseURL}) => {
     const issue = await api(request, 'post', '/issues', {title: 'Oil the hinges', status: 'todo'})
     // The session from before has gone: nobody listens on larder now.
