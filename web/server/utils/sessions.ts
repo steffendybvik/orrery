@@ -97,13 +97,27 @@ function add(session: Known) {
     sessions.set(session.id, session)
 }
 
-/** "<project> · <name>", the first of SESSION_NAMES no session on the project has; past them all, "Odin II" and on. */
-function nameFor(project: string): string {
-    const taken = new Set(listSessions(project).map(s => s.name))
+/** "<project> · <name>", the first of SESSION_NAMES no session on the project has; past them all, "Odin II" and on.
+ * With `spanning`, for a session that hears several projects, the bare name ("Odin"), the first no session has: no
+ * one project is its. */
+function nameFor(project: string, spanning = false): string {
+    const taken = new Set((spanning ? [...sessions.values()] : listSessions(project)).map(s => s.name))
     for (let round = 1; ; round++) {
-        const free = SESSION_NAMES.map(name => `${project} · ${name}${round > 1 ? ` ${roman(round)}` : ''}`).find(name => !taken.has(name))
+        const free = SESSION_NAMES.map(name => `${spanning ? '' : `${project} · `}${name}${round > 1 ? ` ${roman(round)}` : ''}`).find(name => !taken.has(name))
         if (free) return free
     }
+}
+
+/** Whether its channel is heard on more than one project. */
+const spans = (session: Known) => [...session.channels?.values() ?? []].filter(c => c.heard).length > 1
+
+/** A made-up name kept to what the session hears: bare while it hears several projects, "<project> · …" once it's
+ * down to one (or moved to another), and left alone while it still fits. */
+function rename(session: Known) {
+    if (!madeUpName(session)) return
+    const spanning = spans(session)
+    if (spanning === !session.name.includes(' · ') && (spanning || session.name.startsWith(`${session.project} · `))) return
+    session.name = nameFor(session.project, spanning)
 }
 
 /** 2 → II, 14 → XIV. */
@@ -252,6 +266,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
         aliases.set(launchTarget(launch), held.id)
     }
     if (name) held.name = name
+    else rename(held)
     if (server) held.server = server
     changedAll(held)
     let open = true
@@ -268,6 +283,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
             if (count.streams > 1) channels.set(project, {streams: count.streams - 1, heard: count.heard - Number(heard), stops: count.stops - Number(stops)})
             else channels.delete(project)
             tally(held)
+            rename(held)
             if (!channels.size && held.stopping) forget(held)
             changedAll(held)
             changed(project)
@@ -278,8 +294,9 @@ export function attend(project: string, id: string | undefined, pid: number | un
 /** Files the session under another project as its own. */
 function moveTo(session: Known, project: string) {
     changed(session.project)
-    if (madeUpName(session)) session.name = nameFor(project)
+    const named = madeUpName(session)
     session.project = project
+    if (named && !spans(session)) session.name = nameFor(project)
     tally(session)
 }
 
