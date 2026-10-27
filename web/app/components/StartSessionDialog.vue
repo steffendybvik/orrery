@@ -202,7 +202,7 @@ async function start() {
     </div>
 
     <div v-if="shared" class="flex items-center gap-2 px-1">
-      <SegmentedControl v-model="together" :options="ways" class="shrink-0 [&_button]:whitespace-nowrap" />
+      <SegmentedControl v-model="together" :options="ways" class="shrink-0 [&_[role=radio]]:whitespace-nowrap" />
       <span class="text-xs text-faint">{{ oneSession ? 'They share a repo, so one session there can work them all.' : 'Each hears only its own project.' }}</span>
     </div>
 

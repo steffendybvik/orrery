@@ -15,29 +15,15 @@ const project = computed(() => byId(target.value?.project))
 const chunk = computed(() => project.value?.board.chunks.find(c => (c.id || 'none') === target.value?.chunk))
 const listening = computed(() => (sessions.value[target.value?.project ?? ''] ?? []).filter(s => s.listening).length)
 
-const menu = ref<HTMLElement | null>(null)
-const place = ref({left: 0, top: 0})
 const busy = ref(false)
 const failed = ref('')
 const confirming = ref(false)
 const note = ref('')
 
-watch(target, now => {
+watch(target, () => {
     failed.value = ''
     confirming.value = false
     note.value = ''
-    if (!now) return
-    place.value = {left: now.x, top: now.y}
-    // Kept inside the window once it's drawn and its size is known.
-    nextTick(() => {
-        const box = menu.value?.getBoundingClientRect()
-        if (!box) return
-        place.value = {
-            left: Math.max(8, Math.min(now.x, window.innerWidth - box.width - 8)),
-            top: Math.max(8, Math.min(now.y, window.innerHeight - box.height - 8)),
-        }
-        menu.value?.focus()
-    })
 })
 // Closed if the chunk goes away (removed elsewhere).
 watch(chunk, now => target.value && !now && close())
@@ -81,24 +67,13 @@ async function copyId() {
     if (chunk.value && await copyText(chunk.value.id)) note.value = `Copied ${chunk.value.id}`
 }
 
-useDismiss(menu, () => target.value, close, {capture: true, blur: true, resize: true})
 
 const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover disabled:opacity-50'
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-        v-if="target && chunk && project"
-        ref="menu"
-        class="menu fixed z-50 w-64"
-        :style="{left: `${place.left}px`, top: `${place.top}px`}"
-        role="menu"
-        :aria-label="chunk.id ? `Actions for chunk ${chunk.id}` : 'Actions for the issues in no chunk'"
-        tabindex="-1"
-        @keydown.esc.stop="close"
-        @contextmenu.prevent
-    >
+  <UiContextMenu :at="chunk && project ? target : null" :label="chunk?.id ? `Actions for chunk ${chunk.id}` : 'Actions for the issues in no chunk'" width="w-64" @close="close">
+    <template v-if="chunk && project">
       <div class="flex items-center gap-2 px-2 pt-1.5 pb-1 text-xs">
         <span v-if="chunk.id" class="font-mono text-faint">{{ chunk.id }}</span>
         <span class="min-w-0 flex-1 truncate text-muted" :class="!chunk.id && 'italic'">{{ chunk.title }}</span>
@@ -157,6 +132,6 @@ const pick = 'grid size-7 place-items-center rounded-md ring-1 hover:bg-hover di
 
       <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       <p v-else-if="note" class="px-2 pb-1.5 text-xs text-emerald-600 dark:text-emerald-400">{{ note }}</p>
-    </div>
-  </Teleport>
+    </template>
+  </UiContextMenu>
 </template>

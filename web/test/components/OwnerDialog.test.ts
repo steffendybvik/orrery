@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
+import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {readBody} from 'h3'
 import OwnerDialog from '~/components/OwnerDialog.vue'
@@ -21,8 +22,9 @@ beforeEach(() => {
 afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
 
 async function mount() {
-    const wrapper = await mountSuspended(OwnerDialog, {global: {stubs: {teleport: true}}})
-    mounted.push(wrapper)
+    mounted.push(await mountSuspended(OwnerDialog, {attachTo: document.body}))
+    // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
+    const wrapper = new DOMWrapper(document.body)
     const submit = () => wrapper.findAll('button').find(b => b.text().includes('Continue'))!
     return {wrapper, submit}
 }

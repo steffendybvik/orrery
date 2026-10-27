@@ -35,7 +35,7 @@ test('the board leaves out the columns of statuses the filter leaves out', async
     await expect(column('Done')).toBeHidden()
     await page.getByRole('button', {name: /^Column/}).click()
     const menu = page.locator('.glass')
-    await menu.getByRole('button', {name: 'Backlog'}).click()
+    await menu.getByRole('option', {name: 'Backlog'}).click()
     await expect(column('Backlog')).toBeHidden()
     await expect(page.getByText('Expiry badges')).toBeHidden()
     await expect(column('In progress')).toBeVisible()
@@ -85,7 +85,7 @@ test('the issues start on the open ones, Done and Canceled a tick away', async (
     await expect(page.getByRole('button', {name: 'Clear'})).toBeHidden()
 
     await page.getByRole('button', {name: /^Column/}).click()
-    await page.getByRole('button').filter({hasText: /^Done$/}).click()
+    await page.getByRole('option').filter({hasText: /^Done$/}).click()
     await expect(page.getByText('Shipped pantry export')).toBeVisible()
     await expect(page.getByText('Dropped barcode idea')).toBeHidden()
 

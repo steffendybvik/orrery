@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
+import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {getHeader, readBody} from 'h3'
 import type {Project, Session} from '#shared/roadmap'
@@ -31,8 +32,9 @@ beforeEach(() => {
 afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
 
 async function mount() {
-    const wrapper = await mountSuspended(MessageSessionsDialog, {props: {open: true}, global: {stubs: {teleport: true}}})
-    mounted.push(wrapper)
+    mounted.push(await mountSuspended(MessageSessionsDialog, {props: {open: true}, attachTo: document.body}))
+    // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
+    const wrapper = new DOMWrapper(document.body)
     const press = (label: string) => wrapper.findAll('[aria-label="States"] button').find(b => b.text() === label)!.trigger('click')
     const tick = (id: string) => wrapper.find(`input[value="${id}"]`).setValue(true)
     return {wrapper, press, tick}
