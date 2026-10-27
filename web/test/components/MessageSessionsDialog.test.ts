@@ -18,14 +18,14 @@ registerEndpoint('/api/sessions/message', {method: 'POST', handler: async event 
 const session = (id: string, project: string, state: Session['state'], more: Partial<Session> = {}) =>
     ({id, name: id, project, state, listening: true, since: '', started_at: '', ...more}) as Session
 const project = (id: string, name: string) => ({id, name, key: id.toUpperCase(), board: {chunks: []}}) as unknown as Project
-const kitchen = session('kitchen', 'larder', 'idle', {also: ['pantry']})
+const kitchen = session('kitchen', 'greenhouse', 'idle', {also: ['pantry']})
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
     sent = []
-    useRoadmaps().projects.value = [project('larder', 'Larder'), project('pantry', 'Pantry')]
+    useRoadmaps().projects.value = [project('greenhouse', 'Greenhouse'), project('pantry', 'Pantry')]
     useRoadmaps().sessions.value = {
-        larder: [session('shelves', 'larder', 'idle'), session('jars', 'larder', 'working'), session('deaf', 'larder', 'idle', {listening: false}), kitchen],
+        greenhouse: [session('shelves', 'greenhouse', 'idle'), session('jars', 'greenhouse', 'working'), session('deaf', 'greenhouse', 'idle', {listening: false}), kitchen],
         pantry: [kitchen, session('tins', 'pantry', 'waiting')],
     }
 })
@@ -63,11 +63,11 @@ describe('MessageSessionsDialog', () => {
     it('sends the words, states and projects as the owner, and says who it went to', async () => {
         const {wrapper, press, tick} = await mount()
         await press('Working')
-        await tick('larder')
+        await tick('greenhouse')
         await wrapper.find('textarea').setValue('  Pick the most urgent issue  ')
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(wrapper.text()).toContain('Sent to shelves, kitchen'))
-        expect(sent).toEqual([{actor: 'skoll', body: {text: 'Pick the most urgent issue', states: ['idle', 'working'], projects: ['larder']}}])
+        expect(sent).toEqual([{actor: 'skoll', body: {text: 'Pick the most urgent issue', states: ['idle', 'working'], projects: ['greenhouse']}}])
         expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('')
     })
 

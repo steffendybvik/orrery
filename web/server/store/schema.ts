@@ -120,7 +120,7 @@ const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 export const PROJECT_FIELDS: Record<string, Field> = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
     name: {type: 'string', required: true},
-    key: {type: 'string', pattern: KEY, hint: 'use capitals and digits, starting with a capital, e.g. LAR'},
+    key: {type: 'string', pattern: KEY, hint: 'use capitals and digits, starting with a capital, e.g. GRE'},
     description: {type: 'string', nullable: true},
     icon: {type: 'string', nullable: true, pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, hint: "use a Heroicon's name, e.g. shopping-cart"},
     icon_color: TINT,

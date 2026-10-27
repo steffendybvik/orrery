@@ -11,7 +11,7 @@ describe("a Claude window's process", () => {
     })
 
     it("isn't a shell or node running something else", () => {
-        expect(isClaude(['node', '/src/larder/channel/orrery-hook.mjs'])).toBe(false)
+        expect(isClaude(['node', '/src/greenhouse/channel/orrery-hook.mjs'])).toBe(false)
         expect(isClaude(['/bin/zsh', '-c', 'claude'])).toBe(false)
         expect(isClaude(['node', '/Users/me/.claude/hooks/notify.mjs'])).toBe(false)
     })

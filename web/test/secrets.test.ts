@@ -16,7 +16,7 @@ let lists: Secret[][]
 
 beforeEach(async () => {
     store = new Store(testDb())
-    await store.createProject({name: 'larder', key: 'LAR'})
+    await store.createProject({name: 'greenhouse', key: 'GRE'})
     await store.createProject({name: 'pantry', key: 'PAN'})
     key = 'a long random test key'
     sent = []
@@ -92,12 +92,12 @@ describe('secrets', () => {
 
     it('narrow without the value, and widen only with it', async () => {
         await secrets.set('GH', {value: VALUE, hosts: ['api.github.com', 'uploads.github.com']}, me)
-        expect((await secrets.narrow('GH', {hosts: ['api.github.com'], projects: ['larder']}, me)).hosts).toEqual(['api.github.com'])
+        expect((await secrets.narrow('GH', {hosts: ['api.github.com'], projects: ['greenhouse']}, me)).hosts).toEqual(['api.github.com'])
         expect((await failure(() => secrets.narrow('GH', {hosts: ['evil.example']}, me))).status).toBe(403)
         expect((await failure(() => secrets.narrow('GH', {projects: null}, me))).status).toBe(403)
-        expect((await failure(() => secrets.narrow('GH', {projects: ['larder', 'pantry']}, me))).status).toBe(403)
+        expect((await failure(() => secrets.narrow('GH', {projects: ['greenhouse', 'pantry']}, me))).status).toBe(403)
         // Still opens after narrowing, sealed to its new hosts.
-        await secrets.egress({url: 'https://api.github.com/user', headers: {Authorization: 'token {{secret:GH}}'}, project: 'larder'}, agent)
+        await secrets.egress({url: 'https://api.github.com/user', headers: {Authorization: 'token {{secret:GH}}'}, project: 'greenhouse'}, agent)
         expect(sent).toHaveLength(1)
     })
 
@@ -153,12 +153,12 @@ describe('egress', () => {
         await secrets.set('PANTRY_KEY', {value: VALUE, hosts: ['api.stripe.com'], projects: ['pantry']}, me)
         const request = {url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:PANTRY_KEY}}'}}
         expect((await failure(() => secrets.egress(request, agent))).status).toBe(403)
-        expect((await failure(() => secrets.egress({...request, project: 'larder'}, agent))).status).toBe(403)
+        expect((await failure(() => secrets.egress({...request, project: 'greenhouse'}, agent))).status).toBe(403)
         expect((await secrets.egress({...request, project: 'pantry'}, agent)).status).toBe(200)
     })
 
     it('records each use, without the value', async () => {
-        await secrets.egress({url: 'https://api.stripe.com/v1/customers/{{secret:STRIPE_KEY}}', project: 'larder', issue: 'LAR-1'}, agent)
+        await secrets.egress({url: 'https://api.stripe.com/v1/customers/{{secret:STRIPE_KEY}}', project: 'greenhouse', issue: 'GRE-1'}, agent)
         answer = () => {
             throw new Error(`connect ECONNREFUSED for ${VALUE}`)
         }
@@ -168,7 +168,7 @@ describe('egress', () => {
         const {uses, last_used} = await secrets.get('STRIPE_KEY')
         expect(uses).toMatchObject([
             {method: 'GET', host: 'api.stripe.com', path: '/v1/charges', status: null, error: expect.stringContaining('ECONNREFUSED'), created_by: 'claude'},
-            {method: 'GET', host: 'api.stripe.com', path: '/v1/customers/{{secret:STRIPE_KEY}}', project: 'larder', issue: 'LAR-1', status: 200, error: null},
+            {method: 'GET', host: 'api.stripe.com', path: '/v1/customers/{{secret:STRIPE_KEY}}', project: 'greenhouse', issue: 'GRE-1', status: 200, error: null},
         ])
         expect(last_used).toEqual(uses[0])
         expect(JSON.stringify(uses)).not.toContain(VALUE)

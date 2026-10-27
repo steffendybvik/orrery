@@ -28,7 +28,7 @@ export const DEFAULT_CHUNK_PROMPT = [
 export const PLACEHOLDERS = {
     focus: {
         actor: 'who asked (the owner)',
-        issue: 'its id, e.g. LAR-42',
+        issue: 'its id, e.g. GRE-42',
         title: 'its title',
         status: "its status's name",
         priority: 'its priority, e.g. P1',
