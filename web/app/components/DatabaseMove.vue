@@ -4,8 +4,10 @@ import type {DatabaseCheck, DatabaseInfo} from '#shared/roadmap'
 // Move to another database (App settings → Database): pick SQLite or Postgres, say where, and Orrery checks it
 // first. An empty one has everything copied in; an Orrery's own is run on as it is. Orrery switches at once and
 // keeps the choice for its next start; the database it leaves stays as it was. The page loads again after, since
-// the projects may be others.
-const props = defineProps<{database: DatabaseInfo}>()
+// the projects may be others. `first` is the first-open step (OwnerDialog): open from the start, inside that dialog's
+// form, with Back in place of Cancel.
+const props = defineProps<{database: DatabaseInfo, first?: boolean}>()
+const emit = defineEmits<{back: []}>()
 const {load} = useOwner()
 
 type Kind = 'sqlite' | 'postgres'
@@ -13,8 +15,8 @@ const KINDS: {value: Kind, label: string}[] = [{value: 'sqlite', label: 'SQLite 
 type Entry = 'url' | 'fields'
 const ENTRIES: {value: Entry, label: string}[] = [{value: 'url', label: 'URL'}, {value: 'fields', label: 'Details'}]
 
-const open = ref(false)
-const kind = ref<Kind>(props.database.kind === 'sqlite' ? 'postgres' : 'sqlite')
+const open = ref(!!props.first)
+const kind = ref<Kind>(props.first || props.database.kind === 'sqlite' ? 'postgres' : 'sqlite')
 const entry = ref<Entry>('url')
 const path = ref('')
 const url = ref('')
@@ -82,8 +84,9 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
       <UiButton size="xs" @click="open = true">Move to another database…</UiButton>
     </div>
 
-    <form v-else class="flex flex-col gap-2.5 rounded-xl bg-well/50 p-3 ring-1 ring-line" @submit.prevent="check ? undefined : checkIt()">
-      <SegmentedControl v-model="kind" :options="KINDS" class="self-start" />
+    <!-- Not a form of its own: in the first-open dialog it's inside one. Enter checks it. -->
+    <div v-else class="flex flex-col gap-2.5 rounded-xl bg-well/50 p-3 ring-1 ring-line" @keydown.enter.prevent="!check && ready && !busy && checkIt()">
+      <SegmentedControl v-if="!first" v-model="kind" :options="KINDS" class="self-start" />
 
       <template v-if="kind === 'sqlite'">
         <input v-model="path" placeholder="orrery-2.db, or a full path" aria-label="SQLite file" autocomplete="off" :class="[input, 'w-full font-mono']">
@@ -113,27 +116,28 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
 
       <p v-if="check" class="text-[13px] text-fg">
         <code class="font-mono text-xs">{{ check.where }}</code>:
-        {{ STATE[check.state] }}
+        {{ first && check.state === 'empty' ? 'Empty: Orrery sets it up and keeps everything there.' : STATE[check.state] }}
         <template v-if="check.state === 'orrery'">
           {{ check.projects ? `${check.projects} project${check.projects === 1 ? '' : 's'} in it. Orrery runs on it as it is, and what's here stays behind in this one.` : 'No projects in it yet: everything here is copied in.' }}
         </template>
       </p>
 
       <div class="flex flex-wrap items-center gap-2">
-        <UiButton v-if="!check" type="submit" variant="primary" :disabled="busy || !ready">{{ busy ? 'Checking…' : 'Check it' }}</UiButton>
+        <UiButton v-if="!check" variant="primary" :disabled="busy || !ready" @click="checkIt">{{ busy ? 'Checking…' : 'Check it' }}</UiButton>
         <UiButton v-else-if="check.state === 'empty' || (check.state === 'orrery' && !check.projects)" variant="primary" :disabled="busy" @click="move('copy')">
-          {{ busy ? 'Copying…' : 'Copy and move' }}
+          {{ busy ? 'Setting it up…' : first ? 'Use it' : 'Copy and move' }}
         </UiButton>
         <UiButton v-else-if="check.state === 'orrery'" variant="warning-outline" :disabled="busy" @click="move('use')">
           {{ busy ? 'Moving…' : 'Run on it as it is' }}
         </UiButton>
-        <UiButton :disabled="busy" @click="open = false">Cancel</UiButton>
+        <UiButton v-if="first" :disabled="busy" @click="emit('back')">Back</UiButton>
+        <UiButton v-else :disabled="busy" @click="open = false">Cancel</UiButton>
         <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
         <span v-else-if="moved" class="text-xs text-muted">Moved. Loading it…</span>
       </div>
-      <p class="text-xs text-faint">
+      <p v-if="!first" class="text-xs text-faint">
         The database it leaves stays as it was, so you can move back to it. What's written while it copies, a few seconds, stays behind there.
       </p>
-    </form>
+    </div>
   </div>
 </template>

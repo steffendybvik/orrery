@@ -8,8 +8,17 @@ test.describe.configure({mode: 'serial'})
 
 const api = projectApi('larder')
 
-test('asks the owner their name on first open', async ({page, request}) => {
+test('asks where to keep the data, then the owner\'s name, on first open', async ({page, request}) => {
     await page.goto('/')
+    // On SQLite it asks where to keep the data first; on Postgres (set as it starts) it doesn't.
+    const where = page.getByRole('dialog', {name: 'Where to keep its data'})
+    if (!process.env.E2E_POSTGRES_URL) {
+        await where.getByRole('button', {name: /Postgres/}).click()
+        await expect(where.getByLabel('Postgres URL')).toBeVisible()
+        await where.getByRole('button', {name: 'Back'}).click()
+        await where.getByRole('button', {name: /On this machine/}).click()
+    }
+    await expect(where).toBeHidden()
     const dialog = page.getByRole('dialog', {name: 'Your name'})
     await dialog.getByLabel('Your name').fill('Ada Lovelace')
     await dialog.getByRole('button').last().click()

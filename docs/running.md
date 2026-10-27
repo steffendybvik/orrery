@@ -39,7 +39,11 @@ it. App settings → This Orrery → Database says when the latest was made, wit
 ## Postgres
 
 SQLite suits one machine. To keep the Orrery in Postgres instead (a server shared by a team, or a
-database you already back up), put this in `.env`:
+database you already back up), the simplest way is to pick it when you first open Orrery on its machine (localhost).
+Before it asks your name, it asks where to keep the data: **On this machine** (SQLite) or **Postgres**, a URL or its
+details. Orrery checks it's empty and sets it up, or picks up an Orrery's own from before, as
+[Moving it from the app](#moving-it-from-the-app) does. Or set it as Orrery starts, which skips that question: put this
+in `.env`:
 
 ```sh
 COMPOSE_PROFILES=postgres
