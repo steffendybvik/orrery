@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
+import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended} from '@nuxt/test-utils/runtime'
 import type {Project} from '#shared/roadmap'
 import CommandPalette from '~/components/CommandPalette.vue'
@@ -26,8 +27,9 @@ afterEach(() => {
 })
 
 async function mount() {
-    const wrapper = await mountSuspended(CommandPalette, {global: {stubs: {teleport: true}}})
-    mounted.push(wrapper)
+    mounted.push(await mountSuspended(CommandPalette, {attachTo: document.body}))
+    // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
+    const wrapper = new DOMWrapper(document.body)
     const input = () => wrapper.find('input[aria-label="Type a command or search"]')
     const key = (k: string, more: Record<string, unknown> = {}) => input().trigger('keydown', {key: k, ...more})
     const sections = () => wrapper.findAll('section').map(s => s.attributes('aria-label'))

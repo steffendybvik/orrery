@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
+import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {getHeader, readBody, setResponseStatus} from 'h3'
 import type {Project} from '#shared/roadmap'
@@ -56,8 +57,9 @@ afterEach(() => {
 
 async function mount(on: string | null) {
     useStartSession().open(on)
-    const wrapper = await mountSuspended(StartSessionDialog, {global: {stubs: {teleport: true}}})
-    mounted.push(wrapper)
+    mounted.push(await mountSuspended(StartSessionDialog, {attachTo: document.body}))
+    // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
+    const wrapper = new DOMWrapper(document.body)
     const row = (id: string) => wrapper.find(`input[value="${id}"]`).element.closest('label')!.textContent ?? ''
     const submit = () => wrapper.findAll('button').find(b => b.text().startsWith('Start session'))!
     await vi.waitFor(() => expect(row('cellar')).toContain('No launcher running'))
