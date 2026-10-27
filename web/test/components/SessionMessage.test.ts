@@ -27,7 +27,7 @@ async function mount() {
     const wrapper = await mountSuspended(SessionMessage, {props: {session, project: 'larder'}, attachTo: document.body})
     mounted.push(wrapper)
     const pick = async (name: string) => {
-        await wrapper.find('button[aria-label="Send a preset"]').trigger('click')
+        await wrapper.find('button[aria-label="Pick a preset"]').trigger('click')
         await vi.waitFor(() => expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(2))
         await wrapper.findAll('[role="menuitem"]').find(b => b.text().endsWith(name))!.trigger('click')
     }

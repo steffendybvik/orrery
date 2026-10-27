@@ -56,7 +56,7 @@ async function send() {
     <div class="flex items-end gap-2">
       <Menu as="div" class="relative">
         <MenuButton as="template">
-          <UiButton variant="ghost" square :aria-label="from ? `From the preset ${from.name}` : 'Send a preset'" :title="from ? `From the preset ${from.name}` : 'Send a preset'" @click="loadPresets">
+          <UiButton variant="ghost" square :aria-label="from ? `From the preset ${from.name}` : 'Pick a preset'" :title="from ? `From the preset ${from.name}` : 'Pick a preset'" @click="loadPresets">
             <PresetBadge v-if="from" :preset="from" :size="18" />
             <BookmarkIcon v-else class="size-4" />
           </UiButton>
