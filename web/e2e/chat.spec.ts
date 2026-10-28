@@ -3,7 +3,7 @@ import {OWNER, hold, makeProject} from './support'
 
 // The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the Chat button
 // starts one with starts turned off (a chat counts towards nothing), the owner's words reach its session alone, its
-// answer shows in the pane, it isn't listed on the Sessions page, and End chat stops it.
+// answer shows in the pane, it isn't listed on the Sessions page, and closing the pane ends it.
 let starts: unknown = null
 
 test.beforeAll(async ({request}) => {
@@ -35,6 +35,8 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await pane.getByLabel('Message').fill('What is on the top shelf?')
         await pane.getByLabel('Message').press('Enter')
         await expect.poll(() => session!.said.text).toContain('What is on the top shelf?')
+        // With the page the owner is on, so it knows what "this" is.
+        expect(session.said.text).toContain('(The owner is on /p/larder')
         // It takes the message up, as its hooks say.
         await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'larder', event: 'UserPromptSubmit'}})
         await expect(pane).toContainText('Thinking…')
@@ -49,8 +51,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         const moved = await request.post('/api/projects/larder/issues/LAR-1/focus', {data: {}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes'}})
         expect(moved.status()).toBe(403)
 
-        // It isn't one of the sessions: not listed, and nothing for the limit.
-        await pane.getByRole('button', {name: 'Close the chat; it keeps running'}).click()
+        // It isn't one of the sessions: not listed, and nothing for the limit. Leaving the page leaves it running.
         await page.goto('/sessions')
         await expect(page.getByRole('heading', {name: 'Sessions'}).first()).toBeVisible()
         await expect(page.locator('#session-e2e-chat')).toHaveCount(0)
@@ -59,10 +60,17 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         // With a chat running, the button says so.
         await page.getByRole('button', {name: 'Chat A chat is running'}).click()
         await expect(pane).toContainText('Jars of')
-        await pane.getByRole('button', {name: 'End chat'}).click()
+        // It can be made larger, and back.
+        const narrow = (await pane.boundingBox())!.width
+        await pane.getByRole('button', {name: 'Make the chat larger'}).click()
+        await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(narrow)
+        await pane.getByRole('button', {name: 'Make the chat smaller'}).click()
+        // Closing the pane ends the chat, and it opens again ready for another.
+        await pane.getByRole('button', {name: 'End the chat and close it'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
-        await expect(pane).toContainText('This chat has ended.')
-        expect(await (await request.get('/api/chats', {headers: OWNER})).json()).toEqual([])
+        await expect.poll(async () => (await request.get('/api/chats', {headers: OWNER})).json()).toEqual([])
+        await page.getByRole('button', {name: 'Chat', exact: true}).click()
+        await expect(pane.getByRole('button', {name: /^Chat about/})).toBeVisible()
     } finally {
         session?.stop()
         launcher.stop()
