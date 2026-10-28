@@ -344,9 +344,9 @@ function serve({url, project, dir}) {
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        // It says it locks an untrusted launch down, and starts a chat able only to read and answer: Orrery gives either
-        // only to a launcher that does.
-        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=yes&chat=yes`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
+        // It says it locks an untrusted launch down with no Bash, and starts a chat able only to read and answer: Orrery
+        // gives either only to a launcher that does.
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so Orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.

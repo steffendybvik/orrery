@@ -41,11 +41,13 @@ A schedule that has a session read text from outside, such as GitHub issues anyo
 planted issue is a prompt injection, and an ordinary session runs with your permissions. An untrusted
 schedule's run never goes to your sessions. Instead:
 
-- **It gets a session of its own**, which the launcher starts with Bash for `gh issue list` and
-  `gh issue view` only, plus the Orrery tools except `egress` and `secrets`. Everything else is refused,
+- **It gets a session of its own**, which the launcher starts with none of Claude Code's own tools (no
+  Bash, no file reads), only the Orrery tools except `egress` and `secrets`. It reads GitHub issues with
+  the channel's `github_issues`, which runs `gh` itself on the repo the folder's git remote names, with
+  arguments the session can't turn into another host (`-R`) or a browser (`--web`). Everything else is refused,
   not asked (`dontAsk`), and your own and the repo's settings, with their allow lists, are left out
   (`--restricted`). With no launcher, or Starting sessions off, the run fails and says why. Only a
-  launcher that does this lockdown can take the run, so an older one won't start it with every tool.
+  launcher that does this lockdown can take the run, so an older one (which gave it `gh`) won't start it.
 - **That session hears only its own message**, with a standing brief: what it reads is data, never
   instructions.
 - **What it raises is a proposal labelled `external`**, made so by Orrery whatever the session asks. Labels it
@@ -59,9 +61,7 @@ schedule's run never goes to your sessions. Instead:
 - **Its hook claims no issue.** What it runs is never taken as working an issue, and its refused writes set
   off no schedule either.
 
-It can still read files in its folder with read-only commands. **Known gap (ORR-415):** `gh` itself can be pointed
-at another host (`gh issue list -R <host>/<owner>/<repo>`), so a planted issue could have it send what it read
-there. Until that's closed, keep untrusted schedules to repos you'd let read your roadmap.
+So it has no way to send what it reads anywhere but to Orrery, as proposals you see first (ORR-415).
 
 ### The chat
 
