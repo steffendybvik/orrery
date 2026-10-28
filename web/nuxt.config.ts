@@ -24,6 +24,10 @@ export default defineNuxtConfig({
         database: '../.data/orrery.db',
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
+        // Under Docker, what /data and /backup are on the computer: a folder (ORRERY_DATA, ORRERY_BACKUP) or a volume's
+        // name, so App settings shows where they are there. Compose sets NUXT_DATA_HOST and NUXT_BACKUP_HOST.
+        dataHost: '',
+        backupHost: '',
         // Host names Orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
         // Override with NUXT_ALLOWED_HOSTS.
         allowedHosts: '',

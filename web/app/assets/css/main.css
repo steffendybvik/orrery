@@ -16,6 +16,7 @@
     --animate-fade-up: fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     --animate-slide-in: slide-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     --animate-flash: flash 1.2s ease-out;
+    --animate-dot: dot 1.2s ease-in-out infinite;
 
     @keyframes fade-up {
         from { opacity: 0; transform: translateY(8px); }
@@ -25,6 +26,12 @@
     @keyframes slide-in {
         from { opacity: 0; transform: translateX(24px); }
         to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* One of the chat's three Thinking dots, each a little after the one before */
+    @keyframes dot {
+        0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+        30% { opacity: 1; transform: translateY(-2px); }
     }
 
     /* A row that just changed through the API */
