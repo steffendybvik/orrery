@@ -28,9 +28,18 @@ export default defineNuxtConfig({
         // name, so App settings shows where they are there. Compose sets NUXT_DATA_HOST and NUXT_BACKUP_HOST.
         dataHost: '',
         backupHost: '',
-        // Host names Orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
+        // Set (NUXT_BACKUP_CHOSEN, from compose) when ORRERY_BACKUP names a folder of the owner's, not the default: the
+        // default stays on this computer, which App settings says (ORR-448).
+        backupChosen: '',
+        // Host names orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
         // Override with NUXT_ALLOWED_HOSTS.
         allowedHosts: '',
+        // In Docker, the address compose publishes orrery on (ORRERY_HOST): moving the database and setting backups
+        // from the app need it to be loopback, as the container can't tell who's connecting. Compose sets NUXT_LISTEN_HOST.
+        listenHost: '',
+        // A Postgres database's URL for the backups, in place of the folder (ORR-427). Compose sets NUXT_BACKUP_DATABASE
+        // from ORRERY_BACKUP_DATABASE.
+        backupDatabase: '',
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',
@@ -38,7 +47,7 @@ export default defineNuxtConfig({
             // Where this repo is on the machine, for the channel setup the Connect page hands out.
             // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).
             repoDir: '',
-            // Which Orrery this is, each its own server and database (`personal`, `work`, …): a chip by
+            // Which orrery this is, each its own server and database (`personal`, `work`, …): a chip by
             // the name, and the start of every tab's title. Override with NUXT_PUBLIC_ENVIRONMENT.
             environment: 'personal',
             version,
@@ -52,7 +61,7 @@ export default defineNuxtConfig({
 
     app: {
         head: {
-            title: 'Orrery',
+            title: 'orrery',
             meta: [{name: 'description', content: 'Where every app project stands'}],
             link: [
                 {rel: 'icon', href: '/favicon.ico', sizes: '32x32'},

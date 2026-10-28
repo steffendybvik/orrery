@@ -7,10 +7,10 @@ const props = defineProps<{error: NuxtError}>()
 const route = useRoute()
 watch(() => route.fullPath, () => clearError())
 const missing = computed(() => props.error.statusCode === 404)
-useHead(() => ({title: missing.value ? 'Not found · Orrery' : 'Something went wrong · Orrery'}))
-// It shows in place of app.vue, so it starts the title with which Orrery this is itself, as app.vue does.
+useHead(() => ({title: missing.value ? 'Not found · orrery' : 'Something went wrong · orrery'}))
+// It shows in place of app.vue, so it starts the title with which orrery this is itself, as app.vue does.
 const {environment} = useRuntimeConfig().public
-if (environment) useHead({titleTemplate: title => `${environment} · ${title ?? 'Orrery'}`})
+if (environment) useHead({titleTemplate: title => `${environment} · ${title ?? 'orrery'}`})
 </script>
 
 <template>
@@ -19,7 +19,7 @@ if (environment) useHead({titleTemplate: title => `${environment} · ${title ?? 
       <h1 class="truncate text-sm font-medium">{{ missing ? 'Not found' : 'Something went wrong' }}</h1>
     </PageHeader>
     <div class="min-h-0 flex-1 overflow-y-auto">
-      <NotFound v-if="missing" reason="The link may be old, or mistyped." to="/now" back="Go to Now">
+      <NotFound v-if="missing" reason="The link may be old, or mistyped." to="/mine" back="Go to My issues">
         Nothing at <span class="font-mono">{{ route.path }}</span>
       </NotFound>
       <div v-else class="grid place-items-center px-4 py-24 text-center text-sm text-muted">

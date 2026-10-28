@@ -12,7 +12,7 @@ const chunks = computed(() => {
     return all.map(c => ({...c, tasks: filterTree(c.tasks, matches)})).filter(c => c.tasks.length)
 })
 
-useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orrery` : 'Orrery'}))
+useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · orrery` : 'orrery'}))
 </script>
 
 <template>
@@ -46,6 +46,6 @@ useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orre
       <div v-else-if="!chunks.length" class="grid place-items-center px-4 py-24 text-sm text-muted">No chunk has an issue that matches the filters.</div>
       <BoardView v-else :chunks="chunks" :project="project.id" />
     </template>
-    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

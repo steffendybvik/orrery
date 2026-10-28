@@ -100,7 +100,7 @@ test("marks what changed since the owner last looked, but not the owner's own ch
     const unseen = (title: string) => page.locator('[data-issue]', {hasText: title}).getByTitle('Changed since you last opened it')
     // What was there before the first visit counts as seen; an agent's issue arriving live doesn't.
     await page.goto('/p/scullery?view=list')
-    await expect(page.getByText('Live', {exact: true})).toBeVisible()
+    await expect(page.getByText('Connected', {exact: true})).toBeVisible()
     const issue = await api(request, 'post', '/issues', {title: 'Label the jars'})
     await expect(unseen('Label the jars')).toBeVisible()
     // Opening it is seeing it.

@@ -4,8 +4,8 @@ import type {Feed} from '../../utils/signal-feed'
 // server-sent event stream: each `signal` event as `…/projects/:project/signals/stream` sends it (its `project` says
 // whose), and `stop` when the owner stops the session. `*` follows every project, and each one made later too. The
 // session counts as listening on each. `?after=` or `Last-Event-ID` catches up on every one of them (signal ids run
-// across projects); a session Orrery started names its project (`started_for`), whose feed takes its launch. `name`
-// tells the session what Orrery calls it, and again when that changes.
+// across projects); a session orrery started names its project (`started_for`), whose feed takes its launch. `name`
+// tells the session what orrery calls it, and again when that changes.
 export default defineEventHandler(async event => {
     const query = getQuery(event)
     const text = (key: string) => typeof query[key] === 'string' && query[key] ? String(query[key]) : undefined

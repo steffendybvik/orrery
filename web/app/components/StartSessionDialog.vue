@@ -7,7 +7,7 @@ import type {LaunchState} from '~/composables/useLaunchState'
 // picked are served from one repo, one session there hearing them all; or none, for one session hearing every
 // project, where a launcher's channel serves them all (`*`). On one project it can focus on an open issue;
 // else it works through a scope, the issues of the statuses ticked (and of a release), most urgent first, or with
-// nothing ticked waits for your work. It can be given more context: presets (the Orrery's, and each project's own)
+// nothing ticked waits for your work. It can be given more context: presets (the orrery's, and each project's own)
 // and your own words, which go with every signal to it. Their launchers start them in tmux, for each project's
 // minutes or until stopped; the Sessions page shows them arriving.
 const {target, close} = useStartSession()
@@ -25,14 +25,14 @@ const release = ref('')
 const busy = ref(false)
 const failed = ref('')
 const states = ref<Record<string, LaunchState | null>>({})
-/** The presets the chosen projects' sessions can have, the Orrery's first; those ticked, and your own words. */
+/** The presets the chosen projects' sessions can have, the orrery's first; those ticked, and your own words. */
 const presets = ref<Preset[]>([])
 const picked = ref<number[]>([])
 const instructions = ref('')
 /** One session for every project picked, rather than one each, when they share a repo. */
 const together = ref<'one' | 'each'>('one')
 
-/** Whether a launcher is there and how many are running, for each project that lets Orrery start sessions. */
+/** Whether a launcher is there and how many are running, for each project that lets orrery start sessions. */
 async function loadStates() {
     const asked = await Promise.all(ordered.value.filter(p => p.starts).map(async p =>
         [p.id, await $fetch<LaunchState>(`/api/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)] as const))
@@ -53,7 +53,7 @@ watch(target, now => {
 }, {immediate: true})
 // Asked again as launchers come and go and sessions start, while it's open.
 watch([launchers, sessions], () => target.value && loadStates())
-// At once as well: opening sets `chosen` above, before this watches it, and with nothing ticked the Orrery's presets
+// At once as well: opening sets `chosen` above, before this watches it, and with nothing ticked the orrery's presets
 // would otherwise never load.
 watch(chosen, () => {
     issue.value = ''
@@ -77,7 +77,7 @@ function pick(id: number) {
 
 /** Why the project can't start a session now, if it can't. */
 function why(project: Project): string | null {
-    if (!project.starts) return "Orrery doesn't start sessions"
+    if (!project.starts) return "orrery doesn't start sessions"
     const state = states.value[project.id]
     if (!state) return null
     if (!state.launchers) return 'No launcher running'
@@ -141,7 +141,7 @@ async function start() {
     const actor = await load()
     const work = issue.value ? {issue: issue.value} : scoped.value ? {statuses: statuses.value, ...release.value ? {release: release.value} : {}} : {}
     const own = instructions.value.trim() ? {instructions: instructions.value.trim()} : {}
-    // Each project's session gets the Orrery's presets ticked and its own.
+    // Each project's session gets the orrery's presets ticked and its own.
     const body = (project: string) => ({
         ...work,
         presets: picked.value.filter(id => presets.value.some(p => p.id === id && (!p.project || p.project === project))),
@@ -194,7 +194,7 @@ async function start() {
 <template>
   <UiDialog :open="target" label="Start session" class="max-h-[76vh]" @close="close" @submit="start">
     <div class="flex items-center gap-2 text-xs text-faint">
-      <span>Start a Claude session</span>
+      <span>Start a session</span>
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
 

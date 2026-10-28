@@ -6,7 +6,7 @@ import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 import {isObject} from './input'
 import {known} from '#shared/known'
 
-/** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
+/** The statuses and plans of the `roadmap.json` format (and of orrery before it had statuses of its own). */
 const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
 export const LEGACY_PLANS = ['now', 'next', 'later'] as const
 
@@ -186,6 +186,7 @@ export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> 
     schedule?: number
     release?: string
     created_by?: string
+    session_name?: string
     protected?: boolean
     created_at?: string
     updated_at?: string
@@ -239,8 +240,8 @@ class Rules {
             kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
         }
         const column = this.columnOf(counts, kinds)
-        const {id, title, priority, assignee, labels, external = [], status, notes, proposal, decided_by, decided_at, decision_note, choices = [], picks, explore, comments = 0, waiting, aliases = [], schedule, release, created_by = '', protected: owned = false, created_at = '', updated_at = ''} = task
-        return {id, title, priority, assignee, labels, external, status, notes, proposal, decided_by, decided_at, decision_note, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, waiting, aliases, schedule, release, created_by, protected: owned, created_at, updated_at, tasks}
+        const {id, title, priority, assignee, labels, external = [], status, notes, proposal, decided_by, decided_at, decision_note, choices = [], picks, explore, comments = 0, waiting, aliases = [], schedule, release, created_by = '', session_name, protected: owned = false, created_at = '', updated_at = ''} = task
+        return {id, title, priority, assignee, labels, external, status, notes, proposal, decided_by, decided_at, decision_note, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, waiting, aliases, schedule, release, created_by, ...session_name ? {session_name} : {}, protected: owned, created_at, updated_at, tasks}
     }
 
     /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.

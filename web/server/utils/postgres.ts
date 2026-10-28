@@ -1,4 +1,4 @@
-// Postgres behind the same `Db` the store awaits (server/utils/database.ts), for an Orrery given a
+// Postgres behind the same `Db` the store awaits (server/utils/database.ts), for an orrery given a
 // `postgres://` URL. A pool serves what comes in at once; a transaction holds one connection, and what
 // runs inside it (found through AsyncLocalStorage) goes to that connection. The SQL is the store's own,
 // written so SQLite and Postgres both understand it; `?` placeholders become `$1, $2, …` here.
@@ -9,8 +9,9 @@
 import {AsyncLocalStorage} from 'node:async_hooks'
 import pg from 'pg'
 import {runAfter, type Db, type Value} from './database'
+import {redact} from './event-log'
 
-// Counts come back as int8, which pg hands over as text; Orrery's never outgrow a number.
+// Counts come back as int8, which pg hands over as text; orrery's never outgrow a number.
 pg.types.setTypeParser(pg.types.builtins.INT8, value => Number(value))
 
 /** SQLite's step this schema matches (`PRAGMA user_version`). */
@@ -347,6 +348,23 @@ const STEPS: string[] = [`
     ALTER TABLE events ADD COLUMN subject text;
 `, `
     ALTER TABLE signals ADD COLUMN via text;
+`, `
+    ALTER TABLE events ADD COLUMN resolved_by text;
+`, `
+    CREATE TABLE proposal_clears (
+        project text NOT NULL,
+        issue text NOT NULL,
+        put_up text NOT NULL,
+        cleared_at text NOT NULL,
+        PRIMARY KEY (project, issue, put_up),
+        FOREIGN KEY (project, issue) REFERENCES issues(project, id) ON DELETE CASCADE ON UPDATE CASCADE ${KEYS}
+    );
+`, `
+    CREATE INDEX comments_notices ON comments(owned, cleared, created_at, id);
+`, `
+    ALTER TABLE comments ADD COLUMN session_name text;
+    ALTER TABLE issue_events ADD COLUMN session_name text;
+    ALTER TABLE issues ADD COLUMN session_name text;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether
@@ -365,6 +383,9 @@ export class PostgresDb implements Db {
     constructor(url: string, schema?: string) {
         this.pool = new pg.Pool({connectionString: url, max: 10, allowExitOnIdle: true})
         if (schema) this.pool.on('connect', client => void client.query(`SET search_path TO "${schema}"`))
+        // An idle connection dropping (Postgres restarting) is said, not thrown: unheard, it would end the server. The
+        // pool opens another for the next query.
+        this.pool.on('error', error => console.error('[orrery] postgres connection lost:', redact(error.message)))
         this.ready = this.migrate(schema)
         // A failed start shows when the first query is made; this only keeps it from going unhandled.
         this.ready.catch(() => {})
@@ -445,6 +466,11 @@ export class PostgresDb implements Db {
             await client.query('CREATE TABLE IF NOT EXISTS schema_version (version integer NOT NULL)')
             const row = (await client.query<{version: number}>('SELECT version FROM schema_version')).rows[0]
             let version = row?.version ?? 0
+            // One from a newer orrery is left as it is (ORR-433); its steps all ran in one transaction, so no copy is needed.
+            if (version > BASELINE + STEPS.length) {
+                throw new Error(`This Postgres database was written by a newer orrery (schema step ${version}; this one knows up to ${BASELINE + STEPS.length}). `
+                    + 'Run that version again, or restore a backup from before it upgraded.')
+            }
             if (!row) {
                 await client.query(SCHEMA)
                 await client.query('INSERT INTO schema_version (version) VALUES ($1)', [BASELINE])

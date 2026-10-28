@@ -32,6 +32,6 @@ const parts = (path: string) => path.split(/(?<=\/)/)
       </div>
       <CopyButton :text="path" />
     </div>
-    <span v-if="host || volume" class="font-mono text-[11px] text-faint [overflow-wrap:anywhere]" :title="`The path inside Docker, as Orrery opens it: ${path}`">inside Docker: {{ path }}</span>
+    <span v-if="host || volume" class="font-mono text-[11px] text-faint [overflow-wrap:anywhere]" :title="`The path inside Docker, as orrery opens it: ${path}`">inside Docker: {{ path }}</span>
   </div>
 </template>

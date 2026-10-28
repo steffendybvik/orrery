@@ -22,7 +22,7 @@ const later = (ms: number) => {
 }
 
 describe('the event log', () => {
-    it('records errors always, what Orrery did only while Advanced is on', async () => {
+    it('records errors always, what orrery did only while Advanced is on', async () => {
         expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toBeNull()
         expect(await log.record({level: 'warn', kind: 'session.refused', message: 'At the limit'})).toBeNull()
         expect(await log.record({level: 'error', kind: 'server.error', message: 'boom'})).toMatchObject({level: 'error', kind: 'server.error', count: 1})
@@ -54,6 +54,20 @@ describe('the event log', () => {
         expect(heard.at(-1)?.fresh).toBe(true)
     })
 
+    it('keeps who resolved it when that was an agent, for it and its repeats, and the first resolver only', async () => {
+        const first = await log.record({level: 'error', kind: 'server.error', message: 'boom'})
+        later(1000)
+        await log.record({level: 'error', kind: 'server.error', message: 'boom'})
+        const resolved = await log.resolve(first?.id ?? 0, {name: 'claude', owner: false})
+        expect(resolved).toMatchObject({resolved_at: now.toISOString(), resolved_by: 'claude'})
+        expect((await log.list()).map(e => e.resolved_by)).toEqual(['claude', 'claude'])
+        // Resolving it again changes nothing; the owner's own resolving names nobody.
+        later(1000)
+        expect(await log.resolve(first?.id ?? 0, owner)).toMatchObject({resolved_by: 'claude'})
+        const other = await log.record({level: 'error', kind: 'server.error', message: 'bang'})
+        expect(await log.resolve(other?.id ?? 0, owner)).not.toHaveProperty('resolved_by')
+    })
+
     it('keeps secrets, passwords and tokens out', async () => {
         const event = await log.record({level: 'error', kind: 'server.error', message: 'calling with sk-live-123 failed', details: {
             url: 'postgres://orrery:hunter22@db.example.com/orrery',
@@ -62,6 +76,12 @@ describe('the event log', () => {
         expect(event?.message).toBe('calling with {{secret:STRIPE}} failed')
         expect(event?.details).toEqual({url: 'postgres://orrery:…@db.example.com/orrery', nested: {auth: 'Bearer …'}})
         expect(redact('Basic dXNlcjpwYXNzd29yZA==')).toBe('Basic …')
+        // A password with no user, with an @ in it, or given as a setting.
+        expect(redact('postgres://:hunter22@db/orrery')).toBe('postgres://:…@db/orrery')
+        expect(redact('postgres://me:hun@ter22@db/orrery and more')).toBe('postgres://me:…@db/orrery and more')
+        expect(redact('postgres://me@db/orrery?sslmode=require&password=hunter22')).toBe('postgres://me@db/orrery?sslmode=require&password=…')
+        expect(redact("host=db user=me password='hunter 22' dbname=orrery")).toBe('host=db user=me password=… dbname=orrery')
+        expect(redact('host=db password=hunter22')).toBe('host=db password=…')
     })
 
     it('reads Advanced and the secrets once, and again only once told they changed', async () => {
@@ -199,7 +219,7 @@ describe('the event log', () => {
         expect(await log.list({kind: 'issue', limit: 1000})).toHaveLength(1000)
     })
 
-    it('lets go of what Orrery did after a week, problems after a month', async () => {
+    it('lets go of what orrery did after a week, problems after a month', async () => {
         await store.updateSettings({advanced: true}, owner)
         log.forget()
         await log.record({level: 'info', kind: 'backup.made', message: 'Backed up'})

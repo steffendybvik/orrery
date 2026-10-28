@@ -106,14 +106,14 @@ async function remove() {
     failed.value = ''
     try {
         await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
-        router.push('/now')
+        router.push('/mine')
     } catch (error) {
         failed.value = errorMessage(error, 'delete')
     } finally {
         removing.value = false
     }
 }
-useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orrery` : 'Orrery'}))
+useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orrery` : 'orrery'}))
 </script>
 
 <template>
@@ -211,14 +211,14 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <h2 class="text-[15px] font-semibold text-rose-600 dark:text-rose-400">Delete this project</h2>
-            <p class="text-xs text-muted">Removes {{ project.name }} and everything in it from Orrery.</p>
+            <p class="text-xs text-muted">Removes {{ project.name }} and everything in it from orrery.</p>
           </div>
           <UiButton v-if="!deleting" variant="danger-outline" class="shrink-0" @click="deleting = true">Delete project…</UiButton>
         </header>
         <form v-if="deleting" class="flex flex-col gap-3" @submit.prevent="remove" @keydown.esc="deleting = false">
           <div class="rounded-lg bg-rose-500/10 px-3 py-2.5 text-[13px] leading-relaxed text-rose-700 ring-1 ring-rose-500/30 dark:text-rose-300">
             <p class="font-semibold">This is permanent. There is no undo.</p>
-            <p>Deleting {{ project.name }} throws away {{ loses.join(', ') }}. Claude sessions on it stop getting anything.</p>
+            <p>Deleting {{ project.name }} throws away {{ loses.join(', ') }}. Sessions on it stop getting anything.</p>
             <p class="mt-1 text-xs opacity-80">Only the iCloud backups keep a copy: the daily ones for two weeks, the latest until the next change replaces it.</p>
           </div>
           <label class="flex flex-col gap-1 text-xs text-muted">
@@ -235,6 +235,6 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         </form>
       </section>
     </div>
-    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

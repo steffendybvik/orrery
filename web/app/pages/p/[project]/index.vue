@@ -25,7 +25,7 @@ const chunks = computed(() => {
     return all.map(c => ({...c, tasks: filterTree(c.tasks, matches)})).filter(c => c.tasks.length)
 })
 
-useHead(() => ({title: project.value ? `${project.value.name} · Orrery` : 'Orrery'}))
+useHead(() => ({title: project.value ? `${project.value.name} · orrery` : 'orrery'}))
 
 // Links from before issues had pages (`?issue=MOT-5`) go to the issue's page.
 if (typeof route.query.issue === 'string') navigateTo(`/p/${route.params.project}/issues/${encodeURIComponent(route.query.issue)}`, {replace: true})
@@ -90,6 +90,6 @@ onMounted(() => nextTick(() => {
       <IssueBoard v-else-if="view === 'board'" :chunks="chunks" :project="project.id" />
       <ListView v-else :chunks="chunks" :project="project.id" :group="group" />
     </template>
-    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

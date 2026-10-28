@@ -30,7 +30,7 @@ beforeEach(async () => {
     release = await store.createPreset(null, {name: 'Release', text: 'Cut the release.'}, me)
     review = await store.createPreset('greenhouse', {name: 'Review', text: 'Review its pull request.'}, me)
     schedules = new Schedules(store, () => {}, () => 1, undefined, undefined, async (_project, start) => {
-        if (!room) throw Object.assign(new Error('Orrery already has its 2 sessions at once'), {statusCode: 409})
+        if (!room) throw Object.assign(new Error('orrery already has its 2 sessions at once'), {statusCode: 409})
         started.push(start)
         return {tmux: 'orrery-greenhouse-abc'}
     })
@@ -105,7 +105,7 @@ describe('a session schedule', () => {
     it("is skipped saying why when there's no room for a session", async () => {
         const s = await schedules.create('greenhouse', {kind: 'session', title: 'Review', presets: [review.id], on: 'issue.status'}, me)
         room = false
-        expect(await schedules.runNow('greenhouse', s.id, me)).toMatchObject({outcome: 'skipped', note: 'Orrery already has its 2 sessions at once'})
+        expect(await schedules.runNow('greenhouse', s.id, me)).toMatchObject({outcome: 'skipped', note: 'orrery already has its 2 sessions at once'})
     })
 
     it("is the owner's to make, as it starts work as them", async () => {
@@ -115,5 +115,19 @@ describe('a session schedule', () => {
         expect((await schedules.update('greenhouse', s.id, {kind: 'session', presets: [review.id]}, me)).presets).toEqual([review.id])
         // Back to an issue, it's given no presets.
         expect((await schedules.update('greenhouse', s.id, {kind: 'issue'}, me)).presets).toEqual([])
+    })
+})
+
+describe('checking a schedule before it is made', () => {
+    it('refuses what making or changing it would, and saves nothing', async () => {
+        const nightly = await schedules.create('greenhouse', {kind: 'message', title: 'Nightly', notes: 'Triage.', cron: '0 2 * * *', timezone: 'UTC'}, me)
+        await schedules.check('greenhouse', {kind: 'session', title: 'Review', presets: [review.id], on: 'issue.status', on_filter: {to: 'in-review'}}, me)
+        await schedules.check('greenhouse', {enabled: false, cron: '0 3 * * *'}, me, nightly.id)
+        expect((await failure(() => schedules.check('greenhouse', {kind: 'session', title: 'Review', presets: [review.id], cron: '0 9 * * *'}, agent))).status).toBe(403)
+        expect((await failure(() => schedules.check('greenhouse', {title: 'Bad', cron: 'often'}, me))).status).toBe(400)
+        expect((await failure(() => schedules.check('greenhouse', {kind: 'message', title: 'Gone', presets: [999], cron: '0 9 * * *'}, me))).status).toBe(400)
+        expect((await failure(() => schedules.check('greenhouse', {enabled: false}, me, 999))).status).toBe(404)
+        expect(await schedules.list('greenhouse')).toEqual([await schedules.get('greenhouse', nightly.id)])
+        expect((await schedules.get('greenhouse', nightly.id))).toMatchObject({cron: '0 2 * * *', enabled: true})
     })
 })

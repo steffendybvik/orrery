@@ -36,8 +36,8 @@ export abstract class CommentStore extends SignalStore {
             : undefined
         const assignee = !actor.owner && input.asks ? (await this.ownerId()) : asker
         const id = await this.db.transaction(async () => {
-            const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, asks, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
-                project, issue, String(input.body), nullable(input.asks), actor.name, Number(actor.owner), now, now)
+            const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, asks, created_by, session_name, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+                project, issue, String(input.body), nullable(input.asks), actor.name, actor.session ?? null, Number(actor.owner), now, now)
             if (assignee) {
                 await this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
                 await this.record(project, issue, actor, [['assignee', row.assignee, assignee]])

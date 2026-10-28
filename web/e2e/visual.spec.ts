@@ -1,11 +1,12 @@
 import type {APIRequestContext, Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
+import {OWNER} from './support'
 
 // What the board and an issue's page look like, against images kept in `visual.spec.ts-snapshots/`, so a change
 // that moves them without meaning to shows up. The images are Linux's, made in CI's Playwright image, so a plain
 // `pnpm test:e2e` elsewhere skips them; `pnpm test:e2e:visual` runs them in that image (with `--update-snapshots`
 // it makes them anew). A project of its own, so the page holds only what this file made; the owner named if no
-// one has yet.
+// one has yet; and starting sessions off, as earlier files may leave it on, which changes what the sessions panel says.
 test.skip(process.platform !== 'linux', "The images are Linux's: run `pnpm test:e2e:visual`")
 test.describe.configure({mode: 'serial'})
 test.use({viewport: {width: 1280, height: 800}, colorScheme: 'light'})
@@ -15,14 +16,18 @@ const shoot = (page: Page, name: string) => expect(page.locator('main')).toHaveS
     mask: [page.getByRole('link', {name: /comments from agents|waiting on you/i})],
 })
 
-const api = async (request: APIRequestContext, method: 'get' | 'post' | 'put', path: string, data?: object, headers?: Record<string, string>) => {
+const api = async (request: APIRequestContext, method: 'get' | 'post' | 'put' | 'patch', path: string, data?: object, headers?: Record<string, string>) => {
     const r = await request[method](`/api${path}`, {data, headers})
     expect(r.ok(), `${method} ${path}: ${await r.text()}`).toBeTruthy()
     return r.json()
 }
 
+let starts: unknown = null
+
 test.beforeAll(async ({request}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
+    starts = (await api(request, 'get', '/settings')).starts ?? null
+    await api(request, 'patch', '/settings', {starts: null}, OWNER)
     await api(request, 'post', '/projects', {name: 'Gallery', key: 'GAL'})
     const {id: chunk} = await api(request, 'post', '/projects/gallery/chunks', {title: 'Hanging'})
     const issues = [
@@ -34,6 +39,10 @@ test.beforeAll(async ({request}) => {
     ]
     for (const issue of issues) await api(request, 'post', '/projects/gallery/issues', {...issue, chunk})
     await api(request, 'post', '/projects/gallery/issues/GAL-1/comments', {body: 'Started on the **east wing**: three of eight up.'}, {'Orrery-Actor': 'claude'})
+})
+
+test.afterAll(async ({request}) => {
+    await api(request, 'patch', '/settings', {starts}, OWNER)
 })
 
 test('the board looks as it did', async ({page}) => {

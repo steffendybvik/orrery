@@ -1,27 +1,31 @@
 <script setup lang="ts">
 import type {SessionWork} from '#shared/roadmap'
 import {TERMINALS} from '#shared/roadmap'
+import {areaId, permissionAreas} from '#shared/permissions'
 import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
 // Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default).
-// Two tabs keep them apart: Sessions, what's running, and Setup (`?tab=setup`, or a link to one of its sections): first the
-// presets to start one with, as they're used most, then whether Orrery may start sessions and how, and what sessions hear;
-// presets and what they hear for every project or, picked in For, one project's own.
-useHead({title: 'Sessions · Orrery'})
+// Three tabs keep them apart: Sessions, what's running; Setup (`?tab=setup`, or a link to one of its sections): first the
+// launcher's install command, always in view as each new repo needs it (ORR-473), with whether orrery may start sessions
+// and how, then the presets to start one with, and what sessions hear;
+// presets and what they hear for every project or, picked in For, one project's own; and Permissions
+// (`?tab=permissions`), what each kind of session may do, read-only (ORR-459).
+useHead({title: 'Sessions · orrery'})
 const route = useRoute()
 const {projects, ready, sessions, signals} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {open} = useStartSession()
-// Which terminal Watch opens, under Setup: it's about the sessions Orrery starts, so it lives with them.
+// Which terminal Watch opens, under Setup: it's about the sessions orrery starts, so it lives with them.
 const {settings, save} = useAppSettings()
 const messaging = ref(false)
-// Whose session settings the two sections below show: the Orrery's (every project), or one project's own.
+// Whose session settings the two sections below show: the orrery's (every project), or one project's own.
 const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
 const scopeOptions = computed(() => [{value: '', label: 'Every project'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
 const terminalOptions = Object.entries(TERMINALS).map(([value, label]) => ({value, label}))
+const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
 
 // A session that hears several projects spans them (heardBy): it's listed once, on top under Across projects, and in
 // each project it hears that has sessions of its own as a line saying so (`via`).
@@ -38,24 +42,26 @@ const groups = computed(() => ordered.value
 const count = computed(() => spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
 const router = useRouter()
-type Tab = 'sessions' | 'setup'
+type Tab = 'sessions' | 'setup' | 'permissions'
 const SETUP = ['#presets', '#starts', '#watch', '#hear']
-const tabs = [{value: 'sessions' as const, label: 'Sessions'}, {value: 'setup' as const, label: 'Setup'}]
+const tabs = [{value: 'sessions' as const, label: 'Sessions'}, {value: 'setup' as const, label: 'Setup'}, {value: 'permissions' as const, label: 'Permissions'}]
 const tab = computed<Tab>({
-    get: () => route.query.tab === 'setup' || SETUP.includes(route.hash) ? 'setup' : 'sessions',
-    set: next => router.replace({query: {...route.query, tab: next === 'setup' ? 'setup' : undefined}, hash: ''}),
+    get: () => route.query.tab === 'setup' || SETUP.includes(route.hash) ? 'setup' : route.query.tab === 'permissions' ? 'permissions' : 'sessions',
+    set: next => router.replace({query: {...route.query, tab: next === 'sessions' ? undefined : next}, hash: ''}),
 })
 
 // The contents beside the page on a wide screen, as on App settings: each project's sessions, or the setup's sections.
 const scroller = ref<HTMLElement | null>(null)
-const headings = computed<Heading[]>(() => tab.value === 'sessions'
+const headings = computed<Heading[]>(() => tab.value === 'permissions'
+    ? permissionAreas().map(area => ({id: areaId(area), text: area, level: 2 as const}))
+    : tab.value === 'sessions'
     ? [
         ...spanning.value.length ? [{id: 'sessions-across', text: 'Across projects', level: 2 as const}] : [],
         ...groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 2 as const})),
     ]
     : [
-        {id: 'presets', text: 'Presets', level: 2},
         {id: 'starts', text: 'Starting sessions', level: 2},
+        {id: 'presets', text: 'Presets', level: 2},
         {id: 'watch', text: 'Watching sessions', level: 2},
         {id: 'hear', text: 'What sessions hear', level: 2},
     ])
@@ -66,11 +72,11 @@ const work = ref<Record<string, Record<string, SessionWork>>>({})
 const lastSignal = (project: string) => signals.value.find(s => s.project === project)
 const homes = computed(() => ordered.value.filter(p => own(p.id).length).map(p => p.id))
 watch(() => homes.value.map(p => `${p}:${own(p).map(s => `${s.id}/${s.state}`).join(',')}:${lastSignal(p)?.id ?? ''}/${lastSignal(p)?.delivered_to.length ?? 0}`).join('|'), () => {
-    for (const project of homes.value) {
-        $fetch<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(project)}/sessions/work`)
-            .then(found => work.value = {...work.value, [project]: found})
-            .catch(() => {})
-    }
+    if (!homes.value.length) return
+    // One call for them all (ORR-442), not one per project.
+    $fetch<Record<string, Record<string, SessionWork>>>('/api/sessions/work', {query: {projects: homes.value.join(',')}})
+        .then(found => work.value = {...work.value, ...found})
+        .catch(() => {})
 }, {immediate: true})
 
 // The session a link points at, scrolled to and lit up.
@@ -108,7 +114,19 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     <EmptyProjects v-if="ready && !projects.length" />
     <div v-else class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-6 sm:px-8">
     <div v-if="tab === 'setup'" class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
-      <section id="presets" class="flex scroll-mt-14 flex-col gap-2">
+      <section id="starts" class="flex scroll-mt-14 flex-col gap-2">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
+          <p class="text-xs text-muted">
+            orrery can start sessions itself, with no terminal: when your work finds nobody listening, or when you press
+            Start session. It does so for any project whose repo has its launcher installed.
+          </p>
+        </header>
+        <CopyBlock title="Install the launcher: in each project's repo, run" :text="install" hint="Again in another repo adds its project; --uninstall takes one off. Installing again restarts it, which stops the sessions it's running." />
+        <SessionStarts />
+        <StartingSessionsGuide />
+      </section>
+      <section id="presets" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
           <div class="flex items-center gap-3">
             <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
@@ -123,22 +141,11 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         </header>
         <PresetSettings :key="scope" :project="scoped" />
       </section>
-      <section id="starts" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
-          <p class="text-xs text-muted">
-            Orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
-            Start session. It does so for any project whose repo has its launcher installed.
-          </p>
-        </header>
-        <SessionStarts />
-        <StartingSessionsGuide />
-      </section>
       <section id="watch" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Watching sessions</h2>
           <p class="text-xs text-muted">
-            Watch on a session Orrery started opens a terminal attached to it, on the machine its launcher runs on, in this app
+            Watch on a session orrery started opens a terminal attached to it, on the machine its launcher runs on, in this app
             (on Linux, the system's own terminal).
           </p>
         </header>
@@ -162,19 +169,21 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
             </PropertyPicker>
           </div>
           <p class="text-xs text-muted">
-            The message a Claude session gets when you ask it to focus on an issue or work through a chunk. For one project, its
+            The message a session gets when you ask it to focus on an issue or work through a chunk. For one project, its
             own templates (empty follows every project's) and instructions. Sessions started before a change hear it once they restart.
           </p>
         </header>
         <FocusPrompts :key="scope" :project="scoped" />
       </section>
     </div>
+    <SessionPermissions v-else-if="tab === 'permissions'" class="min-w-0 max-w-4xl flex-1" />
     <div v-else class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
+      <LaunchersBehind />
       <p v-if="ready && !count" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
-        No Claude sessions right now.
+        No sessions right now.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
-        or open Claude in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
-        Orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
+        or run <span class="font-mono">claude</span> in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
+        orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
       </p>
       <section v-if="spanning.length" id="sessions-across" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">

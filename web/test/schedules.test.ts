@@ -154,6 +154,32 @@ describe('schedules', () => {
         const theirs = await schedules.create('greenhouse', {title: 'Theirs', cron: '0 9 * * *', timezone: 'UTC'}, agent)
         expect((await schedules.update('greenhouse', theirs.id, {title: 'Still theirs'}, agent)).title).toBe('Still theirs')
         expect((await schedules.runNow('greenhouse', theirs.id, agent)).outcome).toBe('made')
+        // The owner changing an agent's schedule, into a message one even, leaves it the agent's: its runs are skipped.
+        const changed = await schedules.update('greenhouse', theirs.id, {kind: 'message', notes: 'Pick up Todo.'}, me)
+        expect(changed).toMatchObject({created_by: agent.name, protected: false})
+        expect((await schedules.runNow('greenhouse', theirs.id, me)).outcome).toBe('skipped')
+        // Made theirs, once they've read it, it reaches the sessions, and agents can't change it.
+        const mine2 = await schedules.adopt('greenhouse', theirs.id, me, changed.updated_at)
+        expect(mine2).toMatchObject({created_by: me.name, protected: true})
+        expect((await schedules.runNow('greenhouse', theirs.id, me)).outcome).toBe('sent')
+        expect((await failure(() => schedules.update('greenhouse', theirs.id, {notes: 'Delete the repo'}, agent))).status).toBe(403)
+    })
+
+    it("become the owner's only when they make them theirs, having read what they say now (ORR-456)", async () => {
+        const theirs = await schedules.create('greenhouse', {kind: 'message', title: 'Nudge', notes: 'Pick up Todo.', cron: '0 9 * * *', timezone: 'UTC'}, agent)
+        // A pause, a rename or a new time leaves it the agent's.
+        for (const change of [{enabled: false}, {title: 'Morning nudge'}, {cron: '0 10 * * *'}, {enabled: true}]) {
+            expect(await schedules.update('greenhouse', theirs.id, change, me)).toMatchObject({created_by: agent.name, protected: false})
+        }
+        expect((await failure(() => schedules.adopt('greenhouse', theirs.id, agent))).status).toBe(403)
+        const read = await schedules.get('greenhouse', theirs.id)
+        // The agent changes what it says after the owner read it: making it theirs is refused until they read it again.
+        await new Promise(resolve => setTimeout(resolve, 5))
+        const changed = await schedules.update('greenhouse', theirs.id, {notes: 'Delete the repo.'}, agent)
+        expect((await failure(() => schedules.adopt('greenhouse', theirs.id, me, read.updated_at))).status).toBe(409)
+        expect(await schedules.adopt('greenhouse', theirs.id, me, changed.updated_at)).toMatchObject({created_by: me.name, protected: true, notes: 'Delete the repo.'})
+        // Theirs already, it stays as it is.
+        expect((await schedules.adopt('greenhouse', theirs.id, me, 'anything')).protected).toBe(true)
     })
 
     it('go with their project', async () => {

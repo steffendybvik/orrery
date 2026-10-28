@@ -4,7 +4,7 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
-// one Orrery started, the session on an issue shown on its page, and a preset.
+// one orrery started, Forget on one that can't hear signals, the session on an issue shown on its page, and a preset.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
@@ -14,25 +14,53 @@ test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Dairy', key: 'DAI'})
 })
 
-test('lets Orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
+test('lets orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
     await page.goto('/sessions#starts')
     const starts = page.locator('#starts')
-    await starts.getByRole('checkbox', {name: 'Let Orrery start sessions'}).check()
+    await starts.getByRole('checkbox', {name: 'Let orrery start sessions'}).check()
     await starts.getByLabel('Sessions at once').fill('2')
     await starts.getByLabel('Sessions at once').blur()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2})
     // A project shows it as its own.
     expect((await api(request, 'get', '')).starts).toEqual({limit: 2})
+    // And keeps a minimum running, up to the limit.
+    await starts.getByLabel('Sessions kept running').fill('2')
+    await starts.getByLabel('Sessions kept running').blur()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
+    // Work alone can stop starting one, and says so; back on for the tests after this.
+    const onSignal = starts.getByRole('checkbox', {name: "Start a session when work arrives and nobody's listening"})
+    await onSignal.uncheck()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2, on_signal: false})
+    await expect(starts.getByText('when you press Start session or Focus on this')).toBeVisible()
+    await onSignal.check()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
+    // A limit lowered below the minimum takes it down too, rather than being refused (ORR-479); then back.
+    await starts.getByLabel('Sessions at once').fill('1')
+    await starts.getByLabel('Sessions at once').blur()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 1, min: 1})
+    await expect(starts.getByLabel('Sessions kept running')).toHaveValue('1')
+    await starts.getByLabel('Sessions at once').fill('2')
+    await starts.getByLabel('Sessions at once').blur()
+    await starts.getByLabel('Sessions kept running').fill('2')
+    await starts.getByLabel('Sessions kept running').blur()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
 })
 
 test("shows a listening session on the Sessions page, and sends it a message only it hears", async ({page, request, baseURL}) => {
     const hello = await request.post('/api/sessions', {data: {id: 'e2e-1', project: 'kitchen', event: 'UserPromptSubmit', name: 'kitchen shelves', cwd: '/code/kitchen'}})
     expect(hello.ok(), await hello.text()).toBeTruthy()
     const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-1&name=kitchen%20shelves&format=text')
+    // What the sessions are on comes in one call for every project, never one with no project in it (ORR-442).
+    const asked: string[] = []
+    page.on('request', r => {
+        if (r.url().includes('/sessions/work')) asked.push(new URL(r.url()).pathname)
+    })
     try {
         await page.goto('/sessions')
         const card = page.locator('#session-e2e-1')
         await expect(card).toContainText('kitchen shelves')
+        await expect.poll(() => asked).toContain('/api/sessions/work')
+        expect(asked.filter(path => path !== '/api/sessions/work')).toEqual([])
         // Listening, so it says nothing about hearing signals.
         await expect(card.getByText("can't hear signals")).toBeHidden()
         await card.getByLabel('Message kitchen shelves').fill('Use the oak hinges, not pine.')
@@ -42,6 +70,19 @@ test("shows a listening session on the Sessions page, and sends it a message onl
     } finally {
         channel.stop()
     }
+})
+
+test("forgets a session that can't hear signals, and its next hook brings it back", async ({page, request}) => {
+    await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'Stop', name: 'kitchen drawers'}})
+    await page.goto('/sessions')
+    const card = page.locator('#session-e2e-gone')
+    await expect(card.getByText("can't hear signals")).toBeVisible()
+    await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
+    await card.getByRole('button', {name: 'Forget kitchen drawers'}).click()
+    await expect(card).toHaveCount(0)
+    await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'Stop', name: 'kitchen drawers'}})
+    await expect(card).toBeVisible()
+    await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'SessionEnd'}})
 })
 
 test('lists a session that hears two projects once, across them', async ({page, request, baseURL}) => {
@@ -194,7 +235,7 @@ test("shows on an issue's page which session is on it, while it listens", async 
     }
 })
 
-test('a session Orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
+test('a session orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
     try {
@@ -229,7 +270,7 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     const writing = page.getByRole('dialog', {name: 'New preset'})
     await expect(writing.getByLabel('What it tells a session')).toBeFocused()
     await page.keyboard.type("You're reviewing: read the diff and comment, don't change code.")
-    // Named apart from the Review preset Orrery ships.
+    // Named apart from the Review preset orrery ships.
     await writing.getByLabel('Preset name').fill('Close review')
     await writing.getByRole('button', {name: 'Add preset'}).click()
     // A preset is a role card with its badge, name and first line; clicking it opens it in the same dialog.
@@ -262,7 +303,7 @@ test('ships presets that can be reset to default, and restored once removed', as
     await page.goto('/sessions#presets')
     const presets = page.locator('#presets')
     await expect(presets.getByRole('button', {name: 'Edit Security audit'})).toBeVisible()
-    // Changed, it can be reset to what Orrery ships.
+    // Changed, it can be reset to what orrery ships.
     await presets.getByRole('button', {name: 'Edit Debug an error'}).click()
     const editing = page.getByRole('dialog', {name: 'Edit Debug an error'})
     await expect(editing.getByRole('button', {name: 'Reset to default'})).toBeHidden()

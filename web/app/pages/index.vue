@@ -1,5 +1,5 @@
 <script setup lang="ts">
-definePageMeta({redirect: '/now'})
+definePageMeta({redirect: '/mine'})
 </script>
 
 <template>

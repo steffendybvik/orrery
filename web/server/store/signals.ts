@@ -7,13 +7,15 @@ import type {Actor, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
 import {EVERY} from '../utils/pool'
+import {compressImage} from '../utils/compress'
 import {known} from '#shared/known'
 
 export abstract class SignalStore extends IssueStore {
     /** `Store` has it, with the claims on issues. */
     abstract workedBy(project: string, issue: string, session: string): Promise<void>
 
-    /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. */
+    /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. A PNG or
+     * JPEG is kept as WebP when that's smaller (see compress.ts). */
     async createUpload(body: unknown, actor = AGENT): Promise<Upload> {
         const input = checkInput(body, UPLOAD_FIELDS)
         const base64 = String(input.data).replace(/^data:[^,]*;base64,/, '')
@@ -21,16 +23,39 @@ export abstract class SignalStore extends IssueStore {
         const bytes = Buffer.from(base64, 'base64')
         if (!bytes.length) throw badRequest('"data" is empty')
         if (bytes.length > UPLOAD_LIMIT) throw badRequest(`The image is ${(bytes.length / 1024 / 1024).toFixed(1)} MB; ${UPLOAD_LIMIT / 1024 / 1024} MB at most`)
-        const type = IMAGE_TYPES.find(([, test]) => test(bytes))?.[0]
-        if (!type) throw badRequest('That isn\'t a PNG, JPEG, GIF or WebP image')
+        const came = IMAGE_TYPES.find(([, test]) => test(bytes))?.[0]
+        if (!came) throw badRequest('That isn\'t a PNG, JPEG, GIF or WebP image')
+        const {type, data} = await compressImage(bytes, came)
         const name = input.name ? String(input.name).trim().slice(0, 200) || null : null
         const id = randomBytes(12).toString('hex')
         await this.run('INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            id, type, name, bytes.length, bytes, actor.name, Number(actor.owner), stamp())
+            id, type, name, data.length, data, actor.name, Number(actor.owner), stamp())
         const url = `/api/uploads/${id}`
         // Brackets would end the alt text early.
         const alt = (name ?? 'image').replace(/\.[a-z0-9]+$/i, '').replace(/[[\]\\]/g, '')
-        return {id, type, size: bytes.length, url, markdown: `![${alt}](${url})`}
+        return {id, type, size: data.length, url, markdown: `![${alt}](${url})`}
+    }
+
+    /** Keeps the PNGs and JPEGs uploaded before images were compressed as WebP where that's smaller, in place (their
+     * ids and links stay), once: `settings.uploads_compressed` says it's done. Says how many and the bytes saved. */
+    async compressUploads(): Promise<{images: number, saved: number} | null> {
+        if (await this.get("SELECT 1 FROM settings WHERE key = 'uploads_compressed'")) return null
+        let images = 0
+        let saved = 0
+        const ids = await this.all<{id: string}>("SELECT id FROM uploads WHERE type IN ('image/png', 'image/jpeg') ORDER BY created_at")
+        for (const {id} of ids) {
+            // One at a time, so a big database's images aren't all held at once.
+            const row = await this.get<{type: string, data: Uint8Array}>('SELECT type, data FROM uploads WHERE id = ?', id)
+            if (!row) continue
+            const before = Buffer.from(row.data)
+            const after = await compressImage(before, row.type)
+            if (after.data === before) continue
+            await this.run('UPDATE uploads SET type = ?, size = ?, data = ? WHERE id = ?', after.type, after.data.length, after.data, id)
+            images++
+            saved += before.length - after.data.length
+        }
+        await this.run("INSERT INTO settings (key, value) VALUES ('uploads_compressed', ?) ON CONFLICT (key) DO NOTHING", JSON.stringify(new Date().toISOString()))
+        return {images, saved}
     }
 
     /** An image's bytes and type, as kept. */
@@ -48,7 +73,7 @@ export abstract class SignalStore extends IssueStore {
     }
 
     /** `focus` for an issue id already resolved and checked. Aimed at no session, it goes to the one already on the
-     * issue if that one is listening, else to one Orrery picks (pool.ts); `*` sends it to every session. */
+     * issue if that one is listening, else to one orrery picks (pool.ts); `*` sends it to every session. */
     protected async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
@@ -173,13 +198,13 @@ export abstract class SignalStore extends IssueStore {
     }
 
     /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or
-     * for the one Orrery picks. */
+     * for the one orrery picks. */
     async waiting(project: string, ids: string[]): Promise<boolean> {
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
             AND (target IS NULL OR target = ? OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, EVERY, ...ids)
     }
 
-    /** The owner's signals from the last day for one session Orrery picks (pool.ts) that none has heard yet: the next
+    /** The owner's signals from the last day for one session orrery picks (pool.ts) that none has heard yet: the next
      * session to go idle takes them. */
     async pooledWaiting(project: string): Promise<Signal[]> {
         const since = new Date(Date.now() - 86_400_000).toISOString()

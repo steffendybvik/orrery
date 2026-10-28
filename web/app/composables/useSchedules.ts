@@ -20,12 +20,21 @@ export function useSchedules() {
         menu.value = {schedule, x: event.clientX, y: event.clientY}
     }
 
-    /** Pauses a schedule, or resumes it, as the owner; the list catches up from the events. */
+    /** Pauses a schedule, or resumes it, as the owner; the list catches up from the events. Their own change isn't news. */
     async function pause(schedule: Schedule, paused: boolean) {
-        await $fetch<Schedule>(`/api/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}`, {
+        useUnseen().seeSchedule(await $fetch<Schedule>(`/api/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}`, {
             method: 'PATCH', headers: {'Orrery-Actor': await useOwner().load()}, body: {enabled: !paused},
-        })
+        }))
     }
 
-    return {byProject, of, load, editing, edit, menu, openMenu, pause}
+    /** Makes an agent's schedule the owner's, as they read it (`updated_at`): it runs as theirs from then on (ORR-456). */
+    async function adopt(schedule: Schedule): Promise<Schedule> {
+        const mine = await $fetch<Schedule>(`/api/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}/adopt`, {
+            method: 'POST', headers: {'Orrery-Actor': await useOwner().load()}, body: {seen: schedule.updated_at},
+        })
+        useUnseen().seeSchedule(mine)
+        return mine
+    }
+
+    return {byProject, of, load, editing, edit, menu, openMenu, pause, adopt}
 }

@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import {CHAT_SETTINGS, settingValue} from '#shared/roadmap'
+import {CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import type {ChatIssues} from '#shared/roadmap'
 
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
 // session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
-// dropped goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
+// dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
 // one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
-// chat asks to change shows from → to with Allow and Deny; only Allow saves it.
+// chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
+// field it sets) or change (each from → to). A message it asks to send other sessions shows with who it goes to, and
+// Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
+// wide screen it shows on hover or focus).
 const {open, large, chat, session, project, failed, chats, lands, start, send, land, fresh, answer, close, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean) {
@@ -18,6 +21,7 @@ async function decide(message: number, allow: boolean) {
     answering.value = null
 }
 const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed', expired: 'Expired: not answered in time, or asked again'}
+const SENT = {allowed: (to: string[]) => to.length ? `Sent to ${to.join(', ')}` : 'Sent, but no session fit any more', denied: () => 'Not sent', expired: () => 'Expired: not answered in time'}
 const {projects} = useRoadmaps()
 const route = useRoute()
 
@@ -102,13 +106,10 @@ async function attach(files: File[]) {
             uploading.value--
         }
     }
+    // Back to typing the message it goes with.
+    field.value?.focus()
 }
-function onPaste(event: ClipboardEvent) {
-    const files = [...event.clipboardData?.files ?? []].filter(f => f.type.startsWith('image/'))
-    if (!files.length) return
-    event.preventDefault()
-    attach(files)
-}
+const {over, on: drop} = useImageDrop(attach)
 </script>
 
 <template>
@@ -116,7 +117,7 @@ function onPaste(event: ClipboardEvent) {
       v-if="!open"
       type="button"
       class="fixed right-4 bottom-4 z-40 flex h-11 items-center gap-2 rounded-full bg-accent-500 pr-4 pl-3.5 text-sm font-medium text-white shadow-lg shadow-accent-600/30 transition hover:opacity-90"
-      :title="chats.length ? 'Back to your chat: it is still running' : 'Chat with Claude about a project: it answers and makes issues'"
+      :title="chats.length ? 'Back to your chat: it is still running' : 'Chat about a project: an agent answers and makes issues'"
       @click="show()"
   >
     <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
@@ -129,8 +130,10 @@ function onPaste(event: ClipboardEvent) {
       class="fixed right-4 bottom-4 z-40 flex w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
       :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : 'h-[min(40rem,calc(100dvh-2rem))] sm:w-[min(28rem,calc(100vw-2rem))]'"
       aria-label="Chat"
+      v-on="drop"
       @keydown.esc="!chat || chat.ended ? close() : undefined"
   >
+    <ImageDropOverlay v-if="over" />
     <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-4">
       <div class="flex min-w-0 flex-1 flex-col">
         <div class="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-fg">
@@ -180,8 +183,11 @@ function onPaste(event: ClipboardEvent) {
           <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
         </div>
         <div v-if="m.from === 'owner' && m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
-        <div v-else-if="m.text" class="max-w-[92%] rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
-          <MarkdownView :source="m.text" class="text-[13px]" />
+        <div v-else-if="m.text" class="group flex max-w-[92%] flex-col items-start gap-1">
+          <div class="rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
+            <MarkdownView :source="m.text" class="text-[13px]" />
+          </div>
+          <CopyButton :text="m.text" name="this reply" class="transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" />
         </div>
         <div v-if="m.request" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Change ${CHAT_SETTINGS[m.request.setting]}`">
           <span class="text-xs text-faint">Asks to change a setting</span>
@@ -192,6 +198,34 @@ function onPaste(event: ClipboardEvent) {
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
           <span v-else class="text-xs" :class="m.request.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.request.state === 'asked' ? 'Not answered' : ANSWERED[m.request.state] }}</span>
+        </div>
+        <div v-if="m.send" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Send a message to ${m.send.to.join(', ')}`">
+          <span class="text-xs text-faint">Asks to send a message as you to {{ m.send.session ? m.send.to[0] : `${m.send.states?.join(' or ') ?? 'idle'} sessions${m.send.projects?.length ? ` on ${m.send.projects.join(', ')}` : ''} (now ${m.send.to.join(', ')})` }}</span>
+          <p class="max-h-60 overflow-y-auto break-words whitespace-pre-wrap text-[13px] text-fg">{{ m.send.text }}</p>
+          <div v-if="m.send.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Send</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Don't send</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.send.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.send.state === 'asked' ? 'Not answered' : SENT[m.send.state](m.send.sent ?? []) }}</span>
+        </div>
+        <div
+v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
+             :aria-label="m.schedule.changes.some(c => c.from !== undefined) ? `Change schedule ${m.schedule.title}` : `Make schedule ${m.schedule.title}`">
+          <span class="text-xs text-faint">{{ m.schedule.changes.some(c => c.from !== undefined) ? `Asks to change schedule ${m.schedule.id}` : 'Asks to make a schedule' }}</span>
+          <span class="font-medium text-fg">{{ m.schedule.title }}</span>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+            <template v-for="c in m.schedule.changes.filter(c => c.field !== 'title' || c.from !== undefined)" :key="c.field">
+              <dt class="text-muted">{{ CHAT_SCHEDULE_FIELDS[c.field] }}</dt>
+              <dd class="min-w-0 break-words whitespace-pre-wrap text-fg">
+                <template v-if="c.from !== undefined"><span class="text-muted line-through decoration-faint">{{ scheduleValue(c.from) }}</span> → </template>{{ scheduleValue(c.to) }}
+              </dd>
+            </template>
+          </dl>
+          <div v-if="m.schedule.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.schedule.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.schedule.state === 'asked' ? 'Not answered' : ANSWERED[m.schedule.state] }}</span>
         </div>
       </li>
       <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">
@@ -221,9 +255,6 @@ function onPaste(event: ClipboardEvent) {
             placeholder="Ask anything…"
             class="field-sizing-content max-h-40 min-h-9 resize-none bg-transparent px-2 py-1.5 text-[13px] text-fg placeholder:text-faint focus:outline-none"
             @keydown="onKey"
-            @paste="onPaste"
-            @dragover.prevent
-            @drop.prevent="attach([...$event.dataTransfer?.files ?? []])"
         />
         <div class="flex items-center gap-1">
           <UiButton variant="ghost" size="xs" square aria-label="Add an image" title="Add an image (or paste or drop one)" @click="picker?.click()">

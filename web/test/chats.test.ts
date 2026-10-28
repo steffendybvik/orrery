@@ -21,6 +21,7 @@ beforeEach(async () => {
     vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text})}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+    vi.stubGlobal('currentId', (id: string) => id)
     vi.resetModules()
     chats = await import('../server/utils/chats')
 })
@@ -90,16 +91,111 @@ describe("the owner's chat", () => {
         await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
     })
 
-    it("speaks for the owner while it runs, marked as the chat, and for nobody otherwise", async () => {
-        vi.stubGlobal('getHeader', (event: {headers: Record<string, string>}, name: string) => event.headers[name])
-        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
-        vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'})}))
-        const as = (launch?: string) => chats.chatOwner({headers: launch ? {'orrery-launch': launch} : {}} as never)
-        await expect(as('c1c2c3c4c5c6')).rejects.toMatchObject({statusCode: 403})
+    it('asks the owner to message sessions, sending only once they press Send, as theirs through the chat', async () => {
+        const sent: {project: string, target: string, text: string, via?: string}[] = []
+        const notes: {kind: string}[] = []
+        type Listed = {id: string, project: string, name: string, state: string, listening: boolean, chat?: boolean}
+        let listed: Listed[] = [
+            {id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true},
+            {id: 'def', project: 'pantry', name: 'Sudri', state: 'working', listening: true},
+            {id: 'c1c2c3c4c5c6', project: 'greenhouse', name: 'Chat', state: 'idle', listening: true, chat: true},
+        ]
+        vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string, actor: {via?: string}) => void sent.push({project, target, text, ...actor.via ? {via: actor.via} : {}})}))
+        vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('listSessions', () => listed)
+        vi.stubGlobal('chatSession', (id: string) => !!listed.find(s => s.id === id)?.chat)
+        vi.stubGlobal('hearing', (_project: string, id: string) => !!listed.find(s => s.id === id)?.listening)
+        vi.stubGlobal('recipients', (_projects?: string[], states = ['idle']) => listed.filter(s => s.listening && !s.chat && states.includes(s.state)))
+        vi.stubGlobal('messaged', () => {})
         await chats.openChat('greenhouse')
-        await expect(as('c1c2c3c4c5c6')).resolves.toEqual({name: 'skoll', owner: true, via: 'chat'})
-        await expect(as('nope')).rejects.toMatchObject({statusCode: 403})
-        await expect(as()).rejects.toMatchObject({statusCode: 403})
+        const asked = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Pick up Todo.'}, why: 'Both are idle.'})
+        expect(asked).toMatchObject({from: 'claude', text: 'Both are idle.', send: {text: 'Pick up Todo.', to: ['Nordre'], state: 'asked'}})
+        expect(sent).toEqual([])
+        // Who fits is worked out again on Send: Sudri has gone idle since.
+        listed = listed.map(s => s.id === 'def' ? {...s, state: 'idle'} : s)
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, owner)
+        expect(sent).toEqual([
+            {project: 'greenhouse', target: 'abc', text: 'Pick up Todo.', via: 'chat'},
+            {project: 'pantry', target: 'def', text: 'Pick up Todo.', via: 'chat'},
+            {project: 'greenhouse', target: 'launch-c1c2c3c4c5c6', text: '(I sent your message to Nordre, Sudri.)'},
+        ])
+        expect(asked.send).toMatchObject({state: 'allowed', sent: ['Nordre', 'Sudri']})
+        await expect(chats.answer('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        // One session by name, any case; Don't send sends nothing.
+        sent.length = 0
+        const one = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Look at PAN-2.', session: 'sudri'}})
+        expect(one.send).toMatchObject({session: 'def', project: 'pantry', to: ['Sudri']})
+        await chats.answer('c1c2c3c4c5c6', one.id, false, owner)
+        expect(sent).toEqual([{project: 'greenhouse', target: 'launch-c1c2c3c4c5c6', text: "(I didn't send your message to Sudri: nothing went.)"}])
+        // A session that stopped listening fails on Send, and the request stays asked.
+        const later = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Wrap up.', session: 'Nordre'}})
+        listed = listed.map(s => s.id === 'abc' ? {...s, listening: false} : s)
+        await expect(chats.answer('c1c2c3c4c5c6', later.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        expect(later.send!.state).toBe('asked')
+        // Never another chat, no one unknown, nobody fitting, no text.
+        await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', session: 'Chat'}})).rejects.toMatchObject({statusCode: 404})
+        await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', session: 'Austri'}})).rejects.toMatchObject({statusCode: 404})
+        await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', states: ['waiting']}})).rejects.toMatchObject({statusCode: 409})
+        await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', states: ['asleep']}})).rejects.toMatchObject({statusCode: 400})
+        await expect(chats.ask('c1c2c3c4c5c6', {message: {text: ' '}})).rejects.toMatchObject({statusCode: 400})
+        expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'session.messaged', 'session.messaged', 'chat.answered', 'chat.asked', 'chat.answered', 'chat.asked'])
+    })
+
+    it('sends to a session that cleared since it was asked, under its new id (ORR-480)', async () => {
+        const sent: string[] = []
+        let listed = [{id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true}]
+        const aliases = new Map<string, string>()
+        vi.stubGlobal('useStore', () => ({messageSession: async (_project: string, target: string) => void sent.push(target)}))
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('listSessions', () => listed)
+        vi.stubGlobal('chatSession', () => false)
+        vi.stubGlobal('hearing', (_project: string, id: string) => listed.some(s => s.id === id && s.listening))
+        vi.stubGlobal('currentId', (id: string) => aliases.get(id) ?? id)
+        vi.stubGlobal('messaged', () => {})
+        await chats.openChat('greenhouse')
+        const asked = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Look at GRE-3.', session: 'Nordre'}})
+        expect(asked.send).toMatchObject({session: 'abc'})
+        // Its launcher clears it: a new id, the old one an alias.
+        listed = [{...listed[0]!, id: 'xyz'}]
+        aliases.set('abc', 'xyz')
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, owner)
+        expect(sent).toEqual(['xyz', 'launch-c1c2c3c4c5c6'])
+        expect(asked.send).toMatchObject({state: 'allowed', sent: ['Nordre']})
+    })
+
+    it('sends once however often Send is pressed, and only to the rest after one failed (ORR-455)', async () => {
+        const sent: string[] = []
+        let failing = 'def'
+        const listed = [
+            {id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true},
+            {id: 'def', project: 'pantry', name: 'Sudri', state: 'idle', listening: true},
+        ]
+        vi.stubGlobal('useStore', () => ({messageSession: async (_project: string, target: string) => {
+            await new Promise(resolve => setTimeout(resolve, 0))
+            if (target === failing) throw Object.assign(new Error('Sudri stopped listening'), {statusCode: 409})
+            sent.push(target)
+        }}))
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('listSessions', () => listed)
+        vi.stubGlobal('chatSession', () => false)
+        vi.stubGlobal('recipients', () => listed)
+        vi.stubGlobal('messaged', () => {})
+        await chats.openChat('greenhouse')
+        const asked = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Pick up Todo.'}})
+        // Sudri fails after Nordre had it: still asked, with Nordre kept as sent.
+        await expect(chats.answer('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toThrow(/stopped listening/)
+        expect(asked.send).toMatchObject({state: 'asked', sent: ['Nordre']})
+        expect(sent).toEqual(['abc'])
+        // Pressed again twice at once: one goes through, to Sudri alone, and the other is refused.
+        failing = ''
+        const both = await Promise.allSettled([chats.answer('c1c2c3c4c5c6', asked.id, true, owner), chats.answer('c1c2c3c4c5c6', asked.id, true, owner)])
+        expect(both.map(b => b.status).sort()).toEqual(['fulfilled', 'rejected'])
+        expect(both.find(b => b.status === 'rejected')).toMatchObject({reason: {statusCode: 409}})
+        expect(sent).toEqual(['abc', 'def', 'launch-c1c2c3c4c5c6'])
+        expect(asked.send).toMatchObject({state: 'allowed', sent: ['Nordre', 'Sudri']})
     })
 
     it("asks the owner to change a setting, saving it only once they allow it, and telling its session", async () => {
@@ -122,13 +218,13 @@ describe("the owner's chat", () => {
         expect(asked).toMatchObject({from: 'claude', text: 'Links ENG-1234 to its task.', request: {setting: 'tracker', from: null, to: url, state: 'asked'}})
         expect(saved).toEqual([])
         // Denied saves nothing, and can't be answered again.
-        await chats.answerSetting('c1c2c3c4c5c6', asked.id, false, owner)
+        await chats.answer('c1c2c3c4c5c6', asked.id, false, owner)
         expect(saved).toEqual([])
         expect(messages.at(-1)!.text).toMatch(/denied .*nothing changed/)
-        await expect(chats.answerSetting('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        await expect(chats.answer('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toMatchObject({statusCode: 409})
         // Allowed saves it as asked.
         const again = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url})
-        await chats.answerSetting('c1c2c3c4c5c6', again.id, true, owner)
+        await chats.answer('c1c2c3c4c5c6', again.id, true, owner)
         expect(saved).toEqual([{tracker: url}])
         expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.request!.state).toBe('allowed')
         expect(messages.at(-1)!.text).toContain(`Team tracker is now ${url}, saved`)
@@ -136,9 +232,9 @@ describe("the owner's chat", () => {
         // Asking again for the same setting lets the one before go; an old request expires.
         const first = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: true})
         const second = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: false})
-        await expect(chats.answerSetting('c1c2c3c4c5c6', first.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        await expect(chats.answer('c1c2c3c4c5c6', first.id, true, owner)).rejects.toMatchObject({statusCode: 409})
         vi.useFakeTimers({now: Date.now() + chats.ASK_FOR + 1000})
-        await expect(chats.answerSetting('c1c2c3c4c5c6', second.id, true, owner)).rejects.toThrow(/expired/)
+        await expect(chats.answer('c1c2c3c4c5c6', second.id, true, owner)).rejects.toThrow(/expired/)
         vi.useRealTimers()
         expect(saved).toHaveLength(1)
     })
@@ -151,6 +247,59 @@ describe("the owner's chat", () => {
             {setting: 'tracker', value: 'not a link'}, {setting: 'advanced', value: 'yes'}])
             await expect(chats.askSetting('c1c2c3c4c5c6', body)).rejects.toMatchObject({statusCode: 400})
         expect((await chats.askSetting('c1c2c3c4c5c6', {setting: 'handle', value: 'Skoll'})).request!.to).toBe('skoll')
+    })
+
+    it("asks to make a schedule or change one, checked for the owner, and saves it as theirs only once they allow it", async () => {
+        const notes: {kind: string}[] = []
+        const made: {project: string, body: unknown, actor: unknown, id?: number}[] = []
+        const checked: {body: unknown, actor: {owner: boolean}, id?: number}[] = []
+        const nightly = {id: 3, title: 'Nightly triage', kind: 'message', notes: 'Triage', cron: '0 2 * * *', presets: [7], enabled: true}
+        vi.stubGlobal('useStore', () => ({
+            ownerOf: async () => ({name: 'skoll'}),
+            presets: async () => [{id: 7, name: 'Review'}, {id: 8, name: 'Debug an error'}],
+            messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
+        }))
+        vi.stubGlobal('useScheduler', () => ({
+            get: async (_project: string, id: number) => {
+                if (id !== 3) throw Object.assign(new Error(`No schedule ${id}`), {statusCode: 404})
+                return nightly
+            },
+            check: async (_project: string, body: {cron?: string}, actor: {owner: boolean}, id?: number) => {
+                if (body.cron === 'often') throw Object.assign(new Error('cron'), {statusCode: 400})
+                checked.push({body, actor, id})
+            },
+            create: async (project: string, body: {title: string}, actor: unknown) => (made.push({project, body, actor}), {id: 9, title: body.title, enabled: true}),
+            update: async (project: string, id: number, body: unknown, actor: unknown) => (made.push({project, body, actor, id}), {...nightly, enabled: false}),
+        }))
+        vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        await chats.openChat('greenhouse')
+        const fresh = await chats.ask('c1c2c3c4c5c6', {schedule: {title: 'Weekly review', kind: 'session', on: 'issue.status', on_filter: {to: 'in-review'}, presets: [8]}, why: 'As you asked.'})
+        expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', schedule: {title: 'Weekly review', state: 'asked', changes: [
+            {field: 'title', to: 'Weekly review'}, {field: 'kind', to: 'session'}, {field: 'on', to: 'issue.status'}, {field: 'on_filter', to: {to: 'in-review'}}, {field: 'presets', to: ['Debug an error']},
+        ]}})
+        expect(fresh.schedule).not.toHaveProperty('id')
+        // Checked as the owner would make it (a session schedule is theirs alone), and nothing saved yet.
+        expect(checked[0]).toMatchObject({actor: {name: 'skoll', owner: true}, id: undefined})
+        expect(made).toEqual([])
+        await chats.answer('c1c2c3c4c5c6', fresh.id, true, owner)
+        expect(made).toEqual([{project: 'greenhouse', body: {title: 'Weekly review', kind: 'session', on: 'issue.status', on_filter: {to: 'in-review'}, presets: [8]}, actor: {...owner, via: 'chat'}}])
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === fresh.id)!.schedule).toMatchObject({id: 9, state: 'allowed'})
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: schedule 9 ("Weekly review") is saved.)')
+        // A change shows each field from → to; asking again for the same schedule lets the one before go.
+        const pause = await chats.ask('c1c2c3c4c5c6', {id: 3, schedule: {enabled: false}})
+        const resume = await chats.ask('c1c2c3c4c5c6', {id: 3, schedule: {enabled: true, presets: [8]}})
+        expect(pause.schedule!.state).toBe('expired')
+        expect(resume.schedule).toMatchObject({id: 3, title: 'Nightly triage', changes: [{field: 'enabled', from: true, to: true}, {field: 'presets', from: ['Review'], to: ['Debug an error']}]})
+        await chats.answer('c1c2c3c4c5c6', resume.id, false, owner)
+        expect(made).toHaveLength(1)
+        expect(messages.at(-1)!.text).toMatch(/denied your request to change schedule 3 .*nothing changed/)
+        // What it may not ask for, or what Schedules would refuse, fails as it asks.
+        for (const [body, status] of [[{schedule: {}}, 400], [{schedule: {title: 'X', untrusted: true}}, 403], [{schedule: {title: 'X', cron: 'often'}}, 400],
+            [{id: 4, schedule: {enabled: false}}, 404], [{id: 'nightly', schedule: {enabled: false}}, 400]] as const)
+            await expect(chats.ask('c1c2c3c4c5c6', body)).rejects.toMatchObject({statusCode: status})
+        expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })
 
     it('makes what its session asks for with nobody on it, in Todo whatever status it asks for', () => {
@@ -166,7 +315,7 @@ describe("the owner's chat", () => {
         expect(chats.landChatIssues(chat.id, 'todo')).toMatchObject({issues: 'todo'})
         expect(changes.at(-1)).toMatchObject({issues: 'todo'})
         expect(chats.asChatIssue({title: 'Grow lights', status: 'backlog'}, chat.id)).toEqual({title: 'Grow lights', status: 'todo'})
-        // A chat it doesn't know (ended, or Orrery restarted) lands in Todo.
+        // A chat it doesn't know (ended, or orrery restarted) lands in Todo.
         expect(chats.asChatIssue({title: 'Jars', status: 'backlog'}, 'gone')).toEqual({title: 'Jars', status: 'todo'})
     })
 
@@ -212,13 +361,14 @@ describe("a chat session's writes", () => {
         }
     }
 
-    it('make issues, comment, answer in the chat, message sessions, and read anything; nothing else', () => {
+    it('make issues, comment, answer in the chat, ask the owner for things, and read anything; nothing else', () => {
         expect(refused('POST', '/api/projects/greenhouse/issues')).toBeUndefined()
-        expect(refused('POST', '/api/sessions/message')).toBeUndefined()
-        expect(refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBeUndefined()
+        // It asks to message sessions (a request); only the owner's Send sends it (ORR-416).
+        expect(refused('POST', '/api/sessions/message')).toBe(403)
+        expect(refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
-        // It asks to change a setting; the owner's answer, and the settings themselves, aren't its.
+        // It asks to change a setting or send a message; the owner's answer, and the settings themselves, aren't its.
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests')).toBeUndefined()
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests/4')).toBe(403)
         expect(refused('PATCH', '/api/settings')).toBe(403)

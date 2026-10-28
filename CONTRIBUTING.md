@@ -1,11 +1,11 @@
 # Contributing
 
-Thanks for looking. Orrery is small and opinionated, so for anything bigger than a fix, open an issue
+Thanks for looking. orrery is small and opinionated, so for anything bigger than a fix, open an issue
 first and say what you'd change and why; it saves you building something that won't land.
 
 ## Running it
 
-[Working on Orrery](docs/development.md) has the details. In short:
+[Working on orrery](docs/development.md) has the details. In short:
 
 ```sh
 .playground/play   # nuxt dev on http://localhost:9001, with a demo of its own
@@ -15,10 +15,10 @@ or, without Docker, `pnpm install` and `pnpm dev` (Node 24.22.1, pnpm 10.14.0).
 
 ## Before a pull request
 
-- `pnpm test`, `pnpm typecheck` and `pnpm test:e2e` pass (CI runs the first two on every push and pull request, `test:e2e` on SQLite and Postgres on a release tag and when a pull request leaves draft, and builds the image; a release tag publishes only once they pass)
+- `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm test:e2e` pass (CI runs the first three on every pull request, `test:e2e` and `test:e2e:perf` on SQLite and Postgres on a release tag and when a pull request leaves draft, and builds the image; a release tag publishes only once they pass)
 - A change to the database is a new step at the end of the migrations in `web/server/utils/db.ts` (and Postgres's in `web/server/utils/postgres.ts`); never edit one
 - A change to the API updates [docs/API.md](docs/API.md), which is also what agents read
-- A change to how something works updates the docs that describe it: `docs/` and the Orrery's project docs (a decision's `decision-*` doc too), which agents read before the code
+- A change to how something works updates the docs that describe it: `docs/` and the orrery's project docs (a decision's `decision-*` doc too), which agents read before the code
 - New behaviour comes with a test where the store or the board rules change, and a component test (`web/test/components`, mounted in Nuxt) where a component decides what it sends
 
 ## Style

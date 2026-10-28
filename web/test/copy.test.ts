@@ -9,10 +9,10 @@ import {testDb} from './db'
 /** A 1×1 PNG, base64. */
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
-/** The secrets of an Orrery, under one key; their calls all answer 200. */
+/** The secrets of an orrery, under one key; their calls all answer 200. */
 const secretsOf = (store: Store) => new Secrets(store, () => 'a long random test key', () => {}, (async () => new Response('{}')) as typeof fetch)
 
-/** An Orrery with a bit of everything in it. */
+/** An orrery with a bit of everything in it. */
 async function filled() {
     const store = new Store(new SqliteDb(openDb(':memory:')))
     const owner = {name: 'skoll', owner: true}
@@ -41,7 +41,7 @@ const everything = async (store: Store) => ({
     uploads: await Promise.all((await store.db.all<{id: string}>('SELECT id FROM uploads')).map(({id}) => store.upload(id))),
 })
 
-describe('copying an Orrery', () => {
+describe('copying an orrery', () => {
     it('takes every table across with its ids, and goes on numbering after them', async () => {
         const source = await filled()
         const target = new Store(testDb())

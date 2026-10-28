@@ -1,15 +1,16 @@
 // The database: one SQLite file (`NUXT_DATABASE`, `.data/orrery.db` by default), or Postgres. Node's own
 // `node:sqlite` is synchronous, so writes from several sessions never interleave. The owner can move it from App
 // settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
-import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
-import {lastBackup, restoreBackup} from './backup'
+import {chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {lastBackup, lastBackupFailure, lastPostgresBackup, putInPlace} from './backup'
+import {backupChoice, backupChoiceFile, backupDir, backupEvery, backupKeep, backupTarget, defaultBackupDir, inDocker} from './backup-choice'
 import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
 import {SqliteDb} from './database'
 import {PostgresDb, isPostgres} from './postgres'
-import {dirname, resolve} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 
 // Each step brings the schema up one version (`PRAGMA user_version`); add steps, never edit them.
@@ -273,7 +274,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE schedule_runs_new RENAME TO schedule_runs;
     CREATE INDEX schedule_runs_schedule ON schedule_runs(schedule, id);
 `, `
-    -- The Orrery's own settings (not a project's), e.g. the background tint, as keys and JSON values.
+    -- The orrery's own settings (not a project's), e.g. the background tint, as keys and JSON values.
     CREATE TABLE settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -302,7 +303,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- the Now issues in chunk 3". Unchecked, so it carries over to statuses a project makes its own.
     ALTER TABLE signals ADD COLUMN status TEXT;
 `, `
-    -- Statuses: one list for the whole Orrery, each with a kind that says what it means. An issue's
+    -- Statuses: one list for the whole orrery, each with a kind that says what it means. An issue's
     -- status and plan become one status: todo without a plan → Backlog, with one → Todo, doing → In progress.
     -- Schedules start their issues in a status too, and a chunk's focus names one.
     CREATE TABLE statuses (
@@ -405,8 +406,8 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     CREATE INDEX issue_events_issue ON issue_events(project, issue);
 `, `
-    -- What a session hears when asked to focus. A project can have its own templates (none uses the Orrery's,
-    -- kept in settings), its own standing instructions (a JSON list of {id, text, on}) and the Orrery's it
+    -- What a session hears when asked to focus. A project can have its own templates (none uses the orrery's,
+    -- kept in settings), its own standing instructions (a JSON list of {id, text, on}) and the orrery's it
     -- switches off (a JSON list of their ids). A focus keeps the instructions picked for it (a JSON list of texts).
     ALTER TABLE projects ADD COLUMN focus_prompt TEXT;
     ALTER TABLE projects ADD COLUMN chunk_prompt TEXT;
@@ -461,7 +462,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     CREATE INDEX secret_uses_secret ON secret_uses(secret, id);
 `, `
-    -- Whether Orrery may start sessions for the project itself, without a terminal: a JSON {limit, minutes}
+    -- Whether orrery may start sessions for the project itself, without a terminal: a JSON {limit, minutes}
     -- (at most \`limit\` running at once, each stopped after \`minutes\`), none while the owner hasn't let it.
     ALTER TABLE projects ADD COLUMN starts TEXT;
 `, `
@@ -500,7 +501,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- issues are set for that project's releases, and it has none of its own.
     ALTER TABLE projects ADD COLUMN releases_from TEXT;
 `, `
-    -- The API's fields are snake_case, as the columns are: the Orrery's own prompt settings follow.
+    -- The API's fields are snake_case, as the columns are: the orrery's own prompt settings follow.
     UPDATE settings SET key = 'focus_prompt' WHERE key = 'focusPrompt';
     UPDATE settings SET key = 'chunk_prompt' WHERE key = 'chunkPrompt';
 `, `
@@ -531,7 +532,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE signals ADD COLUMN release TEXT;
 `, `
     -- Presets: saved pieces of context the owner gives a session as they start it, each a name and its text;
-    -- the Orrery's (no project), for any project's sessions, or a project's own.
+    -- the orrery's (no project), for any project's sessions, or a project's own.
     CREATE TABLE presets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project TEXT REFERENCES projects(id) ON DELETE CASCADE,
@@ -543,7 +544,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         updated_at TEXT NOT NULL
     );
 `, `
-    -- Letting Orrery start sessions is the owner's one setting, not each project's: the first project that had it
+    -- Letting orrery start sessions is the owner's one setting, not each project's: the first project that had it
     -- passes its limits on, and the projects' own are let go.
     INSERT INTO settings (key, value) SELECT 'starts', starts FROM projects WHERE starts IS NOT NULL ORDER BY created_at, id LIMIT 1
         ON CONFLICT (key) DO NOTHING;
@@ -562,7 +563,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- A message schedule that brings in what others wrote (GitHub issues): its run gets a locked-down session of its own.
     ALTER TABLE schedules ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0;
 `, `
-    -- The event log: what Orrery did and what went wrong (server/utils/event-log.ts). A repeat of one that isn't
+    -- The event log: what orrery did and what went wrong (server/utils/event-log.ts). A repeat of one that isn't
     -- resolved counts on its row. Not tied to a project row, so what happened in one outlives it.
     CREATE TABLE events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -658,7 +659,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE schedules_new RENAME TO schedules;
     CREATE INDEX schedules_due ON schedules(enabled, next_run);
 `, `
-    -- The presets Orrery ships (ORR-343, shared/presets.ts): one keeps its key, and each key seeded is noted, so a
+    -- The presets orrery ships (ORR-343, shared/presets.ts): one keeps its key, and each key seeded is noted, so a
     -- default the owner removed isn't seeded again.
     ALTER TABLE presets ADD COLUMN default_key TEXT;
     CREATE TABLE preset_defaults (
@@ -671,14 +672,37 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- A message the owner's chat sent for them (ORR-397): \`chat\`, so it's shown as relayed.
     ALTER TABLE signals ADD COLUMN via TEXT;
+`, `
+    -- Who resolved an event in the log when it wasn't the owner (ORR-420): the bell still shows it until they look.
+    ALTER TABLE events ADD COLUMN resolved_by TEXT;
+`, `
+    -- An agent's proposal the owner cleared from the bell (ORR-430), as it was put up then: put up again, it's back.
+    CREATE TABLE proposal_clears (
+        project TEXT NOT NULL,
+        issue TEXT NOT NULL,
+        put_up TEXT NOT NULL,
+        cleared_at TEXT NOT NULL,
+        PRIMARY KEY (project, issue, put_up),
+        FOREIGN KEY (project, issue) REFERENCES issues(project, id) ON DELETE CASCADE ON UPDATE CASCADE
+    );
+`, `
+    -- Agents' comments in the order the bell and Notifications list them (ORR-441), so a page of them is read off it.
+    CREATE INDEX comments_notices ON comments(owned, cleared, created_at, id);
+`, `
+    -- The name of the session that wrote it (ORR-466), as it was then: the page shows it instead of Agent, and sessions
+    -- are forgotten after a while, so it's kept with the write.
+    ALTER TABLE comments ADD COLUMN session_name TEXT;
+    ALTER TABLE issue_events ADD COLUMN session_name TEXT;
+    ALTER TABLE issues ADD COLUMN session_name TEXT;
 `]
 
 let db: DatabaseSync | null = null
 
 function useDb(path: string): DatabaseSync {
     if (db) return db
-    restoreBackup(path, String(useRuntimeConfig().backupDir ?? ''))
-    db = openDb(path)
+    // A new database doesn't start from a backup by itself (ORR-448): its first page asks, see server/utils/restore.ts.
+    // Before an upgrade's steps, a copy as it was: in the backup folder, or beside the file when backups are off.
+    db = openDb(path, MIGRATIONS.length, join(backupDir() || dirname(path), `orrery-pre-${useRuntimeConfig().public?.version ?? 'upgrade'}.db`))
     return db
 }
 
@@ -689,7 +713,7 @@ export function movedFile(): string | null {
     return isPostgres(setting) ? null : `${resolve(setting)}.moved.json`
 }
 
-/** The database Orrery runs on: where the owner moved it to, else NUXT_DATABASE (a SQLite file, from where it runs). */
+/** The database orrery runs on: where the owner moved it to, else NUXT_DATABASE (a SQLite file, from where it runs). */
 let chosen: string | null | undefined
 
 export function databaseSetting(): string {
@@ -701,7 +725,7 @@ export function databaseSetting(): string {
     return chosen ?? (isPostgres(setting) ? setting : resolve(setting))
 }
 
-/** Saves where the database moved to, for Orrery to open again as it starts; back to NUXT_DATABASE's own file forgets it. */
+/** Saves where the database moved to, for orrery to open again as it starts; back to NUXT_DATABASE's own file forgets it. */
 function saveDatabaseSetting(setting: string) {
     const file = movedFile()
     if (!file) throw new Error('NUXT_DATABASE names Postgres: change it there')
@@ -710,6 +734,8 @@ function saveDatabaseSetting(setting: string) {
         chosen = null
     } else {
         writeFileSync(file, `${JSON.stringify({database: setting, moved_at: new Date().toISOString()}, null, 2)}\n`, {mode: 0o600})
+        // `mode` holds only for a file it makes; one already there keeps its own, and this one holds a password.
+        chmodSync(file, 0o600)
         chosen = setting
     }
 }
@@ -718,18 +744,28 @@ function saveDatabaseSetting(setting: string) {
 export function describeDatabase(): DatabaseInfo {
     const config = useRuntimeConfig()
     const setting = databaseSetting()
-    const dir = String(config.backupDir ?? '')
-    const at = dir ? lastBackup(dir) : undefined
+    const target = backupTarget()
+    const dir = target?.kind === 'folder' ? target.dir : ''
+    const at = dir ? lastBackup(dir) : target?.kind === 'postgres' ? lastPostgresBackup(target.url) : undefined
+    const failed = target ? lastBackupFailure(target) : undefined
     const base = String(config.public?.repoDir ?? '')
     // Under Docker, where each is on the computer too (`/data` and `/backup` mean nothing there): ORR-399.
     const backupOn = dir ? onHost(resolve(dir), '/backup', String(config.backupHost ?? ''), base) : {}
     const backup = dir ? {
         backup: resolve(dir), ...at ? {backed_up_at: at} : {},
         ...backupOn.host ? {backup_host: backupOn.host} : {}, ...backupOn.volume ? {backup_volume: backupOn.volume} : {},
-    } : {}
+    } : target?.kind === 'postgres' ? {backup: hidePassword(target.url), backup_kind: 'postgres' as const, ...at ? {backed_up_at: at} : {}} : {}
     const how = movedFile() ? {movable: true, ...chosen ? {moved: true} : {}} : {}
-    if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup}
-    return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup}
+    const choice = backupChoice()
+    const settable = backupChoiceFile() ? {backups_settable: inDocker() ? 'switch' as const : 'folder' as const} : {}
+    const backups = {...settable, ...choice?.on === false ? {backups_off: true} : {}, ...choice?.folder ? {backup_folder: choice.folder} : {},
+        ...choice?.postgres ? {backup_postgres: hidePassword(choice.postgres)} : {},
+        ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}, backup_every: backupEvery(), backup_keep: backupKeep(),
+        ...target && failed ? {backup_failed: failed} : {},
+        // In Docker, backups in the default folder (ORRERY_BACKUP unset) never leave this computer.
+        ...target?.kind === 'folder' && inDocker() && !config.backupChosen ? {backup_local: true as const} : {}}
+    if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup, ...backups}
+    return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup, ...backups}
 }
 
 /** A Postgres URL as the owner sees it: `user@host:port/name`, no password. */
@@ -773,19 +809,58 @@ export async function switchDatabase(setting: string, next: SqliteDb | PostgresD
     return before
 }
 
-/** Opens the file and brings its schema up to date (or only `upTo` steps, for tests). */
-export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
+/** The most the `-wal` file keeps once written through, in bytes. */
+export const WAL_LIMIT = 4 * 1024 * 1024
+
+/** Opens the file and brings its schema up to date (or only `upTo` steps, for tests), copying it first, when there are
+ * steps to take, to `snapshot` (`orrery-pre-<version>.db`) with the step it's at added (`-step<n>.db`), unless there's
+ * a copy there already. */
+export function openDb(path: string, upTo = MIGRATIONS.length, snapshot?: string): DatabaseSync {
     if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
     const opened = new DatabaseSync(path)
-    // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes).
-    opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL')
-    migrated = migrate(opened, path, upTo) ?? migrated
+    try {
+        // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes). The
+        // `-wal` beside it is cut back to WAL_LIMIT once written through, or it stays as big as the largest write it
+        // ever took (a VACUUM: the whole file again, ORR-464).
+        opened.exec(`PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA journal_size_limit = ${WAL_LIMIT}`)
+        migrated = migrate(opened, path, upTo, snapshot) ?? migrated
+    } catch (error) {
+        opened.close()
+        throw error
+    }
     return opened
 }
 
-/** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. */
-function migrate(opened: DatabaseSync, path: string, upTo: number): {from: number, to: number} | null {
+/** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. Refuses one
+ * from a newer orrery (ORR-433): this code can't know what its steps changed. */
+function migrate(opened: DatabaseSync, path: string, upTo: number, snapshot?: string): {from: number, to: number} | null {
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
+    if (version > MIGRATIONS.length) {
+        throw new Error(`${path} was written by a newer orrery (schema step ${version}; this one knows up to ${MIGRATIONS.length}). `
+            + 'Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>-step<n>.db, in the backup folder or beside the database).')
+    }
+    // A new file has nothing to keep. The copy is named by the schema step it was taken at as well as the version, so a
+    // later step under the same version gets one of its own (ORR-457); one already there is from an earlier try at this
+    // same upgrade, so it stays. It's written beside the name and checked before it takes it (ORR-448), so a copy cut
+    // short never passes for one.
+    if (snapshot) snapshot = snapshot.replace(/(\.db)?$/, `-step${version}.db`)
+    if (snapshot && version > 0 && version < Math.min(upTo, MIGRATIONS.length) && !existsSync(snapshot)) {
+        const temporary = `${snapshot}.partial`
+        try {
+            mkdirSync(dirname(snapshot), {recursive: true})
+            rmSync(temporary, {force: true})
+            opened.prepare('VACUUM INTO ?').run(temporary)
+            putInPlace(temporary, snapshot)
+        } catch (error) {
+            try {
+                rmSync(temporary, {force: true})
+            } catch {
+                // Nowhere to write means nothing was left there.
+            }
+            throw new Error(`orrery won't upgrade ${path} (schema step ${version} to ${Math.min(upTo, MIGRATIONS.length)}) without a copy of it as it is, `
+                + `and couldn't make one at ${snapshot}: ${(error as Error).message}. Free some space or fix the folder, then start it again.`, {cause: error})
+        }
+    }
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     opened.exec('PRAGMA foreign_keys = OFF')
     MIGRATIONS.slice(version, upTo).forEach((step, i) => {

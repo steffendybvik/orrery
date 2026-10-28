@@ -69,7 +69,7 @@ export function resolvePicks(choices: Choice[], sent: Picks): Picks {
 
 /** The picks in words, one line per choice: the question, then what was picked, in bold; an option's key goes
  * with its title only when it's a label (`A`, `B2`), not a word that would just repeat it.
- * `- Which parts to build first? → **A** Write-only store, **B** Orrery makes the call` */
+ * `- Which parts to build first? → **A** Write-only store, **B** orrery makes the call` */
 export function describePicks(choices: Choice[], picks: Picks): string {
     const label = (key: string) => /^[A-Z][0-9]?$/.test(key)
     return choices.filter(c => picks[c.key]).map(c => {

@@ -42,7 +42,7 @@ describe('moving the database', () => {
         expect(() => move.targetOf({kind: 'sqlite', path: dir})).toThrow(/is a folder/)
     })
 
-    it('tells an empty database from an Orrery\'s, the one it runs on, and something else\'s', async () => {
+    it('tells an empty database from an orrery\'s, the one it runs on, and something else\'s', async () => {
         const {dir, move} = await setUp()
         expect(await move.checkDatabase(join(dir, 'new.db'))).toEqual({kind: 'sqlite', where: join(dir, 'new.db'), state: 'empty'})
         expect((await move.checkDatabase(join(dir, 'orrery.db'))).state).toBe('current')
@@ -71,12 +71,12 @@ describe('moving the database', () => {
         await restarted.closeDb()
     })
 
-    it('runs on an Orrery\'s own as it is, won\'t copy over it, and going back to its own file forgets the move', async () => {
+    it('runs on an orrery\'s own as it is, won\'t copy over it, and going back to its own file forgets the move', async () => {
         const {dir, db, move} = await setUp()
         const target = join(dir, 'orrery-2.db')
         await move.moveDatabase(target, 'copy', rebind)
         const original = join(dir, 'orrery.db')
-        await expect(move.moveDatabase(original, 'copy', rebind)).rejects.toThrow(/an Orrery's already, with 1 project/)
+        await expect(move.moveDatabase(original, 'copy', rebind)).rejects.toThrow(/an orrery's already, with 1 project/)
         await expect(move.moveDatabase(target, 'use', rebind)).rejects.toThrow(/already runs on/)
         await move.moveDatabase(original, 'use', rebind)
         expect(db.databaseSetting()).toBe(original)
@@ -98,22 +98,23 @@ describe('moving the database', () => {
         await db.closeDb()
     })
 
-    it('won\'t run as it is on one that isn\'t an Orrery\'s', async () => {
+    it('won\'t run as it is on one that isn\'t an orrery\'s', async () => {
         const {dir, move} = await setUp()
-        await expect(move.moveDatabase(join(dir, 'new.db'), 'use', rebind)).rejects.toThrow(/isn't an Orrery's yet/)
+        await expect(move.moveDatabase(join(dir, 'new.db'), 'use', rebind)).rejects.toThrow(/isn't an orrery's yet/)
         expect(rebound).toHaveLength(0)
     })
 })
 
 describe('who may move it', () => {
-    /** move.ts loaded with the actor a request names, and a request to it from `host`. */
-    async function guard(owner: boolean, host: string, database?: string) {
+    /** move.ts loaded with the actor a request names, and a request to it by the name `host`, over a connection from
+     * `from`. */
+    async function guard(owner: boolean, host: string, database?: string, from = '127.0.0.1') {
         const {move} = await setUp()
         if (database) vi.stubGlobal('useRuntimeConfig', () => ({database, backupDir: ''}))
         vi.doMock('../server/utils/actor', () => ({actorOf: async () => ({name: owner ? 'skoll' : 'claude', owner})}))
         vi.resetModules()
         const fresh = await import('../server/utils/move')
-        const event = {node: {req: {headers: {host}}}} as never
+        const event = {node: {req: {headers: {host}, socket: {remoteAddress: from}}}} as never
         return {move, check: () => fresh.mayMove(event)}
     }
 
@@ -126,13 +127,46 @@ describe('who may move it', () => {
         }
     }
 
-    it('is the owner, on the machine Orrery runs on', async () => {
+    it('is the owner, on the machine orrery runs on', async () => {
         for (const host of ['localhost:9010', '127.0.0.1:9010', '[::1]:9010', 'orrery.localhost']) expect(await status((await guard(true, host)).check)).toBe('ok')
     })
 
     it('is never an agent, nor anyone reaching it by another address', async () => {
         expect(await status((await guard(false, 'localhost:9010')).check)).toBe(403)
         for (const host of ['192.168.1.20:9010', 'mac.lan', 'localhost.evil.com']) expect(await status((await guard(true, host)).check)).toBe(403)
+    })
+
+    it("is nobody on another machine, whatever name it says it reached orrery by (the Host header is the caller's)", async () => {
+        expect(await status((await guard(true, 'localhost:9010', undefined, '::ffff:127.0.0.1')).check)).toBe('ok')
+        for (const from of ['192.168.1.20', '::ffff:192.168.1.20', '10.0.0.7', '']) expect(await status((await guard(true, 'localhost:9010', undefined, from)).check)).toBe(403)
+    })
+
+    it("under nuxt dev, whose server's socket has no address, goes by the client its proxy adds last to X-Forwarded-For", async () => {
+        await setUp()
+        vi.doMock('../server/utils/actor', () => ({actorOf: async () => ({name: 'skoll', owner: true})}))
+        vi.resetModules()
+        const fresh = await import('../server/utils/move')
+        const forwarded = (xff: string) => status(() => fresh.mayMove({node: {req: {headers: {'host': 'localhost:3000', 'x-forwarded-for': xff}, socket: {}}}} as never))
+        expect(await forwarded('::1')).toBe('ok')
+        expect(await forwarded('127.0.0.1, ::1')).toBe('ok')
+        // What the client sent comes first; the proxy's own word is the last.
+        expect(await forwarded('127.0.0.1, 192.168.1.20')).toBe(403)
+    })
+
+    it('in Docker, where every request comes through the bridge, only while orrery is published on loopback', async () => {
+        vi.stubEnv('ORRERY_IMAGE', '1')
+        try {
+            for (const [listenHost, expected] of [['127.0.0.1', 'ok'], ['0.0.0.0', 403], ['', 403]] as const) {
+                const {check} = await guard(true, 'localhost:9000', undefined, '172.17.0.1')
+                const config = useRuntimeConfig()
+                vi.stubGlobal('useRuntimeConfig', () => ({...config, listenHost}))
+                const outcome = await check().then(() => 'ok', (error: {statusCode: number, message: string}) => error)
+                if (expected === 'ok') expect(outcome).toBe('ok')
+                else expect(outcome).toMatchObject({statusCode: 403, message: expect.stringContaining('ORRERY_HOST')})
+            }
+        } finally {
+            vi.unstubAllEnvs()
+        }
     })
 
     it('is nobody while ORRERY_DATABASE names Postgres: it changes where that is set', async () => {

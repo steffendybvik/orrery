@@ -3,8 +3,8 @@ import {DEFAULT_PRESETS} from '#shared/presets'
 import type {Preset, Project} from '#shared/roadmap'
 
 // Presets: saved pieces of context to give a session as you start it, each a name and its text. Without `project`
-// they're the Orrery's, for sessions on any project; with it, that project's own. Each is a role card: its
-// badge, name and first line; clicking one, or New preset, opens it in a dialog to write. Orrery ships a few of its own;
+// they're the orrery's, for sessions on any project; with it, that project's own. Each is a role card: its
+// badge, name and first line; clicking one, or New preset, opens it in a dialog to write. orrery ships a few of its own;
 // once one's removed, Restore defaults brings it back.
 const props = defineProps<{project?: Project}>()
 const {forget} = usePresetBadges()
@@ -22,7 +22,7 @@ function saved() {
     forget()
 }
 
-// The Orrery's presets that Orrery ships and that were removed.
+// The orrery's presets that orrery ships and that were removed.
 const removed = computed(() => props.project ? [] : DEFAULT_PRESETS.filter(d => !presets.value.some(p => p.default?.key === d.key)))
 const {load} = useOwner()
 const restoring = ref(false)

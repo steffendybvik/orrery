@@ -1,13 +1,17 @@
+import {randomBytes} from 'node:crypto'
 import {mkdtempSync, readFileSync, readdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
+import pg from 'pg'
+import sharp from 'sharp'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
-import {backUp, backupPostgres, lastBackup, restoreBackup} from '../server/utils/backup'
+import {backUp, backupPostgres, lastBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
+import {PostgresDb} from '../server/utils/postgres'
 import {readRoadmap} from '../server/utils/roadmap'
 import {Store, UPLOAD_LIMIT} from '../server/utils/store'
 import {testDb} from './db'
@@ -233,6 +237,17 @@ describe('activity', () => {
         expect((await store.listActivity('greenhouse', id))[0]).toMatchObject({issue: id, protected: true})
     })
 
+    it("keeps the name of the session that wrote it, as it was then (ORR-466)", async () => {
+        const froya: Actor = {name: 'claude', owner: false, session: 'orrery · Frøya'}
+        const {id} = await store.createIssue('greenhouse', {title: 'A'}, froya)
+        await store.updateIssue('greenhouse', id, {status: 'in-progress'}, froya)
+        await store.createComment('greenhouse', id, {body: 'On it'}, froya)
+        await store.createComment('greenhouse', id, {body: 'By the API'}, claude)
+        expect((await store.issue('greenhouse', id)).session_name).toBe('orrery · Frøya')
+        expect((await store.listActivity('greenhouse', id)).map(e => e.session_name)).toEqual(['orrery · Frøya', 'orrery · Frøya'])
+        expect((await store.listComments('greenhouse', id)).map(c => c.session_name)).toEqual(['orrery · Frøya', undefined])
+    })
+
     it('notes a new parent, not the chunk that comes with it', async () => {
         const parent = (await store.createIssue('greenhouse', {title: 'P', chunk: '1'})).id
         const {id} = await store.createIssue('greenhouse', {title: 'A', chunk: '1'})
@@ -342,7 +357,7 @@ describe('proposals with choices', () => {
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
     const PARTS = {key: 'parts', question: 'Which parts?', pick: 'any', recommended: ['A', 'B'],
-        options: [{key: 'A', title: 'Write-only store'}, {key: 'B', title: 'Orrery makes the call'}, {key: 'D', title: 'Approve risky uses', body: 'Holds the request until you say yes.'}]}
+        options: [{key: 'A', title: 'Write-only store'}, {key: 'B', title: 'orrery makes the call'}, {key: 'D', title: 'Approve risky uses', body: 'Holds the request until you say yes.'}]}
     const KEY = {key: 'key', question: 'Where the key lives', pick: 'one', recommended: ['env'], options: [{key: 'env', title: 'ORRERY_SECRET_KEY'}, {key: 'keychain', title: 'OS keychain'}]}
     const propose = async (choices: object[]) => (await store.createIssue('greenhouse', {title: 'Secrets', proposal: 'pending', choices}, claude)).id
 
@@ -351,7 +366,7 @@ describe('proposals with choices', () => {
         expect((await store.issue('greenhouse', id)).choices.map(c => c.key)).toEqual(['parts', 'key'])
         expect((await store.decide('greenhouse', id, {decision: 'approved'}, owner)).picks).toEqual({parts: ['A', 'B'], key: ['env']})
         expect((await store.listComments('greenhouse', id)).at(-1)?.body)
-            .toBe('Approved this proposal with:\n- Which parts? → **A** Write-only store, **B** Orrery makes the call\n- Where the key lives → **ORRERY_SECRET_KEY**')
+            .toBe('Approved this proposal with:\n- Which parts? → **A** Write-only store, **B** orrery makes the call\n- Where the key lives → **ORRERY_SECRET_KEY**')
         await store.updateIssue('greenhouse', id, {proposal: 'pending'}, claude)
         expect((await store.issue('greenhouse', id)).picks).toBeUndefined()
         expect((await store.decide('greenhouse', id, {decision: 'approved', picks: {parts: ['A', 'D'], key: ['keychain']}, note: 'D too'}, owner)).picks)
@@ -750,7 +765,7 @@ describe('releases', () => {
 describe('what sessions are told', () => {
     const owner: Actor = {name: 'skoll', owner: true}
 
-    it("uses the project's templates, else the Orrery's, else the defaults", async () => {
+    it("uses the project's templates, else the orrery's, else the defaults", async () => {
         expect(await store.prompts('greenhouse')).toEqual({focus: DEFAULT_FOCUS_PROMPT, chunk: DEFAULT_CHUNK_PROMPT})
         await store.updateSettings({focus_prompt: 'Look at {issue}.'}, owner)
         await store.updateProject('greenhouse', {chunk_prompt: 'Do chunk {chunk}.'}, owner)
@@ -783,11 +798,11 @@ describe('what sessions are told', () => {
 
 describe('docs', () => {
     it('list with a summary of their first paragraph, and search their title and text', async () => {
-        await store.createDoc('greenhouse', {title: 'Decision: ids', body: '# Decision: ids\n\n![logo](/api/uploads/x)\n\nIssues get the project\'s **prefix** and a number, [handed out](https://x.y) by `Orrery`.\nNever reused.\n\nMore later.'})
+        await store.createDoc('greenhouse', {title: 'Decision: ids', body: '# Decision: ids\n\n![logo](/api/uploads/x)\n\nIssues get the project\'s **prefix** and a number, [handed out](https://x.y) by `orrery`.\nNever reused.\n\nMore later.'})
         await store.createDoc('greenhouse', {title: 'Running', body: '```sh\npnpm dev\n```\n\n' + 'word '.repeat(60)})
         const docs = await store.listDocs('greenhouse')
         expect(docs.map(d => d.summary)).toEqual([
-            "Issues get the project's prefix and a number, handed out by Orrery. Never reused.",
+            "Issues get the project's prefix and a number, handed out by orrery. Never reused.",
             expect.stringMatching(/^(word ){20,}word…$/),
         ])
         expect(docs[1]!.summary.length).toBeLessThanOrEqual(161)
@@ -842,6 +857,27 @@ describe('proposals in the bell', () => {
         expect((await store.notices({list: 'waiting'})).map(n => n.issue)).toContain(id)
         await store.decide('greenhouse', id, {decision: 'approved', picks: {k: ['a']}}, owner)
         expect((await store.notices({list: 'waiting'})).map(n => n.issue)).not.toContain(id)
+    })
+
+    it('clear one by one, leaving the proposal pending, until it is put up again', async () => {
+        const agent = {name: 'claude', owner: false}
+        const owner = {name: 'skoll', owner: true}
+        const {id} = await store.createIssue('greenhouse', {title: 'Dark mode', notes: 'Why and how', proposal: 'pending'}, agent)
+        const {id: other} = await store.createIssue('greenhouse', {title: 'B'})
+        const comment = await store.createComment('greenhouse', other, {body: 'Ship it?', asks: 'decision'}, agent)
+        expect(await store.clearNotices({ids: [comment.id], proposals: [{project: 'greenhouse', issue: id}, {project: 'greenhouse', issue: other}]})).toBe(2)
+        for (const list of ['bell', 'waiting', 'inbox'] as const) expect(await store.notices({list})).toEqual([])
+        expect((await store.notices({list: 'cleared'})).map(n => [n.issue, n.cleared, !!n.proposal])).toEqual([[other, true, false], [id, true, true]])
+        expect((await store.issue('greenhouse', id)).proposal).toBe('pending')
+        // Again changes nothing; on a later page of Cleared it isn't listed twice.
+        expect(await store.clearNotices({proposals: [{project: 'greenhouse', issue: id}]})).toBe(0)
+        expect((await store.notices({list: 'cleared', before: comment.id})).map(n => n.issue)).toEqual([])
+        await store.decide('greenhouse', id, {decision: 'changes', note: 'Shorter'}, owner)
+        expect((await store.notices({list: 'cleared'})).map(n => n.issue)).toEqual([other])
+        await new Promise(resolve => setTimeout(resolve, 5))
+        await store.updateIssue('greenhouse', id, {proposal: 'pending'}, agent)
+        expect((await store.notices()).map(n => n.issue)).toEqual([id])
+        expect((await failure(() => store.clearNotices({proposals: [{project: 'greenhouse'}]}))).status).toBe(400)
     })
 
     it('make the issue wait on your decision too, as the bell has it, until you decide', async () => {
@@ -970,7 +1006,7 @@ describe("an owner's comment", () => {
 describe('starting sessions', () => {
     const owner = {name: 'skoll', owner: true}
 
-    it("is the owner's to allow once for every project, as {limit, minutes?, idle_minutes?}, and to stop with null", async () => {
+    it("is the owner's to allow once for every project, as {limit, min?, minutes?, idle_minutes?}, and to stop with null", async () => {
         await store.createProject({name: 'pantry', key: 'PAN'})
         expect((await store.settings()).starts).toBeNull()
         expect((await store.project('greenhouse')).starts).toBeUndefined()
@@ -983,7 +1019,13 @@ describe('starting sessions', () => {
         // Without minutes, they run until stopped; idle minutes stop one that has nothing to do.
         expect((await store.updateSettings({starts: {limit: 2}}, owner)).starts).toEqual({limit: 2})
         expect((await store.updateSettings({starts: {limit: 2, minutes: null, idle_minutes: 60}}, owner)).starts).toEqual({limit: 2, idle_minutes: 60})
-        for (const wrong of [{limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
+        // A minimum kept running, up to the limit.
+        expect((await store.updateSettings({starts: {limit: 3, min: 3, minutes: 60}}, owner)).starts).toEqual({limit: 3, min: 3, minutes: 60})
+        expect((await store.updateSettings({starts: {limit: 3, min: null}}, owner)).starts).toEqual({limit: 3})
+        // Work finding nobody listening starts one unless turned off, which is all that's kept.
+        expect((await store.updateSettings({starts: {limit: 3, on_signal: false}}, owner)).starts).toEqual({limit: 3, on_signal: false})
+        expect((await store.updateSettings({starts: {limit: 3, on_signal: true}}, owner)).starts).toEqual({limit: 3})
+        for (const wrong of [{limit: 2, on_signal: 'no'}, {limit: 2, min: 3}, {limit: 2, min: 0}, {limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
             expect((await failure(() => store.updateSettings({starts: wrong}, owner))).status).toBe(400)
         }
         expect((await store.updateSettings({starts: null}, owner)).starts).toBeNull()
@@ -1020,7 +1062,7 @@ describe('a signal reaching sessions', () => {
 })
 
 describe('a focus aimed at no session', () => {
-    it("goes to the session already on its issue while it's listening, else to one Orrery picks", async () => {
+    it("goes to the session already on its issue while it's listening, else to one orrery picks", async () => {
         const owner = {name: 'skoll', owner: true}
         const jars = (await store.createIssue('greenhouse', {title: 'Jars'})).id
         expect((await store.focus('greenhouse', jars, {}, owner)).target).toBeUndefined()
@@ -1141,7 +1183,7 @@ describe('presets', () => {
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
 
-    it("are the owner's to make: the Orrery's for any project, or a project's own", async () => {
+    it("are the owner's to make: the orrery's for any project, or a project's own", async () => {
         expect((await failure(() => store.createPreset(null, {name: 'Review', text: "You're reviewing."}, claude))).status).toBe(403)
         expect((await failure(() => store.createPreset(null, {name: ' ', text: 'x'}, owner))).status).toBe(400)
         const review = await store.createPreset(null, {name: ' Review ', text: "You're reviewing: don't change code."}, owner)
@@ -1150,7 +1192,7 @@ describe('presets', () => {
         const e2e = await store.createPreset('greenhouse', {name: 'E2E', text: 'Run pnpm test:e2e before you finish.'}, owner)
         await store.createPreset('pantry', {name: 'Pantry only', text: 'Mind the jars.'}, owner)
         expect((await failure(() => store.createPreset('nowhere', {name: 'x', text: 'y'}, owner))).status).toBe(404)
-        // A session on a project can have the Orrery's, then its own; another project's aren't among them.
+        // A session on a project can have the orrery's, then its own; another project's aren't among them.
         expect((await store.presets()).map(p => p.name)).toEqual(['Review'])
         expect((await store.presets('greenhouse')).map(p => p.name)).toEqual(['Review', 'E2E'])
         expect((await store.presetsFor('greenhouse', [e2e.id, review.id, e2e.id])).map(p => p.name)).toEqual(['E2E', 'Review'])
@@ -1234,7 +1276,7 @@ describe('statuses', () => {
 })
 
 describe('settings', () => {
-    it('give the Orrery an id the first time, kept after', async () => {
+    it('give the orrery an id the first time, kept after', async () => {
         const {id} = await store.settings()
         expect(id).toMatch(/^orr_[0-9a-f]{6}$/)
         expect((await store.settings()).id).toBe(id)
@@ -1601,6 +1643,57 @@ describe('images', () => {
         expect((await failure(() => store.createUpload({data: big}))).message).toMatch(/MB at most/)
     })
 
+    /** A PNG of noise `width` × `height`, as big as a screenshot gets for its size. */
+    const noise = (width: number, height: number) => sharp(randomBytes(width * height * 3), {raw: {width, height, channels: 3}}).png().toBuffer()
+
+    it('keeps a PNG or JPEG as WebP when that\'s smaller, no wider than 2,560 px (ORR-446)', async () => {
+        const shot = await noise(3000, 40)
+        const image = await store.createUpload({data: shot.toString('base64'), name: 'shot.png'})
+        expect(image.type).toBe('image/webp')
+        expect(image.size).toBeLessThan(shot.length)
+        const kept = await store.upload(image.id)
+        expect(await sharp(kept.data).metadata()).toMatchObject({format: 'webp', width: 2560, height: 34})
+        const jpeg = await sharp(await noise(400, 300)).jpeg({quality: 100}).toBuffer()
+        expect((await store.createUpload({data: jpeg.toString('base64')})).type).toBe('image/webp')
+    })
+
+    it('keeps a screenshot taller than WebP holds as WebP too, scaled only to fit (ORR-465)', async () => {
+        const {compressImage, MAX_HEIGHT} = await import('../server/utils/compress')
+        const kept = await compressImage(await noise(200, 20_000), 'image/png')
+        expect(kept.type).toBe('image/webp')
+        expect(await sharp(kept.data).metadata()).toMatchObject({format: 'webp', height: MAX_HEIGHT, width: 164})
+    })
+
+    it("drops a photo's metadata, its place included, whichever way it's kept smaller (ORR-465)", async () => {
+        const {compressImage} = await import('../server/utils/compress')
+        const photo = await sharp(await noise(600, 400)).jpeg({quality: 100}).withExif({IFD0: {Copyright: 'Ada', Artist: 'Ada Lovelace'}}).toBuffer()
+        expect((await sharp(photo).metadata()).exif).toBeDefined()
+        const kept = await compressImage(photo, 'image/jpeg')
+        expect(kept.data.length).toBeLessThan(photo.length)
+        expect((await sharp(kept.data).metadata()).exif).toBeUndefined()
+    })
+
+    it('keeps a GIF, a small image and an animated PNG as they came', async () => {
+        const gif = await sharp(await noise(300, 300)).gif().toBuffer()
+        expect((await store.createUpload({data: gif.toString('base64')})).type).toBe('image/gif')
+        expect((await store.createUpload({data: png})).type).toBe('image/png')
+        const frames = await noise(300, 300)
+        // An `acTL` chunk before the image data is what makes a PNG animated.
+        const apng = Buffer.concat([frames.subarray(0, 33), Buffer.from('\0\0\0\x08acTL\0\0\0\x02\0\0\0\0\0\0\0\0', 'latin1'), frames.subarray(33)])
+        expect((await store.createUpload({data: apng.toString('base64')})).type).toBe('image/png')
+    })
+
+    it('compresses the ones kept before, in place, once', async () => {
+        const before = await noise(800, 200)
+        await store.db.run('INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            'a'.repeat(24), 'image/png', 'old.png', before.length, before, 'claude', 0, '2026-10-01T00:00:00.000Z')
+        const done = await store.compressUploads()
+        expect(done).toMatchObject({images: 1})
+        expect(done!.saved).toBeGreaterThan(0)
+        expect((await store.upload('a'.repeat(24))).type).toBe('image/webp')
+        expect(await store.compressUploads()).toBeNull()
+    })
+
     it("answers 404 for one that isn't there", async () => {
         expect((await failure(() => store.upload('0'.repeat(24)))).status).toBe(404)
         expect((await failure(() => store.upload('../etc'))).status).toBe(404)
@@ -1608,7 +1701,7 @@ describe('images', () => {
 })
 
 describe('the database', () => {
-    it("makes letting Orrery start sessions the Orrery's one setting, from the first project that had it", async () => {
+    it("makes letting orrery start sessions the orrery's one setting, from the first project that had it", async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 34)
         old.prepare(`INSERT INTO projects (id, name, key, starts, created_by, created_at, updated_at) VALUES
@@ -1636,7 +1729,7 @@ describe('the database', () => {
         expect((await upgraded.issue('greenhouse', 'GRE-3'))).toMatchObject({column: 'done', proposal: undefined})
     })
 
-    it("keeps the Orrery's prompts through the API going snake_case", async () => {
+    it("keeps the orrery's prompts through the API going snake_case", async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 27)
         old.prepare(`INSERT INTO settings (key, value) VALUES ('focusPrompt', '"Look at {issue}"'), ('chunkPrompt', '"Work {chunk}"')`).run()
@@ -1671,7 +1764,66 @@ describe('the database', () => {
         expect((await upgraded.updateIssue('greenhouse', 'GRE-4', {priority: 'P0'})).priority).toBe('P0')
     })
 
-    // On Postgres as a SQLite snapshot, so a new SQLite Orrery starts from it either way.
+    it('copies itself before an upgrade takes steps, and only then', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
+        const path = join(dir, 'orrery.db')
+        const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0.db')
+        const taken = join(dir, 'backup', 'orrery-pre-1.0.0-step40.db')
+        // A new file has nothing to keep.
+        openDb(path, 40, snapshot).close()
+        expect(readdirSync(dir)).not.toContain('backup')
+        const old = openDb(path, 40)
+        old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'agent', 'x', 'x')").run()
+        old.close()
+
+        openDb(path, undefined, snapshot).close()
+        const copy = new DatabaseSync(taken)
+        expect((copy.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(40)
+        expect(copy.prepare('SELECT id FROM projects').all().map(row => row.id)).toEqual(['greenhouse'])
+        copy.close()
+        // Up to date, it takes no copy.
+        openDb(path, undefined, join(dir, 'backup', 'orrery-pre-1.0.1.db')).close()
+        expect(readdirSync(join(dir, 'backup'))).toEqual(['orrery-pre-1.0.0-step40.db'])
+    })
+
+    it('takes a fresh copy for each step an upgrade starts from, under the same version (ORR-457)', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
+        const path = join(dir, 'orrery.db')
+        const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0-rc.10.db')
+        openDb(path, 39).close()
+        openDb(path, 40, snapshot).close()
+        openDb(path, undefined, snapshot).close()
+        expect(readdirSync(join(dir, 'backup')).sort()).toEqual(['orrery-pre-1.0.0-rc.10-step39.db', 'orrery-pre-1.0.0-rc.10-step40.db'])
+    })
+
+    it('refuses a database from a newer orrery and leaves it as it is', async () => {
+        const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'orrery.db')
+        const raw = openDb(path)
+        const newest = (raw.prepare('PRAGMA user_version').get() as {user_version: number}).user_version
+        raw.exec(`PRAGMA user_version = ${newest + 1}`)
+        raw.close()
+        expect(() => openDb(path)).toThrow(`was written by a newer orrery (schema step ${newest + 1}; this one knows up to ${newest})`)
+        const after = new DatabaseSync(path)
+        expect((after.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(newest + 1)
+        after.close()
+    })
+
+    it.runIf(process.env.TEST_POSTGRES_URL)('refuses a Postgres database from a newer orrery', async () => {
+        const schema = `test_newer_${Date.now().toString(36)}`
+        const first = new PostgresDb(process.env.TEST_POSTGRES_URL!, schema)
+        const {version} = (await first.get<{version: number}>('SELECT version FROM schema_version'))!
+        await first.run('UPDATE schema_version SET version = ?', version + 1)
+        await first.close()
+        const second = new PostgresDb(process.env.TEST_POSTGRES_URL!, schema)
+        await expect(second.get('SELECT 1')).rejects.toThrow(`newer orrery (schema step ${version + 1}; this one knows up to ${version})`)
+        await second.close()
+        const cleanup = new pg.Client({connectionString: process.env.TEST_POSTGRES_URL})
+        await cleanup.connect()
+        await cleanup.query(`DROP SCHEMA "${schema}" CASCADE`)
+        await cleanup.end()
+    })
+
+    // On Postgres as a SQLite snapshot, so a new SQLite orrery starts from it either way.
     it('is backed up to a folder and restored from it', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
         const cloud = join(dir, 'cloud')
@@ -1683,9 +1835,7 @@ describe('the database', () => {
         // One file each, the latest and today's, with nothing left beside them.
         expect(readdirSync(cloud).sort()).toEqual(['orrery.db', `orrery-${new Date().toISOString().slice(0, 10)}.db`].sort())
 
-        const fresh = join(dir, 'new', 'orrery.db')
-        restoreBackup(fresh, cloud)
-        expect((await new Store(new SqliteDb(openDb(fresh))).issue('greenhouse', id)).title).toBe('saved')
+        expect((await new Store(new SqliteDb(openDb(join(cloud, 'orrery.db')))).issue('greenhouse', id)).title).toBe('saved')
     })
 
     it("is copied whole into a SQLite snapshot, as a Postgres one is, whatever it's on", async () => {

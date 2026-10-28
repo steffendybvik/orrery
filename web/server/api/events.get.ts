@@ -1,7 +1,8 @@
 import type {Project, Signal} from '#shared/roadmap'
+import type {ProjectPatch} from '#shared/patch'
 
 // `GET /api/events` → server-sent events: `project` (a project read again, as JSON) when its
-// roadmap changes, `removed` (its id) when it goes, and `listeners` ({project, count}) when a session
+// roadmap changes (with `?patch=1`, `patch` instead: what changed in it, see shared/patch.ts, ORR-440), `removed` (its id) when it goes, and `listeners` ({project, count}) when a session
 // starts or stops listening for its signals, `launchers` ({project, count}) when a launcher that starts
 // sessions for it connects or goes, and `schedules` ({project, schedules}) when they change or
 // run, `secrets` (the list, never a value) when they change or one is used, and `logged` ({event, fresh}) when the
@@ -9,7 +10,9 @@ import type {Project, Signal} from '#shared/roadmap'
 // pages update without a reload.
 export default defineEventHandler(async event => {
     const stream = createEventStream(event)
+    const patches = !!getQuery(event).patch
     const onProject = (project: Project) => stream.push({event: 'project', data: JSON.stringify(project)})
+    const onPatch = (patch: ProjectPatch) => stream.push({event: 'patch', data: JSON.stringify(patch)})
     const onRemoved = (id: string) => stream.push({event: 'removed', data: id})
     const onListeners = (project: string) => stream.push({event: 'listeners', data: JSON.stringify({project, count: listening(project)})})
     const onLaunchers = (project: string) => stream.push({event: 'launchers', data: JSON.stringify({project, count: launchersOf(project)})})
@@ -22,7 +25,8 @@ export default defineEventHandler(async event => {
     const onChat = (chat: unknown) => stream.push({event: 'chat', data: JSON.stringify(chat)})
     const onSchedules = (project: string) => useScheduler().list(project)
         .then(schedules => stream.push({event: 'schedules', data: JSON.stringify({project, schedules})}), () => {})
-    projectEvents.on('project', onProject)
+    if (patches) projectEvents.on('patch', onPatch)
+    else projectEvents.on('project', onProject)
     projectEvents.on('removed', onRemoved)
     projectEvents.on('listeners', onListeners)
     projectEvents.on('launchers', onLaunchers)
@@ -43,6 +47,7 @@ export default defineEventHandler(async event => {
     stream.onClosed(async () => {
         clearInterval(ping)
         projectEvents.off('project', onProject)
+        projectEvents.off('patch', onPatch)
         projectEvents.off('removed', onRemoved)
         projectEvents.off('listeners', onListeners)
         projectEvents.off('launchers', onLaunchers)

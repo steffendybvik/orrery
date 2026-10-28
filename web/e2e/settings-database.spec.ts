@@ -1,7 +1,10 @@
+import {existsSync, mkdtempSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {expect, test} from '@playwright/test'
 import {OWNER} from './support'
 
-// App settings says where this Orrery keeps its data (ORR-284), and how big it is (ORR-323): the SQLite file, or the Postgres database the
+// App settings says where this orrery keeps its data (ORR-284), and how big it is (ORR-323): the SQLite file, or the Postgres database the
 // run is on (E2E_POSTGRES_URL), never with its password. CI's password is `orrery`, also in the user and database
 // names, so the checks look for it as `:password@`, the way a URL would carry it.
 test('App settings shows where the data is, without a password', async ({page, request}) => {
@@ -51,6 +54,66 @@ test('moves the data to another database from App settings, and back', async ({p
     } finally {
         const back = await request.post('/api/database/move', {headers: OWNER, data: {kind: 'sqlite', path: before.where, how: 'use'}})
         expect(back.ok()).toBe(true)
+    }
+    expect((await (await request.get('/api/settings')).json()).database).toMatchObject({where: before.where})
+})
+
+// Backups set from App settings (ORR-320): the run has no NUXT_BACKUP_DIR, so a folder is given, backed up to at once,
+// and then they're turned off again, as the files after this one expect. On Postgres they're set as it starts.
+test('backs up to a folder chosen in App settings, and turns them off again', async ({page}) => {
+    test.skip(!!process.env.E2E_POSTGRES_URL, 'ORRERY_DATABASE names Postgres, so the backups are set as it starts')
+    const folder = mkdtempSync(join(tmpdir(), 'orrery-e2e-backups-'))
+    await page.goto('/settings#database')
+    const section = page.locator('#database')
+    const backUp = section.getByRole('checkbox', {name: 'Back up this orrery'})
+    await expect(backUp).not.toBeChecked()
+    await section.getByRole('textbox', {name: 'Backup folder'}).fill(folder)
+    await section.getByRole('button', {name: 'Back up here'}).click()
+    await expect(section).toContainText('Backed up to')
+    await expect(backUp).toBeChecked()
+    expect(existsSync(join(folder, 'orrery.db'))).toBe(true)
+    // How often and how many daily copies (ORR-445), each kept as it's picked.
+    await expect(section.getByRole('radio', {name: 'After a change'})).toBeChecked()
+    await section.getByRole('radio', {name: 'Hourly'}).click()
+    await section.getByRole('spinbutton', {name: 'Daily copies kept'}).fill('7')
+    await section.getByRole('spinbutton', {name: 'Daily copies kept'}).press('Enter')
+    await page.reload()
+    await expect(section.getByRole('radio', {name: 'Hourly'})).toBeChecked()
+    await expect(section.getByRole('spinbutton', {name: 'Daily copies kept'})).toHaveValue('7')
+    await backUp.uncheck()
+    await expect(section).not.toContainText('Backed up to')
+    await expect(section.getByRole('textbox', {name: 'Backup folder'})).toHaveValue(folder)
+})
+
+// Restoring a backup from App settings (ORR-448): a project made after the day's copy is gone once that copy is
+// restored, and orrery runs on a copy of it, the database it ran on kept as it was. Then it's moved back, the project
+// removed and backups turned off again, as the files after this one expect.
+test('restores a backup picked in App settings', async ({page, request}) => {
+    test.skip(!!process.env.E2E_POSTGRES_URL, 'orrery restores from the app only on SQLite')
+    const folder = mkdtempSync(join(tmpdir(), 'orrery-e2e-restore-'))
+    const before = (await (await request.get('/api/settings')).json()).database
+    expect((await request.put('/api/backups', {headers: OWNER, data: {on: true, folder, every: 'hour'}})).ok()).toBe(true)
+    expect(existsSync(join(folder, 'orrery.db'))).toBe(true)
+    const name = `Restored away ${Date.now()}`
+    const made = await (await request.post('/api/projects', {headers: OWNER, data: {name, key: 'RAW', release_mode: 'own'}})).json()
+    try {
+        await page.goto('/settings#database')
+        const section = page.locator('#database')
+        await section.getByRole('button', {name: 'Restore a backup…'}).click()
+        const list = section.locator('[data-backup-restore]')
+        await list.locator('label', {hasText: 'Daily'}).getByRole('radio').check()
+        await list.getByRole('button', {name: 'Restore it'}).click()
+        await expect(section).toContainText('moved here from App settings')
+        const after = (await (await request.get('/api/settings')).json()).database
+        expect(after.where).toMatch(/orrery-restored-[\dT-]+\.db$/)
+        expect((await (await request.get('/api/projects')).json()).map((p: {name: string}) => p.name)).not.toContain(name)
+        // The database as it was, the project in it, waits in the backup folder.
+        const {snapshots} = await (await request.get('/api/backups')).json()
+        expect(snapshots.some((s: {name: string}) => /^orrery-pre-restore-/.test(s.name))).toBe(true)
+    } finally {
+        await request.post('/api/database/move', {headers: OWNER, data: {kind: 'sqlite', path: before.where, how: 'use'}})
+        await request.delete(`/api/projects/${made.id}`, {headers: OWNER})
+        await request.put('/api/backups', {headers: OWNER, data: {on: false}})
     }
     expect((await (await request.get('/api/settings')).json()).database).toMatchObject({where: before.where})
 })

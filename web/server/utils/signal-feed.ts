@@ -3,7 +3,7 @@ import {renderPrompt} from '#shared/prompt'
 import {freezeNote} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
 
-// One project's signals for a session, as its stream sends them: the owner's, for every session, for one Orrery picks
+// One project's signals for a session, as its stream sends them: the owner's, for every session, for one orrery picks
 // (pool.ts) or for this one; what it missed, and what it should hear as it connects. A session's channel follows its
 // projects on one stream (`/api/signals/stream`) or on one stream each (`…/projects/:project/signals/stream`); both
 // open a feed per project here. Each open feed counts the session as listening on its project.
@@ -16,15 +16,17 @@ export interface Listener {
     /** False for a channel in a session not started with the channel flag (`channel=no`): Claude Code drops its
      * messages, so it isn't counted as listening. */
     heard: boolean
-    /** The launch Orrery started the session for, on this project. */
+    /** The launch orrery started the session for, on this project. */
     started?: StartedSession
     launch?: string
     /** The channel ends its session when the owner stops it. */
     stops: boolean
     /** The name its server goes by in the repo's .mcp.json. */
     server?: string
-    /** Its channel says it's an untrusted schedule's session (`untrusted=yes`), whether or not Orrery knows its launch. */
+    /** Its channel says it's an untrusted schedule's session (`untrusted=yes`), whether or not orrery knows its launch. */
     untrusted: boolean
+    /** The version of the code its channel runs (`version=`). */
+    version?: string
     /** Its channel says it's the owner's chat (`chat=yes`), the same way. */
     chat: boolean
 }
@@ -32,12 +34,12 @@ export interface Listener {
 export type Feed = Awaited<ReturnType<typeof openFeed>>
 
 /** Opens the project's feed for the listener; `from` is the id to catch up after (none: no catch-up), and `origin`
- * the address the session reaches Orrery by, for the addresses in a focus. */
+ * the address the session reaches orrery by, for the addresses in a focus. */
 export async function openFeed(project: string, who: Listener, from: number | undefined, origin: string) {
     const store = useStore()
     await store.project(project)
     const {heard} = who
-    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server, who.untrusted, who.chat) : null
+    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server, who.untrusted, who.chat, who.version) : null
     // An untrusted run's session hears only its own message, and a chat only its chat, so neither is someone there to
     // hear the owner's signals.
     const narrow = who.untrusted || !!who.started?.untrusted || who.chat || !!who.started?.chat
@@ -51,7 +53,7 @@ export async function openFeed(project: string, who: Listener, from: number | un
 
     /** The signal with what a session needs to act on it: for a chunk, its open issues (or those of its
      * `status`), most urgent first. Columns go by their statuses' names. A focus comes with its `prompt`:
-     * the project's (or the Orrery's) template filled in, with the standing instructions picked for it. */
+     * the project's (or the orrery's) template filled in, with the standing instructions picked for it. */
     const told = async (signal: Signal) => {
         const statuses = await store.statuses()
         // A release in feature freeze says so, after the standing instructions.
@@ -103,7 +105,7 @@ export async function openFeed(project: string, who: Listener, from: number | un
         }, await withFreeze(version))
         return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null, prompt}
     }
-    // The owner's signals for every session, for one Orrery picks, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
+    // The owner's signals for every session, for one orrery picks, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
     const ours = (signal: Signal) => aimedAt(signal, attended?.id)
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.delivered_to.length && ours(signal)
     // One aimed at no session goes to the one that takes it (pool.ts); a session that can't hear it takes none.
@@ -241,7 +243,7 @@ export async function streamFeed(stream: {push: (message: {id?: string, event: s
     }
 }
 
-/** Who a stream's query says is listening. The launch a session Orrery started says it's for (`started`) goes with
+/** Who a stream's query says is listening. The launch a session orrery started says it's for (`started`) goes with
  * its project's feed only (`launchedHere`), and is looked up once. */
 export function listenerOf(text: (key: string) => string | undefined, launchedHere = true): Listener {
     const launch = launchedHere ? text('started') : undefined
@@ -250,6 +252,7 @@ export function listenerOf(text: (key: string) => string | undefined, launchedHe
         started: launch ? launched(launch) : undefined, launch, stops: text('stops') === 'yes', server: text('server'),
         untrusted: text('untrusted') === 'yes',
         chat: text('chat') === 'yes',
+        version: text('version')?.slice(0, 40),
     }
 }
 
@@ -268,7 +271,7 @@ export function channelEntry(what: 'connected' | 'left', projects: string[], eve
     }
 }
 
-/** Logs the channel connecting, and gives what logs it leaving, once. Not the owner's chat: like the sessions Orrery starts
+/** Logs the channel connecting, and gives what logs it leaving, once. Not the owner's chat: like the sessions orrery starts
  * for it, it's logged as neither, so nothing runs on it. */
 export function noteChannel(projects: string[], every: boolean, who: Listener, session: () => string | undefined): () => void {
     if (who.chat || who.started?.chat) return () => {}

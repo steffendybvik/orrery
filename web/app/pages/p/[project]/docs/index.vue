@@ -8,7 +8,7 @@ const project = computed(() => byId(route.params.project as string))
 watch(() => project.value?.docs[0]?.id, first => {
     if (first && project.value) router.replace(`/p/${project.value.id}/docs/${first}`)
 }, {immediate: true})
-useHead(() => ({title: project.value ? `Docs · ${project.value.name} · Orrery` : 'Orrery'}))
+useHead(() => ({title: project.value ? `Docs · ${project.value.name} · orrery` : 'orrery'}))
 const {docUnseen} = useUnseen()
 </script>
 
@@ -43,11 +43,11 @@ const {docUnseen} = useUnseen()
       <div v-else class="mx-auto flex max-w-xl flex-col gap-3 px-4 py-20 text-center">
         <p class="text-sm text-muted">{{ project.name }} has no docs yet.</p>
         <UiButton variant="primary" class="self-center" @click="useNewDoc().open(project.id)">New doc</UiButton>
-        <p class="mt-3 text-xs text-faint">Or ask Claude in its repo to add some, e.g. its README:</p>
+        <p class="mt-3 text-xs text-faint">Or ask a session in its repo to add some, e.g. its README:</p>
         <pre class="overflow-x-auto rounded-xl bg-well p-3 text-left font-mono text-[11px] text-muted ring-1 ring-line">PUT /api/projects/{{ project.id }}/docs/readme
 {"title": "README", "body": "# …markdown…"}</pre>
       </div>
     </template>
-    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

@@ -13,13 +13,13 @@ test('an unknown URL shows inside the app, and its way back works', async ({page
     })
     await page.goto('/nothing-here')
     await expect(page.getByRole('heading', {name: 'Nothing at /nothing-here'})).toBeVisible()
-    // An old or mistyped link isn't an error in Orrery, so the page doesn't log one (ORR-369).
+    // An old or mistyped link isn't an error in orrery, so the page doesn't log one (ORR-369).
     expect(logged).toEqual([])
-    await expect(page).toHaveTitle(/Not found · Orrery$/)
+    await expect(page).toHaveTitle(/Not found · orrery$/)
     await expect(page.getByRole('link', {name: 'Quarry'}).first()).toBeVisible()
-    await page.getByRole('link', {name: 'Go to Now'}).click()
-    await expect(page).toHaveURL(/\/now$/)
-    await expect(page.getByRole('heading', {name: 'Now across projects'})).toBeVisible()
+    await page.getByRole('link', {name: 'Go to My issues'}).click()
+    await expect(page).toHaveURL(/\/mine$/)
+    await expect(page.getByRole('heading', {name: 'My issues'})).toBeVisible()
 })
 
 test('leaving an unknown URL by the sidebar clears it', async ({page}) => {
@@ -33,11 +33,11 @@ test('an unknown project and an unknown issue say what was missing', async ({pag
     await page.goto('/p/nowhere')
     await expect(page.getByRole('heading', {name: 'No project “nowhere”'})).toBeVisible()
     await expect(page.getByText('It may have been renamed or deleted.')).toBeVisible()
-    await expect(page).toHaveTitle(/Not found · Orrery$/)
+    await expect(page).toHaveTitle(/Not found · orrery$/)
 
     await page.goto('/p/quarry/issues/QRY-999')
     await expect(page.getByRole('heading', {name: 'No issue QRY-999 in Quarry'})).toBeVisible()
-    await expect(page).toHaveTitle(/Not found · Orrery$/)
+    await expect(page).toHaveTitle(/Not found · orrery$/)
     await page.getByRole('link', {name: 'Back to Quarry'}).click()
     await expect(page).toHaveURL(/\/p\/quarry$/)
 })

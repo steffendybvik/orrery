@@ -13,7 +13,7 @@ const only = computed({
     set: id => router.replace({query: id ? {project: id} : {}}),
 })
 // Kept to one project, the tab says which, as its other tabs do.
-useHead(() => ({title: ['Schedules', byId(only.value)?.name, 'Orrery'].filter(Boolean).join(' · ')}))
+useHead(() => ({title: ['Schedules', byId(only.value)?.name, 'orrery'].filter(Boolean).join(' · ')}))
 const all = computed(() => Object.values(byProject.value).flat().filter(s => !only.value || s.project === only.value))
 const cards = computed(() => ordered.value
     .map(project => ({project, schedules: byProject.value[project.id] ?? []}))

@@ -1,12 +1,11 @@
 <script setup lang="ts">
-// How Orrery starts sessions with no terminal, step by step, each ticked once it's done: the owner's opt-in, a
+// How orrery starts sessions with no terminal, step by step, each ticked once it's done: the owner's opt-in, a
 // launcher installed in a project's repo, then starting, watching and stopping them. Open while a step is left.
 import type {LaunchState} from '~/composables/useLaunchState'
 
 const {settings} = useAppSettings()
 const {launchers} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
 /** Whether any project has a launcher running, asked of each, and again as launchers come and go; null until known. */
 const running = ref<boolean | null>(null)
 async function ask() {
@@ -21,17 +20,17 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
   <details class="group rounded-xl border border-line" :open="running !== null && !ready">
     <summary class="flex list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-fg">
       <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-      How Orrery starts sessions, with no terminal
+      How orrery starts sessions, with no terminal
       <span v-if="ready" class="ml-auto text-xs font-normal text-emerald-600 dark:text-emerald-400">set up</span>
     </summary>
     <ol class="flex flex-col gap-4 px-4 pb-4 text-[13px] leading-relaxed text-muted">
       <li class="flex gap-3">
         <StepMark :done="!!settings.starts" :n="1" />
         <div class="flex min-w-0 flex-col gap-0.5">
-          <span class="font-medium text-fg">Let Orrery start sessions</span>
+          <span class="font-medium text-fg">Let orrery start sessions</span>
           <span>
             Once, for every project, above:
-            how many may run at once, over every project, and, if you like, how long each runs or may sit idle.
+            how many may run at once, over every project, and, if you like, how many to keep running and how long each runs or may sit idle.
           </span>
         </div>
       </li>
@@ -41,13 +40,12 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
           <div class="flex flex-col gap-0.5">
             <span class="font-medium text-fg">Install the launcher, once in each project's repo</span>
             <span>
-              Orrery runs in Docker and can't start Claude on your machine, so a small launcher does it. Installed, it runs in the
+              orrery runs in Docker and can't start sessions on your machine, so a small launcher does it. Installed, it runs in the
               background (launchd on macOS, systemd on Linux), starts at login and serves every project installed this way.
-              It finds the project in the repo's <span class="font-mono">.mcp.json</span>. If Claude hasn't run in the repo before,
-              run <span class="font-mono">claude</span> there once to trust the folder.
+              It finds the project in the repo's <span class="font-mono">.mcp.json</span>. If it's new to the repo,
+              run <span class="font-mono">claude</span> there once to trust the folder. Its command is at the top of this section.
             </span>
           </div>
-          <CopyBlock title="In the repo, run" :text="install" hint="Again in another repo adds its project; --uninstall takes one off. Installing again restarts it, which stops the sessions it's running." />
         </div>
       </li>
       <li class="flex gap-3">
@@ -56,7 +54,7 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
           <span class="font-medium text-fg">Start one</span>
           <span>
             Press <strong class="font-medium text-fg">Start session</strong> above, or send a project work (focus on an issue, a chunk,
-            a comment) while no session is listening on it. It runs Claude in a detached tmux session in the repo, with the channel, in
+            a comment) while no session is listening on it. It runs <span class="font-mono">claude</span> in a detached tmux session in the repo, with the channel, in
             <span class="font-mono">auto</span> permission mode, as nobody is there to answer a prompt.
           </span>
         </div>

@@ -16,7 +16,7 @@ beforeEach(async () => {
     vi.stubGlobal('useStore', () => ({workedBy: async () => {}, renameSession: async (project: string, from: string, to: string) => renamed.push(`${project}:${from}>${to}`)}))
     vi.stubGlobal('launchTarget', (launch: string) => `launch-${launch}`)
     vi.resetModules()
-    // Names start at the top of their order here, not somewhere new as when Orrery starts.
+    // Names start at the top of their order here, not somewhere new as when orrery starts.
     vi.doMock('node:crypto', async original => ({...await original<typeof import('node:crypto')>(), randomInt: () => 0}))
     sessions = await import('../server/utils/sessions')
 })
@@ -122,6 +122,12 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse').find(s => s.id === 'b')).toMatchObject({name: 'greenhouse · Odin', listening: false})
     })
 
+    it("says the version its channel's code is, when the channel does", () => {
+        sessions.attend('greenhouse', 'new', undefined, undefined, true, undefined, false, undefined, undefined, false, false, '1.0.0-rc.10')
+        sessions.attend('greenhouse', 'old', undefined, undefined)
+        expect(sessions.listSessions('greenhouse').map(s => [s.id, s.version])).toEqual([['new', '1.0.0-rc.10'], ['old', undefined]])
+    })
+
     it('takes the focus made for its launch as its own', () => {
         const {id} = sessions.attend('greenhouse', 'a', undefined, undefined, true, undefined, false, 'l9')
         expect(sessions.currentId('launch-l9')).toBe(id)
@@ -129,13 +135,13 @@ describe('a session', () => {
         expect(sessions.currentId('launch-l8')).toBe('launch-l8')
     })
 
-    it("started for the owner's chat, holds no place among those Orrery started", () => {
+    it("started for the owner's chat, holds no place among those orrery started", () => {
         sessions.attend('greenhouse', 'chat', undefined, undefined, true, {launch: 'c1', tmux: 'orrery-greenhouse-c1', chat: true})
         expect(sessions.chatSession('chat')).toBe(true)
         expect([sessions.startedSessions('greenhouse'), sessions.startedSessions()]).toEqual([0, 0])
     })
 
-    it('started by Orrery says which launch, and counts as one it started while its channel is there', () => {
+    it('started by orrery says which launch, and counts as one it started while its channel is there', () => {
         const launch = (id: string) => ({launch: id, tmux: `orrery-greenhouse-${id}`, stops_at: '2026-10-25T11:00:00.000Z'})
         const a = sessions.attend('greenhouse', 'a', undefined, undefined, true, launch('l1'))
         sessions.attend('greenhouse', 'b', undefined, undefined)
@@ -197,7 +203,7 @@ describe('a session', () => {
         expect(sessions.listSessions('hub')).toMatchObject([{project: 'hub'}])
     })
 
-    it('started for a project by Orrery, is on it, and counts toward its limit only', () => {
+    it('started for a project by orrery, is on it, and counts toward its limit only', () => {
         sessions.attend('hub', 'w', undefined, undefined)
         sessions.attend('pos', 'w', undefined, undefined, true, {launch: 'l1', tmux: 't', stops_at: '2999-01-01T00:00:00.000Z'})
         expect(sessions.listSessions('pos')[0]).toMatchObject({project: 'pos', also: ['hub']})
@@ -257,7 +263,7 @@ describe('a session', () => {
         sessions.report({id: 'latest', project: 'greenhouse', event: 'SessionEnd', reason: 'prompt_input_exit'})
         expect(sessions.listSessions('greenhouse')).toEqual([])
         expect(sessions.currentId('before')).toBe('before')
-        // A clear of a session Orrery never heard of starts nothing.
+        // A clear of a session orrery never heard of starts nothing.
         expect(sessions.report({id: 'stranger', project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})).toBeNull()
     })
 
@@ -302,7 +308,7 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse').map(s => s.id).sort()).toEqual(['after', 'elsewhere', 'fresh', 'late'])
     })
 
-    it("its channel says is untrusted stays so, though Orrery doesn't know its launch and the launcher's report leaves it out", () => {
+    it("its channel says is untrusted stays so, though orrery doesn't know its launch and the launcher's report leaves it out", () => {
         sessions.attend('greenhouse', 'locked', undefined, undefined, true, undefined, true, 'l9', undefined, true)
         sessions.attend('greenhouse', 'plain', undefined, undefined, true, undefined, true, 'l8')
         expect([sessions.untrustedSession('locked'), sessions.untrustedSession('plain')]).toEqual([true, false])
@@ -310,7 +316,7 @@ describe('a session', () => {
         expect(sessions.untrustedSession('locked')).toBe(true)
     })
 
-    it('started by Orrery keeps its launch across a /clear', () => {
+    it('started by orrery keeps its launch across a /clear', () => {
         sessions.attend('greenhouse', 'before', 42, undefined, true, {launch: 'l1', tmux: 'orrery-greenhouse-l1', stops_at: '2026-10-25T11:00:00.000Z'})
         sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})
         sessions.report({id: 'after', pid: 42, project: 'greenhouse', event: 'SessionStart'})
@@ -329,6 +335,19 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse').map(s => s.id)).toEqual(['quiet', 'listening'])
         vi.setSystemTime(new Date('2026-10-25T16:00:01Z'))
         expect(sessions.listSessions().map(s => s.id)).toEqual(['listening'])
+    })
+
+    it('is forgotten after an idle hour when no channel is open: its terminal was most likely closed', () => {
+        vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
+        sessions.report({id: 'idle', project: 'greenhouse', event: 'Stop'})
+        sessions.report({id: 'working', project: 'greenhouse', event: 'PreToolUse'})
+        // A channel that can't hear signals still says its process is there.
+        sessions.attend('greenhouse', 'unheard', undefined, undefined, false)
+        sessions.report({id: 'unheard', project: 'greenhouse', event: 'Stop'})
+        vi.setSystemTime(new Date('2026-10-25T10:59:00Z'))
+        expect(sessions.listSessions('greenhouse').map(s => s.id)).toEqual(['idle', 'working', 'unheard'])
+        vi.setSystemTime(new Date('2026-10-25T11:00:01Z'))
+        expect(sessions.listSessions('greenhouse').map(s => s.id)).toEqual(['working', 'unheard'])
     })
 })
 
@@ -379,6 +398,32 @@ describe('the issues a session writes to', () => {
     })
 })
 
+describe('forgetting a session', () => {
+    beforeEach(() => {
+        vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+    })
+
+    it('takes one with no channel open off the list, and its next hook brings it back', () => {
+        expect(() => sessions.forgetSession('greenhouse', 'a')).toThrow('No session a in greenhouse')
+        sessions.report({id: 'a', project: 'greenhouse', event: 'SessionStart'})
+        expect(() => sessions.forgetSession('mesa', 'a')).toThrow('No session a in mesa')
+        changed = []
+        expect(sessions.forgetSession('greenhouse', 'a').name).toBe('greenhouse · Odin')
+        expect([sessions.listSessions('greenhouse'), changed]).toEqual([[], ['greenhouse']])
+        sessions.report({id: 'a', project: 'greenhouse', event: 'Stop'})
+        expect(sessions.listSessions('greenhouse').map(s => s.id)).toEqual(['a'])
+    })
+
+    it('refuses one whose channel is open: it is running, so it is stopped instead', () => {
+        const channel = sessions.attend('greenhouse', 'a', undefined, undefined, false)
+        expect(() => sessions.forgetSession('greenhouse', 'a')).toThrow('has its channel open')
+        channel.done()
+        sessions.report({id: 'a', project: 'greenhouse', event: 'Stop'})
+        expect(sessions.forgetSession('greenhouse', 'a').id).toBe('a')
+    })
+})
+
 describe('stopping a session', () => {
     beforeEach(() => {
         vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
@@ -390,7 +435,7 @@ describe('stopping a session', () => {
         projectEvents.on('session-stop', event => asked.push(event))
         expect(() => sessions.stopSession('greenhouse', 'a')).toThrow('No session a in greenhouse')
         sessions.report({id: 'a', project: 'greenhouse', event: 'SessionStart'})
-        expect(() => sessions.stopSession('greenhouse', 'a')).toThrow('has no Orrery channel running')
+        expect(() => sessions.stopSession('greenhouse', 'a')).toThrow('has no orrery channel running')
         expect(sessions.listSessions('greenhouse')[0]!.reachable).toBe(false)
         // An older channel doesn't know to quit; one without the flag can't hear signals, but can still be stopped.
         const old = sessions.attend('greenhouse', 'a', undefined, undefined, true)
@@ -413,14 +458,14 @@ describe('stopping a session', () => {
         expect(sessions.listSessions('greenhouse')).toEqual([])
     })
 
-    it("goes through the launcher for one Orrery started", () => {
+    it("goes through the launcher for one orrery started", () => {
         vi.stubGlobal('stopLaunch', (project: string, launch: string) => ({project, launch}))
         vi.stubGlobal('launchersOf', () => 1)
         sessions.attend('greenhouse', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-greenhouse-abc', stops_at: '2999-01-01T00:00:00.000Z'})
         expect(sessions.stopSession('greenhouse', 'b')).toEqual({project: 'greenhouse', launch: 'abc'})
     })
 
-    it("goes through its channel for one Orrery started when no launcher is there to stop it", () => {
+    it("goes through its channel for one orrery started when no launcher is there to stop it", () => {
         const asked: unknown[] = []
         projectEvents.on('session-stop', event => asked.push(event))
         vi.stubGlobal('stopLaunch', () => {
@@ -433,10 +478,10 @@ describe('stopping a session', () => {
     })
 })
 
-describe('a session Orrery started, after Orrery restarts', () => {
+describe('a session orrery started, after orrery restarts', () => {
     it("counts as started again once its launcher reports the launch, though its channel connected first", () => {
         const started = {launch: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', stops_at: '2999-01-01T00:00:00.000Z'}
-        // Orrery doesn't know the launch yet, so the channel connects as an ordinary session, saying its launch.
+        // orrery doesn't know the launch yet, so the channel connects as an ordinary session, saying its launch.
         sessions.attend('greenhouse', 'b', undefined, undefined, true, undefined, true, started.launch)
         expect(sessions.startedSessions('greenhouse')).toBe(0)
         sessions.adoptLaunch('greenhouse', started)

@@ -79,7 +79,7 @@ describe('event types', () => {
         ])
     })
 
-    it('come out of the event log with Advanced on: what Orrery did each time, a line each', async () => {
+    it('come out of the event log with Advanced on: what orrery did each time, a line each', async () => {
         await store.updateSettings({advanced: true}, me)
         const log = new EventLog(store.db)
         const said: OrreryEvent[] = []
@@ -197,12 +197,11 @@ describe('a schedule on an event', () => {
         const nightly = await schedules.create('greenhouse', {title: 'Nightly', kind: 'session', notes: 'Tidy up', cron: '0 3 * * *'}, me)
         const alert = await schedules.create('greenhouse', {title: 'Alert', kind: 'session', notes: 'See what failed', on: '*.failed'}, me)
         expect(await schedules.runNow('greenhouse', nightly.id, me)).toMatchObject({outcome: 'failed'})
-        await new Promise(resolve => setTimeout(resolve))
-        expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', undefined]])
+        // The log writes the event without being awaited, and on Postgres that takes longer than a tick.
+        await vi.waitFor(() => expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', undefined]]))
         expect(await pass()).toBe(1)
         // The alert fails too, with no launcher; that outcome is told as its run's, so nothing hears it.
-        await new Promise(resolve => setTimeout(resolve))
-        expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', alert.id]])
+        await vi.waitFor(() => expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', alert.id]]))
         expect(await pass(later(2))).toBe(0)
     })
 
@@ -231,7 +230,7 @@ describe('a schedule on an event', () => {
         expect((await schedules.get('greenhouse', s.id)).runs[0]).toMatchObject({outcome: 'made', subject: two.id})
     })
 
-    it('hears what happens to the Orrery as a whole in every project, and nothing of another project\'s', async () => {
+    it('hears what happens to the orrery as a whole in every project, and nothing of another project\'s', async () => {
         await store.createProject({name: 'pantry', key: 'PAN'})
         await schedules.create('greenhouse', {title: 'Down', kind: 'message', notes: 'Check it', on: 'backup.failed'}, me)
         await schedules.create('greenhouse', {title: 'Made', kind: 'message', notes: 'Look', on: 'issue.created'}, me)

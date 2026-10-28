@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type {Issue, Session} from '#shared/roadmap'
+import type {Session} from '#shared/roadmap'
 import {nameBesideProject} from '#shared/roadmap'
 
-// Every project with its progress and how many issues are started; Now across projects on top.
+// Every project with its progress and how many issues are started; My issues on top.
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const {byProject: schedulesByProject} = useSchedules()
@@ -21,15 +21,17 @@ watch(() => route.fullPath, () => {
     open.value = false
 })
 
-/** Top-level issues on the Now page. */
-const nowCount = computed(() => projects.value.reduce((sum, p) =>
-    sum + p.board.chunks.reduce((n, c) => n + c.tasks.filter((t: Issue) => isNow(t)).length, 0), 0))
 const urgentCount = computed(() => projects.value.reduce((sum, p) => sum + urgentIssues(p).length, 0))
 const {name: owner, load: loadOwner} = useOwner()
 const {unseenIn} = useUnseen()
 onMounted(loadOwner)
 const mineCount = computed(() => projects.value.reduce((sum, p) => sum + myIssues(p, owner.value).length, 0))
-const LIVE = {live: 'Live', connecting: 'Connecting…', offline: 'Offline'}
+const LIVE = {
+    connected: {label: 'Connected', title: 'Updates arrive as they happen'},
+    connecting: {label: 'Connecting…', title: 'Connecting for updates as they happen'},
+    reconnecting: {label: 'Reconnecting…', title: 'Trying again…'},
+    offline: {label: 'Offline', title: 'Trying again…'},
+}
 
 // Projects are dragged by their name to rearrange them (or moved with ⌥↑/⌥↓); a line shows where one lands.
 const {ordered, move} = useProjectOrder()
@@ -63,7 +65,7 @@ const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p
 // Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged. One that hears
 // several projects is listed once, as spanning them (All projects, or how many), with them in its tooltip.
 const {open: startSession} = useStartSession()
-/** Whether any project lets Orrery start sessions, so Start session has somewhere to go. */
+/** Whether any project lets orrery start sessions, so Start session has somewhere to go. */
 const canStart = computed(() => ordered.value.some(p => p.starts))
 const allSessions = computed(() => ordered.value
     .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id).map(session => ({session, project})))
@@ -92,19 +94,19 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       :class="open ? 'translate-x-0' : '-translate-x-full'"
   >
     <div class="flex h-12 items-center gap-2 px-3">
-      <NuxtLink to="/now" class="flex min-w-0 flex-1 items-center gap-2">
+      <NuxtLink to="/mine" class="flex min-w-0 flex-1 items-center gap-2">
         <div class="grid size-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent-300 to-accent-600 shadow-lg shadow-accent-600/30">
           <OrreryMark class="size-4 text-zinc-950" />
         </div>
         <span class="text-sm font-semibold tracking-tight">orrery</span>
-        <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} Orrery: its own database, apart from any other`">{{ environment }}</span>
+        <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} orrery: its own database, apart from any other`">{{ environment }}</span>
       </NuxtLink>
-      <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="live === 'live' ? 'Changes through the API show here as they happen' : 'Not getting changes'">
+      <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="LIVE[live].title">
         <span class="relative flex size-1.5">
-          <span v-if="live === 'live'" class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'live' ? 'bg-emerald-400' : live === 'connecting' ? 'bg-amber-400' : 'bg-rose-500'" />
+          <span v-if="live === 'connected'" class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'connected' ? 'bg-emerald-400' : live === 'offline' ? 'bg-rose-500' : 'bg-amber-400'" />
         </span>
-        {{ LIVE[live] }}
+        {{ LIVE[live].label }}
       </span>
       <UiButton variant="ghost" size="md" square class="-mr-1 md:hidden" aria-label="Close the menu" @click="open = false">
         <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -120,16 +122,6 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
     </div>
 
     <nav class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-3">
-      <NuxtLink
-          to="/now"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/now' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 4 14h7l-1 7 9-11h-7l1-7Z" /></svg>
-        <span class="flex-1">Now across projects</span>
-        <span v-if="nowCount" class="font-mono text-[11px] text-faint tabular-nums">{{ nowCount }}</span>
-      </NuxtLink>
-
       <NuxtLink
           to="/mine"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
@@ -279,7 +271,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd, session.started?.context?.presets.length ? `as ${session.started.context.presets.join(', ')}` : ''].filter(Boolean).join(' · ')"
         >
           <SessionDot :session="session" />
-          <!-- What it's working on first (ORR-330): its project, or what it spans; the name Orrery gave it after, quieter. -->
+          <!-- What it's working on first (ORR-330): its project, or what it spans; the name orrery gave it after, quieter. -->
           <span class="flex min-w-0 flex-1 items-center gap-1.5">
             <ProjectIcon v-if="!spanLabel(session) && project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3 shrink-0" />
             <!-- The project keeps its room; the name gives way first. -->
@@ -297,7 +289,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           target="_blank"
           rel="noopener"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg"
-          title="Orrery's code, issues and releases on GitHub"
+          title="orrery's code, issues and releases on GitHub"
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
         <span class="flex-1">GitHub</span>
@@ -306,7 +298,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <div class="mt-1 hidden items-center justify-between px-1 text-[11px] text-faint md:flex">
         <span><KeyHint>j</KeyHint> <KeyHint>k</KeyHint> move</span>
         <span><KeyHint>↵</KeyHint> open</span>
-        <span><KeyHint>g</KeyHint> <KeyHint>n</KeyHint> <KeyHint>u</KeyHint></span>
+        <span><KeyHint>g</KeyHint> <KeyHint>m</KeyHint> home</span>
       </div>
       <p class="mt-1.5 px-2 font-mono text-[10px] text-faint">
         <a v-if="!dev" :href="`https://github.com/steffendybvik/orrery/blob/v${version}/CHANGELOG.md`" target="_blank" rel="noopener" class="hover:text-fg hover:underline" title="What's in this version">v{{ version }}</a>

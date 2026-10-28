@@ -6,9 +6,14 @@ import type {Project, Schedule} from '#shared/roadmap'
 // sessions or starts one) and what it says, when it repeats, when it runs next and how its last run went; clicking edits it,
 // right-clicking or its ⋯ opens its menu (run now, pause, edit, remove). Its play button leads the row and says
 // its state at a glance, like a music player's: a filled one with ❙❙ while it runs (press to pause), an outlined
-// one with ▶ while it's paused.
+// one with ▶ while it's paused. An agent's says who made it and whether it runs, and is tinted as unseen until it's
+// opened, as issues are (ORR-456).
 const props = defineProps<{project: Project, schedules: Schedule[]}>()
 const {edit, openMenu, pause} = useSchedules()
+const {scheduleUnseen} = useUnseen()
+const {who} = useOwner()
+/** An agent's: a message or session one doesn't run until the owner makes it theirs. */
+const byAgent = (s: Schedule) => s.protected ? '' : `by ${who(s.created_by)}${s.kind === 'issue' ? '' : ' · not running until you make it yours'}`
 const {open: openIssue} = useIssueLink()
 
 // Ticks once a minute, so "in 5m" stays right.
@@ -72,6 +77,7 @@ const OUTCOME = {
         tabindex="0"
         role="button"
         class="group flex items-center gap-3 border-b border-line/60 px-4 py-3 text-sm outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-active"
+        :class="scheduleUnseen(s) && 'unseen-row'"
         @click="edit(s.project, s)"
         @contextmenu="openMenu($event, s)"
     >
@@ -95,12 +101,14 @@ const OUTCOME = {
       </span>
       <div class="flex min-w-0 flex-1 flex-col gap-0.5" :class="!s.enabled && 'opacity-60'">
         <div class="flex min-w-0 items-center gap-2">
-          <span class="truncate font-medium text-fg">{{ s.title }}</span>
+          <span v-if="scheduleUnseen(s)" class="unseen-dot" title="An agent made or changed it since you last opened it" />
+          <span class="truncate text-fg" :class="scheduleUnseen(s) ? 'font-semibold' : 'font-medium'">{{ s.title }}</span>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
               :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
           >{{ s.kind === 'message' ? s.untrusted ? 'Own locked-down session' : 'Messages sessions' : s.kind === 'session' ? 'Starts a session' : 'Makes an issue' }}</span>
         </div>
+        <span v-if="byAgent(s)" class="truncate text-xs text-amber-700 dark:text-amber-300">{{ byAgent(s) }}</span>
         <span v-if="gist(s)" class="truncate text-xs text-muted">{{ gist(s) }}</span>
         <span class="truncate text-xs text-faint">
           {{ describe(s) }}<template v-if="s.kind === 'issue' && s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template><template v-if="s.kind === 'issue' && s.labels.length"> · {{ s.labels.join(', ') }}</template>

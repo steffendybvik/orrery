@@ -6,7 +6,7 @@ import {getHeader, readBody, setResponseStatus} from 'h3'
 import type {Project} from '#shared/roadmap'
 import StartSessionDialog from '~/components/StartSessionDialog.vue'
 
-// Starting sessions as the owner: why a project can't, what each project's launch is sent (the scope, the Orrery's
+// Starting sessions as the owner: why a project can't, what each project's launch is sent (the scope, the orrery's
 // presets ticked and only its own, its project alone to hear), one session for projects served from one repo, none
 // ticked for one session hearing every project, and a refused one staying ticked to try again.
 let sent: {project: string, actor?: string, body: unknown}[] = []
@@ -26,7 +26,7 @@ for (const [n, id] of Object.keys(STATES).entries()) {
     registerEndpoint(`/api/projects/${id}/launches`, {method: 'POST', handler: async event => {
         if (refusing.includes(id)) {
             setResponseStatus(event, 409)
-            return {message: 'Orrery already has its 2 sessions at once'}
+            return {message: 'orrery already has its 2 sessions at once'}
         }
         sent.push({project: id, actor: getHeader(event, 'orrery-actor'), body: await readBody(event)})
         return {}
@@ -79,7 +79,7 @@ async function started(n: number) {
 describe('StartSessionDialog', () => {
     it("says why a project can't start a session now", async () => {
         const {row, wrapper} = await mount(null)
-        expect(row('attic')).toContain("Orrery doesn't start sessions")
+        expect(row('attic')).toContain("orrery doesn't start sessions")
         expect(row('loft')).toContain('At the limit of 1')
         expect(row('greenhouse')).toContain('30 min')
         expect(row('pantry')).toContain('until stopped')
@@ -95,7 +95,7 @@ describe('StartSessionDialog', () => {
         expect(sent).toEqual([{project: 'greenhouse', actor: 'skoll', body: {statuses: ['todo', 'in-progress'], presets: [], hears: ['greenhouse']}}])
     })
 
-    it("gives each project's session the Orrery's presets ticked and only its own", async () => {
+    it("gives each project's session the orrery's presets ticked and only its own", async () => {
         const {wrapper} = await mount('greenhouse')
         await wrapper.find('input[value="pantry"]').setValue(true)
         await vi.waitFor(() => expect(wrapper.findAll('[aria-label="Presets"] button')).toHaveLength(3))
@@ -162,7 +162,7 @@ describe('StartSessionDialog', () => {
         const {wrapper} = await mount('greenhouse')
         await wrapper.find('input[value="pantry"]').setValue(true)
         await wrapper.find('form').trigger('submit')
-        await vi.waitFor(() => expect(wrapper.text()).toContain('Pantry: Orrery already has its 2 sessions at once'))
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Pantry: orrery already has its 2 sessions at once'))
         expect(sent.map(s => s.project)).toEqual(['greenhouse'])
         expect((wrapper.find('input[value="greenhouse"]').element as HTMLInputElement).checked).toBe(false)
         expect((wrapper.find('input[value="pantry"]').element as HTMLInputElement).checked).toBe(true)

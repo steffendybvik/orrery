@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
 
-// The owner's Stop for a session opened in a terminal: its Orrery channel ends it. It asks once more first,
+// The owner's Stop for a session opened in a terminal: its orrery channel ends it. It asks once more first,
 // as whatever the session was in the middle of goes with it.
 const props = defineProps<{session: Session}>()
 const {load} = useOwner()
@@ -39,7 +39,7 @@ async function stop() {
         size="xs"
         :class="{'bg-rose-500/10': sure}"
         :disabled="busy"
-        :title="`End ${session.name}: Claude quits in its terminal`"
+        :title="`End ${session.name}: it quits in its terminal`"
         @click="stop"
     >
       {{ busy ? 'Stopping…' : sure ? 'Stop it?' : 'Stop' }}

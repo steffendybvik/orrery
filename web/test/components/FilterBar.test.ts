@@ -4,7 +4,7 @@ import {mountSuspended} from '@nuxt/test-utils/runtime'
 import type {Project} from '#shared/roadmap'
 import FilterBar from '~/components/FilterBar.vue'
 
-// The Project filter: on the pages across projects (My issues, Now) it narrows them to the projects ticked, a
+// The Project filter: on My issues, across projects, it narrows it to the projects ticked, a
 // project's own pages don't offer it, and Clear unticks it with the rest.
 const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), releases: [], board: {chunks: []}}) as unknown as Project
 

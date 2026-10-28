@@ -85,7 +85,7 @@ export function useChat() {
         failed.value = ''
         try {
             // The page's tab title, without the app's name it ends in.
-            const title = document.title.replace(/\s*·\s*Orrery$/, '')
+            const title = document.title.replace(/\s*·\s*orrery$/, '')
             await $fetch(`/api/chats/${chat.value.id}/messages`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {text, images, page: {path: location.pathname + location.search, title}}})
             return true
         } catch (error) {
@@ -94,7 +94,7 @@ export function useChat() {
         }
     }
 
-    /** The owner allowing or denying a setting the chat asked to change: allowed, it's saved. */
+    /** The owner allowing or denying a setting, a schedule or a message the chat asked for: allowed, it's saved or sent. */
     async function answer(message: number, allow: boolean) {
         if (!chat.value || chat.value.ended) return
         failed.value = ''
@@ -150,7 +150,7 @@ export function useChat() {
         }
     }
 
-    /** A pasted image, kept by Orrery: its id, to send with the message. */
+    /** A pasted image, kept by orrery: its id, to send with the message. */
     async function upload(file: File): Promise<Upload> {
         return $fetch<Upload>('/api/uploads', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null}})
     }

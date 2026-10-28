@@ -55,7 +55,7 @@ const after = async () => {
     await vi.advanceTimersByTimeAsync(clearing.CLEAR_AFTER + 10)
 }
 
-describe('a session Orrery started, gone idle', () => {
+describe('a session orrery started, gone idle', () => {
     it('is cleared through its launcher once it has nothing in progress and nothing waiting', async () => {
         clearing.considerClear('orrery', 'w')
         await after()
@@ -153,7 +153,7 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
         expect(carried).toEqual([owners('ORR-3')])
     })
 
-    it("is sent on whether or not Orrery started it, but not when it isn't listening", async () => {
+    it("is sent on whether or not orrery started it, but not when it isn't listening", async () => {
         session = {project: 'orrery', state: 'idle', idleAt: 1, listening: true}
         clearing.carryOn('orrery', 'w')
         await after()

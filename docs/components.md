@@ -136,7 +136,7 @@ Where a class is all it takes, it's a utility rather than a component:
 Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-panel` (sidebar, cards),
 `bg-raised` (popovers), `bg-well` (fields, segmented controls), `border-line`, `text-fg` / `text-muted` /
 `text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…600`. Each has a light and a dark value,
-and an Orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
+and an orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
 
 ## Shared components
 
@@ -173,9 +173,10 @@ Already one component each; use them rather than drawing the same thing again.
 
 | Component | For |
 |---|---|
-| `CopyButton` | Copy, then Copied with a tick |
+| `CopyButton` | Copy, then Copied with a tick (Couldn't copy where the browser won't) |
 | `CopyBlock` | a titled block of text to copy as it is (a command, a config) |
 | `ImageButton` | picks images for a Markdown field |
+| `ImageDropOverlay` | covers an area taking images while one is dragged over it: "Drop image to add" |
 
 **Page frame**
 
@@ -185,7 +186,8 @@ Already one component each; use them rather than drawing the same thing again.
 | `ViewToolbar` | an issue list's toolbar (view, grouping, filters) |
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
-| `GettingStarted` | a new Orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on Now |
+| `GettingStarted` | a new orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
+| `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step), gone once one connects |
 | `NotificationBell` | the bell in the header: agents' comments, and those and their proposals waiting on the owner |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
 | `OrreryMark` | the logo's mark, in `currentColor` |
@@ -208,11 +210,11 @@ Auto-imported, like the components. Reach for these before writing the listener 
 | `useHotkeys` | the page's keys (j/k, Enter, Esc, /, ⌘K, x, ⌘A); a row takes part by carrying `data-nav` |
 | `useSelection` | the issues ticked for a change to many (`BulkBar`); rows carry `data-issue` and `data-project` |
 | `useIssueLink` | an issue's page (`pathOf`, `open`), and the last one opened, marked when you come back |
-| `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`) |
+| `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`), then back to typing in it; pasting and dropping work on the whole area around it (`useImageDrop`, with `ImageDropOverlay` while an image is dragged over) |
 | `useUnseen` | what's changed since the owner last looked (`unseen-row`, `unseen-dot`) |
 | `useTheme` | light, dark or the system's, remembered in this browser |
 | `copyText` | copies text, with a fallback where the clipboard API refuses (`CopyButton` uses it) |
-| `errorMessage(error, verb)` | what a failed request says to show: the server's message, or that Orrery didn't answer |
+| `errorMessage(error, verb)` | what a failed request says to show: the server's message, or that orrery didn't answer |
 | `isTyping(target)` | whether a key went to a field, where single-letter shortcuts mustn't fire |
 | `heroicon(name)` | a project's Heroicon by name, each loaded the first time it's shown; `HEROICONS` lists the names for the picker |
 

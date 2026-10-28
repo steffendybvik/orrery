@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Orrery's channel for Claude Code: an MCP server that runs inside a Claude session and pushes the
+// orrery's channel for Claude Code: an MCP server that runs inside a Claude session and pushes the
 // owner's signals for a repo's projects into it ("focus on GRE-42"), even while the session is idle. It also
 // gives the session tools for their roadmaps (tools.mjs), so it reads and writes issues without curl.
 // Channels are a research preview: start the session with
 //   claude --dangerously-load-development-channels server:orrery-<environment>
-// with this server registered under that name in the repo's .mcp.json, one entry per Orrery (an older setup
+// with this server registered under that name in the repo's .mcp.json, one entry per orrery (an older setup
 // named it after its project, which works the same). ORRERY_PROJECTS lists the projects it serves (`hub,css,pos`),
-// or `*` for every project on the Orrery as it starts; ORRERY_PROJECT names one, as older setups do; the folder's
+// or `*` for every project on the orrery as it starts; ORRERY_PROJECT names one, as older setups do; the folder's
 // name by default. ORRERY_HEAR narrows that to the ones named (the launcher sets it for a session started for some of
-// the repo's projects); one it doesn't serve is let go. ORRERY_URL is where Orrery runs (http://localhost:9000 by default), and ORRERY_ID the Orrery
+// the repo's projects); one it doesn't serve is let go. ORRERY_URL is where orrery runs (http://localhost:9000 by default), and ORRERY_ID the orrery
 // it must be (its id, on its Connect page): another one at that address is refused, so a repo set up for one
-// Orrery never writes to another. Only stderr is for logs: stdout is the MCP connection.
+// orrery never writes to another. Only stderr is for logs: stdout is the MCP connection.
 import {readdirSync, readFileSync, statSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {basename, join} from 'node:path'
@@ -22,71 +22,72 @@ import {serverName} from './server-name.mjs'
 import {claudeWindow} from './session.mjs'
 import {follow} from './sse.mjs'
 import {orreryTools, toolsFor} from './tools.mjs'
+import {VERSION} from './version.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 const listed = (process.env.ORRERY_PROJECTS || process.env.ORRERY_PROJECT || basename(process.cwd())).split(',').map(p => p.trim()).filter(Boolean)
-/** The projects it serves, as ORRERY_HEAR narrows them: for `*`, those named (`null`, every project on the Orrery,
+/** The projects it serves, as ORRERY_HEAR narrows them: for `*`, those named (`null`, every project on the orrery,
  * known once it's reached). */
 const hearing = narrowed(listed, process.env.ORRERY_HEAR)
 const every = hearing === null
-/** The projects it serves (filled in once the Orrery is reached, for `*`). */
+/** The projects it serves (filled in once the orrery is reached, for `*`). */
 const projects = every ? [] : hearing
 const apiOf = project => `${base}/api/projects/${encodeURIComponent(project)}`
 const log = (...parts) => console.error('[orrery channel]', ...parts)
-// Which window this is, so Orrery can list it, aim a signal at it and know who got one.
+// Which window this is, so orrery can list it, aim a signal at it and know who got one.
 const window = claudeWindow()
-// A session Orrery started (channel/orrery-launcher.mjs) says which launch it is, and catches up from the signal it's for.
-// `stops`: it ends the session when the owner stops it from Orrery, which takes knowing its claude process.
+// A session orrery started (channel/orrery-launcher.mjs) says which launch it is, and catches up from the signal it's for.
+// `stops`: it ends the session when the owner stops it from orrery, which takes knowing its claude process.
 /** Started for an untrusted schedule's run (the launcher says, in ORRERY_UNTRUSTED): its streams and writes say so. */
 const untrusted = process.env.ORRERY_UNTRUSTED === 'yes'
 /** Started for the owner's chat (the launcher says, in ORRERY_CHAT): the launch, which is the chat's id. It answers in
  * the chat, and says so on all it sends. */
 const chat = process.env.ORRERY_CHAT === 'yes' ? process.env.ORRERY_STARTED : undefined
-const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes', chat: chat && 'yes'})
+const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes', chat: chat && 'yes', version: VERSION})
     .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
-/** The project Orrery started the session for (the launcher says, in ORRERY_PROJECT), whose stream says so. */
+/** The project orrery started the session for (the launcher says, in ORRERY_PROJECT), whose stream says so. */
 const startedFor = () => process.env.ORRERY_STARTED && (projects.includes(process.env.ORRERY_PROJECT) ? process.env.ORRERY_PROJECT : projects[0])
-/** Why it won't serve this Orrery (another than ORRERY_ID), once it knows. */
+/** Why it won't serve this orrery (another than ORRERY_ID), once it knows. */
 let refused = ''
 
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
-const server = new Server({name: 'orrery', version: '1.0.0'}, {
+const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
     instructions: chat ? [
-        `Orrery (${base}) keeps this repo's roadmap as ${serves}. This session is the owner's chat: their messages arrive as <channel ...> blocks,`,
+        `orrery (${base}) keeps this repo's roadmap as ${serves}. This session is the owner's chat: their messages arrive as <channel ...> blocks,`,
         'and your answers reach them only through the reply tool, in Markdown. Answer questions about the project from its code and its roadmap',
         '(issues, issue, chunks, releases, docs, doc, schedules, sessions, presets, events); make an issue (create_issue) or a comment (comment) when they ask, and say its id;',
         'change an issue (edit_issue: its priority, labels, chunk, release, title…) when they ask.',
         'Each message ends with the page the owner has open: when they say "this" or "here", read that page with the matching tool first.',
         "Don't work on anything: no code changes, and don't start, move or finish issues. When the owner pastes an image, its message names it: look with the image tool.",
-        'For questions about Orrery itself (how schedules, chunks, proposals or the launcher work), read the guide tool and answer from it.',
+        'For questions about orrery itself (how schedules, chunks, proposals or the launcher work), read the guide tool and answer from it.',
     ].join(' ') : [
-        `Orrery (${base}) keeps this repo's roadmap as ${serves}, and this server's tools read and write it`,
+        `orrery (${base}) keeps this repo's roadmap as ${serves}, and this server's tools read and write it`,
         '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, releases, docs, doc, write_doc): use them instead of curl.',
         ...every || projects.length > 1 ? ['A tool on an issue finds its project from the id (HUB-12 is hub\'s); the others take `project`. Each <channel> block says its project.'] : [],
-        'Its messages arrive as <channel ...> blocks and come from the owner through Orrery.',
+        'Its messages arrive as <channel ...> blocks and come from the owner through orrery.',
         'When one asks you to focus on an issue: read it (issue), start it (start_issue), read the docs it touches (docs lists them with a line each, doc reads one) before the code, comment as the work moves (comment), and finish it when it ships (finish_issue).',
         'Docs are where decisions and how things work live: when one turns out wrong or out of date, fix it (write_doc) as part of the work.',
         'When one asks you to work through a chunk, take its open issues one at a time, most urgent first, each that same way.',
-        'A proposal waiting on the owner isn\'t work yet: don\'t start, assign or move it until they approve it (Orrery refuses unless they\'ve turned that off); comment on it instead.',
+        'A proposal waiting on the owner isn\'t work yet: don\'t start, assign or move it until they approve it (orrery refuses unless they\'ve turned that off); comment on it instead.',
         'When one brings the owner\'s comment on an issue, answer it with a comment on that issue.',
         'When you need the owner to decide something or give feedback, comment with asks "decision" or "feedback": it waits at the top of their bell until they answer.',
         `When you open a pull request for an issue, link the issue's page (${base}/p/<project>/issues/<id>) in its description, so the owner can jump to it.`,
         'To call an outside service that needs a key, use egress with {{secret:NAME}} where the key goes (secrets lists the names): you never see the value, and never ask the owner for one.',
-        'To debug Orrery itself, read its event log (events, with details for stacks), and resolve_event what you fixed.',
-        'For questions about Orrery itself (how schedules, chunks, proposals or the launcher work), read the guide tool and answer from it.',
+        'To debug orrery itself, read its event log (events, with details for stacks), and resolve_event what you fixed.',
+        'For questions about orrery itself (how schedules, chunks, proposals or the launcher work), read the guide tool and answer from it.',
         `The full API is described at ${base}/api/guide.`,
     ].join(' '),
 })
 const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat})}))
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
-    const why = refused || (!projects.length && `Orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
+    const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}
     return callTool(request.params.name, request.params.arguments ?? {})
 })
 await server.connect(new StdioServerTransport())
-// What Claude Code said about itself when it connected, so Orrery can tell a window started as a
+// What Claude Code said about itself when it connected, so orrery can tell a window started as a
 // channel from one that only runs this server (whose messages Claude Code would drop).
 await new Promise(resolve => setTimeout(resolve, 300))
 
@@ -95,8 +96,8 @@ await new Promise(resolve => setTimeout(resolve, 300))
  * Claude Code says which in its MCP log for this server (an undocumented file, read here as a hint:
  * `unknown` when it can't be found or doesn't say). The log is kept by the server's name in .mcp.json,
  * which this server can't see, so it reads the newest log under the names it might have: its projects'
- * (`orrery-hub`, `hub`) and its Orrery's (`orrery-work`), and only without one of those the bare `orrery`, which in a
- * repo with a channel per project can be another Orrery's. The name that log is under is the server's, as far as it
+ * (`orrery-hub`, `hub`) and its orrery's (`orrery-work`), and only without one of those the bare `orrery`, which in a
+ * repo with a channel per project can be another orrery's. The name that log is under is the server's, as far as it
  * can tell, for the command that restarts its session with the channel. */
 function registered() {
     try {
@@ -129,7 +130,7 @@ function claudeCache() {
     if (process.platform === 'win32') return join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'claude-cli-nodejs', 'Cache')
     return join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'claude-cli-nodejs')
 }
-/** The Orrery at ORRERY_URL, once it answers: checked against ORRERY_ID, and for `*` its projects listed. Tries
+/** The orrery at ORRERY_URL, once it answers: checked against ORRERY_ID, and for `*` its projects listed. Tries
  * until it's reached; one that isn't ORRERY_ID is refused for good, with why. */
 const orrery = {}
 async function reach() {
@@ -139,7 +140,7 @@ async function reach() {
             orrery.id = settings.id
             orrery.environment = settings.environment
             if (process.env.ORRERY_ID && settings.id && settings.id !== process.env.ORRERY_ID) {
-                refused = `The Orrery at ${base} is ${settings.id} (${settings.environment ?? 'no environment'}), not ${process.env.ORRERY_ID}, the one this repo is set up for (ORRERY_ID): it won't be read or written. Point ORRERY_URL at the right one.`
+                refused = `The orrery at ${base} is ${settings.id} (${settings.environment ?? 'no environment'}), not ${process.env.ORRERY_ID}, the one this repo is set up for (ORRERY_ID): it won't be read or written. Point ORRERY_URL at the right one.`
                 return
             }
             if (every) {
@@ -149,7 +150,7 @@ async function reach() {
             }
             return
         } catch (error) {
-            log(`can't reach Orrery (${error.message}); trying again in ${wait / 1000}s`)
+            log(`can't reach orrery (${error.message}); trying again in ${wait / 1000}s`)
             await new Promise(resolve => setTimeout(resolve, wait))
         }
     }
@@ -172,7 +173,7 @@ async function deliver(project, signal, query) {
     const api = apiOf(project)
     const where = [signal.column, signal.priority, signal.chunk].filter(Boolean).join(', ')
     const issue = `${api}/issues/${encodeURIComponent(signal.issue)}`
-    // A focus comes with what to say (the owner's template, filled in); an older Orrery's doesn't.
+    // A focus comes with what to say (the owner's template, filled in); an older orrery's doesn't.
     let content = chat
         ? [
             `${signal.created_by}, in the chat:`,
@@ -227,24 +228,24 @@ async function deliver(project, signal, query) {
     const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : {schedule: String(signal.schedule)}
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind, ...named ? {session: named} : {}}}})
     log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : `from schedule ${signal.schedule}`)}`)
-    // Tells Orrery it got here, so the owner sees which window has it.
+    // Tells orrery it got here, so the owner sees which window has it.
     await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST'}).catch(() => {})
 }
 
-/** What Orrery calls this session (`orrery · …`), as its stream says: every signal carries it, and Claude hears it
+/** What orrery calls this session (`orrery · …`), as its stream says: every signal carries it, and Claude hears it
  * once, and again when it changes. */
 let named = ''
 async function nameIs(name) {
     if (!name || name === named) return
     named = name
-    log(`Orrery calls this session ${name}`)
+    log(`orrery calls this session ${name}`)
     await server.notification({method: 'notifications/claude/channel', params: {
-        content: `Orrery calls this session ${name}: that's how the owner sees it on the Sessions page and in the sidebar.`,
+        content: `orrery calls this session ${name}: that's how the owner sees it on the Sessions page and in the sidebar.`,
         meta: {kind: 'name', session: name},
     }})
 }
 
-/** The owner stopped this session from Orrery: ends its claude process, which takes this server with it. */
+/** The owner stopped this session from orrery: ends its claude process, which takes this server with it. */
 function quit() {
     if (!window.pid) return log("asked to stop, but can't tell which claude process this is")
     log(`stopping the session (claude, pid ${window.pid}), as the owner asked`)
@@ -255,7 +256,7 @@ function quit() {
     }
 }
 
-/** Follows one stream of signals, and after a drop picks up from the last one it saw. A session Orrery started catches
+/** Follows one stream of signals, and after a drop picks up from the last one it saw. A session orrery started catches
  * up on its project's from its launch's `after`, 0 included (a project's first signal). */
 function listen({url, started, label}) {
     let last = started ? Number(process.env.ORRERY_AFTER) || 0 : 0
@@ -281,7 +282,7 @@ function listen({url, started, label}) {
     })
 }
 
-// One stream for all its projects (`*` picks up a project made later too). An Orrery from before there was one
+// One stream for all its projects (`*` picks up a project made later too). An orrery from before there was one
 // answers 404 there, and then each project's stream is followed on its own.
 const single = await fetch(`${base}/api/signals/stream`).then(r => r.status !== 404, () => true)
 if (single) {

@@ -1,9 +1,10 @@
-import {mkdirSync, mkdtempSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, statSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 import type {Db} from '../server/utils/database'
 import {databaseSize} from '../server/utils/database-size'
+import {WAL_LIMIT, openDb} from '../server/utils/db'
 import {bytes} from '../app/utils/bytes'
 
 const none = {} as Db
@@ -32,6 +33,18 @@ describe("the database's size", () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-size-'))
         writeFileSync(join(dir, 'orrery-1.db'), Buffer.alloc(300))
         expect(await databaseSize({kind: 'postgres', where: 'u@h/orrery', backup: dir}, answers('8331935'))).toEqual({size: 8331935, backup_size: 300})
+    })
+
+    it("cuts the -wal back once it's written through, not keeping the size of its largest write", () => {
+        const path = join(mkdtempSync(join(tmpdir(), 'orrery-size-')), 'orrery.db')
+        const db = openDb(path)
+        db.exec('CREATE TABLE blobs (data BLOB)')
+        db.prepare('INSERT INTO blobs VALUES (?)').run(Buffer.alloc(3 * WAL_LIMIT, 1))
+        expect(statSync(`${path}-wal`).size).toBeGreaterThan(2 * WAL_LIMIT)
+        db.exec('PRAGMA wal_checkpoint')
+        db.exec('DELETE FROM blobs')
+        expect(statSync(`${path}-wal`).size).toBeLessThanOrEqual(WAL_LIMIT)
+        db.close()
     })
 
     it('reads as people read sizes', () => {

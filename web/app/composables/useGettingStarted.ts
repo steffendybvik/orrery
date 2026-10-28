@@ -2,9 +2,9 @@ import {allIssues} from '~/utils/roadmap'
 
 export const DEMO = 'demo'
 
-// Getting started: the steps from a new Orrery to a Claude session working from it, each ticked from what the
-// Orrery already knows, so none has to be ticked by hand. Someone only planning is set after the first two: the rest
-// are for working with Claude. Hiding its card on Now, planning, and the steps for Claude once ticked are remembered in
+// Getting started: the steps from a new orrery to a Claude session working from it, each ticked from what the
+// orrery already knows, so none has to be ticked by hand. Someone only planning is set after the first two: the rest
+// are for working with Claude. Hiding its card on My issues, planning, and the steps for Claude once ticked are remembered in
 // this browser.
 export function useGettingStarted() {
     const {named, name} = useOwner()
@@ -23,7 +23,8 @@ export function useGettingStarted() {
             return []
         }
     })
-    const work = computed(() => projects.value.some(p => allIssues(p).some(({issue}) =>
+    // Remembered too: a done issue isn't on the page until its project is opened (ORR-447).
+    const work = computed(() => seen.value.includes('work') || projects.value.some(p => allIssues(p).some(({issue}) =>
         (issue.kind === 'started' || issue.kind === 'done') && !!issue.assignee && issue.assignee !== name.value)))
     const listen = computed(() => allSessions.value.some(s => s.listening) || seen.value.includes('listen') || work.value)
     const steps = computed(() => [
@@ -36,7 +37,7 @@ export function useGettingStarted() {
         {key: 'work', done: work.value},
     ])
     watch(steps, now => {
-        const ticked = now.filter(s => s.done && (s.key === 'connect' || s.key === 'listen') && !seen.value.includes(s.key))
+        const ticked = now.filter(s => s.done && ['connect', 'listen', 'work'].includes(s.key) && !seen.value.includes(s.key))
         if (!ticked.length) return
         seen.value = [...seen.value, ...ticked.map(s => s.key)]
         try {
@@ -82,7 +83,7 @@ export function useGettingStarted() {
             // As for hiding.
         }
     }
-    /** Hides its card on Now; `false` brings it back, with the steps for working with Claude. */
+    /** Hides its card on My issues; `false` brings it back, with the steps for working with Claude. */
     function hide(now = true) {
         if (!now) plan(false)
         hidden.value = now

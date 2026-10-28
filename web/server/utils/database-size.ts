@@ -1,4 +1,4 @@
-// How much room this Orrery's data takes, for App settings → Database: a SQLite file with the `-wal` beside it, or the
+// How much room this orrery's data takes, for App settings → Database: a SQLite file with the `-wal` beside it, or the
 // Postgres database, as it reports itself; and its backup folder's files. Any of it that can't be read (a file not
 // there yet, no permission on a managed Postgres) is left out.
 import {readdirSync, statSync} from 'node:fs'
@@ -8,7 +8,7 @@ import type {Db} from './database'
 
 export async function databaseSize(info: DatabaseInfo, db: Db): Promise<{size?: number, backup_size?: number}> {
     const size = info.kind === 'postgres' ? await postgresSize(db) : sqliteSize(info.where)
-    const backup = info.backup ? folderSize(info.backup) : undefined
+    const backup = info.backup && !info.backup_kind ? folderSize(info.backup) : undefined
     return {...size === undefined ? {} : {size}, ...backup === undefined ? {} : {backup_size: backup}}
 }
 

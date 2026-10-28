@@ -1,0 +1,37 @@
+# The files to run a release with the published image: compose.yml, .env.example and a README (release/), with the
+# release's version filled in, attached to its GitHub release as orrery-<version>.zip and compose.yml. Only when the
+# owner publishes that release on GitHub, by hand: a tag alone attaches nothing (ORR-448).
+name: Release assets
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Fill in the version and zip them
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${TAG#v}"
+          mkdir -p "dist/orrery-$version"
+          for file in compose.yml .env.example README.md; do
+            sed "s/__VERSION__/$version/g" "release/$file" > "dist/orrery-$version/$file"
+          done
+          ! grep -r __VERSION__ dist
+          docker compose -f "dist/orrery-$version/compose.yml" config --quiet
+          (cd dist && zip -r "orrery-$version.zip" "orrery-$version")
+          cp "dist/orrery-$version/compose.yml" dist/compose.yml
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" "dist/orrery-${TAG#v}.zip" dist/compose.yml --clobber

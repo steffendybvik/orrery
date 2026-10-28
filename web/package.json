@@ -1,6 +1,6 @@
 {
   "name": "orrery",
-  "version": "1.0.0-rc.9",
+  "version": "1.0.0-rc.10",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -15,6 +15,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:visual": "scripts/e2e-visual.sh",
+    "test:e2e:perf": "playwright test --config playwright.perf.config.ts",
     "orrery:copy": "jiti scripts/copy.ts"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "marked": "18.1.2",
     "nuxt": "4.6.3",
     "pg": "8.23.1",
+    "sharp": "0.35.5",
     "vue": "^3.5.44",
     "vue-router": "^5.4.0"
   },

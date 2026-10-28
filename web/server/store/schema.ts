@@ -65,8 +65,10 @@ export interface Actor {
     name: string
     owner: boolean
     untrusted?: boolean
-    /** The owner, as their chat speaking for them (`chatOwner`). */
+    /** The owner, through their chat: what they allowed or sent from a request it asked (chats.ts `answer`). */
     via?: 'chat'
+    /** The name of the session that made the write (`Orrery-Session`), kept with what it wrote (ORR-466). */
+    session?: string
 }
 
 export const AGENT: Actor = {name: 'agent', owner: false}
@@ -105,10 +107,10 @@ export interface IssueRow extends Made {
     assignee: string | null, labels: string, external: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
-    choices: string, picks: string | null, explore: string | null, ships_in: string | null
+    choices: string, picks: string | null, explore: string | null, ships_in: string | null, session_name: string | null
 }
-export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
-export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
+export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null }
+export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
@@ -128,11 +130,11 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     description: {type: 'string', nullable: true},
     icon: {type: 'string', nullable: true, pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, hint: "use a Heroicon's name, e.g. shopping-cart"},
     icon_color: TINT,
-    /** The owner's: what the project's sessions hear when asked to focus (none is the Orrery's). */
+    /** The owner's: what the project's sessions hear when asked to focus (none is the orrery's). */
     focus_prompt: {type: 'string', nullable: true},
     chunk_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
-    /** Ids of the Orrery's standing instructions the project switches off. */
+    /** Ids of the orrery's standing instructions the project switches off. */
     muted: {type: 'strings', nullable: true},
     repo: {type: 'string', nullable: true, pattern: /^https?:\/\/\S+[^/\s]$/, hint: 'use the web address of its code, e.g. https://github.com/you/shop'},
     /** Whether it has releases: none (a new project's), its own, or `shared`, those of `releases_from`. */
@@ -142,21 +144,23 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     releases_from: {type: 'string', nullable: true, pattern: SLUG, hint: "use the other project's id"},
 }
 
-/** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
+/** `{limit, min?, minutes?, idle_minutes?, on_signal?}`, each number a whole one from 1 (`min` up to `limit`, minutes up to a day),
+ * as the JSON to store; `on_signal` is kept only when false, as missing means true. */
 function parseStarts(value: unknown): string {
-    const {limit, minutes, idle_minutes, ...rest} = (isObject(value) ? value : {})
+    const {limit, min, minutes, idle_minutes, on_signal, ...rest} = (isObject(value) ? value : {})
     const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
-    const maybe = (n: unknown) => n === undefined || n === null || whole(n, 24 * 60)
-    if (Object.keys(rest).length || !whole(limit, 20) || !maybe(minutes) || !maybe(idle_minutes)) {
-        throw new Error(`should be {limit, minutes?, idle_minutes?}: at most 20 sessions at once, each for 1 to 1440 minutes or until stopped, and stopped after 1 to 1440 idle minutes or never, not ${JSON.stringify(value)}`)
+    const maybe = (n: unknown, most = 24 * 60) => n === undefined || n === null || whole(n, most)
+    if (Object.keys(rest).length || !whole(limit, 20) || !maybe(min, limit as number) || !maybe(minutes) || !maybe(idle_minutes)
+        || ![undefined, null, true, false].includes(on_signal as boolean | null | undefined)) {
+        throw new Error(`should be {limit, min?, minutes?, idle_minutes?, on_signal?}: at most 20 sessions at once, at least 1 to that many kept running or none, each for 1 to 1440 minutes or until stopped, stopped after 1 to 1440 idle minutes or never, and whether work finding nobody listening starts one (true or false), not ${JSON.stringify(value)}`)
     }
-    return JSON.stringify({limit, ...minutes ? {minutes} : {}, ...idle_minutes ? {idle_minutes} : {}})
+    return JSON.stringify({limit, ...min ? {min} : {}, ...minutes ? {minutes} : {}, ...idle_minutes ? {idle_minutes} : {}, ...on_signal === false ? {on_signal} : {}})
 }
 
 /** What a project's sessions are told: only the owner changes these. */
 export const PROMPT_FIELDS = ['focus_prompt', 'chunk_prompt', 'instructions', 'muted']
 
-// No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
+// No `id` on chunks and issues: orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
 export const CHUNK_FIELDS: Record<string, Field> = {
     title: {type: 'string', required: true},
     summary: {type: 'string', nullable: true},
@@ -237,9 +241,9 @@ export const DECIDED: Record<Decision, string> = {approved: 'Approved this propo
 
 export const SIGNAL_FIELDS: Record<string, Field> = {
     note: {type: 'string', nullable: true},
-    /** A session id, or `*` for every session on the project; left out, one session Orrery picks gets it. */
+    /** A session id, or `*` for every session on the project; left out, one session orrery picks gets it. */
     session: {type: 'string', nullable: true},
-    /** The standing instructions to add, by id (the Orrery's or the project's); left out, those ticked by default. */
+    /** The standing instructions to add, by id (the orrery's or the project's); left out, those ticked by default. */
     instructions: {type: 'strings', nullable: true},
 }
 
@@ -269,13 +273,13 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://tracker.example.com/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
-    /** `{limit, minutes?, idle_minutes?}` lets Orrery start sessions, for any project with a launcher; null stops that. */
+    /** `{limit, min?, minutes?, idle_minutes?, on_signal?}` lets orrery start sessions, for any project with a launcher; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
     /** The terminal app Watch opens; null is Terminal. */
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
     /** Keeps agents off a proposal while it waits on the owner; false lets them. */
     restrict_proposals: {type: 'boolean'},
-    /** Shows the Events page and error notices in the bell, and records what Orrery did as well as its errors. */
+    /** Shows the Events page and error notices in the bell, and records what orrery did as well as its errors. */
     advanced: {type: 'boolean'},
 }
 
@@ -311,7 +315,7 @@ export const UPLOAD_FIELDS: Record<string, Field> = {
 /** How big an image can be, in bytes. */
 export const UPLOAD_LIMIT = 10 * 1024 * 1024
 
-/** The images Orrery takes, told by their first bytes rather than what the sender says (no SVG: it can run script). */
+/** The images orrery takes, told by their first bytes rather than what the sender says (no SVG: it can run script). */
 export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
     ['image/png', b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
     ['image/jpeg', b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
@@ -320,7 +324,7 @@ export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
 ]
 
 /** Whether the owner has commented on the issue since comment `c`. */
-const SINCE = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)'
+export const SINCE = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)'
 export const ANSWERED = `${SINCE} AS answered`
 /** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. */
 export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`
@@ -329,14 +333,14 @@ export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`
 export function commentOf(row: CommentRow): Comment {
     return {
         id: row.id, issue: row.issue, body: row.body, asks: row.asks ?? undefined, answered: row.asks ? !!row.answered : undefined,
-        created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
+        created_by: row.created_by, ...row.session_name ? {session_name: row.session_name} : {}, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
 }
 
 export function eventOf(row: EventRow): IssueEvent {
     return {
         id: row.id, issue: row.issue, field: row.field, before: row.before ?? undefined, after: row.after ?? undefined,
-        created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
+        created_by: row.created_by, ...row.session_name ? {session_name: row.session_name} : {}, protected: !!row.owned, created_at: row.created_at,
     }
 }
 

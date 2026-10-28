@@ -8,7 +8,7 @@ export interface Filters {
     assignees: string[]
     /** An issue with any of these labels; empty shows all. */
     labels: string[]
-    /** Project ids, on the pages across projects (My issues, Now); empty shows all. A project's own pages ignore it. */
+    /** Project ids, on My issues, across projects; empty shows all. A project's own pages ignore it. */
     projects: string[]
     query: string
 }

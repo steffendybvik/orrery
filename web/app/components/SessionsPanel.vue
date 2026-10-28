@@ -3,7 +3,7 @@ import type {Session, Signal} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
 // a button to point one (or all) at this issue, or at working through this chunk. With nobody listening, when
-// Orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
+// orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
 // New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
 // got them. The session working the issue (`worker`) comes first, marked. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
 // links to; here a row only points it at this.
@@ -29,7 +29,6 @@ const sent = ref<Signal[]>([])
 const sending = ref<string | null>(null)
 const failed = ref<string | null>(null)
 
-const STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 
 async function loadSent() {
     sent.value = await $fetch<Signal[]>(`/api/projects/${encodeURIComponent(props.project)}/signals`, {query: about.value}).catch(() => [])
@@ -43,7 +42,7 @@ watch(live, now => {
     }
 })
 
-// The standing instructions that can go with it (the Orrery's the project keeps, and its own), ticked as
+// The standing instructions that can go with it (the orrery's the project keeps, and its own), ticked as
 // they are by default; unticking one leaves it out of this send only.
 const offered = computed(() => {
     const project = byId(props.project)
@@ -52,17 +51,18 @@ const offered = computed(() => {
 const ticked = ref<string[]>([])
 watch(() => offered.value.map(i => `${i.id}:${i.on}`).join(), () => ticked.value = offered.value.filter(i => i.on).map(i => i.id), {immediate: true})
 
-async function focus(session: Session | null) {
+/** Sends the focus; `start` asks orrery to start a session for it, nobody being there to hear it. */
+async function focus(session: Session | null, start = false) {
     sending.value = session?.id ?? 'all'
     failed.value = null
     try {
         const owner = await load()
         const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...session ? {session: session.id} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
+            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...session ? {session: session.id} : {}, ...start ? {start} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
     } catch {
-        failed.value = "Couldn't send. Is Orrery running?"
+        failed.value = "Couldn't send. Is orrery running?"
     } finally {
         sending.value = null
     }
@@ -84,7 +84,7 @@ async function startOn() {
 
 const nameOf = (id?: string) => sessions.value.find(s => s.id === id)?.name ?? 'a session'
 /** Who a signal was for: a session, every session, one started for it (aimed at `launch-<id>` until it connects),
- * or (a comment aside) the one Orrery picks. */
+ * or (a comment aside) the one orrery picks. */
 const aimed = (signal: Signal) => signal.target === '*' || !signal.target && signal.kind === 'comment' ? 'every session'
     : signal.target?.startsWith('launch-') && !sessions.value.some(s => s.id === signal.target) ? 'a new session'
         : signal.target ? nameOf(signal.target) : 'one session'
@@ -96,13 +96,13 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
   <section class="flex flex-col gap-3 rounded-2xl bg-well/50 p-4 ring-1 ring-line">
     <div class="flex items-center gap-2">
       <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
-      <h2 class="text-[13px] font-medium text-fg">Claude sessions</h2>
+      <h2 class="text-[13px] font-medium text-fg">Sessions</h2>
       <span class="text-xs text-faint">{{ listening.length ? `${listening.length} listening` : 'none listening' }}</span>
       <span v-if="listening.length" class="ml-auto flex items-center gap-2">
         <UiButton
             v-if="canStartAnother"
             :disabled="!!sending"
-            :title="`Orrery starts another Claude session on ${project}, working on this issue alone`"
+            :title="`orrery starts another session on ${project}, working on this issue alone`"
             @click="startOn"
         >{{ sending === 'new' ? 'Starting…' : 'New session on this' }}</UiButton>
         <UiButton
@@ -116,8 +116,8 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
           type="button"
           class="ml-auto h-7 rounded-md bg-accent-500/10 px-2.5 text-xs font-medium text-accent-700 ring-1 ring-accent-500/40 hover:bg-accent-500/20 disabled:opacity-50 dark:text-accent-300"
           :disabled="!!sending"
-          :title="`Orrery starts a Claude session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
-          @click="focus(null)"
+          :title="`orrery starts a session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
+          @click="focus(null, true)"
       >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
     </div>
 
@@ -140,7 +140,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
         >{{ session.name }}</NuxtLink>
         <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
         <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
-          {{ STATE[session.state] }} · {{ ago(session.since) }}
+          {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
         </span>
         <button
             v-if="session.listening"
@@ -160,12 +160,16 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
       </li>
     </ul>
     <p v-else-if="canStart" class="text-[13px] leading-relaxed text-muted">
-      No Claude session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has Orrery start one, in its repo, through the launcher.
+      No session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has orrery start one, in its repo, through the launcher.
     </p>
     <p v-else class="text-[13px] leading-relaxed text-muted">
-      No Claude session on {{ project }} has said hello yet.
+      No session on {{ project }} has said hello yet.
       <NuxtLink :to="`/connect?project=${project}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
       to point it at issues from here.
+      <template v-if="byId(project)?.starts && launch && !launch.launchers">
+        No launcher is running for it, so orrery can't start one:
+        <NuxtLink to="/sessions#starts" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">how to install it</NuxtLink>.
+      </template>
     </p>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
 

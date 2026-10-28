@@ -1,4 +1,4 @@
-// A project's schedules: recurring work Orrery starts on its own. At each time a schedule makes an issue
+// A project's schedules: recurring work orrery starts on its own. At each time a schedule makes an issue
 // in its project (marked with the schedule) and, with `ask`, points the project's listening Claude
 // sessions at it; or, as a `message` schedule, sends its message to the sessions with no issue. An issue
 // run is skipped while the last one's issue is still open (`skip_open`), a message run when nothing in the
@@ -74,7 +74,7 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
     /** An event's type, `*` for any part of it: `issue.status`, `release.*`, `*.failed` (shared/happenings.ts). */
     on: {type: 'string', nullable: true},
     on_filter: {type: 'json', nullable: true, parse: parseFilter},
-    /** Preset ids (the Orrery's or the project's) a message or session schedule is given, before `notes`. */
+    /** Preset ids (the orrery's or the project's) a message or session schedule is given, before `notes`. */
     presets: {type: 'json', nullable: true, parse: parsePresets},
     /** An IANA zone, e.g. `Europe/Oslo`; the server's when left out. */
     timezone: {type: 'string'},
@@ -104,10 +104,10 @@ export class Schedules {
         private readonly onChange: (project: string) => void = () => {},
         private readonly listening: (project: string) => number = () => 0,
         private readonly startUntrusted: (project: string, schedule: number, text: string, actor: Actor) => Promise<{tmux: string}> =
-            () => Promise.reject(new Error('Orrery starts no sessions here')),
+            () => Promise.reject(new Error('orrery starts no sessions here')),
         private readonly onRan: (schedule: {id: number, project: string, title: string}, run: ScheduleRun, manual: boolean) => void = () => {},
         private readonly startSession: (project: string, start: SessionStart, actor: Actor) => Promise<{tmux: string}> =
-            () => Promise.reject(new Error('Orrery starts no sessions here')),
+            () => Promise.reject(new Error('orrery starts no sessions here')),
     ) {}
 
     private get db() {
@@ -129,6 +129,23 @@ export class Schedules {
     }
 
     async create(project: string, body: unknown, actor = AGENT): Promise<Schedule> {
+        const insert = await this.toCreate(project, body, actor)
+        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
+            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, ...insert)
+        this.listeners = null
+        this.onChange(project)
+        return await this.get(project, id)
+    }
+
+    /** Checks a new schedule (`id` none) or a change to schedule `id` as `create` and `update` would, saving nothing: so
+     * the chat's request for one fails when it asks, not once the owner allows it. */
+    async check(project: string, body: unknown, actor: Actor, id?: number): Promise<void> {
+        if (id === undefined) await this.toCreate(project, body, actor)
+        else await this.toUpdate(project, id, body, actor)
+    }
+
+    /** A new schedule's row, checked: what `create` inserts. */
+    private async toCreate(project: string, body: unknown, actor: Actor): Promise<(string | number | null)[]> {
         await this.store.project(project)
         const input = checkInput(body, SCHEDULE_FIELDS)
         const when = this.when({cron: input.cron, at: input.at, on: input.on, timezone: input.timezone}, true)
@@ -138,20 +155,24 @@ export class Schedules {
         const kind = String(input.kind ?? 'issue') as Schedule['kind']
         const presets = await this.presets(project, kind, input.presets ?? '[]')
         this.checkKind(kind, text(input.notes), presets, !!input.untrusted, actor)
-        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
-            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, when.timezone, await this.place(input.column ?? 'todo'), chunk,
+        return [project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, when.timezone, await this.place(input.column ?? 'todo'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false),
             Number(input.untrusted ?? false), Number(enabled),
-            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
-        this.listeners = null
-        this.onChange(project)
-        return await this.get(project, id)
+            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now]
     }
 
     /** Changing when it runs, or turning it back on, works out its next run again. The owner's schedules are
      * theirs: what one says runs as them, so only they change it. */
     async update(project: string, id: number, body: unknown, actor = AGENT): Promise<Schedule> {
+        const fields = await this.toUpdate(project, id, body, actor)
+        await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), id)
+        this.listeners = null
+        this.onChange(project)
+        return await this.get(project, id)
+    }
+
+    /** A change to schedule `id`, checked: the columns `update` sets. */
+    private async toUpdate(project: string, id: number, body: unknown, actor: Actor): Promise<[string, unknown][]> {
         const row = await this.row(project, id)
         if (row.owned && !actor.owner) throw forbidden(`Changing schedule ${id}: it's the owner's; only they can change it`)
         const input = checkInput(body, SCHEDULE_FIELDS, true)
@@ -186,13 +207,28 @@ export class Schedules {
             untrusted: input.untrusted === undefined ? undefined : Number(input.untrusted),
             enabled: Number(enabled),
             next_run: next,
+            // An agent's schedule stays the agent's whoever changes it, a pause or a rename by the owner included:
+            // only `adopt` makes it theirs, once they've read what it says (ORR-456).
             updated_at: new Date().toISOString(),
         }
-        const fields = Object.entries(set).filter(([, v]) => v !== undefined)
-        await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), id)
+        return Object.entries(set).filter(([, v]) => v !== undefined)
+    }
+
+    /** The owner making an agent's schedule theirs ("Make it mine", ORR-456): from then on it runs as them (a message
+     * reaches the sessions, a session schedule starts one) and only they change it. `seen` is the `updated_at` they
+     * read it at: one changed since is refused (409), so they never take on words they haven't seen. Theirs already,
+     * it stays as it is. */
+    async adopt(project: string, id: number, actor = AGENT, seen?: string): Promise<Schedule> {
+        if (!actor.owner) throw forbidden(`Making schedule ${id} yours: only the owner takes a schedule on; send Orrery-Actor: <owner>`)
+        const row = await this.row(project, id)
+        if (row.owned) return await this.get(project, id)
+        if (seen !== undefined && seen !== row.updated_at) throw conflict(`Schedule ${id} changed after you read it: read it again, then make it yours`)
+        await this.db.run('UPDATE schedules SET owned = 1, created_by = ?, updated_at = ? WHERE id = ? AND updated_at = ?', actor.name, new Date().toISOString(), id, row.updated_at)
         this.listeners = null
         this.onChange(project)
-        return await this.get(project, id)
+        const now = await this.get(project, id)
+        if (!now.protected) throw conflict(`Schedule ${id} changed as you made it yours: read it again, then make it yours`)
+        return now
     }
 
     /** The owner's schedules are theirs: an agent can't delete them. Its issues stay. */
@@ -456,7 +492,7 @@ export class Schedules {
         try {
             new Intl.DateTimeFormat('en', {timeZone: timezone})
         } catch {
-            throw badRequest(`"timezone" is "${timezone}", not a timezone Orrery knows (e.g. Europe/Oslo)`)
+            throw badRequest(`"timezone" is "${timezone}", not a timezone orrery knows (e.g. Europe/Oslo)`)
         }
         const cron = given.cron ? String(given.cron).trim() : null
         const at = given.at ? String(given.at) : null

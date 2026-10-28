@@ -3,15 +3,99 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.10 (2026-10-28)
+
+- **Backups, your way:** App settings → Database turns backups on or off and, outside Docker, picks their folder in
+  place of `ORRERY_BACKUP`. Turned on, it backs up there at once, so a folder that won't take one says so on the spot.
+  It backs up a few seconds after a change, or at most every 15 minutes, hour or day, and keeps as many daily copies
+  as you choose (14 unless you say otherwise).
+- **Back up into Postgres:** either database can be backed up into a Postgres database instead of a folder, from App
+  settings or `ORRERY_BACKUP_DATABASE`. It keeps the latest only, replaced in one transaction so a failed backup
+  leaves the one before whole, and it only writes into an empty database or its own earlier backup, never another
+  orrery's or the one it runs on. The password is never shown or logged.
+- **Backups you can trust:** each copy is checked before it takes the last one's place, so one cut short or damaged
+  never replaces a good one. App settings → Database marks the latest backup when it's over two days old or the last
+  try failed, and says why.
+- **Restore from the app:** a new, empty orrery no longer starts from the latest backup on its own. It asks *Found
+  backups. Restore one?*, or you **Start fresh**. App settings → Database → **Restore a backup…** brings back any copy,
+  checked first, with the database it replaces set aside. A backup never writes over another orrery's.
+- **A compose file with each release:** `release/compose.yml` runs the published image and backs up to the
+  `orrery-backup` volume, so no `./backups` folder shows up beside it, or to the folder `ORRERY_BACKUP` names. App
+  settings says when the backups are only in a Docker volume on this computer.
+- **Safer upgrades:** before a SQLite database takes an upgrade's steps, it's copied as it was to
+  `orrery-pre-<version>-step<n>.db` (the three newest stay). A database newer than the code is refused and left
+  alone, with a message on how to go back.
+- **Know when code is old:** the channel and the launcher tell orrery their version. Sessions marks a session or
+  launcher running older code, with the command to restart it, and a launcher service restarts itself on the new code
+  once its checkout changes, within a version too, and it has no session running. A launch refused for an outdated
+  launcher waits for one that can take it, so restarting the launcher starts the session or chat.
+- **Smaller images:** uploaded PNGs and JPEGs are kept as WebP (photos at quality 82, screenshots at 90 for crisp
+  text), and the ones already there are converted once on start, links unchanged. A rewritten image loses its
+  metadata, a photo's place included. SQLite's WAL is cut back once it's written through. On a real orrery the
+  database, and every backup, shrank from 69 MB to 27 MB.
+- **Drop an image anywhere:** drag one over the chat, the comment box, a description or doc being edited, or the new
+  issue or doc dialog, and the whole area says *Drop image to add*. Pasted anywhere inside it goes in too, and you're
+  back to typing after.
+- **Keep sessions running:** *Let orrery start sessions* has **Keep at least N running**, across every project. A
+  session that stops because its time is up or it sat idle is replaced by a fresh one with the same presets, notes and
+  projects. One you stop isn't.
+- **Start sessions only when you say:** a switch, **Start a session when work arrives and nobody's listening**, on
+  by default. Turned off, work waits for a session you start, and *Focus on this (starts a session)* still starts
+  one. A line says what starts sessions, and how many schedules do.
+- **Faster on a big orrery:** a change sends open pages only what changed (4.2 kB instead of 859 kB for one renamed
+  issue), pages load the boards without the issues' descriptions (2.3 MB down to 1.5 MB) and other projects' closed
+  issues until one of their pages opens (1,474 kB down to 995 kB), and the bell reads agents' comments off an index
+  (37 ms down to 0.2 ms with 20,000 comments).
+- **The chat asks for schedules too:** it can set up a schedule or change one (pause and resume included), shown with
+  **Allow** and **Deny**; once allowed it's yours. Under each of its replies, **Copy** takes the reply's Markdown.
+- **My issues is home:** Now is gone, and `/` (and `/now`, for old links) opens My issues.
+- **One notifications list:** Notifications is one list, with what waits on you ringed among the rest. Clearing an
+  agent's proposal there hides it from the bell and its count, and leaves it pending on its issue. Put up again, it
+  comes back.
+- **Make it mine:** an agent's message or session schedule runs only once you press **Make it mine** in its dialog,
+  after reading it. Pausing, renaming or retiming it leaves it the agent's. Its row says it isn't running yet, and is
+  tinted as unseen until you open it.
+- **Which session wrote it:** comments, activity lines and *Created by* name the session that wrote them
+  (`orrery · Frøya`), kept with the write. Older ones, and an agent's writes with no session, say **Agent**. The page
+  no longer says Claude: sessions are just sessions.
+- **What sessions may do:** Sessions → **Permissions** shows, for a working session, the chat and an untrusted
+  session, what each may do freely, what asks you first and what's yours alone, with why. Agents read the same table
+  at `GET /api/permissions`.
+- **Plainer waiting words:** an issue waiting on you says **Decision needed** or **Feedback needed**, and a session at
+  a permission prompt says **permission needed**.
+- **Events read like a console:** each event stays one line; clicking it opens nothing.
+- **Forget a session nothing can reach:** a session started without the channel gets a × on its card, and one idle an
+  hour with no channel open goes on its own, rather than after six.
+- **Getting started mentions the launcher:** its last step says when none is running, with the line that installs it,
+  and so does an issue's sessions panel. On Sessions → Setup, Starting sessions comes first and opens with the
+  install command.
+- **Connected:** the sidebar's live indicator says *Connected*, *Reconnecting…* or *Offline*, with a tooltip.
+- **The name is lowercase:** "orrery" is written the way its logo reads, everywhere.
+- **Security, from the rc.9 audit:** an untrusted schedule's session gets no Bash: a `github_issues` tool reads the
+  repo's issues for it, so it can't point `gh` at another host (#305). The chat asks you before it messages your
+  sessions, and only **Send** sends (#294). An agent can't quietly resolve an error or flood the event log with page
+  errors (#297). A database move or backup setting has to come from this machine by its connection, not its `Host`
+  header (#308). A session schedule can't restart itself on its own session stopping, and an untrusted session stops
+  at its 30 minutes, busy or not (#301). Plus four smaller fixes: the moved-database file kept private, more ways of
+  writing a Postgres password scrubbed from the log, a dropped Postgres connection no longer ending the server, and
+  an untrusted proposal keeping only `external` (#300). A launch waiting to start can be claimed only by a
+  connected launcher, by the token its stream gives it (#325).
+- **Fixes from the rc.10 review:** a Postgres backup target holding anything but orrery's tables is refused before
+  it's opened, so nothing is written into it (#331). A chat request answered twice at once acts once, and a send that
+  failed partway goes again only to the sessions that missed it (#330). A request through a proxy isn't taken as from
+  this machine, and page-error reports are limited per sender (#332). Sessions orrery starts keep their launch again,
+  so their limit, stop timers and context after a `/clear` work (#340).
+- **Performance tests:** `pnpm test:e2e:perf` times every page on a big seeded orrery, on SQLite and Postgres, in CI.
+
 ## 1.0.0-rc.9 (2026-10-28)
 
 - **Schedules that run when something happens:** a schedule can run `on` an event instead of a clock: an issue
-  moving to In review, a release frozen or shipped, a new error, or anything else Orrery records, narrowed by
+  moving to In review, a release frozen or shipped, a new error, or anything else orrery records, narrowed by
   `on_filter`. The dialog's When is Time or Event. One schedule's failed run is heard by the others, but an outcome
   never sets off another outcome.
 - **Schedules that start sessions:** a schedule can start a session with presets, on a clock or an event, and a
   message schedule can send presets, so a preset like Release is written once and runs by itself.
-- **Suggested schedules:** Schedules offers a ready-made event schedule for each preset Orrery ships (Release and
+- **Suggested schedules:** Schedules offers a ready-made event schedule for each preset orrery ships (Release and
   Security audit when a release is frozen, a nudge to get the next release going when one ships, Review when an issue
   moves to In review, Debug an error on a new error). **Add** opens New schedule filled in; none runs until you save it.
 - **Run now instead:** a schedule's menu has *Run now instead of 09:00*, which runs it now and skips its next run.
@@ -19,7 +103,7 @@ the database schema are the public surface, and a database always migrates forwa
   GitHub-issues review) gets a session of its own for each run, and whatever that session raises becomes a proposal
   for the owner. It stays locked down after a restart, since the session itself says it's untrusted on every
   write, and its writes set off no event schedules.
-- **An event log:** Orrery keeps a log on the machine of what it did and what went wrong, never sent anywhere.
+- **An event log:** orrery keeps a log on the machine of what it did and what went wrong, never sent anywhere.
   Errors are always recorded (`server.error`, `page.error`, a failed schedule or backup), and so is each change to
   the roadmap, a line of its own: who made, moved or commented on which issue, doc, chunk or release. Everything else
   (sessions, launchers, schedule runs, backups) is recorded while **Advanced** is on. Advanced also shows an Events
@@ -29,14 +113,14 @@ the database schema are the public surface, and a database always migrates forwa
   URL), and the issue ids in its lines link to the issues. Sessions read the log with the channel's `events` and
   `resolve_event` tools.
 - **Move to another database:** App settings → Database has **Move to another database…**. Pick a SQLite file or
-  Postgres, check it, then copy everything into an empty one or run on another Orrery's own as it is. Orrery switches
+  Postgres, check it, then copy everything into an empty one or run on another orrery's own as it is. orrery switches
   with no restart, keeps the choice for its next start, and saves it before writing to the new one, so a failed
   save changes nothing. Under Docker, App settings shows where the database and backups are on the computer (the
   folder `ORRERY_DATA` / `ORRERY_BACKUP` names, or the Docker volume), not the paths inside the container.
 - **Postgres is backed up:** to the same backup folder, as a SQLite snapshot read in one consistent pass, so a
   backup opens anywhere. App settings → Database shows the database's size, the backups' size, when the latest
   backup was made, and **Back up now** (`POST /backups`).
-- **Presets, ready to use:** Orrery ships four (Release, Security audit, Review, Debug an error), each with *Reset
+- **Presets, ready to use:** orrery ships four (Release, Security audit, Review, Debug an error), each with *Reset
   to default*, and *Restore* after removal. A preset is written in a dialog built around its text, which sits in a
   well like the session message box. Presets lead Sessions → Setup. A running session's message box can send one,
   tweaked or not, and it's listed by its name. Sessions can read presets (`presets` and `preset` tools) but not
@@ -50,11 +134,11 @@ the database schema are the public surface, and a database always migrates forwa
   App setting, shown from → to with **Allow** and **Deny** and saved only on your Allow. It works on nothing itself.
   Paste or drop an image to show it. It counts towards no session limit, isn't listed with the sessions, can be made
   larger, and ends when you close its pane. Launchers need restarting to start one; one too old says so.
-- **A `guide` tool:** any session with Orrery's server, in any repo, can answer how Orrery works ("how do schedules
-  work?") from `docs/using.md` as the connected Orrery serves it.
+- **A `guide` tool:** any session with orrery's server, in any repo, can answer how orrery works ("how do schedules
+  work?") from `docs/using.md` as the connected orrery serves it.
 - **Agents' proposals wait on you:** an agent's pending proposal reads `waiting: "decision"`, with the violet chip
   and tint on the list, the board and My issues, and sits under *Waiting on you* until it's decided.
-- **Start a session on every project:** in Start session, with no project ticked, Orrery starts one session that
+- **Start a session on every project:** in Start session, with no project ticked, orrery starts one session that
   hears every project, from a launcher whose channel serves them all.
 - **Project filter on My issues and Now,** with each project's icon, in the sidebar's order.
 - **A cut-off turn lets go of its issues:** when a turn ends on an API error (`StopFailure`: a network drop, a rate
@@ -84,9 +168,14 @@ the database schema are the public surface, and a database always migrates forwa
 - **Faster:** the event log, the scheduler and Postgres backups keep what they read until it changes, instead of
   reading the database on every event.
 - **The version moves with the branch:** a build of a release branch shows the version being built.
+- **Security fixes from the release's audit:** an event schedule's run passes on no words an agent chose (a
+  label's text, its name); an untrusted schedule's session can't claim an issue through its hook, and its refused
+  writes set off no schedule; a launcher's report can't give a running session a context it wasn't started with,
+  or take its stop time away. `SECURITY.md` says what the chat, the event log and a database move can do, and the
+  gaps still open.
 - **Tests and cleanup:** races where two sessions claim one issue, who may move the database and moves to Postgres,
   two flaky dialog tests split, and component tests that wait for a dialog to close before the next starts. Values used only in their own file stop being exported, the unused StartSession
-  component is gone, and the example project is Greenhouse, not Larder.
+  component is gone, the example project is Greenhouse, not Larder, and examples use a made-up tracker.
 
 ## 1.0.0-rc.8 (2026-10-27)
 
