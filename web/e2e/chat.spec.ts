@@ -1,10 +1,10 @@
 import {type APIRequestContext, expect, test} from '@playwright/test'
 import {OWNER, hold, makeProject} from './support'
 
-// The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the Chat button
-// starts one with starts turned off (a chat counts towards nothing), the owner's words reach its session alone, its
-// answer shows in the pane, it isn't listed on the Sessions page, and closing the pane ends it. It messages other
-// sessions as the owner, when they ask, marked as sent through it, and asks the owner before changing a setting.
+// The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the first message
+// in the pane starts one with starts turned off (a chat counts towards nothing), the owner's words reach its session
+// alone, its answer shows in the pane, it isn't listed on the Sessions page, and closing the pane ends it. It messages
+// other sessions as the owner, when they ask, marked as sent through it, and asks the owner before changing a setting.
 let starts: unknown = null
 
 test.beforeAll(async ({request}) => {
@@ -32,20 +32,26 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await page.goto('/p/larder')
         await page.getByRole('button', {name: 'Chat', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
-        await pane.getByRole('button', {name: 'Chat about Larder'}).click()
-        await expect.poll(() => launcher.said.text).toContain('"chat":true')
-        const [chat] = await (await request.get('/api/chats')).json()
-        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat&name=e2e-chat&started=${chat.id}&chat=yes&format=text`)
-        await expect(pane).toContainText('Ready')
+        // It opens ready to type into, on the project you're on, with things to ask.
+        await expect(pane.getByRole('heading', {name: 'Ask about Larder'})).toBeVisible()
+        await pane.getByRole('button', {name: 'How do schedules work?'}).click()
+        await expect(pane.getByLabel('Message')).toHaveValue('How do schedules work?')
 
+        // The first message starts the chat, and reaches its session once it connects.
         await pane.getByLabel('Message').fill('What is on the top shelf?')
         await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        await expect(pane).toContainText('Starting the session…')
+        const [chat] = await (await request.get('/api/chats')).json()
+        // As its launcher starts it: catching up from the launch's `after`, so what was said before it connected reaches it.
+        const after = launcher.said.text.match(/"after":(\d+)/)![1]
+        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat&name=e2e-chat&started=${chat.id}&chat=yes&after=${after}&format=text`)
         await expect.poll(() => session!.said.text).toContain('What is on the top shelf?')
         // With the page the owner is on, so it knows what "this" is.
         expect(session.said.text).toContain('(The owner is on /p/larder')
         // It takes the message up, as its hooks say.
         await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'larder', event: 'UserPromptSubmit'}})
-        await expect(pane).toContainText('Thinking…')
+        await expect(pane.getByLabel('Thinking…')).toBeVisible()
         // Its answer comes back through its channel's reply tool.
         const answered = await request.post(`/api/chats/${chat.id}/replies`, {
             data: {text: 'Jars of **jam**.'},
@@ -76,7 +82,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await expect.poll(() => launcher.said.text).toContain('event: stop')
         await expect.poll(async () => (await request.get('/api/chats', {headers: OWNER})).json()).toEqual([])
         await page.getByRole('button', {name: 'Chat', exact: true}).click()
-        await expect(pane.getByRole('button', {name: /^Chat about/})).toBeVisible()
+        await expect(pane.getByRole('heading', {name: /^Ask about/})).toBeVisible()
     } finally {
         session?.stop()
         launcher.stop()
@@ -99,7 +105,7 @@ test("messages other sessions for the owner: idle ones by default, marked as thr
         const listening = async () => (await (await request.get('/api/sessions')).json())
             .filter((s: {id: string, listening: boolean}) => ['e2e-idle', 'e2e-busy'].includes(s.id) && s.listening)
             .map((s: {id: string, state: string}) => `${s.id} ${s.state}`).sort()
-        await expect.poll(async () => (await listening()).length).toBe(2)
+        await expect.poll(async () => (await listening()).map(l => l.split(' ')[0])).toEqual(['e2e-busy', 'e2e-idle'])
         await request.post('/api/sessions', {data: {id: 'e2e-idle', project: 'larder', event: 'Stop'}})
         await request.post('/api/sessions', {data: {id: 'e2e-busy', project: 'larder', event: 'UserPromptSubmit'}})
         await expect.poll(listening).toEqual(['e2e-busy working', 'e2e-idle idle'])

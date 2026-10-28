@@ -2,9 +2,9 @@ import type {Chat, Session, Upload} from '#shared/roadmap'
 
 // The owner's chat (server/utils/chats.ts): a session started for it alone that they talk to here, with no terminal.
 // The pane is open or not (`open`), large or not (`large`, remembered in this browser), on a chat (`current`) or, with
-// none, ready to start one on `project`. The chats come in over the page's events (`arrived`); closing the pane ends
+// none, ready to start one on `project` with the first message. The chats come in over the page's events (`arrived`); closing the pane ends
 // its chat (`close`), and one that ends on its own stays on screen, ended, until the pane closes. Each message says
-// which page the owner is on, so the chat knows what "this" is. A setting the chat asks to change waits on `answer`.
+// which page the owner is on, so the chat knows what "this" is.
 export function useChat() {
     const chats = useState<Chat[]>('chats', () => [])
     const open = useState('chat-open', () => false)
@@ -56,16 +56,19 @@ export function useChat() {
         fetchChats()
     }
 
+    /** Starts a chat on `project`: whether it did. */
     async function start() {
-        if (!project.value) return
+        if (!project.value) return false
         failed.value = ''
         try {
             const made = await $fetch<Chat>('/api/chats', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {project: project.value}})
             ended.value = null
             arrived(made)
             current.value = made.id
+            return true
         } catch (error) {
             failed.value = errorMessage(error, 'start')
+            return false
         }
     }
 
@@ -94,13 +97,18 @@ export function useChat() {
         }
     }
 
+    /** Leaves the chat on screen for a fresh one, started by the next message. */
+    function fresh() {
+        current.value = null
+        ended.value = null
+        failed.value = ''
+    }
+
     /** Closes the pane, ending its chat: open again, it's ready to start another. */
     async function close() {
         open.value = false
         const on = chat.value
-        current.value = null
-        ended.value = null
-        failed.value = ''
+        fresh()
         if (!on || on.ended) return
         chats.value = chats.value.filter(c => c.id !== on.id)
         await $fetch(`/api/chats/${on.id}/end`, {method: 'POST', headers: {'Orrery-Actor': await load()}}).catch(() => {})
@@ -121,5 +129,5 @@ export function useChat() {
         return $fetch<Upload>('/api/uploads', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, open, large, current, chat, session, project, failed, ended, fetchChats, arrived, show, start, send, answer, close, resize, upload}
+    return {chats, open, large, current, chat, session, project, failed, ended, fetchChats, arrived, show, start, send, fresh, answer, close, resize, upload}
 }
