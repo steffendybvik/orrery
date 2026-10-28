@@ -37,7 +37,7 @@ export function useStore(): Store {
         })
     }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
     store.hears = hearing
-    store.happened = happened
+    store.happened = changed
     return store
 }
 
@@ -78,6 +78,15 @@ export function rebindDatabase(db: Db) {
 function happened(event: OrreryEvent) {
     const cause = scheduleRunning.getStore()
     useDatabase().afterCommit(() => projectEvents.emit('happened', {event, cause}))
+}
+
+/** A change to the roadmap: the schedules hear it, and the event log keeps it (ORR-378), once its write has
+ * committed. The log's own kinds go through `happened` alone, as it records them itself. */
+function changed(event: OrreryEvent) {
+    happened(event)
+    const cause = scheduleRunning.getStore()
+    useDatabase().afterCommit(() => useEventLog().activity(event, cause)
+        .catch(error => console.error(`[orrery] logging ${event.type}:`, error)))
 }
 
 let schedules: Schedules | null = null

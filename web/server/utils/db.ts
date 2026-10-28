@@ -664,6 +664,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         key TEXT PRIMARY KEY,
         seeded_at TEXT NOT NULL
     );
+`, `
+    -- What an event in the log is about (ORR-378): the issue, release, chunk or doc a change to the roadmap was to.
+    ALTER TABLE events ADD COLUMN subject TEXT;
 `]
 
 let db: DatabaseSync | null = null

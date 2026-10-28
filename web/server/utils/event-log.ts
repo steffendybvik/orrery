@@ -1,11 +1,13 @@
 // The event log (ORR-322): what Orrery did and what went wrong, kept in its own `events` table and never sent off
-// the machine. Errors are recorded always; warnings and what Orrery did (sessions, launchers, schedules, backups,
-// migrations) only while the owner has Advanced on in App settings, as most never look. The same event again,
-// while it isn't resolved, counts on its row instead of taking another, so a loop can't fill the database; and old
-// rows go: what Orrery did after a week, the rest after a month, and past MAX_ROWS the oldest.
+// the machine. Errors are recorded always; warnings, what Orrery did (sessions, launchers, schedules, backups,
+// migrations) and the changes to the roadmap (ORR-378: issues, comments, chunks, docs, releases) only while the owner
+// has Advanced on in App settings, as most never look. Each is a row of its own, as the owner reads it line by line
+// (ORR-378); a repeat of an error that isn't resolved is no news, to the bell or the schedules, and resolving one
+// resolves its repeats. Old rows go: info after a week, the rest after a month, and past MAX_ROWS (MAX_ACTIVITY for
+// the roadmap's, so a busy day can't push errors out) the oldest, so a loop can't fill the database.
 import type {OrreryEvent} from '#shared/happenings'
 import type {EventLevel, LoggedEvent} from '#shared/roadmap'
-import {EVENT_LEVELS} from '#shared/roadmap'
+import {ACTIVITY_FAMILIES, EVENT_LEVELS} from '#shared/roadmap'
 import type {Db} from './database'
 import {badRequest, notFound} from './input'
 
@@ -24,6 +26,8 @@ export interface EventFilter {
     /** A kind, or what it starts with up to a dot: `session` is every `session.…`. */
     kind?: string
     project?: string
+    /** What a change to the roadmap was to: an issue's id, a release's version. */
+    subject?: string
     /** Only those seen since this time. */
     since?: string
     /** Unresolved ones only. */
@@ -36,6 +40,7 @@ interface EventRow {
     level: EventLevel
     kind: string
     project: string | null
+    subject: string | null
     message: string
     details: string | null
     count: number
@@ -48,13 +53,16 @@ const DAY = 24 * 60 * 60 * 1000
 /** How long what Orrery did is kept, and how long warnings and errors are. */
 export const KEEP_INFO = 7 * DAY
 export const KEEP_PROBLEMS = 30 * DAY
-/** The most rows kept, the oldest going first. */
+/** The most rows kept, the oldest going first: of changes to the roadmap, and of the rest. */
 const MAX_ROWS = 5000
+const MAX_ACTIVITY = 5000
 /** How often (in rows written) old ones are pruned, besides on start. */
 const PRUNE_EVERY = 200
 const MESSAGE = 1000
 const TEXT = 4000
 const KIND = /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)*$/
+/** Whether a row is a change to the roadmap, in SQL: a family's names don't hold `_` or `%`. */
+const ACTIVITY = `(${ACTIVITY_FAMILIES.map(family => `kind LIKE '${family}.%'`).join(' OR ')})`
 
 export class EventLog {
     /** `scrub` takes secrets' values out of what's kept; `onLogged` hears each event written, `fresh` when it's a row of its own. */
@@ -110,7 +118,7 @@ export class EventLog {
         })
     }
 
-    /** Records it, or adds to the same one not yet resolved; null when it isn't kept (Advanced is off and it's no error). */
+    /** Records it, a row of its own; null when it isn't kept (Advanced is off and it's no error). */
     async record(entry: EventEntry): Promise<LoggedEvent | null> {
         if (!EVENT_LEVELS.includes(entry.level)) throw badRequest(`"level" is "${entry.level}"; use ${EVENT_LEVELS.join(', ')}`)
         if (!KIND.test(entry.kind)) throw badRequest(`"kind" is "${entry.kind}"; use a dotted name, e.g. page.error`)
@@ -123,25 +131,48 @@ export class EventLog {
         const details = entry.details ? JSON.stringify(clean(entry.details, scrub)) : null
         const project = entry.project || null
         const at = this.now().toISOString()
-        const again = await this.db.get<EventRow>(`UPDATE events SET count = count + 1, last_seen = ?, details = ?
-            WHERE id = (SELECT id FROM events WHERE level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ? AND resolved_at IS NULL ORDER BY id DESC LIMIT 1)
-            RETURNING *`, at, details, entry.level, entry.kind, project ?? '', message)
-        const row = again ?? await this.db.get<EventRow>(`INSERT INTO events (level, kind, project, message, details, count, first_seen, last_seen)
+        // A repeat of one not resolved yet (same level, kind, project and message) is a line too, but no news.
+        const again = !!await this.db.get(`SELECT id FROM events WHERE level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ?
+            AND resolved_at IS NULL LIMIT 1`, entry.level, entry.kind, project ?? '', message)
+        const row = await this.db.get<EventRow>(`INSERT INTO events (level, kind, project, message, details, count, first_seen, last_seen)
             VALUES (?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`, entry.level, entry.kind, project, message, details, at, at)
         if (!row) return null
         if (++this.written % PRUNE_EVERY === 0) await this.prune()
         const event = eventOf(row)
         this.onLogged(event, !again)
         // Its message isn't passed on: an error's can hold what a page or another site sent. Its row is, to read.
-        // What Orrery did is passed on each time, as when it isn't kept: it repeats into one row, but each is news.
-        if (!again) this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}})
-        else if (entry.level === 'info') this.happened({type: entry.kind, level: entry.level, ...project ? {project} : {}})
+        // What Orrery did is passed on each time: each is news.
+        if (!again || entry.level === 'info') this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}})
         return event
     }
 
     /** Records it, saying so on the console rather than failing when it can't: logging never breaks what it logs. */
     note(entry: EventEntry) {
         this.record(entry).catch(error => console.error(`[orrery] logging ${entry.kind}:`, error))
+    }
+
+    /** Records a change to the roadmap, as the store says it (`issue.status`, `release.frozen`), while Advanced is on:
+     * a row each, never folded. `cause` is the schedule whose run made it. The schedules heard it from the store already. */
+    async activity(event: OrreryEvent, cause?: number): Promise<LoggedEvent | null> {
+        if (!KIND.test(event.type) || !await this.advanced()) return null
+        const scrub = await this.scrub()
+        const message = cut(redact(scrub(describe(event))), MESSAGE)
+        const details = clean({
+            ...event.by ? {by: event.by.name, owner: event.by.owner} : {},
+            ...event.from === undefined ? {} : {from: event.from},
+            ...event.to === undefined ? {} : {to: event.to},
+            ...event.untrusted ? {untrusted: true} : {},
+            ...cause === undefined ? {} : {schedule: cause},
+        }, scrub) as Record<string, unknown>
+        const at = this.now().toISOString()
+        const row = await this.db.get<EventRow>(`INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen)
+            VALUES ('info', ?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`, event.type, event.project ?? null, event.subject ?? null, message,
+            Object.keys(details).length ? JSON.stringify(details) : null, at, at)
+        if (!row) return null
+        if (++this.written % PRUNE_EVERY === 0) await this.prune()
+        const logged = eventOf(row)
+        this.onLogged(logged, true)
+        return logged
     }
 
     /** Newest first (by when they were last seen). */
@@ -165,6 +196,10 @@ export class EventLog {
             where.push('project = ?')
             params.push(filter.project)
         }
+        if (filter.subject) {
+            where.push('subject = ?')
+            params.push(filter.subject)
+        }
         if (filter.since) {
             const since = new Date(filter.since)
             if (Number.isNaN(since.getTime())) throw badRequest(`"since" is "${filter.since}", not a time (e.g. 2026-10-27T09:00:00Z)`)
@@ -178,22 +213,31 @@ export class EventLog {
         return rows.map(eventOf)
     }
 
-    /** Marks it dealt with: the next one like it starts a row of its own. */
+    /** Marks it dealt with, and its repeats not resolved yet: the next one like it is news again. */
     async resolve(id: number): Promise<LoggedEvent> {
-        const row = await this.db.get<EventRow>('UPDATE events SET resolved_at = coalesce(resolved_at, ?) WHERE id = ? RETURNING *', this.now().toISOString(), id)
+        const at = this.now().toISOString()
+        const row = await this.db.get<EventRow>('UPDATE events SET resolved_at = coalesce(resolved_at, ?) WHERE id = ? RETURNING *', at, id)
         if (!row) throw notFound(`No event ${id}`)
+        const repeats = await this.db.all<EventRow>(`UPDATE events SET resolved_at = ? WHERE resolved_at IS NULL AND level = ? AND kind = ?
+            AND coalesce(project, '') = ? AND message = ? RETURNING *`, at, row.level, row.kind, row.project ?? '', row.message)
+        for (const repeat of repeats) this.onLogged(eventOf(repeat), false)
         const event = eventOf(row)
         this.onLogged(event, false)
         return event
     }
 
-    /** Lets go of what's old: what Orrery did after KEEP_INFO, the rest after KEEP_PROBLEMS, and past MAX_ROWS the oldest. */
+    /** Lets go of what's old: info after KEEP_INFO, the rest after KEEP_PROBLEMS, and the oldest past MAX_ACTIVITY
+     * changes to the roadmap and past MAX_ROWS of the rest, so many changes can't push an error out. */
     async prune(): Promise<number> {
         const now = this.now().getTime()
         const info = await this.db.run("DELETE FROM events WHERE level = 'info' AND last_seen < ?", new Date(now - KEEP_INFO).toISOString())
         const rest = await this.db.run("DELETE FROM events WHERE level <> 'info' AND last_seen < ?", new Date(now - KEEP_PROBLEMS).toISOString())
-        const over = await this.db.run(`DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY last_seen DESC, id DESC LIMIT ${MAX_ROWS})`)
-        return info.changes + rest.changes + over.changes
+        let over = 0
+        for (const [which, most] of [[ACTIVITY, MAX_ACTIVITY], [`NOT ${ACTIVITY}`, MAX_ROWS]] as const) {
+            over += (await this.db.run(`DELETE FROM events WHERE ${which} AND id NOT IN
+                (SELECT id FROM events WHERE ${which} ORDER BY last_seen DESC, id DESC LIMIT ${most})`)).changes
+        }
+        return info.changes + rest.changes + over
     }
 }
 
@@ -212,6 +256,26 @@ export function redact(text: string): string {
         .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 …')
 }
 
+/** A change to the roadmap in a line: who did what to which, and what it went from and to. */
+export function describe(event: OrreryEvent): string {
+    const who = event.by?.name ?? 'Someone'
+    const subject = event.subject ?? ''
+    const [family, what = ''] = event.type.split('.', 2) as [string, string?]
+    const change = event.from !== undefined || event.to !== undefined ? `: ${event.from ?? 'none'} → ${event.to ?? 'none'}` : ''
+    if (family === 'issue') {
+        if (what === 'created') return `${who} made ${subject}`
+        if (what === 'deleted') return `${who} deleted ${subject}`
+        if (what === 'status') return `${who} moved ${subject}${change}`
+        return `${who} changed ${subject}'s ${what}${change}`
+    }
+    if (family === 'comment') return what === 'asks' ? `${who} asked the owner for ${event.to ? `a ${event.to}` : 'an answer'} on ${subject}` : `${who} commented on ${subject}`
+    const thing = family === 'release' ? `release ${subject}` : `${family} ${subject}`
+    if (what === 'created') return `${who} made ${thing}`
+    if (what === 'deleted') return `${who} deleted ${thing}`
+    if (what === 'changed') return `${who} wrote ${thing}`
+    return `${who} set ${thing} ${what}${change}`
+}
+
 const cut = (text: string, length: number) => text.length > length ? `${text.slice(0, length - 1)}…` : text
 
 function eventOf(row: EventRow): LoggedEvent {
@@ -220,6 +284,7 @@ function eventOf(row: EventRow): LoggedEvent {
         level: row.level,
         kind: row.kind,
         ...row.project ? {project: row.project} : {},
+        ...row.subject ? {subject: row.subject} : {},
         message: row.message,
         ...row.details ? {details: JSON.parse(row.details) as Record<string, unknown>} : {},
         count: row.count,
