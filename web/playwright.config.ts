@@ -19,7 +19,7 @@ export default defineConfig({
         {name: 'chromium', testIgnore: 'first-run.spec.ts', dependencies: ['first-run'], use: devices['Desktop Chrome']},
     ],
     webServer: {
-        command: `${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-*'} && nuxt dev --port ${port}`,
+        command: `${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-* .data/e2e-moved-*.db'} && nuxt dev --port ${port}`,
         env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_BACKUP_DIR: ''},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
