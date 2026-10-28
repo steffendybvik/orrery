@@ -28,7 +28,7 @@ test.beforeAll(async ({request}) => {
 })
 
 test('the sidebar is a drawer behind the menu button, gone again once a page is picked', async ({page}) => {
-    await page.goto('/now')
+    await page.goto('/mine')
     const drawer = page.locator('aside')
     await expect(drawer).not.toBeInViewport()
     await page.getByRole('button', {name: 'Open the sidebar'}).tap()

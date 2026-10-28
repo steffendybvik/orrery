@@ -2,12 +2,14 @@
 // What waits on the owner's answer on top: every issue in any project with an agent's question they haven't
 // answered, or an agent's proposal they haven't decided (`waiting`). Then every open urgent (P0) issue, whoever
 // has it; then every open issue assigned to the owner, by project: what waits on them (proposals first) and what
-// they took on. Sub-issues included; each issue shows once, in the first list it's in.
+// they took on. Sub-issues included; each issue shows once, in the first list it's in. It's home, so Getting started's
+// card sits on top until it's done.
 useHead({title: 'My issues · Orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {matches, shows} = useFilters()
 const {name: owner, load} = useOwner()
+const gettingStarted = useGettingStarted()
 onMounted(load)
 
 const waiting = computed(() => ordered.value.filter(p => shows(p.id))
@@ -39,6 +41,7 @@ const lists = computed(() => [
   <div class="min-h-0 flex-1 overflow-y-auto">
     <EmptyProjects v-if="ready && !projects.length" />
     <template v-else>
+      <GettingStarted v-if="!gettingStarted.finished.value && !gettingStarted.hidden.value" card class="m-3 md:m-4" />
       <div v-for="(list, i) in lists" :key="list.id" :class="i > 0 && 'mt-6'">
         <h2 class="flex items-center gap-2 px-3 pt-4 pb-2">
           <PriorityIcon v-if="list.id === 'urgent'" priority="P0" :size="14" />

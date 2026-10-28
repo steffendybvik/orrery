@@ -122,7 +122,7 @@ export const TOOLS = [
             limit: {type: 'number', description: '30 by default'},
         }},
     },
-    {name: 'guide', description: "How Orrery itself works, for questions about it rather than about the project: projects, issues and proposals, chunks, releases, docs, presets, schedules, sessions and the launcher, the chat, the bell and Now, secrets and egress, events, and each page with what it does.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'guide', description: "How Orrery itself works, for questions about it rather than about the project: projects, issues and proposals, chunks, releases, docs, presets, schedules, sessions and the launcher, the chat, the bell and My issues, secrets and egress, events, and each page with what it does.", inputSchema: {type: 'object', properties: {}}},
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 

@@ -1,9 +1,9 @@
 import {expect, test} from '@playwright/test'
 import {projectApi} from './support'
 
-// A fresh Orrery opened for the first time: the owner names themselves, makes a project from the page, and Now, My
-// issues, Getting started and Connect show what they should. The other spec files run after this one (the
-// `first-run` project in playwright.config.ts), so they find the owner named Ada Lovelace.
+// A fresh Orrery opened for the first time: the owner names themselves, makes a project from the page, and My issues
+// (home, with `/now` sent there), Getting started and Connect show what they should. The other spec files run after
+// this one (the `first-run` project in playwright.config.ts), so they find the owner named Ada Lovelace.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('greenhouse')
@@ -40,21 +40,21 @@ test('makes a project', async ({page}) => {
     await expect(page.getByRole('heading', {name: 'Greenhouse'})).toBeVisible()
 })
 
-test('Now, My issues and Connect show what they should', async ({page, request}) => {
+test('My issues and Connect show what they should', async ({page, request}) => {
     const urgent = await api(request, 'post', '/issues', {title: 'The shelf fell down', status: 'todo', priority: 'P0'})
+    // Now is gone (ORR-425): its old address lands on My issues.
     await page.goto('/now')
+    await expect(page).toHaveURL('/mine')
     await expect(page.getByText('The shelf fell down')).toBeVisible()
-    await page.goto('/mine')
-    await expect(page.getByText('The shelf fell down')).toBeVisible()
-    // Getting started is a card on Now until it's done; someone only planning is set without the steps for Claude.
+    // Getting started is a card on My issues until it's done; someone only planning is set without the steps for Claude.
     const card = page.getByRole('region', {name: 'Getting started'})
-    await page.goto('/now')
+    await page.goto('/mine')
     await expect(card.getByText('Connect a folder', {exact: true})).toBeVisible()
     await card.getByRole('button', {name: "Just planning? You're set"}).click()
     await expect(card).toBeHidden()
     await page.goto('/getting-started')
     await page.getByRole('button', {name: 'Working with Claude after all?'}).click()
-    await page.goto('/now')
+    await page.goto('/mine')
     await expect(card).toBeVisible()
     await page.goto('/connect?project=greenhouse')
     await expect(page.getByText(/Set this repo up for Orrery: read .*\/connect\/greenhouse\.md/)).toBeVisible()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Getting started: the steps from a new Orrery to a Claude session working from it, each ticked from what the
 // Orrery knows (useGettingStarted), with what to do for the one you're on. As a page it's the first run (in place
-// of "No projects yet", and at /getting-started); `card` is its fold-away form at the top of Now.
+// of "No projects yet", and at /getting-started); `card` is its fold-away form at the top of My issues.
 defineProps<{card?: boolean}>()
 
 const {steps, done, current, finished, project, hide, planning, plan, WITHOUT_CLAUDE} = useGettingStarted()

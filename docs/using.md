@@ -14,7 +14,7 @@ What you can do on Orrery's pages, and where it lives. Many actions are tucked i
 - **Presets**: standing words a session is started or messaged with ("review the open PRs"). Orrery ships a few, and the owner writes the rest, for every project or one.
 - **Schedules**: work Orrery starts on its own, on a cron, once, or when something happens (an issue moves to In review, a release is frozen, a new error). Each run makes an issue, messages the sessions, or starts a session. An **untrusted** message schedule is for reading what outsiders wrote (issues on GitHub, say): its session can only raise proposals and comment on them.
 - **Chat**: Claude on the page, about the project you're on. It answers from the project's code, roadmap and docs, files issues and comments when asked, and works on nothing itself.
-- **The bell, Now and My issues**: where the owner sees what needs them. Agents' questions and proposals wait in [the bell](#the-bell); **Now** shows what's started and urgent across projects.
+- **The bell and My issues**: where the owner sees what needs them. Agents' questions and proposals wait in [the bell](#the-bell); **My issues**, the home page, gathers them with what's urgent and what's yours, across projects.
 - **Secrets and egress**: keys for outside services, set by the owner on App settings (with `ORRERY_SECRET_KEY` set), each limited to the hosts and projects it may go to. An agent calls a service through **egress**, putting `{{secret:NAME}}` where the key goes. Orrery fills it in, and the agent never sees the value. Each use is kept on the secret.
 - **Events**: Orrery's own log, for looking into a problem: errors always, and with **Advanced** on, what it did and each change to the roadmap.
 - **More than one Orrery**: each (`personal`, `work`) is its own server with its own database, named by the chip beside its name.
@@ -63,8 +63,7 @@ Comments, the new-issue dialog and an issue's description take images: **paste**
 
 | Page | What's there |
 |---|---|
-| **Now** (`/now`) | Everything started, and urgent or high-priority Todo, across projects. Its filters include **Project**, to narrow it to some |
-| **My issues** (`/mine`) | **Waiting on you** on top (issues with an agent's question you haven't answered, or an agent's proposal you haven't decided, in any project), then open urgent (P0) issues anywhere, then what's assigned to you, proposals first. Filtered like Now, **Project** included |
+| **My issues** (`/mine`, the home page) | Getting started's card on top until it's done, then **Waiting on you** (issues with an agent's question you haven't answered, or an agent's proposal you haven't decided, in any project), then open urgent (P0) issues anywhere, then what's assigned to you, proposals first. Its filters include **Project**, to narrow it to some |
 | A project's **Issues** | A list (grouped by status or chunk) or a board, with search and filters for priority, column, assignee and label. It starts on the open issues: tick Done or Canceled under **Column** to see those too, and **Clear** to go back. The board has a column only for the statuses ticked |
 | An **issue's page** | Its title and description edit in place. Status, priority, assignee, labels and chunk change on the right. A question an agent asked you shows at the top, with **Answer**, until you do. A picture opens larger over the page on a click. Also sub-issues, the sessions panel, and the activity: comments with a quiet line for every change between them (who moved it, assigned it, relabelled it, and when) |
 | **Roadmap** | Chunks as cards in their columns. A chunk's page has its summary, priority, progress, issues and the sessions panel |
@@ -77,7 +76,7 @@ Comments, the new-issue dialog and an issue's description take images: **paste**
 | **App settings** (`/settings`, the cog at the top right, or ⌘K) | Three tabs: **You** (your name and handle), **Issues** (the statuses, proposals and the team tracker, for every project) and **This Orrery** (the tint that tells one Orrery from another, secrets, where its database is, how big, and its latest backup with **Back up now**, moving it to another, and **Advanced**, which records what Orrery does as well as its errors and shows the Events page). A link to a section opens its tab |
 | **Events** (`/events`, in the sidebar while Advanced is on) | Orrery's event log, read like a console: a line each, with the time it happened, the newest at the bottom (it follows new lines while you're there), errors in red and warnings in amber. What went wrong (a server or page error, a failed schedule or backup), what it did (sessions, launchers, schedule runs, backups) and each change to the roadmap (who made, moved or commented on which issue, docs, chunks, releases). Filter by project and by kind (a family such as `issue.*`, or one kind such as `issue.status`), both kept in the address so the view can be linked, and switch levels off with ERROR, WARN and INFO; a line opens to its details, and an error or warning has **Resolve** |
 | **Connect** (`/connect`) | The line that sets a Claude session up in an app's repo |
-| **Getting started** (`/getting-started`, or ⌘K) | A new Orrery opens on it: the steps to a Claude session working from your roadmap (a project, a folder connected, Claude started with the channel, work sent), each ticked once it happens and kept ticked after the sessions that did it end, and *Try it with a demo project* for a sample board to look around first. Any folder connects, an empty one to try it; *Just planning? You're set* finishes it after the project, without the steps for Claude. Until it's done it's a card at the top of Now; **Hide** puts it away |
+| **Getting started** (`/getting-started`, or ⌘K) | A new Orrery opens on it: the steps to a Claude session working from your roadmap (a project, a folder connected, Claude started with the channel, work sent), each ticked once it happens and kept ticked after the sessions that did it end, and *Try it with a demo project* for a sample board to look around first. Any folder connects, an empty one to try it; *Just planning? You're set* finishes it after the project, without the steps for Claude. Until it's done it's a card at the top of My issues; **Hide** puts it away |
 
 ## The bell
 
@@ -94,6 +93,6 @@ Agents' comments land in the bell in every page's header, which counts the new o
 | / | Search |
 | c | New issue (in the chunk, on a chunk's page) |
 | 1 / 2 | List / board |
-| g n · g m | Go to Now · My issues |
+| g m | Go to My issues |
 | ⌥↑ / ⌥↓ | Move a project up or down in the sidebar (or drag it by its name) |
 | → / ← | Unfold or fold a project's pages in the sidebar |

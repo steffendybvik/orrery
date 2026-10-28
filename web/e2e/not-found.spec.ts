@@ -17,9 +17,9 @@ test('an unknown URL shows inside the app, and its way back works', async ({page
     expect(logged).toEqual([])
     await expect(page).toHaveTitle(/Not found · Orrery$/)
     await expect(page.getByRole('link', {name: 'Quarry'}).first()).toBeVisible()
-    await page.getByRole('link', {name: 'Go to Now'}).click()
-    await expect(page).toHaveURL(/\/now$/)
-    await expect(page.getByRole('heading', {name: 'Now across projects'})).toBeVisible()
+    await page.getByRole('link', {name: 'Go to My issues'}).click()
+    await expect(page).toHaveURL(/\/mine$/)
+    await expect(page.getByRole('heading', {name: 'My issues'})).toBeVisible()
 })
 
 test('leaving an unknown URL by the sidebar clears it', async ({page}) => {

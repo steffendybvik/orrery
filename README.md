@@ -9,7 +9,7 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
 ## Features
 
 - **Issues:** sub-issues to any depth, grouped into chunks, shown as a list or a board. The statuses
-  are configurable, and every change is kept as activity. **Now** and **My issues** span all projects.
+  are configurable, and every change is kept as activity. **My issues**, the home page, spans all projects.
 - **Agent access:** a JSON API, MCP tools (`issue`, `start_issue`, `comment`, `finish_issue`, …) and
   `/llms.txt`. Agents can propose issues for the owner to approve, and ask for a decision or feedback.
 - **Directing sessions:** through a Claude Code channel, the owner can ask a session to focus on an
