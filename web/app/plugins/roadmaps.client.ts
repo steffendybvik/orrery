@@ -2,22 +2,32 @@ import type {Chat, Issue, LoggedEvent, Notice, Project, Schedule, Secret, Sessio
 import type {ProjectPatch} from '#shared/patch'
 import {applyPatch} from '#shared/patch'
 
-// Loads the projects, then listens to `/api/events`: a change through the API comes as a patch of what changed in
+// Loads the projects, without their closed issues (ORR-447), and reads one whole as one of its pages opens; then listens
+// to `/api/events`: a change through the API comes as a patch of what changed in
 // the project (ORR-440), which replaces it in place, without a reload (and the owner's chats, as they change). After a dropped connection it loads them all again, and the secrets; one
 // the browser gave up on (refused while the server restarted) it opens again itself.
 export default defineNuxtPlugin(() => {
-    const {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals} = useRoadmaps()
+    const {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, whole} = useRoadmaps()
+    const router = useRouter()
+    /** The project the page is on, read whole once the projects are in. */
+    const wholeForPage = () => {
+        const id = router.currentRoute.value.params.project
+        if (typeof id === 'string' && ready.value) whole(id).catch(() => {})
+    }
+    watch(() => router.currentRoute.value.params.project, wholeForPage)
 
     async function load() {
         const app = useAppSettings()
         app.settings.value = await $fetch<Settings>('/api/settings').catch(() => app.settings.value)
         app.apply()
         await useOwner().refresh()
-        const read = await $fetch<(Project & {rev: number})[]>('/api/projects', {query: {expand: 'board', notes: '0'}})
+        const read = await $fetch<(Project & {rev: number})[]>('/api/projects', {query: {expand: 'board', notes: '0', closed: '0'}})
         revs.clear()
         for (const project of read) revs.set(project.id, project.rev)
+        partial.value = Object.fromEntries(read.map(p => [p.id, true]))
         projects.value = read
         ready.value = true
+        wholeForPage()
         useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
         await useLoggedEvents().loadNew()
         await useSchedules().load()
@@ -66,12 +76,14 @@ export default defineNuxtPlugin(() => {
         const have = revs.get(patch.id)
         if (before && have !== undefined && patch.rev <= have) return
         const fits = before ? have !== undefined && patch.base <= have : patch.base === 0
-        const project = fits ? applyPatch(before ?? {board: {chunks: []}} as unknown as Project, patch) : null
+        const lacking = !!partial.value[patch.id]
+        const project = fits ? applyPatch(before ?? {board: {chunks: []}} as unknown as Project, patch, lacking) : null
         if (project) {
             revs.set(patch.id, Math.max(have ?? 0, patch.rev))
             return received(project)
         }
-        $fetch<Project & {rev: number}>(`/api/projects/${encodeURIComponent(patch.id)}`, {query: {notes: '0'}}).then(read => {
+        // Read again as the page has it: without its closed issues while it was.
+        $fetch<Project & {rev: number}>(`/api/projects/${encodeURIComponent(patch.id)}`, {query: {notes: '0', ...lacking ? {closed: '0'} : {}}}).then(read => {
             revs.set(read.id, Math.max(revs.get(read.id) ?? 0, read.rev))
             received(read)
         }, () => {})

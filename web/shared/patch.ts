@@ -1,4 +1,5 @@
 import type {Chunk, Issue, Project} from './roadmap'
+import {CLOSED} from './roadmap'
 
 // What changed in a project since the page last had it (ORR-440), so a change to one issue doesn't send the whole
 // project to every open tab. A patch carries the issues that changed, whole, and for each chunk with a change its
@@ -56,6 +57,19 @@ export function withoutNotes<T extends Project>(project: T): T {
     return {...project, board: {...project.board, chunks: project.board.chunks.map(chunk => ({...chunk, tasks: strip(chunk.tasks)}))}}
 }
 
+const closed = (issue: {kind: string}) => (CLOSED as readonly string[]).includes(issue.kind)
+
+/** `project` without its closed issues (done, canceled) that have no open sub-issue under them: the page's load of every
+ * board leaves them out (ORR-447), and reads a project whole when one of its pages opens. A closed issue with open work
+ * under it stays, so the tree holds. */
+export function withoutClosed<T extends Project>(project: T): T {
+    const keep = (issues: Issue[]): Issue[] => issues.flatMap(issue => {
+        const tasks = keep(issue.tasks)
+        return closed(issue) && !tasks.length ? [] : [{...issue, tasks}]
+    })
+    return {...project, board: {...project.board, chunks: project.board.chunks.map(chunk => ({...chunk, tasks: keep(chunk.tasks)}))}}
+}
+
 /** What changed from `before` (none: everything) to `after`. */
 export function diffProject(before: Project | undefined, after: Project, base: number, rev: number): ProjectPatch {
     const {board: _, ...fields} = after
@@ -91,8 +105,10 @@ export function diffProject(before: Project | undefined, after: Project, base: n
     return {id: after.id, base, rev, fields: changed as ProjectPatch['fields'], unset, board: {counts: after.board.counts, kinds: after.board.kinds, chunks}, issues}
 }
 
-/** `project` with `patch` applied; null when it can't be (a chunk or issue the patch counts on isn't there). */
-export function applyPatch(project: Project, patch: ProjectPatch): Project | null {
+/** `project` with `patch` applied; null when it can't be (a chunk or issue the patch counts on isn't there). A `partial`
+ * project was read without its closed issues (`withoutClosed`): one it never had stays out, changed or not, unless open
+ * work under it needs it there, when it can't be applied (and the project is read again, with it). */
+export function applyPatch(project: Project, patch: ProjectPatch, partial = false): Project | null {
     const issues = new Map<string, IssueFields>()
     const walk = (list: Issue[]) => list.forEach(issue => {
         issues.set(issue.id, fieldsOf(issue))
@@ -100,11 +116,17 @@ export function applyPatch(project: Project, patch: ProjectPatch): Project | nul
     })
     project.board.chunks.forEach(chunk => walk(chunk.tasks))
     const chunks = new Map(project.board.chunks.map(chunk => [chunk.id, chunk]))
-    const build = (shape: Shape): Issue | null => {
-        const fields = patch.issues[shape.id] ?? issues.get(shape.id)
-        if (!fields) return null
+    const fieldsFor = (id: string): IssueFields | undefined => {
+        const sent = patch.issues[id]
+        return partial && !issues.has(id) && sent && closed(sent) ? undefined : sent ?? issues.get(id)
+    }
+    const needed = (shape: Shape): boolean => !!fieldsFor(shape.id) || shape.tasks.some(needed)
+    // An issue, null when one it needs is missing, or undefined when it's left out.
+    const build = (shape: Shape): Issue | null | undefined => {
+        const fields = fieldsFor(shape.id)
+        if (!fields) return partial && !needed(shape) ? undefined : null
         const tasks = shape.tasks.map(build)
-        return tasks.every(Boolean) ? {...fields, tasks: tasks as Issue[]} as Issue : null
+        return tasks.includes(null) ? null : {...fields, tasks: tasks.filter(Boolean) as Issue[]} as Issue
     }
     const next: Chunk[] = []
     for (const chunk of patch.board.chunks) {
@@ -115,8 +137,8 @@ export function applyPatch(project: Project, patch: ProjectPatch): Project | nul
             continue
         }
         const tasks = chunk.tasks.map(build)
-        if (!tasks.every(Boolean)) return null
-        next.push({...chunk, tasks: tasks as Issue[]})
+        if (tasks.includes(null)) return null
+        next.push({...chunk, tasks: tasks.filter(Boolean) as Issue[]})
     }
     const result = {...project, ...patch.fields, board: {chunks: next, counts: patch.board.counts, kinds: patch.board.kinds}} as Project
     for (const key of patch.unset) delete (result as unknown as Record<string, unknown>)[key]
