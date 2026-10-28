@@ -7,8 +7,8 @@ import type {Asks} from '#shared/roadmap'
 // row and card.
 const props = defineProps<{asks: Asks, proposal?: {choices: number}}>()
 const label = computed(() => props.proposal
-    ? `Proposal: needs your decision${props.proposal.choices ? ` · ${props.proposal.choices} ${props.proposal.choices === 1 ? 'choice' : 'choices'}` : ''}`
-    : props.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback')
+    ? `Proposal: decision needed${props.proposal.choices ? ` · ${props.proposal.choices} ${props.proposal.choices === 1 ? 'choice' : 'choices'}` : ''}`
+    : props.asks === 'decision' ? 'Decision needed' : 'Feedback needed')
 const title = computed(() => props.proposal
     ? "An agent's proposal waits on you: approve it, ask for changes or reject it"
     : props.asks === 'decision' ? 'An agent asked for your decision: answer with a comment' : 'An agent asked for your feedback: answer with a comment')

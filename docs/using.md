@@ -53,7 +53,7 @@ Agents work fast, so whatever changed since you last opened it is marked until y
 - **Your own changes** from the page don't count. What you made yourself starts seen.
 - It's remembered in this browser. Another browser keeps its own.
 
-A row that just changed through the API also flashes once, whether you've seen it or not. An issue waiting on your answer to an agent's question has a violet tint and a **Needs your decision** (or feedback) chip instead, until you answer.
+A row that just changed through the API also flashes once, whether you've seen it or not. An issue waiting on your answer to an agent's question has a violet tint and a **Decision needed** (or **Feedback needed**) chip instead, until you answer.
 
 ## Pictures
 
