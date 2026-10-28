@@ -35,6 +35,12 @@ interface Step {name: string, ms: number, budget: number, calls: Call[], pushed?
 
 const steps: Step[] = []
 
+/** The most one change may push to each open tab, in bytes. */
+const PUSH_BUDGET = 100_000
+
+/** The page's events stream, with or without its query. */
+const EVENTS = /\/api\/events(\?|$)/
+
 /** Times `act` until `ready` shows and the API calls it set off have finished, and keeps the step. A call the page left
  * behind when it navigated doesn't count (the browser doesn't always say it ended); one still open 15 s after `ready`
  * is noted in the report as unfinished rather than waited for. */
@@ -197,7 +203,7 @@ test('reconnecting and live changes', async () => {
     // The stream drops (window.stop() ends it, as a lost connection would), and opening it again loads every project
     // again. The page waits before trying again; the step is timed from when it does.
     let reconnect = () => {}
-    const asked = new Promise<void>(resolve => void page.route('**/api/events', async route => {
+    const asked = new Promise<void>(resolve => void page.route(EVENTS, async route => {
         await new Promise<void>(go => {
             reconnect = go
             resolve()
@@ -211,17 +217,20 @@ test('reconnecting and live changes', async () => {
         reconnect()
         await reloaded
     }, page.locator('main [data-issue]').first())
-    await page.unroute('**/api/events')
+    await page.unroute(EVENTS)
     // An agent's change, until the open page shows it.
     // `pushed`: what the server sent each open tab for it, over the events stream.
-    const stream = hold(new URL(page.url()).origin, '/api/events')
+    const stream = hold(new URL(page.url()).origin, '/api/events?patch=1')
     await expect.poll(() => stream.said.text.length).toBeGreaterThan(0)
+    const target = await page.locator('main [data-issue]').first().getAttribute('data-issue')
     const before = stream.said.text.length
     const renamed = `Renamed live ${Date.now()}`
-    const target = await page.locator('main [data-issue]').first().getAttribute('data-issue')
     await measure(page, 'a live change', () => page.request.patch(`/api/projects/${BIG.project}/issues/${target}`, {data: {title: renamed}, headers: {'Orrery-Actor': 'claude'}}),
         page.getByText(renamed).first())
     await expect.poll(() => stream.said.text.includes(renamed)).toBe(true)
-    steps.at(-1)!.pushed = Buffer.byteLength(stream.said.text.slice(before))
+    const pushed = Buffer.byteLength(stream.said.text.slice(before))
+    steps.at(-1)!.pushed = pushed
+    // The changed issue and its chunk's tree of ids, not the whole project (ORR-440: it was 859 kB).
+    expect.soft(pushed, `a live change pushed ${kb(pushed)}, over its ${kb(PUSH_BUDGET)} budget`).toBeLessThanOrEqual(PUSH_BUDGET)
     stream.stop()
 })

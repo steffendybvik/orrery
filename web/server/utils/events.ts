@@ -1,5 +1,5 @@
 // The one store the routes share, and the events it sends: `project` (the project, read again)
-// after any change to it, `removed` (its id) once it's deleted, and `signal` (a Signal) when someone
+// after any change to it, and `patch` (what changed in it since the last, see shared/patch.ts), `removed` (its id) once it's deleted, and `signal` (a Signal) when someone
 // asks the sessions on a project to focus on an issue, `schedules` (the project) when its schedules
 // change or run, `secrets` (the list, no values) when they change or one is used, `logged` ({event, fresh}) when the
 // event log records or resolves one, and `happened` ({event, cause}) for what the schedules can run on (ORR-341), `cause`
@@ -7,7 +7,8 @@
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import type {OrreryEvent} from '#shared/happenings'
-import type {LoggedEvent} from '#shared/roadmap'
+import type {LoggedEvent, Project} from '#shared/roadmap'
+import {diffProject} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
 import {Schedules, scheduleRunning} from './schedules'
@@ -19,23 +20,50 @@ projectEvents.setMaxListeners(0)
 
 let store: Store | null = null
 
-/** Each project's latest re-read, so one that finishes after a newer one doesn't push a stale board. */
-const reads = new Map<string, number>()
+/** The projects being read again: `again` when another change came in during the read, so a burst of writes reads
+ * each project once more when the read in hand finishes, not once per write (ORR-440). */
+const reading = new Map<string, 'reading' | 'again'>()
+
+/** Each project as it was last pushed, and its revision, which the next `patch` is made from (ORR-440). */
+const pushed = new Map<string, {rev: number, project: Project}>()
+
+/** A project as a page reads it whole, with the revision the patches after it build on. One not pushed since the
+ * server started is kept as revision 0, so the first change to it is a patch from what the page read, not the whole
+ * project. */
+export function withRev(project: Project): Project & {rev: number} {
+    const last = pushed.get(project.id) ?? {rev: 0, project}
+    pushed.set(project.id, last)
+    return {...project, rev: last.rev}
+}
+
+/** Reads `id` again and pushes it, as `project` and as a `patch` from the last push. */
+function reread(id: string) {
+    if (reading.has(id)) {
+        reading.set(id, 'again')
+        return
+    }
+    reading.set(id, 'reading')
+    useStore().project(id).then(project => {
+        const last = pushed.get(id)
+        const rev = (last?.rev ?? 0) + 1
+        pushed.set(id, {rev, project})
+        projectEvents.emit('project', project)
+        projectEvents.emit('patch', diffProject(last?.project, project, last?.rev ?? 0, rev))
+    }, error => {
+        // Only a project that's gone is removed; any other failure leaves the pages as they are.
+        if ((error as {statusCode?: number}).statusCode === 404) {
+            pushed.delete(id)
+            projectEvents.emit('removed', id)
+        } else console.error(`[orrery] reading ${id} again:`, error)
+    }).finally(() => {
+        const again = reading.get(id) === 'again'
+        reading.delete(id)
+        if (again) reread(id)
+    })
+}
 
 export function useStore(): Store {
-    store ??= new Store(useDatabase(), id => {
-        const read = (reads.get(id) ?? 0) + 1
-        reads.set(id, read)
-        useStore().project(id).then(project => {
-            if (reads.get(id) === read) projectEvents.emit('project', project)
-        }, error => {
-            // Only a project that's gone is removed; any other failure leaves the pages as they are.
-            if ((error as {statusCode?: number}).statusCode === 404) {
-                reads.delete(id)
-                projectEvents.emit('removed', id)
-            } else console.error(`[orrery] reading ${id} again:`, error)
-        })
-    }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
+    store ??= new Store(useDatabase(), reread, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
     store.hears = hearing
     store.happened = changed
     return store
