@@ -109,4 +109,15 @@ describe("an untrusted schedule's session", () => {
         // Any other session writes as it always has.
         expect(await tries('PATCH', '/api/projects/greenhouse/issues/GRE-1', 'abc')).toBe('ok')
     })
+
+    it("is held to that by its channel's word when Orrery doesn't know it (restarted before its launcher reported)", async () => {
+        const guard = (await import('../server/middleware/untrusted')).default as unknown as (event: object) => Promise<void>
+        const said = (method: string, path: string, session?: string) => {
+            const e = event(method, path, {}, undefined, session)
+            return guard({...e, headers: {...e.headers, 'orrery-untrusted': 'yes'}}).then(() => 'ok', (error: {statusCode: number}) => error.statusCode)
+        }
+        expect(await said('PATCH', '/api/projects/greenhouse/issues/GRE-1', 'abc')).toBe(403)
+        expect(await said('PUT', '/api/projects/greenhouse/docs/setup', '')).toBe(403)
+        expect(await said('POST', '/api/projects/greenhouse/issues', 'abc')).toBe('ok')
+    })
 })

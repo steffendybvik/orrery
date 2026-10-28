@@ -22,6 +22,8 @@ export interface Listener {
     stops: boolean
     /** The name its server goes by in the repo's .mcp.json. */
     server?: string
+    /** Its channel says it's an untrusted schedule's session (`untrusted=yes`), whether or not Orrery knows its launch. */
+    untrusted: boolean
 }
 
 export type Feed = Awaited<ReturnType<typeof openFeed>>
@@ -32,9 +34,9 @@ export async function openFeed(project: string, who: Listener, from: number | un
     const store = useStore()
     await store.project(project)
     const {heard} = who
-    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server) : null
+    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server, who.untrusted) : null
     // An untrusted run's session hears only its own message, so it isn't someone there to hear the owner's signals.
-    const stopListening = heard && !who.started?.untrusted ? listen(project) : () => {}
+    const stopListening = heard && !who.untrusted && !who.started?.untrusted ? listen(project) : () => {}
     const done = () => {
         stopListening()
         attended?.done()
@@ -239,5 +241,6 @@ export function listenerOf(text: (key: string) => string | undefined, launchedHe
     return {
         session: text('session'), pid: Number(text('pid')) || undefined, name: text('name'), heard: text('channel') !== 'no',
         started: launch ? launched(launch) : undefined, launch, stops: text('stops') === 'yes', server: text('server'),
+        untrusted: text('untrusted') === 'yes',
     }
 }

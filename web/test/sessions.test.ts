@@ -296,6 +296,14 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse').map(s => s.id).sort()).toEqual(['after', 'elsewhere', 'fresh', 'late'])
     })
 
+    it("its channel says is untrusted stays so, though Orrery doesn't know its launch and the launcher's report leaves it out", () => {
+        sessions.attend('greenhouse', 'locked', undefined, undefined, true, undefined, true, 'l9', undefined, true)
+        sessions.attend('greenhouse', 'plain', undefined, undefined, true, undefined, true, 'l8')
+        expect([sessions.untrustedSession('locked'), sessions.untrustedSession('plain')]).toEqual([true, false])
+        sessions.adoptLaunch('greenhouse', {launch: 'l9', tmux: 'orrery-greenhouse-9'})
+        expect(sessions.untrustedSession('locked')).toBe(true)
+    })
+
     it('started by Orrery keeps its launch across a /clear', () => {
         sessions.attend('greenhouse', 'before', 42, undefined, true, {launch: 'l1', tmux: 'orrery-greenhouse-l1', stops_at: '2026-10-25T11:00:00.000Z'})
         sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})
