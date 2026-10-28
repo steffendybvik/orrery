@@ -1,6 +1,6 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
-# tag has to pass before `release.yml` publishes anything. The e2e flows run, on SQLite and on Postgres, on every
-# pull request that isn't a draft (so before it merges), on a release tag, and by hand (Run workflow).
+# tag has to pass before `release.yml` publishes anything. The e2e flows and the performance run, on SQLite and on Postgres,
+# run on every pull request that isn't a draft (so before it merges), on a release tag, and by hand (Run workflow).
 name: CI
 
 on:
@@ -114,6 +114,50 @@ jobs:
           name: playwright-report-${{ matrix.database }}
           path: web/playwright-report/
           retention-days: 7
+
+  # How fast the pages are on a big orrery (web/e2e/perf), run when the e2e flows are. A page over its budget fails
+  # it. The report (each page's time, its API calls and their sizes) is kept every run, passed or not.
+  perf:
+    needs: playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
+      options: --ipc=host
+    services:
+      postgres:
+        image: ${{ matrix.database == 'postgres' && 'postgres:17-alpine' || '' }}
+        env:
+          POSTGRES_USER: orrery
+          POSTGRES_PASSWORD: orrery
+          POSTGRES_DB: orrery_e2e
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      E2E_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgres://orrery:orrery@postgres:5432/orrery_e2e' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:e2e:perf
+      - run: cat perf-report/report.md >> "$GITHUB_STEP_SUMMARY" || true
+        if: always()
+        working-directory: web
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: perf-report-${{ matrix.database }}
+          path: |
+            web/perf-report/
+            web/playwright-report/
+          retention-days: 30
 
   # A release builds the image itself, for both platforms.
   docker:

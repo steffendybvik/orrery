@@ -16,7 +16,7 @@ export default defineConfig({
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure'},
     projects: [
         {name: 'first-run', testMatch: 'first-run.spec.ts', use: devices['Desktop Chrome']},
-        {name: 'chromium', testIgnore: 'first-run.spec.ts', dependencies: ['first-run'], use: devices['Desktop Chrome']},
+        {name: 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**'], dependencies: ['first-run'], use: devices['Desktop Chrome']},
     ],
     webServer: {
         command: `${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-* .data/e2e.db.backups.json .data/e2e-moved-*.db'} && nuxt dev --port ${port}`,

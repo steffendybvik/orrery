@@ -48,6 +48,36 @@ describe("the channel's tools", () => {
         expect(calls[0]!.headers).toMatchObject({'Orrery-Session': 'abc', 'Orrery-Untrusted': 'yes'})
     })
 
+    it("read GitHub issues for an untrusted schedule's session alone, through gh with its arguments pinned (ORR-415)", async () => {
+        const runs: string[][] = []
+        const gh = async (args: string[]) => {
+            runs.push(args)
+            return '[{"number":12}]'
+        }
+        const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => '{}'})
+        type Result = {isError?: boolean, content: {text: string}[]}
+        const untrusted = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', untrusted: true, fetch, gh}) as (name: string, args?: object) => Promise<Result>
+        expect((await untrusted('github_issues', {})).content[0]!.text).toBe('[{"number":12}]')
+        await untrusted('github_issues', {search: '-R evil.example/o/r', state: 'all', limit: 5})
+        await untrusted('github_issues', {number: 12})
+        expect(runs).toEqual([
+            ['issue', 'list', '--state=open', '--limit=30', '--json=number,title,state,author,labels,createdAt,url'],
+            // The search goes inside its own flag, so gh never reads it as -R.
+            ['issue', 'list', '--state=all', '--limit=5', '--json=number,title,state,author,labels,createdAt,url', '--search=-R evil.example/o/r'],
+            ['issue', 'view', '12', '--json=number,title,state,author,labels,createdAt,url,body,comments'],
+        ])
+        for (const args of [{number: '12 -R x'}, {number: 0}, {state: '--web'}, {limit: 1000}]) expect((await untrusted('github_issues', args)).isError).toBe(true)
+        expect(runs).toHaveLength(3)
+        // Nobody else has it, nor lists it.
+        const plain = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch, gh}) as (name: string, args?: object) => Promise<Result>
+        expect((await plain('github_issues', {})).content[0]!.text).toBe('No tool "github_issues"')
+        expect(runs).toHaveLength(3)
+        const names = (options: object) => toolsFor(['greenhouse'], options).map((t: {name: string}) => t.name)
+        expect(names({untrusted: true})).toContain('github_issues')
+        expect(names({})).not.toContain('github_issues')
+        expect(names({chat: true})).not.toContain('github_issues')
+    })
+
     it("in the owner's chat, answer in it and see what was pasted, say so on every call, and go without what takes up work", async () => {
         const calls: {url: string, init: {method: string, headers: Record<string, string>, body?: string}}[] = []
         const png = Buffer.from('89504e47', 'hex')

@@ -31,6 +31,9 @@ export default defineNuxtConfig({
         // Host names orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
         // Override with NUXT_ALLOWED_HOSTS.
         allowedHosts: '',
+        // In Docker, the address compose publishes orrery on (ORRERY_HOST): moving the database and setting backups
+        // from the app need it to be loopback, as the container can't tell who's connecting. Compose sets NUXT_LISTEN_HOST.
+        listenHost: '',
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',

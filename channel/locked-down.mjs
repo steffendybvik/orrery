@@ -7,15 +7,16 @@ import {readFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {NOT_FOR_CHAT} from './tools.mjs'
 
-/** How an untrusted schedule's session is started: it reads what others wrote (GitHub issues), so it gets Bash for
- * `gh issue list` and `gh issue view` only, and the channel's tools but `egress` and `secrets`; everything else is
+/** How an untrusted schedule's session is started: it reads what others wrote (GitHub issues) with the channel's
+ * `github_issues`, and has no Bash, nor any other of Claude Code's own tools, so it can't point gh at another host and
+ * send what it read there (ORR-415). It has the channel's tools but `egress` and `secrets`; everything else is
  * refused, not asked (`dontAsk`, as nobody is there to answer). `--restricted` leaves out the user's and the repo's
  * settings (their allow lists among them), so the repo's hooks are passed back on their own, and only the repo's MCP
  * servers load. */
 export function lockedDown(dir, server) {
-    return ['--restricted', '--tools', 'Bash', '--permission-mode', 'dontAsk', '--settings', JSON.stringify({hooks: hooksOf(dir)}),
+    return ['--restricted', '--tools', '', '--permission-mode', 'dontAsk', '--settings', JSON.stringify({hooks: hooksOf(dir)}),
         '--strict-mcp-config', '--mcp-config', join(dir, '.mcp.json'),
-        '--allowedTools', 'Bash(gh issue list:*)', 'Bash(gh issue view:*)', `mcp__${server}`,
+        '--allowedTools', `mcp__${server}`,
         '--disallowedTools', `mcp__${server}__egress`, `mcp__${server}__secrets`]
 }
 

@@ -80,7 +80,7 @@ const server = new Server({name: 'orrery', version: VERSION}, {
     ].join(' '),
 })
 const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat})}))
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}

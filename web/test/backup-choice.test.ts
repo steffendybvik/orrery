@@ -85,14 +85,15 @@ describe('choosing the backups', () => {
 })
 
 describe('who may set them', () => {
-    /** backup-choice.ts loaded with the actor a request names, and a request to it from `host`. */
-    async function guard(owner: boolean, host: string, database?: string) {
+    /** backup-choice.ts loaded with the actor a request names, and a request to it by the name `host`, over a connection
+     * from `from`. */
+    async function guard(owner: boolean, host: string, database?: string, from = '127.0.0.1') {
         await setUp('backup')
         if (database) vi.stubGlobal('useRuntimeConfig', () => ({database, backupDir: ''}))
         vi.doMock('../server/utils/actor', () => ({actorOf: async () => ({name: owner ? 'skoll' : 'claude', owner})}))
         vi.resetModules()
         const fresh = await import('../server/utils/backup-choice')
-        return () => fresh.maySetBackups({node: {req: {headers: {host}}}} as never)
+        return () => fresh.maySetBackups({node: {req: {headers: {host}, socket: {remoteAddress: from}}}} as never)
     }
 
     it('is the owner, on the machine orrery runs on', async () => {
@@ -102,6 +103,8 @@ describe('who may set them', () => {
     it('is never an agent, nor anyone reaching it by another address', async () => {
         expect(await status(await guard(false, 'localhost:9010'))).toBe(403)
         for (const host of ['192.168.1.20:9010', 'mac.lan']) expect(await status(await guard(true, host))).toBe(403)
+        // Nor by a connection from another machine that says it reached orrery as localhost.
+        expect(await status(await guard(true, 'localhost:9010', undefined, '192.168.1.20'))).toBe(403)
     })
 
     it('is nobody while ORRERY_DATABASE names Postgres: its backups are set as it starts', async () => {

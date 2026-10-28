@@ -82,7 +82,8 @@ backups.
 
 ### Moving it from the app
 
-App settings → This orrery → Database → **Move to another database…**, on the orrery's own machine (localhost):
+App settings → This orrery → Database → **Move to another database…**, on the orrery's own machine (localhost;
+in Docker only while `ORRERY_HOST` keeps it to this machine, as it does by default):
 pick a SQLite file or Postgres (its URL, or host, port, name, user and password), and orrery checks it first. An
 empty one has everything copied in, ids and all; an orrery's own (one you ran on before, or after a reinstall) is
 run on as it is. orrery switches at once, no restart, and keeps the choice beside its SQLite file

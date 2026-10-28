@@ -11,6 +11,7 @@ import {getRequestHost} from 'h3'
 import pg from 'pg'
 import type {DatabaseCheck} from '#shared/roadmap'
 import {actorOf} from './actor'
+import {inDocker} from './backup-choice'
 import {SqliteDb} from './database'
 import {copyDatabase} from './copy'
 import {databaseSetting, hidePassword, movedFile, openDb, switchDatabase, useDatabase} from './db'
@@ -19,17 +20,38 @@ import {badRequest, conflict, forbidden} from './input'
 
 /** The names only this machine reaches orrery by: a move hands the data to wherever it's pointed. */
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
+/** A loopback address, as a connection comes from (`::ffff:127.0.0.1` over IPv6) or as orrery is published on. */
+const LOOPBACK = /^(127(\.\d{1,3}){3}|::1|\[::1\]|::ffff:127(\.\d{1,3}){3}|localhost)$/i
 
-/** Whether the request reached orrery by a name only this machine reaches it by. */
+/** Whether the request came from the machine orrery runs on. The name it was reached by has to be this machine's, but
+ * that's the `Host` header, which the caller chooses (ORR-421), so the connection has to say so too: outside Docker, it
+ * comes from a loopback address (see `clientAddress`); in Docker, where every request comes through the bridge, orrery has to be published on
+ * loopback alone (`ORRERY_HOST`, 127.0.0.1 by default, which compose passes in as NUXT_LISTEN_HOST). */
 export function fromThisMachine(event: H3Event): boolean {
-    return THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))
+    if (!THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))) return false
+    if (inDocker()) return LOOPBACK.test(String(useRuntimeConfig().listenHost ?? ''))
+    return LOOPBACK.test(clientAddress(event))
 }
+
+/** Where the connection comes from. `nuxt dev` hands each request to its server over a local socket, which has no
+ * address, and puts the client's last in `X-Forwarded-For` (after any the client sent itself), so it's read there then. */
+function clientAddress(event: H3Event): string {
+    const socket = event.node.req.socket?.remoteAddress
+    if (socket) return socket
+    const forwarded = event.node.req.headers['x-forwarded-for']
+    return String(Array.isArray(forwarded) ? forwarded.join(',') : forwarded ?? '').split(',').at(-1)?.trim() ?? ''
+}
+
+/** Why a request isn't from this machine, for `what` ("The database is moved"). */
+export const notThisMachine = (what: string) => inDocker() && !LOOPBACK.test(String(useRuntimeConfig().listenHost ?? ''))
+    ? `${what} only while orrery is reachable from its own machine alone, and ORRERY_HOST opens it to the network: set it back to 127.0.0.1 for the change, or make it outside the app`
+    : `${what} from the machine orrery runs on: open it at localhost`
 
 /** Only the owner moves the database, and only on this machine. */
 export async function mayMove(event: H3Event) {
     const actor = await actorOf(event)
     if (!actor.owner) throw forbidden('Only the owner moves the database; send Orrery-Actor: <owner>')
-    if (!fromThisMachine(event)) throw forbidden('The database is moved from the machine orrery runs on: open it at localhost')
+    if (!fromThisMachine(event)) throw forbidden(notThisMachine('The database is moved'))
     if (!movedFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the database is set there: change it and restart orrery')
 }
 

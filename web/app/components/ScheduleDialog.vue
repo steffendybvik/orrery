@@ -392,7 +392,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     </section>
 
     <section v-if="sends === 'message'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
-      <p v-if="untrusted">Each run starts a Claude session for this message alone. It can only read GitHub issues (<code>gh issue list</code> and <code>view</code>) and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
+      <p v-if="untrusted">Each run starts a Claude session for this message alone. It can only read the repo's GitHub issues and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
       <p v-else>Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
       <label class="flex items-center gap-1.5">
         <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">

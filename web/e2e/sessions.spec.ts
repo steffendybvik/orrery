@@ -4,7 +4,7 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
-// one orrery started, the session on an issue shown on its page, and a preset.
+// one orrery started, Forget on one that can't hear signals, the session on an issue shown on its page, and a preset.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
@@ -42,6 +42,19 @@ test("shows a listening session on the Sessions page, and sends it a message onl
     } finally {
         channel.stop()
     }
+})
+
+test("forgets a session that can't hear signals, and its next hook brings it back", async ({page, request}) => {
+    await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'Stop', name: 'kitchen drawers'}})
+    await page.goto('/sessions')
+    const card = page.locator('#session-e2e-gone')
+    await expect(card.getByText("can't hear signals")).toBeVisible()
+    await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
+    await card.getByRole('button', {name: 'Forget kitchen drawers'}).click()
+    await expect(card).toHaveCount(0)
+    await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'Stop', name: 'kitchen drawers'}})
+    await expect(card).toBeVisible()
+    await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'SessionEnd'}})
 })
 
 test('lists a session that hears two projects once, across them', async ({page, request, baseURL}) => {
