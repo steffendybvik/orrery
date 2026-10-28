@@ -7,12 +7,13 @@ import type {Chat, ChatMessage} from '#shared/roadmap'
 // to it as messages aimed at it; it answers with its channel's `reply` tool, kept here and streamed to the page
 // (`chat` events). A chat is kept while its session runs, here only, and ends when the owner ends it.
 
-/** What the chat's session is told it is, with every message. */
-export const CHAT_BRIEF = `This session is the owner's chat in Orrery: they type to you on its page and read what you send with the reply tool.
+/** What the chat's session on `project` is told it is, with every message. */
+export const chatBrief = (project: string) => `This session is the owner's chat in Orrery: they type to you on its page and read what you send with the reply tool.
 Answer their questions about this project: its code (read it), its roadmap and its docs (the issues, issue, chunks,
 releases, docs and doc tools). When they ask for an issue or a comment, make it (create_issue, comment) and say which
 id it got. You don't work on anything: don't change code, and don't start, move or finish issues; other sessions do
-that. Every answer goes back with the reply tool, in Markdown: nothing else reaches the owner.`
+that. Every answer goes back with the reply tool, in Markdown: nothing else reaches the owner. Write an issue as a link
+to its page, \`[<id>](/p/${project}/issues/<id>)\`, so the owner can open it.`
 
 const chats = new Map<string, Chat>()
 let next = 1
@@ -23,7 +24,7 @@ function changed(chat: Chat) {
 
 /** Starts a chat on the project: its session is on its way, and the chat is there to write in at once. */
 export async function openChat(project: string): Promise<Chat> {
-    const launch = await startChat(project, {presets: [], text: CHAT_BRIEF})
+    const launch = await startChat(project, {presets: [], text: chatBrief(project)})
     const chat: Chat = {id: launch.id, project, started_at: new Date().toISOString(), messages: []}
     chats.set(chat.id, chat)
     changed(chat)
