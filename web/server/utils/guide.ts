@@ -1,10 +1,16 @@
 // What orrery tells an agent about itself: /llms.txt (an overview and the projects), /llms-full.txt
-// (that plus the API reference) and /api/guide (the reference alone, docs/API.md).
+// (that plus the API reference), /api/guide (the reference alone, docs/API.md) and /api/guide/using (how orrery works,
+// docs/using.md, which the channel's `guide` tool hands a session asked about orrery).
 import type {H3Event} from 'h3'
 import {total} from '#shared/roadmap'
 
 export async function apiReference(): Promise<string> {
     return String(await useStorage('assets:docs').getItem('API.md') ?? '')
+}
+
+/** How orrery works, for people and for a session asked about it (docs/using.md): the channel's `guide` tool (ORR-411). */
+export async function usingGuide(): Promise<string> {
+    return String(await useStorage('assets:docs').getItem('using.md') ?? '')
 }
 
 /** The address orrery was reached at, as the agent reading this should use it. */

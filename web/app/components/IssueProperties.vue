@@ -130,7 +130,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
             :title="link.url ? `Open ${link.task} on the team's tracker` : 'Set the tracker in App settings to link it'"
         >{{ link.task }}</component>
       </span>
-      <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. CIR-1567…" multiple creatable :disabled="saving">
+      <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. ENG-1567…" multiple creatable :disabled="saving">
         <span class="text-faint">{{ issue.external.length ? 'Edit' : 'None' }}</span>
       </PropertyPicker>
     </dd>

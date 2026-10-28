@@ -90,7 +90,7 @@ export interface Issue {
     /** Who's on it: a person, or `claude`. */
     assignee?: string
     labels: string[]
-    /** Its tasks on the team's tracker: ids (`CIR-1567`), linked through the orrery's `tracker`, or full URLs. */
+    /** Its tasks on the team's tracker: ids (`ENG-1567`), linked through the orrery's `tracker`, or full URLs. */
     external: string[]
     /** A status's id, as written; a parent's own status is ignored, its issues decide its column. */
     status: string
@@ -517,6 +517,24 @@ export function taskUrl(tracker: string | null, task: string): string | undefine
     return tracker ? tracker.replace('{id}', encodeURIComponent(task)) : undefined
 }
 
+/** A tracker link as `tracker` keeps it (ORR-404): one with `{id}` as it is; a link into a known tracker's workspace
+ * (a team, project, view or a task of it, as an owner pastes one) as that workspace's task link; null for any other
+ * link without `{id}`, which would open the same page for every task. */
+export function trackerLinkOf(sent: string): string | null {
+    const link = sent.trim()
+    if (link.includes('{id}')) return link
+    let url: URL
+    try {
+        url = new URL(link)
+    } catch {
+        return null
+    }
+    const workspace = url.pathname.split('/').filter(Boolean)[0]
+    // linear.app/<workspace>/…: its tasks are at /<workspace>/issue/<id>.
+    if (url.hostname === 'linear.app' && workspace) return `https://linear.app/${workspace}/issue/{id}`
+    return null
+}
+
 /** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-steffendybvik: DOC-132`. */
 export const issueRef = (handle: string, id: string) => `orrery-${handle.toLowerCase()}: ${id}`
 
@@ -565,7 +583,14 @@ export interface Chat {
     ended?: boolean
     /** Why its session can't start, while that holds: a launcher too old to start a chat refused it (ORR-383). */
     problem?: string
+    /** Where the issues it makes land, the first status of that kind, whatever its session asks: the owner picks it
+     * beside Send (ORR-408). */
+    issues: ChatIssues
 }
+
+/** Where a chat's issues land: Todo or Backlog. */
+export type ChatIssues = 'todo' | 'backlog'
+export const CHAT_ISSUES: ChatIssues[] = ['todo', 'backlog']
 
 /** A message in a chat: the owner's (with the ids of the uploads they pasted) or the session's answer, in Markdown. */
 export interface ChatMessage {
@@ -574,7 +599,32 @@ export interface ChatMessage {
     text: string
     images: string[]
     at: string
+    /** The session asking to change an App setting, which waits on the owner's Allow. */
+    request?: ChatRequest
 }
+
+/** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
+ * the database, statuses, prompts, how sessions start) stay the owner's to change there. */
+export const CHAT_SETTINGS = {
+    tracker: 'Team tracker',
+    tint: 'Background tint',
+    restrict_proposals: 'Keep agents off proposals',
+    handle: 'Your handle',
+    advanced: 'Advanced',
+} as const
+export type ChatSetting = keyof typeof CHAT_SETTINGS
+
+/** One setting the chat asked to change, from what to what: saved only once the owner allows it, and `expired` when
+ * they didn't answer in time or it asked again. */
+export interface ChatRequest {
+    setting: ChatSetting
+    from: unknown
+    to: unknown
+    state: 'asked' | 'allowed' | 'denied' | 'expired'
+}
+
+/** A setting's value as a chat's request shows it. */
+export const settingValue = (value: unknown) => value === null || value === undefined || value === '' ? '(none)' : value === true ? 'on' : value === false ? 'off' : String(value)
 
 /** A session orrery started, as its launch made it. */
 export interface StartedSession {

@@ -62,7 +62,9 @@ describe('NewIssueDialog', () => {
         await wrapper.find('input[aria-label="Title"]').setValue('Fix the hinge')
         await wrapper.find('input[type="checkbox"]').setValue(true)
         await wrapper.find('form').trigger('submit')
-        await vi.waitFor(() => expect(sent).toHaveLength(2))
+        // Until it has closed: a create still on its way would close the next test's dialog.
+        await vi.waitFor(() => expect(useNewIssue().target.value).toBeNull())
+        expect(sent).toHaveLength(2)
         expect(sent[1]).toEqual({path: 'focus', actor: 'skoll', body: {note: 'A new issue: please pick it up.'}})
     })
 

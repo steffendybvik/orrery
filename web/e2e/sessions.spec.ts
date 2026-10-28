@@ -4,7 +4,7 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
-// one orrery started, and a preset.
+// one orrery started, the session on an issue shown on its page, and a preset.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
@@ -165,6 +165,32 @@ test('with a session listening, New session on this starts another on the issue'
     } finally {
         launcher.stop()
         stream.stop()
+    }
+})
+
+test("shows on an issue's page which session is on it, while it listens", async ({page, request, baseURL}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Descale the kettle', status: 'todo'})
+    const ids = ['e2e-w1', 'e2e-w2']
+    for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'SessionStart', name: id}})
+    const streams = ids.map(id => hold(baseURL!, `/api/projects/kitchen/signals/stream?session=${id}&name=${id}&format=text`))
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
+        await page.goto(`/p/kitchen/issues/${issue.id}`)
+        const chip = page.getByRole('link', {name: /^e2e-w2 ·/})
+        await expect(chip).toHaveCount(0)
+        // Asked to focus on it, the second one is on it: in the header, and first in the panel, marked.
+        await api(request, 'post', `/issues/${issue.id}/focus`, {session: 'e2e-w2'}, OWNER)
+        await expect(chip).toBeVisible()
+        const rows = page.getByRole('listitem').filter({hasText: /^e2e-w/})
+        await expect(rows.first()).toContainText('on this issue')
+        await expect(rows.first()).toContainText('e2e-w2')
+        await expect(rows.filter({hasText: 'on this issue'})).toHaveCount(1)
+        // Gone from the header once it stops listening.
+        streams[1]!.stop()
+        await expect(chip).toHaveCount(0)
+        await expect(page.getByText('on this issue')).toHaveCount(0)
+    } finally {
+        for (const stream of streams) stream.stop()
     }
 })
 

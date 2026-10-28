@@ -17,7 +17,7 @@ const model = defineModel<T>({required: true})
         as="template"
     >
       <div
-          class="flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/50"
+          class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/50"
           :class="checked ? 'bg-panel text-fg shadow-sm ring-1 ring-line dark:bg-white/12 dark:ring-0' : 'text-muted hover:text-fg'"
           :title="option.hint ? `${option.label} (${option.hint})` : option.label"
       >

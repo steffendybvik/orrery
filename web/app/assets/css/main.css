@@ -126,6 +126,15 @@ body {
     @apply bg-canvas font-sans text-[13px] text-fg antialiased;
 }
 
+/* Tailwind 4 leaves buttons on the browser's arrow: everything you can click on or tick shows the pointer.
+   It's in the base layer, so a cursor given where it's used (`cursor-ew-resize`) wins. */
+@layer base {
+    :is(button, [role="button"], [role="option"], [role="radio"], [role="checkbox"], [role="menuitem"], [role="tab"], summary, select, input:is([type="checkbox"], [type="radio"], [type="color"])):not(:disabled, [aria-disabled="true"]),
+    label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled)) {
+        cursor: pointer;
+    }
+}
+
 ::selection {
     background: color-mix(in oklab, var(--color-accent-500) 35%, transparent);
 }

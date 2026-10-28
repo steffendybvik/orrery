@@ -120,7 +120,7 @@ function closing(vnode: VNode) {
       />
       <ComboboxOptions class="max-h-64 overflow-y-auto border-t border-line pt-1">
         <ComboboxOption v-for="option in shown" :key="option.value" v-slot="{active, selected}" :value="option.value" as="template">
-          <li class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-fg" :class="active && 'bg-active'">
+          <li class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-fg" :class="active && 'bg-active'">
             <span v-if="multiple" class="grid size-3.5 shrink-0 place-items-center rounded ring-1" :class="selected ? 'bg-accent-500 ring-accent-500' : 'ring-faint/60'">
               <svg v-if="selected" class="size-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
             </span>
@@ -129,7 +129,7 @@ function closing(vnode: VNode) {
           </li>
         </ComboboxOption>
         <ComboboxOption v-if="isNew" v-slot="{active}" :value="typed" as="template">
-          <li class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted" :class="active && 'bg-active'">
+          <li class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted" :class="active && 'bg-active'">
             <span class="grid size-3.5 shrink-0 place-items-center text-faint">+</span>
             {{ createVerb ?? 'Add' }} “<span class="truncate text-fg">{{ typed }}</span>”
           </li>

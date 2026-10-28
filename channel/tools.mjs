@@ -1,3 +1,5 @@
+import {readFile} from 'node:fs/promises'
+
 // The channel's tools: what a Claude session does with its projects' roadmaps, as MCP tools instead of
 // curl. Each is one or two calls to orrery's API as `claude`, with the session's id so the owner's comments
 // on an issue it worked come back to it. They answer in short text a session reads at a glance (an issue
@@ -28,7 +30,7 @@ const FIELDS = {
     status: STATUS,
     priority: PRIORITY,
     labels: {type: 'array', items: {type: 'string'}},
-    external: {type: 'array', items: {type: 'string'}, description: "Its tasks on the team's tracker: ids like CIR-1567, or URLs"},
+    external: {type: 'array', items: {type: 'string'}, description: "Its tasks on the team's tracker: ids like ENG-1567, or URLs"},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
     chunk: {type: ['string', 'null'], description: "A chunk's id (a number) or its old name"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
@@ -120,16 +122,23 @@ export const TOOLS = [
             limit: {type: 'number', description: '30 by default'},
         }},
     },
+    {name: 'guide', description: "How orrery itself works, for questions about it rather than about the project: projects, issues and proposals, chunks, releases, docs, presets, schedules, sessions and the launcher, the chat, the bell and Now, secrets and egress, events, and each page with what it does.", inputSchema: {type: 'object', properties: {}}},
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
-/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, and messaging
- * other sessions for the owner when they ask. */
+/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
+ * issue's fields when they ask (never its state of work), messaging other sessions for the owner when they ask, and
+ * asking them to change a setting. */
 export const CHAT_TOOLS = [
     {
         name: 'reply',
         description: "Answers the owner in the chat, in Markdown: the only way what you say reaches them. Say an issue you made by its id.",
         inputSchema: {type: 'object', required: ['text'], properties: {text: {type: 'string'}}},
+    },
+    {
+        name: 'edit_issue',
+        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release or parent, when the owner asks in this chat. It can't start, move, assign or finish one.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent'].map(f => [f, FIELDS[f]]))}},
     },
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
@@ -139,6 +148,15 @@ export const CHAT_TOOLS = [
             text: {type: 'string'},
             projects: {type: 'array', items: {type: 'string'}, description: 'Only sessions on (or hearing) these projects'},
             states: {type: 'array', items: {type: 'string', enum: ['idle', 'working', 'waiting', 'starting']}, description: 'idle by default'},
+        }},
+    },
+    {
+        name: 'update_settings',
+        description: "Asks the owner to change one App setting, only when they asked you to in this chat: it shows them the change (from → to) with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. tracker is the address of a task on the team's tracker with {id} where its id goes; tint a colour name or #rrggbb; restrict_proposals and advanced true or false; handle their login. null clears one.",
+        inputSchema: {type: 'object', required: ['setting', 'value'], properties: {
+            setting: {type: 'string', enum: ['tracker', 'tint', 'restrict_proposals', 'handle', 'advanced']},
+            value: {type: ['string', 'boolean', 'null']},
+            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
         }},
     },
     {
@@ -312,13 +330,28 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 ...details && e.details ? [JSON.stringify(e.details, null, 2)] : [],
             ].join('\n')).join(details ? '\n\n' : '\n')
         },
+        async guide() {
+            // The orrery's own, so it's what that orrery does; else the one beside this channel, from before it served it.
+            const response = await fetch(`${root}/guide/using`, {method: 'GET', headers: {Accept: 'text/markdown'}}).catch(() => null)
+            const served = response?.ok ? await response.text() : ''
+            if (served.trim()) return served
+            return await readFile(new URL('../docs/using.md', import.meta.url), 'utf8')
+                .catch(() => { throw new Error(`no guide at ${root}/guide/using, nor beside this channel`) })
+        },
         async resolve_event({id}) {
             const event = await call('POST', `/events/log/${encodeURIComponent(id)}/resolve`, undefined, root)
             return `Resolved #${event.id} ${event.kind}: ${event.message}`
         },
+        async edit_issue({id, ...fields}) {
+            return `Now ${line(await call('PATCH', issuePath(id), fields, at(await projectOf({id}))))}`
+        },
         async reply({text}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/replies`, {text}, root)
             return 'Sent.'
+        },
+        async update_settings({setting, value, why}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {setting, value, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async message_sessions({text, projects, states}) {
             const {sent} = await call('POST', '/sessions/message', {text, ...projects ? {projects} : {}, ...states ? {states} : {}}, root)

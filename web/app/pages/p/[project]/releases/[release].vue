@@ -255,7 +255,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         </div>
 
         <details v-if="release.issues" class="group rounded-xl border border-line">
-          <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-fg">
+          <summary class="flex list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-fg">
             <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
             Changelog draft
             <span class="text-xs font-normal text-faint max-sm:hidden">from its issues' titles, to edit into CHANGELOG.md</span>

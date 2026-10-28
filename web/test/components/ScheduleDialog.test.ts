@@ -74,6 +74,8 @@ describe('ScheduleDialog', () => {
         await submit()
         await vi.waitFor(() => expect(sent).toHaveLength(1))
         expect(sent[0]?.body).toMatchObject({kind: 'message', title: 'Nudge', notes: 'Idle? Pick one.'})
+        // Until it has closed: a save still on its way would close the next test's dialog.
+        await vi.waitFor(() => expect(useSchedules().editing.value).toBeNull())
     })
 
     it('opens one already made as it is, and saves the change to it', async () => {
@@ -84,6 +86,8 @@ describe('ScheduleDialog', () => {
         await submit()
         await vi.waitFor(() => expect(sent).toHaveLength(1))
         expect(sent[0]).toMatchObject({method: 'PATCH', path: 'schedules/3', body: {kind: 'message', title: 'Nudge, gently', cron: '*/15 * * * *', only_if_changed: true}})
+        // Until it has closed: a save still on its way would close the next test's dialog.
+        await vi.waitFor(() => expect(useSchedules().editing.value).toBeNull())
     })
 
     it('removes one only once asked again', async () => {

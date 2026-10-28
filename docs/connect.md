@@ -65,7 +65,9 @@ The same server gives the session **tools** for its projects' roadmaps, so it wo
 `create_issue` (a proposal too, with choices), `update_issue`, `chunks`, `releases`, `docs`, `doc` and
 `write_doc`; `presets` and `preset`, to read the context sessions can start with; `schedules` and `sessions`, to read
 the project's schedules and who's working on what; `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
-never sees; and `events` and `resolve_event`, to debug orrery from its [event log](API.md#event-log). They write as `claude`, from that session, so your comments on an issue it worked go back
+never sees; `events` and `resolve_event`, to debug orrery from its [event log](API.md#event-log); and `guide`, how orrery
+itself works ([Using orrery](using.md), from the orrery it's connected to), so a session in any repo can answer "how do
+schedules work?". They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
 
@@ -143,7 +145,7 @@ are up, when you press **Stop** beside it (on the Sessions page, with **+30 min*
 (`ORRERY_PERMISSION_MODE` picks another). An untrusted schedule's session is the exception: it's locked down to
 `gh issue list`/`view` and the orrery tools (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)), so a
 launcher from before rc.9 needs restarting before it will take one. So is your [chat](API.md#chats): it gets `Read`,
-`Grep`, `Glob` and the orrery tools that read, make issues, comment and message sessions when you ask, and answers with its own `reply` tool, so a
+`Grep`, `Glob` and the orrery tools that read, make issues, comment, message sessions and ask you to change a setting when you ask, and answers with its own `reply` tool, so a
 launcher that predates chats needs restarting before it will start one. The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
 The limits are the orrery's, on the Sessions page's Setup tab: how many at once counts every project's sessions together. The cap is time, not cost:

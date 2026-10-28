@@ -75,7 +75,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
       </section>
 
       <details class="group rounded-2xl bg-well/50 ring-1 ring-line">
-        <summary class="flex cursor-pointer list-none items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
+        <summary class="flex list-none items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
           <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
           What the agent reads
           <a :href="pieces.url" target="_blank" class="ml-auto font-mono text-[11px] font-normal text-faint hover:text-fg" @click.stop>{{ pieces.url.replace(origin, '') }}</a>
@@ -84,7 +84,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
       </details>
 
       <details class="group rounded-2xl bg-well/50 ring-1 ring-line">
-        <summary class="flex cursor-pointer list-none items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
+        <summary class="flex list-none items-center gap-2 px-5 py-4 text-[13px] font-medium text-fg">
           <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
           Set it up by hand
         </summary>

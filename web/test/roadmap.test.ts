@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs'
 import {describe, expect, it} from 'vitest'
 import type {IssueStatus} from '#shared/roadmap'
-import {DEFAULT_STATUSES, freezeNote, nameBesideProject, total} from '#shared/roadmap'
+import {DEFAULT_STATUSES, freezeNote, nameBesideProject, total, trackerLinkOf} from '#shared/roadmap'
 import type {BoardInput, IssueInput, TaskFile} from '../server/utils/roadmap'
 import {RoadmapError, buildBoard, checkRoadmap, issueLine, legacyStatus, readRoadmap} from '../server/utils/roadmap'
 
@@ -155,5 +155,26 @@ describe("a session's name beside its project", () => {
         expect(nameBesideProject({name: 'Odin', project: 'orrery'})).toBe('Odin')
         expect(nameBesideProject({name: 'hub · fixing CI', project: 'orrery'})).toBe('hub · fixing CI')
         expect(nameBesideProject({name: 'orrery · ', project: 'orrery'})).toBe('orrery · ')
+    })
+})
+
+describe("the team tracker's link", () => {
+    it('keeps a link with {id} as it is', () => {
+        expect(trackerLinkOf(' https://tracker.example.com/issue/{id} ')).toBe('https://tracker.example.com/issue/{id}')
+    })
+
+    it("turns a link into a known tracker's workspace into its task link", () => {
+        for (const pasted of [
+            'https://linear.app/acme/team/ENG/projects/all',
+            'https://linear.app/acme/view/my-view-123',
+            'https://linear.app/acme/issue/ENG-1567/some-title',
+            'https://linear.app/acme',
+        ]) expect(trackerLinkOf(pasted), pasted).toBe('https://linear.app/acme/issue/{id}')
+    })
+
+    it('has none for another link without {id}, nor for what is no link', () => {
+        expect(trackerLinkOf('https://tracker.example.com/projects')).toBeNull()
+        expect(trackerLinkOf('https://linear.app/')).toBeNull()
+        expect(trackerLinkOf('not a link')).toBeNull()
     })
 })

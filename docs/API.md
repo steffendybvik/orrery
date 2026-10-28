@@ -108,9 +108,9 @@ until the release ships.
 - `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `notes` may use inline `` `code` `` and `**bold**`
-- `external`: its tasks on the team's tracker, a list of ids (`CIR-1567`) or full URLs; the orrery's
+- `external`: its tasks on the team's tracker, a list of ids (`ENG-1567`) or full URLs; the orrery's
   `tracker` (`PATCH /settings {tracker}`, a task's web address with `{id}` where its id goes) links an id;
-  `?external=CIR-1567` finds the issues linked to a task
+  `?external=ENG-1567` finds the issues linked to a task
 - `ref` (read only, on `GET …/issues` and `GET …/issues/:issue`): what says whose board the issue is on,
   `orrery-<handle>: <id>` (`orrery-steffendybvik: DOC-132`), from the orrery's `handle` (see [For agents](#for-agents))
 
@@ -425,23 +425,31 @@ owner ends it, which closing its pane does. Each message says which page the own
 "this" and "here" are; that goes to its session at the end of the message and isn't kept with it.
 
 Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools but `start_issue`, `finish_issue`,
-`update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and two of its own: `reply`, its answer, the
-only way what it says reaches the page, `image`, which shows it an image the owner pasted, and `message_sessions` and
+`update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and its own: `reply`, its answer, the
+only way what it says reaches the page, `image`, which shows it an image the owner pasted, `edit_issue`, which changes
+an issue's title, notes, priority, labels, team tasks, chunk, release or parent when the owner asks, `message_sessions` and
 `message_session`, which message other sessions for the owner when they ask in the chat (never on its own; for more
-than one session, once the owner has said go to its draft). It hears only its chat's messages: no focus, no message to
-every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in the
-status new issues start in), commenting, replying and messaging sessions. A message it sends goes as the owner's,
+than one session, once the owner has said go to its draft), and `update_settings`, which asks the owner to change one
+App setting (below). It hears only its chat's messages: no focus, no message to
+every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
+or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), changing an issue's
+`title`, `notes`, `priority`, `labels`, `external`, `chunk`, `release` and `parent` (`PATCH` with anything else, `status`
+or `assignee` say, is a 403, and no other session's claim on it holds it back), commenting, replying, messaging
+sessions and asking to change a setting. A message it sends goes as the owner's,
 with `via: "chat"` on the signal; the session hears it ending `(Sent by the owner through their chat.)`, and the
 Sessions page and the event log (`session.messaged`) say it came through the chat. A chat is kept in memory
 while it runs, so it's gone after orrery restarts.
 
 | | |
 |---|---|
-| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}], problem?}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message. `problem` says why its session can't start (a launcher too old to start a chat was refused it: restart the launcher), until the session connects |
-| `POST /chats` | `{project}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's); 409 without a launcher for the project |
+| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}], issues, problem?}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message. `issues` is where the issues it makes land, `todo` or `backlog` (the first status of that kind), whatever status its session sends. `problem` says why its session can't start (a launcher too old to start a chat was refused it: restart the launcher), until the session connects |
+| `POST /chats` | `{project, issues?}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's), its issues landing in `issues` (`todo` by default, or `backlog`); 409 without a launcher for the project |
 | `GET /chats/:chat` | the chat; 404 once it has ended |
+| `PATCH /chats/:chat` | `{issues}` → the chat: the owner choosing where the issues it makes land from now on, `todo` or `backlog`; its own session can't (403) |
 | `POST /chats/:chat/messages` | `{text, images?, page?}` → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted and the page they're on, `{path, title?}` (a path on this orrery, starting with `/`; 400 otherwise); it goes to the chat's session alone, ending `(The owner is on <path>: <title>.)` |
 | `POST /chats/:chat/replies` | `{text}` → 201 the message: the chat's session answering, in Markdown; only that session's (`Orrery-Chat: yes` and `Orrery-Launch: <the chat's id>`) |
+| `POST /chats/:chat/requests` | `{setting, value, why?}` → 201 the message: the chat's session asking to change one App setting, `tracker`, `tint`, `restrict_proposals`, `handle` or `advanced` (any other is a 400, as is a value the settings wouldn't take), shown in the chat as `request: {setting, from, to, state: "asked"}` with Allow and Deny. Nothing is saved yet; asking again for the same setting expires the one before. Only that session's |
+| `POST /chats/:chat/requests/:message` | `{allow}` → the message, its request `allowed` (the setting saved as asked, logged as `settings.changed` with from → to) or `denied`; the chat's session hears which. The owner's only, and never a chat session's, so a chat can't allow its own request; 409 once answered, or `expired` (30 minutes unanswered, or asked again) |
 | `POST /chats/:chat/end` | 204: the owner ending it; its session is stopped |
 
 ### What sessions hear
@@ -486,7 +494,8 @@ Security audit, Review, Debug an error), added once to each orrery as it starts,
 ## For agents
 
 `/llms.txt` says how to use orrery and lists the projects; `/llms-full.txt` adds this reference;
-`/api/guide` is this reference alone. A Claude session with orrery's server in its `.mcp.json` also
+`/api/guide` is this reference alone, and `/api/guide/using` how orrery works, page by page (docs/using.md), which the
+channel's `guide` tool answers with. A Claude session with orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
 make these calls for it. An untrusted schedule's session (its launcher sets `ORRERY_UNTRUSTED=yes`) sends
 `Orrery-Untrusted: yes` on every write and `untrusted=yes` on its streams, and is held to raising proposals and
@@ -502,7 +511,7 @@ gets it.
 An issue id is only unique within its orrery, and an orrery is one person's board. So when a commit body
 or PR description names an issue, write its `ref` (`orrery-steffendybvik: DOC-132`) as a trailer on a
 line of its own, never a bare id, and never in a title or branch name. The team's tracker
-stays the source of truth: its id goes in that repo's own trailer (`Part of CIR-1567`), and in the issue's
+stays the source of truth: its id goes in that repo's own trailer (`Part of ENG-1567`), and in the issue's
 `external`, so the board knows which team task the issue serves. A PR description also links the issue's
 page on this orrery (`/p/<project>/issues/<id>` on its address, `http://localhost:9010/p/doc/issues/DOC-132`),
 so the owner can jump from the PR to it. The owner sets the

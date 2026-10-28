@@ -25,7 +25,7 @@ const issue = (fields: object = {}) => ({id: 'GRE-1', title: 'Shelves', status: 
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -89,6 +89,32 @@ describe("the channel's tools", () => {
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('message_sessions')
     })
 
+    it("in the owner's chat, ask the owner to change a setting, saving nothing itself", async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 7})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('update_settings', {setting: 'tracker', value: 'https://t.example/{id}', why: 'For ENG links'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect(calls).toEqual([{url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {setting: 'tracker', value: 'https://t.example/{id}', why: 'For ENG links'}}])
+        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('update_settings')
+    })
+
+    it("in the owner's chat, change an issue's fields with nothing about its state of work", async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            return {ok: true, status: 200, statusText: '', text: async () => JSON.stringify({id: 'GRE-4', title: 'Shelf labels', column: 'todo', priority: 'P0'})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('edit_issue', {id: 'GRE-4', priority: 'P0'})).content[0]!.text).toMatch(/^Now GRE-4/)
+        expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/greenhouse/issues/GRE-4', method: 'PATCH', body: {priority: 'P0'}})
+        const edit = toolsFor(['greenhouse'], {chat: true}).find((t: {name: string}) => t.name === 'edit_issue')
+        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent'])
+        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('edit_issue')
+    })
+
     it("outside a chat, have no chat tools", async () => {
         const {call} = harness({})
         expect(await call('reply', {text: 'hi'})).toMatchObject({error: true})
@@ -139,6 +165,20 @@ describe("the channel's tools", () => {
         const request = {url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}, issue: 'GRE-1'}
         expect((await call('egress', request)).text).toBe('200 (application/json)\n\n{"ok":true}')
         expect(calls[1]).toMatchObject({method: 'POST', url: '/egress', body: {...request, project: 'greenhouse'}})
+    })
+
+    it('explain how orrery works in every mode, from the orrery or else from beside the channel (ORR-411)', async () => {
+        for (const listed of [toolsFor(['greenhouse']), toolsFor(['greenhouse'], {chat: true}), toolsFor(['greenhouse', 'pantry'])]) {
+            expect(listed.map((t: {name: string}) => t.name)).toContain('guide')
+        }
+        const served = harness({'GET /guide/using': {raw: '# Using orrery\n\nSchedules run on their own.'}})
+        expect(await served.call('guide')).toEqual({error: false, text: '# Using orrery\n\nSchedules run on their own.'})
+        expect(served.calls[0]).toMatchObject({method: 'GET', url: '/guide/using'})
+        // An orrery from before it served the guide: the docs beside the channel.
+        const older = await harness({}).call('guide')
+        expect(older.error).toBe(false)
+        expect(older.text).toMatch(/^# Using orrery/)
+        expect(older.text).toContain('## How it fits together')
     })
 
     it('list the open issues unless asked for a status', async () => {

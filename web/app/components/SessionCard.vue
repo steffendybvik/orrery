@@ -107,7 +107,7 @@ const restart = (session: Session) => restartCommand(session, String(environment
         </NuxtLink>
         <p v-if="!doing.length" class="px-1.5 py-1 text-xs text-faint">Nothing in progress.</p>
         <details v-if="rest.length" class="group">
-          <summary class="flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint hover:text-muted">
+          <summary class="flex list-none items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint hover:text-muted">
             <svg class="size-3 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>
             {{ rest.length }} more it worked on
           </summary>
@@ -124,7 +124,7 @@ const restart = (session: Session) => restartCommand(session, String(environment
         </details>
       </div>
       <details v-if="latest" class="group">
-        <summary class="flex min-w-0 cursor-pointer list-none items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-faint hover:text-muted">
+        <summary class="flex min-w-0 list-none items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-faint hover:text-muted">
           <svg v-if="work.signals.length > 1" class="size-3 shrink-0 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>
           <span class="shrink-0">Last sent:</span>
           <span class="truncate text-muted">{{ signalText(latest) }}</span>

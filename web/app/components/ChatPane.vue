@@ -1,10 +1,23 @@
 <script setup lang="ts">
+import {CHAT_SETTINGS, settingValue} from '#shared/roadmap'
+import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
+import type {ChatIssues} from '#shared/roadmap'
+
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
 // session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
 // dropped goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
-// one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way).
-const {open, large, chat, session, project, failed, chats, start, send, fresh, close, resize, upload, show} = useChat()
+// one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
+// Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
+// chat asks to change shows from → to with Allow and Deny; only Allow saves it.
+const {open, large, chat, session, project, failed, chats, lands, start, send, land, fresh, answer, close, resize, upload, show} = useChat()
+const answering = ref<number | null>(null)
+async function decide(message: number, allow: boolean) {
+    answering.value = message
+    await answer(message, allow)
+    answering.value = null
+}
+const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed', expired: 'Expired: not answered in time, or asked again'}
 const {projects} = useRoadmaps()
 const route = useRoute()
 
@@ -20,6 +33,10 @@ const picker = ref<HTMLInputElement | null>(null)
 watch([() => route.params.project, projects], ([here]) => {
     if (!project.value || here) project.value = typeof here === 'string' && projects.value.some(p => p.id === here) ? here : project.value ?? projects.value[0]?.id ?? null
 }, {immediate: true})
+/** Where the issues the chat makes land: the running chat's, or the next one's. */
+const landing = computed<ChatIssues>(() => chat.value && !chat.value.ended ? chat.value.issues : lands.value)
+const LANDS: {value: ChatIssues, label: string}[] = [{value: 'todo', label: 'Todo'}, {value: 'backlog', label: 'Backlog'}]
+
 const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
 /** Which project it's about: the chat's, else the one the first message will start it on. */
@@ -166,6 +183,16 @@ function onPaste(event: ClipboardEvent) {
         <div v-else-if="m.text" class="max-w-[92%] rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
           <MarkdownView :source="m.text" class="text-[13px]" />
         </div>
+        <div v-if="m.request" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Change ${CHAT_SETTINGS[m.request.setting]}`">
+          <span class="text-xs text-faint">Asks to change a setting</span>
+          <span class="text-fg"><span class="font-medium">{{ CHAT_SETTINGS[m.request.setting] }}</span>:
+            <span class="text-muted line-through decoration-faint">{{ settingValue(m.request.from) }}</span> → <span class="break-all">{{ settingValue(m.request.to) }}</span></span>
+          <div v-if="m.request.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.request.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.request.state === 'asked' ? 'Not answered' : ANSWERED[m.request.state] }}</span>
+        </div>
       </li>
       <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">
         <span v-for="i in 3" :key="i" class="size-1.5 animate-dot rounded-full bg-faint" :style="{animationDelay: `${(i - 1) * 0.15}s`}" />
@@ -203,7 +230,20 @@ function onPaste(event: ClipboardEvent) {
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A1.5 1.5 0 0 0 21.75 19.5V4.5A1.5 1.5 0 0 0 20.25 3H3.75A1.5 1.5 0 0 0 2.25 4.5v15A1.5 1.5 0 0 0 3.75 21Zm10.5-11.25h.008v.008h-.008V9.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>
           </UiButton>
           <input ref="picker" type="file" accept="image/*" multiple class="hidden" @change="attach([...($event.target as HTMLInputElement).files ?? []]); ($event.target as HTMLInputElement).value = ''">
-          <UiButton type="submit" variant="primary" size="xs" square class="ml-auto rounded-full" aria-label="Send" title="Send (↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length">
+          <Menu as="div" class="relative ml-auto">
+            <MenuButton as="template">
+              <UiButton variant="ghost" size="xs" title="Where the issues this chat makes land">
+                New issues → {{ landing === 'todo' ? 'Todo' : 'Backlog' }}
+                <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+              </UiButton>
+            </MenuButton>
+            <MenuItems class="menu absolute right-0 bottom-full z-40 mb-1.5 w-44">
+              <MenuItem v-for="where in LANDS" :key="where.value" v-slot="{active}" as="template">
+                <UiMenuItem :active="landing === where.value" :lit="active" @click="land(where.value)">New issues → {{ where.label }}</UiMenuItem>
+              </MenuItem>
+            </MenuItems>
+          </Menu>
+          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send (↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
           </UiButton>
         </div>

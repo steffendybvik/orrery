@@ -33,7 +33,7 @@ const image = 'e961abaa8718ef8efe55380b'
 describe("the owner's chat", () => {
     it('starts with its session on its way, and nothing said yet', async () => {
         const chat = await chats.openChat('greenhouse')
-        expect(chat).toMatchObject({id: 'c1c2c3c4c5c6', project: 'greenhouse', messages: []})
+        expect(chat).toMatchObject({id: 'c1c2c3c4c5c6', project: 'greenhouse', messages: [], issues: 'todo'})
         expect(chats.listChats()).toEqual([chat])
         expect(changes).toHaveLength(1)
     })
@@ -102,9 +102,91 @@ describe("the owner's chat", () => {
         await expect(as()).rejects.toMatchObject({statusCode: 403})
     })
 
-    it('makes what its session asks for with nobody on it, in the status new issues start in', () => {
+    it("asks the owner to change a setting, saving it only once they allow it, and telling its session", async () => {
+        const saved: object[] = []
+        const notes: {kind: string}[] = []
+        let tracker: string | null = null
+        vi.stubGlobal('useStore', () => ({
+            settings: async () => ({tracker, tint: null, handle: null, restrict_proposals: true, advanced: false}),
+            updateSettings: async (patch: {tracker?: string}) => {
+                saved.push(patch)
+                tracker = patch.tracker ?? tracker
+            },
+            messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
+        }))
+        vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        await chats.openChat('greenhouse')
+        const url = 'https://tracker.example.com/issue/{id}'
+        const asked = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url, why: 'Links ENG-1234 to its task.'})
+        expect(asked).toMatchObject({from: 'claude', text: 'Links ENG-1234 to its task.', request: {setting: 'tracker', from: null, to: url, state: 'asked'}})
+        expect(saved).toEqual([])
+        // Denied saves nothing, and can't be answered again.
+        await chats.answerSetting('c1c2c3c4c5c6', asked.id, false, owner)
+        expect(saved).toEqual([])
+        expect(messages.at(-1)!.text).toMatch(/denied .*nothing changed/)
+        await expect(chats.answerSetting('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        // Allowed saves it as asked.
+        const again = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url})
+        await chats.answerSetting('c1c2c3c4c5c6', again.id, true, owner)
+        expect(saved).toEqual([{tracker: url}])
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.request!.state).toBe('allowed')
+        expect(messages.at(-1)!.text).toContain(`Team tracker is now ${url}, saved`)
+        expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'settings.changed', 'chat.answered'])
+        // Asking again for the same setting lets the one before go; an old request expires.
+        const first = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: true})
+        const second = await chats.askSetting('c1c2c3c4c5c6', {setting: 'advanced', value: false})
+        await expect(chats.answerSetting('c1c2c3c4c5c6', first.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        vi.useFakeTimers({now: Date.now() + chats.ASK_FOR + 1000})
+        await expect(chats.answerSetting('c1c2c3c4c5c6', second.id, true, owner)).rejects.toThrow(/expired/)
+        vi.useRealTimers()
+        expect(saved).toHaveLength(1)
+    })
+
+    it("asks only for the settings a chat may, and as the settings would take them", async () => {
+        vi.stubGlobal('useStore', () => ({settings: async () => ({handle: null})}))
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        await chats.openChat('greenhouse')
+        for (const body of [{setting: 'secrets', value: 'x'}, {setting: 'starts', value: null}, {setting: 'focus_prompt', value: 'Hi'}, {setting: 'tracker'},
+            {setting: 'tracker', value: 'not a link'}, {setting: 'advanced', value: 'yes'}])
+            await expect(chats.askSetting('c1c2c3c4c5c6', body)).rejects.toMatchObject({statusCode: 400})
+        expect((await chats.askSetting('c1c2c3c4c5c6', {setting: 'handle', value: 'Skoll'})).request!.to).toBe('skoll')
+    })
+
+    it('makes what its session asks for with nobody on it, in Todo whatever status it asks for', () => {
         expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', chunk: '3'}))
-            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3'})
+            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3', status: 'todo'})
+        for (const status of [undefined, 'backlog', 'done', 'canceled']) expect(chats.asChatIssue({title: 'Seed trays', status, plan: null})).toEqual({title: 'Seed trays', status: 'todo'})
+    })
+
+    it('lands what it makes where the owner picked for that chat, whatever status its session asks for', async () => {
+        const chat = await chats.openChat('greenhouse', 'backlog')
+        expect(chat.issues).toBe('backlog')
+        expect(chats.asChatIssue({title: 'Seed trays', status: 'todo'}, chat.id)).toEqual({title: 'Seed trays', status: 'backlog'})
+        expect(chats.landChatIssues(chat.id, 'todo')).toMatchObject({issues: 'todo'})
+        expect(changes.at(-1)).toMatchObject({issues: 'todo'})
+        expect(chats.asChatIssue({title: 'Grow lights', status: 'backlog'}, chat.id)).toEqual({title: 'Grow lights', status: 'todo'})
+        // A chat it doesn't know (ended, or orrery restarted) lands in Todo.
+        expect(chats.asChatIssue({title: 'Jars', status: 'backlog'}, 'gone')).toEqual({title: 'Jars', status: 'todo'})
+    })
+
+    it('reads where its issues land as todo or backlog, todo when not said', () => {
+        expect(chats.chatIssuesOf(undefined)).toBe('todo')
+        expect(chats.chatIssuesOf('backlog')).toBe('backlog')
+        expect(() => chats.chatIssuesOf('in-progress')).toThrow(/"todo" or "backlog"/)
+    })
+
+    it("changes an issue's fields, but never its state of work", () => {
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        expect(chats.asChatEdit({priority: 'P0', labels: ['chat'], chunk: '3', release: '1.0.0', parent: null, title: 'Jars', notes: 'Glass'}))
+            .toEqual({priority: 'P0', labels: ['chat'], chunk: '3', release: '1.0.0', parent: null, title: 'Jars', notes: 'Glass'})
+        for (const field of ['status', 'assignee', 'proposal', 'project', 'position', 'plan', 'choices'])
+            expect(() => chats.asChatEdit({priority: 'P1', [field]: 'x'})).toThrow(expect.objectContaining({statusCode: 403}))
+        expect(() => chats.asChatEdit('P0')).toThrow(expect.objectContaining({statusCode: 400}))
+    })
+
+    it('leaves a proposal one, for the owner to decide', () => {
+        expect(chats.asChatIssue({title: 'Grow lights', proposal: 'pending', status: 'todo', assignee: 'claude'})).toEqual({title: 'Grow lights', proposal: 'pending'})
     })
 })
 
@@ -136,13 +218,22 @@ describe("a chat session's writes", () => {
         expect(refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBeUndefined()
         expect(refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
+        // It asks to change a setting; the owner's answer, and the settings themselves, aren't its.
+        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests')).toBeUndefined()
+        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests/4')).toBe(403)
+        expect(refused('PATCH', '/api/settings')).toBe(403)
+        expect(refused('POST', '/api/database/move')).toBe(403)
+        expect(refused('PUT', '/api/secrets/GITHUB')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/comments')).toBeUndefined()
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/replies')).toBeUndefined()
         expect(refused('GET', '/api/projects/greenhouse/docs')).toBeUndefined()
-        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBe(403)
+        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBeUndefined()
+        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4/comments/3')).toBe(403)
+        expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/focus')).toBe(403)
         expect(refused('PUT', '/api/projects/greenhouse/docs/shelving')).toBe(403)
         expect(refused('POST', '/api/egress')).toBe(403)
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)
+        expect(refused('PATCH', '/api/chats/c1c2c3c4c5c6')).toBe(403)
         // Anyone else's go on to their own checks.
         expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4', false)).toBeUndefined()
     })
