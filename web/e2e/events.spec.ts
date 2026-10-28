@@ -3,7 +3,8 @@ import {OWNER, makeProject, projectApi} from './support'
 
 // The Events page kept to a kind (ORR-401): a family picked shows every kind in it, one kind only itself, and the
 // choice is in the URL, with the project's, so it's there again after a reload.
-// And its lines link the issue they name, and their project, from the line itself (ORR-403). An error an agent resolved
+// And its lines link the issue they name, and their project, from the line itself (ORR-403), and a line is only ever a
+// line: nothing opens under it (ORR-472). An error an agent resolved
 // stays on the bell and says who resolved it, and the page's reports are marked and held to a few a minute (ORR-420).
 const api = projectApi('ledger')
 let advanced = false
@@ -24,7 +25,7 @@ test.afterAll(async ({request}) => {
 
 test('keeps to a family of kinds or to one kind', async ({page}) => {
     await page.goto('/events?project=ledger')
-    const lines = page.locator('[aria-expanded]')
+    const lines = page.getByRole('log').locator('div')
     await expect(lines.filter({hasText: 'issue.created'})).not.toHaveCount(0)
     await expect(lines.filter({hasText: 'comment.added'})).not.toHaveCount(0)
 
@@ -54,17 +55,17 @@ test('keeps to a family of kinds or to one kind', async ({page}) => {
 test("an issue event's line links the issue, and following it opens the issue", async ({page, request}) => {
     const issue = await api(request, 'post', '/issues', {title: 'Carry the one'})
     await page.goto('/events?project=ledger')
-    // The line, not its Copy button, which names it too once it's open.
-    const line = page.locator('[role=button][aria-expanded]').filter({hasText: new RegExp(`issue\\.created.*made ${issue.id}`)})
+    const line = page.getByRole('log').locator('div').filter({hasText: new RegExp(`issue\\.created.*made ${issue.id}`)})
     await expect(line).toBeVisible()
     await expect(line.getByRole('link', {name: '[ledger]'})).toHaveAttribute('href', '/p/ledger')
     const link = line.getByRole('link', {name: issue.id})
     await expect(link).toHaveAttribute('href', `/p/ledger/issues/${issue.id}`)
 
-    // The line still opens its details by keyboard; the link opens the issue, not them.
-    await line.focus()
-    await page.keyboard.press('Enter')
-    await expect(line).toHaveAttribute('aria-expanded', 'true')
+    // Clicking the line opens nothing under it: it's one line still, with no actions.
+    const height = (await line.boundingBox())!.height
+    await line.click({position: {x: 5, y: 5}})
+    expect((await line.boundingBox())!.height).toBe(height)
+    await expect(page.getByRole('button', {name: 'Resolve'})).toHaveCount(0)
     await link.click()
     await expect(page).toHaveURL(new RegExp(`/p/ledger/issues/${issue.id}$`))
     await expect(page.getByText('Carry the one').first()).toBeVisible()
@@ -90,7 +91,7 @@ test('an error an agent resolved stays on the bell, and says who resolved it', a
     await page.reload()
     await expect.poll(errors).toBe(before + 1)
     await page.goto(`/events?kind=page.error`)
-    await expect(page.locator('[aria-expanded]').filter({hasText: message})).toContainText('(resolved by claude)')
+    await expect(page.getByRole('log').locator('div').filter({hasText: message})).toContainText('(resolved by claude)')
 })
 
 test("takes only a few of the page's reports of a kind a minute", async ({request}) => {
