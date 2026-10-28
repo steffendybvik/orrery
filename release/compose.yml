@@ -5,10 +5,10 @@
 # (e.g. orrery-work) in its own env file, which gives it volumes of its own.
 #
 # The database is made on the first start, in the orrery-data volume, so it outlasts the container. A copy goes to
-# ./backups beside this file a few seconds after each change, plus one a day for two weeks, each checked before it's
-# kept. ./backups is on this computer: set ORRERY_BACKUP to a folder that leaves it (iCloud Drive, Dropbox, one Time
-# Machine covers). On Linux, make the folder first (`mkdir -p backups`, or ORRERY_BACKUP's): orrery runs as uid 1000,
-# and a folder Docker makes is root's. Never `docker compose down -v`: it deletes the database. See README.md.
+# the orrery-backup volume a few seconds after each change, plus one a day for two weeks, each checked before it's
+# kept. That volume is on this computer: set ORRERY_BACKUP to a folder that leaves it (iCloud Drive, Dropbox, one Time
+# Machine covers). On Linux, make that folder first: orrery runs as uid 1000, and a folder Docker makes is root's.
+# Never `docker compose down -v`: it deletes the database and the backups. See README.md.
 #
 # Every setting is optional: see .env.example. To update, change the version in `image:` below, then
 # `docker compose pull && docker compose up -d`; orrery takes a copy before it upgrades the database.
@@ -27,7 +27,7 @@ services:
       NUXT_BACKUP_DATABASE: ${ORRERY_BACKUP_DATABASE:-}
       # What /data and /backup are on this computer, the same as the volumes below, for App settings to show.
       NUXT_DATA_HOST: ${ORRERY_DATA:-orrery-data}
-      NUXT_BACKUP_HOST: ${ORRERY_BACKUP:-./backups}
+      NUXT_BACKUP_HOST: ${ORRERY_BACKUP:-orrery-backup}
       # Set when ORRERY_BACKUP names a folder: without one, App settings says the backups stay on this computer.
       NUXT_BACKUP_CHOSEN: ${ORRERY_BACKUP:+yes}
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
@@ -35,7 +35,7 @@ services:
       NUXT_SECRET_KEY: ${ORRERY_SECRET_KEY:-}
     volumes:
       - ${ORRERY_DATA:-orrery-data}:/data
-      - ${ORRERY_BACKUP:-./backups}:/backup
+      - ${ORRERY_BACKUP:-orrery-backup}:/backup
     depends_on:
       postgres: {condition: service_healthy, required: false}
     restart: unless-stopped
@@ -58,4 +58,5 @@ services:
 
 volumes:
   orrery-data:
+  orrery-backup:
   orrery-pg:
