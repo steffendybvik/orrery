@@ -22,6 +22,10 @@ keeps agents from deleting the owner's things, as long as they name themselves h
 protection against a person or program that wants to pretend: anyone who can reach Orrery can send
 the owner's id.
 
+That includes moving the database (App settings → Database → Move…), which repoints Orrery at a database the
+mover picks. Orrery only allows it when it's reached by `localhost`, but that's the address the request names (its
+`Host`), not where it came from, so it matters once Orrery is open to your network (ORR-421).
+
 ## Your agents act on what's in Orrery
 
 Claude sessions read issues, comments and docs and work from them, and the owner's signals ("focus
@@ -49,9 +53,14 @@ schedule's run never goes to your sessions. Instead:
   worked on until you approve it, and what it writes sets off no schedule, so an event schedule can't
   start a session of yours on it. Its channel says it's untrusted on everything it sends, so this holds
   after Orrery restarts too, before the launcher has said which sessions it started.
-- **It stops** once it has sat idle for two minutes, and after half an hour at most.
+- **It stops** once it has sat idle for two minutes, and at half an hour. One still busy then is let finish
+  its turn, so it can run on for a while past that, up to an hour more.
+- **Its hook claims no issue.** What it runs is never taken as working an issue, and its refused writes set
+  off no schedule either.
 
-It can still read files in its folder with read-only commands, but it has no way to send them anywhere.
+It can still read files in its folder with read-only commands. **Known gap (ORR-415):** `gh` itself can be pointed
+at another host (`gh issue list -R <host>/<owner>/<repo>`), so a planted issue could have it send what it read
+there. Until that's closed, keep untrusted schedules to repos you'd let read your roadmap.
 
 ### The chat
 
@@ -93,6 +102,22 @@ middle ground.
 So when a session should help with a preset or a prompt, it drafts the text in a comment or a doc, and
 the owner puts it in. (ORR-333 proposed opening presets to agents and was declined for this reason.)
 
+What an event schedule passes on follows the same rule. A session schedule's instructions and a message schedule's
+message end with what happened, said by ids: the change for a status, priority, chunk, release or parent, never a
+label's text, and an agent by its handle. A launcher's report of what it runs can't give a session a context
+Orrery didn't start it with.
+
+### The owner's chat
+
+The chat on the page writes as `claude`, like any agent, under the same rules: it makes and changes issues and
+comments, and it can't touch presets, prompts or settings. Two things go further, since you asked for them there:
+
+- **Changing an App setting** is only ever asked: you see it from → to, and nothing is saved until you press
+  **Allow** in the page.
+- **Messaging your other sessions** goes as you, marked as sent through the chat. Its brief says to do this only
+  when you ask, but nothing in Orrery holds it to that yet, so a chat talked into it by something it read could
+  send your sessions words of its own (ORR-416).
+
 As with everything that hangs on the owner's name (above), this keeps honest agents from overstepping.
 It doesn't stop a program that sends the owner's id.
 
@@ -124,13 +149,19 @@ them: Orrery fills it into the request and sends it.
 
 ## Your data
 
-- Everything is in one SQLite file (`/data/orrery.db` in the container), or in your Postgres, not encrypted.
+- Everything is in one database: a SQLite file (`/data/orrery.db` in the container) unless you chose Postgres,
+  not encrypted either way. A Postgres chosen in App settings has its address, password included, kept in plain
+  text in `orrery.db.moved.json` beside it. A move leaves the database you left as it was, a full copy.
 - The backups are copies of it. If `ORRERY_BACKUP` is a synced folder (iCloud Drive, Dropbox, …), your
   roadmaps leave the machine for that service.
 - The session hooks send Orrery each session's id, its name, its working folder, what it's doing and
   Claude Code's notification text. They go to the Orrery at `ORRERY_URL`, nowhere else.
-- Orrery itself sends nothing anywhere, except the requests your agents make with a secret, to the hosts
-  you allowed it. The page loads its fonts from Google Fonts.
+- **The event log** (Advanced → Events) keeps what went wrong, with error messages and stacks, for 30 days on
+  this machine. Secrets' values and database passwords are taken out before it's written. Every session can read
+  it. A session can mark an error resolved, and anything can add a page error, so read it as a lead, not proof
+  (ORR-420).
+- Orrery itself sends nothing anywhere, except your roadmap to a Postgres you chose, and the requests your
+  agents make with a secret, to the hosts you allowed it. The page loads its fonts from Google Fonts.
 
 ## Reporting a problem
 
