@@ -326,6 +326,8 @@ const STEPS: string[] = [`
     );
     CREATE INDEX events_last_seen ON events (last_seen);
 `, `
+    ALTER TABLE signals ADD COLUMN preset text;
+`, `
     ALTER TABLE schedules ADD COLUMN on_event text;
     ALTER TABLE schedules ADD COLUMN on_filter text;
     ALTER TABLE schedules DROP CONSTRAINT schedules_check;

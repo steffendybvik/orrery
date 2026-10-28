@@ -56,10 +56,10 @@ const ticked = computed(() => [
     ...props.project ? props.project.instructions.filter(i => i.on) : [],
 ].map(i => i.text))
 const SAMPLE = {
-    focus_prompt: {actor: 'you', issue: 'LAR-42', title: 'Scale a recipe by servings', status: 'Todo', priority: 'P1', chunk: 'Recipes', where: 'Todo, P1, Recipes', note: 'before the weekend', url: 'http://localhost:9000/api/projects/larder/issues/LAR-42'},
+    focus_prompt: {actor: 'you', issue: 'GRE-42', title: 'Scale a recipe by servings', status: 'Todo', priority: 'P1', chunk: 'Recipes', where: 'Todo, P1, Recipes', note: 'before the weekend', url: 'http://localhost:9000/api/projects/greenhouse/issues/GRE-42'},
     chunk_prompt: {
         actor: 'you', chunk: '3', title: 'Recipes', status: 'Todo', priority: 'P2', where: 'Todo, P2', note: '',
-        issues: '- LAR-42: Scale a recipe by servings [Todo, P1]\n- LAR-43: Timers inside steps [Todo]', url: 'http://localhost:9000/api/projects/larder/chunks/3',
+        issues: '- GRE-42: Scale a recipe by servings [Todo, P1]\n- GRE-43: Timers inside steps [Todo]', url: 'http://localhost:9000/api/projects/greenhouse/chunks/3',
     },
 }
 const preview = (key: Key) => renderPrompt(drafts[key].trim() || inherited(key), SAMPLE[key], ticked.value)

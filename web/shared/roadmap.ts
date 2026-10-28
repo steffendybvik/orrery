@@ -208,7 +208,7 @@ export interface Doc extends DocSummary {
 export interface Project {
     id: string
     name: string
-    /** The prefix of the issue ids the server hands out, e.g. `LAR` for `LAR-12`. */
+    /** The prefix of the issue ids the server hands out, e.g. `GRE` for `GRE-12`. */
     key: string
     description?: string
     /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
@@ -316,6 +316,8 @@ export interface Signal {
     schedule?: number
     kind: 'focus' | 'comment' | 'message'
     note?: string
+    /** A message the owner sent from a preset: its name, as it was then. */
+    preset?: string
     /** The session it's for; none means every session on the project. */
     target?: string
     /** The names of the sessions it reached. */
@@ -613,7 +615,7 @@ export function slugify(text: string): string {
     return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
 }
 
-/** Three capitals from the name, e.g. `LAR` for Larder. */
+/** Three capitals from the name, e.g. `GRE` for Greenhouse. */
 export function keyFor(name: string): string {
     const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
     return letters.slice(0, 3) || 'ISS'

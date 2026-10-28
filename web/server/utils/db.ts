@@ -576,6 +576,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     CREATE INDEX events_last_seen ON events (last_seen);
 `, `
+    -- A message the owner sent from a preset: the preset's name, as it was then, to label it by.
+    ALTER TABLE signals ADD COLUMN preset TEXT;
+`, `
     -- A schedule that runs when something happens (ORR-341) rather than on a clock: the event's type as a pattern
     -- (\`issue.status\`, \`release.*\`), and what the event must also say (JSON). A run keeps what it was about.
     -- Rebuilt for its check: exactly one of cron, at and on_event.
