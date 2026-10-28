@@ -371,7 +371,7 @@ export interface Schedule {
     /** A message schedule: skips a run when no issue or comment in the project changed since the last one it sent. */
     only_if_changed: boolean
     /** A message schedule whose session reads what others wrote (GitHub issues): its message goes to a session
-     * started for it alone, with only `gh issue list/view` and the Orrery tools, and what that session raises is a proposal. */
+     * started for it alone, with only the Orrery tools (`github_issues` among them), and what that session raises is a proposal. */
     untrusted: boolean
     enabled: boolean
     /** When it runs next; none once it's paused or a one-off has run. */
@@ -706,7 +706,7 @@ export interface StartedSession {
     /** What the owner gave it to go on when they started it, if anything. */
     context?: SessionContext
     /** Started for an untrusted schedule's run: it reads what others wrote, so it hears only that run's message,
-     * has only `gh issue list/view` and the Orrery tools, and what it raises is a proposal. */
+     * has only the Orrery tools (`github_issues` among them), and what it raises is a proposal. */
     untrusted?: boolean
     /** Started for the owner's chat: it hears only the chat's messages, reads and answers, and makes issues and
      * comments when asked; nothing else. */
