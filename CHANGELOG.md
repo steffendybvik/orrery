@@ -84,9 +84,14 @@ the database schema are the public surface, and a database always migrates forwa
 - **Faster:** the event log, the scheduler and Postgres backups keep what they read until it changes, instead of
   reading the database on every event.
 - **The version moves with the branch:** a build of a release branch shows the version being built.
+- **Security fixes from the release's audit:** an event schedule's run passes on no words an agent chose (a
+  label's text, its name); an untrusted schedule's session can't claim an issue through its hook, and its refused
+  writes set off no schedule; a launcher's report can't give a running session a context it wasn't started with,
+  or take its stop time away. `SECURITY.md` says what the chat, the event log and a database move can do, and the
+  gaps still open.
 - **Tests and cleanup:** races where two sessions claim one issue, who may move the database and moves to Postgres,
   two flaky dialog tests split, and component tests that wait for a dialog to close before the next starts. Values used only in their own file stop being exported, the unused StartSession
-  component is gone, and the example project is Greenhouse, not Larder.
+  component is gone, the example project is Greenhouse, not Larder, and examples use a made-up tracker.
 
 ## 1.0.0-rc.8 (2026-10-27)
 
