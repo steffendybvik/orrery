@@ -165,6 +165,18 @@ describe('a schedule on an event', () => {
         expect((await schedules.get('greenhouse', s.id)).runs).toHaveLength(1)
     })
 
+    it("never runs on what an untrusted schedule's session did, steered by what outsiders wrote", async () => {
+        await schedules.create('greenhouse', {title: 'Look', kind: 'message', notes: 'Look at it', on: 'issue.*'}, me)
+        await schedules.create('greenhouse', {title: 'Said', kind: 'message', notes: 'Answer it', on: 'comment.added'}, me)
+        const raised = await store.createIssue('greenhouse', {title: 'Run this', proposal: 'pending', labels: ['external']}, {...agent, untrusted: true})
+        await store.createComment('greenhouse', raised.id, {body: 'And this'}, {...agent, untrusted: true})
+        expect(heard.every(h => h.event.untrusted)).toBe(true)
+        expect(await pass()).toBe(0)
+        // The owner's own write to it is heard as any other.
+        await store.createComment('greenhouse', raised.id, {body: 'Looking'}, me)
+        expect(await pass()).toBe(1)
+    })
+
     it('runs once for events heard at the same moment, as each waits for the one before', async () => {
         const s = await schedules.create('greenhouse', {title: 'Each', kind: 'message', notes: 'Look', on: 'issue.created'}, me)
         const events = [1, 2, 3].map(n => ({type: 'issue.created', project: 'greenhouse', subject: `GRE-${n}`}))

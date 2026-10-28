@@ -6,7 +6,7 @@ import type {Actor} from './store'
 // agents name themselves.
 export async function actorOf(event: H3Event): Promise<Actor> {
     const name = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
-    return {name, owner: name.toLowerCase() === (await useStore().ownerOf()).name}
+    return {name, owner: name.toLowerCase() === (await useStore().ownerOf()).name, ...untrustedWrite(event) ? {untrusted: true} : {}}
 }
 
 /** The issue a write went to is the work of the session that says it made it (`Orrery-Session`), if one

@@ -33,7 +33,7 @@ export abstract class StoreBase {
 
     /** Says what happened, as `actor` did it. */
     protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
-        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner},
+        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner}, ...actor.untrusted ? {untrusted: true} : {},
             ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
     }
 

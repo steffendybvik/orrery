@@ -46,7 +46,8 @@ schedule's run never goes to your sessions. Instead:
   instructions.
 - **What it raises is a proposal labelled `external`**, made so by Orrery whatever the session asks.
   Orrery refuses every other write from it, except comments on those proposals. Nothing it raises is
-  worked on until you approve it. Its channel says it's untrusted on everything it sends, so this holds
+  worked on until you approve it, and what it writes sets off no schedule, so an event schedule can't
+  start a session of yours on it. Its channel says it's untrusted on everything it sends, so this holds
   after Orrery restarts too, before the launcher has said which sessions it started.
 - **It stops** once it has sat idle for two minutes, and after half an hour at most.
 

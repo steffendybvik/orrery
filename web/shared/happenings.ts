@@ -14,6 +14,8 @@ export interface OrreryEvent {
     subject?: string
     /** Who did it, when someone did. */
     by?: {name: string, owner: boolean}
+    /** An untrusted schedule's session did it, steered by what outsiders wrote: no schedule hears it. */
+    untrusted?: boolean
     /** A change's value before and after, as stored (a status's id, a label list); none for text (titles, notes). */
     from?: string
     to?: string

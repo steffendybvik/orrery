@@ -8,8 +8,7 @@ const COMMENTS = /^\/api\/projects\/([^/?]+)\/issues\/([^/?]+)\/comments\/?(\?|$
 
 export default defineEventHandler(async event => {
     if (event.method === 'GET' || event.method === 'HEAD') return
-    const session = getHeader(event, 'orrery-session')?.trim()
-    if (getHeader(event, 'orrery-untrusted') !== 'yes' && !(session && untrustedSession(session))) return
+    if (!untrustedWrite(event)) return
     if (event.method === 'POST' && ISSUES.test(event.path)) return
     const comment = event.method === 'POST' ? COMMENTS.exec(event.path) : null
     if (comment?.[1] && comment[2]) {

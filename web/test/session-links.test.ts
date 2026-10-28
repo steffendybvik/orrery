@@ -41,8 +41,9 @@ beforeEach(async () => {
     vi.stubGlobal('workedOn', workedOn)
     vi.stubGlobal('claimFor', claimFor)
     vi.stubGlobal('decoded', decoded)
-    const {asProposal, EXTERNAL} = await import('../server/utils/untrusted')
+    const {asProposal, EXTERNAL, untrustedWrite} = await import('../server/utils/untrusted')
     vi.stubGlobal('asProposal', asProposal)
+    vi.stubGlobal('untrustedWrite', untrustedWrite)
     vi.stubGlobal('EXTERNAL', EXTERNAL)
 })
 
@@ -119,5 +120,10 @@ describe("an untrusted schedule's session", () => {
         expect(await said('PATCH', '/api/projects/greenhouse/issues/GRE-1', 'abc')).toBe(403)
         expect(await said('PUT', '/api/projects/greenhouse/docs/setup', '')).toBe(403)
         expect(await said('POST', '/api/projects/greenhouse/issues', 'abc')).toBe('ok')
+        // And what it raises is still made a proposal, though Orrery doesn't know its session.
+        const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
+        const e = event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Run this', status: 'in-progress', chunk: '1'})
+        await create({...e, headers: {...e.headers, 'orrery-untrusted': 'yes'}})
+        expect(made).toEqual([{title: 'Run this', notes: undefined, proposal: 'pending', labels: ['external']}])
     })
 })
