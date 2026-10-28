@@ -38,7 +38,7 @@ import {chatOnly, lockedDown} from './locked-down.mjs'
 import {channelFor, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
-import {VERSION, launcherMove, versionOnDisk} from './version.mjs'
+import {CODE, VERSION, codeOnDisk, launcherMove, versionOnDisk} from './version.mjs'
 
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
@@ -143,19 +143,20 @@ async function stop(id, why) {
 /** The version each orrery it serves runs, as its stream said on connecting. */
 const orreryVersions = new Map()
 let toldBehind = ''
-/** An orrery running other code than this launcher (ORR-434): as the service, with no session of its own running, it
- * exits once the checkout it runs from has moved on, and launchd or systemd starts it again on that code (it comes back
- * when it exits with a failure). Until the checkout is updated, it says so once. */
+/** Its checkout moving on (ORR-434, ORR-470): as the service, with no session of its own running, it exits once the
+ * checkout it runs from holds other code, a new version or a change within one, and launchd or systemd starts it again
+ * on that code (it comes back when it exits with a failure). While an orrery it serves runs another version and the
+ * checkout isn't updated, it says so once. */
 function restartIfBehind() {
     const theirs = [...orreryVersions.values()]
     const disk = versionOnDisk()
-    const move = launcherMove({theirs, mine: VERSION, disk, running: running.size, service: args.includes('--service')})
+    const move = launcherMove({theirs, mine: VERSION, code: CODE, now: codeOnDisk(), running: running.size, service: args.includes('--service')})
     const other = theirs.find(v => v !== VERSION)
     if (move === 'tell' && toldBehind !== other) {
         toldBehind = other
         log(`orrery runs ${other} and this launcher ${VERSION}: update the checkout it runs from (git pull), and it restarts itself`)
     } else if (move === 'restart') {
-        log(`restarting on ${disk}, the code now in its checkout`)
+        log(`restarting on ${disk === VERSION ? `${disk}'s newer code` : disk}, the code now in its checkout`)
         process.exit(75)
     }
 }
