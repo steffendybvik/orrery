@@ -13,6 +13,14 @@ the database schema are the public surface, and a database always migrates forwa
   settings or `ORRERY_BACKUP_DATABASE`. It keeps the latest only, replaced in one transaction so a failed backup
   leaves the one before whole, and it only writes into an empty database or its own earlier backup, never another
   orrery's or the one it runs on. The password is never shown or logged.
+- **Backups you can trust:** each copy is checked before it takes the last one's place, so one cut short or damaged
+  never replaces a good one. App settings → Database marks the latest backup when it's over two days old or the last
+  try failed, and says why.
+- **Restore from the app:** a new, empty orrery no longer starts from the latest backup on its own. It asks *Found
+  backups. Restore one?*, or you **Start fresh**. App settings → Database → **Restore a backup…** brings back any copy,
+  checked first, with the database it replaces set aside. A backup never writes over another orrery's.
+- **A compose file with each release:** `release/compose.yml` runs the published image, keeping backups in
+  `./backups`. In Docker with no backup folder set, orrery says the backups are only on this computer.
 - **Safer upgrades:** before a SQLite database takes an upgrade's steps, it's copied as it was to
   `orrery-pre-<version>.db` (the three newest stay). A database newer than the code is refused and left alone, with a
   message on how to go back.
@@ -24,6 +32,15 @@ the database schema are the public surface, and a database always migrates forwa
 - **Drop an image anywhere:** drag one over the chat, the comment box, a description or doc being edited, or the new
   issue or doc dialog, and the whole area says *Drop image to add*. Pasted anywhere inside it goes in too, and you're
   back to typing after.
+- **Keep sessions running:** *Let orrery start sessions* has **Keep at least N running**, across every project. A
+  session that stops because its time is up or it sat idle is replaced by a fresh one with the same presets, notes and
+  projects. One you stop isn't.
+- **Start sessions only when you say:** a switch, **Start a session when work arrives and nobody's listening**, on
+  by default. Turned off, work waits for a session you start, and *Focus on this (starts a session)* still starts
+  one. A line says what starts sessions, and how many schedules do.
+- **Faster on a big orrery:** a change sends open pages only what changed (4.2 kB instead of 859 kB for one renamed
+  issue), pages load the boards without the issues' descriptions (2.3 MB down to 1.5 MB), and the bell reads
+  agents' comments off an index (37 ms down to 0.2 ms with 20,000 comments).
 - **The chat asks for schedules too:** it can set up a schedule or change one (pause and resume included), shown with
   **Allow** and **Deny**; once allowed it's yours. Under each of its replies, **Copy** takes the reply's Markdown.
 - **My issues is home:** Now is gone, and `/` (and `/now`, for old links) opens My issues.
@@ -42,7 +59,8 @@ the database schema are the public surface, and a database always migrates forwa
   header (#308). A session schedule can't restart itself on its own session stopping, and an untrusted session stops
   at its 30 minutes, busy or not (#301). Plus five smaller fixes: the moved-database file kept private, more ways of
   writing a Postgres password scrubbed from the log, a dropped Postgres connection no longer ending the server, an
-  untrusted proposal keeping only `external`, and an agent's schedule you change becoming yours (#300).
+  untrusted proposal keeping only `external`, and an agent's schedule you change becoming yours (#300). A launch
+  waiting to start can be claimed only by a connected launcher, by the token its stream gives it (#325).
 - **Performance tests:** `pnpm test:e2e:perf` times every page on a big seeded orrery, on SQLite and Postgres, in CI.
 
 ## 1.0.0-rc.9 (2026-10-28)
