@@ -34,7 +34,7 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 
 | | |
 |---|---|
-| `GET /projects` | every project with its counts; `?expand=board` adds boards |
+| `GET /projects` | every project with its counts; `?expand=board` adds boards, and each project's `rev` for the events stream's patches |
 | `POST /projects` | `{name, id?, key?, description?, repo?, release_mode?, releases_from?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board, docs and releases |
 | `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?}` (the last four the owner's; see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
@@ -604,7 +604,7 @@ fields are refused, so typos show); 403 for the owner's things; 404; 409 for a t
 `GET /events` is a server-sent event stream, for pages to stay current without reloading:
 
 - `ready` (the server's build id) first; a page from another build reloads. `ping` every 25 seconds.
-- `project` (the whole project, after any change) and `removed` (a deleted project's id)
+- `project` (the whole project, after any change) and `removed` (a deleted project's id). With `?patch=1`, `patch` comes instead of `project`: only what changed since the last one (`{id, base, rev, fields, unset, board, issues}`: the changed issues whole, each changed chunk's tree of issue ids, the unchanged ones by id). It builds on the `rev` that `GET /projects?expand=board` and `GET /projects/:project` give each project; a page behind `base` reads the project again. Changes that come in while a project is being read are sent together in one push
 - `settings` (the settings with the statuses, after either changes)
 - `listeners` and `launchers` (`{project, count}`): sessions listening for signals, and launchers that start them
 - `sessions` (`{project, sessions}`), `signal` (one sent), and `notice` (a comment for the owner's bell)

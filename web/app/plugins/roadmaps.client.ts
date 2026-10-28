@@ -1,7 +1,9 @@
 import type {Chat, Issue, LoggedEvent, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
+import type {ProjectPatch} from '#shared/patch'
+import {applyPatch} from '#shared/patch'
 
-// Loads the projects, then listens to `/api/events`: a change through the API replaces that
-// project in place, without a reload (and the owner's chats, as they change). After a dropped connection it loads them all again, and the secrets; one
+// Loads the projects, then listens to `/api/events`: a change through the API comes as a patch of what changed in
+// the project (ORR-440), which replaces it in place, without a reload (and the owner's chats, as they change). After a dropped connection it loads them all again, and the secrets; one
 // the browser gave up on (refused while the server restarted) it opens again itself.
 export default defineNuxtPlugin(() => {
     const {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals} = useRoadmaps()
@@ -11,7 +13,10 @@ export default defineNuxtPlugin(() => {
         app.settings.value = await $fetch<Settings>('/api/settings').catch(() => app.settings.value)
         app.apply()
         await useOwner().refresh()
-        projects.value = await $fetch<Project[]>('/api/projects', {query: {expand: 'board'}})
+        const read = await $fetch<(Project & {rev: number})[]>('/api/projects', {query: {expand: 'board'}})
+        revs.clear()
+        for (const project of read) revs.set(project.id, project.rev)
+        projects.value = read
         ready.value = true
         useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
         await useLoggedEvents().loadNew()
@@ -41,11 +46,42 @@ export default defineNuxtPlugin(() => {
         changed.value = next
     }
 
+    /** The revision of each project the page has, which the next patch to it must build on. */
+    const revs = new Map<string, number>()
+
+    /** A project as it is now, from a patch or read whole: in place, with its changed rows flashing. */
+    function received(project: Project) {
+        const index = projects.value.findIndex(p => p.id === project.id)
+        markChanged(projects.value[index], project)
+        useUnseen().ownChanges(project)
+        useInbox().projectChanged(project)
+        if (index < 0) projects.value = [...projects.value, project].sort((a, b) => a.name.localeCompare(b.name))
+        else projects.value = projects.value.map(p => p.id === project.id ? project : p)
+    }
+
+    /** Applies a patch to the project the page has; one it can't (it missed one, or doesn't have what the patch counts
+     * on) has the project read again whole. One the page is already past (it read the project whole since) is dropped. */
+    function patched(patch: ProjectPatch) {
+        const before = projects.value.find(p => p.id === patch.id)
+        const have = revs.get(patch.id)
+        if (before && have !== undefined && patch.rev <= have) return
+        const fits = before ? have !== undefined && patch.base <= have : patch.base === 0
+        const project = fits ? applyPatch(before ?? {board: {chunks: []}} as unknown as Project, patch) : null
+        if (project) {
+            revs.set(patch.id, Math.max(have ?? 0, patch.rev))
+            return received(project)
+        }
+        $fetch<Project & {rev: number}>(`/api/projects/${encodeURIComponent(patch.id)}`).then(read => {
+            revs.set(read.id, Math.max(revs.get(read.id) ?? 0, read.rev))
+            received(read)
+        }, () => {})
+    }
+
     let opened = false
     /** How long to wait before opening a stream the browser gave up on again, longer each time. */
     let wait = 1000
     function connect() {
-        const events = new EventSource('/api/events')
+        const events = new EventSource('/api/events?patch=1')
         events.addEventListener('open', () => {
             live.value = 'connected'
             wait = 1000
@@ -64,15 +100,7 @@ export default defineNuxtPlugin(() => {
             setTimeout(connect, wait)
             wait = Math.min(wait * 2, 30_000)
         })
-        events.addEventListener('project', event => {
-            const project = JSON.parse((event as MessageEvent).data) as Project
-            const index = projects.value.findIndex(p => p.id === project.id)
-            markChanged(projects.value[index], project)
-            useUnseen().ownChanges(project)
-            useInbox().projectChanged(project)
-            if (index < 0) projects.value = [...projects.value, project].sort((a, b) => a.name.localeCompare(b.name))
-            else projects.value = projects.value.map(p => p.id === project.id ? project : p)
-        })
+        events.addEventListener('patch', event => patched(JSON.parse((event as MessageEvent).data) as ProjectPatch))
         events.addEventListener('listeners', event => {
             const {project, count} = JSON.parse((event as MessageEvent).data) as {project: string, count: number}
             listeners.value = {...listeners.value, [project]: count}
@@ -118,6 +146,7 @@ export default defineNuxtPlugin(() => {
         })
         events.addEventListener('removed', event => {
             const id = (event as MessageEvent).data as string
+            revs.delete(id)
             projects.value = projects.value.filter(p => p.id !== id)
         })
     }
