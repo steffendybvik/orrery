@@ -49,6 +49,13 @@ function issueJson(chunks: Chunk[]): Map<string, string> {
     return found
 }
 
+/** `project` without its issues' notes, which only an issue's own page shows: it reads them itself (ORR-439), so
+ * the page's load of every board and the patches after it leave them out. */
+export function withoutNotes<T extends Project>(project: T): T {
+    const strip = (issues: Issue[]): Issue[] => issues.map(({notes: _, tasks, ...issue}) => ({...issue, tasks: strip(tasks)}))
+    return {...project, board: {...project.board, chunks: project.board.chunks.map(chunk => ({...chunk, tasks: strip(chunk.tasks)}))}}
+}
+
 /** What changed from `before` (none: everything) to `after`. */
 export function diffProject(before: Project | undefined, after: Project, base: number, rev: number): ProjectPatch {
     const {board: _, ...fields} = after

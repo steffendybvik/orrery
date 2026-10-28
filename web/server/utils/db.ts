@@ -2,7 +2,7 @@
 // `node:sqlite` is synchronous, so writes from several sessions never interleave. The owner can move it from App
 // settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
 import {chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
-import {lastBackup, lastPostgresBackup, restoreBackup} from './backup'
+import {lastBackup, lastBackupFailure, lastPostgresBackup, putInPlace, restoreBackup} from './backup'
 import {backupChoice, backupChoiceFile, backupDir, backupEvery, backupKeep, backupTarget, defaultBackupDir, inDocker} from './backup-choice'
 import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
@@ -741,6 +741,7 @@ export function describeDatabase(): DatabaseInfo {
     const target = backupTarget()
     const dir = target?.kind === 'folder' ? target.dir : ''
     const at = dir ? lastBackup(dir) : target?.kind === 'postgres' ? lastPostgresBackup(target.url) : undefined
+    const failed = target ? lastBackupFailure(target) : undefined
     const base = String(config.public?.repoDir ?? '')
     // Under Docker, where each is on the computer too (`/data` and `/backup` mean nothing there): ORR-399.
     const backupOn = dir ? onHost(resolve(dir), '/backup', String(config.backupHost ?? ''), base) : {}
@@ -753,7 +754,8 @@ export function describeDatabase(): DatabaseInfo {
     const settable = backupChoiceFile() ? {backups_settable: inDocker() ? 'switch' as const : 'folder' as const} : {}
     const backups = {...settable, ...choice?.on === false ? {backups_off: true} : {}, ...choice?.folder ? {backup_folder: choice.folder} : {},
         ...choice?.postgres ? {backup_postgres: hidePassword(choice.postgres)} : {},
-        ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}, backup_every: backupEvery(), backup_keep: backupKeep()}
+        ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}, backup_every: backupEvery(), backup_keep: backupKeep(),
+        ...target && failed ? {backup_failed: failed} : {}}
     if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup, ...backups}
     return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup, ...backups}
 }
@@ -824,9 +826,23 @@ function migrate(opened: DatabaseSync, path: string, upTo: number, snapshot?: st
             + 'Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>.db, in the backup folder or beside the database).')
     }
     // A new file has nothing to keep; a copy already there is from before an earlier try at this upgrade, so it stays.
+    // It's written beside the name and checked before it takes it (ORR-448), so a copy cut short never passes for one.
     if (snapshot && version > 0 && version < Math.min(upTo, MIGRATIONS.length) && !existsSync(snapshot)) {
-        mkdirSync(dirname(snapshot), {recursive: true})
-        opened.prepare('VACUUM INTO ?').run(snapshot)
+        const temporary = `${snapshot}.partial`
+        try {
+            mkdirSync(dirname(snapshot), {recursive: true})
+            rmSync(temporary, {force: true})
+            opened.prepare('VACUUM INTO ?').run(temporary)
+            putInPlace(temporary, snapshot)
+        } catch (error) {
+            try {
+                rmSync(temporary, {force: true})
+            } catch {
+                // Nowhere to write means nothing was left there.
+            }
+            throw new Error(`orrery won't upgrade ${path} (schema step ${version} to ${Math.min(upTo, MIGRATIONS.length)}) without a copy of it as it is, `
+                + `and couldn't make one at ${snapshot}: ${(error as Error).message}. Free some space or fix the folder, then start it again.`, {cause: error})
+        }
     }
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     opened.exec('PRAGMA foreign_keys = OFF')

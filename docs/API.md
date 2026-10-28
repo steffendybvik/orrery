@@ -34,9 +34,9 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 
 | | |
 |---|---|
-| `GET /projects` | every project with its counts; `?expand=board` adds boards, and each project's `rev` for the events stream's patches |
+| `GET /projects` | every project with its counts; `?expand=board` adds boards, and each project's `rev` for the events stream's patches; `&notes=0` leaves the issues' notes out (the page reads an issue's own from `GET …/issues/:issue`) |
 | `POST /projects` | `{name, id?, key?, description?, repo?, release_mode?, releases_from?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
-| `GET /projects/:project` | the project with its board, docs and releases |
+| `GET /projects/:project` | the project with its board, docs and releases, and its `rev`; `?notes=0` leaves the issues' notes out |
 | `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?}` (the last four the owner's; see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
 | `DELETE /projects/:project` | with its chunks, issues and comments; a 409 while others take their releases from it |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there (schedules that made issues in a chunk make them in none) |
@@ -327,12 +327,12 @@ projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dang
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 `GET /settings` says the orrery's `id` (made once, when it first starts) and `environment`: a channel given
 `ORRERY_ID` refuses an orrery with another id. It also says where the data is, read only: `database: {kind, where,
-host?, volume?, backup?, backup_host?, backup_volume?, backed_up_at?, size?, backup_size?}`, `kind` `sqlite` (`where`
+host?, volume?, backup?, backup_host?, backup_volume?, backed_up_at?, backup_failed?, size?, backup_size?}`, `kind` `sqlite` (`where`
 the file's path, as orrery opens it) or `postgres` (`where` as `user@host:port/name`, never the password), `backup` the
 folder it's backed up to, if any (a Postgres one as a SQLite snapshot). Under Docker, `host` is where the SQLite file is
 on the computer (from `ORRERY_DATA`, a relative one from the compose folder) or `volume` the Docker volume it's in, and
 `backup_host` / `backup_volume` the same for the backup folder (`ORRERY_BACKUP`); `where` and `backup` stay the paths
-inside the container. And `backed_up_at` when the latest backup there was made. `size` is how big it is in bytes (a SQLite file with
+inside the container. And `backed_up_at` when the latest backup there was made, and `backup_failed` (`{at, message}`) while the last try failed. `size` is how big it is in bytes (a SQLite file with
 its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
 it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABASE` names Postgres), and `moved` that it
 was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
@@ -611,7 +611,7 @@ fields are refused, so typos show); 403 for the owner's things; 404; 409 for a t
 `GET /events` is a server-sent event stream, for pages to stay current without reloading:
 
 - `ready` (the server's build id) first; a page from another build reloads. `ping` every 25 seconds.
-- `project` (the whole project, after any change) and `removed` (a deleted project's id). With `?patch=1`, `patch` comes instead of `project`: only what changed since the last one (`{id, base, rev, fields, unset, board, issues}`: the changed issues whole, each changed chunk's tree of issue ids, the unchanged ones by id). It builds on the `rev` that `GET /projects?expand=board` and `GET /projects/:project` give each project; a page behind `base` reads the project again. Changes that come in while a project is being read are sent together in one push
+- `project` (the whole project, after any change) and `removed` (a deleted project's id). With `?patch=1`, `patch` comes instead of `project`: only what changed since the last one (`{id, base, rev, fields, unset, board, issues}`: the changed issues whole, each changed chunk's tree of issue ids, the unchanged ones by id). Its issues come without their notes. It builds on the `rev` that `GET /projects?expand=board` and `GET /projects/:project` give each project; a page behind `base` reads the project again. Changes that come in while a project is being read are sent together in one push
 - `settings` (the settings with the statuses, after either changes)
 - `listeners` and `launchers` (`{project, count}`): sessions listening for signals, and launchers that start them
 - `sessions` (`{project, sessions}`), `signal` (one sent), and `notice` (a comment for the owner's bell)

@@ -99,22 +99,35 @@ async function saveTitle() {
     editingTitle.value = false
 }
 
-// The description, as Markdown: ⌘↵ saves, Esc leaves it as it was.
+// The description, as Markdown: ⌘↵ saves, Esc leaves it as it was. The boards come without notes (ORR-439), so the
+// page reads the issue's own, again each time it changes.
+const read = ref<{issue: string, notes: string}>()
+const issueKey = computed(() => project.value && issue.value ? `${project.value.id}/${issue.value.id}` : '')
+const readKey = computed(() => issueKey.value && `${issueKey.value}/${issue.value?.updated_at}`)
+watch(readKey, async key => {
+    if (!key || !project.value || !issue.value) return
+    const at = issueKey.value
+    const got = await $fetch<Issue>(`/api/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`).catch(() => undefined)
+    if (got && readKey.value === key) read.value = {issue: at, notes: got.notes ?? ''}
+}, {immediate: true})
+/** The issue's notes as last read (kept while they're read again after a change); undefined until the first read. */
+const issueNotes = computed(() => read.value?.issue === issueKey.value ? read.value.notes : undefined)
 const editingNotes = ref(false)
 const notes = ref('')
 const notesInput = ref<HTMLTextAreaElement | null>(null)
 // An image pasted, dropped or picked goes in as Markdown where the cursor is.
 const {uploading, failed: uploadError, upload, reset: resetUploads, over, on: drop} = useImageUpload(notes, notesInput)
 function editNotes() {
+    if (issueNotes.value === undefined) return
     resetUploads()
-    notes.value = issue.value?.notes ?? ''
+    notes.value = issueNotes.value ?? ''
     editingNotes.value = true
     nextTick(() => notesInput.value?.focus())
 }
 async function saveNotes() {
     if (uploading.value) return
     const next = notes.value.trim()
-    if (next !== (issue.value?.notes ?? '') && !await save({notes: next || null})) return
+    if (next !== (issueNotes.value ?? '') && !await save({notes: next || null})) return
     editingNotes.value = false
 }
 watch(issueId, () => {
@@ -274,8 +287,8 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               class="absolute -top-1 right-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               @click="editNotes"
           >Edit</UiButton>
-          <MarkdownView v-if="issue.notes" :source="issue.notes" />
-          <button v-else type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No description. Add one</button>
+          <MarkdownView v-if="issueNotes" :source="issueNotes" />
+          <button v-else-if="issueNotes !== undefined" type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No description. Add one</button>
         </section>
 
         <section v-if="issue.tasks.length" class="flex flex-col gap-2">

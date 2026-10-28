@@ -5,11 +5,13 @@
 // database is backed up the same way, as a SQLite snapshot of it, so a backup opens anywhere and a new SQLite
 // orrery starts from it. Or, either way, into a Postgres database of its own (ORR-427): the latest only, copied as a
 // move copies, and marked as this orrery's backup (`backup_of` in its settings), so a backup only ever writes over
-// its own last one, never another orrery's or the live database.
+// its own last one, never another orrery's or the live database. Each snapshot is written beside the one it replaces
+// and passes SQLite's `quick_check` before it takes its place (ORR-448): one that fails is let go, and the one before
+// stays.
 import {copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync} from 'node:fs'
 import {randomBytes} from 'node:crypto'
 import {join} from 'node:path'
-import type {DatabaseSync} from 'node:sqlite'
+import {DatabaseSync} from 'node:sqlite'
 import type {Db} from './database'
 import {SqliteDb, one} from './database'
 import {copyDatabase} from './copy'
@@ -75,12 +77,23 @@ export function backUp(database: Db, dir: string, days = KEEP_DAYS): Promise<voi
     return making
 }
 
+/** The last backup that failed, since orrery started, until one to the same place works (ORR-448). */
+let failure: {target: string, at: string, message: string} | null = null
+
+/** Why the latest backup to `target` failed, and when; none when it worked, or hasn't been tried. */
+export const lastBackupFailure = (target: BackupTarget) => failure?.target === targetLabel(target) ? {at: failure.at, message: failure.message} : undefined
+
 /** Backs up to the target, a folder (keeping `days` daily copies) or a Postgres database (the latest only), after any
  * backup already being made. */
 export function backUpTo(database: Db, target: BackupTarget, days = KEEP_DAYS): Promise<void> {
-    if (target.kind === 'folder') return backUp(database, target.dir, days)
-    making = making.catch(() => {}).then(() => backupInto(database, target.url))
-    return making
+    const made = target.kind === 'folder' ? backUp(database, target.dir, days)
+        : making = making.catch(() => {}).then(() => backupInto(database, target.url))
+    return made.then(() => {
+        if (failure?.target === targetLabel(target)) failure = null
+    }, (error: Error) => {
+        failure = {target: targetLabel(target), at: new Date().toISOString(), message: error.message}
+        throw error
+    })
 }
 
 /** The Postgres database backed up to, held open between backups (one a minute at most), and when it last worked. */
@@ -125,20 +138,54 @@ async function samePlace(a: PostgresDb, b: PostgresDb): Promise<boolean> {
     return x?.at === y?.at
 }
 
+/** Lets go of a SQLite file and what SQLite may have left beside it. */
+const remove = (path: string) => [path, `${path}-wal`, `${path}-shm`].forEach(name => rmSync(name, {force: true}))
+
 /** Where a backup is written before it's put in place, made ready (the folder there, nothing left from before). */
 function partial(dir: string): string {
     mkdirSync(dir, {recursive: true})
     const temporary = join(dir, PARTIAL)
-    for (const name of [temporary, `${temporary}-wal`, `${temporary}-shm`]) rmSync(name, {force: true})
+    remove(temporary)
     return temporary
+}
+
+/** Throws unless the SQLite file at `path` passes `quick_check` (`full`: the slower `integrity_check`, for a restore). */
+export function checkSnapshot(path: string, full = false) {
+    let opened: DatabaseSync | undefined
+    let found: string[]
+    try {
+        opened = new DatabaseSync(path, {readOnly: true})
+        found = (opened.prepare(`PRAGMA ${full ? 'integrity_check' : 'quick_check'}`).all() as Record<string, string>[]).map(row => String(Object.values(row)[0]))
+    } catch (error) {
+        found = [(error as Error).message]
+    } finally {
+        opened?.close()
+    }
+    if (found.length !== 1 || found[0] !== 'ok') throw new Error(`the copy is damaged (${found.slice(0, 3).join('; ')})`)
+}
+
+/** Puts `from`, a snapshot just written, at `to` once it passes its check; one that doesn't is let go, and what was at
+ * `to` stays. */
+export function putInPlace(from: string, to: string) {
+    try {
+        checkSnapshot(from)
+    } catch (error) {
+        remove(from)
+        throw new Error(`${(error as Error).message}: kept the one before`, {cause: error})
+    }
+    renameSync(from, to)
 }
 
 /** Puts the written backup in place as the latest, keeps today's, and lets go of the daily ones past `days` and of
  * all but the newest few taken before an upgrade. */
 function keep(dir: string, days: number) {
-    renameSync(join(dir, PARTIAL), join(dir, LATEST))
+    putInPlace(join(dir, PARTIAL), join(dir, LATEST))
     const today = join(dir, `orrery-${new Date().toISOString().slice(0, 10)}.db`)
-    if (!existsSync(today)) copyFileSync(join(dir, LATEST), today)
+    // Copied beside it and renamed, so a copy cut short is never taken for today's.
+    if (!existsSync(today)) {
+        copyFileSync(join(dir, LATEST), `${today}.partial`)
+        renameSync(`${today}.partial`, today)
+    }
     const names = readdirSync(dir)
     names.filter(name => DAILY.test(name)).sort().slice(0, -days).forEach(name => rmSync(join(dir, name)))
     names.filter(name => BEFORE_UPGRADE.test(name)).map(name => ({name, at: statSync(join(dir, name)).mtimeMs}))

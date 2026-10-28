@@ -13,7 +13,7 @@ export default defineNuxtPlugin(() => {
         app.settings.value = await $fetch<Settings>('/api/settings').catch(() => app.settings.value)
         app.apply()
         await useOwner().refresh()
-        const read = await $fetch<(Project & {rev: number})[]>('/api/projects', {query: {expand: 'board'}})
+        const read = await $fetch<(Project & {rev: number})[]>('/api/projects', {query: {expand: 'board', notes: '0'}})
         revs.clear()
         for (const project of read) revs.set(project.id, project.rev)
         projects.value = read
@@ -71,7 +71,7 @@ export default defineNuxtPlugin(() => {
             revs.set(patch.id, Math.max(have ?? 0, patch.rev))
             return received(project)
         }
-        $fetch<Project & {rev: number}>(`/api/projects/${encodeURIComponent(patch.id)}`).then(read => {
+        $fetch<Project & {rev: number}>(`/api/projects/${encodeURIComponent(patch.id)}`, {query: {notes: '0'}}).then(read => {
             revs.set(read.id, Math.max(revs.get(read.id) ?? 0, read.rev))
             received(read)
         }, () => {})
