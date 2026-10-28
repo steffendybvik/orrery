@@ -573,6 +573,8 @@ export interface Session {
     reachable?: boolean
     /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
     started?: StartedSession
+    /** The version of the code its channel runs, as it says (one from before 1.0.0-rc.10 doesn't). */
+    version?: string
 }
 
 /** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, and
