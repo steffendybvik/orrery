@@ -512,10 +512,16 @@ problem. **Errors** are recorded always: a 5xx the server answers with (`server.
 (`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What Orrery did** is
 recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → This Orrery):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
-`session.refused`), launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
+`session.refused`), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
+launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
 their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), schedule runs and skips
 (`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `migration.ran`,
-`database.moved`, `server.started`). So is **each change to the roadmap**, as an `info` line with the change's
+`database.created` when a move copies into a new one, `database.moved`, `server.started`), calls through egress
+(`egress.called`: who, which secrets, the method, host and status, never a value or path), and who changed what
+in the settings and secrets (`settings.changed` with the keys, `secret.set`, `secret.narrowed`, `secret.deleted`
+with the name and hosts; never a value). Every request refused with a 403 or 409 (an untrusted session's write, a
+proposal's move, the owner's own, an issue another session is on) is a warning, `request.refused`, with who asked,
+the route without its query, the status and why. So is **each change to the roadmap**, as an `info` line with the change's
 type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.created`, `issue.status`,
 `issue.priority`…, `issue.deleted`), `comment.added`, `comment.asks`, `chunk.created`, `doc.created`, `doc.changed`,
 `doc.deleted` and `release.<what>` (`release.created`, `release.frozen`, `release.shipped`…). Its message says who did

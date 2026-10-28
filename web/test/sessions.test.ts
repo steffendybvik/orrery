@@ -474,3 +474,20 @@ describe("a session's stream", () => {
         expect(pushed).toEqual(['name greenhouse · Odin', 'name pantry'])
     })
 })
+
+describe("a session's channel in the event log", () => {
+    it('says who connected to the feed for which projects, and left', async () => {
+        const {channelEntry} = await import('../server/utils/signal-feed')
+        const who = {name: 'greenhouse · Odin', heard: true, stops: true, untrusted: false, chat: false}
+        expect(channelEntry('connected', ['greenhouse'], false, who, 's-1')).toEqual({
+            level: 'info', kind: 'channel.connected', project: 'greenhouse',
+            message: 'greenhouse · Odin connected to the feed for greenhouse', details: {session: 's-1', projects: ['greenhouse'], heard: true},
+        })
+        expect(channelEntry('left', ['greenhouse', 'pantry'], true, {...who, name: undefined, untrusted: true}, 's-1', 'Frøya')).toEqual({
+            level: 'info', kind: 'channel.left',
+            message: 'Frøya left the feed for every project', details: {session: 's-1', projects: ['*'], heard: true, untrusted: true},
+        })
+        expect(channelEntry('connected', ['pantry'], false, {...who, name: undefined, heard: false, pid: 42}).message)
+            .toBe("pid 42 connected to the feed for pantry (not started with the channel flag: it won't hear)")
+    })
+})

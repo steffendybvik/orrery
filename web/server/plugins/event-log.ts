@@ -1,13 +1,17 @@
 import type {LaunchEvent} from '../utils/launches'
 
-// Fills the event log (server/utils/event-log.ts): every 5xx the server answers with, its starts and the migrations
+// Fills the event log (server/utils/event-log.ts): every 5xx the server answers with, each 403 and 409 as a refusal, its starts and the migrations
 // they ran, and the sessions Orrery starts and stops. Old events are pruned on start and every hour.
 export default defineNitroPlugin(nitro => {
     const log = useEventLog()
     const {version} = useRuntimeConfig().public
     nitro.hooks.hook('error', (error, {event}) => {
         const status = (error as {statusCode?: number}).statusCode ?? 500
-        if (status < 500) return
+        if (status < 500) {
+            const refused = event && refusal(status, event.method, event.path, error.message, getHeader(event, 'orrery-actor')?.trim().slice(0, 60))
+            if (refused) log.note(refused)
+            return
+        }
         log.note({level: 'error', kind: 'server.error', message: error.message, details: {
             // The path alone: a query can hold what isn't the log's to keep.
             ...event ? {route: `${event.method} ${event.path.split('?')[0]}`} : {}, status, stack: error.stack, version,

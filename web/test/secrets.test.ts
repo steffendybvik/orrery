@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 import type {Secret} from '#shared/roadmap'
+import type {EventEntry} from '../server/utils/event-log'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -13,6 +14,7 @@ let key: string
 let sent: {url: string, init: RequestInit}[]
 let answer: (url: string, init: RequestInit) => Response
 let lists: Secret[][]
+let noted: EventEntry[]
 
 beforeEach(async () => {
     store = new Store(testDb())
@@ -21,12 +23,13 @@ beforeEach(async () => {
     key = 'a long random test key'
     sent = []
     lists = []
+    noted = []
     answer = () => new Response('{"ok":true}', {status: 200, headers: {'content-type': 'application/json'}})
     const send = async (url: string | URL | Request, init?: RequestInit) => {
         sent.push({url: String(url), init: init!})
         return answer(String(url), init!)
     }
-    secrets = new Secrets(store, () => key, list => lists.push(list), send as typeof fetch)
+    secrets = new Secrets(store, () => key, list => lists.push(list), send as typeof fetch, entry => noted.push(entry))
 })
 
 afterEach(() => {
@@ -173,6 +176,23 @@ describe('egress', () => {
         expect(last_used).toEqual(uses[0])
         expect(JSON.stringify(uses)).not.toContain(VALUE)
         expect(lists.at(-1)![0]!.last_used!.id).toBe(uses[0]!.id)
+    })
+
+    it('tell the event log who set, narrowed, sent and deleted which, never a value or a path', async () => {
+        noted = []
+        await secrets.egress({url: 'https://api.stripe.com/v1/customers/{{secret:STRIPE_KEY}}', project: 'greenhouse', issue: 'GRE-1'}, agent)
+        await secrets.narrow('STRIPE_KEY', {projects: ['greenhouse']}, me)
+        await secrets.set('STRIPE_KEY', {value: VALUE, hosts: ['api.stripe.com']}, me)
+        await secrets.delete('STRIPE_KEY', me)
+        expect(noted.map(e => [e.kind, e.message])).toEqual([
+            ['egress.called', 'claude sent STRIPE_KEY to GET api.stripe.com: 200'],
+            ['secret.narrowed', 'skoll narrowed STRIPE_KEY to api.stripe.com'],
+            ['secret.set', 'skoll replaced STRIPE_KEY, for api.stripe.com'],
+            ['secret.deleted', 'skoll deleted STRIPE_KEY'],
+        ])
+        expect(noted[0]).toMatchObject({project: 'greenhouse', details: {by: 'claude', secrets: ['STRIPE_KEY'], method: 'GET', host: 'api.stripe.com', status: 200, issue: 'GRE-1'}})
+        expect(JSON.stringify(noted)).not.toContain(VALUE)
+        expect(JSON.stringify(noted)).not.toContain('/v1/customers')
     })
 
     it('fill a url for where they sit: a whole address as it is, a path keeping its slashes, a query escaped', async () => {
