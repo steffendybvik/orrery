@@ -163,14 +163,14 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
           </div>
         </div>
         <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
-        <div class="flex items-center gap-2 text-xs text-faint">
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-faint">
           <PersonAvatar :name="doc.created_by" :size="16" />
           <span class="text-muted">{{ who(doc.created_by) }}</span>
           <span>· updated {{ ago(doc.updated_at) }}</span>
           <span v-if="doc.protected" class="flex items-center gap-1" title="Only the owner can delete it">· protected</span>
           <span class="ml-auto flex items-center gap-2">
             <SegmentedControl v-model="size" :options="sizes" class="[&_[role=radio]]:px-2 [&_[role=radio]]:py-0.5" title="Text size" />
-            <span class="font-mono">{{ doc.id }}</span>
+            <span class="whitespace-nowrap font-mono">{{ doc.id }}</span>
             <CopyButton :text="doc.id" />
           </span>
         </div>

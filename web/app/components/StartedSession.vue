@@ -3,10 +3,10 @@ import type {Session} from '#shared/roadmap'
 import {TERMINALS} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 
-// A session Orrery started, at the end of its card's first row: Watch (its launcher opens a terminal on it) and Show
-// screen (`viewing`, its live screen on the page) out front, the rest under ⋯: the command that attaches to its tmux
-// session to copy, the owner's +30 min (for one with a time) and Stop, which asks once more, as whatever the session
-// was in the middle of goes with it. Headless UI's Menu does the keys, focus and outside-click.
+// A session Orrery started, at the end of its card's first row: Watch (its launcher opens a terminal on it), Show
+// screen (`viewing`, its live screen on the page) and Stop out front, Stop asking once more, as whatever the session
+// was in the middle of goes with it; the rest under ⋯: the command that attaches to its tmux session to copy, and the
+// owner's +30 min (for one with a time). Headless UI's Menu does the keys, focus and outside-click.
 const props = defineProps<{session: Session}>()
 const viewing = defineModel<boolean>('viewing', {default: false})
 const {load} = useOwner()
@@ -60,6 +60,7 @@ async function copyAttach() {
         {{ busy === 'watch' ? 'Opening…' : 'Watch' }}
       </UiButton>
       <UiButton size="xs" :aria-expanded="viewing" @click="viewing = !viewing">{{ viewing ? 'Hide screen' : 'Show screen' }}</UiButton>
+      <UiButton variant="danger-outline" size="xs" :disabled="!!busy" :title="`Stop ${session.name}`" @click="stopping = true">Stop</UiButton>
       <Menu as="div" class="relative">
         <MenuButton as="template">
           <UiButton size="xs" square :aria-label="`More for ${session.name}`" :title="`More for ${session.name}`">
@@ -74,9 +75,6 @@ async function copyAttach() {
             <UiMenuItem :lit="active" @click="copyAttach">
               <span class="min-w-0 flex-1 truncate">Copy <code class="font-mono text-[11px]">tmux attach -t {{ session.started.tmux }}</code></span>
             </UiMenuItem>
-          </MenuItem>
-          <MenuItem v-slot="{active}" as="template">
-            <UiMenuItem :lit="active" danger @click="stopping = true">Stop…</UiMenuItem>
           </MenuItem>
         </MenuItems>
       </Menu>

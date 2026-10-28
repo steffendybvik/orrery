@@ -2,16 +2,17 @@
 // Every project's schedules, a card for each project that has any (ScheduleList), in the sidebar's order;
 // `?project=` keeps to one (a project's old Schedules tab comes here that way), shown even with none. New schedule
 // opens the dialog on the project kept to, else the first, and the project is picked there; a card's own makes one on it.
-useHead({title: 'Schedules · Orrery'})
 const route = useRoute()
 const router = useRouter()
-const {projects, ready} = useRoadmaps()
+const {projects, ready, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {byProject, edit} = useSchedules()
 const only = computed({
     get: () => (route.query.project as string | undefined) ?? '',
     set: id => router.replace({query: id ? {project: id} : {}}),
 })
+// Kept to one project, the tab says which, as its other tabs do.
+useHead(() => ({title: ['Schedules', byId(only.value)?.name, 'Orrery'].filter(Boolean).join(' · ')}))
 const all = computed(() => Object.values(byProject.value).flat().filter(s => !only.value || s.project === only.value))
 const cards = computed(() => ordered.value
     .map(project => ({project, schedules: byProject.value[project.id] ?? []}))
@@ -53,7 +54,7 @@ function newSchedule() {
       <p class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         Nothing scheduled on any project yet.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="newSchedule">Make one</button>
-        to send sessions a message or make an issue on a timetable.
+        to message sessions, start one, or make an issue, at a set time or when something happens.
       </p>
     </div>
   </div>

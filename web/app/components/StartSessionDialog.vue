@@ -262,7 +262,7 @@ async function start() {
 
     <div v-if="projects.length || everywhere" class="flex flex-col gap-1.5">
       <span class="label px-1">Context <span class="font-normal normal-case text-faint">· optional, goes with every signal to it</span></span>
-      <div v-if="presets.length" class="grid gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
+      <div v-if="presets.length" class="grid grid-cols-1 gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
         <button
             v-for="p in presets"
             :key="p.id"

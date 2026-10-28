@@ -83,7 +83,7 @@ const field = 'h-7 rounded-md bg-transparent px-1.5 text-[13px] text-fg hover:bg
         <UiButton variant="ghost" size="xs" class="ml-auto" @click="adding = kind; newName = ''">+ Add</UiButton>
       </div>
       <div v-for="(status, i) in list" :key="status.id" class="flex flex-col">
-        <div class="group flex items-center gap-2 rounded-lg px-1.5 py-0.5 hover:bg-hover/60">
+        <div class="group flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-1.5 py-0.5 hover:bg-hover/60">
           <StatusIcon :column="status.id" />
           <input
               :value="status.name"
