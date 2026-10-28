@@ -126,9 +126,30 @@ export const TOOLS = [
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
+/** A schedule's fields as the chat asks for them (`CHAT_SCHEDULE_FIELDS`, web/shared/roadmap.ts). */
+const SCHEDULE_FIELDS = {
+    kind: {type: 'string', enum: ['issue', 'message', 'session'], description: 'issue makes an issue each run (the default), message sends notes to a session, session starts one with presets and notes'},
+    title: {type: 'string'},
+    notes: {type: ['string', 'null'], description: "The issue's description, or the message"},
+    cron: {type: ['string', 'null'], description: 'Five fields, minute hour day month weekday: "0 9 * * 1-5"'},
+    at: {type: ['string', 'null'], description: 'Once, at this ISO time'},
+    on: {type: ['string', 'null'], description: 'An event instead of a clock: "issue.status", "release.*", "*.failed"'},
+    on_filter: {type: ['object', 'null'], description: 'What the event must also say: {"to": "in-review"}, {"by": "owner"}, {"level": "error"}'},
+    timezone: {type: 'string', description: "An IANA zone, e.g. Europe/Oslo; the server's when left out"},
+    presets: {type: 'array', items: {type: 'number'}, description: 'Preset ids for a message or session schedule, before notes'},
+    column: {type: 'string', description: "Where its issues start: an open status's id, or a kind (todo)"},
+    chunk: {type: ['string', 'null']},
+    priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
+    labels: {type: 'array', items: {type: 'string'}},
+    ask: {type: 'boolean', description: 'An issue schedule also asks a session to work on its issue'},
+    skip_open: {type: 'boolean', description: "Skip a run while the last run's issue is open (on by default)"},
+    only_if_changed: {type: 'boolean', description: 'A message schedule skips a run when nothing in the project changed since its last message'},
+    enabled: {type: 'boolean', description: 'false pauses it'},
+}
+
 /** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
  * issue's fields when they ask (never its state of work), messaging other sessions for the owner when they ask, and
- * asking them to change a setting. */
+ * asking them to change a setting or make or change a schedule. */
 export const CHAT_TOOLS = [
     {
         name: 'reply',
@@ -158,6 +179,16 @@ export const CHAT_TOOLS = [
             value: {type: ['string', 'boolean', 'null']},
             why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
         }},
+    },
+    {
+        name: 'create_schedule',
+        description: "Asks the owner to make a schedule in this project, only when they asked you to in this chat: it shows them the schedule with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it; then it's theirs. Give a title and one of cron, at or on. The presets tool lists preset ids.",
+        inputSchema: {type: 'object', required: ['title'], properties: {...SCHEDULE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+    },
+    {
+        name: 'update_schedule',
+        description: "Asks the owner to change one of this project's schedules (by its id; the schedules tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes; enabled false pauses it, true resumes it. Setting one of cron, at or on lets go of the others.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}, ...SCHEDULE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
     },
     {
         name: 'message_session',
@@ -352,6 +383,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async update_settings({setting, value, why}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {setting, value, ...why ? {why} : {}}, root)
             return "Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async create_schedule({why, ...schedule}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {schedule, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the schedule with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async update_schedule({id, why, ...schedule}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, schedule, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async message_sessions({text, projects, states}) {
             const {sent} = await call('POST', '/sessions/message', {text, ...projects ? {projects} : {}, ...states ? {states} : {}}, root)

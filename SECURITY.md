@@ -73,6 +73,10 @@ answering you. Two more go further, and you should know how far:
 
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
   Secrets, the database, statuses and how sessions start aren't among them.
+- **Schedules** it can only ask for too: a new one with each field it sets, or a change with each field from → to.
+  Nothing is saved until you press **Allow**, and then it's yours, so a schedule that starts sessions starts them as
+  you. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
+  the Schedules page.
 - **Messages to your sessions** go out as yours, the owner's instructions in the sense below, marked as sent through
   the chat (on the Sessions page, in the event log, and in what the session hears). It's told to send one only when you
   ask in the chat, and to show you the text first (for several sessions, to wait for your go). That's its instructions,
@@ -112,8 +116,8 @@ Orrery didn't start it with.
 The chat on the page writes as `claude`, like any agent, under the same rules: it makes and changes issues and
 comments, and it can't touch presets, prompts or settings. Two things go further, since you asked for them there:
 
-- **Changing an App setting** is only ever asked: you see it from → to, and nothing is saved until you press
-  **Allow** in the page.
+- **Changing an App setting, or making or changing a schedule,** is only ever asked: you see it from → to, and
+  nothing is saved until you press **Allow** in the page. An allowed schedule is yours, so read what it sends.
 - **Messaging your other sessions** goes as you, marked as sent through the chat. Its brief says to do this only
   when you ask, but nothing in Orrery holds it to that yet, so a chat talked into it by something it read could
   send your sessions words of its own (ORR-416).

@@ -129,6 +129,23 @@ export class Schedules {
     }
 
     async create(project: string, body: unknown, actor = AGENT): Promise<Schedule> {
+        const insert = await this.toCreate(project, body, actor)
+        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
+            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, ...insert)
+        this.listeners = null
+        this.onChange(project)
+        return await this.get(project, id)
+    }
+
+    /** Checks a new schedule (`id` none) or a change to schedule `id` as `create` and `update` would, saving nothing: so
+     * the chat's request for one fails when it asks, not once the owner allows it. */
+    async check(project: string, body: unknown, actor: Actor, id?: number): Promise<void> {
+        if (id === undefined) await this.toCreate(project, body, actor)
+        else await this.toUpdate(project, id, body, actor)
+    }
+
+    /** A new schedule's row, checked: what `create` inserts. */
+    private async toCreate(project: string, body: unknown, actor: Actor): Promise<(string | number | null)[]> {
         await this.store.project(project)
         const input = checkInput(body, SCHEDULE_FIELDS)
         const when = this.when({cron: input.cron, at: input.at, on: input.on, timezone: input.timezone}, true)
@@ -138,20 +155,24 @@ export class Schedules {
         const kind = String(input.kind ?? 'issue') as Schedule['kind']
         const presets = await this.presets(project, kind, input.presets ?? '[]')
         this.checkKind(kind, text(input.notes), presets, !!input.untrusted, actor)
-        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
-            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, when.timezone, await this.place(input.column ?? 'todo'), chunk,
+        return [project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, when.timezone, await this.place(input.column ?? 'todo'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false),
             Number(input.untrusted ?? false), Number(enabled),
-            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
-        this.listeners = null
-        this.onChange(project)
-        return await this.get(project, id)
+            enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now]
     }
 
     /** Changing when it runs, or turning it back on, works out its next run again. The owner's schedules are
      * theirs: what one says runs as them, so only they change it. */
     async update(project: string, id: number, body: unknown, actor = AGENT): Promise<Schedule> {
+        const fields = await this.toUpdate(project, id, body, actor)
+        await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), id)
+        this.listeners = null
+        this.onChange(project)
+        return await this.get(project, id)
+    }
+
+    /** A change to schedule `id`, checked: the columns `update` sets. */
+    private async toUpdate(project: string, id: number, body: unknown, actor: Actor): Promise<[string, unknown][]> {
         const row = await this.row(project, id)
         if (row.owned && !actor.owner) throw forbidden(`Changing schedule ${id}: it's the owner's; only they can change it`)
         const input = checkInput(body, SCHEDULE_FIELDS, true)
@@ -188,11 +209,7 @@ export class Schedules {
             next_run: next,
             updated_at: new Date().toISOString(),
         }
-        const fields = Object.entries(set).filter(([, v]) => v !== undefined)
-        await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), id)
-        this.listeners = null
-        this.onChange(project)
-        return await this.get(project, id)
+        return Object.entries(set).filter(([, v]) => v !== undefined)
     }
 
     /** The owner's schedules are theirs: an agent can't delete them. Its issues stay. */
