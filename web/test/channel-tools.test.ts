@@ -101,6 +101,27 @@ describe("the channel's tools", () => {
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('update_settings')
     })
 
+    it("in the owner's chat, ask them to make or change a schedule, which no other session can", async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 7})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('create_schedule', {title: 'Weekly review', cron: '0 9 * * 1', why: 'As asked'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect((await call('update_schedule', {id: 3, enabled: false})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect(calls).toEqual([
+            {url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {schedule: {title: 'Weekly review', cron: '0 9 * * 1'}, why: 'As asked'}},
+            {url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {id: 3, schedule: {enabled: false}}},
+        ])
+        const names = toolsFor(['greenhouse']).map((t: {name: string}) => t.name)
+        expect(names).not.toContain('create_schedule')
+        expect(names).not.toContain('update_schedule')
+        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['create_schedule', 'update_schedule']))
+        const other = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
+        expect((await other('create_schedule', {title: 'X'})).isError).toBe(true)
+    })
+
     it("in the owner's chat, change an issue's fields with nothing about its state of work", async () => {
         const calls: {url: string, method: string, body?: unknown}[] = []
         const fetch = async (url: string, init: {method: string, body?: string}) => {
