@@ -47,7 +47,7 @@ export default defineNuxtPlugin(() => {
     function connect() {
         const events = new EventSource('/api/events')
         events.addEventListener('open', () => {
-            live.value = 'live'
+            live.value = 'connected'
             wait = 1000
             // A secret removed while offline would otherwise show until a reload.
             if (opened) Promise.all([load(), useSecretList().load()]).catch(() => {})
@@ -58,7 +58,8 @@ export default defineNuxtPlugin(() => {
             if (build && build !== useRuntimeConfig().app.buildId) location.reload()
         })
         events.addEventListener('error', () => {
-            live.value = events.readyState === EventSource.CLOSED ? 'offline' : 'connecting'
+            // Connecting… only until the first open; after a drop the browser is trying again.
+            live.value = events.readyState === EventSource.CLOSED ? 'offline' : opened ? 'reconnecting' : 'connecting'
             if (events.readyState !== EventSource.CLOSED) return
             setTimeout(connect, wait)
             wait = Math.min(wait * 2, 30_000)
