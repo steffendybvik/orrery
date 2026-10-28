@@ -123,25 +123,25 @@ describe('StartSessionDialog', () => {
         expect(sent.map(s => [s.project, (s.body as {hears: string[]}).hears])).toEqual([['greenhouse', ['greenhouse']], ['scullery', ['scullery']]])
     })
 
-    it('starts one session hearing every project with none ticked, where a launcher serves them all', async () => {
+    it('asks for a launcher serving every project before starting one with none ticked', async () => {
         const {wrapper, submit} = await mount(null)
         expect(wrapper.text()).toContain('ORRERY_PROJECTS=*')
         expect(submit().attributes('disabled')).toBeDefined()
+    })
 
-        // Scullery's launcher runs where the channel serves every project; Greenhouse, before it, doesn't. The first dialog
-        // goes before the next opens: two open at once race for the page, and under coverage the second can lose.
-        mounted.splice(0).forEach(w => w.unmount())
-        useStartSession().close()
+    it('starts one session hearing every project with none ticked, where a launcher serves them all', async () => {
+        // Scullery's launcher runs where the channel serves every project; Greenhouse, before it, doesn't. Set before
+        // the dialog opens: remounting one mid-test races Headless UI's portal, and under coverage the second can lose.
         Object.assign(STATES.scullery!, {every: true})
         try {
-            const {wrapper: again, submit: start} = await mount(null)
-            await vi.waitFor(() => expect(again.text()).toContain("One session hearing every project, projects made later too, started in Scullery's repo."))
-            expect(again.text()).toContain('none ticked: one session hearing every project')
-            await vi.waitFor(() => expect(again.findAll('[aria-label="Presets"] button').length).toBeGreaterThan(0))
-            await again.findAll('[aria-label="Presets"] button').find(b => b.text().includes('Reviewer'))!.trigger('click')
-            await again.find('textarea').setValue('Triage what came in overnight')
-            expect(start().attributes('disabled')).toBeUndefined()
-            await again.find('form').trigger('submit')
+            const {wrapper, submit} = await mount(null)
+            await vi.waitFor(() => expect(wrapper.text()).toContain("One session hearing every project, projects made later too, started in Scullery's repo."))
+            expect(wrapper.text()).toContain('none ticked: one session hearing every project')
+            await vi.waitFor(() => expect(wrapper.findAll('[aria-label="Presets"] button').length).toBeGreaterThan(0))
+            await wrapper.findAll('[aria-label="Presets"] button').find(b => b.text().includes('Reviewer'))!.trigger('click')
+            await wrapper.find('textarea').setValue('Triage what came in overnight')
+            expect(submit().attributes('disabled')).toBeUndefined()
+            await wrapper.find('form').trigger('submit')
             await vi.waitFor(() => expect(sent).toHaveLength(1))
             // No `hears`, so it hears what the channel serves, and no scope: nothing was ticked to work through.
             expect(sent[0]).toEqual({project: 'scullery', actor: 'skoll', body: {presets: [1], instructions: 'Triage what came in overnight'}})
