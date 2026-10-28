@@ -20,8 +20,8 @@ beforeEach(async () => {
     heard = []
     store = new Store(testDb(), () => {}, signal => signals.push(signal))
     store.happened = event => heard.push({event, cause: scheduleRunning.getStore()})
-    await store.createProject({name: 'larder', key: 'LAR'})
-    await store.updateProject('larder', {release_mode: 'own'})
+    await store.createProject({name: 'greenhouse', key: 'GRE'})
+    await store.updateProject('greenhouse', {release_mode: 'own'})
     schedules = new Schedules(store)
 })
 
@@ -45,22 +45,22 @@ describe('event types', () => {
     })
 
     it('come out of what the store writes: every issue field, comments, releases, chunks and docs', async () => {
-        const issue = await store.createIssue('larder', {title: 'Shelf labels'}, me)
-        await store.updateIssue('larder', issue.id, {status: 'in-review', labels: ['ui'], title: 'Shelf labels, printed'}, agent)
-        await store.createComment('larder', issue.id, {body: 'Which printer?', asks: 'decision'}, agent)
-        await store.createRelease('larder', {version: '1.0.0'}, me)
-        await store.updateRelease('larder', '1.0.0', {frozen_on: '2026-10-27'}, me)
-        await store.updateRelease('larder', '1.0.0', {frozen_on: '2026-10-28'}, me)
-        await store.updateRelease('larder', '1.0.0', {shipped_on: '2026-10-29'}, me)
-        await store.createChunk('larder', {title: 'Upkeep'}, me)
-        await store.putDoc('larder', 'readme', {title: 'Readme', body: '# Larder'}, me)
-        await store.putDoc('larder', 'readme', {title: 'Readme', body: '# Larder, again'}, me)
+        const issue = await store.createIssue('greenhouse', {title: 'Shelf labels'}, me)
+        await store.updateIssue('greenhouse', issue.id, {status: 'in-review', labels: ['ui'], title: 'Shelf labels, printed'}, agent)
+        await store.createComment('greenhouse', issue.id, {body: 'Which printer?', asks: 'decision'}, agent)
+        await store.createRelease('greenhouse', {version: '1.0.0'}, me)
+        await store.updateRelease('greenhouse', '1.0.0', {frozen_on: '2026-10-27'}, me)
+        await store.updateRelease('greenhouse', '1.0.0', {frozen_on: '2026-10-28'}, me)
+        await store.updateRelease('greenhouse', '1.0.0', {shipped_on: '2026-10-29'}, me)
+        await store.createChunk('greenhouse', {title: 'Upkeep'}, me)
+        await store.putDoc('greenhouse', 'readme', {title: 'Readme', body: '# Greenhouse'}, me)
+        await store.putDoc('greenhouse', 'readme', {title: 'Readme', body: '# Greenhouse, again'}, me)
         const types = heard.map(h => h.event.type)
         expect(types).toEqual(expect.arrayContaining(['issue.created', 'issue.status', 'issue.labels', 'issue.title', 'comment.asks',
             'release.created', 'release.frozen', 'release.shipped', 'chunk.created', 'doc.created', 'doc.changed']))
         // A new day on a frozen release isn't a second freeze.
         expect(types.filter(t => t === 'release.frozen')).toHaveLength(1)
-        expect(heard.find(h => h.event.type === 'issue.status')?.event).toMatchObject({project: 'larder', subject: 'LAR-1', from: 'backlog', to: 'in-review', by: agent})
+        expect(heard.find(h => h.event.type === 'issue.status')?.event).toMatchObject({project: 'greenhouse', subject: 'GRE-1', from: 'backlog', to: 'in-review', by: agent})
         // A title is someone's words: the change is said, not what it says.
         expect(heard.find(h => h.event.type === 'issue.title')?.event).not.toHaveProperty('to')
     })
@@ -72,98 +72,98 @@ describe('event types', () => {
         log.happened = event => said.push(event)
         await log.record({level: 'error', kind: 'server.error', message: 'Bearer secret broke it'})
         await log.record({level: 'error', kind: 'server.error', message: 'Bearer secret broke it'})
-        await log.record({level: 'info', kind: 'session.started', project: 'larder', message: 'Started a session'})
+        await log.record({level: 'info', kind: 'session.started', project: 'greenhouse', message: 'Started a session'})
         expect(said).toEqual([
             {type: 'server.error', level: 'error', subject: expect.stringMatching(/^event \d+$/)},
-            {type: 'session.started', level: 'info', project: 'larder'},
+            {type: 'session.started', level: 'info', project: 'greenhouse'},
         ])
     })
 })
 
 describe('a schedule on an event', () => {
     it('takes an event\'s type instead of a time, alone', async () => {
-        const s = await schedules.create('larder', {title: 'Review it', on: 'issue.status', on_filter: {to: 'in-review'}}, me)
+        const s = await schedules.create('greenhouse', {title: 'Review it', on: 'issue.status', on_filter: {to: 'in-review'}}, me)
         expect(s).toMatchObject({on: 'issue.status', on_filter: {to: 'in-review'}})
         expect(s.next_run).toBeUndefined()
-        await expect(schedules.create('larder', {title: 'x', on: 'issue.status', cron: '0 9 * * *'})).rejects.toThrow(/one of "cron"/)
-        await expect(schedules.create('larder', {title: 'x', on: 'Issue Status'})).rejects.toThrow(/"on" is/)
-        await expect(schedules.create('larder', {title: 'x', on: 'issue.status', on_filter: {into: 'done'}})).rejects.toThrow(/"into" isn't one/)
+        await expect(schedules.create('greenhouse', {title: 'x', on: 'issue.status', cron: '0 9 * * *'})).rejects.toThrow(/one of "cron"/)
+        await expect(schedules.create('greenhouse', {title: 'x', on: 'Issue Status'})).rejects.toThrow(/"on" is/)
+        await expect(schedules.create('greenhouse', {title: 'x', on: 'issue.status', on_filter: {into: 'done'}})).rejects.toThrow(/"into" isn't one/)
         // Back to a clock lets go of the event and its filter.
-        const clock = await schedules.update('larder', s.id, {cron: '0 9 * * *'}, me)
+        const clock = await schedules.update('greenhouse', s.id, {cron: '0 9 * * *'}, me)
         expect(clock.on).toBeUndefined()
         expect(clock.on_filter).toBeUndefined()
         expect(clock.next_run).toBeDefined()
     })
 
     it('makes an issue about what it ran on, once per subject, with its id rather than anyone\'s words', async () => {
-        const s = await schedules.create('larder', {title: 'Review', notes: 'Review its PR.', on: 'issue.status', on_filter: {to: 'in-review'}}, me)
-        const issue = await store.createIssue('larder', {title: 'Shelf labels'}, me)
-        await store.updateIssue('larder', issue.id, {status: 'todo'}, me)
+        const s = await schedules.create('greenhouse', {title: 'Review', notes: 'Review its PR.', on: 'issue.status', on_filter: {to: 'in-review'}}, me)
+        const issue = await store.createIssue('greenhouse', {title: 'Shelf labels'}, me)
+        await store.updateIssue('greenhouse', issue.id, {status: 'todo'}, me)
         expect(await pass()).toBe(0)
-        await store.updateIssue('larder', issue.id, {status: 'in-review'}, agent)
+        await store.updateIssue('greenhouse', issue.id, {status: 'in-review'}, agent)
         expect(await pass()).toBe(1)
-        const run = (await schedules.get('larder', s.id)).runs[0]
-        expect(run).toMatchObject({outcome: 'made', subject: 'LAR-1'})
-        const made = await store.issue('larder', run!.issue!)
-        expect(made.title).toBe('Review · LAR-1')
-        expect(made.notes).toBe('Review its PR.\n\nOn issue.status: LAR-1 (todo → in-review), by claude.')
+        const run = (await schedules.get('greenhouse', s.id)).runs[0]
+        expect(run).toMatchObject({outcome: 'made', subject: 'GRE-1'})
+        const made = await store.issue('greenhouse', run!.issue!)
+        expect(made.title).toBe('Review · GRE-1')
+        expect(made.notes).toBe('Review its PR.\n\nOn issue.status: GRE-1 (todo → in-review), by claude.')
         // Bounced out and back, later: still once.
-        await store.updateIssue('larder', issue.id, {status: 'todo'}, me)
-        await store.updateIssue('larder', issue.id, {status: 'in-review'}, me)
+        await store.updateIssue('greenhouse', issue.id, {status: 'todo'}, me)
+        await store.updateIssue('greenhouse', issue.id, {status: 'in-review'}, me)
         expect(await pass(later(5))).toBe(0)
     })
 
     it('takes a status\'s kind, a label added, who did it, and the event log\'s level', async () => {
-        await schedules.create('larder', {title: 'Closed', kind: 'message', notes: 'Tidy up', on: 'issue.status', on_filter: {to: 'done', by: 'owner'}}, me)
-        await schedules.create('larder', {title: 'UI', kind: 'message', notes: 'Look at it', on: 'issue.labels', on_filter: {to: 'ui'}}, me)
-        const issue = await store.createIssue('larder', {title: 'Shelf labels', labels: ['ui']}, me)
+        await schedules.create('greenhouse', {title: 'Closed', kind: 'message', notes: 'Tidy up', on: 'issue.status', on_filter: {to: 'done', by: 'owner'}}, me)
+        await schedules.create('greenhouse', {title: 'UI', kind: 'message', notes: 'Look at it', on: 'issue.labels', on_filter: {to: 'ui'}}, me)
+        const issue = await store.createIssue('greenhouse', {title: 'Shelf labels', labels: ['ui']}, me)
         // Made with the label: `issue.labels` isn't a change, `issue.created` is.
         expect(await pass()).toBe(0)
-        await store.updateIssue('larder', issue.id, {status: 'canceled'}, me)
-        await store.updateIssue('larder', issue.id, {labels: ['ui', 'print']}, me)
+        await store.updateIssue('greenhouse', issue.id, {status: 'canceled'}, me)
+        await store.updateIssue('greenhouse', issue.id, {labels: ['ui', 'print']}, me)
         expect(await pass()).toBe(0)
-        const other = await store.createIssue('larder', {title: 'Jars'}, me)
-        await store.updateIssue('larder', other.id, {status: 'done'}, agent)
+        const other = await store.createIssue('greenhouse', {title: 'Jars'}, me)
+        await store.updateIssue('greenhouse', other.id, {status: 'done'}, agent)
         expect(await pass()).toBe(0)
-        await store.updateIssue('larder', other.id, {labels: ['ui']}, agent)
-        await store.updateIssue('larder', issue.id, {status: 'done'}, me)
+        await store.updateIssue('greenhouse', other.id, {labels: ['ui']}, agent)
+        await store.updateIssue('greenhouse', issue.id, {status: 'done'}, me)
         expect(await pass(later(2))).toBe(2)
         expect(signals.filter(s => s.kind === 'message').map(s => s.note)).toEqual([
-            'Look at it\n\nOn issue.labels: LAR-2 ([] → ["ui"]), by claude.',
-            'Tidy up\n\nOn issue.status: LAR-1 (canceled → done), by skoll.',
+            'Look at it\n\nOn issue.labels: GRE-2 ([] → ["ui"]), by claude.',
+            'Tidy up\n\nOn issue.status: GRE-1 (canceled → done), by skoll.',
         ])
         const log = new EventLog(store.db)
         log.happened = event => heard.push({event})
-        await schedules.create('larder', {title: 'Errors', kind: 'message', notes: 'Look into it', on: '*.error', on_filter: {level: 'error'}}, me)
+        await schedules.create('greenhouse', {title: 'Errors', kind: 'message', notes: 'Look into it', on: '*.error', on_filter: {level: 'error'}}, me)
         await log.record({level: 'error', kind: 'page.error', message: 'It broke'})
         expect(await pass(later(4))).toBe(1)
         expect(signals.at(-1)?.note).toMatch(/^Look into it\n\nOn page\.error: event \d+\.$/)
     })
 
     it('runs once in a burst, and never on what a schedule\'s run did', async () => {
-        const s = await schedules.create('larder', {title: 'Again', on: 'issue.created', skip_open: false}, me)
-        await store.createIssue('larder', {title: 'One'}, me)
-        await store.createIssue('larder', {title: 'Two'}, me)
+        const s = await schedules.create('greenhouse', {title: 'Again', on: 'issue.created', skip_open: false}, me)
+        await store.createIssue('greenhouse', {title: 'One'}, me)
+        await store.createIssue('greenhouse', {title: 'Two'}, me)
         // One run in the minute, and the issue that run made sets nothing off.
         expect(await pass()).toBe(1)
         // The issue its run made is told as that run's doing, so a pass well past the minute still runs nothing.
         expect(heard.map(h => [h.event.type, h.cause])).toEqual([['issue.created', s.id]])
         expect(await pass(later(2))).toBe(0)
-        expect((await schedules.get('larder', s.id)).runs).toHaveLength(1)
+        expect((await schedules.get('greenhouse', s.id)).runs).toHaveLength(1)
     })
 
     it('hears what happens to the Orrery as a whole in every project, and nothing of another project\'s', async () => {
         await store.createProject({name: 'pantry', key: 'PAN'})
-        await schedules.create('larder', {title: 'Down', kind: 'message', notes: 'Check it', on: 'backup.failed'}, me)
-        await schedules.create('larder', {title: 'Made', kind: 'message', notes: 'Look', on: 'issue.created'}, me)
+        await schedules.create('greenhouse', {title: 'Down', kind: 'message', notes: 'Check it', on: 'backup.failed'}, me)
+        await schedules.create('greenhouse', {title: 'Made', kind: 'message', notes: 'Look', on: 'issue.created'}, me)
         await store.createIssue('pantry', {title: 'Elsewhere'}, me)
         expect(await pass()).toBe(0)
         expect(await schedules.hear({type: 'backup.failed', level: 'error', subject: 'event 1'})).toBe(1)
     })
 
     it('keeps the owner\'s message from an agent\'s schedule, as a clock\'s does', async () => {
-        await schedules.create('larder', {title: 'Theirs', kind: 'message', notes: 'Do it', on: 'issue.created'}, agent)
-        await store.createIssue('larder', {title: 'One'}, me)
+        await schedules.create('greenhouse', {title: 'Theirs', kind: 'message', notes: 'Do it', on: 'issue.created'}, agent)
+        await store.createIssue('greenhouse', {title: 'One'}, me)
         expect(await pass()).toBe(1)
         expect(signals).toHaveLength(0)
     })
