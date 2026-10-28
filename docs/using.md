@@ -57,7 +57,7 @@ A row that just changed through the API also flashes once, whether you've seen i
 
 ## Pictures
 
-Comments, the new-issue dialog and an issue's description take images: **paste** one, **drop** one in, or use the **picture button**. It goes in as Markdown where the cursor is. A click opens it larger over the page (a click, Esc or ✕ closes it; **Open original** or ⌘-click opens the file in a tab). PNG, JPEG, GIF and WebP, up to 10 MB. orrery keeps them in its own database, so backups and `orrery:copy` take them along. Agents attach screenshots the same way, through `POST /api/uploads`.
+Comments, the new-issue dialog and an issue's description take images: **paste** one, **drop** one in, or use the **picture button**. It goes in as Markdown where the cursor is. A click opens it larger over the page (a click, Esc or ✕ closes it; **Open original** or ⌘-click opens the file in a tab). PNG, JPEG, GIF and WebP, up to 10 MB. orrery keeps them in its own database, a PNG or JPEG as WebP when that's smaller (a screenshot about a third the size, and looking the same), so backups and `orrery:copy` take them along. Agents attach screenshots the same way, through `POST /api/uploads`.
 
 ## Pages
 

@@ -1,8 +1,10 @@
+import {randomBytes} from 'node:crypto'
 import {existsSync, mkdtempSync, readFileSync, readdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 import pg from 'pg'
+import sharp from 'sharp'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
@@ -1622,6 +1624,41 @@ describe('images', () => {
     it('refuses one over the limit', async () => {
         const big = Buffer.concat([Buffer.from(png, 'base64'), Buffer.alloc(UPLOAD_LIMIT)]).toString('base64')
         expect((await failure(() => store.createUpload({data: big}))).message).toMatch(/MB at most/)
+    })
+
+    /** A PNG of noise `width` × `height`, as big as a screenshot gets for its size. */
+    const noise = (width: number, height: number) => sharp(randomBytes(width * height * 3), {raw: {width, height, channels: 3}}).png().toBuffer()
+
+    it('keeps a PNG or JPEG as WebP when that\'s smaller, no wider than 2,560 px (ORR-446)', async () => {
+        const shot = await noise(3000, 40)
+        const image = await store.createUpload({data: shot.toString('base64'), name: 'shot.png'})
+        expect(image.type).toBe('image/webp')
+        expect(image.size).toBeLessThan(shot.length)
+        const kept = await store.upload(image.id)
+        expect(await sharp(kept.data).metadata()).toMatchObject({format: 'webp', width: 2560, height: 34})
+        const jpeg = await sharp(await noise(400, 300)).jpeg({quality: 100}).toBuffer()
+        expect((await store.createUpload({data: jpeg.toString('base64')})).type).toBe('image/webp')
+    })
+
+    it('keeps a GIF, a small image and an animated PNG as they came', async () => {
+        const gif = await sharp(await noise(300, 300)).gif().toBuffer()
+        expect((await store.createUpload({data: gif.toString('base64')})).type).toBe('image/gif')
+        expect((await store.createUpload({data: png})).type).toBe('image/png')
+        const frames = await noise(300, 300)
+        // An `acTL` chunk before the image data is what makes a PNG animated.
+        const apng = Buffer.concat([frames.subarray(0, 33), Buffer.from('\0\0\0\x08acTL\0\0\0\x02\0\0\0\0\0\0\0\0', 'latin1'), frames.subarray(33)])
+        expect((await store.createUpload({data: apng.toString('base64')})).type).toBe('image/png')
+    })
+
+    it('compresses the ones kept before, in place, once', async () => {
+        const before = await noise(800, 200)
+        await store.db.run('INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            'a'.repeat(24), 'image/png', 'old.png', before.length, before, 'claude', 0, '2026-10-01T00:00:00.000Z')
+        const done = await store.compressUploads()
+        expect(done).toMatchObject({images: 1})
+        expect(done!.saved).toBeGreaterThan(0)
+        expect((await store.upload('a'.repeat(24))).type).toBe('image/webp')
+        expect(await store.compressUploads()).toBeNull()
     })
 
     it("answers 404 for one that isn't there", async () => {
