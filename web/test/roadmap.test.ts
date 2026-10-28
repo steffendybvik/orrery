@@ -165,11 +165,11 @@ describe("the team tracker's link", () => {
 
     it("turns a link into a known tracker's workspace into its task link", () => {
         for (const pasted of [
-            'https://linear.app/circuly/team/CIR/projects/all',
-            'https://linear.app/circuly/view/my-view-123',
-            'https://linear.app/circuly/issue/CIR-1567/some-title',
-            'https://linear.app/circuly',
-        ]) expect(trackerLinkOf(pasted), pasted).toBe('https://linear.app/circuly/issue/{id}')
+            'https://linear.app/acme/team/ENG/projects/all',
+            'https://linear.app/acme/view/my-view-123',
+            'https://linear.app/acme/issue/ENG-1567/some-title',
+            'https://linear.app/acme',
+        ]) expect(trackerLinkOf(pasted), pasted).toBe('https://linear.app/acme/issue/{id}')
     })
 
     it('has none for another link without {id}, nor for what is no link', () => {

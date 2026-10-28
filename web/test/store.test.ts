@@ -1265,13 +1265,13 @@ describe('settings', () => {
 
     it("link an issue to its tasks on the team's tracker, found by them, its activity saying so", async () => {
         const owner = {name: 'skoll', owner: true}
-        const {id} = await store.createIssue('greenhouse', {title: 'Hinges', external: [' CIR-1567 ', 'CIR-1567']})
-        expect((await store.issue('greenhouse', id)).external).toEqual(['CIR-1567'])
+        const {id} = await store.createIssue('greenhouse', {title: 'Hinges', external: [' ENG-1567 ', 'ENG-1567']})
+        expect((await store.issue('greenhouse', id)).external).toEqual(['ENG-1567'])
         await store.createIssue('greenhouse', {title: 'Pins'})
-        expect((await store.updateIssue('greenhouse', id, {external: ['CIR-1567', 'https://tracker.example.com/issue/CIR-9']})).external).toEqual(['CIR-1567', 'https://tracker.example.com/issue/CIR-9'])
-        expect((await store.listIssues('greenhouse', {external: 'CIR-1567'})).map(i => i.id)).toEqual([id])
+        expect((await store.updateIssue('greenhouse', id, {external: ['ENG-1567', 'https://tracker.example.com/issue/ENG-9']})).external).toEqual(['ENG-1567', 'https://tracker.example.com/issue/ENG-9'])
+        expect((await store.listIssues('greenhouse', {external: 'ENG-1567'})).map(i => i.id)).toEqual([id])
         expect((await store.listActivity('greenhouse', id)).filter(e => e.field === 'external').map(e => [e.before, e.after]))
-            .toEqual([['["CIR-1567"]', '["CIR-1567","https://tracker.example.com/issue/CIR-9"]']])
+            .toEqual([['["ENG-1567"]', '["ENG-1567","https://tracker.example.com/issue/ENG-9"]']])
         expect((await store.updateIssue('greenhouse', id, {external: null})).external).toEqual([])
         expect((await store.updateSettings({tracker: 'https://tracker.example.com/issue/{id}'}, owner)).tracker).toBe('https://tracker.example.com/issue/{id}')
         expect((await failure(() => store.updateSettings({tracker: 'https://tracker.example.com'}, owner))).status).toBe(400)

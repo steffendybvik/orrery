@@ -96,8 +96,8 @@ describe("the channel's tools", () => {
             return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 7})}
         }
         const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
-        expect((await call('update_settings', {setting: 'tracker', value: 'https://t.example/{id}', why: 'For CIR links'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
-        expect(calls).toEqual([{url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {setting: 'tracker', value: 'https://t.example/{id}', why: 'For CIR links'}}])
+        expect((await call('update_settings', {setting: 'tracker', value: 'https://t.example/{id}', why: 'For ENG links'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect(calls).toEqual([{url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {setting: 'tracker', value: 'https://t.example/{id}', why: 'For ENG links'}}])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('update_settings')
     })
 

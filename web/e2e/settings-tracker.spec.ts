@@ -11,11 +11,11 @@ test("saves a pasted link to the tracker's projects page as its task link", asyn
         await field.blur()
         await expect(page.getByText('opens the same page for every task')).toBeVisible()
 
-        await field.fill('https://linear.app/circuly/team/CIR/projects/all')
+        await field.fill('https://linear.app/acme/team/ENG/projects/all')
         await field.blur()
-        await expect(page.getByRole('status')).toContainText('https://linear.app/circuly/issue/{id}')
-        await expect(field).toHaveValue('https://linear.app/circuly/issue/{id}')
-        expect((await (await request.get('/api/settings')).json()).tracker).toBe('https://linear.app/circuly/issue/{id}')
+        await expect(page.getByRole('status')).toContainText('https://linear.app/acme/issue/{id}')
+        await expect(field).toHaveValue('https://linear.app/acme/issue/{id}')
+        expect((await (await request.get('/api/settings')).json()).tracker).toBe('https://linear.app/acme/issue/{id}')
     } finally {
         await request.patch('/api/settings', {data: {tracker: null}, headers: OWNER})
     }

@@ -30,7 +30,7 @@ const FIELDS = {
     status: STATUS,
     priority: PRIORITY,
     labels: {type: 'array', items: {type: 'string'}},
-    external: {type: 'array', items: {type: 'string'}, description: "Its tasks on the team's tracker: ids like CIR-1567, or URLs"},
+    external: {type: 'array', items: {type: 'string'}, description: "Its tasks on the team's tracker: ids like ENG-1567, or URLs"},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
     chunk: {type: ['string', 'null'], description: "A chunk's id (a number) or its old name"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
