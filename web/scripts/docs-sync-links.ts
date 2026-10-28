@@ -1,16 +1,14 @@
 // What `pnpm docs:sync` copies into a project's docs, and how a file's links are pointed when it's there (ORR-296).
 import {dirname, posix} from 'node:path'
 
-/** The repo's files a project's docs copy, each to the doc id it's kept under. */
+/** The repo's files a project's docs copy, each to the doc id it's kept under: what someone using Orrery reads. Those
+ * for working on Orrery itself (contributing, development, components) stay in the repo, and links to them go to GitHub. */
 export const SYNCED: Record<string, string> = {
     'README.md': 'readme',
     'CHANGELOG.md': 'changelog',
-    'CONTRIBUTING.md': 'contributing',
     'SECURITY.md': 'security',
     'docs/API.md': 'api',
-    'docs/components.md': 'components',
     'docs/connect.md': 'connect',
-    'docs/development.md': 'development',
     'docs/running.md': 'running',
     'docs/using.md': 'using',
 }

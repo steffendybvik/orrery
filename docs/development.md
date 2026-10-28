@@ -27,9 +27,10 @@ The root is a pnpm workspace with the app as its one package: `pnpm dev`, `pnpm 
 own dependency is the channel's MCP SDK, so `channel/` keeps working from other repos. The database
 stays in the repo's `.data/`.
 
-`pnpm docs:sync <orrery> <project>` copies the README, changelog, contributing, security and `docs/` files into
-that project's docs at `<orrery>`, as a step of shipping a release: links to each other go to the doc pages, links to other
-files to GitHub (`--ref`, `main` by default), and images become uploads. A doc already up to date is left alone.
+`pnpm docs:sync <orrery> <project>` copies the docs for using Orrery (the README, changelog, security, API, running,
+using and connect) into that project's docs at `<orrery>`, as a step of shipping a release. The ones for working on
+Orrery itself (contributing, development, components) stay in the repo. Links between the copies go to the doc pages,
+links to any other file to GitHub (`--ref`, `main` by default), and images become uploads. A doc already up to date is left alone.
 
 ## The dev server
 
