@@ -543,6 +543,29 @@ describe('keeping a minimum of sessions running', () => {
         expect(sent.filter(e => e.type === 'launch')).toHaveLength(1)
     })
 
+    it("replaces one that has ended while its channel still looks connected (ORR-481)", async () => {
+        starts = {limit: 3, min: 2, minutes: 60}
+        launches.addLauncher('greenhouse')
+        const busy = {...due('b'), state: 'busy', listening: true, started: {launch: 'b', tmux: 'orrery-greenhouse-b', stops_at: new Date(now + 3_600_000).toISOString()}}
+        vi.stubGlobal('listSessions', () => [{...due('a'), listening: true}, busy])
+        started = {greenhouse: 2, all: 2}
+        expect(await launches.stopDue(now)).toEqual(['a'])
+        // Its launcher says it ended before its channel's socket closed: both still count as listening.
+        launches.launchGone('a')
+        expect(await launches.keepMinimum()).toHaveLength(1)
+        expect(await launches.keepMinimum()).toEqual([])
+        // Then the other ends too, with the first's channel still open and its replacement on its way. The limit still
+        // counts both channels, so there's no room yet, but it waits rather than being dropped, and starts once they close.
+        vi.stubGlobal('listSessions', () => [{...due('a'), listening: true}, {...due('b'), listening: true}])
+        expect(await launches.stopDue(now)).toEqual(['b'])
+        launches.launchGone('b')
+        expect(await launches.keepMinimum()).toEqual([])
+        vi.stubGlobal('listSessions', () => [])
+        started = {greenhouse: 0, all: 0}
+        expect(await launches.keepMinimum()).toHaveLength(1)
+        expect(await launches.keepMinimum()).toEqual([])
+    })
+
     it('starts one replacement when a check and an ending come together', async () => {
         starts = {limit: 3, min: 1, minutes: 60}
         launches.addLauncher('greenhouse')

@@ -370,6 +370,7 @@ export function reportRunning(project: string, launches: {id: string, tmux: stri
 export function launchGone(id: string) {
     const replaced = replacing.get(id)
     if (replaced) replaced.ended = true
+    ended.set(id, Date.now())
     chatEnded(id)
     causes.delete(id)
     pending.delete(id)
@@ -398,7 +399,8 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
     for (const session of listSessions()) {
         const {started} = session
         // A chat runs until the owner ends it.
-        if (!started || started.chat || now - (stopping.get(started.launch) ?? -Infinity) < ASK_AGAIN_AFTER) continue
+        // One whose launch has ended is gone already, however long its channel takes to close.
+        if (!started || started.chat || ended.has(started.launch) || now - (stopping.get(started.launch) ?? -Infinity) < ASK_AGAIN_AFTER) continue
         const stopsAt = started.stops_at ? Date.parse(started.stops_at) : Infinity
         if (session.state !== 'idle' && stopsAt > now) continue
         if (!starts.has(session.project)) starts.set(session.project, await store.starts(session.project).catch(() => undefined))
@@ -428,6 +430,9 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
  * fresh context. One the owner stops isn't among them, nor an untrusted run's. Kept in memory: an orrery that restarts
  * before one has been replaced forgets it, and its launchers' sessions carry on as they were. */
 const replacing = new Map<string, {project: string, context?: SessionContext, hears?: string[], ended: boolean}>()
+/** The launches that have ended lately, and when: their sessions' channels may not have closed yet. */
+const ended = new Map<string, number>()
+const ENDED_FOR = 5 * 60 * 1000
 let filling: Promise<Launch[]> | null = null
 
 /** Starts sessions in place of those stopped as done that have ended, until `min` are running and on their way over
@@ -443,10 +448,15 @@ export function keepMinimum(): Promise<Launch[]> {
 
 async function fill(): Promise<Launch[]> {
     const started: Launch[] = []
+    // A session whose launch has ended can still look as if it's listening until its channel's socket closes, so
+    // it isn't counted towards the minimum: counted, the one replacing it would be dropped, and nothing would
+    // take its place once it's gone (ORR-481).
+    for (const [id, at] of ended) if (Date.now() - at > ENDED_FOR) ended.delete(id)
+    const dying = listSessions().filter(s => s.started && !s.started.chat && s.listening && ended.has(s.started.launch)).length
     for (const [id, {project, context, hears, ended}] of replacing) {
         if (!ended) continue
         const starts = await useStore().starts(project).catch(() => undefined)
-        if (!starts?.min || startedSessions() + pendingOn() >= starts.min) {
+        if (!starts?.min || startedSessions() - dying + pendingOn() >= starts.min) {
             replacing.delete(id)
             continue
         }
