@@ -433,6 +433,15 @@ export interface DatabaseInfo {
     movable?: boolean
     /** Whether it was moved there from App settings, rather than set as Orrery starts. */
     moved?: boolean
+    /** What the owner can set about backups in App settings: `folder`, whether they run and where; `switch`, only
+     * whether they run (in Docker, ORRERY_BACKUP sets the folder). None when NUXT_DATABASE is Postgres. */
+    backups_settable?: 'folder' | 'switch'
+    /** The owner turned backups off. */
+    backups_off?: boolean
+    /** The folder the owner chose for backups instead of NUXT_BACKUP_DIR, kept while they're off too. */
+    backup_folder?: string
+    /** NUXT_BACKUP_DIR, the folder Orrery is given as it starts. */
+    backup_default?: string
 }
 
 /** A database the owner could move to, as `POST /api/database/check` finds it. */
