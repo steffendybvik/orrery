@@ -695,7 +695,7 @@ export function databaseSetting(): string {
 }
 
 /** Saves where the database moved to, for Orrery to open again as it starts; back to NUXT_DATABASE's own file forgets it. */
-export function saveDatabaseSetting(setting: string) {
+function saveDatabaseSetting(setting: string) {
     const file = movedFile()
     if (!file) throw new Error('NUXT_DATABASE names Postgres: change it there')
     if (setting === resolve(String(useRuntimeConfig().database))) {
