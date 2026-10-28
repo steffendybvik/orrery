@@ -29,10 +29,17 @@ test("shows a listening session on the Sessions page, and sends it a message onl
     const hello = await request.post('/api/sessions', {data: {id: 'e2e-1', project: 'kitchen', event: 'UserPromptSubmit', name: 'kitchen shelves', cwd: '/code/kitchen'}})
     expect(hello.ok(), await hello.text()).toBeTruthy()
     const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-1&name=kitchen%20shelves&format=text')
+    // What the sessions are on comes in one call for every project, never one with no project in it (ORR-442).
+    const asked: string[] = []
+    page.on('request', r => {
+        if (r.url().includes('/sessions/work')) asked.push(new URL(r.url()).pathname)
+    })
     try {
         await page.goto('/sessions')
         const card = page.locator('#session-e2e-1')
         await expect(card).toContainText('kitchen shelves')
+        await expect.poll(() => asked).toContain('/api/sessions/work')
+        expect(asked.filter(path => path !== '/api/sessions/work')).toEqual([])
         // Listening, so it says nothing about hearing signals.
         await expect(card.getByText("can't hear signals")).toBeHidden()
         await card.getByLabel('Message kitchen shelves').fill('Use the oak hinges, not pine.')

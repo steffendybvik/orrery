@@ -10,6 +10,8 @@ export function useIssueWorker(project: MaybeRefOrGetter<string>, issue: MaybeRe
 
     async function refresh() {
         const id = toValue(project)
+        // Before the issue's project is known there's nothing to ask about.
+        if (!id) return
         const got = await $fetch<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(id)}/sessions/work`).catch(() => null)
         if (got && id === toValue(project)) work.value = got
     }
