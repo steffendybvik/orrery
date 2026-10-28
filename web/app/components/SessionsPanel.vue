@@ -130,10 +130,10 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
     </fieldset>
 
     <ul v-if="sessions.length" class="flex flex-col">
-      <li v-for="session in sessions" :key="session.id" class="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-hover">
+      <li v-for="session in sessions" :key="session.id" class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg px-2 py-2 hover:bg-hover">
         <SessionDot :session="session" />
         <span class="min-w-0 truncate text-[13px] text-fg">{{ session.name }}</span>
-        <span class="text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
+        <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
           {{ STATE[session.state] }} · {{ ago(session.since) }}
         </span>
         <StartedSession :session="session" />
@@ -148,7 +148,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
         >
           {{ sending === session.id ? 'Sending…' : 'Focus on this' }}
         </button>
-        <span v-else class="ml-auto flex shrink-0 items-center gap-2 text-xs text-faint" :title="`${session.name} was started without the orrery channel, so a signal can't reach it`">
+        <span v-else class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-faint" :title="`${session.name} was started without the orrery channel, so a signal can't reach it`">
           can't hear signals: restart it with
           <CopyButton :text="restart(session)" label="Copy command" />
         </span>
