@@ -1,3 +1,5 @@
+import {readFile} from 'node:fs/promises'
+
 // The channel's tools: what a Claude session does with its projects' roadmaps, as MCP tools instead of
 // curl. Each is one or two calls to Orrery's API as `claude`, with the session's id so the owner's comments
 // on an issue it worked come back to it. They answer in short text a session reads at a glance (an issue
@@ -120,6 +122,7 @@ export const TOOLS = [
             limit: {type: 'number', description: '30 by default'},
         }},
     },
+    {name: 'guide', description: "How Orrery itself works, for questions about it rather than about the project: projects, issues and proposals, chunks, releases, docs, presets, schedules, sessions and the launcher, the chat, the bell and Now, secrets and egress, events, and each page with what it does.", inputSchema: {type: 'object', properties: {}}},
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
@@ -326,6 +329,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 `#${e.id} [${e.level}] ${e.kind}${e.project ? ` (${e.project})` : ''}${e.count > 1 ? ` ×${e.count}` : ''}, last ${e.last_seen}${e.resolved_at ? ', resolved' : ''}: ${e.message}`,
                 ...details && e.details ? [JSON.stringify(e.details, null, 2)] : [],
             ].join('\n')).join(details ? '\n\n' : '\n')
+        },
+        async guide() {
+            // The Orrery's own, so it's what that Orrery does; else the one beside this channel, from before it served it.
+            const response = await fetch(`${root}/guide/using`, {method: 'GET', headers: {Accept: 'text/markdown'}}).catch(() => null)
+            const served = response?.ok ? await response.text() : ''
+            if (served.trim()) return served
+            return await readFile(new URL('../docs/using.md', import.meta.url), 'utf8')
+                .catch(() => { throw new Error(`no guide at ${root}/guide/using, nor beside this channel`) })
         },
         async resolve_event({id}) {
             const event = await call('POST', `/events/log/${encodeURIComponent(id)}/resolve`, undefined, root)

@@ -2,6 +2,23 @@
 
 What you can do on Orrery's pages, and where it lives. Many actions are tucked into right-click menus and keys, so this is the map. Everything here acts as the owner. Agents do the same through [the API](API.md).
 
+## How it fits together
+
+- **Projects**: one per app, usually one per repo (its **Settings** say which). Each has a short key, so its issues are `KEY-12`.
+- **Issues**: the work. Each has a status (Backlog, Todo, In progress, In review, Done, Canceled, or the Orrery's own from App settings → Issues), a priority from P0 (urgent) to P3, an assignee, labels, sub-issues to any depth, comments, and the team's tasks it links to on their tracker. Only one session works an issue at a time.
+- **Proposals**: an issue an agent asks the owner for, sometimes with choices to pick from. It waits in the bell until the owner approves it (then it's work), asks for changes or rejects it. Agents can comment on it and put it up again, but don't start it, assign it or put it in a release before that, unless the owner turns that off in App settings → Issues.
+- **Chunks**: groups of issues, the milestones on the **Roadmap**, each with a priority and its progress.
+- **Releases**: for a project that ships, a version with its branch and the issues in it, and a changelog drafted from them. A frozen release (feature freeze) takes fixes, tests and docs only, until it ships.
+- **Docs**: the project's Markdown pages: decisions and how things work. Sessions read the ones a task touches before the code, and fix one that turns out wrong.
+- **Sessions**: Claude Code sessions in the project's repo. Each listens through Orrery's channel, an MCP server in the repo's `.mcp.json` (the **Connect** page gives the line), so the owner can point it at work (see [Pointing Claude at work](#pointing-claude-at-work)), and it updates the roadmap with the channel's tools. Start one yourself in a terminal, or have Orrery start one through the project's **launcher**, which runs it in tmux on this machine for a set time or until stopped.
+- **Presets**: standing words a session is started or messaged with ("review the open PRs"). Orrery ships a few, and the owner writes the rest, for every project or one.
+- **Schedules**: work Orrery starts on its own, on a cron, once, or when something happens (an issue moves to In review, a release is frozen, a new error). Each run makes an issue, messages the sessions, or starts a session. An **untrusted** message schedule is for reading what outsiders wrote (issues on GitHub, say): its session can only raise proposals and comment on them.
+- **Chat**: Claude on the page, about the project you're on. It answers from the project's code, roadmap and docs, files issues and comments when asked, and works on nothing itself.
+- **The bell, Now and My issues**: where the owner sees what needs them. Agents' questions and proposals wait in [the bell](#the-bell); **Now** shows what's started and urgent across projects.
+- **Secrets and egress**: keys for outside services, set by the owner on App settings (with `ORRERY_SECRET_KEY` set), each limited to the hosts and projects it may go to. An agent calls a service through **egress**, putting `{{secret:NAME}}` where the key goes. Orrery fills it in, and the agent never sees the value. Each use is kept on the secret.
+- **Events**: Orrery's own log, for looking into a problem: errors always, and with **Advanced** on, what it did and each change to the roadmap.
+- **More than one Orrery**: each (`personal`, `work`) is its own server with its own database, named by the chip beside its name.
+
 ## Right-click
 
 Right-click only opens Orrery's own menus. Anywhere else the browser's menu is held back, except in a text field or on selected text, so copy, paste and spellcheck still work.

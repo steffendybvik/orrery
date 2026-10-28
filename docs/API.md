@@ -494,7 +494,8 @@ Security audit, Review, Debug an error), added once to each Orrery as it starts,
 ## For agents
 
 `/llms.txt` says how to use Orrery and lists the projects; `/llms-full.txt` adds this reference;
-`/api/guide` is this reference alone. A Claude session with Orrery's server in its `.mcp.json` also
+`/api/guide` is this reference alone, and `/api/guide/using` how Orrery works, page by page (docs/using.md), which the
+channel's `guide` tool answers with. A Claude session with Orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
 make these calls for it. An untrusted schedule's session (its launcher sets `ORRERY_UNTRUSTED=yes`) sends
 `Orrery-Untrusted: yes` on every write and `untrusted=yes` on its streams, and is held to raising proposals and

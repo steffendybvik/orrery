@@ -25,7 +25,7 @@ const issue = (fields: object = {}) => ({id: 'GRE-1', title: 'Shelves', status: 
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -165,6 +165,20 @@ describe("the channel's tools", () => {
         const request = {url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}, issue: 'GRE-1'}
         expect((await call('egress', request)).text).toBe('200 (application/json)\n\n{"ok":true}')
         expect(calls[1]).toMatchObject({method: 'POST', url: '/egress', body: {...request, project: 'greenhouse'}})
+    })
+
+    it('explain how Orrery works in every mode, from the Orrery or else from beside the channel (ORR-411)', async () => {
+        for (const listed of [toolsFor(['greenhouse']), toolsFor(['greenhouse'], {chat: true}), toolsFor(['greenhouse', 'pantry'])]) {
+            expect(listed.map((t: {name: string}) => t.name)).toContain('guide')
+        }
+        const served = harness({'GET /guide/using': {raw: '# Using Orrery\n\nSchedules run on their own.'}})
+        expect(await served.call('guide')).toEqual({error: false, text: '# Using Orrery\n\nSchedules run on their own.'})
+        expect(served.calls[0]).toMatchObject({method: 'GET', url: '/guide/using'})
+        // An Orrery from before it served the guide: the docs beside the channel.
+        const older = await harness({}).call('guide')
+        expect(older.error).toBe(false)
+        expect(older.text).toMatch(/^# Using Orrery/)
+        expect(older.text).toContain('## How it fits together')
     })
 
     it('list the open issues unless asked for a status', async () => {

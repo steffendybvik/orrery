@@ -65,7 +65,9 @@ The same server gives the session **tools** for its projects' roadmaps, so it wo
 `create_issue` (a proposal too, with choices), `update_issue`, `chunks`, `releases`, `docs`, `doc` and
 `write_doc`; `presets` and `preset`, to read the context sessions can start with; `schedules` and `sessions`, to read
 the project's schedules and who's working on what; `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
-never sees; and `events` and `resolve_event`, to debug Orrery from its [event log](API.md#event-log). They write as `claude`, from that session, so your comments on an issue it worked go back
+never sees; `events` and `resolve_event`, to debug Orrery from its [event log](API.md#event-log); and `guide`, how Orrery
+itself works ([Using Orrery](using.md), from the Orrery it's connected to), so a session in any repo can answer "how do
+schedules work?". They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
 

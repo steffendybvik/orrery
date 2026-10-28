@@ -59,6 +59,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         'change an issue (edit_issue: its priority, labels, chunk, release, title…) when they ask.',
         'Each message ends with the page the owner has open: when they say "this" or "here", read that page with the matching tool first.',
         "Don't work on anything: no code changes, and don't start, move or finish issues. When the owner pastes an image, its message names it: look with the image tool.",
+        'For questions about Orrery itself (how schedules, chunks, proposals or the launcher work), read the guide tool and answer from it.',
     ].join(' ') : [
         `Orrery (${base}) keeps this repo's roadmap as ${serves}, and this server's tools read and write it`,
         '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, releases, docs, doc, write_doc): use them instead of curl.',
@@ -73,6 +74,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         `When you open a pull request for an issue, link the issue's page (${base}/p/<project>/issues/<id>) in its description, so the owner can jump to it.`,
         'To call an outside service that needs a key, use egress with {{secret:NAME}} where the key goes (secrets lists the names): you never see the value, and never ask the owner for one.',
         'To debug Orrery itself, read its event log (events, with details for stacks), and resolve_event what you fixed.',
+        'For questions about Orrery itself (how schedules, chunks, proposals or the launcher work), read the guide tool and answer from it.',
         `The full API is described at ${base}/api/guide.`,
     ].join(' '),
 })
