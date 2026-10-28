@@ -14,7 +14,7 @@ beforeEach(() => {
     store = new Store(testDb())
     now = new Date('2026-10-27T12:00:00Z')
     heard = []
-    log = new EventLog(store.db, async text => text.replaceAll('sk-live-123', '{{secret:STRIPE}}'), (event, fresh) => heard.push({event, fresh}), () => now)
+    log = new EventLog(store.db, async () => text => text.replaceAll('sk-live-123', '{{secret:STRIPE}}'), (event, fresh) => heard.push({event, fresh}), () => now)
 })
 
 const later = (ms: number) => {
@@ -80,6 +80,11 @@ describe('the event log', () => {
         await log.resolve(error?.id ?? 0)
         expect((await log.list({level: 'error', open: true}))).toEqual([])
         await expect(log.list({level: 'loud'})).rejects.toMatchObject({statusCode: 400})
+        // No level at all is no filter, and a kind's `_` is itself, not any one character.
+        expect(await log.list({level: ','})).toHaveLength(4)
+        await log.record({level: 'info', kind: 'launcher_x.gone', message: 'Gone'})
+        await log.record({level: 'info', kind: 'launcherx.gone', message: 'Gone'})
+        expect((await log.list({kind: 'launcher_x'})).map(e => e.kind)).toEqual(['launcher_x.gone'])
         await expect(log.record({level: 'error', kind: 'Not A Kind', message: 'x'})).rejects.toMatchObject({statusCode: 400})
         await expect(log.resolve(9999)).rejects.toMatchObject({statusCode: 404})
     })
