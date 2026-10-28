@@ -136,11 +136,27 @@ describe('starting a session', () => {
     })
 
     it('goes to the first launcher that claims it', async () => {
-        launches.addLauncher('greenhouse')
-        launches.addLauncher('greenhouse')
+        const {token: first} = launches.addLauncher('greenhouse')
+        const {token: second} = launches.addLauncher('greenhouse')
         const launch = (await launches.considerLaunch(signal(1)))!
-        expect([launches.claim('greenhouse', launch.id), launches.claim('greenhouse', launch.id), launches.claim('mesa', launch.id)]).toEqual([true, false, false])
-        expect(launches.claim('greenhouse', 'nope')).toBe(false)
+        expect([launches.claim('greenhouse', launch.id, first), launches.claim('greenhouse', launch.id, second), launches.claim('mesa', launch.id, first)]).toEqual([true, false, false])
+        expect(launches.claim('greenhouse', 'nope', first)).toBe(false)
+    })
+
+    it("counts a claim only with a connected launcher's token for the project (ORR-443)", async () => {
+        const {token} = launches.addLauncher('greenhouse')
+        const gone = launches.addLauncher('greenhouse', '/repo')
+        const {token: elsewhere} = launches.addLauncher('mesa')
+        const launch = (await launches.considerLaunch(signal(1)))!
+        // Anyone else posting a claim can't take it and keep it from starting.
+        expect(launches.claim('greenhouse', launch.id, undefined)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, 'made-up')).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, elsewhere)).toBe(false)
+        // Nor can a launcher that has gone.
+        gone()
+        expect(launches.claim('greenhouse', launch.id, gone.token)).toBe(false)
+        expect(noted).toEqual([expect.objectContaining({level: 'warn', kind: 'launcher.outdated', message: expect.stringMatching(/without a running launcher's token.*restart it/)})])
+        expect(launches.claim('greenhouse', launch.id, token)).toBe(true)
     })
 
     it("needs the owner's opt-in, and stays within the limit, counting every project's sessions", async () => {
@@ -179,11 +195,11 @@ describe('the owner starting a session by hand', () => {
         await expect(launches.startLaunch('greenhouse')).rejects.toThrow("orrery doesn't start sessions")
         starts = {limit: 2, minutes: 30}
         await expect(launches.startLaunch('greenhouse')).rejects.toThrow('No launcher is running')
-        launches.addLauncher('greenhouse')
+        const {token} = launches.addLauncher('greenhouse')
         const launch = await launches.startLaunch('greenhouse')
         expect(launch).toMatchObject({project: 'greenhouse', after: 41, minutes: 30, tmux: `orrery-greenhouse-${launch.id}`})
         expect(sent).toEqual([{type: 'launch', after: 41, minutes: 30}])
-        expect(launches.claim('greenhouse', launch.id)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token)).toBe(true)
         // The one on its way counts toward the limit, with those running.
         started = {greenhouse: 1, all: 1}
         await expect(launches.startLaunch('greenhouse')).rejects.toThrow('orrery already has its 2 sessions at once')
@@ -495,13 +511,13 @@ describe("an untrusted schedule's run", () => {
     })
 
     it('goes only to a launcher that says it locks the session down', async () => {
-        launches.addLauncher('greenhouse')
+        const {token} = launches.addLauncher('greenhouse')
         const launch = await launches.startUntrusted('greenhouse', 3, 'Triage.', owner)
-        expect(launches.claim('greenhouse', launch.id)).toBe(false)
-        expect(launches.claim('greenhouse', launch.id, true)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, token, true)).toBe(true)
         // An ordinary launch goes to any launcher.
         const plain = await launches.startLaunch('greenhouse')
-        expect(launches.claim('greenhouse', plain.id)).toBe(true)
+        expect(launches.claim('greenhouse', plain.id, token)).toBe(true)
     })
 
     it('is refused when there is no room, with no message sent', async () => {
@@ -608,22 +624,22 @@ describe("the owner's chat", () => {
     })
 
     it('goes only to a launcher that says it starts chats', async () => {
-        launches.addLauncher('greenhouse')
+        const {token} = launches.addLauncher('greenhouse')
         const launch = await launches.startChat('greenhouse', context)
-        expect(launches.claim('greenhouse', launch.id, true)).toBe(false)
-        expect(launches.claim('greenhouse', launch.id, true, true)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token, true)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
     })
 
     it('says a launcher too old to start it was refused, once, and lets that go as its session connects', async () => {
-        launches.addLauncher('greenhouse')
+        const {token} = launches.addLauncher('greenhouse')
         const launch = await launches.startChat('greenhouse', context)
         // A launcher from before chats claims as it always did, and again on its next try.
-        expect(launches.claim('greenhouse', launch.id, true)).toBe(false)
-        expect(launches.claim('greenhouse', launch.id, true)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, token, true)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, token, true)).toBe(false)
         expect(noted).toEqual([expect.objectContaining({level: 'warn', kind: 'launcher.outdated', message: expect.stringMatching(/start a chat.*Restart the launcher/)})])
         expect(problems).toEqual([[launch.id, noted[0]!.message]])
         // Restarted on the new code, it takes the chat on, and the chat stops saying so.
-        expect(launches.claim('greenhouse', launch.id, true, true)).toBe(true)
+        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(true)
         launches.launched(launch.id)
         expect(problems.at(-1)).toEqual([launch.id, null])
     })
@@ -637,11 +653,11 @@ describe("the owner's chat", () => {
     })
 
     it('ends, on its way or running, and its chat with it', async () => {
-        launches.addLauncher('greenhouse')
+        const {token} = launches.addLauncher('greenhouse')
         const launch = await launches.startChat('greenhouse', context)
         launches.endLaunch('greenhouse', launch.id)
         expect(sent.at(-1)).toEqual({type: 'stop', project: 'greenhouse', id: launch.id})
-        expect(launches.claim('greenhouse', launch.id, true, true)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, token, true, true)).toBe(false)
         launches.launchGone(launch.id)
         expect(chatsEnded).toEqual([launch.id])
     })

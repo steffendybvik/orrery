@@ -118,8 +118,9 @@ the owner puts it in. (ORR-333 proposed opening presets to agents and was declin
 What an event schedule passes on follows the same rule. A session schedule's instructions and a message schedule's
 message end with what happened, said by ids: the change for a status, priority, chunk, release or parent, never a
 label's text, and an agent by its handle. A launcher's report of what it runs can't give a session a context
-orrery didn't start it with. A launcher's claim on a session waiting to start isn't checked, though: anything that
-reaches orrery can claim one first and keep it from starting, until launchers prove which one they are (ORR-443).
+orrery didn't start it with. A launcher's claim on a session waiting to start counts only with the token its stream
+was given as it connected (ORR-443), so a program posting claims can't take a launch and keep it from starting. Anything
+that can open a launcher stream is a launcher, though, and gets a token like any other.
 
 ### The owner's chat
 
