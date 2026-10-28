@@ -23,7 +23,8 @@ export function useGettingStarted() {
             return []
         }
     })
-    const work = computed(() => projects.value.some(p => allIssues(p).some(({issue}) =>
+    // Remembered too: a done issue isn't on the page until its project is opened (ORR-447).
+    const work = computed(() => seen.value.includes('work') || projects.value.some(p => allIssues(p).some(({issue}) =>
         (issue.kind === 'started' || issue.kind === 'done') && !!issue.assignee && issue.assignee !== name.value)))
     const listen = computed(() => allSessions.value.some(s => s.listening) || seen.value.includes('listen') || work.value)
     const steps = computed(() => [
@@ -36,7 +37,7 @@ export function useGettingStarted() {
         {key: 'work', done: work.value},
     ])
     watch(steps, now => {
-        const ticked = now.filter(s => s.done && (s.key === 'connect' || s.key === 'listen') && !seen.value.includes(s.key))
+        const ticked = now.filter(s => s.done && ['connect', 'listen', 'work'].includes(s.key) && !seen.value.includes(s.key))
         if (!ticked.length) return
         seen.value = [...seen.value, ...ticked.map(s => s.key)]
         try {

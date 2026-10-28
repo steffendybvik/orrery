@@ -8,6 +8,7 @@ import {PRIORITIES} from '#shared/roadmap'
 // commands only, `#` issues, `@` projects, chunks and docs. ↑↓ choose, ⇥ jumps a section, ↵ runs, Esc closes.
 // It's a Headless UI Dialog (UiDialog); the list keeps its own keys, as Headless UI's Combobox can't jump a
 // section on ⇥ or open "N more" in place, but says the same to a screen reader (the row the input points at).
+// Closed issues of projects the page has without them (ORR-447) are asked of orrery as you type.
 interface Entry { key: string, group: string, label: string, detail?: string, hint?: string, also?: string, id?: string, run: () => unknown }
 type SectionKey = 'top' | 'here' | 'jump' | 'go' | 'projects' | 'issues' | 'chunks' | 'docs' | 'commands'
 interface Section { key: SectionKey, title: string, entries: Entry[], hidden: number }
@@ -20,7 +21,7 @@ const TITLES: Record<SectionKey, string> = {top: 'Top hit', here: 'Here', jump: 
 const SCOPES: Record<string, SectionKey[]> = {'>': ['commands'], '#': ['issues'], '@': ['projects', 'chunks', 'docs']}
 
 const openPalette = useState('palette-open', () => false)
-const {byId} = useRoadmaps()
+const {byId, partial} = useRoadmaps()
 const {ordered: projects} = useProjectOrder()
 const {open: openIssue, pathOf} = useIssueLink()
 const {filters, changed: filtering, clear} = useFilters()
@@ -128,9 +129,35 @@ const places = computed<Entry[]>(() => projects.value.flatMap(p => [
     ...p.docs.map(d => ({key: `d:${p.id}/${d.id}`, group: 'Doc', label: d.title, detail: p.name, run: () => router.push(`/p/${p.id}/docs/${d.id}`)})),
 ]))
 
-const issues = computed<Entry[]>(() => projects.value.flatMap(p => allIssues(p).map(({issue: i}) => ({
-    key: `i:${p.id}/${i.id}`, group: 'Issue', id: i.id, label: i.title, detail: p.name, also: i.aliases.join(' '), run: () => openIssue(p.id, i.id),
-}))))
+/** Closed issues matching the query's longest word, from the projects the page has without them, by project. */
+const closedFound = ref<Record<string, {id: string, title: string, aliases: string[]}[]>>({})
+let asking = 0
+let typing: ReturnType<typeof setTimeout> | undefined
+watch(query, raw => {
+    clearTimeout(typing)
+    typing = setTimeout(() => findClosed(raw), 200)
+})
+onBeforeUnmount(() => clearTimeout(typing))
+async function findClosed(raw: string) {
+    const word = raw.replace(/^[>#@]/, '').trim().split(/\s+/).sort((a, b) => b.length - a.length)[0] ?? ''
+    const ask = ++asking
+    const lacking = projects.value.filter(p => partial.value[p.id])
+    if (word.length < 2 || raw.startsWith('>') || raw.startsWith('@') || !lacking.length) {
+        closedFound.value = {}
+        return
+    }
+    const found = await Promise.all(lacking.map(p => $fetch<{id: string, title: string, aliases: string[]}[]>(`/api/projects/${encodeURIComponent(p.id)}/issues`, {query: {status: 'done,canceled', q: word}})
+        .then(list => [p.id, list.slice(0, 50)] as const, () => [p.id, []] as const)))
+    if (ask === asking) closedFound.value = Object.fromEntries(found)
+}
+
+const issues = computed<Entry[]>(() => projects.value.flatMap(p => {
+    const had = allIssues(p).map(({issue: i}) => i)
+    const ids = new Set(had.map(i => i.id))
+    return [...had, ...partial.value[p.id] ? (closedFound.value[p.id] ?? []).filter(i => !ids.has(i.id)) : []].map(i => ({
+        key: `i:${p.id}/${i.id}`, group: 'Issue', id: i.id, label: i.title, detail: p.name, also: i.aliases.join(' '), run: () => openIssue(p.id, i.id),
+    }))
+}))
 
 /** The sections a search opened past their cap. */
 const expanded = ref<SectionKey[]>([])
