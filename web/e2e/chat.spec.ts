@@ -92,6 +92,10 @@ test("messages other sessions for the owner: idle ones by default, marked as thr
         streams.push(idle, busy)
         await request.post('/api/sessions', {data: {id: 'e2e-idle', project: 'larder', event: 'Stop'}})
         await request.post('/api/sessions', {data: {id: 'e2e-busy', project: 'larder', event: 'UserPromptSubmit'}})
+        // Both connected and in their states before the nudge, or it finds nobody listening yet.
+        await expect.poll(async () => (await (await request.get('/api/sessions')).json())
+            .filter((s: {id: string, listening: boolean}) => s.id.startsWith('e2e-') && s.listening && s.id !== 'e2e-chat2')
+            .map((s: {id: string, state: string}) => `${s.id} ${s.state}`).sort()).toEqual(['e2e-busy working', 'e2e-idle idle'])
         const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat2', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
 
         const nudged = await request.post('/api/sessions/message', {data: {text: 'Pick up Todo.', projects: ['larder']}, headers: asChat})
