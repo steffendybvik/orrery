@@ -84,7 +84,14 @@ the database schema are the public surface, and a database always migrates forwa
   it's opened, so nothing is written into it (#331). A chat request answered twice at once acts once, and a send that
   failed partway goes again only to the sessions that missed it (#330). A request through a proxy isn't taken as from
   this machine, and page-error reports are limited per sender (#332). Sessions orrery starts keep their launch again,
-  so their limit, stop timers and context after a `/clear` work (#340).
+  so their limit, stop timers and context after a `/clear` work (#340). Pruning keeps its hands off the copy kept
+  before a restore and another orrery's set-aside latest: only upgrade copies go (#349). Events lines and tooltips say
+  **Agent** too (#350). Lowering *Sessions at once* below *Keep at least N running* lowers the minimum with it, rather
+  than refusing the save (#351). The chat's **Send** reaches a session that `/clear`ed since it asked (#352). A
+  stopped session still closing no longer counts toward the minimum, so its replacement isn't dropped (#353). A page
+  that read a project while a change went out no longer misses that change (#354). A backup holds up writes only
+  while it copies, patches don't write the old project out again, the backup list doesn't reopen every copy, and
+  page-error caps count one address as one sender whatever name it sends (#355).
 - **Performance tests:** `pnpm test:e2e:perf` times every page on a big seeded orrery, on SQLite and Postgres, in CI.
 
 ## 1.0.0-rc.9 (2026-10-28)
