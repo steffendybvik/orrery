@@ -4,7 +4,6 @@ import type {Session} from '#shared/roadmap'
 // Says which session is working the issue, on its page: its dot, its name and what it's doing, linking to it on the
 // Sessions page (`useIssueWorker`).
 defineProps<{session: Session}>()
-const STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 </script>
 
 <template>
@@ -15,6 +14,6 @@ const STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting:
   >
     <SessionDot :session="session" />
     <span class="truncate text-fg">{{ session.name }}</span>
-    <span :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">· {{ STATE[session.state] }}</span>
+    <span :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">· {{ SESSION_STATE[session.state] }}</span>
   </NuxtLink>
 </template>
