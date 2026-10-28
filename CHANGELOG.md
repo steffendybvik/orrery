@@ -3,6 +3,48 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+## 1.0.0-rc.10 (2026-10-28)
+
+- **Backups, your way:** App settings → Database turns backups on or off and, outside Docker, picks their folder in
+  place of `ORRERY_BACKUP`. Turned on, it backs up there at once, so a folder that won't take one says so on the spot.
+  It backs up a few seconds after a change, or at most every 15 minutes, hour or day, and keeps as many daily copies
+  as you choose (14 unless you say otherwise).
+- **Back up into Postgres:** either database can be backed up into a Postgres database instead of a folder, from App
+  settings or `ORRERY_BACKUP_DATABASE`. It keeps the latest only, replaced in one transaction so a failed backup
+  leaves the one before whole, and it only writes into an empty database or its own earlier backup, never another
+  orrery's or the one it runs on. The password is never shown or logged.
+- **Safer upgrades:** before a SQLite database takes an upgrade's steps, it's copied as it was to
+  `orrery-pre-<version>.db` (the three newest stay). A database newer than the code is refused and left alone, with a
+  message on how to go back.
+- **Know when code is old:** the channel and the launcher tell orrery their version. Sessions marks a session or
+  launcher running older code, with the command to restart it, and a launcher service restarts itself on the new code
+  once its checkout is updated and it has no session running.
+- **Smaller images:** uploaded PNGs and JPEGs are kept as WebP, and the ones already there are converted once on
+  start, links unchanged. On a real orrery the database, and every backup, shrank from 69 MB to 27 MB.
+- **Drop an image anywhere:** drag one over the chat, the comment box, a description or doc being edited, or the new
+  issue or doc dialog, and the whole area says *Drop image to add*. Pasted anywhere inside it goes in too, and you're
+  back to typing after.
+- **The chat asks for schedules too:** it can set up a schedule or change one (pause and resume included), shown with
+  **Allow** and **Deny**; once allowed it's yours. Under each of its replies, **Copy** takes the reply's Markdown.
+- **My issues is home:** Now is gone, and `/` (and `/now`, for old links) opens My issues.
+- **Clear a proposal from the bell:** clearing an agent's proposal in Notifications hides it from the bell, its count
+  and Waiting on you, and leaves it pending on its issue. Put up again, it comes back.
+- **Forget a session nothing can reach:** a session started without the channel gets a × on its card, and one idle an
+  hour with no channel open goes on its own, rather than after six.
+- **Getting started mentions the launcher:** its last step says when none is running, with the line that installs it,
+  and so does an issue's sessions panel.
+- **Connected:** the sidebar's live indicator says *Connected*, *Reconnecting…* or *Offline*, with a tooltip.
+- **The name is lowercase:** "orrery" is written the way its logo reads, everywhere.
+- **Security, from the rc.9 audit:** an untrusted schedule's session gets no Bash: a `github_issues` tool reads the
+  repo's issues for it, so it can't point `gh` at another host (#305). The chat asks you before it messages your
+  sessions, and only **Send** sends (#294). An agent can't quietly resolve an error or flood the event log with page
+  errors (#297). A database move or backup setting has to come from this machine by its connection, not its `Host`
+  header (#308). A session schedule can't restart itself on its own session stopping, and an untrusted session stops
+  at its 30 minutes, busy or not (#301). Plus five smaller fixes: the moved-database file kept private, more ways of
+  writing a Postgres password scrubbed from the log, a dropped Postgres connection no longer ending the server, an
+  untrusted proposal keeping only `external`, and an agent's schedule you change becoming yours (#300).
+- **Performance tests:** `pnpm test:e2e:perf` times every page on a big seeded orrery, on SQLite and Postgres, in CI.
+
 ## 1.0.0-rc.9 (2026-10-28)
 
 - **Schedules that run when something happens:** a schedule can run `on` an event instead of a clock: an issue
