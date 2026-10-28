@@ -212,8 +212,10 @@ listening sessions each run, the first one free (see `POST …/focus`), with no 
 time a schedule makes an issue (its title plus the day, e.g.
 `Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
 the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
-is listening, the next to connect within a day gets it). An agent's schedule the owner changes into a message or
-session one becomes theirs, so its runs aren't skipped. With `skip_open` (the default) a run is skipped
+is listening, the next to connect within a day gets it). An agent's message or session schedule doesn't run (each
+run is `skipped`) until the owner makes it theirs with `POST …/schedules/:id/adopt {seen?}` (Make it mine), `seen`
+being the `updated_at` they read it at: one changed since is a 409, so they never take on words they haven't read.
+Changing it, as the owner or not, leaves it the agent's (ORR-456). With `skip_open` (the default) a run is skipped
 while the last run's issue isn't done; with `only_if_changed`, a message run is skipped (`nothing changed`) when no
 issue or comment in the project changed since the last run it sent. Missed runs while orrery was down run once when it's back.
 An `untrusted` message schedule, one whose session reads what others wrote (GitHub issues), never messages the project's
@@ -258,6 +260,7 @@ so an alert on `*.failed` hears a schedule fail, except when the run was itself 
 | `POST /projects/:project/schedules` | `{kind?, title, notes?, presets?, cron, at or on (with on_filter?), timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, untrusted?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `on` an event (above); setting one lets go of the others, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default), `message` (then `notes` is the message, after any `presets`, and the issue fields don't apply) or `session` (above) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?, subject?}`; the owner's, only by the owner. `{"instead": true}` runs it in place of its next run, which is skipped (a one-off is then done; 409 when it has none, as one on an event has none) |
+| `POST /projects/:project/schedules/:schedule/adopt` | `{seen?}` → the schedule: the owner making an agent's schedule theirs (Make it mine), so it runs as them and only they change it; `seen` is the `updated_at` they read it at, and one changed since is a 409. 403 for an agent; one already the owner's comes back as it is |
 
 Each schedule carries `next_run` (none for one on an event), its `presets` and its latest `runs`: `made` (with the issue), `sent` (a message, or a session started), `skipped` or `failed` (with why), and an event run's `subject`.
 

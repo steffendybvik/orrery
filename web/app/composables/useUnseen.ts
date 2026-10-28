@@ -1,10 +1,11 @@
-import type {DocSummary, Issue, Project} from '#shared/roadmap'
+import type {DocSummary, Issue, Project, Schedule} from '#shared/roadmap'
 
 // What changed since the owner last looked: an issue (a comment touches it too) or a doc whose `updated_at`
 // is past when they last opened it, remembered in this browser. Rows mark it with a quiet accent dot until
 // it's opened; a done or canceled issue never is. The owner's own changes don't count: what they made starts seen, and a write from this page
 // marks what it wrote to as seen once the change comes back. Everything from before the first visit is seen.
-// A doc's text is kept as read too, so opening it again tints what changed in it since.
+// A doc's text is kept as read too, so opening it again tints what changed in it since. An agent's schedule is news
+// the same way until it's opened (ORR-456): the owner's own can't be changed by anyone else.
 interface Seen {
     since: string
     /** Each issue's or doc's `updated_at` when it was last seen, by its key. */
@@ -23,6 +24,7 @@ const OWN_FOR = 10_000
 
 const issueKey = (project: string, id: string) => `${project}/${id}`
 const docKey = (project: string, id: string) => `${project}/docs/${id}`
+const scheduleKey = (schedule: Schedule) => `${schedule.project}/schedules/${schedule.id}`
 
 export function useUnseen() {
     const seen = useState<Seen>('seen', () => {
@@ -50,6 +52,7 @@ export function useUnseen() {
     /** A closed (done or canceled) issue is never news: what happens to finished work can wait to be looked up. */
     const issueUnseen = (project: string, issue: Issue) => !isClosed(issue.kind) && isNew(issueKey(project, issue.id), issue)
     const docUnseen = (project: string, doc: DocSummary) => isNew(docKey(project, doc.id), doc)
+    const scheduleUnseen = (schedule: Schedule) => !schedule.protected && isNew(scheduleKey(schedule), schedule)
 
     function mark(entries: [string, string][]) {
         const fresh = entries.filter(([key, at]) => at > seenAt(key))
@@ -64,6 +67,8 @@ export function useUnseen() {
 
     const seeIssue = (project: string, issue: Issue) => mark([[issueKey(project, issue.id), issue.updated_at]])
     const seeDoc = (project: string, doc: DocSummary) => mark([[docKey(project, doc.id), doc.updated_at]])
+    /** Opened, or changed from this page (which brings back its own `updated_at`). */
+    const seeSchedule = (schedule: Schedule) => mark([[scheduleKey(schedule), schedule.updated_at]])
 
     /** The doc's text as last read here, if it was. */
     function lastRead(project: string, id: string): string | undefined {
@@ -129,5 +134,5 @@ export function useUnseen() {
         wrote.value = left
     }
 
-    return {issueUnseen, docUnseen, seeIssue, seeDoc, seeAll, unseenIn, wroteTo, ownChanges, lastRead, read}
+    return {issueUnseen, docUnseen, scheduleUnseen, seeIssue, seeDoc, seeSchedule, seeAll, unseenIn, wroteTo, ownChanges, lastRead, read}
 }

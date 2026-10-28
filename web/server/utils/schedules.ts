@@ -207,12 +207,28 @@ export class Schedules {
             untrusted: input.untrusted === undefined ? undefined : Number(input.untrusted),
             enabled: Number(enabled),
             next_run: next,
-            // An agent's schedule the owner makes (or keeps) a message or session one becomes theirs, as only theirs
-            // reach the sessions: left the agent's, every run would be skipped.
-            ...actor.owner && !row.owned && kind !== 'issue' ? {owned: 1, created_by: actor.name} : {},
+            // An agent's schedule stays the agent's whoever changes it, a pause or a rename by the owner included:
+            // only `adopt` makes it theirs, once they've read what it says (ORR-456).
             updated_at: new Date().toISOString(),
         }
         return Object.entries(set).filter(([, v]) => v !== undefined)
+    }
+
+    /** The owner making an agent's schedule theirs ("Make it mine", ORR-456): from then on it runs as them (a message
+     * reaches the sessions, a session schedule starts one) and only they change it. `seen` is the `updated_at` they
+     * read it at: one changed since is refused (409), so they never take on words they haven't seen. Theirs already,
+     * it stays as it is. */
+    async adopt(project: string, id: number, actor = AGENT, seen?: string): Promise<Schedule> {
+        if (!actor.owner) throw forbidden(`Making schedule ${id} yours: only the owner takes a schedule on; send Orrery-Actor: <owner>`)
+        const row = await this.row(project, id)
+        if (row.owned) return await this.get(project, id)
+        if (seen !== undefined && seen !== row.updated_at) throw conflict(`Schedule ${id} changed after you read it: read it again, then make it yours`)
+        await this.db.run('UPDATE schedules SET owned = 1, created_by = ?, updated_at = ? WHERE id = ? AND updated_at = ?', actor.name, new Date().toISOString(), id, row.updated_at)
+        this.listeners = null
+        this.onChange(project)
+        const now = await this.get(project, id)
+        if (!now.protected) throw conflict(`Schedule ${id} changed as you made it yours: read it again, then make it yours`)
+        return now
     }
 
     /** The owner's schedules are theirs: an agent can't delete them. Its issues stay. */

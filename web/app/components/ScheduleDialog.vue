@@ -11,8 +11,10 @@ import type {Repeat} from '~/utils/schedule'
 // sessions to pick it up. One already made can be paused or resumed from here, at once, or removed (asked once more). ⌘↵ saves, Esc
 // closes. Or it runs on an event instead of a time (ORR-341): a common one picked, or any type or pattern typed, with what
 // the event must also say (the status it moves to, who did it, the level). A message can be presets (their text, read at each
-// run, before its own words), and a schedule can start a session with presets instead (ORR-332, ORR-342).
-const {editing, pause} = useSchedules()
+// run, before its own words), and a schedule can start a session with presets instead (ORR-332, ORR-342). An agent's says
+// so at the top, and whether it runs, with Make it mine: changing it here leaves it the agent's (ORR-456).
+const {editing, pause, adopt} = useSchedules()
+const {seeSchedule} = useUnseen()
 const {byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const projectOptions = computed(() => ordered.value.map(p => ({value: p.id, label: p.name})))
@@ -111,6 +113,7 @@ const local = (iso: string) => {
 
 watch(editing, now => {
     if (!now) return
+    if (now.schedule) seeSchedule(now.schedule)
     // One to edit, or a new one, empty or filled in from a suggestion.
     const s: Partial<Schedule> | undefined = now.schedule ?? now.draft
     project.value = now.project
@@ -215,13 +218,38 @@ async function save() {
     try {
         const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`
         const headers = {'Orrery-Actor': await load()}
-        if (existing.value) await $fetch<Schedule>(`${base}/${existing.value.id}`, {method: 'PATCH', headers, body})
-        else await $fetch<Schedule>(base, {method: 'POST', headers, body})
+        seeSchedule(existing.value ? await $fetch<Schedule>(`${base}/${existing.value.id}`, {method: 'PATCH', headers, body})
+            : await $fetch<Schedule>(base, {method: 'POST', headers, body}))
         close()
     } catch (error) {
         failed.value = errorMessage(error)
     } finally {
         saving.value = false
+    }
+}
+
+/** What an agent's schedule does until the owner makes it theirs. */
+const agents = computed(() => {
+    const s = existing.value
+    if (!s || s.protected) return null
+    return s.kind === 'issue' ? 'It makes its issues, but an agent can change it until you make it yours.'
+        : s.kind === 'session' ? "It starts no session until you make it yours: then it starts them as you."
+            : s.untrusted ? "It starts no session until you make it yours."
+                : "Its message doesn't reach the sessions until you make it yours: then they get it as yours."
+})
+const adopting = ref(false)
+/** Makes it the owner's as they read it here; one an agent changed since is refused, to be read again. */
+async function makeMine() {
+    const s = existing.value
+    if (!s || adopting.value || !editing.value) return
+    adopting.value = true
+    failed.value = ''
+    try {
+        editing.value = {...editing.value, schedule: await adopt(s)}
+    } catch (error) {
+        failed.value = errorMessage(error)
+    } finally {
+        adopting.value = false
     }
 }
 
@@ -260,6 +288,10 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
 
+    <div v-if="agents && existing" class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-500/30 dark:text-amber-200" role="note">
+      <span class="min-w-0 flex-1"><strong class="font-semibold">{{ existing.created_by }}</strong> (an agent) made this schedule. {{ agents }} Read what it says and its presets first.</span>
+      <UiButton size="sm" :disabled="adopting" title="Runs it as yours from now on, and only you can change it" @click="makeMine">{{ adopting ? 'Making it yours…' : 'Make it mine' }}</UiButton>
+    </div>
     <SegmentedControl v-model="sends" :options="SENDS" class="self-start" />
     <input
         ref="titleInput"
