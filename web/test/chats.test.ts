@@ -90,16 +90,55 @@ describe("the owner's chat", () => {
         await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
     })
 
-    it("speaks for the owner while it runs, marked as the chat, and for nobody otherwise", async () => {
-        vi.stubGlobal('getHeader', (event: {headers: Record<string, string>}, name: string) => event.headers[name])
-        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
-        vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'})}))
-        const as = (launch?: string) => chats.chatOwner({headers: launch ? {'orrery-launch': launch} : {}} as never)
-        await expect(as('c1c2c3c4c5c6')).rejects.toMatchObject({statusCode: 403})
+    it('asks the owner to message sessions, sending only once they press Send, as theirs through the chat', async () => {
+        const sent: {project: string, target: string, text: string, via?: string}[] = []
+        const notes: {kind: string}[] = []
+        type Listed = {id: string, project: string, name: string, state: string, listening: boolean, chat?: boolean}
+        let listed: Listed[] = [
+            {id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true},
+            {id: 'def', project: 'pantry', name: 'Sudri', state: 'working', listening: true},
+            {id: 'c1c2c3c4c5c6', project: 'greenhouse', name: 'Chat', state: 'idle', listening: true, chat: true},
+        ]
+        vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string, actor: {via?: string}) => void sent.push({project, target, text, ...actor.via ? {via: actor.via} : {}})}))
+        vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('listSessions', () => listed)
+        vi.stubGlobal('chatSession', (id: string) => !!listed.find(s => s.id === id)?.chat)
+        vi.stubGlobal('hearing', (_project: string, id: string) => !!listed.find(s => s.id === id)?.listening)
+        vi.stubGlobal('recipients', (_projects?: string[], states = ['idle']) => listed.filter(s => s.listening && !s.chat && states.includes(s.state)))
+        vi.stubGlobal('messaged', () => {})
         await chats.openChat('greenhouse')
-        await expect(as('c1c2c3c4c5c6')).resolves.toEqual({name: 'skoll', owner: true, via: 'chat'})
-        await expect(as('nope')).rejects.toMatchObject({statusCode: 403})
-        await expect(as()).rejects.toMatchObject({statusCode: 403})
+        const asked = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Pick up Todo.'}, why: 'Both are idle.'})
+        expect(asked).toMatchObject({from: 'claude', text: 'Both are idle.', send: {text: 'Pick up Todo.', to: ['Nordre'], state: 'asked'}})
+        expect(sent).toEqual([])
+        // Who fits is worked out again on Send: Sudri has gone idle since.
+        listed = listed.map(s => s.id === 'def' ? {...s, state: 'idle'} : s)
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, owner)
+        expect(sent).toEqual([
+            {project: 'greenhouse', target: 'abc', text: 'Pick up Todo.', via: 'chat'},
+            {project: 'pantry', target: 'def', text: 'Pick up Todo.', via: 'chat'},
+            {project: 'greenhouse', target: 'launch-c1c2c3c4c5c6', text: '(I sent your message to Nordre, Sudri.)'},
+        ])
+        expect(asked.send).toMatchObject({state: 'allowed', sent: ['Nordre', 'Sudri']})
+        await expect(chats.answer('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        // One session by name, any case; Don't send sends nothing.
+        sent.length = 0
+        const one = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Look at PAN-2.', session: 'sudri'}})
+        expect(one.send).toMatchObject({session: 'def', project: 'pantry', to: ['Sudri']})
+        await chats.answer('c1c2c3c4c5c6', one.id, false, owner)
+        expect(sent).toEqual([{project: 'greenhouse', target: 'launch-c1c2c3c4c5c6', text: "(I didn't send your message to Sudri: nothing went.)"}])
+        // A session that stopped listening fails on Send, and the request stays asked.
+        const later = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Wrap up.', session: 'Nordre'}})
+        listed = listed.map(s => s.id === 'abc' ? {...s, listening: false} : s)
+        await expect(chats.answer('c1c2c3c4c5c6', later.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        expect(later.send!.state).toBe('asked')
+        // Never another chat, no one unknown, nobody fitting, no text.
+        await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', session: 'Chat'}})).rejects.toMatchObject({statusCode: 404})
+        await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', session: 'Austri'}})).rejects.toMatchObject({statusCode: 404})
+        await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', states: ['waiting']}})).rejects.toMatchObject({statusCode: 409})
+        await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', states: ['asleep']}})).rejects.toMatchObject({statusCode: 400})
+        await expect(chats.ask('c1c2c3c4c5c6', {message: {text: ' '}})).rejects.toMatchObject({statusCode: 400})
+        expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'session.messaged', 'session.messaged', 'chat.answered', 'chat.asked', 'chat.answered', 'chat.asked'])
     })
 
     it("asks the owner to change a setting, saving it only once they allow it, and telling its session", async () => {
@@ -265,13 +304,14 @@ describe("a chat session's writes", () => {
         }
     }
 
-    it('make issues, comment, answer in the chat, message sessions, and read anything; nothing else', () => {
+    it('make issues, comment, answer in the chat, ask the owner for things, and read anything; nothing else', () => {
         expect(refused('POST', '/api/projects/greenhouse/issues')).toBeUndefined()
-        expect(refused('POST', '/api/sessions/message')).toBeUndefined()
-        expect(refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBeUndefined()
+        // It asks to message sessions (a request); only the owner's Send sends it (ORR-416).
+        expect(refused('POST', '/api/sessions/message')).toBe(403)
+        expect(refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
-        // It asks to change a setting; the owner's answer, and the settings themselves, aren't its.
+        // It asks to change a setting or send a message; the owner's answer, and the settings themselves, aren't its.
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests')).toBeUndefined()
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests/4')).toBe(403)
         expect(refused('PATCH', '/api/settings')).toBe(403)

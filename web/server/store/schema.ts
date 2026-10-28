@@ -65,7 +65,7 @@ export interface Actor {
     name: string
     owner: boolean
     untrusted?: boolean
-    /** The owner, as their chat speaking for them (`chatOwner`). */
+    /** The owner, through their chat: what they allowed or sent from a request it asked (chats.ts `answer`). */
     via?: 'chat'
 }
 
