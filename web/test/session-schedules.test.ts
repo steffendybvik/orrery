@@ -98,7 +98,7 @@ describe('a session schedule', () => {
         await pass()
         expect(started).toEqual([
             {presets: [review.id], instructions: `On issue.status: ${issue.id} (backlog → in-review), by claude.`, issue: issue.id},
-            {presets: [release.id], instructions: 'On release.frozen: 1.0.0, by skoll.', release: '1.0.0'},
+            {presets: [release.id], instructions: 'On release.frozen: 1.0.0, by the owner.', release: '1.0.0'},
         ])
     })
 

@@ -524,9 +524,17 @@ function filterOf(on: string | null, filter: unknown): string | null {
     return on && typeof filter === 'string' && filter !== '{}' ? filter : null
 }
 
-/** What an event run was about, as its issue's description or message ends: the event, its subject and the change. */
+/** The changes whose values are ids or fixed words, so passing them on passes on nobody's text: a label or an
+ * assignee is whatever an agent typed. */
+const SAID_BY_ID = new Set(['issue.status', 'issue.priority', 'issue.chunk', 'issue.release', 'issue.parent', 'issue.proposal', 'issue.project', 'comment.asks'])
+
+/** A name as a handle (`claude`, `ada_lovelace`): one with spaces or more could be words to a session. */
+const HANDLE = /^[\w.-]{1,40}$/
+
+/** What an event run was about, as its issue's description or message ends: the event, its subject and the change,
+ * said by ids, since a session reads it as the owner's words. */
 function aboutEvent(event: OrreryEvent): string {
-    const change = event.from !== undefined || event.to !== undefined ? ` (${event.from ?? 'none'} → ${event.to ?? 'none'})` : ''
-    const by = event.by ? `, by ${event.by.name}` : ''
+    const change = SAID_BY_ID.has(event.type) && (event.from !== undefined || event.to !== undefined) ? ` (${event.from ?? 'none'} → ${event.to ?? 'none'})` : ''
+    const by = !event.by ? '' : `, by ${event.by.owner ? 'the owner' : HANDLE.test(event.by.name) ? event.by.name : 'an agent'}`
     return `On ${event.type}${event.subject ? `: ${event.subject}` : ''}${change}${by}.`
 }
