@@ -483,19 +483,26 @@ recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), launchers coming and going (`launcher.connected`, `launcher.gone`), schedule runs and skips
 (`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `migration.ran`,
-`database.moved`, `server.started`). Advanced also shows the Events page and counts each new kind of error in the bell.
+`database.moved`, `server.started`). So is **each change to the roadmap**, as an `info` line with the change's
+type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.created`, `issue.status`,
+`issue.priority`…, `issue.deleted`), `comment.added`, `comment.asks`, `chunk.created`, `doc.created`, `doc.changed`,
+`doc.deleted` and `release.<what>` (`release.created`, `release.frozen`, `release.shipped`…). Its message says who did
+what (`claude moved ORR-12: todo → done`), and its details hold `by`, `owner`, `from`, `to`, `untrusted` and the
+`schedule` whose run made it. No titles, notes or comment text are kept. Advanced also shows the Events page and
+counts each new kind of error in the bell.
 
-Each event is `{id, level, kind, project?, message, details?, count, first_seen, last_seen, resolved_at?}`, with
-`level` one of `error`, `warn`, `info`. The same one again (level, kind, project and message), while it isn't
-resolved, adds to `count` and moves `last_seen` on, rather than taking a row of its own. No request bodies, headers
-or secret values are kept: secrets are scrubbed out as they are from an answer, and so are passwords in addresses and
-bearer tokens. Info is kept a week, warnings and errors a month, and 5000 rows at most.
+Each event is `{id, level, kind, project?, subject?, message, details?, count, first_seen, last_seen, resolved_at?}`,
+with `level` one of `error`, `warn`, `info`. Each is a line of its own (`count` 1, `last_seen` its `first_seen`); a
+repeat of one not resolved yet (level, kind, project and message) is no news to the bell or the schedules. No request
+bodies, headers or secret values are kept: secrets are scrubbed out as they are from an answer, and so are passwords
+in addresses and bearer tokens. Info is kept a week, warnings and errors a month; at most 5000 changes to the roadmap
+and 5000 of the rest, each the oldest going first.
 
-- `GET /events/log?level=&kind=&project=&since=&open=1&limit=`: newest first, by `last_seen`. `level` is one or more,
-  comma-separated; `kind` one (`server.error`) or every one under a name (`session`); `open=1` leaves out resolved
-  ones. 200 by default, 1000 at most. A daily schedule can ask for `?level=error&open=1&since=…` and turn what's new
+- `GET /events/log?level=&kind=&project=&subject=&since=&open=1&limit=`: newest first. `level` is one or more,
+  comma-separated; `kind` one (`server.error`) or every one under a name (`session`, `issue`); `subject` what a change
+  was to (`ORR-12`, a release's version); `open=1` leaves out resolved ones. 200 by default, 1000 at most. A daily schedule can ask for `?level=error&open=1&since=…` and turn what's new
   into issues.
-- `POST /events/log/:id/resolve`: it's dealt with; the next one like it starts a row of its own.
+- `POST /events/log/:id/resolve`: it's dealt with, and so are its repeats not resolved yet; the next one like it is news.
 - `POST /events/log {message, stack?, page?, build?}` → 201: the page reporting its own error (`page.error`).
 
 A session reads it with the channel's `events` tool (`details` for stacks) and marks what it fixed with

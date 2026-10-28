@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {LoggedEvent} from '#shared/roadmap'
-import {EventLog, KEEP_INFO, KEEP_PROBLEMS, redact} from '../server/utils/event-log'
+import {describe as describeChange, EventLog, KEEP_INFO, KEEP_PROBLEMS, redact} from '../server/utils/event-log'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
@@ -34,22 +34,23 @@ describe('the event log', () => {
         expect((await log.list()).map(e => e.kind)).toEqual(['session.started', 'server.error'])
     })
 
-    it('folds a repeat into its row until it is resolved', async () => {
+    it('writes a repeat as a line of its own, but as no news until it is resolved', async () => {
         const first = await log.record({level: 'error', kind: 'page.error', message: 'x is undefined', details: {page: '/now'}})
         later(1000)
         const again = await log.record({level: 'error', kind: 'page.error', message: 'x is undefined', details: {page: '/mine'}})
-        expect(again).toMatchObject({id: first?.id, count: 2, first_seen: first?.first_seen, details: {page: '/mine'}})
-        expect(again?.last_seen).toBe(now.toISOString())
+        expect(again).toMatchObject({count: 1, first_seen: now.toISOString(), details: {page: '/mine'}})
+        expect(again?.id).not.toBe(first?.id)
         expect(heard.map(h => h.fresh)).toEqual([true, false])
 
-        // In another project, or another message, it's a row of its own.
-        expect((await log.record({level: 'error', kind: 'page.error', project: 'hub', message: 'x is undefined'}))?.id).not.toBe(first?.id)
+        // In another project, or another message, it's news.
+        await log.record({level: 'error', kind: 'page.error', project: 'hub', message: 'x is undefined'})
+        expect(heard.at(-1)?.fresh).toBe(true)
 
+        // Resolving one resolves its repeats, and the next is news again.
         const resolved = await log.resolve(first?.id ?? 0)
         expect(resolved.resolved_at).toBe(now.toISOString())
-        const next = await log.record({level: 'error', kind: 'page.error', message: 'x is undefined'})
-        expect(next).toMatchObject({count: 1})
-        expect(next?.id).not.toBe(first?.id)
+        expect((await log.list({open: true})).map(e => e.project)).toEqual(['hub'])
+        await log.record({level: 'error', kind: 'page.error', message: 'x is undefined'})
         expect(heard.at(-1)?.fresh).toBe(true)
     })
 
@@ -107,6 +108,70 @@ describe('the event log', () => {
         expect((await log.list({kind: 'launcher_x'})).map(e => e.kind)).toEqual(['launcher_x.gone'])
         await expect(log.record({level: 'error', kind: 'Not A Kind', message: 'x'})).rejects.toMatchObject({statusCode: 400})
         await expect(log.resolve(9999)).rejects.toMatchObject({statusCode: 404})
+    })
+
+    it('records each change to the roadmap as a row of its own, while Advanced is on', async () => {
+        const moved = {type: 'issue.status', project: 'hub', subject: 'HUB-1', by: {name: 'claude', owner: false}, from: 'todo', to: 'done'}
+        expect(await log.activity(moved)).toBeNull()
+
+        await store.updateSettings({advanced: true}, owner)
+        log.forget()
+        const first = await log.activity(moved, 7)
+        expect(first).toMatchObject({level: 'info', kind: 'issue.status', project: 'hub', subject: 'HUB-1', count: 1,
+            message: 'claude moved HUB-1: todo → done', details: {by: 'claude', owner: false, from: 'todo', to: 'done', schedule: 7}})
+        expect((await log.activity(moved))?.id).not.toBe(first?.id)
+        expect(heard.map(h => h.fresh)).toEqual([true, true])
+        await log.activity({type: 'comment.added', project: 'hub', subject: 'HUB-2', by: {name: 'skoll', owner: true}})
+
+        expect((await log.list({subject: 'HUB-1'})).map(e => e.kind)).toEqual(['issue.status', 'issue.status'])
+        expect((await log.list({kind: 'comment'})).map(e => e.message)).toEqual(['skoll commented on HUB-2'])
+    })
+
+    it('takes the changes as the store says them, with no text an outsider wrote', async () => {
+        await store.updateSettings({advanced: true}, owner)
+        log.forget()
+        const said: Promise<unknown>[] = []
+        store.happened = event => said.push(log.activity(event))
+        await store.createProject({name: 'hub', key: 'HUB'})
+        const issue = await store.createIssue('hub', {title: 'Secret plans', notes: 'sk-live-123'}, owner)
+        await store.updateIssue('hub', issue.id, {status: 'in-progress', title: 'Other plans', notes: 'more'}, {name: 'claude', owner: false})
+        await store.createComment('hub', issue.id, {body: 'hello'}, {name: 'claude', owner: false})
+        await Promise.all(said)
+
+        const rows = await log.list({subject: issue.id})
+        expect(rows.map(e => e.message).toReversed()).toEqual([
+            `skoll made ${issue.id}`,
+            `claude changed ${issue.id}'s title`,
+            `claude moved ${issue.id}: backlog → in-progress`,
+            `claude changed ${issue.id}'s notes`,
+            `claude commented on ${issue.id}`,
+        ])
+        expect(JSON.stringify(rows)).not.toMatch(/Secret|Other plans|sk-live|hello|more/)
+    })
+
+    it('says a change in a line', () => {
+        const by = {name: 'claude', owner: false}
+        expect(describeChange({type: 'issue.created', subject: 'HUB-1', by})).toBe('claude made HUB-1')
+        expect(describeChange({type: 'issue.priority', subject: 'HUB-1', by, to: 'P1'})).toBe("claude changed HUB-1's priority: none → P1")
+        expect(describeChange({type: 'issue.title', subject: 'HUB-1', by})).toBe("claude changed HUB-1's title")
+        expect(describeChange({type: 'comment.asks', subject: 'HUB-1', by, to: 'decision'})).toBe('claude asked the owner for a decision on HUB-1')
+        expect(describeChange({type: 'release.frozen', subject: '1.0.0', by})).toBe('claude set release 1.0.0 frozen')
+        expect(describeChange({type: 'doc.changed', subject: 'api', by})).toBe('claude wrote doc api')
+        expect(describeChange({type: 'chunk.created', subject: '3'})).toBe('Someone made chunk 3')
+    })
+
+    it('caps the changes to the roadmap apart from the rest, so they cannot push an error out', async () => {
+        await store.updateSettings({advanced: true}, owner)
+        log.forget()
+        await log.record({level: 'error', kind: 'server.error', message: 'boom'})
+        // Past the cap, written straight in: 5000 through activity() would be slow.
+        const at = now.toISOString()
+        await store.db.run(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5002)
+            INSERT INTO events (level, kind, project, subject, message, count, first_seen, last_seen)
+            SELECT 'info', 'issue.status', 'hub', 'HUB-' || i, 'moved', 1, ?, ? FROM n`, at, at)
+        expect(await log.prune()).toBe(2)
+        expect(await log.list({level: 'error'})).toHaveLength(1)
+        expect(await log.list({kind: 'issue', limit: 1000})).toHaveLength(1000)
     })
 
     it('lets go of what Orrery did after a week, problems after a month', async () => {

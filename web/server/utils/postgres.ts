@@ -343,6 +343,8 @@ const STEPS: string[] = [`
         key text PRIMARY KEY,
         seeded_at text NOT NULL
     );
+`, `
+    ALTER TABLE events ADD COLUMN subject text;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether

@@ -106,11 +106,12 @@ export const TOOLS = [
     },
     {
         name: 'events',
-        description: "The Orrery's event log, newest first, for debugging it: errors (server 5xx, the page's own, failed schedule runs and backups) and, while the owner has Advanced on, what it did (sessions, launchers, schedule runs, backups, migrations, starts). A repeat counts on its row (×n). With details, each with its stack, route and the rest.",
+        description: "The Orrery's event log, newest first, for debugging it: errors (server 5xx, the page's own, failed schedule runs and backups) and, while the owner has Advanced on, what it did (sessions, launchers, schedule runs, backups, migrations, starts) and every change to the roadmap (issues, comments, chunks, docs, releases: who did what, from → to). Each is a line of its own. With details, each with its stack, route and the rest.",
         inputSchema: {type: 'object', properties: {
             level: {type: 'string', description: 'error, warn or info; several comma-separated'},
-            kind: {type: 'string', description: 'One (server.error, page.error) or every one under a name (session)'},
+            kind: {type: 'string', description: 'One (server.error, issue.status) or every one under a name (session, issue)'},
             project: {type: 'string'},
+            subject: {type: 'string', description: 'What a change to the roadmap was to: an issue id (ORR-12), a release version, a chunk or doc id'},
             since: {type: 'string', description: 'Only those seen since this time (ISO)'},
             open: {type: 'boolean', description: 'Only those not resolved yet'},
             details: {type: 'boolean', description: 'Each with its details (stack, route, page…) in full'},

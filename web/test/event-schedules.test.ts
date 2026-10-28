@@ -79,7 +79,7 @@ describe('event types', () => {
         ])
     })
 
-    it('come out of the event log with Advanced on: what Orrery did each time, though it repeats into one row', async () => {
+    it('come out of the event log with Advanced on: what Orrery did each time, a line each', async () => {
         await store.updateSettings({advanced: true}, me)
         const log = new EventLog(store.db)
         const said: OrreryEvent[] = []
@@ -88,8 +88,9 @@ describe('event types', () => {
         await log.record({level: 'info', kind: 'session.stopped', project: 'greenhouse', message: 'A session stopped'})
         expect(said).toEqual([
             {type: 'session.stopped', level: 'info', project: 'greenhouse', subject: expect.stringMatching(/^event \d+$/)},
-            {type: 'session.stopped', level: 'info', project: 'greenhouse'},
+            {type: 'session.stopped', level: 'info', project: 'greenhouse', subject: expect.stringMatching(/^event \d+$/)},
         ])
+        expect(said[0]?.subject).not.toBe(said[1]?.subject)
     })
 })
 
