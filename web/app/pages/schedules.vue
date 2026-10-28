@@ -53,7 +53,7 @@ function newSchedule() {
       <p class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         Nothing scheduled on any project yet.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="newSchedule">Make one</button>
-        to send sessions a message or make an issue on a timetable.
+        to message sessions, start one, or make an issue, at a set time or when something happens.
       </p>
     </div>
   </div>
