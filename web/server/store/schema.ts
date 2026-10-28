@@ -320,7 +320,7 @@ export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
 ]
 
 /** Whether the owner has commented on the issue since comment `c`. */
-const SINCE = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)'
+export const SINCE = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)'
 export const ANSWERED = `${SINCE} AS answered`
 /** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. */
 export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`

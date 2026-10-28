@@ -359,6 +359,8 @@ const STEPS: string[] = [`
         PRIMARY KEY (project, issue, put_up),
         FOREIGN KEY (project, issue) REFERENCES issues(project, id) ON DELETE CASCADE ON UPDATE CASCADE ${KEYS}
     );
+`, `
+    CREATE INDEX comments_notices ON comments(owned, cleared, created_at, id);
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether
