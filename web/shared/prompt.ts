@@ -1,4 +1,4 @@
-// What a session hears when the owner asks it to focus: a template with `{placeholders}`, the Orrery's
+// What a session hears when the owner asks it to focus: a template with `{placeholders}`, the orrery's
 // or a project's own, and the standing instructions picked for that send. The server renders it for the
 // channel, and the settings pages render it for their preview.
 
@@ -74,7 +74,7 @@ export function renderPrompt(template: string, values: Record<string, string | n
     return list && !template.includes('{instructions}') ? `${text}\n\nAlso:\n${list}` : text
 }
 
-/** The instructions ticked for a send when it doesn't say: the Orrery's that are on, less those the project
+/** The instructions ticked for a send when it doesn't say: the orrery's that are on, less those the project
  * switched off, and the project's own that are on. */
 export function defaultInstructions(global: Instruction[], own: Instruction[], muted: string[]): Instruction[] {
     return [...global.filter(i => i.on && !muted.includes(i.id)), ...own.filter(i => i.on)]

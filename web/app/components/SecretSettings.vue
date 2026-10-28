@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Secret} from '#shared/roadmap'
 
-// The Orrery's secrets on App settings: each by name, the last 4 characters of its value, the hosts it may
+// The orrery's secrets on App settings: each by name, the last 4 characters of its value, the hosts it may
 // go to, the projects that may use it, and its last use. Set or replace one with its value (which never
 // comes back); take a host off without it, since that only narrows where it goes. Saved as the owner.
 const {secrets, load: loadSecrets} = useSecretList()

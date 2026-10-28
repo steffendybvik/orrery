@@ -1,5 +1,5 @@
-// Copies a whole Orrery from one database to another, each SQLite or Postgres: `pnpm orrery:copy`, to move to
-// Postgres or back, and a Postgres Orrery's backups, a SQLite snapshot. Every table is read in one transaction, so
+// Copies a whole orrery from one database to another, each SQLite or Postgres: `pnpm orrery:copy`, to move to
+// Postgres or back, and a Postgres orrery's backups, a SQLite snapshot. Every table is read in one transaction, so
 // what's copied is one moment's, then written in order, ids kept, in one transaction; the target must be empty
 // (no projects yet), and both are brought up to the latest schema first.
 import type {Db} from './database'
@@ -12,9 +12,9 @@ export const COPIED_TABLES = ['statuses', 'settings', 'projects', 'releases', 'c
 const NUMBERED = ['comments', 'issue_events', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
 
 export async function copyDatabase(source: Db, target: Db): Promise<Record<string, number>> {
-    if ((await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')).n) throw new Error('The target already has projects: copy into an empty Orrery')
+    if ((await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')).n) throw new Error('The target already has projects: copy into an empty orrery')
     // Read first, all of it in one transaction (on Postgres one snapshot of it), so a write while it copies a
-    // running Orrery can't leave a row pointing at one that isn't there.
+    // running orrery can't leave a row pointing at one that isn't there.
     const rows = await source.transaction(async () => {
         if (source.dialect === 'postgres') await source.exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
         const read: Partial<Record<(typeof COPIED_TABLES)[number], Record<string, unknown>[]>> = {}
@@ -24,7 +24,7 @@ export async function copyDatabase(source: Db, target: Db): Promise<Record<strin
     const copied: Record<string, number> = {}
     await target.transaction(async () => {
         await target.deferConstraints()
-        // A new database starts with the default statuses, and may have had the presets Orrery ships seeded; the source's replace them.
+        // A new database starts with the default statuses, and may have had the presets orrery ships seeded; the source's replace them.
         await target.run('DELETE FROM statuses')
         await target.run('DELETE FROM settings')
         await target.run('DELETE FROM presets')

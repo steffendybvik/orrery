@@ -107,7 +107,7 @@ export abstract class ProjectStore extends OwnerStore {
         if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told (${sent.join(', ')}); send Orrery-Actor: <owner>`)
     }
 
-    /** The prompt fields as columns: an empty template is none (the Orrery's). */
+    /** The prompt fields as columns: an empty template is none (the orrery's). */
     protected promptColumns(input: Input): Input {
         const template = (value: Input[string]) => value === undefined ? undefined : String(value ?? '').trim() || null
         const list = (value: Input[string]) => value === undefined ? undefined : JSON.stringify(value ?? [])
@@ -116,14 +116,14 @@ export abstract class ProjectStore extends OwnerStore {
         }
     }
 
-    /** Whether Orrery may start sessions for the project, and within what: the Orrery's, as the owner lets it start
+    /** Whether orrery may start sessions for the project, and within what: the orrery's, as the owner lets it start
      * them for every project at once; none while they haven't. */
     async starts(project: string): Promise<Starts | undefined> {
         await this.projectRow(project)
         return await this.orreryStarts()
     }
 
-    /** The templates the project's sessions hear: its own, else the Orrery's, else the defaults. */
+    /** The templates the project's sessions hear: its own, else the orrery's, else the defaults. */
     async prompts(project: string): Promise<{focus: string, chunk: string}> {
         const row = await this.projectRow(project)
         const settings = await this.settings()
@@ -141,7 +141,7 @@ export abstract class ProjectStore extends OwnerStore {
         if (ids === undefined || ids === null) return defaultInstructions(global, own, JSON.parse(row.muted) as string[]).map(i => i.text)
         const all = [...global, ...own]
         const unknown = (ids as string[]).filter(id => !all.some(i => i.id === id))
-        if (unknown.length) throw badRequest(`No standing instruction ${unknown.join(', ')}; the Orrery's and ${project}'s are ${all.map(i => i.id).join(', ') || 'none'}`)
+        if (unknown.length) throw badRequest(`No standing instruction ${unknown.join(', ')}; the orrery's and ${project}'s are ${all.map(i => i.id).join(', ') || 'none'}`)
         return all.filter(i => (ids as string[]).includes(i.id)).map(i => i.text)
     }
 

@@ -3,7 +3,7 @@ import {expect, test} from '@playwright/test'
 
 // The keys (useHotkeys), on a project of their own: j/k between rows and group headers and Enter to open, j/k and Esc on
 // an issue's page, 1/2 for List and Board, / and c, x and Esc to tick and clear, g m.
-// Runs after first-run.spec.ts on the same Orrery, so the owner is usually named already; named here if not.
+// Runs after first-run.spec.ts on the same orrery, so the owner is usually named already; named here if not.
 test.describe.configure({mode: 'serial'})
 
 const api = (request: APIRequestContext, method: 'get' | 'post' | 'put', path: string, data?: object) =>

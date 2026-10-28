@@ -115,7 +115,7 @@ jobs:
           path: web/playwright-report/
           retention-days: 7
 
-  # How fast the pages are on a big Orrery (web/e2e/perf), run when the e2e flows are. A page over its budget fails
+  # How fast the pages are on a big orrery (web/e2e/perf), run when the e2e flows are. A page over its budget fails
   # it. The report (each page's time, its API calls and their sizes) is kept every run, passed or not.
   perf:
     needs: playwright

@@ -1,8 +1,8 @@
 import type {OnFilter} from './happenings'
 
-// Ready-made event schedules for the presets Orrery ships (ORR-344), offered on Schedules. None is made until the owner
+// Ready-made event schedules for the presets orrery ships (ORR-344), offered on Schedules. None is made until the owner
 // adds it: starting sessions on its own is theirs to turn on. Each names its presets by key (shared/presets.ts), as
-// the Orrery's own presets carry it, so it finds them in any Orrery; one the owner removed is left out.
+// the orrery's own presets carry it, so it finds them in any orrery; one the owner removed is left out.
 export interface ScheduleSuggestion {
     key: string
     title: string
@@ -22,7 +22,7 @@ export const SCHEDULE_SUGGESTIONS: ScheduleSuggestion[] = [
     },
     {
         key: 'release-shipped', title: 'Get the next release going', kind: 'message', on: 'release.shipped', presets: [],
-        notes: "A release just shipped. Get the next one going: make it in Orrery if it isn't there yet, and set the issues still open in the one that shipped for it.",
+        notes: "A release just shipped. Get the next one going: make it in orrery if it isn't there yet, and set the issues still open in the one that shipped for it.",
         when: 'When a release ships',
     },
     {

@@ -1,4 +1,4 @@
-# Orrery on http://localhost:9000. The database lives in /data (a volume), so it outlasts the container.
+# orrery on http://localhost:9000. The database lives in /data (a volume), so it outlasts the container.
 # Two images: `dev` (what compose runs) serves the repo mounted at /src with `nuxt dev`, so a change shows
 # as soon as it's saved; `prod` (the last stage, so the default) is the built app.
 

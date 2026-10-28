@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The first time an Orrery is opened, it asks whose it is. That name is the owner's (what they make,
+// The first time an orrery is opened, it asks whose it is. That name is the owner's (what they make,
 // no one else can delete), and their `Orrery-Actor` is it in lowercase snake case. A brand-new one (no projects) opened
 // on this machine asks first where to keep its data (ORR-319): here, or Postgres, moved to as App settings does it, so
 // ORRERY_DATABASE isn't needed. Not when ORRERY_DATABASE names Postgres, or once it's moved.
@@ -47,7 +47,7 @@ async function save() {
   <UiDialog :open="!named" :label="showing === 'name' ? 'Your name' : 'Where to keep its data'" :width="showing === 'postgres' ? 'lg' : 'md'" required @submit="submit">
     <template v-if="showing !== 'name' && settings.database">
       <div class="flex flex-col gap-1">
-        <h2 class="text-[15px] font-semibold text-fg">Where should this Orrery keep its data?</h2>
+        <h2 class="text-[15px] font-semibold text-fg">Where should this orrery keep its data?</h2>
         <p class="text-xs text-muted">You can move it later in App settings → Database.</p>
       </div>
       <div v-if="showing === 'data'" class="flex flex-col gap-2">
@@ -57,14 +57,14 @@ async function save() {
         </button>
         <button type="button" class="flex flex-col items-start gap-0.5 rounded-xl p-3 text-left ring-1 ring-line hover:bg-hover" @click="step = 'postgres'">
           <span class="text-[13px] font-medium text-fg">Postgres</span>
-          <span class="text-xs text-muted">Yours or a hosted one: for a team's server, or a database you already back up. An Orrery's own from before picks up where it was.</span>
+          <span class="text-xs text-muted">Yours or a hosted one: for a team's server, or a database you already back up. An orrery's own from before picks up where it was.</span>
         </button>
       </div>
       <DatabaseMove v-else :database="settings.database" first @back="step = 'data'" />
     </template>
     <template v-else>
       <div class="flex flex-col gap-1">
-        <h2 class="text-[15px] font-semibold text-fg">Whose Orrery is this?</h2>
+        <h2 class="text-[15px] font-semibold text-fg">Whose orrery is this?</h2>
         <p class="text-xs text-muted">You're its owner: what you make, no one else can delete. Change it later in Settings.</p>
       </div>
       <input ref="input" v-model="display" placeholder="Your name" aria-label="Your name" maxlength="60" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">

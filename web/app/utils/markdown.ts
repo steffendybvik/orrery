@@ -45,7 +45,7 @@ export function renderMarkdown(source: string, title?: string, before?: string):
         link.rel = 'noopener noreferrer'
     })
     compareImages(page)
-    // An image Orrery keeps opens larger, as a screenshot shrunk to a comment's width is hard to read: over the page
+    // An image orrery keeps opens larger, as a screenshot shrunk to a comment's width is hard to read: over the page
     // (plugins/image-view), or in a tab of its own on ⌘-click.
     page.querySelectorAll<HTMLImageElement>('img[src^="/api/uploads/"]').forEach(image => {
         if (image.closest('a, .compare')) return

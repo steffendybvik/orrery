@@ -1,5 +1,5 @@
 // How the launcher opens a terminal window attached to one of its sessions, when the owner presses Watch: the app
-// is the Orrery's setting (Terminal, iTerm2, Warp or Ghostty, on macOS); elsewhere the system's own terminal.
+// is the orrery's setting (Terminal, iTerm2, Warp or Ghostty, on macOS); elsewhere the system's own terminal.
 // Each is a command to run and, for Warp, a tab config to write first, as Warp runs a command only from one.
 import {homedir} from 'node:os'
 import {join} from 'node:path'

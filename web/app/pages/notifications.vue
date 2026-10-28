@@ -5,7 +5,7 @@ import {noticeKey} from '#shared/roadmap'
 // The bell, larger: every agent's comment with its whole body, newest first, and their proposals waiting
 // on the owner (which go when decided or cleared; clearing one leaves it pending); a card opens its issue. The cleared ones stay readable here under Cleared. Opening the page marks them read;
 // the ones that were new keep their dot until you leave.
-useHead({title: 'Notifications · Orrery'})
+useHead({title: 'Notifications · orrery'})
 type Show = 'inbox' | 'waiting' | 'cleared'
 const {notices, lists, seenAt, seen, load, clear} = useInbox()
 const {byId} = useRoadmaps()

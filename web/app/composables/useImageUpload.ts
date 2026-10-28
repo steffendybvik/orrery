@@ -2,7 +2,7 @@ import type {Ref} from 'vue'
 import type {Upload} from '#shared/roadmap'
 
 // Images in a Markdown field (a comment, an issue's description): pasted, dropped or picked, each is kept
-// by Orrery and goes into `text` as Markdown where the cursor is in `field`, on a line of its own, and the focus goes
+// by orrery and goes into `text` as Markdown where the cursor is in `field`, on a line of its own, and the focus goes
 // back to `field` after it. Pasting and dropping work on the whole area around the field (`over` and `on`, see
 // useImageDrop).
 // `uploading` counts those on their way; `failed` says why the last didn't make it. `reset` drops those still on

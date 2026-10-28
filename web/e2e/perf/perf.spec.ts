@@ -1,4 +1,4 @@
-// How long each page takes to be usable on a big Orrery (seed.ts), and the API calls behind it: each step opens a
+// How long each page takes to be usable on a big orrery (seed.ts), and the API calls behind it: each step opens a
 // page fresh, as a new tab or a reload does, and waits for something the owner would look for there, then for its
 // calls to finish. A step over its budget fails the run, after every step has been timed. The report (report.json and
 // report.md in perf-report/) lists each step, its calls by time and size, and the slowest routes over the run.
@@ -105,7 +105,7 @@ function report() {
         routes: Object.fromEntries(slowest),
     }
     const md = [
-        `# Orrery performance, ${json.database}, ${json.at}`,
+        `# orrery performance, ${json.database}, ${json.at}`,
         '',
         '| Step | Time | Budget | Calls | Slowest call | Largest payload |',
         '|---|--:|--:|--:|---|---|',

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
 
-// The owner's Stop for a session opened in a terminal: its Orrery channel ends it. It asks once more first,
+// The owner's Stop for a session opened in a terminal: its orrery channel ends it. It asks once more first,
 // as whatever the session was in the middle of goes with it.
 const props = defineProps<{session: Session}>()
 const {load} = useOwner()

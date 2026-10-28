@@ -21,7 +21,7 @@ export abstract class StoreBase {
         protected readonly onSignal: (signal: Signal) => void = () => {},
         protected readonly onNotice: (notice: Notice) => void = () => {},
         protected readonly onSettings: (settings: Settings) => void = () => {},
-        /** The owner's id until they give their name (what Orrery used before it asked). */
+        /** The owner's id until they give their name (what orrery used before it asked). */
         protected readonly unnamed = 'owner',
     ) {}
 
@@ -66,7 +66,7 @@ export abstract class StoreBase {
         return (row ? JSON.parse(row.value) as Starts | null : null) ?? undefined
     }
 
-    /** The Orrery's statuses, in order (`StatusStore` has them). */
+    /** The orrery's statuses, in order (`StatusStore` has them). */
     abstract statuses(): Promise<IssueStatus[]>
 
     // Reading

@@ -8,7 +8,7 @@ import {RoadmapError, buildBoard, checkRoadmap, issueLine, legacyStatus, readRoa
 const STATUSES: IssueStatus[] = DEFAULT_STATUSES.map((s, position) => ({...s, position}))
 const first = (kind: string) => STATUSES.find(s => s.kind === kind)!.id
 
-/** A roadmap in greenhouse's format, its statuses as Orrery's import makes them. */
+/** A roadmap in greenhouse's format, its statuses as orrery's import makes them. */
 const legacy = (tasks: TaskFile[]): IssueInput[] => tasks.map(({plan, ...t}) => ({...t, status: first(legacyStatus(t.status, plan)), tasks: legacy(t.tasks)}))
 const fromFile = (data: unknown): BoardInput => ({chunks: checkRoadmap(data).chunks.map(c => ({...c, tasks: legacy(c.tasks)}))})
 
@@ -150,7 +150,7 @@ describe('a release in feature freeze', () => {
 })
 
 describe("a session's name beside its project", () => {
-    it('drops the project Orrery put in front, and leaves any other name be', () => {
+    it('drops the project orrery put in front, and leaves any other name be', () => {
         expect(nameBesideProject({name: 'orrery · Odin', project: 'orrery'})).toBe('Odin')
         expect(nameBesideProject({name: 'Odin', project: 'orrery'})).toBe('Odin')
         expect(nameBesideProject({name: 'hub · fixing CI', project: 'orrery'})).toBe('hub · fixing CI')

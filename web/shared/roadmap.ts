@@ -3,14 +3,14 @@
 import type {OnFilter} from './happenings'
 import type {Instruction} from './prompt'
 
-/** What a status means, whatever it's called: Orrery's counts, progress and pages reason about kinds,
+/** What a status means, whatever it's called: orrery's counts, progress and pages reason about kinds,
  * never names. In board order. */
 export const KINDS = ['backlog', 'todo', 'started', 'done', 'canceled'] as const
 export type Kind = (typeof KINDS)[number]
 /** The kinds an issue is closed in: out of the open counts. Canceled is also out of progress. */
 export const CLOSED: readonly Kind[] = ['done', 'canceled']
 
-/** An issue's status, one list for the whole Orrery: its id (`in-review`) is what an issue stores, its
+/** An issue's status, one list for the whole orrery: its id (`in-review`) is what an issue stores, its
  * name and colour are what the board shows, and its kind is what it means. */
 export interface IssueStatus {
     id: string
@@ -21,7 +21,7 @@ export interface IssueStatus {
     position: number
 }
 
-/** The statuses a new Orrery starts with. */
+/** The statuses a new orrery starts with. */
 export const DEFAULT_STATUSES: Omit<IssueStatus, 'position'>[] = [
     {id: 'backlog', name: 'Backlog', kind: 'backlog', color: 'slate'},
     {id: 'todo', name: 'Todo', kind: 'todo', color: 'blue'},
@@ -90,7 +90,7 @@ export interface Issue {
     /** Who's on it: a person, or `claude`. */
     assignee?: string
     labels: string[]
-    /** Its tasks on the team's tracker: ids (`ENG-1567`), linked through the Orrery's `tracker`, or full URLs. */
+    /** Its tasks on the team's tracker: ids (`ENG-1567`), linked through the orrery's `tracker`, or full URLs. */
     external: string[]
     /** A status's id, as written; a parent's own status is ignored, its issues decide its column. */
     status: string
@@ -214,14 +214,14 @@ export interface Project {
     icon?: string
     /** Its icon's colour: a tint's name (`teal`) or a `#rrggbb`; none follows the text. */
     icon_color?: string
-    /** What its sessions hear when asked to focus on an issue or a chunk, when not the Orrery's (`Settings`). */
+    /** What its sessions hear when asked to focus on an issue or a chunk, when not the orrery's (`Settings`). */
     focus_prompt?: string
     chunk_prompt?: string
-    /** Its own standing instructions, and the ids of the Orrery's it switches off. */
+    /** Its own standing instructions, and the ids of the orrery's it switches off. */
     instructions: Instruction[]
     muted: string[]
-    /** Whether Orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
-     * within what: the Orrery's setting (`Settings.starts`), the same for every project; none while the owner hasn't let it. */
+    /** Whether orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
+     * within what: the orrery's setting (`Settings.starts`), the same for every project; none while the owner hasn't let it. */
     starts?: Starts
     /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
     repo?: string
@@ -341,7 +341,7 @@ export interface ScheduleRun {
     subject?: string
 }
 
-/** Recurring work in a project: at each time (`cron` in `timezone`, once `at`, or `on` an event) Orrery makes an issue
+/** Recurring work in a project: at each time (`cron` in `timezone`, once `at`, or `on` an event) orrery makes an issue
  * from it, and with `ask` points the project's listening Claude sessions at it; or, as a `message`
  * schedule, sends `notes` to the sessions without an issue; or, as a `session` schedule, starts a session. */
 export interface Schedule {
@@ -371,7 +371,7 @@ export interface Schedule {
     /** A message schedule: skips a run when no issue or comment in the project changed since the last one it sent. */
     only_if_changed: boolean
     /** A message schedule whose session reads what others wrote (GitHub issues): its message goes to a session
-     * started for it alone, with only the Orrery tools (`github_issues` among them), and what that session raises is a proposal. */
+     * started for it alone, with only the orrery tools (`github_issues` among them), and what that session raises is a proposal. */
     untrusted: boolean
     enabled: boolean
     /** When it runs next; none once it's paused or a one-off has run. */
@@ -387,8 +387,8 @@ export interface Schedule {
 /** The tints a page can take on: a few named colours, or any `#rrggbb`. */
 export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green: '#22c55e', amber: '#f59e0b', rose: '#f43f5e', violet: '#8b5cf6'} as const
 
-/** This Orrery's own settings, not a project's. */
-/** Whose Orrery it is: their name as the page shows it, and the `Orrery-Actor` id it makes. */
+/** This orrery's own settings, not a project's. */
+/** Whose orrery it is: their name as the page shows it, and the `Orrery-Actor` id it makes. */
 export interface Owner {
     /** The id: the name in lowercase snake case (`skoll_fenrisson`); `owner` until they give one. */
     name: string
@@ -397,7 +397,7 @@ export interface Owner {
     named: boolean
 }
 
-/** The sessions Orrery may start, the owner's one setting for every project: at most `limit` running at once on each, each running until it's stopped,
+/** The sessions orrery may start, the owner's one setting for every project: at most `limit` running at once on each, each running until it's stopped,
  * or for `minutes` when set. `idle_minutes` stops one that has sat idle with nothing to do for that long. Neither
  * stops a session mid-work: it waits until the session is idle with nothing in progress or waiting. */
 export interface Starts {
@@ -410,14 +410,14 @@ export interface Starts {
 export const TERMINALS = {terminal: 'Terminal', iterm: 'iTerm2', warp: 'Warp', ghostty: 'Ghostty'} as const
 export type TerminalApp = keyof typeof TERMINALS
 
-/** Where this Orrery keeps its data, as App settings shows it (read only): a SQLite file's path, or a Postgres
+/** Where this orrery keeps its data, as App settings shows it (read only): a SQLite file's path, or a Postgres
  * database as `user@host:port/name`, never its password; the folder it's backed up to, if any, and when the
  * latest backup there was made. */
 export interface DatabaseInfo {
     kind: 'sqlite' | 'postgres'
     where: string
     /** Under Docker, where the SQLite file is on the computer (from `ORRERY_DATA`), or the Docker volume it's in
-     * instead; `where` stays the path Orrery opens, inside the container. */
+     * instead; `where` stays the path orrery opens, inside the container. */
     host?: string
     volume?: string
     backup?: string
@@ -431,7 +431,7 @@ export interface DatabaseInfo {
     backup_size?: number
     /** Whether the owner can move it from App settings: not when NUXT_DATABASE (ORRERY_DATABASE) is Postgres. */
     movable?: boolean
-    /** Whether it was moved there from App settings, rather than set as Orrery starts. */
+    /** Whether it was moved there from App settings, rather than set as orrery starts. */
     moved?: boolean
     /** What the owner can set about backups in App settings: `folder`, whether they run and where; `switch`, only
      * whether they run (in Docker, ORRERY_BACKUP sets the folder). None when NUXT_DATABASE is Postgres. */
@@ -440,7 +440,7 @@ export interface DatabaseInfo {
     backups_off?: boolean
     /** The folder the owner chose for backups instead of NUXT_BACKUP_DIR, kept while they're off too. */
     backup_folder?: string
-    /** NUXT_BACKUP_DIR, the folder Orrery is given as it starts. */
+    /** NUXT_BACKUP_DIR, the folder orrery is given as it starts. */
     backup_default?: string
     /** How often it backs up: a few seconds after a change, or at most every 15 minutes, hour or day (ORR-445). */
     backup_every?: 'change' | '15m' | 'hour' | 'day'
@@ -453,22 +453,22 @@ export interface DatabaseCheck {
     kind: 'sqlite' | 'postgres'
     /** Where it is, as App settings shows it (no password). */
     where: string
-    /** `empty`: nothing in it yet, so everything can be copied in; `orrery`: an Orrery's own, to run on as it is;
-     * `current`: the one Orrery runs on now; `other`: something else's tables, which Orrery leaves alone. */
+    /** `empty`: nothing in it yet, so everything can be copied in; `orrery`: an orrery's own, to run on as it is;
+     * `current`: the one orrery runs on now; `other`: something else's tables, which orrery leaves alone. */
     state: 'empty' | 'orrery' | 'current' | 'other'
-    /** An Orrery's projects, when it is one. */
+    /** An orrery's projects, when it is one. */
     projects?: number
 }
 
 export interface Settings {
-    /** This Orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
-     * talking to the same Orrery (ORRERY_ID), whatever its address. */
+    /** This orrery's id, made once when it first starts (`orr_7f3a9c`): a channel set up for it checks it's
+     * talking to the same orrery (ORRERY_ID), whatever its address. */
     id: string
-    /** Which Orrery this is (`personal`, `work`), as it's run; a channel serving it is named `orrery-<environment>`. */
+    /** Which orrery this is (`personal`, `work`), as it's run; a channel serving it is named `orrery-<environment>`. */
     environment?: string
     /** Where its data is (`GET /api/settings` only). */
     database?: DatabaseInfo
-    /** The colour the page's background takes on, so one Orrery looks unlike another; none by default. */
+    /** The colour the page's background takes on, so one orrery looks unlike another; none by default. */
     tint: string | null
     /** The issue statuses, in board order. */
     statuses: IssueStatus[]
@@ -483,20 +483,20 @@ export interface Settings {
     handle: string | null
     /** Where the team's tracker shows a task, with `{id}` for its id: `https://tracker.example.com/issue/{id}`. */
     tracker: string | null
-    /** Whether Orrery starts sessions itself, for any project whose repo has a launcher, and within what; none
+    /** Whether orrery starts sessions itself, for any project whose repo has a launcher, and within what; none
      * while the owner hasn't let it. */
     starts: Starts | null
-    /** The terminal app Watch opens a session Orrery started in, on its launcher's machine. */
+    /** The terminal app Watch opens a session orrery started in, on its launcher's machine. */
     terminal: TerminalApp
     /** Whether a proposal waiting on the owner (pending, or changes asked for) is theirs alone until they decide:
      * an agent can't start it, change its status, assign it or put it in a release. On unless the owner turns it off. */
     restrict_proposals: boolean
     /** Shows what's for looking into problems: the Events page, and a notice in the bell for each new kind of error.
-     * Off by default; errors are recorded either way, what Orrery did only while it's on. */
+     * Off by default; errors are recorded either way, what orrery did only while it's on. */
     advanced: boolean
 }
 
-/** How much an event matters: something went wrong, something looks off, or what Orrery did. */
+/** How much an event matters: something went wrong, something looks off, or what orrery did. */
 export const EVENT_LEVELS = ['error', 'warn', 'info'] as const
 export type EventLevel = (typeof EVENT_LEVELS)[number]
 
@@ -504,7 +504,7 @@ export type EventLevel = (typeof EVENT_LEVELS)[number]
  * `release.frozen`…, kept apart in the event log's cap. */
 export const ACTIVITY_FAMILIES = ['issue', 'comment', 'chunk', 'doc', 'release'] as const
 
-/** A line in the event log (`GET /api/events/log`): what Orrery did, what went wrong or a change to the roadmap, its
+/** A line in the event log (`GET /api/events/log`): what orrery did, what went wrong or a change to the roadmap, its
  * `kind` a dotted name (`server.error`, `session.started`, `backup.made`, `issue.status`…). Each is a line of its own
  * (ORR-378): `count` is 1, and `last_seen` is `first_seen`, on those recorded since. */
 export interface LoggedEvent {
@@ -575,9 +575,9 @@ export interface Session {
     also?: string[]
     /** The name its channel's server goes by in the repo's .mcp.json, as the channel found it: what restarts it with the channel. */
     server?: string
-    /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from Orrery. */
+    /** Its channel is open (even without the channel flag) and ends it when asked, so the owner can stop it from orrery. */
     reachable?: boolean
-    /** Orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
+    /** orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
     started?: StartedSession
     /** The version of the code its channel runs, as it says (one from before 1.0.0-rc.10 doesn't). */
     version?: string
@@ -701,7 +701,7 @@ export const scheduleValue = (value: unknown): string => Array.isArray(value)
         ? Object.entries(value).map(([k, v]) => `${k}: ${String(v)}`).join(', ') || '(none)'
         : settingValue(value)
 
-/** A session Orrery started, as its launch made it. */
+/** A session orrery started, as its launch made it. */
 export interface StartedSession {
     launch: string
     tmux: string
@@ -710,7 +710,7 @@ export interface StartedSession {
     /** What the owner gave it to go on when they started it, if anything. */
     context?: SessionContext
     /** Started for an untrusted schedule's run: it reads what others wrote, so it hears only that run's message,
-     * has only the Orrery tools (`github_issues` among them), and what it raises is a proposal. */
+     * has only the orrery tools (`github_issues` among them), and what it raises is a proposal. */
     untrusted?: boolean
     /** Started for the owner's chat: it hears only the chat's messages, reads and answers, and makes issues and
      * comments when asked; nothing else. */
@@ -725,7 +725,7 @@ export interface SessionContext {
     text: string
 }
 
-/** A saved piece of context the owner can give a session as they start it: the Orrery's (`project` null), for
+/** A saved piece of context the owner can give a session as they start it: the orrery's (`project` null), for
  * sessions on any project, or a project's own. */
 export interface Preset {
     id: number
@@ -736,7 +736,7 @@ export interface Preset {
      * its initials. */
     icon: string | null
     color: string | null
-    /** One Orrery ships: its key (shared/presets.ts), and whether it's been changed since, so it can be reset. */
+    /** One orrery ships: its key (shared/presets.ts), and whether it's been changed since, so it can be reset. */
     default?: {key: string, changed: boolean}
     created_at: string
     updated_at: string
@@ -760,12 +760,12 @@ export const noticeKey = (n: Notice) => n.proposal ? `${n.project}/${n.issue}` :
 export const NOTICE_LISTS = ['bell', 'waiting', 'inbox', 'cleared'] as const
 export type NoticeList = (typeof NOTICE_LISTS)[number]
 
-/** A secret as anyone sees it: never its value. Agents put `{{secret:NAME}}` in a request Orrery makes for them. */
+/** A secret as anyone sees it: never its value. Agents put `{{secret:NAME}}` in a request orrery makes for them. */
 export interface Secret {
     name: string
     /** Its last 4 characters, to tell one value from another. */
     last4: string
-    /** The hosts it may be sent to; Orrery refuses any other. */
+    /** The hosts it may be sent to; orrery refuses any other. */
     hosts: string[]
     /** The projects that may use it; null for any. */
     projects: string[] | null
@@ -803,7 +803,7 @@ export function keyFor(name: string): string {
     return letters.slice(0, 3) || 'ISS'
 }
 
-/** The names Orrery gives sessions that have none of their own, in the order it hands them out, written as in
+/** The names orrery gives sessions that have none of their own, in the order it hands them out, written as in
  * Norwegian: æsene, vanene, jotnene, a light elf, and dverger (Snorri's svartalver are the same folk). */
 export const SESSION_NAMES = [
     'Odin', 'Tor', 'Frigg', 'Balder', 'Ty', 'Heimdall', 'Loke', 'Brage', 'Idun', 'Vidar', 'Vale', 'Forsete', 'Ull', 'Hod', 'Hermod',
@@ -818,7 +818,7 @@ export const SESSION_NAMES = [
 
 const BARE_NAME = new RegExp(`^(${SESSION_NAMES.join('|')})( [IVXLCDM]+)?$`)
 
-/** Whether Orrery made the session's name up, rather than the session or its hooks giving it: `<project> · <name>` for
+/** Whether orrery made the session's name up, rather than the session or its hooks giving it: `<project> · <name>` for
  * one that hears its own project, the bare name (`Odin`) for one that hears several. */
 export const madeUpName = (session: {name: string, project: string}) => session.name.startsWith(`${session.project} · `) || BARE_NAME.test(session.name)
 

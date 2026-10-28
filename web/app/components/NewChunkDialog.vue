@@ -2,7 +2,7 @@
 import type {Chunk} from '#shared/roadmap'
 
 // Starting a chunk in a project, as the owner (so agents can't delete it): its title and what it's for,
-// in Markdown. Orrery gives it the next number. ⌘↵ creates it and opens it, Esc closes.
+// in Markdown. orrery gives it the next number. ⌘↵ creates it and opens it, Esc closes.
 const {target, close} = useNewChunk()
 const {byId} = useRoadmaps()
 const {load} = useOwner()

@@ -1,5 +1,5 @@
-// `pnpm orrery:copy <from> <to>`: copies a whole Orrery from one database to another, each a SQLite file
-// or a postgres:// URL, e.g. to move to Postgres or back (see server/utils/copy.ts). Stop the Orrery using
+// `pnpm orrery:copy <from> <to>`: copies a whole orrery from one database to another, each a SQLite file
+// or a postgres:// URL, e.g. to move to Postgres or back (see server/utils/copy.ts). Stop the orrery using
 // the source while it runs, so what it writes after the copy isn't left behind.
 import {resolve} from 'node:path'
 import type {Db} from '../server/utils/database'

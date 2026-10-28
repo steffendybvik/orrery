@@ -2,10 +2,10 @@
 // `{id, project, after, minutes, tmux, context?, hears?}`: the owner starting a session on the project by hand, through its
 // launcher, within its limit; with `issue`, the session starts focused on it; with `statuses` (ids or kinds; `todo`
 // and `started` when only `release` is sent) and `release`, it starts working through the project's issues in them,
-// most urgent first. `presets` (ids of the Orrery's or the project's) and `instructions` (the owner's own words) give
+// most urgent first. `presets` (ids of the orrery's or the project's) and `instructions` (the owner's own words) give
 // it more context, which goes with every signal to it and back to it after a `/clear`. `hears` (project ids) is what
 // the session hears: this project alone, or it and others served from the same repo, as one session; without it, what
-// the repo's channel says. 409 when the project doesn't let Orrery start sessions, no launcher is running, the limit
+// the repo's channel says. 409 when the project doesn't let orrery start sessions, no launcher is running, the limit
 // is reached, or a project in `hears` has no launcher in this project's folder.
 export default defineEventHandler(async event => {
     const actor = await actorOf(event)

@@ -3,7 +3,7 @@
 // `orrery.db` there is always the latest; `orrery-YYYY-MM-DD.db` keeps one a day, for two weeks unless the owner
 // chose another number (ORR-445), and only the latest few copies taken before an upgrade stay. A Postgres
 // database is backed up the same way, as a SQLite snapshot of it, so a backup opens anywhere and a new SQLite
-// Orrery starts from it.
+// orrery starts from it.
 import {copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync} from 'node:fs'
 import {join} from 'node:path'
 import type {DatabaseSync} from 'node:sqlite'
@@ -58,7 +58,7 @@ export async function backupPostgres(db: Db, dir: string, days = KEEP_DAYS) {
 /** The backup being made, so another waits for it rather than writing over it. */
 let making: Promise<void> = Promise.resolve()
 
-/** Backs up the database Orrery runs on to `dir`, after any backup already being made: a SQLite one in line with
+/** Backs up the database orrery runs on to `dir`, after any backup already being made: a SQLite one in line with
  * the writes (`VACUUM INTO` can't run in the middle of a transaction), a Postgres one as a snapshot. */
 export function backUp(database: Db, dir: string, days = KEEP_DAYS): Promise<void> {
     making = making.catch(() => {}).then(() => database instanceof SqliteDb ? database.alone(raw => backup(raw, dir, days)) : backupPostgres(database, dir, days))

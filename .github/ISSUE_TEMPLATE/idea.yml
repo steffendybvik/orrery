@@ -1,12 +1,12 @@
 name: Idea
-description: Something Orrery could do
+description: Something orrery could do
 labels: [enhancement]
 body:
   - type: textarea
     id: problem
     attributes:
       label: What's in the way
-      description: What you're trying to do with Orrery and your sessions, and where it falls short.
+      description: What you're trying to do with orrery and your sessions, and where it falls short.
     validations:
       required: true
   - type: textarea

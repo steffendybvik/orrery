@@ -2,7 +2,7 @@ import {join} from 'node:path'
 
 // Where a path inside the container is on the computer Docker runs on (ORR-399): compose mounts `/data` and `/backup`
 // from `ORRERY_DATA` and `ORRERY_BACKUP`, each a folder of the owner's or, without one, a named volume, and passes the
-// same value in (`NUXT_DATA_HOST`, `NUXT_BACKUP_HOST`), so App settings can say `~/Orrery/orrery.db` rather than
+// same value in (`NUXT_DATA_HOST`, `NUXT_BACKUP_HOST`), so App settings can say `~/orrery/orrery.db` rather than
 // `/data/orrery.db`, which means nothing on the computer. Outside Docker nothing is passed, and paths are already its.
 
 /** A path as the computer has it (`host`), or the Docker volume it's in (`volume`); neither when it isn't known. */

@@ -4,7 +4,7 @@ import {join} from 'node:path'
 import {expect, test} from '@playwright/test'
 import {OWNER} from './support'
 
-// App settings says where this Orrery keeps its data (ORR-284), and how big it is (ORR-323): the SQLite file, or the Postgres database the
+// App settings says where this orrery keeps its data (ORR-284), and how big it is (ORR-323): the SQLite file, or the Postgres database the
 // run is on (E2E_POSTGRES_URL), never with its password. CI's password is `orrery`, also in the user and database
 // names, so the checks look for it as `:password@`, the way a URL would carry it.
 test('App settings shows where the data is, without a password', async ({page, request}) => {
@@ -65,7 +65,7 @@ test('backs up to a folder chosen in App settings, and turns them off again', as
     const folder = mkdtempSync(join(tmpdir(), 'orrery-e2e-backups-'))
     await page.goto('/settings#database')
     const section = page.locator('#database')
-    const backUp = section.getByRole('checkbox', {name: 'Back up this Orrery'})
+    const backUp = section.getByRole('checkbox', {name: 'Back up this orrery'})
     await expect(backUp).not.toBeChecked()
     await section.getByRole('textbox', {name: 'Backup folder'}).fill(folder)
     await section.getByRole('button', {name: 'Back up here'}).click()

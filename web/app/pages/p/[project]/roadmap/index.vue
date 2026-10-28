@@ -12,7 +12,7 @@ const chunks = computed(() => {
     return all.map(c => ({...c, tasks: filterTree(c.tasks, matches)})).filter(c => c.tasks.length)
 })
 
-useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · Orrery` : 'Orrery'}))
+useHead(() => ({title: project.value ? `Roadmap · ${project.value.name} · orrery` : 'orrery'}))
 </script>
 
 <template>
