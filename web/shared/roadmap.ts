@@ -725,7 +725,7 @@ export interface Notice extends Comment {
     /** Taken out of the bell; only `GET /notices?list=cleared` lists these. */
     cleared?: boolean
     /** An agent's proposal waiting on the owner instead of a comment: `asks: decision` until they decide it,
-     * its notes as the body, put up at `created_at`, `id` 0. Clearing doesn't take it out. */
+     * its notes as the body, put up at `created_at`, `id` 0. Cleared, it's `cleared` until it's put up again. */
     proposal?: {choices: number}
 }
 

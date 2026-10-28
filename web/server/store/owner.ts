@@ -4,7 +4,7 @@ import {NOTICE_LISTS} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, forbidden} from '../utils/input'
 import type {CommentRow} from './schema'
-import {AGENT, OWNER_FIELDS, actorId, ANSWERED, commentOf} from './schema'
+import {AGENT, OWNER_FIELDS, actorId, ANSWERED, commentOf, stamp} from './schema'
 import {StatusStore} from './statuses'
 
 export abstract class OwnerStore extends StatusStore {
@@ -56,28 +56,32 @@ export abstract class OwnerStore extends StatusStore {
      * owner (a decision or feedback they haven't answered) first, with agents' proposals waiting on them
      * ahead of all. The notifications page's lists, newest first: `waiting` (every one, proposals among
      * them), and `inbox` (the rest) and `cleared` a page at a time, `limit` of them (50, at most 200) older
-     * than the notice `before`. */
+     * than the notice `before`. A proposal the owner cleared is only in `cleared`, on its first page. */
     async notices({list = 'bell', before, limit}: {list?: NoticeList, before?: number, limit?: number} = {}): Promise<Notice[]> {
         const comments = await this.commentNotices({list, before, limit})
-        if (list !== 'bell' && list !== 'waiting') return comments
-        const proposals = await this.proposalNotices()
+        if (list === 'inbox' || list === 'cleared' && before !== undefined) return comments
+        const proposals = await this.proposalNotices(list === 'cleared')
         return list === 'bell'
             ? [...proposals, ...comments]
             : [...proposals, ...comments].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
     }
 
-    /** Agents' proposals waiting on the owner (pending, not under another proposal), newest put up first. */
-    private async proposalNotices(): Promise<Notice[]> {
-        const rows = await this.all<{project: string, id: string, title: string, notes: string | null, choices: string, created_by: string, created_at: string, updated_at: string, put_up: string | null}>(`
-            SELECT i.project, i.id, i.title, i.notes, i.choices, i.created_by, i.created_at, i.updated_at,
-                (SELECT max(e.created_at) FROM issue_events e WHERE e.project = i.project AND e.issue = i.id AND e.field = 'proposal' AND e.after = 'pending') AS put_up
-            FROM issues i
-            WHERE i.proposal = 'pending' AND i.owned = 0
-                AND NOT EXISTS (SELECT 1 FROM issues p WHERE p.project = i.project AND p.id = i.parent AND p.proposal IS NOT NULL)`)
+    /** Agents' proposals waiting on the owner (pending, not under another proposal), newest put up first: those not
+     * cleared, or only those `cleared` since they were last put up. */
+    private async proposalNotices(cleared = false): Promise<Notice[]> {
+        const rows = await this.all<{project: string, id: string, title: string, notes: string | null, choices: string, created_by: string, created_at: string, updated_at: string, put_up: string}>(`
+            SELECT * FROM (
+                SELECT i.project, i.id, i.title, i.notes, i.choices, i.created_by, i.created_at, i.updated_at,
+                    coalesce((SELECT max(e.created_at) FROM issue_events e WHERE e.project = i.project AND e.issue = i.id AND e.field = 'proposal' AND e.after = 'pending'), i.created_at) AS put_up
+                FROM issues i
+                WHERE i.proposal = 'pending' AND i.owned = 0
+                    AND NOT EXISTS (SELECT 1 FROM issues p WHERE p.project = i.project AND p.id = i.parent AND p.proposal IS NOT NULL)) AS pending
+            WHERE ${cleared ? '' : 'NOT '}EXISTS (SELECT 1 FROM proposal_clears c WHERE c.project = pending.project AND c.issue = pending.id AND c.put_up = pending.put_up)`)
         return rows.map(row => ({
             id: 0, issue: row.id, body: row.notes ?? '', asks: 'decision' as const, answered: false,
-            created_by: row.created_by, protected: false, created_at: row.put_up ?? row.created_at, updated_at: row.updated_at,
+            created_by: row.created_by, protected: false, created_at: row.put_up, updated_at: row.updated_at,
             project: row.project, title: row.title, proposal: {choices: (JSON.parse(row.choices || '[]') as unknown[]).length},
+            ...cleared ? {cleared: true} : {},
         })).sort((a, b) => b.created_at.localeCompare(a.created_at))
     }
 
@@ -102,19 +106,33 @@ export abstract class OwnerStore extends StatusStore {
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 
-    /** Takes notices out of the bell (the comments stay on their issues): those in `ids`, or all made at
-     * or before `before`. Says how many. */
+    /** Takes notices out of the bell (the comments stay on their issues, the proposals pending): the comments in
+     * `ids` and the agents' proposals in `proposals` (`{project, issue}`), or all comments made at or before `before`.
+     * Says how many. */
     async clearNotices(body: unknown): Promise<number> {
-        const {ids, before} = (body ?? {}) as {ids?: unknown, before?: unknown}
-        if (Array.isArray(ids) && ids.every(id => Number.isInteger(id)) && ids.length) {
-            return Number((await this.run(`UPDATE comments SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND id IN (${ids.map(() => '?').join(', ')})`, ...ids as number[])).changes)
+        const {ids = [], proposals = [], before} = (body ?? {}) as {ids?: unknown, proposals?: unknown, before?: unknown}
+        const picked = Array.isArray(ids) && ids.every(id => Number.isInteger(id)) && Array.isArray(proposals)
+            && proposals.every(p => typeof p?.project === 'string' && typeof p?.issue === 'string')
+        if (picked && (ids.length || proposals.length)) {
+            let cleared = ids.length
+                ? Number((await this.run(`UPDATE comments SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND id IN (${ids.map(() => '?').join(', ')})`, ...ids as number[])).changes)
+                : 0
+            const waiting = new Map((await this.proposalNotices()).map(n => [`${n.project}/${n.issue}`, n.created_at]))
+            const now = stamp()
+            for (const {project, issue} of proposals as {project: string, issue: string}[]) {
+                const putUp = waiting.get(`${project}/${issue}`)
+                if (!putUp) continue
+                await this.run('INSERT INTO proposal_clears (project, issue, put_up, cleared_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING', project, issue, putUp, now)
+                cleared++
+            }
+            return cleared
         }
         if (typeof before === 'string' && before) {
             // Not the ones still waiting on the owner: those go when they're answered, or one by one.
             return Number((await this.run(`UPDATE comments AS c SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND created_at <= ?
                 AND (asks IS NULL OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id))`, before)).changes)
         }
-        throw badRequest('Send "ids" (comment ids) or "before" (a time) to clear')
+        throw badRequest('Send "ids" (comment ids), "proposals" ([{project, issue}]) or "before" (a time) to clear')
     }
 
     /** The handle in issues' references: the owner's, or else their id. */
