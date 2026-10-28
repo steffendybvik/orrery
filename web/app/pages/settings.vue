@@ -322,7 +322,7 @@ async function pick(tint: string | null) {
           <dt class="text-muted">{{ settings.database.kind === 'postgres' ? 'Postgres' : 'SQLite file' }}</dt>
           <dd class="min-w-0">
             <DatabasePlace :path="settings.database.where" :host="settings.database.host" :volume="settings.database.volume">
-              <span v-if="settings.database.moved" class="shrink-0 text-xs text-faint">moved here from App settings</span>
+              <span v-if="settings.database.moved" class="block text-xs text-faint">moved here from App settings</span>
             </DatabasePlace>
           </dd>
           <template v-if="settings.database.size !== undefined">
