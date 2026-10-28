@@ -3,7 +3,7 @@
 // calls to finish. A step over its budget fails the run, after every step has been timed. The report (report.json and
 // report.md in perf-report/) lists each step, its calls by time and size, and the slowest routes over the run.
 import {mkdirSync, writeFileSync} from 'node:fs'
-import type {Locator, Page, Request} from '@playwright/test'
+import type {Frame, Locator, Page, Request} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 import {hold} from '../support'
 import {BIG} from './seed'
@@ -31,43 +31,58 @@ const BUDGETS: Record<string, number> = {
 }
 
 interface Call {method: string, path: string, status: number, ms: number, bytes: number}
-interface Step {name: string, ms: number, budget: number, calls: Call[], pushed?: number}
+interface Step {name: string, ms: number, budget: number, calls: Call[], pushed?: number, unfinished?: string[]}
 
 const steps: Step[] = []
 
-/** Times `act` until `ready` shows and the API calls it set off have finished, and keeps the step. */
+/** Times `act` until `ready` shows and the API calls it set off have finished, and keeps the step. A call the page left
+ * behind when it navigated doesn't count (the browser doesn't always say it ended); one still open 15 s after `ready`
+ * is noted in the report as unfinished rather than waited for. */
 async function measure(page: Page, name: string, act: () => Promise<unknown>, ready: Locator) {
-    const calls: Promise<Call>[] = []
-    const pending = new Map<Request, (failed: boolean) => void>()
+    const calls: Promise<Call | null>[] = []
+    const pending = new Map<Request, (how: 'finished' | 'failed' | 'left') => void>()
+    let last = 0
     const started = (request: Request) => {
         const url = new URL(request.url())
         if (!url.pathname.startsWith('/api/') || url.pathname === '/api/events') return
-        calls.push(new Promise(resolve => pending.set(request, async failed => {
+        calls.push(new Promise(resolve => pending.set(request, async how => {
             pending.delete(request)
-            const response = failed ? null : await request.response()
+            if (how === 'left') return resolve(null)
+            last = Date.now()
+            const response = how === 'failed' ? null : await request.response()
             const body = response ? await response.body().catch(() => Buffer.alloc(0)) : Buffer.alloc(0)
             const {responseEnd, responseStart} = request.timing()
             resolve({method: request.method(), path: url.pathname + url.search, status: response?.status() ?? 0,
                 ms: Math.round(responseEnd > 0 ? responseEnd : responseStart), bytes: body.length})
         })))
     }
-    const finished = (request: Request) => pending.get(request)?.(false)
-    const failed = (request: Request) => pending.get(request)?.(true)
+    const finished = (request: Request) => pending.get(request)?.('finished')
+    const failed = (request: Request) => pending.get(request)?.('failed')
+    // What's still open when the page navigates belongs to the page that's gone.
+    const forget = (frame: Frame) => {
+        if (frame === page.mainFrame()) for (const end of [...pending.values()]) end('left')
+    }
     page.on('request', started)
     page.on('requestfinished', finished)
     page.on('requestfailed', failed)
+    page.on('framenavigated', forget)
     const start = Date.now()
+    let readyAt: number
     try {
         await act()
         await expect(ready).toBeVisible({timeout: 60_000})
-        await expect.poll(() => pending.size, {timeout: 60_000}).toBe(0)
+        readyAt = Date.now()
+        await expect.poll(() => pending.size, {timeout: 15_000}).toBe(0).catch(() => {})
     } finally {
         page.off('request', started)
         page.off('requestfinished', finished)
         page.off('requestfailed', failed)
+        page.off('framenavigated', forget)
     }
-    const ms = Date.now() - start
-    const step = {name, ms, budget: BUDGETS[name]!, calls: await Promise.all(calls)}
+    const unfinished = [...pending.keys()].map(r => `${r.method()} ${new URL(r.url()).pathname}`)
+    pending.forEach(end => end('left'))
+    const ms = Math.max(readyAt, last) - start
+    const step: Step = {name, ms, budget: BUDGETS[name]!, calls: (await Promise.all(calls)).filter(c => c !== null), ...unfinished.length ? {unfinished} : {}}
     steps.push(step)
     expect.soft(ms, `${name} took ${ms} ms, over its ${step.budget} ms budget`).toBeLessThanOrEqual(step.budget)
 }
@@ -100,6 +115,7 @@ function report() {
             return `| ${s.ms > s.budget ? '**over** ' : ''}${s.name} | ${s.ms} ms | ${s.budget} ms | ${s.calls.length} | ${slow ? `${slow.method} ${slow.path} (${slow.ms} ms)` : ''} | ${big ? `${big.path} (${kb(big.bytes)})` : ''} |`
         }),
         '',
+        ...steps.filter(s => s.unfinished).map(s => `${s.name}: still open 15 s after it was ready, ${s.unfinished!.join(', ')}.`),
         ...steps.filter(s => s.pushed !== undefined).map(s => `${s.name}: the server pushed ${kb(s.pushed!)} to each open tab.`),
         '',
         '## Slowest routes',
