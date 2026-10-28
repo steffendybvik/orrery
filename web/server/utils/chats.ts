@@ -1,5 +1,6 @@
 import type {H3Event} from 'h3'
 import type {Chat, ChatMessage} from '#shared/roadmap'
+import type {Actor} from '../store/schema'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -12,7 +13,10 @@ export const chatBrief = (project: string) => `This session is the owner's chat 
 Answer their questions about this project: its code (read it), its roadmap and its docs (the issues, issue, chunks,
 releases, docs and doc tools). When they ask for an issue or a comment, make it (create_issue, comment) and say which
 id it got. You don't work on anything: don't change code, and don't start, move or finish issues; other sessions do
-that. Every answer goes back with the reply tool, in Markdown: nothing else reaches the owner. Write an issue as a link
+that. When the owner asks you to, in this chat, message other sessions (sessions lists them): message_sessions
+nudges every idle one, message_session one by its name. Never on your own. Say in your reply what you sent and to
+whom; for more than one session, draft it in a reply first and send it once the owner says go.
+Every answer goes back with the reply tool, in Markdown: nothing else reaches the owner. Write an issue as a link
 to its page, \`[<id>](/p/${project}/issues/<id>)\`, so the owner can open it.
 A message ends with the page the owner had open when they wrote it, e.g. \`(The owner is on /p/${project}/schedules: Schedules.)\`.
 It's a hint for "this" and "here": before answering about it, read what's on that page with the matching tool (issue,
@@ -116,6 +120,19 @@ export function chatEnded(id: string) {
 export function chatWrite(event: H3Event): boolean {
     const session = getHeader(event, 'orrery-session')?.trim()
     return getHeader(event, 'orrery-chat') === 'yes' || !!(session && chatSession(session))
+}
+
+/** The owner, as their running chat (`Orrery-Launch`) speaking for them: what it sends other sessions goes as the
+ * owner's, marked `via` it. */
+export async function chatOwner(event: H3Event): Promise<Actor> {
+    const launch = getHeader(event, 'orrery-launch')?.trim()
+    if (!launch || !chats.has(launch)) throw forbidden("Only the owner's running chat messages sessions for them")
+    return {name: (await useStore().ownerOf()).name, owner: true, via: 'chat'}
+}
+
+/** Notes in the event log that the owner (or their chat) messaged a session. */
+export function messaged(actor: Actor, project: string, session: string) {
+    useEventLog().note({level: 'info', kind: 'session.messaged', project, message: `${actor.name}${actor.via ? ` (via ${actor.via})` : ''} messaged ${session}`})
 }
 
 /** An issue as a chat's session asks to make it: on the roadmap as asked, but with nobody on it and in the status
