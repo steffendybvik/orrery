@@ -5,7 +5,8 @@ import type {Session, Signal} from '#shared/roadmap'
 // a button to point one (or all) at this issue, or at working through this chunk. With nobody listening, when
 // Orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
 // New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
-// got them.
+// got them. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
+// links to; here a row only points it at this.
 const props = defineProps<{project: string, issue?: string, chunk?: string}>()
 const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.chunk})
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
@@ -132,11 +133,14 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
     <ul v-if="sessions.length" class="flex flex-col">
       <li v-for="session in sessions" :key="session.id" class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg px-2 py-2 hover:bg-hover">
         <SessionDot :session="session" />
-        <span class="min-w-0 truncate text-[13px] text-fg">{{ session.name }}</span>
+        <NuxtLink
+            :to="`/sessions#session-${session.id}`"
+            class="min-w-0 truncate text-[13px] text-fg hover:underline"
+            :title="`Open ${session.name} on the Sessions page`"
+        >{{ session.name }}</NuxtLink>
         <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
           {{ STATE[session.state] }} · {{ ago(session.since) }}
         </span>
-        <StartedSession :session="session" />
         <button
             v-if="session.listening"
             type="button"
