@@ -124,6 +124,9 @@ async function setAdvanced(on: boolean) {
     }
 }
 
+// A path in pieces that each end at a /, so a long one wraps between folders rather than inside a name.
+const pathParts = (path: string) => path.split(/(?<=\/)/)
+
 // Back up now: the same backup each change makes a few seconds after, made at once, with when it was made.
 const backingUp = ref(false)
 const backupFailed = ref('')
@@ -320,9 +323,12 @@ async function pick(tint: string | null) {
         </header>
         <dl v-if="settings.database" class="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[13px]">
           <dt class="text-muted">{{ settings.database.kind === 'postgres' ? 'Postgres' : 'SQLite file' }}</dt>
-          <dd class="flex min-w-0 items-center gap-1.5">
-            <code class="truncate font-mono text-xs text-fg" :title="settings.database.where">{{ settings.database.where }}</code><CopyButton :text="settings.database.where" />
-            <span v-if="settings.database.moved" class="shrink-0 text-xs text-faint">moved here from App settings</span>
+          <dd class="flex min-w-0 items-start gap-3">
+            <div class="min-w-0 flex-1">
+              <code class="block pt-0.5 font-mono text-xs leading-5 text-fg [overflow-wrap:anywhere]"><span v-for="(part, i) in pathParts(settings.database.where)" :key="i" class="inline-block max-w-full">{{ part }}</span></code>
+              <span v-if="settings.database.moved" class="block text-xs text-faint">moved here from App settings</span>
+            </div>
+            <CopyButton :text="settings.database.where" />
           </dd>
           <template v-if="settings.database.size !== undefined">
             <dt class="text-muted">Size</dt>
@@ -330,7 +336,10 @@ async function pick(tint: string | null) {
           </template>
           <template v-if="settings.database.backup">
             <dt class="text-muted">Backed up to</dt>
-            <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.backup">{{ settings.database.backup }}</code><CopyButton :text="settings.database.backup" /></dd>
+            <dd class="flex min-w-0 items-start gap-3">
+              <code class="block min-w-0 flex-1 pt-0.5 font-mono text-xs leading-5 text-fg [overflow-wrap:anywhere]"><span v-for="(part, i) in pathParts(settings.database.backup)" :key="i" class="inline-block max-w-full">{{ part }}</span></code>
+              <CopyButton :text="settings.database.backup" />
+            </dd>
             <template v-if="settings.database.backup_size !== undefined">
               <dt class="text-muted">Backups</dt>
               <dd class="text-fg tabular-nums" :title="`${settings.database.backup_size.toLocaleString()} bytes`">{{ bytes(settings.database.backup_size) }}</dd>
