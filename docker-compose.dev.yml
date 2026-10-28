@@ -10,6 +10,8 @@ services:
     build: {context: ., target: dev}
     ports: !override
       - "127.0.0.1:${ORRERY_PORT:-9000}:9000"
+    environment:
+      NUXT_LISTEN_HOST: 127.0.0.1
     volumes:
       - .:/src
       - orrery-node-modules:/src/node_modules

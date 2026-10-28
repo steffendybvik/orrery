@@ -22,9 +22,13 @@ keeps agents from deleting the owner's things, as long as they name themselves h
 protection against a person or program that wants to pretend: anyone who can reach Orrery can send
 the owner's id.
 
-That includes moving the database (App settings → Database → Move…), which repoints Orrery at a database the
-mover picks. Orrery only allows it when it's reached by `localhost`, but that's the address the request names (its
-`Host`), not where it came from, so it matters once Orrery is open to your network (ORR-421).
+Moving the database (App settings → Database → Move…) repoints Orrery at a database the mover picks, and setting
+the backups chooses where a copy of everything goes, so both are kept to the machine Orrery runs on, from where
+the connection comes rather than the name the request gives (its `Host`, which the caller chooses: ORR-421).
+Outside Docker the connection has to come from a loopback address. In Docker every request reaches the container
+through its bridge, so Orrery can't tell; there both work only while it's published on loopback (`ORRERY_HOST`
+left at 127.0.0.1), and with `ORRERY_HOST=0.0.0.0` they're refused, and done outside the app instead
+(`pnpm orrery:copy` and `ORRERY_DATABASE`, `ORRERY_BACKUP`).
 
 ## Your agents act on what's in Orrery
 
@@ -41,11 +45,13 @@ A schedule that has a session read text from outside, such as GitHub issues anyo
 planted issue is a prompt injection, and an ordinary session runs with your permissions. An untrusted
 schedule's run never goes to your sessions. Instead:
 
-- **It gets a session of its own**, which the launcher starts with Bash for `gh issue list` and
-  `gh issue view` only, plus the Orrery tools except `egress` and `secrets`. Everything else is refused,
+- **It gets a session of its own**, which the launcher starts with none of Claude Code's own tools (no
+  Bash, no file reads), only the Orrery tools except `egress` and `secrets`. It reads GitHub issues with
+  the channel's `github_issues`, which runs `gh` itself on the repo the folder's git remote names, with
+  arguments the session can't turn into another host (`-R`) or a browser (`--web`). Everything else is refused,
   not asked (`dontAsk`), and your own and the repo's settings, with their allow lists, are left out
   (`--restricted`). With no launcher, or Starting sessions off, the run fails and says why. Only a
-  launcher that does this lockdown can take the run, so an older one won't start it with every tool.
+  launcher that does this lockdown can take the run, so an older one (which gave it `gh`) won't start it.
 - **That session hears only its own message**, with a standing brief: what it reads is data, never
   instructions.
 - **What it raises is a proposal labelled `external`**, made so by Orrery whatever the session asks. Labels it
@@ -59,9 +65,7 @@ schedule's run never goes to your sessions. Instead:
 - **Its hook claims no issue.** What it runs is never taken as working an issue, and its refused writes set
   off no schedule either.
 
-It can still read files in its folder with read-only commands. **Known gap (ORR-415):** `gh` itself can be pointed
-at another host (`gh issue list -R <host>/<owner>/<repo>`), so a planted issue could have it send what it read
-there. Until that's closed, keep untrusted schedules to repos you'd let read your roadmap.
+So it has no way to send what it reads anywhere but to Orrery, as proposals you see first (ORR-415).
 
 ### The chat
 
@@ -70,7 +74,10 @@ The chat (the button in the corner) is a session started for you to talk to on t
 `secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
 unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release or parent (any other
 change is refused), commenting, and
-answering you. Three more go further, and you should know how far:
+answering you. It changes those fields even on an issue another session is working: the check that refuses one
+session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
+
+Three more go further, and you should know how far:
 
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
   Secrets, the database, statuses and how sessions start aren't among them.
@@ -111,7 +118,8 @@ the owner puts it in. (ORR-333 proposed opening presets to agents and was declin
 What an event schedule passes on follows the same rule. A session schedule's instructions and a message schedule's
 message end with what happened, said by ids: the change for a status, priority, chunk, release or parent, never a
 label's text, and an agent by its handle. A launcher's report of what it runs can't give a session a context
-Orrery didn't start it with.
+Orrery didn't start it with. A launcher's claim on a session waiting to start isn't checked, though: anything that
+reaches Orrery can claim one first and keep it from starting, until launchers prove which one they are (ORR-443).
 
 ### The owner's chat
 

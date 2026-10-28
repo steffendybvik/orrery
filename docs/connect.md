@@ -143,8 +143,8 @@ It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs de
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
 are up, when you press **Stop** beside it (on the Sessions page, with **+30 min** to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). An untrusted schedule's session is the exception: it's locked down to
-`gh issue list`/`view` and the Orrery tools (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)), so a
-launcher from before rc.9 needs restarting before it will take one. So is your [chat](API.md#chats): it gets `Read`,
+the Orrery tools, which read GitHub issues for it (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)), so a
+launcher from before rc.10 needs restarting before it will take one. So is your [chat](API.md#chats): it gets `Read`,
 `Grep`, `Glob` and the Orrery tools that read, make issues, change an issue's fields, comment, message sessions and ask you to change a setting or a schedule when you ask, and answers with its own `reply` tool, so a
 launcher that predates chats needs restarting before it will start one. The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
