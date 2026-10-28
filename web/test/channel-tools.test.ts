@@ -34,6 +34,18 @@ describe("the channel's tools", () => {
         expect(await call('start_issue', {id: 'GRE-1', comment: 'On it'})).toEqual({error: false, text: 'Started GRE-1 [in-progress, claude] Shelves'})
         expect(calls.map(c => [c.method, c.url, c.body])).toEqual([['PATCH', '/issues/GRE-1', {status: 'started', assignee: 'claude'}], ['POST', '/issues/GRE-1/comments', {body: 'On it'}]])
         expect(calls[0]!.headers).toMatchObject({'Orrery-Actor': 'claude', 'Orrery-Session': 'abc'})
+        expect(calls[0]!.headers).not.toHaveProperty('Orrery-Untrusted')
+    })
+
+    it("say so on every call from an untrusted schedule's session", async () => {
+        const calls: {headers: Record<string, string>}[] = []
+        const fetch = async (_url: string, init: {headers: Record<string, string>}) => {
+            calls.push(init)
+            return {ok: true, status: 200, statusText: '', text: async () => JSON.stringify(issue())}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', untrusted: true, fetch}) as (name: string, args?: object) => Promise<unknown>
+        await call('issue', {id: 'GRE-1'})
+        expect(calls[0]!.headers).toMatchObject({'Orrery-Session': 'abc', 'Orrery-Untrusted': 'yes'})
     })
 
     it("read the presets the project's sessions can have, and only those", async () => {

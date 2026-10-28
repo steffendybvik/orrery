@@ -29,6 +29,8 @@ interface Known extends Session {
     /** The launch its channel says Orrery started it for, kept for when Orrery doesn't know that launch yet
      * (Orrery restarted): the launcher's report of it then marks the session started again. */
     launch?: string
+    /** Its channel said it's an untrusted schedule's session: it's held to that whatever Orrery knows of its launch. */
+    untrusted?: boolean
 }
 
 const sessions = new Map<string, Known>()
@@ -255,9 +257,10 @@ function changedAll(session: Known) {
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
  * started with the channel flag, so its messages would be dropped; `started` is the launch Orrery started it for;
- * `stops` when the channel ends its session when the owner stops it (an older one doesn't); `server` the name its server goes by. Says the session's id, the one it
+ * `stops` when the channel ends its session when the owner stops it (an older one doesn't); `server` the name its server goes by;
+ * `untrusted` when its channel says it's an untrusted schedule's, which it stays. Says the session's id, the one it
  * has now: a `/clear` changes it while the channel stays connected. */
-export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string): {id: string, done: () => void} {
+export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string, untrusted = false): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
@@ -274,6 +277,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     held.channels.set(project, {streams: count.streams + 1, heard: count.heard + Number(heard), stops: count.stops + Number(stops)})
     tally(held)
     if (started) held.started = started
+    if (untrusted || started?.untrusted) held.untrusted = true
     if (launch) {
         held.launch = launch
         // A focus made for the launch is this session's.
@@ -394,7 +398,8 @@ export function sessionNow(id: string): (Session & {idleAt?: number}) | undefine
 
 /** Whether the session (by any id it has had) was started for an untrusted schedule's run. */
 export function untrustedSession(id: string): boolean {
-    return !!sessions.get(currentId(id))?.started?.untrusted
+    const session = sessions.get(currentId(id))
+    return !!session?.untrusted || !!session?.started?.untrusted
 }
 
 /** When the session's hooks last said it went idle; nothing when they never have (no hooks, or none yet). */

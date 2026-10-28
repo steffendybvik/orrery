@@ -315,7 +315,9 @@ function serve({url, project, dir}) {
         // It says it locks an untrusted launch down: Orrery gives one only to a launcher that does.
         const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=yes`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}}
+        // An untrusted one's channel says so on everything it sends, so Orrery holds it to that even when it has
+        // restarted and doesn't know the launch yet.
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : ['--permission-mode', mode])

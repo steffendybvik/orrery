@@ -135,9 +135,10 @@ export function toolsFor(projects) {
 }
 
 /** The tools against an Orrery's API, writing as `claude` from `session`: on one project's (`api`,
- * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, fetch = globalThis.fetch}) {
-    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}}
+ * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). `untrusted` for an untrusted
+ * schedule's session, which says so on every call. */
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, fetch = globalThis.fetch}) {
+    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {}}
     async function call(method, path, body, base) {
         const response = await fetch(`${base}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})
         const text = await response.text()

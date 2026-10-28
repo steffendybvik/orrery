@@ -37,7 +37,9 @@ const log = (...parts) => console.error('[orrery channel]', ...parts)
 const window = claudeWindow()
 // A session Orrery started (channel/orrery-launcher.mjs) says which launch it is, and catches up from the signal it's for.
 // `stops`: it ends the session when the owner stops it from Orrery, which takes knowing its claude process.
-const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes'})
+/** Started for an untrusted schedule's run (the launcher says, in ORRERY_UNTRUSTED): its streams and writes say so. */
+const untrusted = process.env.ORRERY_UNTRUSTED === 'yes'
+const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes'})
     .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
 /** The project Orrery started the session for (the launcher says, in ORRERY_PROJECT), whose stream says so. */
 const startedFor = () => process.env.ORRERY_STARTED && (projects.includes(process.env.ORRERY_PROJECT) ? process.env.ORRERY_PROJECT : projects[0])
@@ -64,7 +66,7 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         `The full API is described at ${base}/api/guide.`,
     ].join(' '),
 })
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id})
+const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted})
 server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects)}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `Orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
