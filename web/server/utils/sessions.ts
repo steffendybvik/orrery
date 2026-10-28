@@ -264,9 +264,10 @@ function changedAll(session: Known) {
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
  * started with the channel flag, so its messages would be dropped; `started` is the launch orrery started it for;
  * `stops` when the channel ends its session when the owner stops it (an older one doesn't); `server` the name its server goes by;
- * `untrusted` when its channel says it's an untrusted schedule's, and `chat` the owner's chat, which it stays. Says the
+ * `untrusted` when its channel says it's an untrusted schedule's, and `chat` the owner's chat, which it stays; `version` the
+ * version of its channel's code. Says the
  * session's id, the one it has now: a `/clear` changes it while the channel stays connected. */
-export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string, untrusted = false, chat = false): {id: string, done: () => void} {
+export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string, untrusted = false, chat = false, version?: string): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
@@ -293,6 +294,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     if (name) held.name = name
     else rename(held)
     if (server) held.server = server
+    if (version) held.version = version
     changedAll(held)
     let open = true
     return {

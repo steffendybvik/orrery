@@ -170,6 +170,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
       </section>
     </div>
     <div v-else class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
+      <LaunchersBehind />
       <p v-if="ready && !count" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         No Claude sessions right now.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,

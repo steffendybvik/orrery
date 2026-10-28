@@ -7,7 +7,7 @@ import {one} from './database'
 
 /** In an order every foreign key is satisfied in, the statuses first (issues point at them). */
 export const COPIED_TABLES = ['statuses', 'settings', 'projects', 'releases', 'chunks', 'issues', 'comments', 'issue_events', 'issue_sessions',
-    'issue_aliases', 'chunk_aliases', 'docs', 'schedules', 'schedule_runs', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets', 'preset_defaults', 'events'] as const
+    'issue_aliases', 'chunk_aliases', 'docs', 'schedules', 'schedule_runs', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets', 'preset_defaults', 'events', 'proposal_clears'] as const
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
 const NUMBERED = ['comments', 'issue_events', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
 

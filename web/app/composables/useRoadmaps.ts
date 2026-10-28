@@ -5,7 +5,7 @@ import type {Project, Session, Signal} from '#shared/roadmap'
 export function useRoadmaps() {
     const projects = useState<Project[]>('projects', () => [])
     const ready = useState('projects-ready', () => false)
-    const live = useState<'connecting' | 'live' | 'offline'>('projects-live', () => 'connecting')
+    const live = useState<'connecting' | 'connected' | 'reconnecting' | 'offline'>('projects-live', () => 'connecting')
     const changed = useState<Record<string, number>>('projects-changed', () => ({}))
     /** How many Claude sessions listen for each project's signals (known for projects asked about). */
     const listeners = useState<Record<string, number>>('projects-listeners', () => ({}))

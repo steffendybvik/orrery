@@ -3,8 +3,8 @@ import {OWNER, hold, makeProject} from './support'
 
 // The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the first message
 // in the pane starts one with starts turned off (a chat counts towards nothing), the owner's words reach its session
-// alone, its answer shows in the pane, it isn't listed on the Sessions page, and closing the pane ends it. It messages
-// other sessions as the owner, when they ask, marked as sent through it, and asks the owner before changing a setting.
+// alone, its answer shows in the pane, it isn't listed on the Sessions page, and closing the pane ends it. It asks the
+// owner before messaging other sessions (sent as theirs, marked as through it, on their Send) or changing a setting.
 let starts: unknown = null
 
 test.beforeAll(async ({request}) => {
@@ -105,18 +105,20 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
     }
 })
 
-test("messages other sessions for the owner: idle ones by default, marked as through the chat", async ({page, request, baseURL}) => {
+test("asks before messaging other sessions, and sends only on the owner's Send, marked as through the chat", async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
     const streams: ReturnType<typeof hold>[] = []
     try {
         await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        // The pane opens on the chat running, so this one alone.
+        await endChats(request)
         const opened = await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})
         expect(opened.ok(), await opened.text()).toBeTruthy()
         const chat = await opened.json()
-        streams.push(hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat2&name=e2e-chat2&started=${chat.id}&chat=yes&format=text`))
+        const own = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat2&name=e2e-chat2&started=${chat.id}&chat=yes&format=text`)
         const idle = hold(baseURL!, '/api/projects/larder/signals/stream?session=e2e-idle&name=e2e-idle&format=text')
         const busy = hold(baseURL!, '/api/projects/larder/signals/stream?session=e2e-busy&name=e2e-busy&format=text')
-        streams.push(idle, busy)
+        streams.push(own, idle, busy)
         // Both connected, then in their states, before the nudge: a state said before its stream connects can be lost.
         const listening = async () => (await (await request.get('/api/sessions')).json())
             .filter((s: {id: string, listening: boolean}) => ['e2e-idle', 'e2e-busy'].includes(s.id) && s.listening)
@@ -126,22 +128,44 @@ test("messages other sessions for the owner: idle ones by default, marked as thr
         await request.post('/api/sessions', {data: {id: 'e2e-busy', project: 'larder', event: 'UserPromptSubmit'}})
         await expect.poll(listening).toEqual(['e2e-busy working', 'e2e-idle idle'])
         const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat2', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const ask = async (message: object) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data: {message}, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+            return (await asked.json()).send as {to: string[]}
+        }
 
-        const nudged = await request.post('/api/sessions/message', {data: {text: 'Pick up Todo.', projects: ['larder']}, headers: asChat})
-        expect(nudged.status(), await nudged.text()).toBe(201)
-        const {sent} = await nudged.json()
-        expect(sent.map((s: {session: string}) => s.session)).toEqual(['e2e-idle'])
-        expect(sent[0].signal).toMatchObject({created_by: expect.any(String), protected: true, via: 'chat'})
+        // It can't message a session itself, by either route, whatever it says it is (ORR-416).
+        expect((await request.post('/api/sessions/message', {data: {text: 'Hi'}, headers: asChat})).status()).toBe(403)
+        expect((await request.post('/api/projects/larder/sessions/e2e-idle/message', {data: {text: 'Hi'}, headers: asChat})).status()).toBe(403)
+        expect((await request.post('/api/sessions/message', {data: {text: 'Hi'}, headers: {...asChat, 'Orrery-Actor': OWNER['Orrery-Actor']}})).status()).toBe(403)
+
+        await page.goto('/p/larder')
+        await page.getByRole('button', {name: 'Chat A chat is running'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        // Idle ones by default: shown with who it goes to, and sent only on Send.
+        expect((await ask({text: 'Pick up Todo.', projects: ['larder']})).to).toEqual(['e2e-idle'])
+        const nudge = pane.getByRole('group', {name: 'Send a message to e2e-idle'}).last()
+        await expect(nudge).toContainText('Pick up Todo.')
+        expect(idle.said.text).not.toContain('Pick up Todo.')
+        await nudge.getByRole('button', {name: 'Send', exact: true}).click()
+        await expect(nudge).toContainText('Sent to e2e-idle')
         await expect.poll(() => idle.said.text).toContain('Pick up Todo.')
         expect(idle.said.text).toContain('(Sent by the owner through their chat.)')
         expect(busy.said.text).not.toContain('Pick up Todo.')
+        await expect.poll(() => own.said.text).toContain('I sent your message to e2e-idle')
 
-        // One session by itself, busy or not; never a chat, and only from a chat that's running.
-        const one = await request.post('/api/projects/larder/sessions/e2e-busy/message', {data: {text: 'Wrap up first.'}, headers: asChat})
-        expect(one.status(), await one.text()).toBe(201)
+        // One session by itself, busy or not; Don't send sends nothing; never a chat, and the chat can't send its own.
+        expect((await ask({text: 'Wrap up first.', session: 'e2e-busy'})).to).toEqual(['e2e-busy'])
+        const wrap = pane.getByRole('group', {name: 'Send a message to e2e-busy'}).last()
+        await wrap.getByRole('button', {name: "Don't send"}).click()
+        await expect(wrap).toContainText('Not sent')
+        await expect.poll(() => own.said.text).toContain("I didn't send your message")
+        expect(busy.said.text).not.toContain('Wrap up first.')
+        expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {message: {text: 'Hi', session: 'e2e-chat2'}}, headers: asChat})).status()).toBe(404)
+        const again = await (await request.post(`/api/chats/${chat.id}/requests`, {data: {message: {text: 'Wrap up first.', session: 'e2e-busy'}}, headers: asChat})).json()
+        expect((await request.post(`/api/chats/${chat.id}/requests/${again.id}`, {data: {allow: true}, headers: asChat})).status()).toBe(403)
+        await pane.getByRole('group', {name: 'Send a message to e2e-busy'}).last().getByRole('button', {name: 'Send', exact: true}).click()
         await expect.poll(() => busy.said.text).toContain('Wrap up first.')
-        expect((await request.post('/api/projects/larder/sessions/e2e-chat2/message', {data: {text: 'Hi'}, headers: asChat})).status()).toBe(404)
-        expect((await request.post('/api/sessions/message', {data: {text: 'Hi'}, headers: {...asChat, 'Orrery-Launch': 'nope'}})).status()).toBe(403)
 
         // The Sessions page says it came through the chat.
         await page.goto('/sessions')

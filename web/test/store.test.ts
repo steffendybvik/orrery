@@ -1,13 +1,15 @@
-import {mkdtempSync, readFileSync, readdirSync} from 'node:fs'
+import {existsSync, mkdtempSync, readFileSync, readdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
+import pg from 'pg'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
 import {backUp, backupPostgres, lastBackup, restoreBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
+import {PostgresDb} from '../server/utils/postgres'
 import {readRoadmap} from '../server/utils/roadmap'
 import {Store, UPLOAD_LIMIT} from '../server/utils/store'
 import {testDb} from './db'
@@ -844,6 +846,27 @@ describe('proposals in the bell', () => {
         expect((await store.notices({list: 'waiting'})).map(n => n.issue)).not.toContain(id)
     })
 
+    it('clear one by one, leaving the proposal pending, until it is put up again', async () => {
+        const agent = {name: 'claude', owner: false}
+        const owner = {name: 'skoll', owner: true}
+        const {id} = await store.createIssue('greenhouse', {title: 'Dark mode', notes: 'Why and how', proposal: 'pending'}, agent)
+        const {id: other} = await store.createIssue('greenhouse', {title: 'B'})
+        const comment = await store.createComment('greenhouse', other, {body: 'Ship it?', asks: 'decision'}, agent)
+        expect(await store.clearNotices({ids: [comment.id], proposals: [{project: 'greenhouse', issue: id}, {project: 'greenhouse', issue: other}]})).toBe(2)
+        for (const list of ['bell', 'waiting', 'inbox'] as const) expect(await store.notices({list})).toEqual([])
+        expect((await store.notices({list: 'cleared'})).map(n => [n.issue, n.cleared, !!n.proposal])).toEqual([[other, true, false], [id, true, true]])
+        expect((await store.issue('greenhouse', id)).proposal).toBe('pending')
+        // Again changes nothing; on a later page of Cleared it isn't listed twice.
+        expect(await store.clearNotices({proposals: [{project: 'greenhouse', issue: id}]})).toBe(0)
+        expect((await store.notices({list: 'cleared', before: comment.id})).map(n => n.issue)).toEqual([])
+        await store.decide('greenhouse', id, {decision: 'changes', note: 'Shorter'}, owner)
+        expect((await store.notices({list: 'cleared'})).map(n => n.issue)).toEqual([other])
+        await new Promise(resolve => setTimeout(resolve, 5))
+        await store.updateIssue('greenhouse', id, {proposal: 'pending'}, agent)
+        expect((await store.notices()).map(n => n.issue)).toEqual([id])
+        expect((await failure(() => store.clearNotices({proposals: [{project: 'greenhouse'}]}))).status).toBe(400)
+    })
+
     it('make the issue wait on your decision too, as the bell has it, until you decide', async () => {
         const agent = {name: 'claude', owner: false}
         const owner = {name: 'skoll', owner: true}
@@ -1669,6 +1692,55 @@ describe('the database', () => {
         expect(await upgraded.createIssue('greenhouse', {title: 'new', chunk: 'ux'})).toMatchObject({id: 'GRE-4', chunk: '2'})
         expect((await upgraded.createChunk('greenhouse', {title: 'Print'})).id).toBe('3')
         expect((await upgraded.updateIssue('greenhouse', 'GRE-4', {priority: 'P0'})).priority).toBe('P0')
+    })
+
+    it('copies itself before an upgrade takes steps, and only then', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
+        const path = join(dir, 'orrery.db')
+        const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0.db')
+        // A new file has nothing to keep.
+        openDb(path, 40, snapshot).close()
+        expect(existsSync(snapshot)).toBe(false)
+        const old = openDb(path, 40)
+        old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'agent', 'x', 'x')").run()
+        old.close()
+
+        openDb(path, undefined, snapshot).close()
+        const copy = new DatabaseSync(snapshot)
+        expect((copy.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(40)
+        expect(copy.prepare('SELECT id FROM projects').all().map(row => row.id)).toEqual(['greenhouse'])
+        copy.close()
+        // Up to date, it takes no copy.
+        const again = join(dir, 'backup', 'orrery-pre-1.0.1.db')
+        openDb(path, undefined, again).close()
+        expect(existsSync(again)).toBe(false)
+    })
+
+    it('refuses a database from a newer orrery and leaves it as it is', async () => {
+        const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'orrery.db')
+        const raw = openDb(path)
+        const newest = (raw.prepare('PRAGMA user_version').get() as {user_version: number}).user_version
+        raw.exec(`PRAGMA user_version = ${newest + 1}`)
+        raw.close()
+        expect(() => openDb(path)).toThrow(`was written by a newer orrery (schema step ${newest + 1}; this one knows up to ${newest})`)
+        const after = new DatabaseSync(path)
+        expect((after.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(newest + 1)
+        after.close()
+    })
+
+    it.runIf(process.env.TEST_POSTGRES_URL)('refuses a Postgres database from a newer orrery', async () => {
+        const schema = `test_newer_${Date.now().toString(36)}`
+        const first = new PostgresDb(process.env.TEST_POSTGRES_URL!, schema)
+        const {version} = (await first.get<{version: number}>('SELECT version FROM schema_version'))!
+        await first.run('UPDATE schema_version SET version = ?', version + 1)
+        await first.close()
+        const second = new PostgresDb(process.env.TEST_POSTGRES_URL!, schema)
+        await expect(second.get('SELECT 1')).rejects.toThrow(`newer orrery (schema step ${version + 1}; this one knows up to ${version})`)
+        await second.close()
+        const cleanup = new pg.Client({connectionString: process.env.TEST_POSTGRES_URL})
+        await cleanup.connect()
+        await cleanup.query(`DROP SCHEMA "${schema}" CASCADE`)
+        await cleanup.end()
     })
 
     // On Postgres as a SQLite snapshot, so a new SQLite orrery starts from it either way.

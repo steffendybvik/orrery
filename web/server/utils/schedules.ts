@@ -207,6 +207,9 @@ export class Schedules {
             untrusted: input.untrusted === undefined ? undefined : Number(input.untrusted),
             enabled: Number(enabled),
             next_run: next,
+            // An agent's schedule the owner makes (or keeps) a message or session one becomes theirs, as only theirs
+            // reach the sessions: left the agent's, every run would be skipped.
+            ...actor.owner && !row.owned && kind !== 'issue' ? {owned: 1, created_by: actor.name} : {},
             updated_at: new Date().toISOString(),
         }
         return Object.entries(set).filter(([, v]) => v !== undefined)

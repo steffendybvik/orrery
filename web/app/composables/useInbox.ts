@@ -17,7 +17,8 @@ const PAGE = 50
 // in this browser) are new, and those waiting on the owner count until answered. The bell holds the latest
 // 30; the page's lists (waiting, the rest of the inbox, cleared) load a page at a time and change in place.
 // Clearing takes them out of the bell for good (they stay on their issues, and under Cleared). Agents'
-// proposals waiting on the owner lead the bell as decisions, until decided; clearing leaves them.
+// proposals waiting on the owner lead the bell as decisions, until decided or cleared: clearing one leaves the
+// proposal pending, and it's back if it's put up again.
 export function useInbox() {
     const notices = useState<Notice[]>('notices', () => [])
     const lists = useState<Record<PageList, Loaded>>('notice-lists', () => ({
@@ -25,6 +26,8 @@ export function useInbox() {
         inbox: {items: [], more: false, loaded: false},
         cleared: {items: [], more: false, loaded: false},
     }))
+    /** Pending proposals the bell leaves out, being cleared, as `project/issue@updated_at`: no reason to read it again. */
+    const hidden = useState<string[]>('notices-hidden', () => [])
     const seenAt = useState<string>('notices-seen', () => {
         try {
             return localStorage.getItem('orrery-notices-seen') ?? new Date().toISOString()
@@ -50,10 +53,11 @@ export function useInbox() {
     /** Loads a list of the page's from the start, or its next page with `older`. */
     async function load(list: PageList, older = false) {
         const loaded = lists.value[list]
-        const before = older ? loaded.items.at(-1)?.id : undefined
+        // Pages go by comment; cleared proposals all come on the first.
+        const before = older ? loaded.items.filter(n => !n.proposal).at(-1)?.id : undefined
         const items = await $fetch<Notice[]>('/api/notices', {query: {list, before, limit: PAGE}}).catch(() => null)
         if (!items) return
-        lists.value[list] = {items: older ? [...loaded.items, ...items] : items, more: list !== 'waiting' && items.length === PAGE, loaded: true}
+        lists.value[list] = {items: older ? [...loaded.items, ...items] : items, more: list !== 'waiting' && items.filter(n => !n.proposal).length === PAGE, loaded: true}
     }
 
     /** A notice from the events stream: into the bell, and the page's list it belongs to. */
@@ -63,16 +67,20 @@ export function useInbox() {
         if (list.loaded) list.items = [notice, ...list.items.filter(n => n.id !== notice.id)]
     }
 
-    /** Clears these notices, or every read one: out of the bell and the page's lists now, and the server
-     * keeps them out. Cleared loads again when it's next shown. */
-    async function clear(ids?: number[]) {
+    /** Clears these notices (comments and proposals), or every read one: out of the bell and the page's lists
+     * now, and the server keeps them out. Cleared loads again when it's next shown. */
+    async function clear(these?: Notice[]) {
         const owner = await useOwner().load()
-        const gone = ids ? new Set(ids) : undefined
-        const going = (n: Notice) => !n.proposal && (gone ? gone.has(n.id) : isRead(n))
+        const gone = these ? new Set(these.map(noticeKey)) : undefined
+        const going = (n: Notice) => gone ? gone.has(noticeKey(n)) : !n.proposal && isRead(n)
+        hidden.value = [...hidden.value, ...notices.value.filter(n => n.proposal && going(n)).map(n => `${noticeKey(n)}@${n.updated_at}`)]
         notices.value = notices.value.filter(n => !going(n))
         for (const list of ['waiting', 'inbox'] as const) lists.value[list].items = lists.value[list].items.filter(n => !going(n))
         lists.value.cleared.loaded = false
-        await $fetch('/api/notices/clear', {method: 'POST', headers: {'Orrery-Actor': owner}, body: ids ? {ids} : {before: seenAt.value}}).catch(() => {})
+        const body = these
+            ? {ids: these.filter(n => !n.proposal).map(n => n.id), proposals: these.filter(n => n.proposal).map(({project, issue}) => ({project, issue}))}
+            : {before: seenAt.value}
+        await $fetch('/api/notices/clear', {method: 'POST', headers: {'Orrery-Actor': owner}, body}).catch(() => {})
         // Older ones move up into the bell's room.
         await refresh()
     }
@@ -96,7 +104,8 @@ export function useInbox() {
     }
 
     /** A project from the events stream: reads the bell again when its agents' proposals waiting on the owner
-     * (or what they say) aren't what the bell shows, e.g. one put up, or decided on another tab. */
+     * (or what they say) aren't what the bell shows, e.g. one put up, or decided or cleared on another tab. Those
+     * it still leaves out are cleared, until they change. */
     function projectChanged(project: Project) {
         const pending: string[] = []
         const walk = (issues: Issue[]) => issues.forEach(i => {
@@ -104,8 +113,12 @@ export function useInbox() {
             else if (!i.proposal) walk(i.tasks)
         })
         project.board.chunks.forEach(c => walk(c.tasks))
-        const shown = notices.value.filter(n => n.proposal && n.project === project.id).map(n => `${noticeKey(n)}@${n.updated_at}`)
-        if (pending.sort().join() !== shown.sort().join()) refresh()
+        const shown = () => notices.value.filter(n => n.proposal && n.project === project.id).map(n => `${noticeKey(n)}@${n.updated_at}`)
+        if (pending.filter(p => !hidden.value.includes(p)).sort().join() === shown().sort().join()) return
+        refresh().then(() => {
+            const bell = new Set(shown())
+            hidden.value = [...hidden.value.filter(p => !p.startsWith(`${project.id}/`)), ...pending.filter(p => !bell.has(p))]
+        })
     }
 
     return {notices, lists, seenAt, unread, waiting, read, isRead, seen, load, arrived, clear, refresh, projectChanged}

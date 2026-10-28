@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type {Session, SessionWork} from '#shared/roadmap'
+import {olderVersion} from '#shared/version'
 
 // One Claude session on the Sessions page. Its name, then one quiet line: what it's doing and since when, its time
 // left (one orrery started with a time), the folder it runs in and the context it was given; only a session that
-// can't hear signals says so. One orrery started has Watch and Show screen out front, the rest under ⋯; any other
+// can't hear signals says so, and one whose channel runs older code than this orrery. One orrery started has Watch and Show screen out front, the rest under ⋯; any other
 // with its channel running, a Stop that ends it through the channel. A listening one takes a message. Then what it's on now (`work`,
 // on `project`): its issues in progress, the rest it worked folded under them, and the latest thing it was sent, the
 // rest folded too. One that hears other projects too says which: listed across projects (`spans`), every project it
@@ -46,8 +47,10 @@ const left = computed(() => {
     if (minutes <= 0) return 'stops when done'
     return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m left` : `${minutes}m left`
 })
-const {environment} = useRuntimeConfig().public
+const {environment, version} = useRuntimeConfig().public
 const restart = (session: Session) => restartCommand(session, String(environment || 'personal'))
+/** Its channel runs code older than this orrery's (ORR-434): it picks up the new as it restarts. */
+const behind = computed(() => props.session.listening && olderVersion(props.session.version, String(version)))
 </script>
 
 <template>
@@ -80,6 +83,10 @@ const restart = (session: Session) => restartCommand(session, String(environment
           <span v-if="folder" class="whitespace-nowrap" :title="session.cwd">· in <span class="font-mono">{{ folder }}/</span></span>
           <span v-if="session.started?.context">· with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></span>
           <span v-if="session.listening && !spans && elsewhere.length" :title="`One session: it hears ${elsewhere.join(', ')} too`">· also on {{ elsewhere.join(', ') }}</span>
+          <span v-if="behind" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-400" :title="`Its channel runs ${session.version ?? 'code from before 1.0.0-rc.10'}, and this orrery ${version}: it picks up the new code as it restarts`">
+            · started on {{ session.version ?? 'an older version' }}: {{ session.started ? 'stop it and start another' : 'restart it' }}
+            <CopyButton v-if="!session.started" :text="restart(session)" label="Restart command" />
+          </span>
           <span v-if="!session.listening" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-400" :title="`${session.name} was started without the channel, so a signal can't reach it`">
             · can't hear signals
             <CopyButton :text="restart(session)" label="Restart command" />

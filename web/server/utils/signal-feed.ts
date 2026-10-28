@@ -25,6 +25,8 @@ export interface Listener {
     server?: string
     /** Its channel says it's an untrusted schedule's session (`untrusted=yes`), whether or not orrery knows its launch. */
     untrusted: boolean
+    /** The version of the code its channel runs (`version=`). */
+    version?: string
     /** Its channel says it's the owner's chat (`chat=yes`), the same way. */
     chat: boolean
 }
@@ -37,7 +39,7 @@ export async function openFeed(project: string, who: Listener, from: number | un
     const store = useStore()
     await store.project(project)
     const {heard} = who
-    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server, who.untrusted, who.chat) : null
+    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server, who.untrusted, who.chat, who.version) : null
     // An untrusted run's session hears only its own message, and a chat only its chat, so neither is someone there to
     // hear the owner's signals.
     const narrow = who.untrusted || !!who.started?.untrusted || who.chat || !!who.started?.chat
@@ -250,6 +252,7 @@ export function listenerOf(text: (key: string) => string | undefined, launchedHe
         started: launch ? launched(launch) : undefined, launch, stops: text('stops') === 'yes', server: text('server'),
         untrusted: text('untrusted') === 'yes',
         chat: text('chat') === 'yes',
+        version: text('version')?.slice(0, 40),
     }
 }
 

@@ -33,7 +33,7 @@ export default defineNitroPlugin(nitro => {
             const {id, project, minutes, hears} = sent.launch
             log.note({level: 'info', kind: 'session.started', project, message: `Started a session${minutes ? ` for ${minutes} minutes` : ''}`, details: {launch: id, ...hears ? {hears} : {}}})
         } else if (sent.type === 'stop') {
-            log.note({level: 'info', kind: 'session.stopping', project: sent.project, message: 'Asked a session orrery started to stop', details: {launch: sent.id}})
+            asLaunch(sent.id, () => log.note({level: 'info', kind: 'session.stopping', project: sent.project, message: 'Asked a session orrery started to stop', details: {launch: sent.id}}))
         }
     })
 })

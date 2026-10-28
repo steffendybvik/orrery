@@ -518,6 +518,8 @@ export interface LoggedEvent {
     last_seen: string
     /** When someone said it's dealt with; the next one starts a row of its own. */
     resolved_at?: string
+    /** Who resolved it, when it wasn't the owner (ORR-420): the bell still shows it until the owner looks. */
+    resolved_by?: string
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */
@@ -573,6 +575,8 @@ export interface Session {
     reachable?: boolean
     /** orrery started it (no terminal): which launch, the tmux session it runs in, and when it's stopped. */
     started?: StartedSession
+    /** The version of the code its channel runs, as it says (one from before 1.0.0-rc.10 doesn't). */
+    version?: string
 }
 
 /** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, and
@@ -612,6 +616,8 @@ export interface ChatMessage {
     request?: ChatRequest
     /** The session asking to make or change a schedule, which waits on the owner's Allow too. */
     schedule?: ChatScheduleRequest
+    /** The session asking to message other sessions as the owner, which waits on the owner's Send (ORR-416). */
+    send?: ChatSendRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -670,6 +676,20 @@ export interface ChatScheduleRequest {
     state: ChatRequest['state']
 }
 
+/** A message the chat asked to send other sessions as the owner's: to one session (`session`, on `project`), or to
+ * every listening one that fits `projects` and `states` as the owner sends it. `to` names who it would reach when
+ * asked, `sent` who it reached. Sent only once the owner presses Send, and `expired` as a setting's request is. */
+export interface ChatSendRequest {
+    text: string
+    session?: string
+    project?: string
+    projects?: string[]
+    states?: SessionState[]
+    to: string[]
+    sent?: string[]
+    state: ChatRequest['state']
+}
+
 /** A schedule's field as a chat's request shows it: a list joined, an event filter as `key: value`. */
 export const scheduleValue = (value: unknown): string => Array.isArray(value)
     ? value.length ? value.map(String).join(', ') : '(none)'
@@ -725,7 +745,7 @@ export interface Notice extends Comment {
     /** Taken out of the bell; only `GET /notices?list=cleared` lists these. */
     cleared?: boolean
     /** An agent's proposal waiting on the owner instead of a comment: `asks: decision` until they decide it,
-     * its notes as the body, put up at `created_at`, `id` 0. Clearing doesn't take it out. */
+     * its notes as the body, put up at `created_at`, `id` 0. Cleared, it's `cleared` until it's put up again. */
     proposal?: {choices: number}
 }
 

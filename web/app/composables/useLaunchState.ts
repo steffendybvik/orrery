@@ -5,6 +5,8 @@
 // served from one repo can share a session; `every`: whether one runs where the channel serves every project (`*`).
 export interface LaunchState {
     launchers: number
+    /** The version each launcher runs; `''` from one too old to say. */
+    versions: string[]
     folders: string[]
     every: boolean
     started: number

@@ -69,4 +69,5 @@ Linux the spec skips; `pnpm test:e2e:visual` runs it in CI's Playwright image th
 `pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
 
 The database's migrations are numbered steps in `web/server/utils/db.ts`, with Postgres's after its baseline in
-`web/server/utils/postgres.ts`: add a step to both, never edit one.
+`web/server/utils/postgres.ts`: add a step to both, never edit one. Before a SQLite file takes steps it's copied to
+`orrery-pre-<version>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.

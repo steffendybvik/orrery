@@ -24,3 +24,19 @@ test("an agent's question waits in the bell until the owner answers it", async (
     await page.goto('/mine')
     await expect(page.getByRole('link', {name: /waiting on you/})).toBeHidden()
 })
+
+test("clearing an agent's proposal takes it out of the bell and leaves it pending", async ({page, request}) => {
+    const proposal = await api(request, 'post', '/issues', {title: 'Paint the porch', notes: 'Grey, to match the steps.', proposal: 'pending'})
+    await page.goto('/notifications')
+    await page.getByRole('radio', {name: /Waiting on you/}).click()
+    const card = page.getByRole('link', {name: `${proposal.id}: Paint the porch`})
+    await expect(card).toBeVisible()
+    await card.hover()
+    await card.getByRole('button', {name: 'Clear this notice'}).click()
+    await expect(card).toBeHidden()
+
+    await page.getByRole('radio', {name: 'Cleared'}).click()
+    await expect(card).toBeVisible()
+    await expect(card.getByText('Cleared, still to decide')).toBeVisible()
+    expect((await api(request, 'get', `/issues/${proposal.id}`)).proposal).toBe('pending')
+})

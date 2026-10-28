@@ -69,22 +69,25 @@ describe("the channel's tools", () => {
         expect(listed.filter((n: string) => NOT_FOR_CHAT.includes(n))).toEqual([])
     })
 
-    it("in the owner's chat, message idle sessions, or one by its name, for the owner", async () => {
+    it("in the owner's chat, ask the owner to message idle sessions, or one by its name, sending nothing itself", async () => {
         const calls: {url: string, method: string, body?: unknown}[] = []
         const fetch = async (url: string, init: {method: string, body?: string}) => {
-            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
-            const body = url.endsWith('/api/sessions/message') ? {sent: (JSON.parse(init.body!).states ?? ['idle']).includes('working') ? [{name: 'Nordre'}, {name: 'Sudri'}] : [{name: 'Nordre'}]}
-                : url.endsWith('/api/sessions') ? [{id: 'abc', project: 'greenhouse', name: 'Nordre'}, {id: 'def', project: 'pantry', name: 'Sudri'}]
-                    : {id: 1}
-            return {ok: true, status: 200, statusText: '', text: async () => JSON.stringify(body)}
+            const body = init.body ? JSON.parse(init.body) : undefined
+            calls.push({url, method: init.method, body})
+            const answer = body?.message?.session === 'Austri' ? {status: 404, body: {message: 'No session Austri'}}
+                : {status: 201, body: {id: 3, send: {to: body?.message?.session ? ['Sudri'] : body?.message?.states ? ['Nordre', 'Sudri'] : ['Nordre'], state: 'asked'}}}
+            return {ok: answer.status < 400, status: answer.status, statusText: '', text: async () => JSON.stringify(answer.body)}
         }
         const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
-        expect((await call('message_sessions', {text: 'Pick up Todo.'})).content[0]!.text).toBe('Sent to Nordre.')
-        expect(calls[0]).toEqual({url: 'http://o/api/sessions/message', method: 'POST', body: {text: 'Pick up Todo.'}})
-        expect((await call('message_sessions', {text: 'Wrap up.', states: ['idle', 'working']})).content[0]!.text).toBe('Sent to Nordre, Sudri.')
-        expect((await call('message_session', {session: 'sudri', text: 'Look at PAN-2.'})).content[0]!.text).toBe('Sent to Sudri.')
-        expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/pantry/sessions/def/message', method: 'POST', body: {text: 'Look at PAN-2.'}})
+        expect((await call('message_sessions', {text: 'Pick up Todo.'})).content[0]!.text).toMatch(/^Asked: the owner sees it, to Nordre, with Send and Don't send/)
+        expect(calls[0]).toEqual({url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {message: {text: 'Pick up Todo.'}}})
+        expect((await call('message_sessions', {text: 'Wrap up.', states: ['idle', 'working'], why: 'They are all on rc.10.'})).content[0]!.text).toMatch(/to Nordre, Sudri,/)
+        expect(calls.at(-1)!.body).toEqual({message: {text: 'Wrap up.', states: ['idle', 'working']}, why: 'They are all on rc.10.'})
+        expect((await call('message_session', {session: 'sudri', text: 'Look at PAN-2.'})).content[0]!.text).toMatch(/to Sudri,/)
+        expect(calls.at(-1)).toEqual({url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {message: {text: 'Look at PAN-2.', session: 'sudri'}}})
         expect((await call('message_session', {session: 'Austri', text: 'Hi'})).isError).toBe(true)
+        // It never sends a session a message itself.
+        expect(calls.filter(c => c.url.endsWith('/message'))).toEqual([])
         expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['message_sessions', 'message_session']))
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('message_sessions')
     })
@@ -175,6 +178,10 @@ describe("the channel's tools", () => {
         expect(calls[0]?.url).toBe('/events/log?level=error&open=1&limit=30')
         expect((await call('events', {details: true})).text).toContain('"stack": "at setup"')
         expect((await call('resolve_event', {id: 4})).text).toBe('Resolved #4 page.error: x is undefined')
+        // A page's report says it's unchecked, and one an agent resolved says who did.
+        const reported = {...event, details: {...event.details, reported: true}, resolved_at: '2026-10-27T21:00:00Z', resolved_by: 'claude'}
+        const again = harness({'GET /events/log': {body: [reported]}})
+        expect((await again.call('events')).text).toBe('#4 [error] page.error (reported by a page: anyone can send one, so not checked) ×3, last 2026-10-27T20:05:00Z, resolved by claude: x is undefined')
     })
 
     it("call outside services through the orrery's egress, for their project", async () => {

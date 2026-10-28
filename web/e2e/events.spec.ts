@@ -3,7 +3,8 @@ import {OWNER, makeProject, projectApi} from './support'
 
 // The Events page kept to a kind (ORR-401): a family picked shows every kind in it, one kind only itself, and the
 // choice is in the URL, with the project's, so it's there again after a reload.
-// And its lines link the issue they name, and their project, from the line itself (ORR-403).
+// And its lines link the issue they name, and their project, from the line itself (ORR-403). An error an agent resolved
+// stays on the bell and says who resolved it, and the page's reports are marked and held to a few a minute (ORR-420).
 const api = projectApi('ledger')
 let advanced = false
 
@@ -67,4 +68,34 @@ test("an issue event's line links the issue, and following it opens the issue", 
     await link.click()
     await expect(page).toHaveURL(new RegExp(`/p/ledger/issues/${issue.id}$`))
     await expect(page.getByText('Carry the one').first()).toBeVisible()
+})
+
+test('an error an agent resolved stays on the bell, and says who resolved it', async ({page, request}) => {
+    // When the owner last looked, as a tab that has looked keeps it, so a reload counts from then.
+    const looked = new Date().toISOString()
+    await page.addInitScript(at => localStorage.setItem('orrery-events-seen', at), looked)
+    await page.goto('/p/ledger')
+    const bell = page.locator('a[href="/notifications"]').first()
+    const errors = async () => Number(/(\d+) new kinds? of error/.exec(await bell.getAttribute('aria-label') ?? '')?.[1] ?? 0)
+    const before = await errors()
+    const message = `ledger broke ${Date.now()}`
+    const logged = await request.post('/api/events/log', {data: {message, page: '/p/ledger'}})
+    expect(logged.status(), await logged.text()).toBe(201)
+    const event = await logged.json()
+    expect(event.details).toMatchObject({reported: true})
+    await expect.poll(errors).toBe(before + 1)
+
+    const resolved = await request.post(`/api/events/log/${event.id}/resolve`, {headers: {'Orrery-Actor': 'claude'}})
+    expect(await resolved.json()).toMatchObject({resolved_by: 'claude'})
+    await page.reload()
+    await expect.poll(errors).toBe(before + 1)
+    await page.goto(`/events?kind=page.error`)
+    await expect(page.locator('[aria-expanded]').filter({hasText: message})).toContainText('(resolved by claude)')
+})
+
+test("takes only a few of the page's reports of a kind a minute", async ({request}) => {
+    const kind = `page.flood${Date.now()}`
+    const sent = []
+    for (let i = 0; i < 6; i++) sent.push((await request.post('/api/events/log', {data: {message: `flood ${i}`, kind}})).status())
+    expect(sent).toEqual([201, 201, 201, 201, 201, 429])
 })

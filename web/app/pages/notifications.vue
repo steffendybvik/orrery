@@ -3,7 +3,7 @@ import type {Notice} from '#shared/roadmap'
 import {noticeKey} from '#shared/roadmap'
 
 // The bell, larger: every agent's comment with its whole body, newest first, and their proposals waiting
-// on the owner (which go when decided, not cleared); a card opens its issue. The cleared ones stay readable here under Cleared. Opening the page marks them read;
+// on the owner (which go when decided or cleared; clearing one leaves it pending); a card opens its issue. The cleared ones stay readable here under Cleared. Opening the page marks them read;
 // the ones that were new keep their dot until you leave.
 useHead({title: 'Notifications · orrery'})
 type Show = 'inbox' | 'waiting' | 'cleared'
@@ -38,8 +38,7 @@ const options = computed(() => [
     {value: 'cleared' as const, label: 'Cleared'},
 ])
 const isNew = (n: Notice) => !n.cleared && (n.created_at > since.value || isWaiting(n))
-/** Only comments clear; a proposal waits until it's decided. */
-const clearable = computed(() => shown.value.filter(n => !n.proposal))
+const clearable = computed(() => shown.value.filter(n => !n.cleared))
 const projectName = (id: string) => byId(id)?.name ?? id
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'})
 
@@ -60,7 +59,7 @@ function openCard(notice: Notice, event: MouseEvent) {
     <SegmentedControl v-model="show" :options="options" />
     <template #end>
       <UiButton v-if="show === 'inbox' && lists.inbox.items.length" variant="ghost" size="xs" title="Clear every read one, not those waiting on you" @click="clear()">Clear read</UiButton>
-      <UiButton v-if="show !== 'cleared' && clearable.length" variant="ghost" size="xs" :title="`Clear these ${clearable.length}; they stay under Cleared`" @click="clear(clearable.map(n => n.id))">Clear all</UiButton>
+      <UiButton v-if="show !== 'cleared' && clearable.length" variant="ghost" size="xs" :title="`Clear these ${clearable.length}; they stay under Cleared`" @click="clear(clearable)">Clear all</UiButton>
     </template>
   </ViewToolbar>
 
@@ -98,16 +97,16 @@ function openCard(notice: Notice, event: MouseEvent) {
         </div>
         <div class="px-4 py-3">
           <WaitingChip v-if="isWaiting(notice)" :asks="notice.asks!" :proposal="notice.proposal" class="mb-2" />
-          <span v-else-if="notice.asks" class="mb-2 inline-block rounded-full px-2 py-0.5 text-[11px] text-faint ring-1 ring-line">{{ notice.answered ? 'Answered' : 'Cleared unanswered' }}</span>
+          <span v-else-if="notice.asks" class="mb-2 inline-block rounded-full px-2 py-0.5 text-[11px] text-faint ring-1 ring-line">{{ notice.answered ? 'Answered' : notice.proposal ? 'Cleared, still to decide' : 'Cleared unanswered' }}</span>
           <MarkdownView :source="notice.body" class="text-[14px] leading-6" />
         </div>
         <button
-            v-if="!notice.cleared && !notice.proposal"
+            v-if="!notice.cleared"
             type="button"
             class="absolute top-2 right-2 grid size-7 place-items-center rounded-md text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-fg focus-visible:opacity-100"
             title="Clear"
             aria-label="Clear this notice"
-            @click="clear([notice.id])"
+            @click="clear([notice])"
         >
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
         </button>
@@ -118,7 +117,7 @@ function openCard(notice: Notice, event: MouseEvent) {
     </div>
     <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center">
       <p class="text-sm text-muted">{{ {inbox: 'No comments from agents.', waiting: 'Nothing waiting on you.', cleared: 'Nothing cleared yet.'}[show] }}</p>
-      <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; questions and proposals for you wait under Waiting on you until you answer or decide them on the issue.</p>
+      <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; questions and proposals for you wait under Waiting on you until you answer or decide them on the issue, or clear them.</p>
     </div>
   </div>
 </template>
