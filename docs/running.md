@@ -157,7 +157,9 @@ move from any other address.
 
 App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file, or the Postgres database
 (never its password), and its backup folder with when the latest backup was made, with how big each is. One moved
-from the app says so.
+from the app says so. Under Docker it shows where each is on your computer: the folder `ORRERY_DATA` or
+`ORRERY_BACKUP` names (a relative one from this folder), or, without one, the Docker volume it's in, which isn't a
+folder you can open. The path inside the container (`/data/orrery.db`, `/backup`) is beneath it, in small type.
 
 It's always `/data/orrery.db` in the container, and `/data` is `ORRERY_DATA` when it's set, else the
 project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE_PROJECT_NAME`,
