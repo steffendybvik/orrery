@@ -175,6 +175,10 @@ describe("the channel's tools", () => {
         expect(calls[0]?.url).toBe('/events/log?level=error&open=1&limit=30')
         expect((await call('events', {details: true})).text).toContain('"stack": "at setup"')
         expect((await call('resolve_event', {id: 4})).text).toBe('Resolved #4 page.error: x is undefined')
+        // A page's report says it's unchecked, and one an agent resolved says who did.
+        const reported = {...event, details: {...event.details, reported: true}, resolved_at: '2026-10-27T21:00:00Z', resolved_by: 'claude'}
+        const again = harness({'GET /events/log': {body: [reported]}})
+        expect((await again.call('events')).text).toBe('#4 [error] page.error (reported by a page: anyone can send one, so not checked) ×3, last 2026-10-27T20:05:00Z, resolved by claude: x is undefined')
     })
 
     it("call outside services through the Orrery's egress, for their project", async () => {

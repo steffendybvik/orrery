@@ -672,6 +672,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- A message the owner's chat sent for them (ORR-397): \`chat\`, so it's shown as relayed.
     ALTER TABLE signals ADD COLUMN via TEXT;
+`, `
+    -- Who resolved an event in the log when it wasn't the owner (ORR-420): the bell still shows it until they look.
+    ALTER TABLE events ADD COLUMN resolved_by TEXT;
 `]
 
 let db: DatabaseSync | null = null

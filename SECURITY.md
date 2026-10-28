@@ -162,8 +162,9 @@ them: Orrery fills it into the request and sends it.
   Claude Code's notification text. They go to the Orrery at `ORRERY_URL`, nowhere else.
 - **The event log** (Advanced → Events) keeps what went wrong, with error messages and stacks, for 30 days on
   this machine. Secrets' values and database passwords are taken out before it's written. Every session can read
-  it. A session can mark an error resolved, and anything can add a page error, so read it as a lead, not proof
-  (ORR-420).
+  it. A session can mark an error resolved, but the row then says which agent did, and the bell keeps showing it
+  until you've looked. Anything can add a page error, so those are marked as reports and held to 5 of a kind and 20
+  in all a minute. Read the log as a lead, not proof (ORR-420).
 - Orrery itself sends nothing anywhere, except your roadmap to a Postgres you chose, and the requests your
   agents make with a secret, to the hosts you allowed it. The page loads its fonts from Google Fonts.
 

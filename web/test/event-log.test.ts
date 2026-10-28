@@ -54,6 +54,20 @@ describe('the event log', () => {
         expect(heard.at(-1)?.fresh).toBe(true)
     })
 
+    it('keeps who resolved it when that was an agent, for it and its repeats, and the first resolver only', async () => {
+        const first = await log.record({level: 'error', kind: 'server.error', message: 'boom'})
+        later(1000)
+        await log.record({level: 'error', kind: 'server.error', message: 'boom'})
+        const resolved = await log.resolve(first?.id ?? 0, {name: 'claude', owner: false})
+        expect(resolved).toMatchObject({resolved_at: now.toISOString(), resolved_by: 'claude'})
+        expect((await log.list()).map(e => e.resolved_by)).toEqual(['claude', 'claude'])
+        // Resolving it again changes nothing; the owner's own resolving names nobody.
+        later(1000)
+        expect(await log.resolve(first?.id ?? 0, owner)).toMatchObject({resolved_by: 'claude'})
+        const other = await log.record({level: 'error', kind: 'server.error', message: 'bang'})
+        expect(await log.resolve(other?.id ?? 0, owner)).not.toHaveProperty('resolved_by')
+    })
+
     it('keeps secrets, passwords and tokens out', async () => {
         const event = await log.record({level: 'error', kind: 'server.error', message: 'calling with sk-live-123 failed', details: {
             url: 'postgres://orrery:hunter22@db.example.com/orrery',

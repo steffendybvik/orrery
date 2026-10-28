@@ -16,19 +16,21 @@ export function useLoggedEvents() {
         }
     })
     const {settings} = useAppSettings()
-    /** New kinds of error not looked at yet, for the bell; none while Advanced is off. */
-    const newErrors = computed(() => settings.value.advanced ? fresh.value.filter(e => !e.resolved_at && e.first_seen > seenAt.value) : [])
+    /** New kinds of error not looked at yet, for the bell; none while Advanced is off. One an agent resolved still counts
+     * until the owner looks, so a session can't hide what it caused (ORR-420). */
+    const newErrors = computed(() => settings.value.advanced ? fresh.value.filter(e => (!e.resolved_at || e.resolved_by) && e.first_seen > seenAt.value) : [])
 
     async function load() {
         events.value = await $fetch<LoggedEvent[]>('/api/events/log', {query: {limit: 500}}).catch(() => events.value)
         loaded.value = true
     }
 
-    /** The unresolved errors that started since the owner last looked, for the bell after a reload. */
+    /** The errors that started since the owner last looked and are still theirs to see (unresolved, or resolved by an
+     * agent), for the bell after a reload. */
     async function loadNew() {
         if (!settings.value.advanced) return
-        fresh.value = await $fetch<LoggedEvent[]>('/api/events/log', {query: {level: 'error', open: 1, since: seenAt.value}})
-            .then(found => found.filter(e => e.first_seen > seenAt.value)).catch(() => fresh.value)
+        fresh.value = await $fetch<LoggedEvent[]>('/api/events/log', {query: {level: 'error', since: seenAt.value}})
+            .then(found => found.filter(e => (!e.resolved_at || e.resolved_by) && e.first_seen > seenAt.value)).catch(() => fresh.value)
     }
 
     function arrived(event: LoggedEvent, isFresh: boolean) {
