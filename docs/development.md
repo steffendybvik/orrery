@@ -68,5 +68,15 @@ version, once on each database. A failed run leaves a trace to replay with `pnpm
 Linux the spec skips; `pnpm test:e2e:visual` runs it in CI's Playwright image through Docker, and
 `pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
 
+`pnpm test:e2e:perf` times the pages on a big Orrery. `e2e/perf/seed.ts` fills a fresh `web/.data/perf.db` (or, with
+`E2E_POSTGRES_URL`, that Postgres) through the store: 20 projects, about 3,000 issues, 20,000 comments, 50,000
+history rows, plus proposals, events, docs and schedules. The `PERF_*` variables change the sizes (`PERF_ISSUES=10000`).
+Then it builds the app and runs it on port 3398, and `e2e/perf/perf.spec.ts` opens each page fresh: the first load,
+a big project's list, board and roadmap, an issue with a long thread, My issues, the bell, Notifications, Events,
+Sessions, Releases, the search, a dropped stream reconnecting, and a change arriving live. Each one has a budget in
+milliseconds, and a page over its budget fails the run. `web/perf-report/report.md` (and `report.json`) gives each
+step's time, the API calls behind it and their sizes, and the slowest routes. CI runs it on both databases with the
+e2e flows and keeps the report as an artifact. `PERF_NO_BUILD=1` reuses the last build when you're trying it again.
+
 The database's migrations are numbered steps in `web/server/utils/db.ts`, with Postgres's after its baseline in
 `web/server/utils/postgres.ts`: add a step to both, never edit one.
