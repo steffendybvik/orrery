@@ -66,11 +66,11 @@ const work = ref<Record<string, Record<string, SessionWork>>>({})
 const lastSignal = (project: string) => signals.value.find(s => s.project === project)
 const homes = computed(() => ordered.value.filter(p => own(p.id).length).map(p => p.id))
 watch(() => homes.value.map(p => `${p}:${own(p).map(s => `${s.id}/${s.state}`).join(',')}:${lastSignal(p)?.id ?? ''}/${lastSignal(p)?.delivered_to.length ?? 0}`).join('|'), () => {
-    for (const project of homes.value) {
-        $fetch<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(project)}/sessions/work`)
-            .then(found => work.value = {...work.value, [project]: found})
-            .catch(() => {})
-    }
+    if (!homes.value.length) return
+    // One call for them all (ORR-442), not one per project.
+    $fetch<Record<string, Record<string, SessionWork>>>('/api/sessions/work', {query: {projects: homes.value.join(',')}})
+        .then(found => work.value = {...work.value, ...found})
+        .catch(() => {})
 }, {immediate: true})
 
 // The session a link points at, scrolled to and lit up.
