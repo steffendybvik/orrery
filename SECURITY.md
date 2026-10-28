@@ -52,6 +52,30 @@ schedule's run never goes to your sessions. Instead:
 
 It can still read files in its folder with read-only commands, but it has no way to send them anywhere.
 
+## What only the owner writes
+
+Orrery has two tiers of text a session reads:
+
+- **Material**: issues, comments, docs. A session reads it as it works and weighs it like anything else
+  it reads. Agents write it freely; deleting what the owner made stays the owner's call.
+- **Instructions**: what a session is told it must do, in the owner's voice. That's the focus and chunk
+  prompts and standing instructions (`PATCH /settings`), the signals that reach sessions, and **presets**,
+  whose text a session is started with as "the owner gave this session more context … it holds for all
+  its work". Only the owner writes these, and an agent gets a 403, **on purpose**.
+
+Letting an agent write instructions would let one session write the orders for every later one. That
+includes a session talked into it by a planted comment, a fetched page or an egress response. It would
+carry over from session to session, and with an Orrery-wide preset into every project. Ticking a preset
+at start doesn't guard against that, since you pick it by its name and badge, not by rereading its text.
+And changing an instruction's text is worse than deleting it, so "agents may edit but not delete" is no
+middle ground.
+
+So when a session should help with a preset or a prompt, it drafts the text in a comment or a doc, and
+the owner puts it in. (ORR-333 proposed opening presets to agents and was declined for this reason.)
+
+As with everything that hangs on the owner's name (above), this keeps honest agents from overstepping.
+It doesn't stop a program that sends the owner's id.
+
 ## The browser can't be used against it
 
 A website open in your browser can't write to Orrery: a write from another site's page (its `Origin`)
