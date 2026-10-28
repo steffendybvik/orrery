@@ -69,7 +69,7 @@ The chat (the button in the corner) is a session started for you to talk to on t
 `secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
 unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release or parent (any other
 change is refused), commenting, and
-answering you. Two more go further, and you should know how far:
+answering you. Three more go further, and you should know how far:
 
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
   Secrets, the database, statuses and how sessions start aren't among them.
@@ -77,11 +77,11 @@ answering you. Two more go further, and you should know how far:
   Nothing is saved until you press **Allow**, and then it's yours, so a schedule that starts sessions starts them as
   you. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
   the Schedules page.
-- **Messages to your sessions** go out as yours, the owner's instructions in the sense below, marked as sent through
-  the chat (on the Sessions page, in the event log, and in what the session hears). It's told to send one only when you
-  ask in the chat, and to show you the text first (for several sessions, to wait for your go). That's its instructions,
-  not something orrery can check. The chat reads issues, comments, docs and the code, so a planted comment that talks
-  it into a message reaches your sessions in your voice. Keep that in mind before letting it read what others wrote.
+- **Messages to your sessions** it can only ask for as well: you see the text and who it goes to, and nothing is sent
+  until you press **Send**. orrery refuses the chat on both message routes, so this holds whatever it was talked into.
+  Once sent, a message goes out as yours, the owner's instructions in the sense below, marked as sent through the chat
+  (on the Sessions page, in the event log, and in what the session hears). The chat reads issues, comments, docs and
+  the code, so read what it asks to send as you would anything that could come from a planted comment (ORR-416).
 
 ## What only the owner writes
 
@@ -94,7 +94,8 @@ Orrery has two tiers of text a session reads:
   whose text a session is started with as "the owner gave this session more context … it holds for all
   its work". Only the owner writes these, and an agent gets a 403, **on purpose**.
 
-The chat's messages to sessions are the one exception, sent for you when you ask it to ([above](#the-chat)).
+The chat's messages to sessions are the one exception: it can only ask, and they go as yours once you press **Send**
+([below](#the-owners-chat)).
 
 Letting an agent write instructions would let one session write the orders for every later one. That
 includes a session talked into it by a planted comment, a fetched page or an egress response. It would
@@ -114,13 +115,14 @@ Orrery didn't start it with.
 ### The owner's chat
 
 The chat on the page writes as `claude`, like any agent, under the same rules: it makes and changes issues and
-comments, and it can't touch presets, prompts or settings. Two things go further, since you asked for them there:
+comments, and it can't touch presets, prompts or settings. Three things go further, since you asked for them there,
+and each is only ever asked:
 
-- **Changing an App setting, or making or changing a schedule,** is only ever asked: you see it from → to, and
-  nothing is saved until you press **Allow** in the page. An allowed schedule is yours, so read what it sends.
-- **Messaging your other sessions** goes as you, marked as sent through the chat. Its brief says to do this only
-  when you ask, but nothing in Orrery holds it to that yet, so a chat talked into it by something it read could
-  send your sessions words of its own (ORR-416).
+- **Changing an App setting, or making or changing a schedule:** you see it from → to, and nothing is saved until you
+  press **Allow** in the page. An allowed schedule is yours, so read what it sends.
+- **Messaging your other sessions:** you see the text and who it goes to, and nothing is sent until you press
+  **Send**. Then it goes as you, marked as sent through the chat. The message routes refuse the chat itself, so a
+  chat talked into it by something it read can't reach your sessions without you reading it first (ORR-416).
 
 As with everything that hangs on the owner's name (above), this keeps honest agents from overstepping.
 It doesn't stop a program that sends the owner's id.

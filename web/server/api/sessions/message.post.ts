@@ -4,9 +4,9 @@ import {SESSION_STATES, type SessionState} from '#shared/roadmap'
 // own words to every listening session at once, each its own message as if sent to it alone. Idle ones only unless
 // `states` says otherwise, so a nudge doesn't interrupt work; `projects` narrows it to sessions on (or hearing) any of
 // them. A session hearing several projects gets it once. Nobody listening is an empty `sent`, not a launch. The owner's
-// chat sends it for them (`via: chat` on each).
+// chat can't send here: it asks the owner in the chat, and their Send sends it (`askSend`, ORR-416).
 export default defineEventHandler(async event => {
-    const actor = chatWrite(event) ? await chatOwner(event) : await actorOf(event)
+    const actor = await actorOf(event)
     if (!actor.owner) throw forbidden('Only the owner messages sessions; send Orrery-Actor: <owner>')
     const body = await readBody(event).catch(() => null) as {text?: unknown, projects?: unknown, states?: unknown} | null
     const text = typeof body?.text === 'string' ? body.text.trim() : ''

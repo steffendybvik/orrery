@@ -1,6 +1,6 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatIssues, ChatMessage, ChatScheduleField, ChatScheduleRequest, ChatSetting, Schedule} from '#shared/roadmap'
-import {CHAT_ISSUES, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
+import type {Chat, ChatIssues, ChatMessage, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSetting, Schedule, SessionState} from '#shared/roadmap'
+import {CHAT_ISSUES, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {SETTINGS_FIELDS} from '../store/schema'
 import {checkInput, isObject} from './input'
@@ -18,8 +18,8 @@ Answer their questions about this project: its code (read it), its roadmap and i
 releases, docs and doc tools). When they ask for an issue or a comment, make it (create_issue, comment) and say which
 id it got. When they ask to change an issue (its priority, labels, chunk, release, title…), change it (edit_issue). You
 don't work on anything: don't change code, and don't start, move or finish issues; other sessions do that. When the owner asks you to, in this chat, message other sessions (sessions lists them): message_sessions
-nudges every idle one, message_session one by its name. Never on your own. Say in your reply what you sent and to
-whom; for more than one session, draft it in a reply first and send it once the owner says go.
+asks to nudge every idle one, message_session one by its name. Either shows them the message and who it goes to with
+Send and Don't send, and you hear which they pressed: nothing is sent until they press Send. Never on your own.
 When the owner asks you to change an App setting (the team tracker, the background tint, keeping agents off
 proposals, their handle, Advanced), ask with update_settings, one setting at a time: it shows them the change with
 Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. Never on your own.
@@ -103,10 +103,56 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
 /** How long a request to change a setting waits on the owner's answer. */
 export const ASK_FOR = 30 * 60_000
 
-/** The chat's session asking the owner for something in its chat: a schedule made or changed (`{schedule, id?, why?}`,
- * `askSchedule`), or else an App setting changed (`askSetting`). */
+/** The chat's session asking the owner for something in its chat: a message sent to sessions (`{message, why?}`,
+ * `askSend`), a schedule made or changed (`{schedule, id?, why?}`, `askSchedule`), or else an App setting changed
+ * (`askSetting`). */
 export async function ask(id: string, body: unknown): Promise<ChatMessage> {
+    if (isObject(body) && 'message' in body) return await askSend(id, body)
     return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
+}
+
+/** The listening session `name` (its name or id, any case) that a chat may message: never a chat. */
+function sessionNamed(name: string) {
+    const wanted = name.trim().toLowerCase()
+    const session = listSessions().find(s => (s.id.toLowerCase() === wanted || s.name.toLowerCase() === wanted) && !chatSession(s.id))
+    if (!session) throw notFound(`No session ${name}: the sessions tool lists them`)
+    if (!hearing(session.project, session.id)) throw conflict(`${session.name} isn't listening, so a message can't reach it`)
+    return session
+}
+
+/** The chat's session asking to message other sessions as the owner (its `message_session` and `message_sessions`
+ * tools): `message` is `{text, session}` for one session by its name or id, or `{text, projects?, states?}` for every
+ * listening one on (or hearing) `projects`, idle ones unless `states` says otherwise. A request in the chat, naming who
+ * it would reach, which sends nothing until the owner presses Send: a chat's words never reach a session on its own
+ * say, so text it read elsewhere can't be passed on as the owner's (ORR-416). */
+export async function askSend(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {message, why} = body as {message?: unknown, why?: unknown}
+    const {text, session, projects, states} = (isObject(message) ? message : {}) as {text?: unknown, session?: unknown, projects?: unknown, states?: unknown}
+    const words = typeof text === 'string' ? text.trim() : ''
+    if (!words) throw badRequest('Send {message: {text, session}} for one session, or {message: {text, projects?, states?}} for every idle one')
+    const list = (value: unknown, name: string) => {
+        if (value === undefined || value === null) return undefined
+        if (!Array.isArray(value) || value.some(v => typeof v !== 'string')) throw badRequest(`Send ${name} as a list of strings`)
+        return value as string[]
+    }
+    let request: ChatSendRequest
+    if (session !== undefined && session !== null) {
+        if (typeof session !== 'string' || projects !== undefined || states !== undefined) throw badRequest('Send "session" as one session\'s name or id, without projects or states')
+        const one = sessionNamed(session)
+        request = {text: words, session: one.id, project: one.project, to: [one.name], state: 'asked'}
+    } else {
+        const on = list(projects, 'projects')
+        const wanted = list(states, 'states')
+        const unknown = wanted?.find(s => !(SESSION_STATES as readonly string[]).includes(s))
+        if (unknown) throw badRequest(`No session state ${unknown}: use ${SESSION_STATES.join(', ')}`)
+        const to = recipients(on, wanted as SessionState[] | undefined)
+        if (!to.length) throw conflict(`No ${wanted?.join(' or ') ?? 'idle'} session is listening${on?.length ? ` on ${on.join(', ')}` : ''}, so there's nobody to send it to`)
+        request = {text: words, ...on?.length ? {projects: on} : {}, ...wanted ? {states: wanted as SessionState[]} : {}, to: to.map(s => s.name), state: 'asked'}
+    }
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], send: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to message ${request.to.join(', ')}`, details: {to: request.to}})
+    return said
 }
 
 /** The owner, as their chat asks for them: who a schedule it asks for is checked as, and saved as. */
@@ -172,15 +218,16 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
 export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule))
-    const request = asked?.request ?? asked?.schedule
+    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send))
+    const request = asked?.request ?? asked?.schedule ?? asked?.send
     if (!asked || !request) throw notFound(`No request ${message} in this chat`)
     if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
         request.state = 'expired'
         changed(chat)
     }
     if (request.state !== 'asked') throw conflict(`That request is ${request.state} already${request.state === 'expired' ? ': ask the chat again' : ''}`)
-    if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
+    if (asked.send) await answerSend(chat, asked.send, allow, actor)
+    else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
     else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
     return asked
 }
@@ -203,6 +250,31 @@ async function answerSchedule(chat: Chat, request: ChatScheduleRequest, allow: b
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I allowed your request: schedule ${made.id} ("${made.title}") is saved${made.enabled ? '' : ', paused'}.)`
         : `(I denied your request to ${scheduleAsk(request)}: nothing changed.)`, actor)
+}
+
+/** The owner sending or not sending the message the chat asked to: sent, it goes as theirs, through their chat, to the
+ * one session asked for, or to every session that fits now (who fits may have changed since it was asked). A session
+ * that stopped listening since fails as messaging it would, still asked. */
+async function answerSend(chat: Chat, request: ChatSendRequest, allow: boolean, actor: Actor) {
+    if (allow) {
+        const as: Actor = {...actor, via: 'chat'}
+        const to = request.session
+            ? [sessionNamed(request.session)]
+            : recipients(request.projects, request.states)
+        for (const session of to) {
+            await useStore().messageSession(session.project, session.id, request.text, as)
+            messaged(as, session.project, session.name)
+        }
+        request.sent = to.map(s => s.name)
+    }
+    request.state = allow ? 'allowed' : 'denied'
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${allow ? 'sent' : "didn't send"} the chat's message to ${(request.sent ?? request.to).join(', ') || 'no session'}`,
+        details: {to: request.to, sent: request.sent ?? [], allowed: allow}})
+    const sent = request.sent ?? []
+    await useStore().messageSession(chat.project, launchTarget(chat.id), allow
+        ? sent.length ? `(I sent your message to ${sent.join(', ')}.)` : '(I pressed Send, but no session fits any more, so it went to none.)'
+        : `(I didn't send your message to ${request.to.join(', ')}: nothing went.)`, actor)
 }
 
 /** The owner allowing or denying the chat's request to change a setting: allowed, it's saved as asked. */
@@ -270,14 +342,6 @@ export function chatEnded(id: string) {
 export function chatWrite(event: H3Event): boolean {
     const session = getHeader(event, 'orrery-session')?.trim()
     return getHeader(event, 'orrery-chat') === 'yes' || !!(session && chatSession(session))
-}
-
-/** The owner, as their running chat (`Orrery-Launch`) speaking for them: what it sends other sessions goes as the
- * owner's, marked `via` it. */
-export async function chatOwner(event: H3Event): Promise<Actor> {
-    const launch = getHeader(event, 'orrery-launch')?.trim()
-    if (!launch || !chats.has(launch)) throw forbidden("Only the owner's running chat messages sessions for them")
-    return await owner()
 }
 
 /** Notes in the event log that the owner (or their chat) messaged a session. */

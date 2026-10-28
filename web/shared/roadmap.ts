@@ -614,6 +614,8 @@ export interface ChatMessage {
     request?: ChatRequest
     /** The session asking to make or change a schedule, which waits on the owner's Allow too. */
     schedule?: ChatScheduleRequest
+    /** The session asking to message other sessions as the owner, which waits on the owner's Send (ORR-416). */
+    send?: ChatSendRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -669,6 +671,20 @@ export interface ChatScheduleRequest {
     title: string
     changes: {field: ChatScheduleField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatScheduleField, unknown>>
+    state: ChatRequest['state']
+}
+
+/** A message the chat asked to send other sessions as the owner's: to one session (`session`, on `project`), or to
+ * every listening one that fits `projects` and `states` as the owner sends it. `to` names who it would reach when
+ * asked, `sent` who it reached. Sent only once the owner presses Send, and `expired` as a setting's request is. */
+export interface ChatSendRequest {
+    text: string
+    session?: string
+    project?: string
+    projects?: string[]
+    states?: SessionState[]
+    to: string[]
+    sent?: string[]
     state: ChatRequest['state']
 }
 

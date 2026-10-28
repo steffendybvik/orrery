@@ -164,11 +164,12 @@ export const CHAT_TOOLS = [
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'message_sessions',
-        description: "Sends a message to every listening session, as the owner's, marked as sent through their chat: only when the owner asked for it in this chat, after they said go to the text you drafted. Idle sessions only unless states says otherwise, so it interrupts no work.",
+        description: "Asks the owner to send a message to every listening session, as theirs, only when they asked for it in this chat: it shows them the text and who it goes to with Send and Don't send, and you hear which they pressed. Nothing is sent until they press Send. Idle sessions only unless states says otherwise, so it interrupts no work.",
         inputSchema: {type: 'object', required: ['text'], properties: {
             text: {type: 'string'},
             projects: {type: 'array', items: {type: 'string'}, description: 'Only sessions on (or hearing) these projects'},
             states: {type: 'array', items: {type: 'string', enum: ['idle', 'working', 'waiting', 'starting']}, description: 'idle by default'},
+            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
         }},
     },
     {
@@ -192,8 +193,8 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'message_session',
-        description: "Sends a message to one session (by its name or id; the sessions tool lists them), as the owner's, marked as sent through their chat: only when the owner asked for it in this chat.",
-        inputSchema: {type: 'object', required: ['session', 'text'], properties: {session: {type: 'string'}, text: {type: 'string'}}},
+        description: "Asks the owner to send a message to one session (by its name or id; the sessions tool lists them), as theirs, only when they asked for it in this chat: it shows them the text with Send and Don't send, and you hear which they pressed. Nothing is sent until they press Send.",
+        inputSchema: {type: 'object', required: ['session', 'text'], properties: {session: {type: 'string'}, text: {type: 'string'}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
     },
 ]
 
@@ -392,16 +393,13 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, schedule, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async message_sessions({text, projects, states}) {
-            const {sent} = await call('POST', '/sessions/message', {text, ...projects ? {projects} : {}, ...states ? {states} : {}}, root)
-            return sent.length ? `Sent to ${sent.map(s => s.name).join(', ')}.` : `No ${states?.join(' or ') ?? 'idle'} session is listening, so it went to none.`
+        async message_sessions({text, projects, states, why}) {
+            const {send} = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {message: {text, ...projects ? {projects} : {}, ...states ? {states} : {}}, ...why ? {why} : {}}, root)
+            return `Asked: the owner sees it, to ${send.to.join(', ')}, with Send and Don't send, and you'll hear which they pressed. Nothing is sent until they press Send.`
         },
-        async message_session({session, text}) {
-            const wanted = String(session ?? '').trim().toLowerCase()
-            const found = (await call('GET', '/sessions', undefined, root)).find(s => s.id.toLowerCase() === wanted || s.name.toLowerCase() === wanted)
-            if (!found) throw new Error(`No session ${session}: the sessions tool lists them`)
-            await call('POST', `/projects/${encodeURIComponent(found.project)}/sessions/${encodeURIComponent(found.id)}/message`, {text}, root)
-            return `Sent to ${found.name}.`
+        async message_session({session, text, why}) {
+            const {send} = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {message: {text, session}, ...why ? {why} : {}}, root)
+            return `Asked: the owner sees it, to ${send.to.join(', ')}, with Send and Don't send, and you'll hear which they pressed. Nothing is sent until they press Send.`
         },
         async image({id}) {
             if (!/^[0-9a-f]{24}$/.test(String(id))) throw new Error(`${id} isn't an upload's id`)

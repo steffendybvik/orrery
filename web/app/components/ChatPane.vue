@@ -10,7 +10,8 @@ import type {ChatIssues} from '#shared/roadmap'
 // one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
-// field it sets) or change (each from → to). Under each of Claude's replies, Copy takes its Markdown as written (on a
+// field it sets) or change (each from → to). A message it asks to send other sessions shows with who it goes to, and
+// Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
 // wide screen it shows on hover or focus).
 const {open, large, chat, session, project, failed, chats, lands, start, send, land, fresh, answer, close, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
@@ -20,6 +21,7 @@ async function decide(message: number, allow: boolean) {
     answering.value = null
 }
 const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed', expired: 'Expired: not answered in time, or asked again'}
+const SENT = {allowed: (to: string[]) => to.length ? `Sent to ${to.join(', ')}` : 'Sent, but no session fit any more', denied: () => 'Not sent', expired: () => 'Expired: not answered in time'}
 const {projects} = useRoadmaps()
 const route = useRoute()
 
@@ -197,6 +199,15 @@ function onPaste(event: ClipboardEvent) {
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
           <span v-else class="text-xs" :class="m.request.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.request.state === 'asked' ? 'Not answered' : ANSWERED[m.request.state] }}</span>
+        </div>
+        <div v-if="m.send" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Send a message to ${m.send.to.join(', ')}`">
+          <span class="text-xs text-faint">Asks to send a message as you to {{ m.send.session ? m.send.to[0] : `${m.send.states?.join(' or ') ?? 'idle'} sessions${m.send.projects?.length ? ` on ${m.send.projects.join(', ')}` : ''} (now ${m.send.to.join(', ')})` }}</span>
+          <p class="max-h-60 overflow-y-auto break-words whitespace-pre-wrap text-[13px] text-fg">{{ m.send.text }}</p>
+          <div v-if="m.send.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Send</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Don't send</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.send.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.send.state === 'asked' ? 'Not answered' : SENT[m.send.state](m.send.sent ?? []) }}</span>
         </div>
         <div
 v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
