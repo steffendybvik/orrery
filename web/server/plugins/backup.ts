@@ -4,20 +4,21 @@
 export default defineNitroPlugin(nitro => {
     const dir = String(useRuntimeConfig().backupDir ?? '')
     if (!dir) return
-    const database = useDatabase()
     const log = useEventLog()
-    const save = () => backUp(database, dir)
+    // The database as it is each time, so one the owner moved to is backed up from then on.
+    const save = () => backUp(useDatabase(), dir)
         .then(() => log.note({level: 'info', kind: 'backup.made', message: `Backed up to ${dir}`}), error => {
             console.error(`[orrery] backing up to ${dir}:`, error)
             log.note({level: 'error', kind: 'backup.failed', message: `Backing up to ${dir}: ${(error as Error).message}`, details: {stack: (error as Error).stack}})
         })
-    const wait = database instanceof SqliteDb ? 3000 : 60_000
     let timer: ReturnType<typeof setTimeout> | undefined
     // Changes that keep coming put it off, but never past ten waits from the first of them.
     let since: number | undefined
     const soon = () => {
         since ??= Date.now()
         clearTimeout(timer)
+        // Where the data is can change (a move from App settings), so how long to wait is worked out each time.
+        const wait = useDatabase() instanceof SqliteDb ? 3000 : 60_000
         timer = setTimeout(() => {
             since = undefined
             save()

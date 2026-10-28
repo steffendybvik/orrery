@@ -22,8 +22,8 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
   if wanted.
 - **Docs:** Markdown pages for each project. Comments and descriptions accept images.
 - **Secrets:** API keys that agents use through Orrery's egress, without ever seeing the value.
-- **Storage:** one SQLite file with automatic backups, or Postgres. There are no accounts; the first
-  name given becomes the owner.
+- **Storage:** one SQLite file with automatic backups, or Postgres, picked when you first open it or moved to later
+  from App settings. There are no accounts; the first name given becomes the owner.
 
 [Using Orrery](docs/using.md) describes each page, menu and shortcut.
 

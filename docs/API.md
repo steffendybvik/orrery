@@ -326,8 +326,17 @@ backup?, backed_up_at?, size?, backup_size?}`, `kind` `sqlite` (`where` the file
 `user@host:port/name`, never the password), `backup` the folder it's backed up to, if any (a Postgres one as a SQLite
 snapshot), and `backed_up_at` when the latest backup there was made. `size` is how big it is in bytes (a SQLite file with
 its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
-it can't be read. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without a backup
-folder. A session heard on several projects is listed on each one's
+it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABASE` names Postgres), and `moved` that it
+was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
+a backup folder.
+
+The owner moves it from localhost (403 from any other address): `POST /database/check {kind: "sqlite", path}` or
+`{kind: "postgres", url}` says what's there without changing it, `{kind, where, state, projects?}`, `state` `empty`,
+`orrery` (an Orrery's own, with its `projects`), `current` (the one it runs on) or `other` (something else's tables);
+400 when it can't be reached. A `path` without a leading `/` is in the data folder. `POST /database/move {kind, path |
+url, how}` runs on it from then on, no restart: `how: "copy"` copies everything into an empty one, `"use"` runs on an
+Orrery's own as it is; → `{check, copied?, database}`, 409 when it doesn't suit `how`. The one it leaves stays as it was.
+A session heard on several projects is listed on each one's
 group on the Sessions page, with the others in `also`. A channel that finds the name its server goes by in the
 repo's `.mcp.json` sends it (`?server=`), and the session lists it as `server`, for the command that restarts it with
 the channel.
@@ -469,8 +478,8 @@ problem. **Errors** are recorded always: a 5xx the server answers with (`server.
 recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → This Orrery):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), launchers coming and going (`launcher.connected`, `launcher.gone`), schedule runs and skips
-(`schedule.ran`, `schedule.skipped`), backups, migrations and server starts (`backup.made`, `migration.ran`,
-`server.started`). Advanced also shows the Events page and counts each new kind of error in the bell.
+(`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `migration.ran`,
+`database.moved`, `server.started`). Advanced also shows the Events page and counts each new kind of error in the bell.
 
 Each event is `{id, level, kind, project?, message, details?, count, first_seen, last_seen, resolved_at?}`, with
 `level` one of `error`, `warn`, `info`. The same one again (level, kind, project and message), while it isn't

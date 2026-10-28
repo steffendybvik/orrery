@@ -1,6 +1,7 @@
-// The database: one SQLite file (`NUXT_DATABASE`, `.data/orrery.db` by default). Node's own
-// `node:sqlite` is synchronous, so writes from several sessions never interleave.
-import {mkdirSync} from 'node:fs'
+// The database: one SQLite file (`NUXT_DATABASE`, `.data/orrery.db` by default), or Postgres. Node's own
+// `node:sqlite` is synchronous, so writes from several sessions never interleave. The owner can move it from App
+// settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
+import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {lastBackup, restoreBackup} from './backup'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
@@ -667,35 +668,69 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 
 let db: DatabaseSync | null = null
 
-function useDb(): DatabaseSync {
+function useDb(path: string): DatabaseSync {
     if (db) return db
-    const config = useRuntimeConfig()
-    const path = resolve(String(config.database))
-    restoreBackup(path, String(config.backupDir ?? ''))
+    restoreBackup(path, String(useRuntimeConfig().backupDir ?? ''))
     db = openDb(path)
     return db
+}
+
+/** Where a move from App settings is kept: beside the SQLite file NUXT_DATABASE names (`orrery.db.moved.json`); none
+ * when NUXT_DATABASE is Postgres, which stays where it's set. */
+export function movedFile(): string | null {
+    const setting = String(useRuntimeConfig().database)
+    return isPostgres(setting) ? null : `${resolve(setting)}.moved.json`
+}
+
+/** The database Orrery runs on: where the owner moved it to, else NUXT_DATABASE (a SQLite file, from where it runs). */
+let chosen: string | null | undefined
+
+export function databaseSetting(): string {
+    const setting = String(useRuntimeConfig().database)
+    if (chosen === undefined) {
+        const file = movedFile()
+        chosen = file && existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as {database: string}).database : null
+    }
+    return chosen ?? (isPostgres(setting) ? setting : resolve(setting))
+}
+
+/** Saves where the database moved to, for Orrery to open again as it starts; back to NUXT_DATABASE's own file forgets it. */
+export function saveDatabaseSetting(setting: string) {
+    const file = movedFile()
+    if (!file) throw new Error('NUXT_DATABASE names Postgres: change it there')
+    if (setting === resolve(String(useRuntimeConfig().database))) {
+        rmSync(file, {force: true})
+        chosen = null
+    } else {
+        writeFileSync(file, `${JSON.stringify({database: setting, moved_at: new Date().toISOString()}, null, 2)}\n`, {mode: 0o600})
+        chosen = setting
+    }
 }
 
 /** Where the data is, to show the owner: the SQLite file's full path, or the Postgres database without its password. */
 export function describeDatabase(): DatabaseInfo {
     const config = useRuntimeConfig()
-    const setting = String(config.database)
+    const setting = databaseSetting()
     const dir = String(config.backupDir ?? '')
     const at = dir ? lastBackup(dir) : undefined
     const backup = dir ? {backup: resolve(dir), ...at ? {backed_up_at: at} : {}} : {}
-    if (isPostgres(setting)) {
-        const url = new URL(setting)
-        return {kind: 'postgres', where: `${url.username ? `${decodeURIComponent(url.username)}@` : ''}${url.host}${url.pathname}`, ...backup}
-    }
-    return {kind: 'sqlite', where: resolve(setting), ...backup}
+    const how = movedFile() ? {movable: true, ...chosen ? {moved: true} : {}} : {}
+    if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup}
+    return {kind: 'sqlite', where: setting, ...how, ...backup}
+}
+
+/** A Postgres URL as the owner sees it: `user@host:port/name`, no password. */
+export function hidePassword(url: string): string {
+    const parsed = new URL(url)
+    return `${parsed.username ? `${decodeURIComponent(parsed.username)}@` : ''}${parsed.host}${parsed.pathname}`
 }
 
 /** The open database as the store awaits it: Postgres when the setting is a `postgres://` URL, else the
  * SQLite file. */
 export function useDatabase(): Db {
-    const setting = String(useRuntimeConfig().database)
+    const setting = databaseSetting()
     if (isPostgres(setting)) return database ??= new PostgresDb(setting)
-    const raw = useDb()
+    const raw = useDb(setting)
     if (!(database instanceof SqliteDb) || database.raw !== raw) database = new SqliteDb(raw)
     return database
 }
@@ -708,6 +743,19 @@ export async function closeDb() {
     db = null
     if (database instanceof PostgresDb) await database.close()
     database = null
+}
+
+/** Runs on `next` from now on (already open, its schema up to date), saved for the next start, and lets go of the
+ * one before once what it was doing is done. Says which it was. */
+export async function switchDatabase(setting: string, next: SqliteDb | PostgresDb): Promise<SqliteDb | PostgresDb | null> {
+    const before = database
+    const raw = db
+    saveDatabaseSetting(setting)
+    database = next
+    db = next instanceof SqliteDb ? next.raw : null
+    if (before instanceof PostgresDb) await before.close()
+    else if (before instanceof SqliteDb) await before.alone(() => raw?.close())
+    return before
 }
 
 /** Opens the file and brings its schema up to date (or only `upTo` steps, for tests). */

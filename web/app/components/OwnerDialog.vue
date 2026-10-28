@@ -1,19 +1,33 @@
 <script setup lang="ts">
 // The first time an Orrery is opened, it asks whose it is. That name is the owner's (what they make,
-// no one else can delete), and their `Orrery-Actor` is it in lowercase snake case.
+// no one else can delete), and their `Orrery-Actor` is it in lowercase snake case. A brand-new one (no projects) opened
+// on this machine asks first where to keep its data (ORR-319): here, or Postgres, moved to as App settings does it, so
+// ORRERY_DATABASE isn't needed. Not when ORRERY_DATABASE names Postgres, or once it's moved.
 const {named, rename} = useOwner()
+const {settings} = useAppSettings()
+const {ordered} = useProjectOrder()
+const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
+const asksData = computed(() => !!settings.value.database?.movable && !settings.value.database.moved && !ordered.value.length
+    && THIS_MACHINE.test(location.hostname))
+const step = ref<'data' | 'postgres' | 'name'>('data')
+const showing = computed(() => asksData.value ? step.value : 'name')
 const display = ref('')
 const saving = ref(false)
 const failed = ref('')
 const input = ref<HTMLInputElement | null>(null)
-watch(named, now => {
-    if (!now) nextTick(() => input.value?.focus())
+watch([named, showing], ([now, at]) => {
+    if (!now && at === 'name') nextTick(() => input.value?.focus())
 }, {immediate: true})
 
 /** As the server makes it: `Sköll Fenrisson` → `skoll_fenrisson`. */
 const id = computed(() => display.value.normalize('NFKD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''))
 const ready = computed(() => !!id.value && id.value !== 'agent' && !saving.value)
+
+function submit() {
+    if (showing.value === 'data') step.value = 'name'
+    else if (showing.value === 'name') save()
+}
 
 async function save() {
     if (!ready.value) return
@@ -30,21 +44,40 @@ async function save() {
 </script>
 
 <template>
-  <UiDialog :open="!named" label="Your name" width="md" required @submit="save">
-    <div class="flex flex-col gap-1">
-      <h2 class="text-[15px] font-semibold text-fg">Whose Orrery is this?</h2>
-      <p class="text-xs text-muted">You're its owner: what you make, no one else can delete. Change it later in Settings.</p>
-    </div>
-    <input ref="input" v-model="display" placeholder="Your name" aria-label="Your name" maxlength="60" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
-    <p class="text-xs text-faint">
-      Your <span class="font-mono text-muted">Orrery-Actor</span> header will be <span class="font-mono text-muted">{{ id || 'your_name' }}</span>
-    </p>
-    <div class="flex items-center gap-2 border-t border-line pt-3">
-      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-      <span v-else-if="id === 'agent'" class="text-xs text-rose-600 dark:text-rose-400">"agent" is what requests without a name are; pick another.</span>
-      <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Saving…' : 'Continue' }}
-      </UiButton>
-    </div>
+  <UiDialog :open="!named" :label="showing === 'name' ? 'Your name' : 'Where to keep its data'" :width="showing === 'postgres' ? 'lg' : 'md'" required @submit="submit">
+    <template v-if="showing !== 'name' && settings.database">
+      <div class="flex flex-col gap-1">
+        <h2 class="text-[15px] font-semibold text-fg">Where should this Orrery keep its data?</h2>
+        <p class="text-xs text-muted">You can move it later in App settings → Database.</p>
+      </div>
+      <div v-if="showing === 'data'" class="flex flex-col gap-2">
+        <button type="submit" class="flex flex-col items-start gap-0.5 rounded-xl p-3 text-left ring-1 ring-accent-500/50 hover:bg-hover">
+          <span class="text-[13px] font-medium text-fg">On this machine</span>
+          <span class="text-xs text-muted">A SQLite file in its data folder. Nothing to set up.</span>
+        </button>
+        <button type="button" class="flex flex-col items-start gap-0.5 rounded-xl p-3 text-left ring-1 ring-line hover:bg-hover" @click="step = 'postgres'">
+          <span class="text-[13px] font-medium text-fg">Postgres</span>
+          <span class="text-xs text-muted">Yours or a hosted one: for a team's server, or a database you already back up. An Orrery's own from before picks up where it was.</span>
+        </button>
+      </div>
+      <DatabaseMove v-else :database="settings.database" first @back="step = 'data'" />
+    </template>
+    <template v-else>
+      <div class="flex flex-col gap-1">
+        <h2 class="text-[15px] font-semibold text-fg">Whose Orrery is this?</h2>
+        <p class="text-xs text-muted">You're its owner: what you make, no one else can delete. Change it later in Settings.</p>
+      </div>
+      <input ref="input" v-model="display" placeholder="Your name" aria-label="Your name" maxlength="60" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
+      <p class="text-xs text-faint">
+        Your <span class="font-mono text-muted">Orrery-Actor</span> header will be <span class="font-mono text-muted">{{ id || 'your_name' }}</span>
+      </p>
+      <div class="flex items-center gap-2 border-t border-line pt-3">
+        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+        <span v-else-if="id === 'agent'" class="text-xs text-rose-600 dark:text-rose-400">"agent" is what requests without a name are; pick another.</span>
+        <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
+          {{ saving ? 'Saving…' : 'Continue' }}
+        </UiButton>
+      </div>
+    </template>
   </UiDialog>
 </template>
