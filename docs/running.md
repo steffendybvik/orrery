@@ -36,6 +36,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts); see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
+| `ORRERY_BACKUP_DATABASE` | a `postgres://` URL to back up into instead of the folder: an empty database, or this Orrery's backup from before (see [Backups](#backups)) | none |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the Orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | none (no secrets) |
@@ -55,6 +56,17 @@ Docker, a folder takes them instead of `NUXT_BACKUP_DIR` (**Back up here** makes
 won't take it says so). The choice is kept beside the database, in `orrery.db.backups.json`. In Docker they always go
 to `/backup`, whose folder on the machine is `ORRERY_BACKUP`. When `ORRERY_DATABASE` names Postgres, backups are set
 only as Orrery starts.
+
+### Backing up into Postgres
+
+Either database can be backed up into a Postgres database instead of a folder: App settings → Database, **Postgres**
+under Back up this Orrery, with its URL (**Back up there** backs up into it at once), or `ORRERY_BACKUP_DATABASE` as
+Orrery starts. It's copied the way a move copies, a minute after a change, and each backup takes the place of the last
+in one go, so a backup that fails leaves the one before whole; there are no daily copies. It has to be an empty database
+or this Orrery's backup from before: Orrery marks it as its backup (`backup_of` in its settings) and won't write into
+one holding another Orrery, or into the one it runs on. Its password is kept in `orrery.db.backups.json`, readable by
+you alone, and never shown or logged. To restore, run on it: **Move to another database…**, then run on it as it is, or
+`ORRERY_DATABASE`.
 
 ## Postgres
 

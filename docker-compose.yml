@@ -4,7 +4,8 @@
 # A copy goes to /backup a few seconds after each change, plus one a day for two weeks, and a new
 # volume starts from that copy: the orrery-backup volume, or a folder of yours with ORRERY_BACKUP
 # (one that syncs off the machine is best; the live file stays out of it, a synced SQLite file gets
-# corrupted).
+# corrupted). Or ORRERY_BACKUP_DATABASE, a postgres:// URL, backs up into that Postgres database instead: an empty
+# one, or this Orrery's backup from before.
 #
 # The first time it's opened, it asks your name, and keeps it in the database: what you make, no one
 # else can delete. Your `Orrery-Actor` header is it in lowercase snake case (`skoll_fenrisson`).
@@ -44,6 +45,7 @@ services:
       NUXT_PUBLIC_REPO_DIR: ${PWD}
       NUXT_DATABASE: ${ORRERY_DATABASE:-/data/orrery.db}
       NUXT_BACKUP_DIR: /backup
+      NUXT_BACKUP_DATABASE: ${ORRERY_BACKUP_DATABASE:-}
       # What /data and /backup are on this computer, the same as the volumes below, for App settings to show.
       NUXT_DATA_HOST: ${ORRERY_DATA:-orrery-data}
       NUXT_BACKUP_HOST: ${ORRERY_BACKUP:-orrery-backup}

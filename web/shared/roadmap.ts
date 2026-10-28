@@ -420,7 +420,10 @@ export interface DatabaseInfo {
      * instead; `where` stays the path Orrery opens, inside the container. */
     host?: string
     volume?: string
+    /** Where it's backed up to: a folder, or a Postgres database as `user@host:port/name` (`backup_kind`). */
     backup?: string
+    /** `postgres` when the backups go into a Postgres database (ORR-427); a folder otherwise. */
+    backup_kind?: 'postgres'
     /** The same for the backup folder (from `ORRERY_BACKUP`). */
     backup_host?: string
     backup_volume?: string
@@ -440,6 +443,8 @@ export interface DatabaseInfo {
     backups_off?: boolean
     /** The folder the owner chose for backups instead of NUXT_BACKUP_DIR, kept while they're off too. */
     backup_folder?: string
+    /** The Postgres database the owner chose for backups, without its password, kept while they're off too. */
+    backup_postgres?: string
     /** NUXT_BACKUP_DIR, the folder Orrery is given as it starts. */
     backup_default?: string
 }
