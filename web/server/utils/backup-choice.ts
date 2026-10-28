@@ -48,10 +48,11 @@ export function backupDir(): string {
     return choice?.folder ?? defaultBackupDir()
 }
 
-/** In Docker the backups go to the mounted `/backup` (a host folder by ORRERY_BACKUP): a folder chosen inside the
- * container would go with it. */
+/** In orrery's image the backups go to the mounted `/backup` (a host folder by ORRERY_BACKUP): a folder chosen inside
+ * the container would go with it. The image says so (ORRERY_IMAGE); any container has a `/.dockerenv`, CI's
+ * Playwright one running orrery from source too. */
 export function inDocker(): boolean {
-    return existsSync('/.dockerenv')
+    return process.env.ORRERY_IMAGE === '1'
 }
 
 /** Saves the owner's choice; backups on in NUXT_BACKUP_DIR, as Orrery starts without one, forgets it. */
