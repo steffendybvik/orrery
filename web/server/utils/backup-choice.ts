@@ -9,7 +9,7 @@ import {actorOf} from './actor'
 import {backUp} from './backup'
 import {databaseSetting, useDatabase} from './db'
 import {badRequest, conflict, forbidden} from './input'
-import {fromThisMachine} from './move'
+import {fromThisMachine, notThisMachine} from './move'
 import {isPostgres} from './postgres'
 
 /** `on` false: no backups. `folder`: where they go instead of NUXT_BACKUP_DIR. */
@@ -73,7 +73,7 @@ export function saveBackupChoice(choice: BackupChoice) {
 export async function maySetBackups(event: H3Event) {
     const actor = await actorOf(event)
     if (!actor.owner) throw forbidden('Only the owner sets the backups; send Orrery-Actor: <owner>')
-    if (!fromThisMachine(event)) throw forbidden('The backups are set from the machine Orrery runs on: open it at localhost')
+    if (!fromThisMachine(event)) throw forbidden(notThisMachine('The backups are set'))
     if (!backupChoiceFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the backups are set as Orrery starts: ORRERY_BACKUP (NUXT_BACKUP_DIR)')
 }
 

@@ -339,12 +339,12 @@ was moved there from App settings. `POST /backups` (the owner's) backs it up now
 a backup folder. `backups_settable` is what App settings can change about backups: `folder` (whether they run, and
 where) or `switch` (only whether, in Docker); left out when `ORRERY_DATABASE` names Postgres. `backups_off` says the
 owner turned them off, `backup_folder` the folder they chose (kept while off), and `backup_default` `NUXT_BACKUP_DIR`.
-`PUT /backups {on, folder?}` (the owner's, from localhost, 403 from any other address) sets them: `folder` a full path
+`PUT /backups {on, folder?}` (the owner's, from this machine, 403 from any other, and in Docker while `ORRERY_HOST` opens it to the network) sets them: `folder` a full path
 instead of `NUXT_BACKUP_DIR`, `null` or none back to it. Turned on, it's backed up there at once, and kept only if that
 worked (400 when it can't be, or the folder holds the database); 409 for a folder in Docker, on with nowhere to go, or
 when `ORRERY_DATABASE` names Postgres. → `database`.
 
-The owner moves it from localhost (403 from any other address): `POST /database/check {kind: "sqlite", path}` or
+The owner moves it from this machine (403 from any other, judged by where the connection comes from, not its `Host`; in Docker, 403 while `ORRERY_HOST` opens it to the network): `POST /database/check {kind: "sqlite", path}` or
 `{kind: "postgres", url}` says what's there without changing it, `{kind, where, state, projects?}`, `state` `empty`,
 `orrery` (an Orrery's own, with its `projects`), `current` (the one it runs on) or `other` (something else's tables);
 400 when it can't be reached. A `path` without a leading `/` is in the data folder. `POST /database/move {kind, path |
