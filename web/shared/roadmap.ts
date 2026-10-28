@@ -37,14 +37,13 @@ export type Column = string
 export type Place = Kind | 'proposed'
 
 /** Where a proposal stands: waiting on the owner (`pending`), or as they decided. */
-export const PROPOSALS = ['pending', 'approved', 'changes', 'rejected'] as const
-export type Proposal = (typeof PROPOSALS)[number]
+export type Proposal = 'pending' | 'approved' | 'changes' | 'rejected'
 /** What the owner can decide on a proposal. */
 export const DECISIONS = ['approved', 'changes', 'rejected'] as const
 export type Decision = (typeof DECISIONS)[number]
 
 /** One option of a choice: `A`, `B`, … or a word, with a title and (Markdown) more about it. */
-export interface ChoiceOption {
+interface ChoiceOption {
     key: string
     title: string
     body?: string
@@ -275,8 +274,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'external', 'notes', 'chunk', 'parent', 'proposal', 'project', 'release'] as const
-export type ActivityField = (typeof ACTIVITY_FIELDS)[number]
+export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */

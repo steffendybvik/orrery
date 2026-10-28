@@ -99,7 +99,7 @@ export function until(iso: string): string {
 }
 
 /** An event schedule's trigger in words: the common one's label (its "to" said), else the pattern. */
-export function describeEvent(on: string, filter: OnFilter = {}): string {
+function describeEvent(on: string, filter: OnFilter = {}): string {
     const common = COMMON_EVENTS.find(e => e.type === on)
     const label = common ? common.label : `On ${on}`
     const to = filter.to ? (on === 'issue.status' ? ` ${filter.to}` : ` → ${filter.to}`) : ''

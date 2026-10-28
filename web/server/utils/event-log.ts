@@ -49,7 +49,7 @@ const DAY = 24 * 60 * 60 * 1000
 export const KEEP_INFO = 7 * DAY
 export const KEEP_PROBLEMS = 30 * DAY
 /** The most rows kept, the oldest going first. */
-export const MAX_ROWS = 5000
+const MAX_ROWS = 5000
 /** How often (in rows written) old ones are pruned, besides on start. */
 const PRUNE_EVERY = 200
 const MESSAGE = 1000

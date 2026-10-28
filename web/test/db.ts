@@ -7,7 +7,7 @@ import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
 
-export const onPostgres = !!process.env.TEST_POSTGRES_URL
+const onPostgres = !!process.env.TEST_POSTGRES_URL
 
 const open: PostgresDb[] = []
 afterEach(async () => {

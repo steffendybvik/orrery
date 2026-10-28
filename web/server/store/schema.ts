@@ -89,7 +89,7 @@ export interface IssueFilter {
     q?: string
 }
 
-export interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
+interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 export interface ProjectRow extends Made {
     id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
     focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
