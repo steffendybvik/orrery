@@ -297,7 +297,10 @@ export class Schedules {
                 row.id, now.toISOString(), outcome, issue, note, event?.subject ?? null)
             this.onChange(row.project)
             const run = {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined, ...event?.subject ? {subject: event.subject} : {}}
-            this.onRan(row, run, manual)
+            // What came of it is told outside the run, so other schedules hear it (an alert on `*.failed`); not when
+            // another run's outcome set this one off, so outcomes can't set each other off without end.
+            if (event?.type.startsWith('schedule.')) this.onRan(row, run, manual)
+            else scheduleRunning.exit(() => this.onRan(row, run, manual))
             return run
         }
         const actor: Actor = {name: row.created_by, owner: !!row.owned}
