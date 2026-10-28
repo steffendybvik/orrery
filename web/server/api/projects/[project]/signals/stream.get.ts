@@ -11,7 +11,9 @@ export default defineEventHandler(async event => {
     // An `after` of 0 is a catch-up too: from a project's first signal, as a session started for it asks.
     const from = query.after ?? getHeader(event, 'last-event-id')
     const text = (key: string) => typeof query[key] === 'string' && query[key] ? String(query[key]) : undefined
-    const feed = await openFeed(project, listenerOf(text), from !== undefined ? Number(from) || 0 : undefined, getRequestURL(event).origin)
+    const who = listenerOf(text)
+    const feed = await openFeed(project, who, from !== undefined ? Number(from) || 0 : undefined, getRequestURL(event).origin)
+    const left = noteChannel([project], false, who, () => feed.attended?.id)
 
     if (query.format === 'text') {
         const line = async (signal: Signal) => {
@@ -34,7 +36,10 @@ export default defineEventHandler(async event => {
                 feed.close()
             },
         })
-        event.node.req.on('close', () => feed.close())
+        event.node.req.on('close', () => {
+            feed.close()
+            left()
+        })
         setResponseHeaders(event, {'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache'})
         return sendStream(event, stream.pipeThrough(new TextEncoderStream()))
     }
@@ -52,6 +57,7 @@ export default defineEventHandler(async event => {
         unnamed()
         projectEvents.off('session-stop', stopped)
         feed.close()
+        left()
         await stream.close()
     })
     stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
