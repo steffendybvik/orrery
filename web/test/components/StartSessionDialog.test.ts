@@ -69,6 +69,13 @@ async function mount(on: string | null) {
     return {wrapper, row, submit}
 }
 
+/** Waits for `n` starts and the dialog closing after them: it closes once its own requests come back, which can be
+ * after the stub has them, and a close landing in the next test would shut that test's dialog before it shows. */
+async function started(n: number) {
+    await vi.waitFor(() => expect(sent).toHaveLength(n))
+    await vi.waitFor(() => expect(useStartSession().target.value).toBeNull())
+}
+
 describe('StartSessionDialog', () => {
     it("says why a project can't start a session now", async () => {
         const {row, wrapper} = await mount(null)
@@ -94,14 +101,14 @@ describe('StartSessionDialog', () => {
         await vi.waitFor(() => expect(wrapper.findAll('[aria-label="Presets"] button')).toHaveLength(3))
         for (const button of wrapper.findAll('[aria-label="Presets"] button')) await button.trigger('click')
         await wrapper.find('textarea').setValue('  Run the e2e suite  ')
+        // Greenhouse and Pantry are in repos of their own, so there's no starting one session for both.
+        expect(wrapper.text()).not.toContain('One session for all')
         await wrapper.find('form').trigger('submit')
-        await vi.waitFor(() => expect(sent).toHaveLength(2))
+        await started(2)
         expect(sent.map(s => [s.project, s.body])).toEqual([
             ['greenhouse', {statuses: ['todo', 'in-progress'], presets: [1, 11], instructions: 'Run the e2e suite', hears: ['greenhouse']}],
             ['pantry', {statuses: ['todo', 'in-progress'], presets: [1, 12], instructions: 'Run the e2e suite', hears: ['pantry']}],
         ])
-        // Greenhouse and Pantry are in repos of their own, so there's no starting one session for both.
-        expect(wrapper.text()).not.toContain('One session for all')
     })
 
     it('starts one session hearing projects served from one repo, or a session each', async () => {
@@ -110,7 +117,7 @@ describe('StartSessionDialog', () => {
         await vi.waitFor(() => expect(wrapper.text()).toContain('One session for all 2'))
         expect(wrapper.text()).toContain('one session hearing them all')
         await wrapper.find('form').trigger('submit')
-        await vi.waitFor(() => expect(sent).toHaveLength(1))
+        await started(1)
         expect(sent[0]).toMatchObject({project: 'greenhouse', body: {hears: ['greenhouse', 'scullery']}})
 
         sent = []
@@ -119,7 +126,7 @@ describe('StartSessionDialog', () => {
         await vi.waitFor(() => expect(again.text()).toContain('One session for all 2'))
         await again.findAll('[role=radio]').find(b => b.text() === 'A session each')!.trigger('click')
         await again.find('form').trigger('submit')
-        await vi.waitFor(() => expect(sent).toHaveLength(2))
+        await started(2)
         expect(sent.map(s => [s.project, (s.body as {hears: string[]}).hears])).toEqual([['greenhouse', ['greenhouse']], ['scullery', ['scullery']]])
     })
 
@@ -142,7 +149,7 @@ describe('StartSessionDialog', () => {
             await wrapper.find('textarea').setValue('Triage what came in overnight')
             expect(submit().attributes('disabled')).toBeUndefined()
             await wrapper.find('form').trigger('submit')
-            await vi.waitFor(() => expect(sent).toHaveLength(1))
+            await started(1)
             // No `hears`, so it hears what the channel serves, and no scope: nothing was ticked to work through.
             expect(sent[0]).toEqual({project: 'scullery', actor: 'skoll', body: {presets: [1], instructions: 'Triage what came in overnight'}})
         } finally {
