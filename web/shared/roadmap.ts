@@ -546,7 +546,7 @@ export function trackerLinkOf(sent: string): string | null {
     return null
 }
 
-/** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-steffendybvik: DOC-132`. */
+/** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-ada: DOC-132`. */
 export const issueRef = (handle: string, id: string) => `orrery-${handle.toLowerCase()}: ${id}`
 
 /** What a Claude session is doing, as its hooks last said: `waiting` is waiting on the owner. */

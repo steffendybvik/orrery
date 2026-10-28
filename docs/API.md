@@ -112,7 +112,7 @@ until the release ships.
   `tracker` (`PATCH /settings {tracker}`, a task's web address with `{id}` where its id goes) links an id;
   `?external=ENG-1567` finds the issues linked to a task
 - `ref` (read only, on `GET …/issues` and `GET …/issues/:issue`): what says whose board the issue is on,
-  `orrery-<handle>: <id>` (`orrery-steffendybvik: DOC-132`), from the Orrery's `handle` (see [For agents](#for-agents))
+  `orrery-<handle>: <id>` (`orrery-ada: DOC-132`), from the Orrery's `handle` (see [For agents](#for-agents))
 
 ### Proposals
 
@@ -522,7 +522,7 @@ other sessions. Two sessions starting the same issue at once are taken one after
 gets it.
 
 An issue id is only unique within its Orrery, and an Orrery is one person's board. So when a commit body
-or PR description names an issue, write its `ref` (`orrery-steffendybvik: DOC-132`) as a trailer on a
+or PR description names an issue, write its `ref` (`orrery-ada: DOC-132`) as a trailer on a
 line of its own, never a bare id, and never in a title or branch name. The team's tracker
 stays the source of truth: its id goes in that repo's own trailer (`Part of ENG-1567`), and in the issue's
 `external`, so the board knows which team task the issue serves. A PR description also links the issue's
