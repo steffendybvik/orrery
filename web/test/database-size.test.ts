@@ -28,6 +28,10 @@ describe("the database's size", () => {
         const answers = (size: unknown) => ({get: async () => size instanceof Error ? Promise.reject(size) : {size}}) as unknown as Db
         expect(await databaseSize({kind: 'postgres', where: 'u@h/orrery'}, answers('8331935'))).toEqual({size: 8331935})
         expect(await databaseSize({kind: 'postgres', where: 'u@h/orrery'}, answers(new Error('permission denied')))).toEqual({})
+        // Its backups go to a folder on this machine, as SQLite's do.
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-size-'))
+        writeFileSync(join(dir, 'orrery-1.db'), Buffer.alloc(300))
+        expect(await databaseSize({kind: 'postgres', where: 'u@h/orrery', backup: dir}, answers('8331935'))).toEqual({size: 8331935, backup_size: 300})
     })
 
     it('reads as people read sizes', () => {

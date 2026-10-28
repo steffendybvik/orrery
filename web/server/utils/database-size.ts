@@ -7,18 +7,24 @@ import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
 
 export async function databaseSize(info: DatabaseInfo, db: Db): Promise<{size?: number, backup_size?: number}> {
-    if (info.kind === 'postgres') {
-        try {
-            const row = await db.get<{size: string | number}>('SELECT pg_database_size(current_database()) AS size')
-            const size = Number(row?.size)
-            return Number.isFinite(size) ? {size} : {}
-        } catch {
-            return {}
-        }
-    }
-    const size = fileSize(info.where)
+    const size = info.kind === 'postgres' ? await postgresSize(db) : sqliteSize(info.where)
     const backup = info.backup ? folderSize(info.backup) : undefined
-    return {...size === undefined ? {} : {size: size + (fileSize(`${info.where}-wal`) ?? 0)}, ...backup === undefined ? {} : {backup_size: backup}}
+    return {...size === undefined ? {} : {size}, ...backup === undefined ? {} : {backup_size: backup}}
+}
+
+async function postgresSize(db: Db): Promise<number | undefined> {
+    try {
+        const row = await db.get<{size: string | number}>('SELECT pg_database_size(current_database()) AS size')
+        const size = Number(row?.size)
+        return Number.isFinite(size) ? size : undefined
+    } catch {
+        return undefined
+    }
+}
+
+function sqliteSize(where: string): number | undefined {
+    const size = fileSize(where)
+    return size === undefined ? undefined : size + (fileSize(`${where}-wal`) ?? 0)
 }
 
 function fileSize(path: string): number | undefined {
