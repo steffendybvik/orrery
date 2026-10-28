@@ -93,7 +93,7 @@ under Back up this orrery, with its URL (**Back up there** backs up into it at o
 orrery starts. It's copied the way a move copies, a minute after a change, and each backup takes the place of the last
 in one go, so a backup that fails leaves the one before whole; there are no daily copies. It has to be an empty database
 or this orrery's backup from before: orrery marks it as its backup (`backup_of` in its settings) and won't write into
-one holding another orrery, or into the one it runs on. Its password is kept in `orrery.db.backups.json`, readable by
+one holding another orrery, or any other tables (it checks before it lays its own down), or into the one it runs on. Its password is kept in `orrery.db.backups.json`, readable by
 you alone, and never shown or logged. To restore, run on it: **Move to another database…**, then run on it as it is, or
 `ORRERY_DATABASE`.
 

@@ -498,7 +498,7 @@ async function pick(tint: string | null) {
           <p class="text-xs text-faint">
             <template v-if="backupKind === 'postgres'">
               An empty Postgres database, or this orrery's backup from before: each backup takes the place of the last, and a database
-              holding another orrery is left alone. To restore, run on it (Move to another database…, then run on it as it is).
+              holding another orrery, or anything else, is left alone. To restore, run on it (Move to another database…, then run on it as it is).
             </template>
             <template v-else-if="settings.database.backups_settable === 'folder'">A folder that syncs off this machine is best. Turned on, it's backed up there at once.</template>
             <template v-else-if="settings.database.backup_local">
