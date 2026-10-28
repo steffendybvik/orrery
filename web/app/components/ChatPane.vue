@@ -25,10 +25,11 @@ const options = computed(() => projects.value.map(p => ({value: p.id, label: p.n
 const state = computed(() => {
     if (!chat.value) return ''
     if (chat.value.ended) return 'Ended'
+    if (!session.value && chat.value.problem) return "Its session can't start"
     if (!session.value) return 'Starting the session…'
     return {working: 'Thinking…', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
 })
-const thinking = computed(() => !!chat.value && !chat.value.ended && (!session.value || session.value.state === 'working')
+const thinking = computed(() => !!chat.value && !chat.value.ended && !chat.value.problem && (!session.value || session.value.state === 'working')
     && chat.value.messages.at(-1)?.from === 'owner')
 
 // The newest in sight as it comes.
@@ -135,6 +136,7 @@ function onPaste(event: ClipboardEvent) {
           <MarkdownView v-else-if="m.text" :source="m.text" class="max-w-full text-[13px]" />
         </li>
         <li v-if="thinking" class="text-xs text-faint" aria-live="polite">Thinking…</li>
+        <li v-if="!session && chat.problem && !chat.ended" class="text-xs text-rose-600 dark:text-rose-400" role="alert">{{ chat.problem }}</li>
         <li v-if="chat.ended" class="text-xs text-faint">This chat has ended.</li>
       </ol>
 

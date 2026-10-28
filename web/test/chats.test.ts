@@ -57,6 +57,18 @@ describe("the owner's chat", () => {
         expect(messages).toEqual([])
     })
 
+    it("says why its session can't start, and stops once it can", async () => {
+        await chats.openChat('greenhouse')
+        chats.chatProblem('c1c2c3c4c5c6', 'Restart the launcher.')
+        expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6', problem: 'Restart the launcher.'})
+        // Said once: the same again changes nothing.
+        chats.chatProblem('c1c2c3c4c5c6', 'Restart the launcher.')
+        expect(changes).toHaveLength(2)
+        chats.chatProblem('c1c2c3c4c5c6', null)
+        expect(chats.chatOf('c1c2c3c4c5c6').problem).toBeUndefined()
+        expect(changes).toHaveLength(3)
+    })
+
     it('ends when the owner ends it: its session is stopped and the chat goes, saying so', async () => {
         await chats.openChat('greenhouse')
         chats.endChat('c1c2c3c4c5c6')

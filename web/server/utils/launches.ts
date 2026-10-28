@@ -242,15 +242,32 @@ async function allowedStarts(project: string): Promise<Starts | null> {
  * either with every tool. */
 export function claim(project: string, id: string, locksDown = false, chats = false): boolean {
     const launch = pending.get(id)
-    if (!launch || launch.project !== project || launch.claimed || launch.untrusted && !locksDown || launch.chat && !chats) return false
+    if (!launch || launch.project !== project || launch.claimed) return false
+    if (launch.untrusted && !locksDown || launch.chat && !chats) {
+        outdated(project, id, launch.chat ? 'a chat' : "an untrusted schedule's session")
+        return false
+    }
     launch.claimed = true
     return true
+}
+
+/** A launcher whose code is older than the launch it was offered (it doesn't say it can lock a session down, or start
+ * a chat) was refused it, and nothing else will start it until that launcher restarts on the new code (ORR-383).
+ * Said once a launch: as a warning in the event log, and on the chat, so it doesn't sit at "Starting the session…". */
+const told = new Set<string>()
+function outdated(project: string, id: string, what: string) {
+    if (told.has(id)) return
+    told.add(id)
+    const message = `A launcher on ${project} is running code from before Orrery could start ${what}, so it was refused it. Restart the launcher to start it (it runs the channel folder's code when it starts).`
+    useEventLog().note({level: 'warn', kind: 'launcher.outdated', project, message})
+    chatProblem(id, message)
 }
 
 /** The launch's session connected: it counts as a started session from now on. Says what it was started as. */
 export function launched(id: string): StartedSession | undefined {
     const launch = pending.get(id)
     pending.delete(id)
+    if (told.delete(id)) chatProblem(id, null)
     if (launch) return {launch: id, tmux: launch.tmux, ...launch.minutes ? {stops_at: new Date(Date.now() + launch.minutes * 60_000).toISOString()} : {}, ...launch.context ? {context: launch.context} : {}, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}}
     const known = reported.get(id)
     return known && {launch: id, tmux: known.tmux, ...known.stops_at ? {stops_at: known.stops_at} : {}, ...known.context ? {context: known.context} : {}, ...known.untrusted ? {untrusted: true} : {}, ...known.chat ? {chat: true} : {}}
