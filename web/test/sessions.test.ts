@@ -129,6 +129,12 @@ describe('a session', () => {
         expect(sessions.currentId('launch-l8')).toBe('launch-l8')
     })
 
+    it("started for the owner's chat, holds no place among those Orrery started", () => {
+        sessions.attend('greenhouse', 'chat', undefined, undefined, true, {launch: 'c1', tmux: 'orrery-greenhouse-c1', chat: true})
+        expect(sessions.chatSession('chat')).toBe(true)
+        expect([sessions.startedSessions('greenhouse'), sessions.startedSessions()]).toEqual([0, 0])
+    })
+
     it('started by Orrery says which launch, and counts as one it started while its channel is there', () => {
         const launch = (id: string) => ({launch: id, tmux: `orrery-greenhouse-${id}`, stops_at: '2026-10-25T11:00:00.000Z'})
         const a = sessions.attend('greenhouse', 'a', undefined, undefined, true, launch('l1'))

@@ -34,6 +34,7 @@ beforeEach(async () => {
     vi.stubGlobal('actorOf', async () => ({name: 'claude', owner: false}))
     vi.stubGlobal('created', (_event: Event, value: unknown) => value)
     vi.stubGlobal('untrustedSession', (id: string) => id === 'locked')
+    vi.stubGlobal('chatSession', (id: string) => id === 'chat')
     vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
     vi.resetModules()
     const {workedOn, claimFor} = await import('../server/utils/actor')
@@ -45,6 +46,9 @@ beforeEach(async () => {
     vi.stubGlobal('asProposal', asProposal)
     vi.stubGlobal('untrustedWrite', untrustedWrite)
     vi.stubGlobal('EXTERNAL', EXTERNAL)
+    const {asChatIssue, chatWrite} = await import('../server/utils/chats')
+    vi.stubGlobal('asChatIssue', asChatIssue)
+    vi.stubGlobal('chatWrite', chatWrite)
 })
 
 afterEach(() => vi.unstubAllGlobals())

@@ -37,6 +37,10 @@ the database schema are the public surface, and a database always migrates forwa
   well like the session message box. Presets lead Sessions → Setup. A running session's message box can send one,
   tweaked or not, and it's listed by its name. Sessions can read presets (`presets` and `preset` tools) but not
   write them.
+- **Chat:** a Chat button in the corner of every page (and in ⌘K) starts a session to talk to on the page, with no
+  terminal. It answers from the project's code, roadmap and docs, and makes issues and comments when asked; it works
+  on nothing, reads only, and its writes are held to that. Paste or drop an image to show it. It counts towards no
+  session limit, isn't listed with the sessions and runs until **End chat**. Launchers need restarting to start one.
 - **Agents' proposals wait on you:** an agent's pending proposal reads `waiting: "decision"`, with the violet chip
   and tint on the list, the board and My issues, and sits under *Waiting on you* until it's decided.
 - **Start a session on every project:** in Start session, with no project ticked, Orrery starts one session that

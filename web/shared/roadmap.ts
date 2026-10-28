@@ -546,6 +546,25 @@ export interface SessionWork {
     signals: Signal[]
 }
 
+/** The owner's chat with a session started for it (chats.ts): its id is its launch's. `ended` on the last word of one
+ * that's gone. */
+export interface Chat {
+    id: string
+    project: string
+    started_at: string
+    messages: ChatMessage[]
+    ended?: boolean
+}
+
+/** A message in a chat: the owner's (with the ids of the uploads they pasted) or the session's answer, in Markdown. */
+export interface ChatMessage {
+    id: number
+    from: 'owner' | 'claude'
+    text: string
+    images: string[]
+    at: string
+}
+
 /** A session Orrery started, as its launch made it. */
 export interface StartedSession {
     launch: string
@@ -557,6 +576,9 @@ export interface StartedSession {
     /** Started for an untrusted schedule's run: it reads what others wrote, so it hears only that run's message,
      * has only `gh issue list/view` and the Orrery tools, and what it raises is a proposal. */
     untrusted?: boolean
+    /** Started for the owner's chat: it hears only the chat's messages, reads and answers, and makes issues and
+     * comments when asked; nothing else. */
+    chat?: boolean
 }
 
 /** More context for a session, from the owner as they start it: the presets they picked (by name) and their own

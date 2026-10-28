@@ -1,0 +1,110 @@
+import {EventEmitter} from 'node:events'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import type {Chat} from '#shared/roadmap'
+
+// The owner's chats live in the module, with Nitro's auto-imports stubbed: its launch, and the message to its session.
+let chats: typeof import('../server/utils/chats')
+let changes: Chat[]
+let messages: {project: string, target: string, text: string}[]
+let stopped: string[]
+
+beforeEach(async () => {
+    changes = []
+    messages = []
+    stopped = []
+    const events = new EventEmitter()
+    events.on('chat', chat => changes.push(chat))
+    vi.stubGlobal('projectEvents', events)
+    vi.stubGlobal('startChat', async (project: string, context: {text: string}) => ({id: 'c1c2c3c4c5c6', project, context}))
+    vi.stubGlobal('launchTarget', (id: string) => `launch-${id}`)
+    vi.stubGlobal('endLaunch', (_project: string, id: string) => stopped.push(id))
+    vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text})}))
+    vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
+    vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+    vi.resetModules()
+    chats = await import('../server/utils/chats')
+})
+
+afterEach(() => vi.unstubAllGlobals())
+
+const owner = {name: 'skoll', owner: true}
+const image = 'e961abaa8718ef8efe55380b'
+
+describe("the owner's chat", () => {
+    it('starts with its session on its way, and nothing said yet', async () => {
+        const chat = await chats.openChat('greenhouse')
+        expect(chat).toMatchObject({id: 'c1c2c3c4c5c6', project: 'greenhouse', messages: []})
+        expect(chats.listChats()).toEqual([chat])
+        expect(changes).toHaveLength(1)
+    })
+
+    it("sends the owner's words, and the images pasted with them, to its session alone, and keeps the answer", async () => {
+        await chats.openChat('greenhouse')
+        await chats.say('c1c2c3c4c5c6', '  What is GRE-4 about?  ', [image], owner)
+        expect(messages).toEqual([{project: 'greenhouse', target: 'launch-c1c2c3c4c5c6', text: `What is GRE-4 about?\n\n(An image pasted with this: ${image}. Look with the image tool.)`}])
+        chats.reply('c1c2c3c4c5c6', 'It moves the shelves.')
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.map(m => [m.from, m.text, m.images])).toEqual([
+            ['owner', 'What is GRE-4 about?', [image]],
+            ['claude', 'It moves the shelves.', []],
+        ])
+    })
+
+    it('refuses an empty message, an image that is no upload, and an empty answer', async () => {
+        await chats.openChat('greenhouse')
+        await expect(chats.say('c1c2c3c4c5c6', ' ', [], owner)).rejects.toMatchObject({statusCode: 400})
+        await expect(chats.say('c1c2c3c4c5c6', 'Look', ['../etc/passwd'], owner)).rejects.toMatchObject({statusCode: 400})
+        expect(() => chats.reply('c1c2c3c4c5c6', '')).toThrow(/Send the answer/)
+        expect(messages).toEqual([])
+    })
+
+    it('ends when the owner ends it: its session is stopped and the chat goes, saying so', async () => {
+        await chats.openChat('greenhouse')
+        chats.endChat('c1c2c3c4c5c6')
+        expect(stopped).toEqual(['c1c2c3c4c5c6'])
+        expect(chats.listChats()).toEqual([])
+        expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6', ended: true})
+        expect(() => chats.chatOf('c1c2c3c4c5c6')).toThrow(/has ended/)
+        await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
+    })
+
+    it('makes what its session asks for with nobody on it, in the status new issues start in', () => {
+        expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', chunk: '3'}))
+            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3'})
+    })
+})
+
+describe("a chat session's writes", () => {
+    type Event = {method: string, path: string, headers: Record<string, string>}
+    let guard: (event: Event) => void
+
+    beforeEach(async () => {
+        vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
+        vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
+        vi.stubGlobal('chatSession', () => false)
+        vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        vi.resetModules()
+        guard = (await import('../server/middleware/chat')).default as unknown as typeof guard
+    })
+
+    const refused = (method: string, path: string, chat = true) => {
+        try {
+            guard({method, path, headers: chat ? {'orrery-chat': 'yes'} : {}})
+        } catch (error) {
+            return (error as {statusCode: number}).statusCode
+        }
+    }
+
+    it('make issues, comment and answer in the chat, and read anything; nothing else', () => {
+        expect(refused('POST', '/api/projects/greenhouse/issues')).toBeUndefined()
+        expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/comments')).toBeUndefined()
+        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/replies')).toBeUndefined()
+        expect(refused('GET', '/api/projects/greenhouse/docs')).toBeUndefined()
+        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBe(403)
+        expect(refused('PUT', '/api/projects/greenhouse/docs/shelving')).toBe(403)
+        expect(refused('POST', '/api/egress')).toBe(403)
+        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)
+        // Anyone else's go on to their own checks.
+        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4', false)).toBeUndefined()
+    })
+})

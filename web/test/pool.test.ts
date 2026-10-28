@@ -12,6 +12,7 @@ beforeEach(async () => {
     spans = {}
     vi.stubGlobal('currentId', (id: string) => id === 'old' ? 'a' : id)
     vi.stubGlobal('untrustedSession', (id: string) => id === 'locked')
+    vi.stubGlobal('chatSession', (id: string) => id === 'chat')
     vi.stubGlobal('sessionNow', (id: string) => states[id] ? {state: states[id], ...spans[id] ? {also: spans[id]} : {}} : undefined)
     vi.stubGlobal('listSessions', () => Object.keys(states).map(id => ({id, project: 'greenhouse', state: states[id], listening: true, ...spans[id] ? {also: spans[id]} : {}})))
     vi.resetModules()
@@ -77,6 +78,11 @@ describe('a signal', () => {
 
     it("is for an untrusted schedule's session only when aimed at it", () => {
         expect([pool.aimedAt(signal(1), 'locked'), pool.aimedAt(signal(1, {target: '*'}), 'locked'), pool.aimedAt(signal(1, {target: 'locked'}), 'locked')])
+            .toEqual([false, false, true])
+    })
+
+    it("is for the owner's chat only when aimed at it", () => {
+        expect([pool.aimedAt(signal(1), 'chat'), pool.aimedAt(signal(1, {target: '*'}), 'chat'), pool.aimedAt(signal(1, {target: 'chat'}), 'chat')])
             .toEqual([false, false, true])
     })
 })

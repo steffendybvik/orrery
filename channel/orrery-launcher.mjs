@@ -16,7 +16,8 @@
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
 // this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt; an untrusted schedule's session
-// locked down instead, see `lockedDown`), and runs until Orrery asks
+// locked down instead, see `lockedDown`, and the owner's chat able only to read and answer, see `chatOnly`), and runs
+// until Orrery asks
 // for it to be stopped: the owner stopping it, or, once it's idle with nothing open, its time being up or its having
 // sat idle too long (when the project sets those). Between pieces of work Orrery has it `/clear`ed, for a
 // fresh context. With several launchers on a project, the first
@@ -31,7 +32,7 @@ import {mkdirSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {adoptable, configFile, install, readConfig, uninstall} from './launcher-service.mjs'
-import {lockedDown} from './locked-down.mjs'
+import {chatOnly, lockedDown} from './locked-down.mjs'
 import {channelFor, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
@@ -218,8 +219,10 @@ function keepStopTime(id, stopsAt) {
     }
 }
 
-/** And that it's an untrusted schedule's session, locked down, for Orrery to keep holding it to that after a restart. */
+/** And that it's an untrusted schedule's session, locked down, for Orrery to keep holding it to that after a restart;
+ * or the owner's chat, the same way. */
 const UNTRUSTED = '@orrery_untrusted'
+const CHAT = '@orrery_chat'
 
 /** The tmux session a launch on the project runs in, as Orrery names it. */
 const tmuxName = (project, id) => `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')
@@ -277,6 +280,11 @@ function adopt(project, api) {
         } catch {
             // An ordinary session.
         }
+        try {
+            if (tmux('show-options', '-v', '-t', name, CHAT) === 'yes') running.get(id).chat = true
+        } catch {
+            // Not a chat.
+        }
         log(`took back ${name}, running ${stopsAt === NEVER ? 'until stopped' : `until ${new Date(stopsAt).toLocaleTimeString()}`}`)
     }
 }
@@ -284,7 +292,7 @@ function adopt(project, api) {
 /** Tells the project's Orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
     const launches = [...running.entries()].filter(([, s]) => s.api === api)
-        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}}))
+        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
@@ -312,21 +320,23 @@ function serve({url, project, dir}) {
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        // It says it locks an untrusted launch down: Orrery gives one only to a launcher that does.
-        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=yes`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
+        // It says it locks an untrusted launch down, and starts a chat able only to read and answer: Orrery gives either
+        // only to a launcher that does.
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=yes&chat=yes`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so Orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}}
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : ['--permission-mode', mode])
+            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode])
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
-        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}})
+        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}})
         if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
         if (launch.untrusted) tmux('set-option', '-t', launch.tmux, UNTRUSTED, 'yes')
+        if (launch.chat) tmux('set-option', '-t', launch.tmux, CHAT, 'yes')
         keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)
-        log(`started ${launch.tmux}${launch.untrusted ? ' locked down, for an untrusted schedule,' : ''} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
+        log(`started ${launch.tmux}${launch.untrusted ? ' locked down, for an untrusted schedule,' : launch.chat ? ' for a chat, able only to read and answer,' : ''} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
         getPast(launch.id, dir).catch(error => log(`${launch.tmux}: ${error.message}`))
     }
 

@@ -121,14 +121,30 @@ export const TOOLS = [
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
+/** What the owner's chat session has besides: answering in the chat, and seeing what the owner pasted in it. */
+export const CHAT_TOOLS = [
+    {
+        name: 'reply',
+        description: "Answers the owner in the chat, in Markdown: the only way what you say reaches them. Say an issue you made by its id.",
+        inputSchema: {type: 'object', required: ['text'], properties: {text: {type: 'string'}}},
+    },
+    {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
+]
+
+/** The tools a chat goes without: those that take up, move or finish work, write docs, reach outside services or deal
+ * with the event log (its launcher refuses them too, `chatOnly`). */
+export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'write_doc', 'egress', 'secrets', 'resolve_event']
+
 /** The tools that work on one project, which take `project` when the server serves several. */
 const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset']
 
-/** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. */
-export function toolsFor(projects) {
-    if (projects.length < 2) return TOOLS
+/** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
+ * (`chat`) are its own. */
+export function toolsFor(projects, {chat = false} = {}) {
+    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS] : TOOLS
+    if (projects.length < 2) return tools
     const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}`}
-    return TOOLS.map(tool => SCOPED.includes(tool.name)
+    return tools.map(tool => SCOPED.includes(tool.name)
         ? {...tool, inputSchema: {...tool.inputSchema, required: ['project', ...tool.inputSchema.required ?? []], properties: {project, ...tool.inputSchema.properties}}}
         : tool.name === 'egress'
             ? {...tool, inputSchema: {...tool.inputSchema, properties: {...tool.inputSchema.properties, project: {...project, description: `Which project it's for, when no issue says: ${projects.join(', ')}`}}}}
@@ -137,9 +153,11 @@ export function toolsFor(projects) {
 
 /** The tools against an Orrery's API, writing as `claude` from `session`: on one project's (`api`,
  * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). `untrusted` for an untrusted
- * schedule's session, which says so on every call. */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, fetch = globalThis.fetch}) {
-    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {}}
+ * schedule's session, which says so on every call; `chat`, the launch of the owner's chat this session is for, the
+ * same way. */
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch}) {
+    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
+        ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
         const response = await fetch(`${base}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})
         const text = await response.text()
@@ -264,6 +282,17 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const event = await call('POST', `/events/log/${encodeURIComponent(id)}/resolve`, undefined, root)
             return `Resolved #${event.id} ${event.kind}: ${event.message}`
         },
+        async reply({text}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/replies`, {text}, root)
+            return 'Sent.'
+        },
+        async image({id}) {
+            if (!/^[0-9a-f]{24}$/.test(String(id))) throw new Error(`${id} isn't an upload's id`)
+            const response = await fetch(`${root}/uploads/${id}`)
+            if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+            const data = Buffer.from(await response.arrayBuffer()).toString('base64')
+            return {content: [{type: 'image', data, mimeType: response.headers.get('content-type') ?? 'image/png'}]}
+        },
         async egress({project, ...args}) {
             const {status, headers, body, truncated} = await call('POST', '/egress', {...args, project: await projectOf({project, issue: args.issue})}, root)
             return `${status}${headers['content-type'] ? ` (${headers['content-type']})` : ''}\n\n${body}${truncated ? '\n\n(cut at 1 MB)' : ''}`
@@ -272,9 +301,12 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
 
     /** Runs a tool; an MCP result, an error result when Orrery refuses or can't be reached. */
     return async function callTool(name, args = {}) {
-        if (!run[name]) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
+        const chatOnly = CHAT_TOOLS.some(t => t.name === name)
+        if (!run[name] || chatOnly && !chat || chat && NOT_FOR_CHAT.includes(name)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
         try {
-            return {content: [{type: 'text', text: await run[name](args)}]}
+            const result = await run[name](args)
+            // Most answer in text; an image comes as itself.
+            return typeof result === 'string' ? {content: [{type: 'text', text: result}]} : result
         } catch (error) {
             return {isError: true, content: [{type: 'text', text: `Orrery said no: ${error.message}`}]}
         }

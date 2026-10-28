@@ -4,6 +4,7 @@ import type {Signal, Starts} from '#shared/roadmap'
 
 // The launches live in the module, so each test gets a fresh one, with Nitro's auto-imports stubbed.
 let launches: typeof import('../server/utils/launches')
+let chatsEnded: string[]
 let sent: {type: string, project?: string, id?: string, after?: number, minutes?: number, stops_at?: string}[]
 let listeners: number
 let started: {greenhouse: number, all: number}
@@ -41,6 +42,8 @@ beforeEach(async () => {
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stops_at: string) => ({...session, started: {...session!.started!, stops_at}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+    vi.stubGlobal('chatEnded', (id: string) => chatsEnded.push(id))
+    chatsEnded = []
     // A tick for reading the project, as the database gives, so signals can overlap.
     focused = []
     scoped = []
@@ -442,6 +445,66 @@ describe("an untrusted schedule's run", () => {
     it("stays untrusted when a launcher reports it after Orrery restarted", () => {
         launches.reportRunning('greenhouse', [{id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', untrusted: true}])
         expect(launches.launched('a1b2c3d4e5f6')).toMatchObject({untrusted: true})
+    })
+})
+
+describe("the owner's chat", () => {
+    const context = {presets: [], text: 'This session is the owner\'s chat.'}
+
+    it('starts a session of its own, told what it is, until the owner ends it, whatever the project gives sessions', async () => {
+        await expect(launches.startChat('greenhouse', context)).rejects.toMatchObject({statusCode: 409})
+        launches.addLauncher('greenhouse')
+        const launch = await launches.startChat('greenhouse', context)
+        expect(launch).toMatchObject({project: 'greenhouse', after: 41, chat: true, context})
+        expect(launch.minutes).toBeUndefined()
+        expect(launches.launched(launch.id)).toMatchObject({launch: launch.id, chat: true, context})
+    })
+
+    it('counts towards nothing: it starts with starts turned off or the limit full, and takes up no room', async () => {
+        launches.addLauncher('greenhouse')
+        starts = undefined
+        await launches.startChat('greenhouse', context)
+        starts = {limit: 1}
+        started = {greenhouse: 1, all: 1}
+        await launches.startChat('greenhouse', context)
+        expect(launches.launchState('greenhouse')).toMatchObject({starting: 0, total: 1})
+    })
+
+    it('says it stops as a chat, so the log leaves it out', async () => {
+        launches.addLauncher('greenhouse')
+        const launch = await launches.startChat('greenhouse', context)
+        launches.endLaunch('greenhouse', launch.id, true)
+        expect(sent.at(-1)).toEqual({type: 'stop', project: 'greenhouse', id: launch.id, chat: true})
+    })
+
+    it('goes only to a launcher that says it starts chats', async () => {
+        launches.addLauncher('greenhouse')
+        const launch = await launches.startChat('greenhouse', context)
+        expect(launches.claim('greenhouse', launch.id, true)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, true, true)).toBe(true)
+    })
+
+    it("isn't stopped for sitting idle, nor for its time", async () => {
+        starts = {limit: 2, idle_minutes: 1}
+        const now = Date.parse('2026-10-26T15:00:00.000Z')
+        const long = new Date(now - 120 * 60_000).toISOString()
+        vi.stubGlobal('listSessions', () => [{id: 's-chat', project: 'greenhouse', state: 'idle', since: long, started: {launch: 'chat', tmux: 't', chat: true, stops_at: long}}])
+        expect(await launches.stopDue(now)).toEqual([])
+    })
+
+    it('ends, on its way or running, and its chat with it', async () => {
+        launches.addLauncher('greenhouse')
+        const launch = await launches.startChat('greenhouse', context)
+        launches.endLaunch('greenhouse', launch.id)
+        expect(sent.at(-1)).toEqual({type: 'stop', project: 'greenhouse', id: launch.id})
+        expect(launches.claim('greenhouse', launch.id, true, true)).toBe(false)
+        launches.launchGone(launch.id)
+        expect(chatsEnded).toEqual([launch.id])
+    })
+
+    it('stays a chat when a launcher reports it after Orrery restarted', () => {
+        launches.reportRunning('greenhouse', [{id: 'c1c2c3c4c5c6', tmux: 'orrery-greenhouse-c1c2c3c4c5c6', chat: true}])
+        expect(launches.launched('c1c2c3c4c5c6')).toMatchObject({chat: true})
     })
 })
 

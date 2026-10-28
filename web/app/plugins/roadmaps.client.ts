@@ -1,10 +1,10 @@
-import type {Issue, LoggedEvent, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
+import type {Chat, Issue, LoggedEvent, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
 
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
-// project in place, without a reload. After a dropped connection it loads them all again, and the secrets; one
+// project in place, without a reload (and the owner's chats, as they change). After a dropped connection it loads them all again, and the secrets; one
 // the browser gave up on (refused while the server restarted) it opens again itself.
 export default defineNuxtPlugin(() => {
-    const {projects, ready, live, changed, listeners, launchers, sessions, signals} = useRoadmaps()
+    const {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals} = useRoadmaps()
 
     async function load() {
         const app = useAppSettings()
@@ -16,11 +16,13 @@ export default defineNuxtPlugin(() => {
         useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
         await useLoggedEvents().loadNew()
         await useSchedules().load()
+        await useChat().fetchChats()
         const all = await $fetch<Session[]>('/api/sessions').catch(() => [])
         // Under each project it's on, as the `sessions` event lists them: its own and the others its channel hears.
         const grouped: Record<string, Session[]> = {}
         for (const s of all) for (const p of [s.project, ...s.also ?? []]) (grouped[p] ??= []).push(s)
-        sessions.value = grouped
+        sessions.value = Object.fromEntries(Object.entries(grouped).map(([p, list]) => [p, list.filter(s => !s.started?.chat)]))
+        chatSessions.value = Object.fromEntries(Object.entries(grouped).map(([p, list]) => [p, list.filter(s => s.started?.chat)]))
     }
 
     /** The issues whose `updated_at` moved, so their rows can flash. */
@@ -80,7 +82,9 @@ export default defineNuxtPlugin(() => {
         })
         events.addEventListener('sessions', event => {
             const {project, sessions: now} = JSON.parse((event as MessageEvent).data) as {project: string, sessions: Session[]}
-            sessions.value = {...sessions.value, [project]: now}
+            // The owner's chats apart, as they're not listed with the rest.
+            sessions.value = {...sessions.value, [project]: now.filter(s => !s.started?.chat)}
+            chatSessions.value = {...chatSessions.value, [project]: now.filter(s => s.started?.chat)}
         })
         events.addEventListener('signal', event => {
             const signal = JSON.parse((event as MessageEvent).data) as Signal
@@ -107,6 +111,9 @@ export default defineNuxtPlugin(() => {
         events.addEventListener('logged', event => {
             const {event: logged, fresh} = JSON.parse((event as MessageEvent).data) as {event: LoggedEvent, fresh: boolean}
             useLoggedEvents().arrived(logged, fresh)
+        })
+        events.addEventListener('chat', event => {
+            useChat().arrived(JSON.parse((event as MessageEvent).data) as Chat)
         })
         events.addEventListener('removed', event => {
             const id = (event as MessageEvent).data as string
