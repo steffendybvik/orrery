@@ -1,10 +1,11 @@
-import type {Chat, Session, Upload} from '#shared/roadmap'
+import type {Chat, ChatIssues, Session, Upload} from '#shared/roadmap'
 
 // The owner's chat (server/utils/chats.ts): a session started for it alone that they talk to here, with no terminal.
 // The pane is open or not (`open`), large or not (`large`, remembered in this browser), on a chat (`current`) or, with
 // none, ready to start one on `project` with the first message. The chats come in over the page's events (`arrived`); closing the pane ends
 // its chat (`close`), and one that ends on its own stays on screen, ended, until the pane closes. Each message says
-// which page the owner is on, so the chat knows what "this" is.
+// which page the owner is on, so the chat knows what "this" is. Where the issues it makes land (`lands`, Todo or Backlog)
+// is the owner's pick beside Send, remembered in this browser for the next chat, and kept by the server on the chat.
 export function useChat() {
     const chats = useState<Chat[]>('chats', () => [])
     const open = useState('chat-open', () => false)
@@ -18,6 +19,13 @@ export function useChat() {
             return localStorage.getItem('orrery-chat-large') === 'yes'
         } catch {
             return false
+        }
+    })
+    const lands = useState<ChatIssues>('chat-lands', () => {
+        try {
+            return localStorage.getItem('orrery-chat-issues') === 'backlog' ? 'backlog' : 'todo'
+        } catch {
+            return 'todo'
         }
     })
     const {load} = useOwner()
@@ -55,7 +63,7 @@ export function useChat() {
         if (!project.value) return false
         failed.value = ''
         try {
-            const made = await $fetch<Chat>('/api/chats', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {project: project.value}})
+            const made = await $fetch<Chat>('/api/chats', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {project: project.value, issues: lands.value}})
             ended.value = null
             arrived(made)
             current.value = made.id
@@ -77,6 +85,24 @@ export function useChat() {
         } catch (error) {
             failed.value = errorMessage(error, 'send')
             return false
+        }
+    }
+
+    /** Where the issues the chat makes land from now on: the running chat's, and the next one's. */
+    async function land(where: ChatIssues) {
+        lands.value = where
+        try {
+            localStorage.setItem('orrery-chat-issues', where)
+        } catch {
+            // Private browsing: it holds for this visit only.
+        }
+        const on = chat.value
+        if (!on || on.ended || on.issues === where) return
+        failed.value = ''
+        try {
+            arrived(await $fetch<Chat>(`/api/chats/${on.id}`, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: {issues: where}}))
+        } catch (error) {
+            failed.value = errorMessage(error, 'save')
         }
     }
 
@@ -112,5 +138,5 @@ export function useChat() {
         return $fetch<Upload>('/api/uploads', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, open, large, current, chat, session, project, failed, ended, fetchChats, arrived, show, start, send, fresh, close, resize, upload}
+    return {chats, open, large, current, chat, session, project, failed, ended, lands, fetchChats, arrived, show, start, send, land, fresh, close, resize, upload}
 }

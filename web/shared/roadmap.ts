@@ -565,7 +565,14 @@ export interface Chat {
     ended?: boolean
     /** Why its session can't start, while that holds: a launcher too old to start a chat refused it (ORR-383). */
     problem?: string
+    /** Where the issues it makes land, the first status of that kind, whatever its session asks: the owner picks it
+     * beside Send (ORR-408). */
+    issues: ChatIssues
 }
+
+/** Where a chat's issues land: Todo or Backlog. */
+export type ChatIssues = 'todo' | 'backlog'
+export const CHAT_ISSUES: ChatIssues[] = ['todo', 'backlog']
 
 /** A message in a chat: the owner's (with the ids of the uploads they pasted) or the session's answer, in Markdown. */
 export interface ChatMessage {
