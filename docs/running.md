@@ -67,6 +67,7 @@ pick a SQLite file or Postgres (its URL, or host, port, name, user and password)
 empty one has everything copied in, ids and all; an Orrery's own (one you ran on before, or after a reinstall) is
 run on as it is. Orrery switches at once, no restart, and keeps the choice beside its SQLite file
 (`orrery.db.moved.json`, in Docker in the data volume, with the URL's password in it), so it starts on it again.
+If it can't save that (a full disk, say), the move fails and Orrery stays on the one before, all of it there.
 The database it leaves stays as it was: moving back to it runs on it as it was then. A SQLite file named without a
 leading `/` goes in the data folder; in Docker only the data volume outlives the container.
 
