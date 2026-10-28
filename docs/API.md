@@ -245,6 +245,8 @@ failed doesn't count), not within a minute of its last run (events heard togethe
 and its description or message ends with what happened by ids, never another's words:
 `On issue.status: ORR-12 (in-progress → in-review), by claude.` An event about the Orrery as a whole (a server error)
 goes to every project's schedules; any other, only its own project's.
+A run's outcome (`schedule.failed`, `schedule.ran`, `schedule.skipped`) is the exception: other schedules hear it,
+so an alert on `*.failed` hears a schedule fail, except when the run was itself set off by an outcome.
 
 | | |
 |---|---|

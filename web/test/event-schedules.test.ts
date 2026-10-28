@@ -165,6 +165,26 @@ describe('a schedule on an event', () => {
         expect((await schedules.get('greenhouse', s.id)).runs).toHaveLength(1)
     })
 
+    it("hears another schedule's run fail, but not the outcome of a run an outcome set off", async () => {
+        const log = new EventLog(store.db)
+        log.happened = event => heard.push({event, cause: scheduleRunning.getStore()})
+        // As the server notes each run (useScheduler); a session schedule fails here, with no launcher to start one.
+        schedules = new Schedules(store, () => {}, () => 0, undefined, (schedule, run) => void log.record({
+            level: run.outcome === 'failed' ? 'error' : 'info', kind: `schedule.${run.outcome === 'failed' ? 'failed' : 'ran'}`,
+            project: schedule.project, message: `${schedule.title}: ${run.outcome}`,
+        }))
+        const nightly = await schedules.create('greenhouse', {title: 'Nightly', kind: 'session', notes: 'Tidy up', cron: '0 3 * * *'}, me)
+        const alert = await schedules.create('greenhouse', {title: 'Alert', kind: 'session', notes: 'See what failed', on: '*.failed'}, me)
+        expect(await schedules.runNow('greenhouse', nightly.id, me)).toMatchObject({outcome: 'failed'})
+        await new Promise(resolve => setTimeout(resolve))
+        expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', undefined]])
+        expect(await pass()).toBe(1)
+        // The alert fails too, with no launcher; that outcome is told as its run's, so nothing hears it.
+        await new Promise(resolve => setTimeout(resolve))
+        expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', alert.id]])
+        expect(await pass(later(2))).toBe(0)
+    })
+
     it('runs once for events heard at the same moment, as each waits for the one before', async () => {
         const s = await schedules.create('greenhouse', {title: 'Each', kind: 'message', notes: 'Look', on: 'issue.created'}, me)
         const events = [1, 2, 3].map(n => ({type: 'issue.created', project: 'greenhouse', subject: `GRE-${n}`}))
