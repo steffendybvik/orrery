@@ -3,8 +3,8 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
-// on one stream, a message to every idle session, Focus on this starting one and New session on this another, and a
-// preset.
+// on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
+// one Orrery started, and a preset.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
@@ -165,6 +165,26 @@ test('with a session listening, New session on this starts another on the issue'
     } finally {
         launcher.stop()
         stream.stop()
+    }
+})
+
+test('a session Orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e5709e2e57', tmux: 'orrery-e2e-stop'}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-s&name=e2e-started&started=e2e5709e2e57&format=text')
+        await page.goto('/sessions')
+        const card = page.locator('#session-e2e-s')
+        await expect(card.getByRole('button', {name: 'Watch'})).toBeVisible()
+        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        await expect(card).toContainText('Stop e2e-started?')
+        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: stop')
+    } finally {
+        stream?.stop()
+        launcher.stop()
     }
 })
 
