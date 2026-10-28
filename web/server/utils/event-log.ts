@@ -249,6 +249,21 @@ function clean(value: unknown, scrub: (text: string) => string, depth = 0): unkn
     return Object.fromEntries(Object.entries(value).slice(0, 50).map(([k, v]) => [k, clean(v, scrub, depth + 1)]))
 }
 
+/** A request the server refused (403: not theirs to do, e.g. an untrusted session's write, a proposal's move or the
+ * owner's own; 409: not now, e.g. an issue another session is on) as a warning: who asked, the route without its
+ * query, and why. Null for what isn't one, and for a start the launches route logs itself (`session.refused`). */
+export function refusal(status: number, method: string, path: string, message: string, actor?: string): EventEntry | null {
+    if (status !== 403 && status !== 409) return null
+    const route = path.split('?')[0] ?? path
+    if (status === 409 && method === 'POST' && /^\/api\/projects\/[^/]+\/launches\/?$/.test(route)) return null
+    const project = /^\/api\/projects\/([^/]+)/.exec(route)?.[1]
+    return {
+        level: 'warn', kind: 'request.refused', ...project ? {project: decodeURIComponent(project)} : {},
+        message: `Refused ${actor || 'agent'} ${method} ${route}: ${message}`,
+        details: {route: `${method} ${route}`, status, by: actor || 'agent'},
+    }
+}
+
 /** Passwords in addresses (`postgres://me:…@host`) and bearer tokens, whoever's they are. */
 export function redact(text: string): string {
     return text

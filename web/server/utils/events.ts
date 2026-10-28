@@ -45,7 +45,8 @@ let secrets: Secrets | null = null
 
 /** The secrets, sealed with ORRERY_SECRET_KEY (NUXT_SECRET_KEY); `secrets` (the list) goes out when they change or one is used. */
 export function useSecrets(): Secrets {
-    secrets ??= new Secrets(useStore(), () => String(useRuntimeConfig().secretKey ?? ''), list => projectEvents.emit('secrets', list))
+    secrets ??= new Secrets(useStore(), () => String(useRuntimeConfig().secretKey ?? ''), list => projectEvents.emit('secrets', list), undefined,
+        entry => useEventLog().note(entry))
     return secrets
 }
 

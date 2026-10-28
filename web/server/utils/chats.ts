@@ -13,7 +13,10 @@ Answer their questions about this project: its code (read it), its roadmap and i
 releases, docs and doc tools). When they ask for an issue or a comment, make it (create_issue, comment) and say which
 id it got. You don't work on anything: don't change code, and don't start, move or finish issues; other sessions do
 that. Every answer goes back with the reply tool, in Markdown: nothing else reaches the owner. Write an issue as a link
-to its page, \`[<id>](/p/${project}/issues/<id>)\`, so the owner can open it.`
+to its page, \`[<id>](/p/${project}/issues/<id>)\`, so the owner can open it.
+A message ends with the page the owner had open when they wrote it, e.g. \`(The owner is on /p/${project}/schedules: Schedules.)\`.
+It's a hint for "this" and "here": before answering about it, read what's on that page with the matching tool (issue,
+doc, chunks, releases, schedules, sessions, presets, events).`
 
 const chats = new Map<string, Chat>()
 let next = 1
@@ -47,15 +50,30 @@ function add(chat: Chat, message: Omit<ChatMessage, 'id' | 'at'>): ChatMessage {
     return said
 }
 
-/** The owner writing in the chat, with the uploads they pasted (`images`, their ids): it goes to the chat's session
- * alone, as a message from the owner. */
-export async function say(id: string, text: unknown, images: unknown, actor: {name: string, owner: boolean}): Promise<ChatMessage> {
+/** The page the owner is on as they write (`{path, title?}`), if it's one: a path on this Orrery, and its tab's title. */
+function pageOf(page: unknown): {path: string, title?: string} | undefined {
+    if (page === undefined || page === null) return undefined
+    const {path, title} = page as {path?: unknown, title?: unknown}
+    if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') || path.length > 500 || /[\s]/.test(path))
+        throw badRequest('Send page as {path, title?}: the path of the page the owner is on, starting with /')
+    const named = typeof title === 'string' ? title.replace(/\s+/g, ' ').trim().slice(0, 200) : ''
+    return {path, ...named ? {title: named} : {}}
+}
+
+/** The owner writing in the chat, with the uploads they pasted (`images`, their ids) and the page they're on (`page`):
+ * it goes to the chat's session alone, as a message from the owner, the page said at its end but not kept with it. */
+export async function say(id: string, text: unknown, images: unknown, actor: {name: string, owner: boolean}, page?: unknown): Promise<ChatMessage> {
     const chat = chatOf(id)
     const words = typeof text === 'string' ? text.trim() : ''
     const pasted = Array.isArray(images) ? images.filter((i): i is string => typeof i === 'string' && /^[0-9a-f]{24}$/.test(i)) : []
     if (!words && !pasted.length) throw badRequest('Send {text, images?}: what to say, and the ids of any uploads pasted with it')
     if (Array.isArray(images) && pasted.length !== images.length) throw badRequest('Send images as the ids of uploads (POST /api/uploads)')
-    const note = [words, pasted.length ? `(${pasted.length === 1 ? 'An image' : `${pasted.length} images`} pasted with this: ${pasted.join(', ')}. Look with the image tool.)` : ''].filter(Boolean).join('\n\n')
+    const on = pageOf(page)
+    const note = [
+        words,
+        pasted.length ? `(${pasted.length === 1 ? 'An image' : `${pasted.length} images`} pasted with this: ${pasted.join(', ')}. Look with the image tool.)` : '',
+        on ? `(The owner is on ${on.path}${on.title ? `: ${on.title}` : ''}.)` : '',
+    ].filter(Boolean).join('\n\n')
     await useStore().messageSession(chat.project, launchTarget(id), note, actor)
     return add(chat, {from: 'owner', text: words, images: pasted})
 }

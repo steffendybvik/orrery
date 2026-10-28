@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {LoggedEvent} from '#shared/roadmap'
-import {describe as describeChange, EventLog, KEEP_INFO, KEEP_PROBLEMS, redact} from '../server/utils/event-log'
+import {describe as describeChange, EventLog, KEEP_INFO, KEEP_PROBLEMS, redact, refusal} from '../server/utils/event-log'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
@@ -158,6 +158,20 @@ describe('the event log', () => {
         expect(describeChange({type: 'release.frozen', subject: '1.0.0', by})).toBe('claude set release 1.0.0 frozen')
         expect(describeChange({type: 'doc.changed', subject: 'api', by})).toBe('claude wrote doc api')
         expect(describeChange({type: 'chunk.created', subject: '3'})).toBe('Someone made chunk 3')
+    })
+
+    it('takes a 403 or 409 as a refusal, with who asked and the route without its query', () => {
+        expect(refusal(403, 'PATCH', '/api/projects/orrery/issues/ORR-3?x=secret', "ORR-3 is a proposal waiting on the owner", 'claude')).toEqual({
+            level: 'warn', kind: 'request.refused', project: 'orrery',
+            message: 'Refused claude PATCH /api/projects/orrery/issues/ORR-3: ORR-3 is a proposal waiting on the owner',
+            details: {route: 'PATCH /api/projects/orrery/issues/ORR-3', status: 403, by: 'claude'},
+        })
+        expect(refusal(409, 'POST', '/api/database/move', 'The database is already being moved')).toMatchObject({message: 'Refused agent POST /api/database/move: The database is already being moved', details: {by: 'agent'}})
+        expect(refusal(409, 'POST', '/api/database/move', '')?.project).toBeUndefined()
+        // The launches route says why a start was refused itself, as session.refused.
+        expect(refusal(409, 'POST', '/api/projects/orrery/launches', 'At the limit')).toBeNull()
+        expect(refusal(403, 'POST', '/api/projects/orrery/launches', 'Only the owner')).not.toBeNull()
+        expect(refusal(404, 'GET', '/api/projects/nope', 'No project nope')).toBeNull()
     })
 
     it('caps the changes to the roadmap apart from the rest, so they cannot push an error out', async () => {
