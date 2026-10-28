@@ -2,8 +2,8 @@ import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
 import {openWatch} from '../../channel/terminal.mjs'
 
-const watching = {tmux: '/opt/homebrew/bin/tmux', name: 'orrery-larder-a1b2c3d4e5f6', platform: 'darwin', home: '/Users/me'}
-const line = "'/opt/homebrew/bin/tmux' 'attach' '-t' 'orrery-larder-a1b2c3d4e5f6'"
+const watching = {tmux: '/opt/homebrew/bin/tmux', name: 'orrery-greenhouse-a1b2c3d4e5f6', platform: 'darwin', home: '/Users/me'}
+const line = "'/opt/homebrew/bin/tmux' 'attach' '-t' 'orrery-greenhouse-a1b2c3d4e5f6'"
 
 describe('opening a terminal on a session', () => {
     it('has Terminal run the attach through AppleScript, the default', () => {

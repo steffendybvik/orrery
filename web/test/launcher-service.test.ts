@@ -6,16 +6,16 @@ import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
 import {adoptable, launcherAlive, plist, readConfig, systemdUnit, withProject, withoutProject} from '../../channel/launcher-service.mjs'
 
-const larder = {url: 'http://localhost:9000', project: 'larder', dir: '/code/larder'}
+const greenhouse = {url: 'http://localhost:9000', project: 'greenhouse', dir: '/code/greenhouse'}
 const opts = {node: '/opt/homebrew/bin/node', script: '/code/orrery/channel/orrery-launcher.mjs', path: '/opt/homebrew/bin:/usr/bin', log: '/Users/me/Library/Logs/orrery-launcher.log'}
 
 describe("the launcher's list", () => {
     it('has each project of each Orrery once, in the repo it was last installed from', () => {
-        let config = withProject({projects: []}, larder)
-        config = withProject(config, {...larder, dir: '/moved/larder'})
-        config = withProject(config, {...larder, url: 'http://localhost:9010'})
-        expect(config.projects).toEqual([{...larder, dir: '/moved/larder'}, {...larder, url: 'http://localhost:9010'}])
-        expect(withoutProject(config, larder).projects).toEqual([{...larder, url: 'http://localhost:9010'}])
+        let config = withProject({projects: []}, greenhouse)
+        config = withProject(config, {...greenhouse, dir: '/moved/greenhouse'})
+        config = withProject(config, {...greenhouse, url: 'http://localhost:9010'})
+        expect(config.projects).toEqual([{...greenhouse, dir: '/moved/greenhouse'}, {...greenhouse, url: 'http://localhost:9010'}])
+        expect(withoutProject(config, greenhouse).projects).toEqual([{...greenhouse, url: 'http://localhost:9010'}])
     })
 
     it('is empty when its file is missing or broken', () => {
@@ -23,8 +23,8 @@ describe("the launcher's list", () => {
         expect(readConfig(join(dir, 'none.json'))).toEqual({projects: []})
         writeFileSync(join(dir, 'broken.json'), '{')
         expect(readConfig(join(dir, 'broken.json'))).toEqual({projects: []})
-        writeFileSync(join(dir, 'ok.json'), JSON.stringify({projects: [larder]}))
-        expect(readConfig(join(dir, 'ok.json'))).toEqual({projects: [larder]})
+        writeFileSync(join(dir, 'ok.json'), JSON.stringify({projects: [greenhouse]}))
+        expect(readConfig(join(dir, 'ok.json'))).toEqual({projects: [greenhouse]})
     })
 })
 

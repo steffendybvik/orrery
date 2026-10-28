@@ -26,8 +26,8 @@
 # data in the orrery-pg volume), and ORRERY_DATABASE points Orrery at it; put both in .env to keep them:
 #   COMPOSE_PROFILES=postgres
 #   ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery
-# Or set ORRERY_DATABASE to a Postgres of your own. Orrery's backups are SQLite's only: back Postgres up
-# with its own means (pg_dump on a schedule, or a managed service's backups).
+# Or set ORRERY_DATABASE to a Postgres of your own. Orrery backs Postgres up as a SQLite snapshot too; for a
+# large one, or to restore into Postgres as it was, use its own means as well (pg_dump, a managed service's backups).
 #
 # ORRERY_BUILD_CONTEXT is what the image is built from: this folder by default, or a ref on GitHub, so a
 # branch switched here never ends up in it: ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main
@@ -44,6 +44,9 @@ services:
       NUXT_PUBLIC_REPO_DIR: ${PWD}
       NUXT_DATABASE: ${ORRERY_DATABASE:-/data/orrery.db}
       NUXT_BACKUP_DIR: /backup
+      # What /data and /backup are on this computer, the same as the volumes below, for App settings to show.
+      NUXT_DATA_HOST: ${ORRERY_DATA:-orrery-data}
+      NUXT_BACKUP_HOST: ${ORRERY_BACKUP:-orrery-backup}
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
       NUXT_SECRET_KEY: ${ORRERY_SECRET_KEY:-}
     volumes:

@@ -9,6 +9,7 @@
 import {createCipheriv, createDecipheriv, createHash, randomBytes} from 'node:crypto'
 import {createError} from 'h3'
 import type {Secret, SecretUse} from '#shared/roadmap'
+import type {EventEntry} from './event-log'
 import type {Field} from './input'
 import {badRequest, checkInput, forbidden, isObject, notFound} from './input'
 import type {Actor, Store} from './store'
@@ -62,12 +63,14 @@ export interface EgressResult {
 }
 
 export class Secrets {
-    /** `key` is ORRERY_SECRET_KEY (empty when it isn't set); `onChange` hears the list changed or a secret was used. */
+    /** `key` is ORRERY_SECRET_KEY (empty when it isn't set); `onChange` hears the list changed or a secret was used;
+     * `note` is the event log, told who set, narrowed, deleted or sent which secret where, never a value. */
     constructor(
         private readonly store: Store,
         private readonly key: () => string,
         private readonly onChange: (secrets: Secret[]) => void = () => {},
         private readonly send: typeof fetch = globalThis.fetch,
+        private readonly note: (entry: EventEntry) => void = () => {},
     ) {}
 
     private get db() {
@@ -104,6 +107,8 @@ export class Secrets {
             ON CONFLICT (name) DO UPDATE SET value = excluded.value, last4 = excluded.last4, hosts = excluded.hosts, projects = excluded.projects, updated_at = excluded.updated_at`,
         name, this.seal(name, value, hosts, projects), value.slice(-4), JSON.stringify(hosts), projects && JSON.stringify(projects), actor.name, Number(actor.owner), now, now)
         await this.changed()
+        this.note({level: 'info', kind: 'secret.set', message: `${actor.name} ${before ? 'replaced' : 'set'} ${name}, for ${hosts.join(', ')}`,
+            details: {by: actor.name, secret: name, hosts, ...projects ? {projects} : {}, created: !before}})
         return {secret: (await this.get(name)), created: !before}
     }
 
@@ -123,6 +128,8 @@ export class Secrets {
         await this.db.run('UPDATE secrets SET value = ?, hosts = ?, projects = ?, updated_at = ? WHERE name = ?',
             this.seal(name, value, hosts, projects), JSON.stringify(hosts), projects && JSON.stringify(projects), new Date().toISOString(), name)
         await this.changed()
+        this.note({level: 'info', kind: 'secret.narrowed', message: `${actor.name} narrowed ${name} to ${hosts.join(', ')}`,
+            details: {by: actor.name, secret: name, hosts, ...projects ? {projects} : {}}})
         return await this.get(name)
     }
 
@@ -132,6 +139,7 @@ export class Secrets {
         await this.db.run('DELETE FROM secrets WHERE name = ?', name)
         await this.db.run('DELETE FROM secret_uses WHERE secret = ?', name)
         await this.changed()
+        this.note({level: 'info', kind: 'secret.deleted', message: `${actor.name} deleted ${name}`, details: {by: actor.name, secret: name}})
     }
 
     /** Makes a request for an agent with the secrets it names filled in: `{url, method?, headers?, body?, project?, issue?}`. */
@@ -190,6 +198,10 @@ export class Secrets {
                     name, method, host, scrub(url.pathname), project, issue, status, error, actor.name, new Date().toISOString())
             }
             await this.changed()
+            // Not its path: what the secret is used on is the secret's own record, not the log's.
+            this.note({level: 'info', kind: 'egress.called', ...project ? {project} : {},
+                message: `${actor.name} sent ${names.join(', ')} to ${method} ${host}: ${status ?? error}`,
+                details: {by: actor.name, secrets: names, method, host, status, ...issue ? {issue} : {}, ...error ? {error} : {}}})
         }
 
         let response: Response
@@ -256,6 +268,26 @@ export class Secrets {
         cipher.setAAD(Buffer.from(JSON.stringify([name, hosts, projects])))
         const sealed = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
         return `v1:${Buffer.concat([iv, cipher.getAuthTag(), sealed]).toString('base64')}`
+    }
+
+    /** `text` with every secret's value taken out, the way an answer is (for the event log); one that can't be opened is let be. */
+    async scrub(text: string): Promise<string> {
+        return (await this.scrubber())(text)
+    }
+
+    /** What takes every secret's value out of a text, for many texts at the cost of one. */
+    async scrubber(): Promise<(text: string) => string> {
+        const secrets = new Map<string, {value: string}>()
+        for (const row of await this.db.all<SecretRow>('SELECT * FROM secrets')) {
+            try {
+                secrets.set(row.name, {value: this.open(row)})
+            } catch {
+                // Sealed with another key: not one this Orrery can send, so not one it would log.
+            }
+        }
+        if (!secrets.size) return text => text
+        const {scrub} = scrubber(secrets)
+        return scrub
     }
 
     private open(row: SecretRow): string {

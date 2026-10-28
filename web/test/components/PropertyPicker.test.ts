@@ -76,4 +76,26 @@ describe('PropertyPicker', () => {
         await type('done')
         expect(rows()).toEqual(['Done'])
     })
+
+    it("opens from the button's right edge when there's no room for it to the right", async () => {
+        const at = (left: number) => {
+            const rect = {left, right: left + 120, width: 120, top: 0, bottom: 28, height: 28, x: left, y: 0}
+            HTMLButtonElement.prototype.getBoundingClientRect = () => ({...rect, toJSON: () => rect})
+        }
+        const menu = (wrapper: VueWrapper) => wrapper.find('[role=listbox]').element.parentElement!.className
+        const width = window.innerWidth
+        try {
+            window.innerWidth = 1280
+            at(1100)
+            expect(menu((await mount('todo')).wrapper)).toMatch(/\bright-0\b/)
+            at(40)
+            expect(menu((await mount('todo')).wrapper)).toMatch(/\bleft-0\b/)
+            // With no room either way, from the left, as it always did.
+            window.innerWidth = 200
+            expect(menu((await mount('todo')).wrapper)).toMatch(/\bleft-0\b/)
+        } finally {
+            window.innerWidth = width
+            delete (HTMLButtonElement.prototype as {getBoundingClientRect?: unknown}).getBoundingClientRect
+        }
+    })
 })

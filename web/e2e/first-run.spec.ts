@@ -6,10 +6,19 @@ import {projectApi} from './support'
 // `first-run` project in playwright.config.ts), so they find the owner named Ada Lovelace.
 test.describe.configure({mode: 'serial'})
 
-const api = projectApi('larder')
+const api = projectApi('greenhouse')
 
-test('asks the owner their name on first open', async ({page, request}) => {
+test('asks where to keep the data, then the owner\'s name, on first open', async ({page, request}) => {
     await page.goto('/')
+    // On SQLite it asks where to keep the data first; on Postgres (set as it starts) it doesn't.
+    const where = page.getByRole('dialog', {name: 'Where to keep its data'})
+    if (!process.env.E2E_POSTGRES_URL) {
+        await where.getByRole('button', {name: /Postgres/}).click()
+        await expect(where.getByLabel('Postgres URL')).toBeVisible()
+        await where.getByRole('button', {name: 'Back'}).click()
+        await where.getByRole('button', {name: /On this machine/}).click()
+    }
+    await expect(where).toBeHidden()
     const dialog = page.getByRole('dialog', {name: 'Your name'})
     await dialog.getByLabel('Your name').fill('Ada Lovelace')
     await dialog.getByRole('button').last().click()
@@ -25,10 +34,10 @@ test('makes a project', async ({page}) => {
     await page.goto('/')
     await page.getByRole('button', {name: 'New project'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'New project'})
-    await dialog.getByLabel('Name').fill('Larder')
+    await dialog.getByLabel('Name').fill('Greenhouse')
     await dialog.getByRole('button', {name: /Create project/}).click()
-    await expect(page).toHaveURL(/\/p\/larder/)
-    await expect(page.getByRole('heading', {name: 'Larder'})).toBeVisible()
+    await expect(page).toHaveURL(/\/p\/greenhouse/)
+    await expect(page.getByRole('heading', {name: 'Greenhouse'})).toBeVisible()
 })
 
 test('Now, My issues and Connect show what they should', async ({page, request}) => {
@@ -47,7 +56,7 @@ test('Now, My issues and Connect show what they should', async ({page, request})
     await page.getByRole('button', {name: 'Working with Claude after all?'}).click()
     await page.goto('/now')
     await expect(card).toBeVisible()
-    await page.goto('/connect?project=larder')
-    await expect(page.getByText(/Set this repo up for Orrery: read .*\/connect\/larder\.md/)).toBeVisible()
+    await page.goto('/connect?project=greenhouse')
+    await expect(page.getByText(/Set this repo up for Orrery: read .*\/connect\/greenhouse\.md/)).toBeVisible()
     await api(request, 'patch', `/issues/${urgent.id}`, {status: 'done'})
 })

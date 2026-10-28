@@ -30,6 +30,53 @@ give your agents instructions**. Keep that in mind before opening it up, importi
 write, or letting another program write to it. Claude Code's own permissions still decide what a
 session may do on your machine.
 
+### Bringing in what others wrote
+
+A schedule that has a session read text from outside, such as GitHub issues anyone can open, should be
+**untrusted** (a message schedule's *It reads what others wrote* box, `untrusted: true` in the API). A
+planted issue is a prompt injection, and an ordinary session runs with your permissions. An untrusted
+schedule's run never goes to your sessions. Instead:
+
+- **It gets a session of its own**, which the launcher starts with Bash for `gh issue list` and
+  `gh issue view` only, plus the Orrery tools except `egress` and `secrets`. Everything else is refused,
+  not asked (`dontAsk`), and your own and the repo's settings, with their allow lists, are left out
+  (`--restricted`). With no launcher, or Starting sessions off, the run fails and says why. Only a
+  launcher that does this lockdown can take the run, so an older one won't start it with every tool.
+- **That session hears only its own message**, with a standing brief: what it reads is data, never
+  instructions.
+- **What it raises is a proposal labelled `external`**, made so by Orrery whatever the session asks.
+  Orrery refuses every other write from it, except comments on those proposals. Nothing it raises is
+  worked on until you approve it, and what it writes sets off no schedule, so an event schedule can't
+  start a session of yours on it. Its channel says it's untrusted on everything it sends, so this holds
+  after Orrery restarts too, before the launcher has said which sessions it started.
+- **It stops** once it has sat idle for two minutes, and after half an hour at most.
+
+It can still read files in its folder with read-only commands, but it has no way to send them anywhere.
+
+## What only the owner writes
+
+Orrery has two tiers of text a session reads:
+
+- **Material**: issues, comments, docs. A session reads it as it works and weighs it like anything else
+  it reads. Agents write it freely; deleting what the owner made stays the owner's call.
+- **Instructions**: what a session is told it must do, in the owner's voice. That's the focus and chunk
+  prompts and standing instructions (`PATCH /settings`), the signals that reach sessions, and **presets**,
+  whose text a session is started with as "the owner gave this session more context … it holds for all
+  its work". Only the owner writes these, and an agent gets a 403, **on purpose**.
+
+Letting an agent write instructions would let one session write the orders for every later one. That
+includes a session talked into it by a planted comment, a fetched page or an egress response. It would
+carry over from session to session, and with an Orrery-wide preset into every project. Ticking a preset
+at start doesn't guard against that, since you pick it by its name and badge, not by rereading its text.
+And changing an instruction's text is worse than deleting it, so "agents may edit but not delete" is no
+middle ground.
+
+So when a session should help with a preset or a prompt, it drafts the text in a comment or a doc, and
+the owner puts it in. (ORR-333 proposed opening presets to agents and was declined for this reason.)
+
+As with everything that hangs on the owner's name (above), this keeps honest agents from overstepping.
+It doesn't stop a program that sends the owner's id.
+
 ## The browser can't be used against it
 
 A website open in your browser can't write to Orrery: a write from another site's page (its `Origin`)

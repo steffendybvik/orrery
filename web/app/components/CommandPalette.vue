@@ -104,6 +104,7 @@ const everywhere = computed<Entry[]>(() => [
         router.push('/getting-started')
     }},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
+    {key: 'chat', group: 'Chat', label: project.value ? `Chat about ${project.value.name}` : 'Chat', detail: 'answers and makes issues', run: () => useChat().show(project.value?.id)},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Reset the filters to the open issues', run: clear}] : []),
     ...[...PRIORITIES, 'none'].map(p => ({
@@ -266,7 +267,7 @@ function onKey(event: KeyboardEvent) {
             role="option"
             :data-row="rowIndex.get(`${s.key}:${entry.key}`)"
             :aria-selected="rowIndex.get(`${s.key}:${entry.key}`) === active"
-            class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13px]"
+            class="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px]"
             :class="rowIndex.get(`${s.key}:${entry.key}`) === active ? 'bg-active' : 'hover:bg-hover'"
             @mouseenter="active = rowIndex.get(`${s.key}:${entry.key}`)!"
             @click="run(rows[rowIndex.get(`${s.key}:${entry.key}`)!])"
@@ -282,7 +283,7 @@ function onKey(event: KeyboardEvent) {
             role="option"
             :data-row="rowIndex.get(`${s.key}:more`)"
             :aria-selected="rowIndex.get(`${s.key}:more`) === active"
-            class="flex cursor-pointer items-center rounded-lg px-3 py-1.5 text-xs text-muted"
+            class="flex items-center rounded-lg px-3 py-1.5 text-xs text-muted"
             :class="rowIndex.get(`${s.key}:more`) === active ? 'bg-active' : 'hover:bg-hover'"
             @mouseenter="active = rowIndex.get(`${s.key}:more`)!"
             @click="run(rows[rowIndex.get(`${s.key}:more`)!])"

@@ -75,7 +75,7 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             :data-project="project"
             tabindex="0"
             role="button"
-            class="group flex cursor-pointer flex-col gap-2 rounded-xl border bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
+            class="group flex flex-col gap-2 rounded-xl border bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
             :class="[isSelected(project, issue.id) ? 'border-accent-500/60 bg-accent-500/5' : isLast(project, issue.id) ? 'border-faint/50' : 'border-line', issue.waiting ? 'waiting-row' : issueUnseen(project, issue) && 'unseen-row']"
             @click="click($event, issue)"
             @contextmenu="openMenu($event, project, issue.id)"
@@ -84,14 +84,14 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             <SelectBox :project="project" :id="issue.id" />
             <span v-if="issueUnseen(project, issue)" class="unseen-dot" title="Changed since you last opened it" />
             <span class="font-mono">{{ issue.id }}</span>
-            <span class="min-w-0 flex-1 truncate"><NuxtLink :to="chunkPath(project, chunk.id)" class="hover:text-fg hover:underline" @click.stop>{{ chunk.title }}</NuxtLink></span>
+            <span class="min-w-0 flex-1 truncate">{{ chunk.title }}</span>
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />
           </div>
           <div class="flex items-start gap-2">
             <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" class="mt-0.5" />
             <p class="line-clamp-3 min-w-0 flex-1 text-[13px] leading-snug" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', issueUnseen(project, issue) ? 'font-semibold' : '']"><InlineText :text="issue.title" /></p>
           </div>
-          <WaitingChip v-if="issue.waiting" :asks="issue.waiting" class="self-start" />
+          <WaitingChip v-if="issue.waiting" :asks="issue.waiting" :proposal="pendingProposal(issue)" class="self-start" />
           <div class="flex flex-wrap items-center gap-1.5">
             <span class="grid size-5 place-items-center rounded ring-1 ring-line"><PriorityIcon :priority="issue.priority" :size="12" /></span>
             <span v-if="issue.tasks.length" class="flex h-5 items-center gap-1 rounded px-1.5 font-mono text-[10px] text-faint ring-1 ring-line"><ProgressRing :kinds="issue.kinds" bare :size="11" />{{ subs(issue) }}</span>

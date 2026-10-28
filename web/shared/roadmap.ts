@@ -1,5 +1,6 @@
 // A project's roadmap as the board draws it: the server reads it from the database, places every
 // issue in a column and rolls the columns up into parents and chunks, so the page only draws.
+import type {OnFilter} from './happenings'
 import type {Instruction} from './prompt'
 
 /** What a status means, whatever it's called: Orrery's counts, progress and pages reason about kinds,
@@ -36,14 +37,13 @@ export type Column = string
 export type Place = Kind | 'proposed'
 
 /** Where a proposal stands: waiting on the owner (`pending`), or as they decided. */
-export const PROPOSALS = ['pending', 'approved', 'changes', 'rejected'] as const
-export type Proposal = (typeof PROPOSALS)[number]
+export type Proposal = 'pending' | 'approved' | 'changes' | 'rejected'
 /** What the owner can decide on a proposal. */
 export const DECISIONS = ['approved', 'changes', 'rejected'] as const
 export type Decision = (typeof DECISIONS)[number]
 
 /** One option of a choice: `A`, `B`, … or a word, with a title and (Markdown) more about it. */
-export interface ChoiceOption {
+interface ChoiceOption {
     key: string
     title: string
     body?: string
@@ -90,7 +90,7 @@ export interface Issue {
     /** Who's on it: a person, or `claude`. */
     assignee?: string
     labels: string[]
-    /** Its tasks on the team's tracker: ids (`CIR-1567`), linked through the Orrery's `tracker`, or full URLs. */
+    /** Its tasks on the team's tracker: ids (`ENG-1567`), linked through the Orrery's `tracker`, or full URLs. */
     external: string[]
     /** A status's id, as written; a parent's own status is ignored, its issues decide its column. */
     status: string
@@ -207,7 +207,7 @@ export interface Doc extends DocSummary {
 export interface Project {
     id: string
     name: string
-    /** The prefix of the issue ids the server hands out, e.g. `LAR` for `LAR-12`. */
+    /** The prefix of the issue ids the server hands out, e.g. `GRE` for `GRE-12`. */
     key: string
     description?: string
     /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
@@ -274,8 +274,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'external', 'notes', 'chunk', 'parent', 'proposal', 'project', 'release'] as const
-export type ActivityField = (typeof ACTIVITY_FIELDS)[number]
+export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */
@@ -315,6 +314,10 @@ export interface Signal {
     schedule?: number
     kind: 'focus' | 'comment' | 'message'
     note?: string
+    /** A message the owner sent from a preset: its name, as it was then. */
+    preset?: string
+    /** A message the owner's chat sent for them, on their say-so. */
+    via?: 'chat'
     /** The session it's for; none means every session on the project. */
     target?: string
     /** The names of the sessions it reached. */
@@ -334,20 +337,28 @@ export interface ScheduleRun {
     outcome: 'made' | 'sent' | 'skipped' | 'failed'
     issue?: string
     note?: string
+    /** What an event run was about (an issue's id, a release's version), once per schedule. */
+    subject?: string
 }
 
-/** Recurring work in a project: at each time (`cron` in `timezone`, or once `at`) Orrery makes an issue
+/** Recurring work in a project: at each time (`cron` in `timezone`, once `at`, or `on` an event) Orrery makes an issue
  * from it, and with `ask` points the project's listening Claude sessions at it; or, as a `message`
- * schedule, sends `notes` to the sessions without an issue. */
+ * schedule, sends `notes` to the sessions without an issue; or, as a `session` schedule, starts a session. */
 export interface Schedule {
     id: number
     project: string
-    kind: 'issue' | 'message'
+    kind: 'issue' | 'message' | 'session'
     title: string
     /** The issue's description, or the message. */
     notes?: string
     cron?: string
     at?: string
+    /** Runs when an event of this type happens instead of on a clock: `issue.status`, `release.*` (shared/happenings.ts). */
+    on?: string
+    /** What the event must also say: `{to: "in-review"}`, `{by: "owner"}`, `{level: "error"}`. */
+    on_filter?: OnFilter
+    /** Preset ids a message or session schedule is given, their text before `notes`; none for an issue schedule. */
+    presets: number[]
     timezone: string
     /** Where its issues start: a status's id (not a closed one). */
     column: string
@@ -359,6 +370,9 @@ export interface Schedule {
     skip_open: boolean
     /** A message schedule: skips a run when no issue or comment in the project changed since the last one it sent. */
     only_if_changed: boolean
+    /** A message schedule whose session reads what others wrote (GitHub issues): its message goes to a session
+     * started for it alone, with only `gh issue list/view` and the Orrery tools, and what that session raises is a proposal. */
+    untrusted: boolean
     enabled: boolean
     /** When it runs next; none once it's paused or a one-off has run. */
     next_run?: string
@@ -397,11 +411,40 @@ export const TERMINALS = {terminal: 'Terminal', iterm: 'iTerm2', warp: 'Warp', g
 export type TerminalApp = keyof typeof TERMINALS
 
 /** Where this Orrery keeps its data, as App settings shows it (read only): a SQLite file's path, or a Postgres
- * database as `user@host:port/name`, never its password; and the folder a SQLite file is backed up to, if any. */
+ * database as `user@host:port/name`, never its password; the folder it's backed up to, if any, and when the
+ * latest backup there was made. */
 export interface DatabaseInfo {
     kind: 'sqlite' | 'postgres'
     where: string
+    /** Under Docker, where the SQLite file is on the computer (from `ORRERY_DATA`), or the Docker volume it's in
+     * instead; `where` stays the path Orrery opens, inside the container. */
+    host?: string
+    volume?: string
     backup?: string
+    /** The same for the backup folder (from `ORRERY_BACKUP`). */
+    backup_host?: string
+    backup_volume?: string
+    backed_up_at?: string
+    /** How big it is, in bytes: a SQLite file with its `-wal`, or the Postgres database; none when it can't be read. */
+    size?: number
+    /** The backup folder's files together, in bytes. */
+    backup_size?: number
+    /** Whether the owner can move it from App settings: not when NUXT_DATABASE (ORRERY_DATABASE) is Postgres. */
+    movable?: boolean
+    /** Whether it was moved there from App settings, rather than set as Orrery starts. */
+    moved?: boolean
+}
+
+/** A database the owner could move to, as `POST /api/database/check` finds it. */
+export interface DatabaseCheck {
+    kind: 'sqlite' | 'postgres'
+    /** Where it is, as App settings shows it (no password). */
+    where: string
+    /** `empty`: nothing in it yet, so everything can be copied in; `orrery`: an Orrery's own, to run on as it is;
+     * `current`: the one Orrery runs on now; `other`: something else's tables, which Orrery leaves alone. */
+    state: 'empty' | 'orrery' | 'current' | 'other'
+    /** An Orrery's projects, when it is one. */
+    projects?: number
 }
 
 export interface Settings {
@@ -435,12 +478,61 @@ export interface Settings {
     /** Whether a proposal waiting on the owner (pending, or changes asked for) is theirs alone until they decide:
      * an agent can't start it, change its status, assign it or put it in a release. On unless the owner turns it off. */
     restrict_proposals: boolean
+    /** Shows what's for looking into problems: the Events page, and a notice in the bell for each new kind of error.
+     * Off by default; errors are recorded either way, what Orrery did only while it's on. */
+    advanced: boolean
+}
+
+/** How much an event matters: something went wrong, something looks off, or what Orrery did. */
+export const EVENT_LEVELS = ['error', 'warn', 'info'] as const
+export type EventLevel = (typeof EVENT_LEVELS)[number]
+
+/** The kinds that are changes to the roadmap (ORR-378), as the store says them: `issue.<field>`, `comment.added`,
+ * `release.frozen`…, kept apart in the event log's cap. */
+export const ACTIVITY_FAMILIES = ['issue', 'comment', 'chunk', 'doc', 'release'] as const
+
+/** A line in the event log (`GET /api/events/log`): what Orrery did, what went wrong or a change to the roadmap, its
+ * `kind` a dotted name (`server.error`, `session.started`, `backup.made`, `issue.status`…). Each is a line of its own
+ * (ORR-378): `count` is 1, and `last_seen` is `first_seen`, on those recorded since. */
+export interface LoggedEvent {
+    id: number
+    level: EventLevel
+    kind: string
+    project?: string
+    /** What it's about, for a change to the roadmap: the issue's id, the release's version, the chunk's or doc's id. */
+    subject?: string
+    message: string
+    /** What else there is to know (a route, a stack, a version), never a request's body or headers or a secret's value. */
+    details?: Record<string, unknown>
+    count: number
+    first_seen: string
+    last_seen: string
+    /** When someone said it's dealt with; the next one starts a row of its own. */
+    resolved_at?: string
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */
 export function taskUrl(tracker: string | null, task: string): string | undefined {
     if (/^https?:\/\//.test(task)) return task
     return tracker ? tracker.replace('{id}', encodeURIComponent(task)) : undefined
+}
+
+/** A tracker link as `tracker` keeps it (ORR-404): one with `{id}` as it is; a link into a known tracker's workspace
+ * (a team, project, view or a task of it, as an owner pastes one) as that workspace's task link; null for any other
+ * link without `{id}`, which would open the same page for every task. */
+export function trackerLinkOf(sent: string): string | null {
+    const link = sent.trim()
+    if (link.includes('{id}')) return link
+    let url: URL
+    try {
+        url = new URL(link)
+    } catch {
+        return null
+    }
+    const workspace = url.pathname.split('/').filter(Boolean)[0]
+    // linear.app/<workspace>/…: its tasks are at /<workspace>/issue/<id>.
+    if (url.hostname === 'linear.app' && workspace) return `https://linear.app/${workspace}/issue/{id}`
+    return null
 }
 
 /** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-steffendybvik: DOC-132`. */
@@ -481,6 +573,59 @@ export interface SessionWork {
     signals: Signal[]
 }
 
+/** The owner's chat with a session started for it (chats.ts): its id is its launch's. `ended` on the last word of one
+ * that's gone. */
+export interface Chat {
+    id: string
+    project: string
+    started_at: string
+    messages: ChatMessage[]
+    ended?: boolean
+    /** Why its session can't start, while that holds: a launcher too old to start a chat refused it (ORR-383). */
+    problem?: string
+    /** Where the issues it makes land, the first status of that kind, whatever its session asks: the owner picks it
+     * beside Send (ORR-408). */
+    issues: ChatIssues
+}
+
+/** Where a chat's issues land: Todo or Backlog. */
+export type ChatIssues = 'todo' | 'backlog'
+export const CHAT_ISSUES: ChatIssues[] = ['todo', 'backlog']
+
+/** A message in a chat: the owner's (with the ids of the uploads they pasted) or the session's answer, in Markdown. */
+export interface ChatMessage {
+    id: number
+    from: 'owner' | 'claude'
+    text: string
+    images: string[]
+    at: string
+    /** The session asking to change an App setting, which waits on the owner's Allow. */
+    request?: ChatRequest
+}
+
+/** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
+ * the database, statuses, prompts, how sessions start) stay the owner's to change there. */
+export const CHAT_SETTINGS = {
+    tracker: 'Team tracker',
+    tint: 'Background tint',
+    restrict_proposals: 'Keep agents off proposals',
+    handle: 'Your handle',
+    advanced: 'Advanced',
+} as const
+export type ChatSetting = keyof typeof CHAT_SETTINGS
+
+/** One setting the chat asked to change, from what to what: saved only once the owner allows it, and `expired` when
+ * they didn't answer in time or it asked again. */
+export interface ChatRequest {
+    setting: ChatSetting
+    from: unknown
+    to: unknown
+    state: 'asked' | 'allowed' | 'denied' | 'expired'
+}
+
+/** A setting's value as a chat's request shows it. */
+export const settingValue = (value: unknown) => value === null || value === undefined || value === '' ? '(none)' : value === true ? 'on' : value === false ? 'off' : String(value)
+
 /** A session Orrery started, as its launch made it. */
 export interface StartedSession {
     launch: string
@@ -489,6 +634,12 @@ export interface StartedSession {
     stops_at?: string
     /** What the owner gave it to go on when they started it, if anything. */
     context?: SessionContext
+    /** Started for an untrusted schedule's run: it reads what others wrote, so it hears only that run's message,
+     * has only `gh issue list/view` and the Orrery tools, and what it raises is a proposal. */
+    untrusted?: boolean
+    /** Started for the owner's chat: it hears only the chat's messages, reads and answers, and makes issues and
+     * comments when asked; nothing else. */
+    chat?: boolean
 }
 
 /** More context for a session, from the owner as they start it: the presets they picked (by name) and their own
@@ -510,6 +661,8 @@ export interface Preset {
      * its initials. */
     icon: string | null
     color: string | null
+    /** One Orrery ships: its key (shared/presets.ts), and whether it's been changed since, so it can be reset. */
+    default?: {key: string, changed: boolean}
     created_at: string
     updated_at: string
 }
@@ -569,7 +722,7 @@ export function slugify(text: string): string {
     return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
 }
 
-/** Three capitals from the name, e.g. `LAR` for Larder. */
+/** Three capitals from the name, e.g. `GRE` for Greenhouse. */
 export function keyFor(name: string): string {
     const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
     return letters.slice(0, 3) || 'ISS'
@@ -593,3 +746,7 @@ const BARE_NAME = new RegExp(`^(${SESSION_NAMES.join('|')})( [IVXLCDM]+)?$`)
 /** Whether Orrery made the session's name up, rather than the session or its hooks giving it: `<project> · <name>` for
  * one that hears its own project, the bare name (`Odin`) for one that hears several. */
 export const madeUpName = (session: {name: string, project: string}) => session.name.startsWith(`${session.project} · `) || BARE_NAME.test(session.name)
+
+/** Its name where its project already shows beside it: `Odin` for `orrery · Odin`; any other name as it is. */
+export const nameBesideProject = (session: {name: string, project: string}) =>
+    session.name.startsWith(`${session.project} · `) ? session.name.slice(session.project.length + 3) || session.name : session.name

@@ -9,11 +9,15 @@
 // The projects are ORRERY_PROJECT, else every one the channels in .mcp.json name (each channel's ORRERY_PROJECTS,
 // or its ORRERY_PROJECT), else the folder's name, each on its channel's Orrery (see repo-channels.mjs), and each
 // project's sessions load the channel that serves it. A launch can name the projects its session hears (Start session
-// with several of the repo's projects, or one alone), which it gets as ORRERY_HEAR. Orrery asks only once the owner lets it start sessions (Starting sessions, on the Sessions page): when the
-// owner's signal finds nobody listening, or the owner presses Start session, within the project's limit.
+// with several of the repo's projects, or one alone), which it gets as ORRERY_HEAR; one naming none hears what the
+// channel lists, every project with `*`. Orrery asks only once the owner lets it start sessions (Starting sessions,
+// on the Sessions page): when the owner's signal finds nobody listening, or the owner presses Start session, within
+// the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in Orrery, which has
 // this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open), with the channel, in
-// ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt), and runs until Orrery asks
+// ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt; an untrusted schedule's session
+// locked down instead, see `lockedDown`, and the owner's chat able only to read and answer, see `chatOnly`), and runs
+// until Orrery asks
 // for it to be stopped: the owner stopping it, or, once it's idle with nothing open, its time being up or its having
 // sat idle too long (when the project sets those). Between pieces of work Orrery has it `/clear`ed, for a
 // fresh context. With several launchers on a project, the first
@@ -28,7 +32,8 @@ import {mkdirSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {adoptable, configFile, install, readConfig, uninstall} from './launcher-service.mjs'
-import {channelFor, projectsIn} from './repo-channels.mjs'
+import {chatOnly, lockedDown} from './locked-down.mjs'
+import {channelFor, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
 
@@ -214,6 +219,11 @@ function keepStopTime(id, stopsAt) {
     }
 }
 
+/** And that it's an untrusted schedule's session, locked down, for Orrery to keep holding it to that after a restart;
+ * or the owner's chat, the same way. */
+const UNTRUSTED = '@orrery_untrusted'
+const CHAT = '@orrery_chat'
+
 /** The tmux session a launch on the project runs in, as Orrery names it. */
 const tmuxName = (project, id) => `orrery-${project}-${id}`.replace(/[^\w-]/g, '-')
 
@@ -265,6 +275,16 @@ function adopt(project, api) {
         } catch {
             // Started with none.
         }
+        try {
+            if (tmux('show-options', '-v', '-t', name, UNTRUSTED) === 'yes') running.get(id).untrusted = true
+        } catch {
+            // An ordinary session.
+        }
+        try {
+            if (tmux('show-options', '-v', '-t', name, CHAT) === 'yes') running.get(id).chat = true
+        } catch {
+            // Not a chat.
+        }
         log(`took back ${name}, running ${stopsAt === NEVER ? 'until stopped' : `until ${new Date(stopsAt).toLocaleTimeString()}`}`)
     }
 }
@@ -272,7 +292,7 @@ function adopt(project, api) {
 /** Tells the project's Orrery which of its sessions this launcher runs, so one that restarted knows them again. */
 async function report(api) {
     const launches = [...running.entries()].filter(([, s]) => s.api === api)
-        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}}))
+        .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}}))
     await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
@@ -300,22 +320,30 @@ function serve({url, project, dir}) {
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        const claim = await fetch(`${api}/launches/${launch.id}/claim`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
+        // It says it locks an untrusted launch down, and starts a chat able only to read and answer: Orrery gives either
+        // only to a launcher that does.
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=yes&chat=yes`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}}
+        // An untrusted one's channel says so on everything it sends, so Orrery holds it to that even when it has
+        // restarted and doesn't know the launch yet.
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}}
+        const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-            'claude', '--dangerously-load-development-channels', `server:${channelFor(dir, url, project)?.name ?? project}`, '--permission-mode', mode)
+            'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode])
         tmux('set-option', '-t', launch.tmux, LAUNCHER, String(process.pid))
-        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context})
+        running.set(launch.id, {tmux: launch.tmux, api, context: launch.context, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}})
         if (launch.context) tmux('set-option', '-t', launch.tmux, CONTEXT, JSON.stringify(launch.context))
+        if (launch.untrusted) tmux('set-option', '-t', launch.tmux, UNTRUSTED, 'yes')
+        if (launch.chat) tmux('set-option', '-t', launch.tmux, CHAT, 'yes')
         keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)
-        log(`started ${launch.tmux} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
+        log(`started ${launch.tmux}${launch.untrusted ? ' locked down, for an untrusted schedule,' : launch.chat ? ' for a chat, able only to read and answer,' : ''} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
         getPast(launch.id, dir).catch(error => log(`${launch.tmux}: ${error.message}`))
     }
 
     return follow({
-        // The folder it serves from, so Orrery knows which projects share one and can share a session.
-        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}`,
+        // The folder it serves from, so Orrery knows which projects share one and can share a session, and whether its
+        // channel serves every project, so a session started here hearing no one project hears them all.
+        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 await report(api)

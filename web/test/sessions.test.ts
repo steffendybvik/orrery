@@ -38,12 +38,12 @@ describe('a session', () => {
     })
 
     it('is named after its project, the names taken in turn rather than the first free again', () => {
-        expect(sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Odin')
-        expect(sessions.report({id: 'b', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Njord')
-        sessions.report({id: 'a', project: 'larder', event: 'SessionEnd'})
-        expect(sessions.report({id: 'c', project: 'larder', event: 'SessionStart'})?.name).toBe('larder · Brokk')
-        expect(sessions.report({id: 'd', project: 'larder', name: 'pantry', event: 'SessionStart'})?.name).toBe('pantry')
-        expect(changed.every(p => p === 'larder')).toBe(true)
+        expect(sessions.report({id: 'a', project: 'greenhouse', event: 'SessionStart'})?.name).toBe('greenhouse · Odin')
+        expect(sessions.report({id: 'b', project: 'greenhouse', event: 'SessionStart'})?.name).toBe('greenhouse · Njord')
+        sessions.report({id: 'a', project: 'greenhouse', event: 'SessionEnd'})
+        expect(sessions.report({id: 'c', project: 'greenhouse', event: 'SessionStart'})?.name).toBe('greenhouse · Brokk')
+        expect(sessions.report({id: 'd', project: 'greenhouse', name: 'pantry', event: 'SessionStart'})?.name).toBe('pantry')
+        expect(changed.every(p => p === 'greenhouse')).toBe(true)
     })
 
     it('hearing several projects, goes by a bare name no session has, and gets its prefix back on one', () => {
@@ -71,7 +71,7 @@ describe('a session', () => {
     })
 
     it('follows its hooks: working, idle, and waiting when asked for a permission', () => {
-        const state = (event: string, message?: string) => sessions.report({id: 'a', project: 'larder', event, message})?.state
+        const state = (event: string, message?: string) => sessions.report({id: 'a', project: 'greenhouse', event, message})?.state
         expect(state('SessionStart')).toBe('idle')
         expect(state('UserPromptSubmit')).toBe('working')
         expect(state('Notification', 'Claude needs your permission to use Bash')).toBe('waiting')
@@ -79,73 +79,79 @@ describe('a session', () => {
         expect(state('Stop')).toBe('idle')
         expect(state('starting')).toBe('starting')
         expect(state('SessionEnd')).toBeUndefined()
-        expect(sessions.listSessions('larder')).toEqual([])
+        expect(sessions.listSessions('greenhouse')).toEqual([])
     })
 
     it('keeps the time its state began until the state changes', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
-        const first = sessions.report({id: 'a', project: 'larder', event: 'UserPromptSubmit'})!
+        const first = sessions.report({id: 'a', project: 'greenhouse', event: 'UserPromptSubmit'})!
         vi.setSystemTime(new Date('2026-10-25T10:01:00Z'))
-        expect(sessions.report({id: 'a', project: 'larder', event: 'PreToolUse'})!.since).toBe(first.since)
-        expect(sessions.report({id: 'a', project: 'larder', event: 'Stop'})!.since).toBe('2026-10-25T10:01:00.000Z')
+        expect(sessions.report({id: 'a', project: 'greenhouse', event: 'PreToolUse'})!.since).toBe(first.since)
+        expect(sessions.report({id: 'a', project: 'greenhouse', event: 'Stop'})!.since).toBe('2026-10-25T10:01:00.000Z')
     })
 
     it('keeps when its hooks last said it went idle, for a repeat to wait on', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
-        sessions.attend('larder', 'a', undefined, undefined)
+        sessions.attend('greenhouse', 'a', undefined, undefined)
         expect(sessions.idleAt('a')).toBeUndefined()
-        sessions.report({id: 'a', project: 'larder', event: 'Stop'})
+        sessions.report({id: 'a', project: 'greenhouse', event: 'Stop'})
         expect(sessions.idleAt('a')).toBe(Date.parse('2026-10-25T10:00:00Z'))
         vi.setSystemTime(new Date('2026-10-25T10:05:00Z'))
-        sessions.report({id: 'a', project: 'larder', event: 'working'})
+        sessions.report({id: 'a', project: 'greenhouse', event: 'working'})
         expect(sessions.idleAt('a')).toBe(Date.parse('2026-10-25T10:00:00Z'))
-        expect(sessions.listSessions('larder')[0]).not.toHaveProperty('idleAt')
+        expect(sessions.listSessions('greenhouse')[0]).not.toHaveProperty('idleAt')
     })
 
     it('first heard of by its pid takes its id when a hook brings it, and keeps no pid in public', () => {
-        expect(sessions.report({pid: 42, project: 'larder', event: 'SessionStart'})?.id).toBe('pid-42')
-        const now = sessions.report({id: 'abc', pid: 42, project: 'larder', cwd: '/repo', event: 'UserPromptSubmit'})!
-        expect(now).toMatchObject({id: 'abc', name: 'larder · Odin', cwd: '/repo', state: 'working'})
+        expect(sessions.report({pid: 42, project: 'greenhouse', event: 'SessionStart'})?.id).toBe('pid-42')
+        const now = sessions.report({id: 'abc', pid: 42, project: 'greenhouse', cwd: '/repo', event: 'UserPromptSubmit'})!
+        expect(now).toMatchObject({id: 'abc', name: 'greenhouse · Odin', cwd: '/repo', state: 'working'})
         expect(now).not.toHaveProperty('pid')
         expect(sessions.listSessions().map(s => s.id)).toEqual(['abc'])
-        expect(sessions.sessionName('abc')).toBe('larder · Odin')
+        expect(sessions.sessionName('abc')).toBe('greenhouse · Odin')
         expect(sessions.sessionName(undefined)).toBeUndefined()
     })
 
     it('listens while its channel is connected', () => {
-        const {id, done} = sessions.attend('larder', 'a', undefined, 'pantry')
-        expect(sessions.listSessions('larder')).toMatchObject([{id, name: 'pantry', listening: true}])
+        const {id, done} = sessions.attend('greenhouse', 'a', undefined, 'pantry')
+        expect(sessions.listSessions('greenhouse')).toMatchObject([{id, name: 'pantry', listening: true}])
         done()
-        expect(sessions.listSessions('larder')[0]!.listening).toBe(false)
+        expect(sessions.listSessions('greenhouse')[0]!.listening).toBe(false)
         // A session started without the channel flag connects but wouldn't hear.
-        expect(sessions.attend('larder', 'b', undefined, undefined, false)).toMatchObject({id: 'b'})
-        expect(sessions.listSessions('larder').find(s => s.id === 'b')).toMatchObject({name: 'larder · Odin', listening: false})
+        expect(sessions.attend('greenhouse', 'b', undefined, undefined, false)).toMatchObject({id: 'b'})
+        expect(sessions.listSessions('greenhouse').find(s => s.id === 'b')).toMatchObject({name: 'greenhouse · Odin', listening: false})
     })
 
     it('takes the focus made for its launch as its own', () => {
-        const {id} = sessions.attend('larder', 'a', undefined, undefined, true, undefined, false, 'l9')
+        const {id} = sessions.attend('greenhouse', 'a', undefined, undefined, true, undefined, false, 'l9')
         expect(sessions.currentId('launch-l9')).toBe(id)
         expect(sessions.sessionIds(id)).toContain('launch-l9')
         expect(sessions.currentId('launch-l8')).toBe('launch-l8')
     })
 
+    it("started for the owner's chat, holds no place among those Orrery started", () => {
+        sessions.attend('greenhouse', 'chat', undefined, undefined, true, {launch: 'c1', tmux: 'orrery-greenhouse-c1', chat: true})
+        expect(sessions.chatSession('chat')).toBe(true)
+        expect([sessions.startedSessions('greenhouse'), sessions.startedSessions()]).toEqual([0, 0])
+    })
+
     it('started by Orrery says which launch, and counts as one it started while its channel is there', () => {
-        const launch = (id: string) => ({launch: id, tmux: `orrery-larder-${id}`, stops_at: '2026-10-25T11:00:00.000Z'})
-        const a = sessions.attend('larder', 'a', undefined, undefined, true, launch('l1'))
-        sessions.attend('larder', 'b', undefined, undefined)
+        const launch = (id: string) => ({launch: id, tmux: `orrery-greenhouse-${id}`, stops_at: '2026-10-25T11:00:00.000Z'})
+        const a = sessions.attend('greenhouse', 'a', undefined, undefined, true, launch('l1'))
+        sessions.attend('greenhouse', 'b', undefined, undefined)
         sessions.attend('mesa', 'c', undefined, undefined, true, launch('l3'))
-        expect(sessions.listSessions('larder').map(s => s.started?.launch)).toEqual(['l1', undefined])
-        expect([sessions.startedSessions('larder'), sessions.startedSessions()]).toEqual([1, 2])
+        expect(sessions.listSessions('greenhouse').map(s => s.started?.launch)).toEqual(['l1', undefined])
+        expect([sessions.startedSessions('greenhouse'), sessions.startedSessions()]).toEqual([1, 2])
         // Its channel gone (it crashed, or was killed by hand), it no longer holds a place.
         a.done()
-        expect(sessions.startedSessions('larder')).toBe(0)
-        expect(sessions.sessionOfLaunch('larder', 'l1')?.id).toBe('a')
-        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stops_at).toBe('2026-10-25T11:30:00.000Z')
+        expect(sessions.startedSessions('greenhouse')).toBe(0)
+        expect(sessions.sessionOfLaunch('greenhouse', 'l1')?.id).toBe('a')
+        expect(sessions.extendLaunch('greenhouse', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stops_at).toBe('2026-10-25T11:30:00.000Z')
         // Its launcher saying it ended drops it, by its launch.
-        sessions.launchEnded('larder', 'l1')
-        sessions.launchEnded('larder', 'l3')
+        sessions.launchEnded('greenhouse', 'l1')
+        sessions.launchEnded('greenhouse', 'l3')
         expect(sessions.listSessions().map(s => s.id)).toEqual(['b', 'c'])
-        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T12:00:00.000Z')).toBeUndefined()
+        expect(sessions.extendLaunch('greenhouse', 'l1', '2026-10-25T12:00:00.000Z')).toBeUndefined()
     })
 
     it("listens on its project's channel only, whatever the window's other channels say", () => {
@@ -231,88 +237,96 @@ describe('a session', () => {
     })
 
     it('outlives a /clear: the new id takes it over by its pid, and the old one stays an alias', () => {
-        const channel = sessions.attend('larder', 'before', 42, undefined)
-        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'before', name: 'larder · Odin', listening: true, state: 'idle'}])
-        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder · Odin', listening: true}])
+        const channel = sessions.attend('greenhouse', 'before', 42, undefined)
+        sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})
+        expect(sessions.listSessions('greenhouse')).toMatchObject([{id: 'before', name: 'greenhouse · Odin', listening: true, state: 'idle'}])
+        sessions.report({id: 'after', pid: 42, project: 'greenhouse', event: 'SessionStart'})
+        expect(sessions.listSessions('greenhouse')).toMatchObject([{id: 'after', name: 'greenhouse · Odin', listening: true}])
         // The channel, connected before, now goes by the new id; its old one still finds the session.
         expect(channel.id).toBe('after')
         expect([sessions.currentId('before'), sessions.currentId('other')]).toEqual(['after', 'other'])
-        expect([sessions.hearing('larder', 'before'), sessions.sessionName('before')]).toEqual([true, 'larder · Odin'])
+        expect([sessions.hearing('greenhouse', 'before'), sessions.sessionName('before')]).toEqual([true, 'greenhouse · Odin'])
         // Its channel goes on reporting with the old id, which doesn't take the session back to it.
-        sessions.report({id: 'before', project: 'larder', event: 'working'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', state: 'working'}])
+        sessions.report({id: 'before', project: 'greenhouse', event: 'working'})
+        expect(sessions.listSessions('greenhouse')).toMatchObject([{id: 'after', state: 'working'}])
         // A second clear: every id it has had leads to the newest.
-        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
-        sessions.report({id: 'latest', pid: 42, project: 'larder', event: 'SessionStart'})
+        sessions.report({id: 'after', pid: 42, project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'latest', pid: 42, project: 'greenhouse', event: 'SessionStart'})
         expect(sessions.sessionIds('before')).toEqual(['latest', 'before', 'after'])
         // Quitting ends it, aliases and all.
-        sessions.report({id: 'latest', project: 'larder', event: 'SessionEnd', reason: 'prompt_input_exit'})
-        expect(sessions.listSessions('larder')).toEqual([])
+        sessions.report({id: 'latest', project: 'greenhouse', event: 'SessionEnd', reason: 'prompt_input_exit'})
+        expect(sessions.listSessions('greenhouse')).toEqual([])
         expect(sessions.currentId('before')).toBe('before')
         // A clear of a session Orrery never heard of starts nothing.
-        expect(sessions.report({id: 'stranger', project: 'larder', event: 'SessionEnd', reason: 'clear'})).toBeNull()
+        expect(sessions.report({id: 'stranger', project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})).toBeNull()
     })
 
     it('moves what its old id worked and was sent to the new one, so a restart loses none of it', () => {
-        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionStart'})
-        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
-        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart', source: 'clear'})
-        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'working'})
-        expect(renamed).toEqual(['larder:before>after'])
+        sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'SessionStart'})
+        sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'after', pid: 42, project: 'greenhouse', event: 'SessionStart', source: 'clear'})
+        sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'working'})
+        expect(renamed).toEqual(['greenhouse:before>after'])
     })
 
     it('resumed by its old id in another window is another session', () => {
-        const channel = sessions.attend('larder', 'before', 42, undefined)
-        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
-        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart', source: 'clear'})
+        const channel = sessions.attend('greenhouse', 'before', 42, undefined)
+        sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'after', pid: 42, project: 'greenhouse', event: 'SessionStart', source: 'clear'})
         // `claude --resume before` in another terminal.
-        sessions.report({id: 'before', pid: 99, project: 'larder', event: 'SessionStart', source: 'resume'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', name: 'larder · Odin', listening: true}, {id: 'before', name: 'larder · Njord', listening: false}])
+        sessions.report({id: 'before', pid: 99, project: 'greenhouse', event: 'SessionStart', source: 'resume'})
+        expect(sessions.listSessions('greenhouse')).toMatchObject([{id: 'after', name: 'greenhouse · Odin', listening: true}, {id: 'before', name: 'greenhouse · Njord', listening: false}])
         expect(sessions.currentId('before')).toBe('before')
         // The first window's channel, still on the old id, reaches its own session by its pid.
-        sessions.attend('larder', 'before', 42, undefined).done()
+        sessions.attend('greenhouse', 'before', 42, undefined).done()
         expect(channel.id).toBe('after')
-        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'working'})
-        expect(sessions.listSessions('larder')).toMatchObject([{id: 'after', state: 'working'}, {id: 'before', state: 'idle'}])
+        sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'working'})
+        expect(sessions.listSessions('greenhouse')).toMatchObject([{id: 'after', state: 'working'}, {id: 'before', state: 'idle'}])
     })
 
     it('outlives a /clear with no pid: the next session after a clear in its folder takes it over', () => {
         vi.useFakeTimers()
-        sessions.attend('larder', 'before', undefined, undefined)
-        sessions.report({id: 'before', project: 'larder', cwd: '/src/larder', event: 'SessionStart'})
-        sessions.report({id: 'before', project: 'larder', cwd: '/src/larder', event: 'SessionEnd', reason: 'clear'})
+        sessions.attend('greenhouse', 'before', undefined, undefined)
+        sessions.report({id: 'before', project: 'greenhouse', cwd: '/src/greenhouse', event: 'SessionStart'})
+        sessions.report({id: 'before', project: 'greenhouse', cwd: '/src/greenhouse', event: 'SessionEnd', reason: 'clear'})
         // A fresh window, or a clear in another folder, isn't it.
-        sessions.report({id: 'fresh', project: 'larder', cwd: '/src/larder', event: 'SessionStart', source: 'startup'})
-        sessions.report({id: 'elsewhere', project: 'larder', cwd: '/src/other', event: 'SessionStart', source: 'clear'})
-        sessions.report({id: 'after', project: 'larder', cwd: '/src/larder', event: 'SessionStart', source: 'clear'})
-        expect(sessions.listSessions('larder').map(s => s.id).sort()).toEqual(['after', 'elsewhere', 'fresh'])
-        expect([sessions.currentId('before'), sessions.hearing('larder', 'after')]).toEqual(['after', true])
+        sessions.report({id: 'fresh', project: 'greenhouse', cwd: '/src/greenhouse', event: 'SessionStart', source: 'startup'})
+        sessions.report({id: 'elsewhere', project: 'greenhouse', cwd: '/src/other', event: 'SessionStart', source: 'clear'})
+        sessions.report({id: 'after', project: 'greenhouse', cwd: '/src/greenhouse', event: 'SessionStart', source: 'clear'})
+        expect(sessions.listSessions('greenhouse').map(s => s.id).sort()).toEqual(['after', 'elsewhere', 'fresh'])
+        expect([sessions.currentId('before'), sessions.hearing('greenhouse', 'after')]).toEqual(['after', true])
         // It waits a minute at most: a clear after that is a session of its own.
-        sessions.report({id: 'fresh', project: 'larder', cwd: '/src/larder', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'fresh', project: 'greenhouse', cwd: '/src/greenhouse', event: 'SessionEnd', reason: 'clear'})
         vi.advanceTimersByTime(61_000)
-        sessions.report({id: 'late', project: 'larder', cwd: '/src/larder', event: 'SessionStart', source: 'clear'})
-        expect(sessions.listSessions('larder').map(s => s.id).sort()).toEqual(['after', 'elsewhere', 'fresh', 'late'])
+        sessions.report({id: 'late', project: 'greenhouse', cwd: '/src/greenhouse', event: 'SessionStart', source: 'clear'})
+        expect(sessions.listSessions('greenhouse').map(s => s.id).sort()).toEqual(['after', 'elsewhere', 'fresh', 'late'])
+    })
+
+    it("its channel says is untrusted stays so, though Orrery doesn't know its launch and the launcher's report leaves it out", () => {
+        sessions.attend('greenhouse', 'locked', undefined, undefined, true, undefined, true, 'l9', undefined, true)
+        sessions.attend('greenhouse', 'plain', undefined, undefined, true, undefined, true, 'l8')
+        expect([sessions.untrustedSession('locked'), sessions.untrustedSession('plain')]).toEqual([true, false])
+        sessions.adoptLaunch('greenhouse', {launch: 'l9', tmux: 'orrery-greenhouse-9'})
+        expect(sessions.untrustedSession('locked')).toBe(true)
     })
 
     it('started by Orrery keeps its launch across a /clear', () => {
-        sessions.attend('larder', 'before', 42, undefined, true, {launch: 'l1', tmux: 'orrery-larder-l1', stops_at: '2026-10-25T11:00:00.000Z'})
-        sessions.report({id: 'before', pid: 42, project: 'larder', event: 'SessionEnd', reason: 'clear'})
-        sessions.report({id: 'after', pid: 42, project: 'larder', event: 'SessionStart'})
-        expect(sessions.sessionOfLaunch('larder', 'l1')?.id).toBe('after')
-        expect(sessions.startedSessions('larder')).toBe(1)
-        expect(sessions.extendLaunch('larder', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stops_at).toBe('2026-10-25T11:30:00.000Z')
-        sessions.launchEnded('larder', 'l1')
-        expect([sessions.listSessions('larder'), sessions.currentId('before')]).toEqual([[], 'before'])
+        sessions.attend('greenhouse', 'before', 42, undefined, true, {launch: 'l1', tmux: 'orrery-greenhouse-l1', stops_at: '2026-10-25T11:00:00.000Z'})
+        sessions.report({id: 'before', pid: 42, project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'after', pid: 42, project: 'greenhouse', event: 'SessionStart'})
+        expect(sessions.sessionOfLaunch('greenhouse', 'l1')?.id).toBe('after')
+        expect(sessions.startedSessions('greenhouse')).toBe(1)
+        expect(sessions.extendLaunch('greenhouse', 'l1', '2026-10-25T11:30:00.000Z')?.started?.stops_at).toBe('2026-10-25T11:30:00.000Z')
+        sessions.launchEnded('greenhouse', 'l1')
+        expect([sessions.listSessions('greenhouse'), sessions.currentId('before')]).toEqual([[], 'before'])
     })
 
     it('is forgotten after six quiet hours, unless it is listening', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
-        sessions.report({id: 'quiet', project: 'larder', event: 'Stop'})
-        sessions.attend('larder', 'listening', undefined, undefined)
+        sessions.report({id: 'quiet', project: 'greenhouse', event: 'Stop'})
+        sessions.attend('greenhouse', 'listening', undefined, undefined)
         sessions.report({id: 'other', project: 'mesa', event: 'Stop'})
-        expect(sessions.listSessions('larder').map(s => s.id)).toEqual(['quiet', 'listening'])
+        expect(sessions.listSessions('greenhouse').map(s => s.id)).toEqual(['quiet', 'listening'])
         vi.setSystemTime(new Date('2026-10-25T16:00:01Z'))
         expect(sessions.listSessions().map(s => s.id)).toEqual(['listening'])
     })
@@ -323,36 +337,45 @@ describe('listeners', () => {
         const {listen, listening, projectEvents} = await import('../server/utils/events')
         const heard: string[] = []
         projectEvents.on('listeners', project => heard.push(project))
-        const one = listen('larder')
-        const two = listen('larder')
-        expect([listening('larder'), listening('mesa')]).toEqual([2, 0])
+        const one = listen('greenhouse')
+        const two = listen('greenhouse')
+        expect([listening('greenhouse'), listening('mesa')]).toEqual([2, 0])
         one()
         one()
-        expect(listening('larder')).toBe(1)
+        expect(listening('greenhouse')).toBe(1)
         two()
-        expect(listening('larder')).toBe(0)
-        expect(heard).toEqual(['larder', 'larder', 'larder', 'larder'])
+        expect(listening('greenhouse')).toBe(0)
+        expect(heard).toEqual(['greenhouse', 'greenhouse', 'greenhouse', 'greenhouse'])
     })
 })
 
 describe('the issues a session writes to', () => {
     it('are the ones its curls send a body or a PATCH, POST or PUT to', () => {
-        const writes = (command: string) => sessions.issueWrites(command, 'larder').map(w => `${w.project}/${w.issue}`)
-        expect(writes(`curl -s -X PATCH http://localhost:9000/api/projects/larder/issues/LAR-12 -d '{"status":"done"}'`)).toEqual(['larder/LAR-12'])
-        expect(writes(`curl -s -X POST $ISSUES/LAR-3/comments -H "$H" --data @reply.json && curl -s $ISSUES/LAR-4`)).toEqual(['larder/LAR-3'])
+        const writes = (command: string) => sessions.issueWrites(command, 'greenhouse').map(w => `${w.project}/${w.issue}`)
+        expect(writes(`curl -s -X PATCH http://localhost:9000/api/projects/greenhouse/issues/GRE-12 -d '{"status":"done"}'`)).toEqual(['greenhouse/GRE-12'])
+        expect(writes(`curl -s -X POST $ISSUES/GRE-3/comments -H "$H" --data @reply.json && curl -s $ISSUES/GRE-4`)).toEqual(['greenhouse/GRE-3'])
         expect(writes(`curl -X PUT http://x/api/projects/pantry/issues/PAN-1 -d '{}'`)).toEqual(['pantry/PAN-1'])
-        expect(writes('curl -s http://localhost:9000/api/projects/larder/issues/LAR-12')).toEqual([])
-        expect(writes('git commit -m "fix LAR-12" -d')).toEqual([])
-        expect(writes(`curl -X DELETE $ISSUES/LAR-9`)).toEqual([])
+        expect(writes('curl -s http://localhost:9000/api/projects/greenhouse/issues/GRE-12')).toEqual([])
+        expect(writes('git commit -m "fix GRE-12" -d')).toEqual([])
+        expect(writes(`curl -X DELETE $ISSUES/GRE-9`)).toEqual([])
     })
 
     it("note the session as the issue's worker, from its hook", async () => {
         const worked: string[] = []
         vi.stubGlobal('useStore', () => ({workedBy: async (project: string, issue: string, session: string) => worked.push(`${project}/${issue}:${session}`)}))
-        sessions.report({id: 'a', project: 'larder', event: 'PreToolUse', command: `curl -X PATCH $ISSUES/LAR-7 -d '{"status":"in-progress"}'`})
-        sessions.report({id: 'b', project: 'larder', event: 'PreToolUse', command: 'ls'})
+        sessions.report({id: 'a', project: 'greenhouse', event: 'PreToolUse', command: `curl -X PATCH $ISSUES/GRE-7 -d '{"status":"in-progress"}'`})
+        sessions.report({id: 'b', project: 'greenhouse', event: 'PreToolUse', command: 'ls'})
         await Promise.resolve()
-        expect(worked).toEqual(['larder/LAR-7:a'])
+        expect(worked).toEqual(['greenhouse/GRE-7:a'])
+    })
+
+    it("but never an untrusted schedule's: a command's text is what it read, not a claim", async () => {
+        const worked: string[] = []
+        vi.stubGlobal('useStore', () => ({workedBy: async (project: string, issue: string, session: string) => worked.push(`${project}/${issue}:${session}`)}))
+        sessions.attend('greenhouse', 'locked', undefined, undefined, true, undefined, true, 'l9', undefined, true)
+        sessions.report({id: 'locked', project: 'greenhouse', event: 'PreToolUse', command: `gh issue list --search "curl -X POST /projects/greenhouse/issues/GRE-7"`})
+        await Promise.resolve()
+        expect(worked).toEqual([])
     })
 })
 
@@ -365,36 +388,36 @@ describe('stopping a session', () => {
     it("asks its channel to end it, and drops it once the channel's gone", () => {
         const asked: unknown[] = []
         projectEvents.on('session-stop', event => asked.push(event))
-        expect(() => sessions.stopSession('larder', 'a')).toThrow('No session a in larder')
-        sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})
-        expect(() => sessions.stopSession('larder', 'a')).toThrow('has no Orrery channel running')
-        expect(sessions.listSessions('larder')[0]!.reachable).toBe(false)
+        expect(() => sessions.stopSession('greenhouse', 'a')).toThrow('No session a in greenhouse')
+        sessions.report({id: 'a', project: 'greenhouse', event: 'SessionStart'})
+        expect(() => sessions.stopSession('greenhouse', 'a')).toThrow('has no Orrery channel running')
+        expect(sessions.listSessions('greenhouse')[0]!.reachable).toBe(false)
         // An older channel doesn't know to quit; one without the flag can't hear signals, but can still be stopped.
-        const old = sessions.attend('larder', 'a', undefined, undefined, true)
-        expect(() => sessions.stopSession('larder', 'a')).toThrow('an older channel needs the session restarted')
+        const old = sessions.attend('greenhouse', 'a', undefined, undefined, true)
+        expect(() => sessions.stopSession('greenhouse', 'a')).toThrow('an older channel needs the session restarted')
         old.done()
-        const first = sessions.attend('larder', 'a', undefined, undefined, false, undefined, true)
-        const second = sessions.attend('larder', 'a', undefined, undefined, false, undefined, true)
-        expect(sessions.listSessions('larder')[0]!.reachable).toBe(true)
+        const first = sessions.attend('greenhouse', 'a', undefined, undefined, false, undefined, true)
+        const second = sessions.attend('greenhouse', 'a', undefined, undefined, false, undefined, true)
+        expect(sessions.listSessions('greenhouse')[0]!.reachable).toBe(true)
         expect(() => sessions.stopSession('mesa', 'a')).toThrow('No session a in mesa')
-        expect(sessions.stopSession('larder', 'a').name).toBe('larder · Odin')
-        expect(asked).toEqual([{project: 'larder', id: 'a'}])
+        expect(sessions.stopSession('greenhouse', 'a').name).toBe('greenhouse · Odin')
+        expect(asked).toEqual([{project: 'greenhouse', id: 'a'}])
         // An id it had before a /clear still reaches it.
-        sessions.report({id: 'a', pid: 7, project: 'larder', event: 'SessionEnd', reason: 'clear'})
-        sessions.report({id: 'a2', pid: 7, project: 'larder', event: 'SessionStart'})
-        sessions.stopSession('larder', 'a')
-        expect(asked).toEqual([{project: 'larder', id: 'a'}, {project: 'larder', id: 'a2'}])
+        sessions.report({id: 'a', pid: 7, project: 'greenhouse', event: 'SessionEnd', reason: 'clear'})
+        sessions.report({id: 'a2', pid: 7, project: 'greenhouse', event: 'SessionStart'})
+        sessions.stopSession('greenhouse', 'a')
+        expect(asked).toEqual([{project: 'greenhouse', id: 'a'}, {project: 'greenhouse', id: 'a2'}])
         first.done()
-        expect(sessions.listSessions('larder')).toHaveLength(1)
+        expect(sessions.listSessions('greenhouse')).toHaveLength(1)
         second.done()
-        expect(sessions.listSessions('larder')).toEqual([])
+        expect(sessions.listSessions('greenhouse')).toEqual([])
     })
 
     it("goes through the launcher for one Orrery started", () => {
         vi.stubGlobal('stopLaunch', (project: string, launch: string) => ({project, launch}))
         vi.stubGlobal('launchersOf', () => 1)
-        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T00:00:00.000Z'})
-        expect(sessions.stopSession('larder', 'b')).toEqual({project: 'larder', launch: 'abc'})
+        sessions.attend('greenhouse', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-greenhouse-abc', stops_at: '2999-01-01T00:00:00.000Z'})
+        expect(sessions.stopSession('greenhouse', 'b')).toEqual({project: 'greenhouse', launch: 'abc'})
     })
 
     it("goes through its channel for one Orrery started when no launcher is there to stop it", () => {
@@ -404,43 +427,43 @@ describe('stopping a session', () => {
             throw new Error('not through the launcher')
         })
         vi.stubGlobal('launchersOf', () => 0)
-        sessions.attend('larder', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-larder-abc', stops_at: '2999-01-01T00:00:00.000Z'}, true)
-        expect(sessions.stopSession('larder', 'b').name).toBe('larder · Odin')
-        expect(asked).toEqual([{project: 'larder', id: 'b'}])
+        sessions.attend('greenhouse', 'b', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-greenhouse-abc', stops_at: '2999-01-01T00:00:00.000Z'}, true)
+        expect(sessions.stopSession('greenhouse', 'b').name).toBe('greenhouse · Odin')
+        expect(asked).toEqual([{project: 'greenhouse', id: 'b'}])
     })
 })
 
 describe('a session Orrery started, after Orrery restarts', () => {
     it("counts as started again once its launcher reports the launch, though its channel connected first", () => {
-        const started = {launch: 'a1b2c3d4e5f6', tmux: 'orrery-larder-a1b2c3d4e5f6', stops_at: '2999-01-01T00:00:00.000Z'}
+        const started = {launch: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', stops_at: '2999-01-01T00:00:00.000Z'}
         // Orrery doesn't know the launch yet, so the channel connects as an ordinary session, saying its launch.
-        sessions.attend('larder', 'b', undefined, undefined, true, undefined, true, started.launch)
-        expect(sessions.startedSessions('larder')).toBe(0)
-        sessions.adoptLaunch('larder', started)
-        expect(sessions.startedSessions('larder')).toBe(1)
-        expect(sessions.sessionOfLaunch('larder', started.launch)?.started).toEqual(started)
+        sessions.attend('greenhouse', 'b', undefined, undefined, true, undefined, true, started.launch)
+        expect(sessions.startedSessions('greenhouse')).toBe(0)
+        sessions.adoptLaunch('greenhouse', started)
+        expect(sessions.startedSessions('greenhouse')).toBe(1)
+        expect(sessions.sessionOfLaunch('greenhouse', started.launch)?.started).toEqual(started)
         // Another project's report of the same id doesn't touch it.
         sessions.adoptLaunch('mesa', {...started, stops_at: '2000-01-01T00:00:00.000Z'})
-        expect(sessions.sessionOfLaunch('larder', started.launch)?.started?.stops_at).toBe(started.stops_at)
+        expect(sessions.sessionOfLaunch('greenhouse', started.launch)?.started?.stops_at).toBe(started.stops_at)
     })
 })
 
 describe('a message to every session', () => {
     it('reaches each listening one once, idle by default, narrowed by project', () => {
-        sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})
-        sessions.attend('larder', 'a', undefined, undefined)
+        sessions.report({id: 'a', project: 'greenhouse', event: 'SessionStart'})
+        sessions.attend('greenhouse', 'a', undefined, undefined)
         // One session hearing two projects is one recipient.
         sessions.attend('pantry', 'a', undefined, undefined)
         sessions.report({id: 'b', project: 'pantry', event: 'SessionStart'})
         sessions.attend('pantry', 'b', undefined, undefined)
         sessions.report({id: 'b', project: 'pantry', event: 'UserPromptSubmit'})
         // Not listening: its channel can't hear it.
-        sessions.report({id: 'c', project: 'larder', event: 'SessionStart'})
+        sessions.report({id: 'c', project: 'greenhouse', event: 'SessionStart'})
         const ids = (projects?: string[], states?: Parameters<typeof sessions.recipients>[1]) => sessions.recipients(projects, states).map(s => s.id)
         expect(ids()).toEqual(['a'])
         expect(ids(undefined, ['idle', 'working'])).toEqual(['a', 'b'])
         expect(ids(['pantry'], ['idle', 'working'])).toEqual(['a', 'b'])
-        expect(ids(['larder'], ['idle', 'working'])).toEqual(['a'])
+        expect(ids(['greenhouse'], ['idle', 'working'])).toEqual(['a'])
         expect(ids(['mesa'])).toEqual([])
     })
 })
@@ -452,11 +475,28 @@ describe("a session's stream", () => {
         const pushed: string[] = []
         const stop = sayName({push: ({event, data}) => pushed.push(`${event} ${JSON.parse(data).name}`)}, () => 'a')
         expect(pushed).toEqual([])
-        sessions.report({id: 'a', project: 'larder', event: 'SessionStart'})
-        sessions.report({id: 'a', project: 'larder', event: 'UserPromptSubmit'})
-        sessions.report({id: 'a', project: 'larder', name: 'pantry', event: 'SessionStart'})
+        sessions.report({id: 'a', project: 'greenhouse', event: 'SessionStart'})
+        sessions.report({id: 'a', project: 'greenhouse', event: 'UserPromptSubmit'})
+        sessions.report({id: 'a', project: 'greenhouse', name: 'pantry', event: 'SessionStart'})
         stop()
-        sessions.report({id: 'a', project: 'larder', name: 'cellar', event: 'SessionStart'})
-        expect(pushed).toEqual(['name larder · Odin', 'name pantry'])
+        sessions.report({id: 'a', project: 'greenhouse', name: 'cellar', event: 'SessionStart'})
+        expect(pushed).toEqual(['name greenhouse · Odin', 'name pantry'])
+    })
+})
+
+describe("a session's channel in the event log", () => {
+    it('says who connected to the feed for which projects, and left', async () => {
+        const {channelEntry} = await import('../server/utils/signal-feed')
+        const who = {name: 'greenhouse · Odin', heard: true, stops: true, untrusted: false, chat: false}
+        expect(channelEntry('connected', ['greenhouse'], false, who, 's-1')).toEqual({
+            level: 'info', kind: 'channel.connected', project: 'greenhouse',
+            message: 'greenhouse · Odin connected to the feed for greenhouse', details: {session: 's-1', projects: ['greenhouse'], heard: true},
+        })
+        expect(channelEntry('left', ['greenhouse', 'pantry'], true, {...who, name: undefined, untrusted: true}, 's-1', 'Frøya')).toEqual({
+            level: 'info', kind: 'channel.left',
+            message: 'Frøya left the feed for every project', details: {session: 's-1', projects: ['*'], heard: true, untrusted: true},
+        })
+        expect(channelEntry('connected', ['pantry'], false, {...who, name: undefined, heard: false, pid: 42}).message)
+            .toBe("pid 42 connected to the feed for pantry (not started with the channel flag: it won't hear)")
     })
 })

@@ -15,6 +15,8 @@ export function pooled(signal: Signal): boolean {
 
 /** Whether the signal is for every session, or for this one (by any id it has had). */
 export function aimedAt(signal: Signal, session: string | undefined): boolean {
+    // A session reading what others wrote (an untrusted schedule's) hears only what's for it, and so does a chat.
+    if (session && (untrustedSession(session) || chatSession(session))) return !!signal.target && currentId(signal.target) === currentId(session)
     return !signal.target || signal.target === EVERY || !!session && currentId(signal.target) === currentId(session)
 }
 

@@ -15,7 +15,7 @@ const all = computed(() => count.value === keys.value.length)
       :aria-checked="all ? true : count ? 'mixed' : false"
       :aria-label="`Select all in ${label}`"
       :title="all ? `Untick the ${keys.length} in ${label}` : `Tick the ${keys.length} in ${label}`"
-      class="group/tick -m-1.5 shrink-0 cursor-pointer p-1.5 outline-none"
+      class="group/tick -m-1.5 shrink-0 p-1.5 outline-none"
       @click.stop="set(keys, !all)"
   >
     <span

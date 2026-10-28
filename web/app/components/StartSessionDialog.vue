@@ -4,7 +4,8 @@ import type {LaunchState} from '~/composables/useLaunchState'
 
 // Starting Claude sessions from anywhere, as the owner: pick the projects (every one, those that can't start one
 // now shown with why, and how to change that), one session each, hearing only its project; or, when the projects
-// picked are served from one repo, one session there hearing them all. On one project it can focus on an open issue;
+// picked are served from one repo, one session there hearing them all; or none, for one session hearing every
+// project, where a launcher's channel serves them all (`*`). On one project it can focus on an open issue;
 // else it works through a scope, the issues of the statuses ticked (and of a release), most urgent first, or with
 // nothing ticked waits for your work. It can be given more context: presets (the Orrery's, and each project's own)
 // and your own words, which go with every signal to it. Their launchers start them in tmux, for each project's
@@ -52,11 +53,13 @@ watch(target, now => {
 }, {immediate: true})
 // Asked again as launchers come and go and sessions start, while it's open.
 watch([launchers, sessions], () => target.value && loadStates())
+// At once as well: opening sets `chosen` above, before this watches it, and with nothing ticked the Orrery's presets
+// would otherwise never load.
 watch(chosen, () => {
     issue.value = ''
     if (release.value && !releases.value.includes(release.value)) release.value = ''
     loadPresets()
-})
+}, {immediate: true})
 
 async function loadPresets() {
     const lists = await Promise.all([
@@ -119,7 +122,13 @@ const shared = computed(() => {
 const oneSession = computed(() => shared.value && together.value === 'one')
 const ways = computed(() => [{value: 'one' as const, label: `One session for all ${projects.value.length}`}, {value: 'each' as const, label: 'A session each'}])
 
-const ready = computed(() => projects.value.length > 0 && projects.value.every(p => !why(p) && !!states.value[p.id]) && !busy.value)
+/** With nothing ticked, the project whose launcher starts a session hearing every project: the first that can start
+ * one now where its channel serves them all. */
+const everywhere = computed(() => projects.value.length ? undefined : ordered.value.find(p => !why(p) && states.value[p.id]?.every))
+
+const ready = computed(() => !busy.value && (projects.value.length
+    ? projects.value.every(p => !why(p) && !!states.value[p.id])
+    : !!everywhere.value))
 
 function toggle(status: string) {
     statuses.value = statuses.value.includes(status) ? statuses.value.filter(s => s !== status) : [...statuses.value, status]
@@ -131,13 +140,23 @@ async function start() {
     failed.value = ''
     const actor = await load()
     const work = issue.value ? {issue: issue.value} : scoped.value ? {statuses: statuses.value, ...release.value ? {release: release.value} : {}} : {}
+    const own = instructions.value.trim() ? {instructions: instructions.value.trim()} : {}
     // Each project's session gets the Orrery's presets ticked and its own.
     const body = (project: string) => ({
         ...work,
         presets: picked.value.filter(id => presets.value.some(p => p.id === id && (!p.project || p.project === project))),
-        ...instructions.value.trim() ? {instructions: instructions.value.trim()} : {},
+        ...own,
     })
     const refused = new Map<string, string>()
+    if (everywhere.value) {
+        // Without `hears`, so it hears what its channel serves: every project. Nothing ticked, so no work is set.
+        const {id, name} = everywhere.value
+        try {
+            await $fetch(`/api/projects/${encodeURIComponent(id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: {presets: picked.value, ...own}})
+        } catch (error) {
+            refused.set(id, `${name}: ${errorMessage(error)}`)
+        }
+    }
     if (oneSession.value) {
         // Started from the first project's launcher, hearing every one picked, with every preset ticked.
         const first = projects.value[0]?.id ?? ''
@@ -180,13 +199,13 @@ async function start() {
     </div>
 
     <div class="flex min-h-0 flex-col gap-1">
-      <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· {{ oneSession ? 'one session hearing them all' : 'a session each' }}</span></span>
+      <span class="label px-1">Projects <span class="font-normal normal-case text-faint">· {{ !projects.length ? 'none ticked: one session hearing every project' : oneSession ? 'one session hearing them all' : 'a session each' }}</span></span>
       <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto" role="group" aria-label="Projects">
         <label
             v-for="p in ordered"
             :key="p.id"
             class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
-            :class="why(p) ? 'text-faint' : chosen.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'cursor-pointer text-muted hover:bg-hover hover:text-fg'"
+            :class="why(p) ? 'text-faint' : chosen.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
         >
           <input v-model="chosen" type="checkbox" name="project" :value="p.id" :disabled="!!why(p)" class="accent-accent-500">
           <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
@@ -200,6 +219,11 @@ async function start() {
         </label>
       </div>
     </div>
+
+    <p v-if="!projects.length" class="px-1 text-xs text-faint">
+      <template v-if="everywhere">One session hearing every project, projects made later too, started in {{ everywhere.name }}'s repo.</template>
+      <template v-else>Tick a project to start. For one session hearing every project, a launcher has to run in a repo whose <code>.mcp.json</code> gives the channel <code>ORRERY_PROJECTS=*</code>.</template>
+    </p>
 
     <div v-if="shared" class="flex items-center gap-2 px-1">
       <SegmentedControl v-model="together" :options="ways" class="shrink-0 [&_[role=radio]]:whitespace-nowrap" />
@@ -236,9 +260,9 @@ async function start() {
       </p>
     </div>
 
-    <div v-if="projects.length" class="flex flex-col gap-1.5">
+    <div v-if="projects.length || everywhere" class="flex flex-col gap-1.5">
       <span class="label px-1">Context <span class="font-normal normal-case text-faint">· optional, goes with every signal to it</span></span>
-      <div v-if="presets.length" class="grid gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
+      <div v-if="presets.length" class="grid grid-cols-1 gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
         <button
             v-for="p in presets"
             :key="p.id"

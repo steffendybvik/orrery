@@ -2,8 +2,8 @@
 import type {Project, Schedule} from '#shared/roadmap'
 
 // A project's schedules as a card: the project at its head, with its own New schedule, then its schedules, soonest
-// first, paused (and one-offs that have run) last. A row says what it does (makes an issue, or messages the
-// sessions) and what it says, when it repeats, when it runs next and how its last run went; clicking edits it,
+// first, paused (and one-offs that have run) last. A row says what it does (makes an issue, messages the
+// sessions or starts one) and what it says, when it repeats, when it runs next and how its last run went; clicking edits it,
 // right-clicking or its ⋯ opens its menu (run now, pause, edit, remove). Its play button leads the row and says
 // its state at a glance, like a music player's: a filled one with ❙❙ while it runs (press to pause), an outlined
 // one with ▶ while it's paused.
@@ -71,7 +71,7 @@ const OUTCOME = {
         data-nav
         tabindex="0"
         role="button"
-        class="group flex cursor-pointer items-center gap-3 border-b border-line/60 px-4 py-3 text-sm outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-active"
+        class="group flex items-center gap-3 border-b border-line/60 px-4 py-3 text-sm outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-active"
         @click="edit(s.project, s)"
         @contextmenu="openMenu($event, s)"
     >
@@ -98,8 +98,8 @@ const OUTCOME = {
           <span class="truncate font-medium text-fg">{{ s.title }}</span>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
-              :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
-          >{{ s.kind === 'message' ? 'Messages sessions' : 'Makes an issue' }}</span>
+              :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
+          >{{ s.kind === 'message' ? s.untrusted ? 'Own locked-down session' : 'Messages sessions' : s.kind === 'session' ? 'Starts a session' : 'Makes an issue' }}</span>
         </div>
         <span v-if="gist(s)" class="truncate text-xs text-muted">{{ gist(s) }}</span>
         <span class="truncate text-xs text-faint">
@@ -115,7 +115,8 @@ const OUTCOME = {
         <span class="text-faint">· {{ ago(s.runs[0].at) }}</span>
       </span>
       <span class="shrink-0 self-start pt-0.5 text-right text-xs sm:w-36" :title="s.next_run ? when(s.next_run) : ''">
-        <template v-if="s.enabled && s.next_run"><span class="text-fg">{{ soon(s.next_run) }}</span> <span class="hidden text-faint sm:inline">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
+        <span v-if="s.enabled && s.on" class="text-muted" :title="`Runs on ${s.on}, once per subject`">on event</span>
+        <template v-else-if="s.enabled && s.next_run"><span class="text-fg">{{ soon(s.next_run) }}</span> <span class="hidden text-faint sm:inline">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
         <span v-else-if="ran(s)" class="text-faint">ran</span>
         <span v-else class="rounded-full bg-well px-2 py-0.5 font-medium text-muted">Paused</span>
       </span>

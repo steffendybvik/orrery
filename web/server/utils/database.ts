@@ -18,6 +18,9 @@ export interface Db {
     deferConstraints(): Promise<void>
     /** Runs `work` in one transaction: all of it lands, or none of it. One inside another is part of it. */
     transaction<T>(work: () => Promise<T>): Promise<T>
+    /** Runs `work` once the transaction the code running now is part of commits (never, when it rolls back), outside
+     * it; when there's none, on the next turn. */
+    afterCommit(work: () => void): void
 }
 
 /** The row of a statement that always gives one (an insert or update `RETURNING`, a `count(*)`); none is a bug, not a missing record. */
@@ -27,15 +30,20 @@ export async function one<T>(db: Db, sql: string, ...params: Value[]): Promise<T
     return row
 }
 
-/** The transaction the code running now is part of, if any. */
-const current = new AsyncLocalStorage<object>()
+/** The transaction the code running now is part of, if any, with what waits for it to commit. */
+const current = new AsyncLocalStorage<{after: (() => void)[]}>()
+
+/** Runs each of `after`, outside every transaction of `storage`, on the next turn. */
+export function runAfter(storage: AsyncLocalStorage<unknown>, after: (() => void)[]) {
+    if (after.length) storage.exit(() => setImmediate(() => after.forEach(work => work())))
+}
 
 export class SqliteDb implements Db {
     readonly dialect = 'sqlite'
     /** The end of the line: what's asked waits for what was asked before it. */
     private tail: Promise<unknown> = Promise.resolve()
     /** The transaction holding the connection, if one is. */
-    private open: object | null = null
+    private open: {after: (() => void)[]} | null = null
 
     constructor(readonly raw: DatabaseSync) {}
 
@@ -64,13 +72,14 @@ export class SqliteDb implements Db {
     async transaction<T>(work: () => Promise<T>): Promise<T> {
         if (this.inside()) return work()
         return this.queue(() => {
-            const token = {}
+            const token = {after: [] as (() => void)[]}
             this.open = token
             return current.run(token, async () => {
                 this.raw.exec('BEGIN IMMEDIATE')
                 try {
                     const result = await work()
                     this.raw.exec('COMMIT')
+                    runAfter(current, token.after)
                     return result
                 } catch (error) {
                     this.raw.exec('ROLLBACK')
@@ -80,6 +89,11 @@ export class SqliteDb implements Db {
                 }
             })
         })
+    }
+
+    afterCommit(work: () => void) {
+        if (this.inside()) this.open?.after.push(work)
+        else runAfter(current, [work])
     }
 
     /** Hands the raw connection to `work` when nothing else holds it, e.g. for a backup (`VACUUM INTO`

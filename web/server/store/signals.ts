@@ -7,6 +7,7 @@ import type {Actor, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
 import {EVERY} from '../utils/pool'
+import {known} from '#shared/known'
 
 export abstract class SignalStore extends IssueStore {
     /** `Store` has it, with the claims on issues. */
@@ -137,27 +138,38 @@ export abstract class SignalStore extends IssueStore {
         }))
     }
 
-    /** Sends a schedule's message to the project's sessions: about no issue, as the schedule's maker. */
-    async message(project: string, schedule: number, text: string, actor = AGENT): Promise<Signal> {
+    /** Sends a schedule's message to the project's sessions, or to one (`target`): about no issue, as the schedule's maker. */
+    async message(project: string, schedule: number, text: string, actor = AGENT, target?: string, preset?: string): Promise<Signal> {
         await this.projectRow(project)
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, schedule, 'message', text, actor.name, Number(actor.owner), stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, schedule, kind, note, preset, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, schedule, 'message', text, preset ?? null, target ?? null, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal
     }
 
-    /** The owner's own words to one session, through its channel: about no issue, from no schedule. */
-    async messageSession(project: string, session: string, text: unknown, actor = AGENT): Promise<Signal> {
+    /** The owner's own words to one session, through its channel: about no issue, from no schedule; their chat's for
+     * them when the actor says it's `via` it. With `preset`
+     * (an id its sessions can have), they're that preset's text as the owner sent it, tweaked or not, and the
+     * message is labelled by its name. */
+    async messageSession(project: string, session: string, text: unknown, actor = AGENT, preset?: unknown): Promise<Signal> {
         if (!actor.owner) throw forbidden('Only the owner messages a session; send Orrery-Actor: <owner>')
         await this.projectRow(project)
         const note = typeof text === 'string' ? text.trim() : ''
         if (!note) throw badRequest('Send the message as {"text": "…"}')
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, 'message', note, session, actor.name, 1, stamp())
+        if (preset !== undefined && preset !== null && !Number.isInteger(preset)) throw badRequest('Send preset as a preset\'s id')
+        const from = typeof preset === 'number' ? known((await this.presetsFor(project, [preset]))[0], 'the preset').name : null
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, preset, via, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, 'message', note, from, actor.via ?? null, session, actor.name, 1, stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal
+    }
+
+    /** Whether the owner sent this session something of its own (by one of its ids) that it hasn't heard yet. */
+    async waitingFor(project: string, ids: string[]): Promise<boolean> {
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
+            AND target IN (${ids.map(() => '?').join(', ')}) LIMIT 1`, project, ...ids)
     }
 
     /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or

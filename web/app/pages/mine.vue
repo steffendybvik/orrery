@@ -1,22 +1,22 @@
 <script setup lang="ts">
 // What waits on the owner's answer on top: every issue in any project with an agent's question they haven't
-// answered (`waiting`). Then every open urgent (P0) issue, whoever has it; then every open issue assigned to the
-// owner, by project: what waits on them (proposals first) and what they took on. Sub-issues included; each issue
-// shows once, in the first list it's in.
+// answered, or an agent's proposal they haven't decided (`waiting`). Then every open urgent (P0) issue, whoever
+// has it; then every open issue assigned to the owner, by project: what waits on them (proposals first) and what
+// they took on. Sub-issues included; each issue shows once, in the first list it's in.
 useHead({title: 'My issues · Orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {matches} = useFilters()
+const {matches, shows} = useFilters()
 const {name: owner, load} = useOwner()
 onMounted(load)
 
-const waiting = computed(() => ordered.value
+const waiting = computed(() => ordered.value.filter(p => shows(p.id))
     .map(project => ({project, issues: allIssues(project).filter(({issue}) => issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
-const urgent = computed(() => ordered.value
+const urgent = computed(() => ordered.value.filter(p => shows(p.id))
     .map(project => ({project, issues: urgentIssues(project).filter(({issue}) => !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
-const mine = computed(() => ordered.value
+const mine = computed(() => ordered.value.filter(p => shows(p.id))
     .map(project => ({project, issues: myIssues(project, owner.value).filter(({issue}) => issue.priority !== 'P0' && !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
 const lists = computed(() => [

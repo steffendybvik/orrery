@@ -44,7 +44,8 @@ In the repo's `.mcp.json`, one server for this Orrery, named after it (`orrery-<
 server (`hub,css,pos`), or `*` for every project on the Orrery as the session starts. A tool on an issue finds its
 project from the id (`HUB-12` is hub's); the others take `project`, and each `<channel>` message says its project.
 `ORRERY_HEAR` in a session's environment narrows that to the projects it names (`ORRERY_HEAR=hub claude …` hears only
-hub); a session Orrery starts gets it from Start session, so one started for Hub hears Hub alone.
+hub); a session Orrery starts gets it from Start session, so one started for Hub hears Hub alone, and one started
+with no project ticked gets none, so where the channel lists `*` it hears every project.
 `ORRERY_ID` is the Orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another Orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
@@ -61,9 +62,12 @@ Then `source ~/.zshrc` and start the session with `shop`.
 
 The same server gives the session **tools** for its projects' roadmaps, so it works without curl:
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
-`create_issue` (a proposal too, with choices), `update_issue`, `chunks`, `docs`, `doc` and
-`write_doc`; and `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
-never sees. They write as `claude`, from that session, so your comments on an issue it worked go back
+`create_issue` (a proposal too, with choices), `update_issue`, `chunks`, `releases`, `docs`, `doc` and
+`write_doc`; `presets` and `preset`, to read the context sessions can start with; `schedules` and `sessions`, to read
+the project's schedules and who's working on what; `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
+never sees; `events` and `resolve_event`, to debug Orrery from its [event log](API.md#event-log); and `guide`, how Orrery
+itself works ([Using Orrery](using.md), from the Orrery it's connected to), so a session in any repo can answer "how do
+schedules work?". They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
 
@@ -72,7 +76,9 @@ channels flag; only the pushed messages need the flag.
 `channel/orrery-hook.mjs` tells Orrery what each session is doing, so the page can show it and aim
 work at an idle one. Before a Bash command it also says which issues the command writes to, so the
 owner's comment on one goes to the session working it rather than to every session. Register it in the repo's `.claude/settings.json` for `SessionStart`,
-`UserPromptSubmit`, `PreToolUse` (with `"async": true`), `Stop`, `Notification` and `SessionEnd`:
+`UserPromptSubmit`, `PreToolUse` (with `"async": true`), `Stop`, `StopFailure`, `Notification` and `SessionEnd`.
+`StopFailure` is a turn an API error cut off (the network, a rate limit): the issues that session had in progress go
+back to Todo with nobody on it, and a comment says why.
 
 ```json
 {
@@ -136,7 +142,11 @@ focus on a single issue ends the chunk or scope it was working through.
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
 are up, when you press **Stop** beside it (on the Sessions page, with **+30 min** to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
-(`ORRERY_PERMISSION_MODE` picks another). The launcher answers the warning Claude Code shows for the channel
+(`ORRERY_PERMISSION_MODE` picks another). An untrusted schedule's session is the exception: it's locked down to
+`gh issue list`/`view` and the Orrery tools (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)), so a
+launcher from before rc.9 needs restarting before it will take one. So is your [chat](API.md#chats): it gets `Read`,
+`Grep`, `Glob` and the Orrery tools that read, make issues, comment, message sessions and ask you to change a setting when you ask, and answers with its own `reply` tool, so a
+launcher that predates chats needs restarting before it will start one. The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
 The limits are the Orrery's, on the Sessions page's Setup tab: how many at once counts every project's sessions together. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.

@@ -21,8 +21,8 @@ const record = (path: string) => async (event: H3Event) => {
     sent.push({method, path, actor: getHeader(event, 'orrery-actor'), ...method === 'DELETE' ? {} : {body: await readBody(event)}})
     return {}
 }
-registerEndpoint('/api/projects/larder/schedules', {method: 'POST', handler: record('schedules')})
-for (const method of ['PATCH', 'DELETE'] as const) registerEndpoint('/api/projects/larder/schedules/3', {method, handler: record('schedules/3')})
+registerEndpoint('/api/projects/greenhouse/schedules', {method: 'POST', handler: record('schedules')})
+for (const method of ['PATCH', 'DELETE'] as const) registerEndpoint('/api/projects/greenhouse/schedules/3', {method, handler: record('schedules/3')})
 
 const project = (id: string, name: string) => ({id, name, key: id.toUpperCase(), board: {chunks: [{id: 'pantry', title: 'Pantry', tasks: []}]}}) as unknown as Project
 const SWEEP = {id: 3, kind: 'message', title: 'Nudge', notes: 'Idle? Pick one.', cron: '*/15 * * * *', timezone: 'Europe/Oslo', column: 'todo', labels: [],
@@ -32,7 +32,7 @@ const mounted: VueWrapper[] = []
 beforeEach(() => {
     sent = []
     failing = false
-    useRoadmaps().projects.value = [project('larder', 'Larder')]
+    useRoadmaps().projects.value = [project('greenhouse', 'Greenhouse')]
     useAppSettings().settings.value.statuses = [{id: 'todo', name: 'Todo', kind: 'todo', color: 'blue'}] as never
 })
 afterEach(() => {
@@ -41,7 +41,7 @@ afterEach(() => {
 })
 
 async function mount(schedule?: Schedule) {
-    useSchedules().edit('larder', schedule)
+    useSchedules().edit('greenhouse', schedule)
     mounted.push(await mountSuspended(ScheduleDialog, {attachTo: document.body}))
     // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
     const wrapper = new DOMWrapper(document.body)
@@ -59,7 +59,7 @@ describe('ScheduleDialog', () => {
         await vi.waitFor(() => expect(useSchedules().editing.value).toBeNull())
         expect(sent).toEqual([{method: 'POST', path: 'schedules', actor: 'skoll', body: {
             kind: 'issue', title: 'Code maintenance', notes: null, cron: '0 9 * * 1-5', timezone: 'Europe/Oslo', column: 'todo',
-            chunk: null, priority: null, labels: [], ask: false, skip_open: true, only_if_changed: false,
+            chunk: null, priority: null, labels: [], ask: false, skip_open: true, only_if_changed: false, untrusted: false,
         }}])
     })
 
@@ -74,6 +74,8 @@ describe('ScheduleDialog', () => {
         await submit()
         await vi.waitFor(() => expect(sent).toHaveLength(1))
         expect(sent[0]?.body).toMatchObject({kind: 'message', title: 'Nudge', notes: 'Idle? Pick one.'})
+        // Until it has closed: a save still on its way would close the next test's dialog.
+        await vi.waitFor(() => expect(useSchedules().editing.value).toBeNull())
     })
 
     it('opens one already made as it is, and saves the change to it', async () => {
@@ -84,6 +86,8 @@ describe('ScheduleDialog', () => {
         await submit()
         await vi.waitFor(() => expect(sent).toHaveLength(1))
         expect(sent[0]).toMatchObject({method: 'PATCH', path: 'schedules/3', body: {kind: 'message', title: 'Nudge, gently', cron: '*/15 * * * *', only_if_changed: true}})
+        // Until it has closed: a save still on its way would close the next test's dialog.
+        await vi.waitFor(() => expect(useSchedules().editing.value).toBeNull())
     })
 
     it('removes one only once asked again', async () => {

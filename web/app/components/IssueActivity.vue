@@ -123,7 +123,7 @@ async function removeComment(id: number) {
       <div
           role="button"
           tabindex="0"
-          class="line-clamp-3 cursor-pointer rounded-md text-left text-fg hover:[&_p]:underline focus-visible:ring-2 focus-visible:ring-accent-500/60 focus-visible:outline-none"
+          class="line-clamp-3 rounded-md text-left text-fg hover:[&_p]:underline focus-visible:ring-2 focus-visible:ring-accent-500/60 focus-visible:outline-none"
           title="Show it in the thread"
           @click="!($event.target as HTMLElement).closest('a') && showQuestion()"
           @keydown.enter.self="showQuestion"

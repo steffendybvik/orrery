@@ -3,6 +3,10 @@
 // stay. Its hooks' SessionStart brief then hands the fresh context what's left: the issues in progress, and the
 // rest of a chunk or scope it was asked to work through (its run). A brief starts no turn, so when some of the run
 // is left, a focus on the rest goes to the session alone once it's back (`resumeRun`), and it carries on.
+// Any listening session gone idle on an issue whose sub-issues are still to do (it just split it, say) is sent on to
+// the most urgent of them (`carryOn`), since nothing else would start its next turn. A session whose turn was cut off
+// by an API error (the network, a rate limit) lets go of what it had in progress (`letGo`), so none of it sits there
+// in progress with nobody on it.
 import type {Signal} from '#shared/roadmap'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
@@ -15,6 +19,12 @@ const runs = new Map<string, Signal>()
 /** What was left of each run when it was last resumed: its open issues, each with its status and last change. */
 const resumed = new WeakMap<Signal, string>()
 
+/** The sub-issue each session was last sent on to, by its id now, with its status and last change. */
+const carried = new Map<string, string>()
+
+/** The note on a focus `carryOn` sends, which tells it from the owner's own. */
+export const CARRY_ON = 'Carry on with the sub-issues of the issue you have in progress, most urgent first.'
+
 /** A chunk or scope focus reaching the session: what's left of it is its run until another comes. A focus on one
  * issue ends the run: the owner pointed it elsewhere. Runs of sessions that are gone are let go. */
 export function startRun(session: string, signal: Signal) {
@@ -23,7 +33,8 @@ export function startRun(session: string, signal: Signal) {
     }
     if (signal.kind !== 'focus') return
     if (!signal.issue && signal.chunk) runs.set(session, signal)
-    else if (signal.issue) sessionIds(currentId(session)).forEach(id => runs.delete(id))
+    // Carrying on with sub-issues is still the run's work: what's left of it waits until they're done.
+    else if (signal.issue && signal.note !== CARRY_ON) sessionIds(currentId(session)).forEach(id => runs.delete(id))
 }
 
 /** The session Orrery started is back from a `/clear`: if its run has issues left, a focus on them goes to it
@@ -53,7 +64,8 @@ export function runOf(session: string): Signal | undefined {
  * and no signal waiting for it, its launcher clears it. */
 export function considerClear(project: string, id: string) {
     const before = sessionNow(id)
-    if (!before?.started || before.state !== 'idle') return
+    // A chat keeps its conversation.
+    if (!before?.started || before.started.chat || before.state !== 'idle') return
     setTimeout(async () => {
         try {
             const now = sessionNow(id)
@@ -66,4 +78,64 @@ export function considerClear(project: string, id: string) {
             console.error(`[orrery] clearing ${id}:`, error)
         }
     }, CLEAR_AFTER)
+}
+
+/** The session went idle: if it's listening, and after a moment it's still idle with no signal waiting, and an issue
+ * it has in progress has sub-issues in backlog or todo, a focus on the most urgent goes to it alone, as the owner's,
+ * so it carries on with them as it would with a chunk. Not for a session an untrusted schedule's run started, which
+ * the owner's word mustn't reach. Not twice for a sub-issue that hasn't changed since: a session that won't take it
+ * (blocked, or waiting on the owner) would otherwise be sent it after every turn. */
+export function carryOn(project: string, id: string) {
+    const before = sessionNow(id)
+    if (!before?.listening || before.state !== 'idle' || untrustedSession(id) || chatSession(id)) return
+    setTimeout(async () => {
+        try {
+            const now = sessionNow(id)
+            if (!now?.listening || now.state !== 'idle' || now.idleAt !== before.idleAt) return
+            const ids = sessionIds(id)
+            const store = useStore()
+            if (await store.waiting(now.project, ids)) return
+            const parents = new Set((await store.workingOn(now.project, ids)).map(i => i.id))
+            if (!parents.size) return
+            const next = (await store.listIssues(now.project))
+                .filter(i => i.parent && parents.has(i.parent) && (i.kind === 'backlog' || i.kind === 'todo'))
+                .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))[0]
+            if (!next) return
+            for (const session of carried.keys()) {
+                if (!sessionNow(session)) carried.delete(session)
+            }
+            const sent = `${next.id} ${next.column} ${next.updated_at}`
+            if (carried.get(currentId(id)) === sent) return
+            carried.set(currentId(id), sent)
+            await store.focus(now.project, next.id, {session: currentId(id), note: CARRY_ON}, {name: (await store.ownerOf()).name, owner: true})
+        } catch (error) {
+            console.error(`[orrery] carrying ${id} on:`, error)
+        }
+    }, CLEAR_AFTER)
+}
+
+/** What a cut-off turn's `error` (Claude Code's StopFailure) says, for the comment; any other as it is. */
+const CUT_OFF: Record<string, string> = {
+    rate_limit: 'a rate limit',
+    overloaded: 'the model being overloaded',
+    server_error: 'an API server error',
+    authentication_failed: 'a failed sign-in',
+    billing_error: 'a billing error',
+    max_output_tokens: 'the output limit',
+}
+
+/** The session's turn ended on an API error (`error`, from Claude Code's StopFailure): each issue it has in progress
+ * goes back to Todo with nobody on it, with a comment saying why, for it or anyone to pick up again. Says which. */
+export async function letGo(project: string, id: string, error?: string): Promise<string[]> {
+    const store = useStore()
+    const issues = await store.workingOn(project, sessionIds(id))
+    const why = error ? CUT_OFF[error] ?? `an API error (${error})` : 'an API error'
+    const actor = {name: 'claude', owner: false}
+    for (const issue of issues) {
+        await store.updateIssue(project, issue.id, {status: 'todo', assignee: null}, actor)
+        await store.createComment(project, issue.id, {
+            body: `The session working on this (${sessionNow(id)?.name ?? id}) had its turn cut off by ${why}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`,
+        }, actor)
+    }
+    return issues.map(i => i.id)
 }

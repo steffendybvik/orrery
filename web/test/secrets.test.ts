@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 import type {Secret} from '#shared/roadmap'
+import type {EventEntry} from '../server/utils/event-log'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -13,20 +14,22 @@ let key: string
 let sent: {url: string, init: RequestInit}[]
 let answer: (url: string, init: RequestInit) => Response
 let lists: Secret[][]
+let noted: EventEntry[]
 
 beforeEach(async () => {
     store = new Store(testDb())
-    await store.createProject({name: 'larder', key: 'LAR'})
+    await store.createProject({name: 'greenhouse', key: 'GRE'})
     await store.createProject({name: 'pantry', key: 'PAN'})
     key = 'a long random test key'
     sent = []
     lists = []
+    noted = []
     answer = () => new Response('{"ok":true}', {status: 200, headers: {'content-type': 'application/json'}})
     const send = async (url: string | URL | Request, init?: RequestInit) => {
         sent.push({url: String(url), init: init!})
         return answer(String(url), init!)
     }
-    secrets = new Secrets(store, () => key, list => lists.push(list), send as typeof fetch)
+    secrets = new Secrets(store, () => key, list => lists.push(list), send as typeof fetch, entry => noted.push(entry))
 })
 
 afterEach(() => {
@@ -92,12 +95,12 @@ describe('secrets', () => {
 
     it('narrow without the value, and widen only with it', async () => {
         await secrets.set('GH', {value: VALUE, hosts: ['api.github.com', 'uploads.github.com']}, me)
-        expect((await secrets.narrow('GH', {hosts: ['api.github.com'], projects: ['larder']}, me)).hosts).toEqual(['api.github.com'])
+        expect((await secrets.narrow('GH', {hosts: ['api.github.com'], projects: ['greenhouse']}, me)).hosts).toEqual(['api.github.com'])
         expect((await failure(() => secrets.narrow('GH', {hosts: ['evil.example']}, me))).status).toBe(403)
         expect((await failure(() => secrets.narrow('GH', {projects: null}, me))).status).toBe(403)
-        expect((await failure(() => secrets.narrow('GH', {projects: ['larder', 'pantry']}, me))).status).toBe(403)
+        expect((await failure(() => secrets.narrow('GH', {projects: ['greenhouse', 'pantry']}, me))).status).toBe(403)
         // Still opens after narrowing, sealed to its new hosts.
-        await secrets.egress({url: 'https://api.github.com/user', headers: {Authorization: 'token {{secret:GH}}'}, project: 'larder'}, agent)
+        await secrets.egress({url: 'https://api.github.com/user', headers: {Authorization: 'token {{secret:GH}}'}, project: 'greenhouse'}, agent)
         expect(sent).toHaveLength(1)
     })
 
@@ -153,12 +156,12 @@ describe('egress', () => {
         await secrets.set('PANTRY_KEY', {value: VALUE, hosts: ['api.stripe.com'], projects: ['pantry']}, me)
         const request = {url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:PANTRY_KEY}}'}}
         expect((await failure(() => secrets.egress(request, agent))).status).toBe(403)
-        expect((await failure(() => secrets.egress({...request, project: 'larder'}, agent))).status).toBe(403)
+        expect((await failure(() => secrets.egress({...request, project: 'greenhouse'}, agent))).status).toBe(403)
         expect((await secrets.egress({...request, project: 'pantry'}, agent)).status).toBe(200)
     })
 
     it('records each use, without the value', async () => {
-        await secrets.egress({url: 'https://api.stripe.com/v1/customers/{{secret:STRIPE_KEY}}', project: 'larder', issue: 'LAR-1'}, agent)
+        await secrets.egress({url: 'https://api.stripe.com/v1/customers/{{secret:STRIPE_KEY}}', project: 'greenhouse', issue: 'GRE-1'}, agent)
         answer = () => {
             throw new Error(`connect ECONNREFUSED for ${VALUE}`)
         }
@@ -168,11 +171,28 @@ describe('egress', () => {
         const {uses, last_used} = await secrets.get('STRIPE_KEY')
         expect(uses).toMatchObject([
             {method: 'GET', host: 'api.stripe.com', path: '/v1/charges', status: null, error: expect.stringContaining('ECONNREFUSED'), created_by: 'claude'},
-            {method: 'GET', host: 'api.stripe.com', path: '/v1/customers/{{secret:STRIPE_KEY}}', project: 'larder', issue: 'LAR-1', status: 200, error: null},
+            {method: 'GET', host: 'api.stripe.com', path: '/v1/customers/{{secret:STRIPE_KEY}}', project: 'greenhouse', issue: 'GRE-1', status: 200, error: null},
         ])
         expect(last_used).toEqual(uses[0])
         expect(JSON.stringify(uses)).not.toContain(VALUE)
         expect(lists.at(-1)![0]!.last_used!.id).toBe(uses[0]!.id)
+    })
+
+    it('tell the event log who set, narrowed, sent and deleted which, never a value or a path', async () => {
+        noted = []
+        await secrets.egress({url: 'https://api.stripe.com/v1/customers/{{secret:STRIPE_KEY}}', project: 'greenhouse', issue: 'GRE-1'}, agent)
+        await secrets.narrow('STRIPE_KEY', {projects: ['greenhouse']}, me)
+        await secrets.set('STRIPE_KEY', {value: VALUE, hosts: ['api.stripe.com']}, me)
+        await secrets.delete('STRIPE_KEY', me)
+        expect(noted.map(e => [e.kind, e.message])).toEqual([
+            ['egress.called', 'claude sent STRIPE_KEY to GET api.stripe.com: 200'],
+            ['secret.narrowed', 'skoll narrowed STRIPE_KEY to api.stripe.com'],
+            ['secret.set', 'skoll replaced STRIPE_KEY, for api.stripe.com'],
+            ['secret.deleted', 'skoll deleted STRIPE_KEY'],
+        ])
+        expect(noted[0]).toMatchObject({project: 'greenhouse', details: {by: 'claude', secrets: ['STRIPE_KEY'], method: 'GET', host: 'api.stripe.com', status: 200, issue: 'GRE-1'}})
+        expect(JSON.stringify(noted)).not.toContain(VALUE)
+        expect(JSON.stringify(noted)).not.toContain('/v1/customers')
     })
 
     it('fill a url for where they sit: a whole address as it is, a path keeping its slashes, a query escaped', async () => {

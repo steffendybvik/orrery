@@ -19,7 +19,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | Variable | What it does | Default |
 |---|---|---|
 | `ORRERY_PORT` | the port on this machine | `9000` |
-| `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts) | `127.0.0.1` |
+| `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts); see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
@@ -32,12 +32,18 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 
 A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks. A new, empty
 volume starts from the latest one. The live file never goes in the backup folder: a synced SQLite
-file gets corrupted, a snapshot doesn't. These backups are SQLite's: on Postgres they're off.
+file gets corrupted, a snapshot doesn't. On Postgres it's a SQLite snapshot of the database, made a minute after
+a change, or at most ten minutes after the first while changes keep coming (the whole database is copied each time), so a backup opens anywhere and a new SQLite Orrery starts from
+it. App settings → This Orrery → Database says when the latest was made, with **Back up now**.
 
 ## Postgres
 
 SQLite suits one machine. To keep the Orrery in Postgres instead (a server shared by a team, or a
-database you already back up), put this in `.env`:
+database you already back up), the simplest way is to pick it when you first open Orrery on its machine (localhost).
+Before it asks your name, it asks where to keep the data: **On this machine** (SQLite) or **Postgres**, a URL or its
+details. Orrery checks it's empty and sets it up, or picks up an Orrery's own from before, as
+[Moving it from the app](#moving-it-from-the-app) does. Or set it as Orrery starts, which skips that question: put this
+in `.env`:
 
 ```sh
 COMPOSE_PROFILES=postgres
@@ -49,11 +55,27 @@ and `docker compose up -d`: the `postgres` profile adds a Postgres 17 service, i
 change the bundled database's password (it's only reachable from Orrery's container). For a Postgres
 of your own, leave out the profile and point `ORRERY_DATABASE` at it.
 
-Back it up with Postgres's own means: `pg_dump` on a schedule
-(`docker compose exec postgres pg_dump -U orrery orrery > orrery.sql`), or a managed service's
+Orrery backs it up to `ORRERY_BACKUP` as a SQLite snapshot (see [Backups](#backups)). For a large database,
+or to restore into Postgres as it was, back it up with Postgres's own means as well: `pg_dump` on a
+schedule (`docker compose exec postgres pg_dump -U orrery orrery > orrery.sql`), or a managed service's
 backups.
 
-To move an Orrery between SQLite and Postgres, stop it and copy it across, ids and all, into an empty
+### Moving it from the app
+
+App settings → This Orrery → Database → **Move to another database…**, on the Orrery's own machine (localhost):
+pick a SQLite file or Postgres (its URL, or host, port, name, user and password), and Orrery checks it first. An
+empty one has everything copied in, ids and all; an Orrery's own (one you ran on before, or after a reinstall) is
+run on as it is. Orrery switches at once, no restart, and keeps the choice beside its SQLite file
+(`orrery.db.moved.json`, in Docker in the data volume, with the URL's password in it), so it starts on it again.
+If it can't save that (a full disk, say), the move fails and Orrery stays on the one before, all of it there.
+The database it leaves stays as it was: moving back to it runs on it as it was then. A SQLite file named without a
+leading `/` goes in the data folder; in Docker only the data volume outlives the container.
+
+When `ORRERY_DATABASE` names Postgres it's set there, and the app can't move it.
+
+### From the command line
+
+To move an Orrery between SQLite and Postgres without the app, stop it and copy it across, ids and all, into an empty
 one (both ends are brought up to the latest schema first):
 
 ```sh
@@ -103,10 +125,41 @@ In a checkout you also work on Orrery in, build them from a release rather than 
 A repo's channel and hook point at the server its projects are on, by `ORRERY_URL`:
 `http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
 
+## Reach it from your phone
+
+Compose publishes Orrery on `127.0.0.1`, so only this machine can open it. Orrery has no accounts:
+whoever can reach it can read everything, change it and give your agents instructions (see
+[SECURITY.md](../SECURITY.md)). Open it only as far as you need.
+
+**Your own devices only (best).** Put this machine and the phone on a private VPN: a free app on
+each that links your own devices, so the phone reaches the machine from anywhere, as if both were
+on the same Wi-Fi. It isn't the paid kind that hides your browsing, and several are free for a
+handful of devices. Then publish Orrery on this machine's address on that VPN, and nowhere else:
+
+```sh
+# .env.personal
+ORRERY_HOST=100.64.0.7               # this machine's address on the VPN
+ORRERY_ALLOWED_HOSTS=mac.my-vpn.net  # only to open it by the VPN's name for the machine
+```
+
+`docker compose --env-file .env.personal up -d` again, then open `http://100.64.0.7:9010` (or
+`http://mac.my-vpn.net:9010`) on the phone. Nobody else on the Wi-Fi can reach it. The VPN has to
+be connected when Docker starts the container, since that's when the address is taken.
+
+**Your Wi-Fi (quickest, nothing to install).** `ORRERY_HOST=0.0.0.0`, then open
+`http://<this machine's IP>:9010` on the phone. It only works at home, and anyone else on that
+Wi-Fi, guests included, can use Orrery too.
+
+Either way, the database is still moved only from this machine: App settings → Database refuses a
+move from any other address.
+
 ## Where each database is
 
-App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file and its backup folder, or
-the Postgres database (never its password).
+App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file, or the Postgres database
+(never its password), and its backup folder with when the latest backup was made, with how big each is. One moved
+from the app says so. Under Docker it shows where each is on your computer: the folder `ORRERY_DATA` or
+`ORRERY_BACKUP` names (a relative one from this folder), or, without one, the Docker volume it's in, which isn't a
+folder you can open. The path inside the container (`/data/orrery.db`, `/backup`) is beneath it, in small type.
 
 It's always `/data/orrery.db` in the container, and `/data` is `ORRERY_DATA` when it's set, else the
 project's `orrery-data` volume, `<project>_orrery-data`. The project is `COMPOSE_PROJECT_NAME`,
@@ -126,5 +179,5 @@ NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs
 The database file is made if it isn't there (by default `.data/orrery.db`). A relative path is taken
 from the folder the server starts in, so give `NUXT_DATABASE` an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): Orrery lays down its tables on an empty
-database, and its own backups are off, since Postgres has its own means. The other settings are
+database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
 `NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY` and `NUXT_PUBLIC_ENVIRONMENT`.

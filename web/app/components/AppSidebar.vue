@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type {Issue, Session} from '#shared/roadmap'
+import {nameBesideProject} from '#shared/roadmap'
 
 // Every project with its progress and how many issues are started; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const {byProject: schedulesByProject} = useSchedules()
+const {settings: appSettings} = useAppSettings()
+const {newErrors} = useLoggedEvents()
 /** Every project's schedules still set to run, for the Schedules entry. */
 const scheduleCount = computed(() => Object.values(schedulesByProject.value).flat().filter(s => s.enabled).length)
 const open = useState('sidebar-open', () => false)
@@ -167,6 +170,17 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
       </NuxtLink>
 
+      <NuxtLink
+          v-if="appSettings.advanced"
+          to="/events"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
+        <span class="flex-1">Events</span>
+        <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+      </NuxtLink>
+
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
@@ -265,13 +279,12 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd, session.started?.context?.presets.length ? `as ${session.started.context.presets.join(', ')}` : ''].filter(Boolean).join(' · ')"
         >
           <SessionDot :session="session" />
-          <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
-          <span class="flex min-w-0 max-w-[40%] items-center gap-1 text-[11px] text-faint">
-            <span v-if="spanLabel(session)" class="truncate">{{ spanLabel(session) }}</span>
-            <template v-else>
-              <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3" />
-              <span class="truncate">{{ project.name }}</span>
-            </template>
+          <!-- What it's working on first (ORR-330): its project, or what it spans; the name Orrery gave it after, quieter. -->
+          <span class="flex min-w-0 flex-1 items-center gap-1.5">
+            <ProjectIcon v-if="!spanLabel(session) && project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3 shrink-0" />
+            <!-- The project keeps its room; the name gives way first. -->
+            <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
+            <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
           </span>
           <span class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
         </NuxtLink>

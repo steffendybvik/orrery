@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import type {Priority, Schedule} from '#shared/roadmap'
+import {COMMON_EVENTS, EVENT_PATTERN} from '#shared/happenings'
+import type {OnFilter} from '#shared/happenings'
+import type {Preset, Priority, Schedule} from '#shared/roadmap'
+import {EVENT_LEVELS} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
 // Writing a schedule, or changing one, as the owner: in a project (picked here for a new one), whether each run makes an issue or
 // only sends a message to the project's Claude sessions, what it says, when it runs (presets, or a cron
 // under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
 // sessions to pick it up. One already made can be paused or resumed from here, at once, or removed (asked once more). ⌘↵ saves, Esc
-// closes.
+// closes. Or it runs on an event instead of a time (ORR-341): a common one picked, or any type or pattern typed, with what
+// the event must also say (the status it moves to, who did it, the level). A message can be presets (their text, read at each
+// run, before its own words), and a schedule can start a session with presets instead (ORR-332, ORR-342).
 const {editing, pause} = useSchedules()
 const {byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -27,9 +32,39 @@ const startOptions = computed(() => starts.value.map(p => ({value: p.id, label: 
 const MINUTES = [5, 10, 15, 20, 30].map(n => ({value: String(n), label: `${n} minutes`}))
 const HOURS = [1, 2, 3, 4, 6, 8, 12].map(n => ({value: String(n), label: n === 1 ? 'hour' : `${n} hours`}))
 
+// Time or Event, and the event: a common one, or another typed in (`other`).
+type Trigger = 'time' | 'event'
+const TRIGGERS: {value: Trigger, label: string}[] = [{value: 'time', label: 'Time'}, {value: 'event', label: 'Event'}]
+const OTHER = 'other'
+const EVENT_OPTIONS = [...COMMON_EVENTS.map(e => ({value: e.type, label: e.label})), {value: OTHER, label: 'Another event or pattern…'}]
+const BY_OPTIONS = [{value: '', label: 'Anyone'}, {value: 'owner', label: 'You'}, {value: 'session', label: 'A session'}]
+const LEVEL_OPTIONS = [{value: '', label: 'Any level'}, ...EVENT_LEVELS.map(l => ({value: l, label: l}))]
+const trigger = ref<Trigger>('time')
+const eventPick = ref('issue.status')
+const pattern = ref('')
+const to = ref('')
+const by = ref<'' | 'owner' | 'session'>('')
+const level = ref('')
+const on = computed(() => eventPick.value === OTHER ? pattern.value.trim() : eventPick.value)
+const common = computed(() => COMMON_EVENTS.find(e => e.type === on.value))
+// A status's id or kind, for an issue moving: any status, the kinds first.
+const statusOptions = computed(() => [{value: '', label: 'Any status'}, ...places.value.filter(p => p.kind !== 'proposed').map(p => ({value: p.id, label: p.label}))])
+const onFilter = computed<OnFilter>(() => ({...to.value.trim() ? {to: to.value.trim()} : {}, ...by.value ? {by: by.value} : {},
+    ...level.value ? {level: level.value as OnFilter['level']} : {}}))
+
 const project = ref('')
-const sends = ref<'issue' | 'message'>('issue')
-const SENDS = [{value: 'issue' as const, label: 'Makes an issue'}, {value: 'message' as const, label: 'Sends a message'}]
+const sends = ref<Schedule['kind']>('issue')
+const SENDS = [{value: 'issue' as const, label: 'Makes an issue'}, {value: 'message' as const, label: 'Sends a message'}, {value: 'session' as const, label: 'Starts a session'}]
+// The presets the project's sessions can have, asked for as the project is picked; those ticked, in the order ticked.
+const presets = ref<Preset[]>([])
+const picked = ref<number[]>([])
+watch(project, async id => {
+    presets.value = id ? await $fetch<Preset[]>(`/api/projects/${encodeURIComponent(id)}/presets`).catch(() => []) : []
+}, {immediate: true})
+const usable = computed(() => picked.value.filter(id => presets.value.some(p => p.id === id)))
+function pick(id: number) {
+    picked.value = picked.value.includes(id) ? picked.value.filter(p => p !== id) : [...picked.value, id]
+}
 const title = ref('')
 const notes = ref('')
 const kind = ref<Repeat['kind']>('weekdays')
@@ -52,6 +87,7 @@ const labels = ref<string[]>([])
 const ask = ref(false)
 const skipOpen = ref(true)
 const onlyIfChanged = ref(false)
+const untrusted = ref(false)
 const enabled = ref(true)
 const pausing = ref(false)
 const saving = ref(false)
@@ -75,11 +111,13 @@ const local = (iso: string) => {
 
 watch(editing, now => {
     if (!now) return
-    const s = now.schedule
+    // One to edit, or a new one, empty or filled in from a suggestion.
+    const s: Partial<Schedule> | undefined = now.schedule ?? now.draft
     project.value = now.project
     sends.value = s?.kind ?? 'issue'
     title.value = s?.title ?? ''
     notes.value = s?.notes ?? ''
+    picked.value = [...s?.presets ?? []]
     timezone.value = s?.timezone ?? localZone()
     column.value = s?.column ?? starts.value.find(p => p.kind === 'todo')?.id ?? 'todo'
     chunk.value = s?.chunk ?? ''
@@ -88,6 +126,7 @@ watch(editing, now => {
     ask.value = s?.ask ?? false
     skipOpen.value = s?.skip_open ?? true
     onlyIfChanged.value = s?.only_if_changed ?? false
+    untrusted.value = s?.untrusted ?? false
     enabled.value = s?.enabled ?? true
     const repeat: Repeat = s ? toRepeat(s) : {kind: 'weekdays', time: '09:00'}
     kind.value = repeat.kind
@@ -101,6 +140,12 @@ watch(editing, now => {
     }
     once.value = repeat.kind === 'once' ? local(repeat.at) : local(new Date(Date.now() + 3600_000).toISOString())
     cron.value = s?.cron ?? '0 9 * * 1-5'
+    trigger.value = s?.on ? 'event' : 'time'
+    eventPick.value = !s?.on ? 'issue.status' : COMMON_EVENTS.some(e => e.type === s.on) ? s.on : OTHER
+    pattern.value = s?.on && eventPick.value === OTHER ? s.on : ''
+    to.value = s?.on_filter?.to ?? ''
+    by.value = s?.on_filter?.by ?? ''
+    level.value = s?.on_filter?.level ?? ''
     failed.value = ''
 }, {immediate: true})
 // Its field takes the cursor once it's there: on the first open the dialog is still loading when the watch above runs.
@@ -120,8 +165,8 @@ const repeat = computed<Repeat>(() => {
 const cronText = computed(() => toCron(repeat.value))
 const atText = computed(() => repeat.value.kind === 'once' ? repeat.value.at : null)
 const upcoming = computed(() => nextTimes(cronText.value, atText.value, timezone.value))
-const ready = computed(() => !!project.value && !!title.value.trim() && (sends.value === 'issue' || !!notes.value.trim())
-    && upcoming.value.length > 0 && !saving.value)
+const ready = computed(() => !!project.value && !!title.value.trim() && (sends.value !== 'message' || !!notes.value.trim() || !!usable.value.length)
+    && (trigger.value === 'event' ? EVENT_PATTERN.test(on.value) : upcoming.value.length > 0) && !saving.value)
 
 function toggleDay(d: number) {
     days.value = days.value.includes(d) ? days.value.filter(x => x !== d) : [...days.value, d]
@@ -155,7 +200,8 @@ async function save() {
         kind: sends.value,
         title: title.value.trim(),
         notes: notes.value.trim() || null,
-        ...cronText.value ? {cron: cronText.value} : {at: atText.value},
+        ...sends.value === 'issue' ? {} : {presets: usable.value},
+        ...trigger.value === 'event' ? {on: on.value, on_filter: onFilter.value} : cronText.value ? {cron: cronText.value} : {at: atText.value},
         timezone: timezone.value,
         column: column.value,
         chunk: chunk.value || null,
@@ -164,6 +210,7 @@ async function save() {
         ask: ask.value,
         skip_open: skipOpen.value,
         only_if_changed: onlyIfChanged.value,
+        untrusted: sends.value === 'message' && untrusted.value,
     }
     try {
         const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`
@@ -217,21 +264,84 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <input
         ref="titleInput"
         v-model="title"
-        :placeholder="sends === 'issue' ? 'What to do, e.g. Groom the backlog' : 'Its name, e.g. Check CI'"
+        :placeholder="sends === 'issue' ? 'What to do, e.g. Groom the backlog' : sends === 'session' ? 'Its name, e.g. Review what moves to review' : 'Its name, e.g. Check CI'"
         aria-label="Title"
         class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none"
     >
     <textarea
         v-model="notes"
         rows="3"
-        :placeholder="sends === 'issue' ? 'Instructions for each run… (Markdown works; it\'s the issue\'s description)' : 'The message the sessions get each run, e.g. Check CI on main; if it\'s red, tell me why'"
-        :aria-label="sends === 'issue' ? 'Instructions' : 'Message'"
+        :placeholder="sends === 'issue' ? 'Instructions for each run… (Markdown works; it\'s the issue\'s description)'
+          : sends === 'session' ? 'Your own words for the session, after its presets, e.g. review its pull request and comment on the issue'
+            : usable.length ? 'Anything to add after the presets…' : 'The message the sessions get each run, e.g. Check CI on main; if it\'s red, tell me why'"
+        :aria-label="sends === 'issue' ? 'Instructions' : sends === 'session' ? 'Your own instructions' : 'Message'"
         class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
     />
 
+    <div v-if="sends !== 'issue' && presets.length" class="grid grid-cols-1 gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
+      <button
+          v-for="p in presets"
+          :key="p.id"
+          type="button"
+          :aria-pressed="picked.includes(p.id)"
+          :title="p.text"
+          class="flex min-w-0 items-center gap-2 rounded-lg p-2 text-left ring-1 transition-colors"
+          :class="picked.includes(p.id) ? 'bg-accent-500/10 ring-accent-500/50' : 'ring-line hover:bg-hover'"
+          @click="pick(p.id)"
+      >
+        <PresetBadge :preset="p" :size="24" />
+        <span class="flex min-w-0 flex-1 flex-col">
+          <span class="truncate text-xs font-medium text-fg">{{ p.name }}</span>
+          <span class="truncate text-[11px] text-muted">{{ firstLine(p.text) }}</span>
+        </span>
+        <span
+            class="grid size-4 shrink-0 place-items-center rounded-full"
+            :class="picked.includes(p.id) ? 'bg-accent-500 text-white' : 'ring-1 ring-inset ring-line'"
+        >
+          <svg v-if="picked.includes(p.id)" class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+        </span>
+      </button>
+    </div>
+
     <section class="flex flex-col gap-2 border-t border-line pt-3">
-      <span class="label">When</span>
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="flex items-center gap-3">
+        <span class="label">When</span>
+        <SegmentedControl v-model="trigger" :options="TRIGGERS" />
+      </div>
+      <template v-if="trigger === 'event'">
+        <div class="flex flex-wrap items-center gap-2">
+          <PropertyPicker v-model="eventPick" :options="EVENT_OPTIONS" label="Event" field>
+            <span class="truncate">{{ labelOf(EVENT_OPTIONS, eventPick) }}</span>
+          </PropertyPicker>
+          <input v-if="eventPick === OTHER" v-model="pattern" placeholder="issue.priority, release.*, *.failed" aria-label="Event type or pattern" :class="[field, 'w-56 font-mono']">
+          <template v-if="on === 'issue.status'">
+            <span class="text-xs text-muted">to</span>
+            <PropertyPicker v-model="to" :options="statusOptions" label="Moves to" field>
+              <StatusIcon v-if="to" :column="to" />
+              <span class="truncate" :class="!to && 'text-faint'">{{ labelOf(statusOptions, to) }}</span>
+            </PropertyPicker>
+          </template>
+          <template v-else-if="common?.filter === 'value' || eventPick === OTHER">
+            <span class="text-xs text-muted">to</span>
+            <input v-model="to" placeholder="any value" aria-label="Changed to" :class="[field, 'w-32']">
+          </template>
+          <PropertyPicker v-if="common?.filter === 'level' || eventPick === OTHER" v-model="level" :options="LEVEL_OPTIONS" label="Level" field>
+            <span class="truncate" :class="!level && 'text-faint'">{{ labelOf(LEVEL_OPTIONS, level) }}</span>
+          </PropertyPicker>
+          <span class="text-xs text-muted">by</span>
+          <PropertyPicker v-model="by" :options="BY_OPTIONS" label="By" field>
+            <span class="truncate">{{ labelOf(BY_OPTIONS, by) }}</span>
+          </PropertyPicker>
+        </div>
+        <p class="text-xs text-faint">
+          <template v-if="EVENT_PATTERN.test(on)">
+            Runs once for each thing it's about (an issue, a release), at most once a minute. What a schedule's run does sets nothing off.
+            An event's type is <code>thing.what</code> (<code>issue.&lt;field&gt;</code>, <code>release.frozen</code>, a kind from the event log); <code>*</code> stands for any part.
+          </template>
+          <span v-else class="text-rose-600 dark:text-rose-400">Type an event, e.g. <code>issue.priority</code>, or a pattern like <code>release.*</code></span>
+        </p>
+      </template>
+      <div v-else class="flex flex-wrap items-center gap-2">
         <PropertyPicker v-model="kind" :options="KINDS" label="Repeats" field>
           <span class="truncate">{{ labelOf(KINDS, kind) }}</span>
         </PropertyPicker>
@@ -264,7 +374,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
           <input v-model="timezone" aria-label="Timezone" :class="[field, 'w-40']">
         </label>
       </div>
-      <div v-if="kind === 'weekly'" class="flex gap-0.5 self-start rounded-lg bg-well p-0.5 ring-1 ring-line">
+      <div v-if="trigger === 'time' && kind === 'weekly'" class="flex gap-0.5 self-start rounded-lg bg-well p-0.5 ring-1 ring-line">
         <button
             v-for="d in [1, 2, 3, 4, 5, 6, 0]"
             :key="d"
@@ -275,18 +385,30 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
             @click="toggleDay(d)"
         >{{ DAYS[d] }}</button>
       </div>
-      <p class="text-xs text-faint">
+      <p v-if="trigger === 'time'" class="text-xs text-faint">
         <template v-if="upcoming.length">Next runs <span class="text-muted">{{ upcoming.map(t => when(t, timezone)).join(' · ') }}</span></template>
         <span v-else class="text-rose-600 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
       </p>
     </section>
 
     <section v-if="sends === 'message'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
-      <p>Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
+      <p v-if="untrusted">Each run starts a Claude session for this message alone. It can only read GitHub issues (<code>gh issue list</code> and <code>view</code>) and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
+      <p v-else>Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
       <label class="flex items-center gap-1.5">
         <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">
         Skip a run when no issue or comment changed since the last message
       </label>
+      <label class="flex items-center gap-1.5">
+        <input v-model="untrusted" type="checkbox" class="accent-accent-500">
+        It reads what others wrote, such as GitHub issues: give it a locked-down session of its own
+      </label>
+    </section>
+    <section v-else-if="sends === 'session'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
+      <p>
+        Each run starts a Claude session on {{ here?.name ?? 'the project' }} through its launcher, with the presets ticked and your words.
+        <template v-if="trigger === 'event'">It starts on what the event was about: the issue, or the release's work; for anything else, the event's id is in its words.</template>
+        It needs a launcher, Starting sessions on and room under the limit, or the run is skipped saying why.
+      </p>
     </section>
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">Each run makes an issue</span>

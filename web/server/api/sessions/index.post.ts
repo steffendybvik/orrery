@@ -1,8 +1,9 @@
-// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, reason?, source?, started?} → the
-// session: a Claude session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is the
-// hook's event name. A `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what
-// the session was working on, for the hook to hand the fresh context so the work carries on. A session Orrery started
-// (`started`, its launch) with context gets that in the brief on every `SessionStart`, its first included.
+// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, reason?, source?, started?, error?} →
+// the session: a Claude session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is
+// the hook's event name; a `StopFailure` (with its `error`) lets go of the issues the session has in progress. A
+// `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what the session was working
+// on, for the hook to hand the fresh context so the work carries on. A session Orrery started (`started`, its launch)
+// with context gets that in the brief on every `SessionStart`, its first included.
 // What happened to the session, by `source`, for the brief's first line.
 const RESUMED: Record<string, string> = {
     clear: "this window's context was just cleared",
@@ -16,11 +17,23 @@ export default defineEventHandler(async event => {
         throw badRequest('Send {project, event} and the session as id or pid')
     }
     const text = (key: string) => typeof body[key] === 'string' && body[key] ? String(body[key]) : undefined
+    // An untrusted schedule's session (by its launch, before its channel has said so) works no issue: what it runs is
+    // no claim on one, whatever its text names.
+    const started = text('started')
+    const untrusted = !!(started && launched(started)?.untrusted)
     const session = report({
         id: text('id'), pid: Number(body.pid) || undefined, project: body.project, name: text('name'),
-        cwd: text('cwd'), event: body.event, message: text('message'), command: text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
+        cwd: text('cwd'), event: body.event, message: text('message'), command: untrusted ? undefined : text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
     })
-    if (session && body.event === 'Stop') considerClear(session.project, session.id)
+    if (session && body.event === 'Stop') {
+        considerClear(session.project, session.id)
+        carryOn(session.project, session.id)
+    }
+    // Cut off by an API error: what it had in progress isn't being worked any more.
+    if (session && body.event === 'StopFailure') {
+        await letGo(session.project, session.id, text('error')).catch(error => console.error(`[orrery] letting go of ${session.id}'s work:`, error))
+        considerClear(session.project, session.id)
+    }
     const source = text('source')
     if (!session || body.event !== 'SessionStart') return session
     // Back from Orrery's clear with part of its run left: a focus on the rest starts its next turn.

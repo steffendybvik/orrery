@@ -50,12 +50,13 @@ export abstract class ReleaseStore extends DocStore {
             await this.touchProject(project)
         })
         this.changed(project)
+        this.tell('release.created', project, version, actor)
         return await this.release(project, version)
     }
 
-    async updateRelease(project: string, version: string, body: unknown): Promise<ReleaseDetail> {
+    async updateRelease(project: string, version: string, body: unknown, actor = AGENT): Promise<ReleaseDetail> {
         await this.ownReleases(project, 'change them')
-        await this.releaseRow(project, version)
+        const before = await this.releaseRow(project, version)
         const input = checkInput(body, RELEASE_FIELDS, true)
         if (input.version !== undefined && input.version !== version) throw badRequest("A release's version can't change: make one with the new version and move its issues to it")
         await this.db.transaction(async () => {
@@ -69,6 +70,11 @@ export abstract class ReleaseStore extends DocStore {
             await this.touchProject(project)
         })
         this.changed(project)
+        // Frozen or shipped as the day is set, thawed or unshipped as it's cleared; a new day on one already set is no event.
+        for (const [field, on, off] of [['frozen_on', 'frozen', 'thawed'], ['shipped_on', 'shipped', 'unshipped']] as const) {
+            if (input[field] === undefined || !!input[field] === !!before[field]) continue
+            this.tell(`release.${input[field] ? on : off}`, project, version, actor)
+        }
         return await this.release(project, version)
     }
 
@@ -92,5 +98,6 @@ export abstract class ReleaseStore extends DocStore {
             await this.touchProject(project)
         })
         this.changed(project)
+        this.tell('release.deleted', project, version, actor)
     }
 }

@@ -26,6 +26,7 @@ export default defineEventHandler(async event => {
     const stream = createEventStream(event)
     let closed = false
     let unnamed: (() => void) | undefined
+    let left = () => {}
     const add = async (project: string, catchUp: number | undefined) => {
         const feed = await openFeed(project, listenerOf(text, project === startedFor), catchUp, origin)
         if (closed) return feed.close()
@@ -61,9 +62,11 @@ export default defineEventHandler(async event => {
         projectEvents.off('removed', removed)
         unnamed?.()
         feeds.forEach(f => f.close())
+        left()
         await stream.close()
     })
     stream.push({event: 'ready', data: JSON.stringify({projects, listeners: Object.fromEntries(projects.map(p => [p, listening(p)]))})})
     for (const project of projects) await add(project, after)
+    if (!closed) left = noteChannel(projects, every, listenerOf(text, false), () => feeds.find(f => f.attended)?.attended?.id)
     return stream.send()
 })

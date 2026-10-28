@@ -47,7 +47,9 @@ depends on the stylesheet's order, not the attribute's. To hide it on a phone us
 A dialog over the dimmed page: a form on the glass panel, near the top, scrolling with the page when it's
 taller than the window. It's Headless UI's `Dialog`: the focus stays inside while it's open and goes back after, and
 the page under it doesn't scroll. It draws in a portal on the page's body, so a component test finds it there
-(`new DOMWrapper(document.body)`), not inside the component.
+(`new DOMWrapper(document.body)`), not inside the component. A test that saves from a dialog waits until it has
+closed (its open state, `useNewIssue().target` say, back to `null`), not only until the request is sent: a save still
+on its way closes the next test's dialog when it lands (ORR-409).
 
 ```vue
 <UiDialog :open="target" label="New chunk" @close="close" @submit="create">

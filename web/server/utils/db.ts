@@ -1,7 +1,9 @@
-// The database: one SQLite file (`NUXT_DATABASE`, `.data/orrery.db` by default). Node's own
-// `node:sqlite` is synchronous, so writes from several sessions never interleave.
-import {mkdirSync} from 'node:fs'
-import {restoreBackup} from './backup'
+// The database: one SQLite file (`NUXT_DATABASE`, `.data/orrery.db` by default), or Postgres. Node's own
+// `node:sqlite` is synchronous, so writes from several sessions never interleave. The owner can move it from App
+// settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
+import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {lastBackup, restoreBackup} from './backup'
+import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
@@ -556,37 +558,192 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- A message schedule that skips a run when nothing in its project changed since the last one it sent.
     ALTER TABLE schedules ADD COLUMN only_if_changed INTEGER NOT NULL DEFAULT 0;
+`, `
+    -- A message schedule that brings in what others wrote (GitHub issues): its run gets a locked-down session of its own.
+    ALTER TABLE schedules ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0;
+`, `
+    -- The event log: what Orrery did and what went wrong (server/utils/event-log.ts). A repeat of one that isn't
+    -- resolved counts on its row. Not tied to a project row, so what happened in one outlives it.
+    CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        level TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        project TEXT,
+        message TEXT NOT NULL,
+        details TEXT,
+        count INTEGER NOT NULL DEFAULT 1,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        resolved_at TEXT
+    );
+    CREATE INDEX events_last_seen ON events (last_seen);
+`, `
+    -- A message the owner sent from a preset: the preset's name, as it was then, to label it by.
+    ALTER TABLE signals ADD COLUMN preset TEXT;
+`, `
+    -- A schedule that runs when something happens (ORR-341) rather than on a clock: the event's type as a pattern
+    -- (\`issue.status\`, \`release.*\`), and what the event must also say (JSON). A run keeps what it was about.
+    -- Rebuilt for its check: exactly one of cron, at and on_event.
+    CREATE TABLE schedules_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        notes TEXT,
+        cron TEXT,
+        at TEXT,
+        timezone TEXT NOT NULL,
+        place TEXT NOT NULL DEFAULT 'todo' REFERENCES statuses(id),
+        chunk TEXT,
+        priority TEXT CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+        labels TEXT NOT NULL DEFAULT '[]',
+        ask INTEGER NOT NULL DEFAULT 0,
+        skip_open INTEGER NOT NULL DEFAULT 1,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        next_run TEXT,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'issue' CHECK (kind IN ('issue', 'message')),
+        only_if_changed INTEGER NOT NULL DEFAULT 0,
+        untrusted INTEGER NOT NULL DEFAULT 0,
+        on_event TEXT,
+        on_filter TEXT,
+        CHECK ((cron IS NOT NULL) + (at IS NOT NULL) + (on_event IS NOT NULL) = 1)
+    );
+    INSERT INTO schedules_new (id, project, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled, next_run,
+        created_by, owned, created_at, updated_at, kind, only_if_changed, untrusted)
+        SELECT id, project, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled, next_run,
+        created_by, owned, created_at, updated_at, kind, only_if_changed, untrusted FROM schedules;
+    DROP TABLE schedules;
+    ALTER TABLE schedules_new RENAME TO schedules;
+    CREATE INDEX schedules_due ON schedules(enabled, next_run);
+    ALTER TABLE schedule_runs ADD COLUMN subject TEXT;
+`, `
+    -- A schedule that starts a session (ORR-342), and the presets (ids, JSON) a schedule's message or session is
+    -- given (ORR-332). Rebuilt for its kind's check.
+    CREATE TABLE schedules_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        notes TEXT,
+        cron TEXT,
+        at TEXT,
+        timezone TEXT NOT NULL,
+        place TEXT NOT NULL DEFAULT 'todo' REFERENCES statuses(id),
+        chunk TEXT,
+        priority TEXT CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+        labels TEXT NOT NULL DEFAULT '[]',
+        ask INTEGER NOT NULL DEFAULT 0,
+        skip_open INTEGER NOT NULL DEFAULT 1,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        next_run TEXT,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'issue' CHECK (kind IN ('issue', 'message', 'session')),
+        only_if_changed INTEGER NOT NULL DEFAULT 0,
+        untrusted INTEGER NOT NULL DEFAULT 0,
+        on_event TEXT,
+        on_filter TEXT,
+        presets TEXT NOT NULL DEFAULT '[]',
+        CHECK ((cron IS NOT NULL) + (at IS NOT NULL) + (on_event IS NOT NULL) = 1)
+    );
+    INSERT INTO schedules_new (id, project, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled, next_run,
+        created_by, owned, created_at, updated_at, kind, only_if_changed, untrusted, on_event, on_filter)
+        SELECT id, project, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled, next_run,
+        created_by, owned, created_at, updated_at, kind, only_if_changed, untrusted, on_event, on_filter FROM schedules;
+    DROP TABLE schedules;
+    ALTER TABLE schedules_new RENAME TO schedules;
+    CREATE INDEX schedules_due ON schedules(enabled, next_run);
+`, `
+    -- The presets Orrery ships (ORR-343, shared/presets.ts): one keeps its key, and each key seeded is noted, so a
+    -- default the owner removed isn't seeded again.
+    ALTER TABLE presets ADD COLUMN default_key TEXT;
+    CREATE TABLE preset_defaults (
+        key TEXT PRIMARY KEY,
+        seeded_at TEXT NOT NULL
+    );
+`, `
+    -- What an event in the log is about (ORR-378): the issue, release, chunk or doc a change to the roadmap was to.
+    ALTER TABLE events ADD COLUMN subject TEXT;
+`, `
+    -- A message the owner's chat sent for them (ORR-397): \`chat\`, so it's shown as relayed.
+    ALTER TABLE signals ADD COLUMN via TEXT;
 `]
 
 let db: DatabaseSync | null = null
 
-function useDb(): DatabaseSync {
+function useDb(path: string): DatabaseSync {
     if (db) return db
-    const config = useRuntimeConfig()
-    const path = resolve(String(config.database))
-    restoreBackup(path, String(config.backupDir ?? ''))
+    restoreBackup(path, String(useRuntimeConfig().backupDir ?? ''))
     db = openDb(path)
     return db
+}
+
+/** Where a move from App settings is kept: beside the SQLite file NUXT_DATABASE names (`orrery.db.moved.json`); none
+ * when NUXT_DATABASE is Postgres, which stays where it's set. */
+export function movedFile(): string | null {
+    const setting = String(useRuntimeConfig().database)
+    return isPostgres(setting) ? null : `${resolve(setting)}.moved.json`
+}
+
+/** The database Orrery runs on: where the owner moved it to, else NUXT_DATABASE (a SQLite file, from where it runs). */
+let chosen: string | null | undefined
+
+export function databaseSetting(): string {
+    const setting = String(useRuntimeConfig().database)
+    if (chosen === undefined) {
+        const file = movedFile()
+        chosen = file && existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as {database: string}).database : null
+    }
+    return chosen ?? (isPostgres(setting) ? setting : resolve(setting))
+}
+
+/** Saves where the database moved to, for Orrery to open again as it starts; back to NUXT_DATABASE's own file forgets it. */
+function saveDatabaseSetting(setting: string) {
+    const file = movedFile()
+    if (!file) throw new Error('NUXT_DATABASE names Postgres: change it there')
+    if (setting === resolve(String(useRuntimeConfig().database))) {
+        rmSync(file, {force: true})
+        chosen = null
+    } else {
+        writeFileSync(file, `${JSON.stringify({database: setting, moved_at: new Date().toISOString()}, null, 2)}\n`, {mode: 0o600})
+        chosen = setting
+    }
 }
 
 /** Where the data is, to show the owner: the SQLite file's full path, or the Postgres database without its password. */
 export function describeDatabase(): DatabaseInfo {
     const config = useRuntimeConfig()
-    const setting = String(config.database)
-    if (isPostgres(setting)) {
-        const url = new URL(setting)
-        return {kind: 'postgres', where: `${url.username ? `${decodeURIComponent(url.username)}@` : ''}${url.host}${url.pathname}`}
-    }
-    const backup = String(config.backupDir ?? '')
-    return {kind: 'sqlite', where: resolve(setting), ...backup ? {backup: resolve(backup)} : {}}
+    const setting = databaseSetting()
+    const dir = String(config.backupDir ?? '')
+    const at = dir ? lastBackup(dir) : undefined
+    const base = String(config.public?.repoDir ?? '')
+    // Under Docker, where each is on the computer too (`/data` and `/backup` mean nothing there): ORR-399.
+    const backupOn = dir ? onHost(resolve(dir), '/backup', String(config.backupHost ?? ''), base) : {}
+    const backup = dir ? {
+        backup: resolve(dir), ...at ? {backed_up_at: at} : {},
+        ...backupOn.host ? {backup_host: backupOn.host} : {}, ...backupOn.volume ? {backup_volume: backupOn.volume} : {},
+    } : {}
+    const how = movedFile() ? {movable: true, ...chosen ? {moved: true} : {}} : {}
+    if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup}
+    return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup}
+}
+
+/** A Postgres URL as the owner sees it: `user@host:port/name`, no password. */
+export function hidePassword(url: string): string {
+    const parsed = new URL(url)
+    return `${parsed.username ? `${decodeURIComponent(parsed.username)}@` : ''}${parsed.host}${parsed.pathname}`
 }
 
 /** The open database as the store awaits it: Postgres when the setting is a `postgres://` URL, else the
  * SQLite file. */
 export function useDatabase(): Db {
-    const setting = String(useRuntimeConfig().database)
+    const setting = databaseSetting()
     if (isPostgres(setting)) return database ??= new PostgresDb(setting)
-    const raw = useDb()
+    const raw = useDb(setting)
     if (!(database instanceof SqliteDb) || database.raw !== raw) database = new SqliteDb(raw)
     return database
 }
@@ -601,12 +758,33 @@ export async function closeDb() {
     database = null
 }
 
+/** Runs on `next` from now on (already open, its schema up to date), saved for the next start, with what else holds the
+ * database pointed at it (`rebind`), and lets go of the one before once what it was doing is done. Saved first: a save
+ * that fails (a full disk) changes nothing. Says which it was. */
+export async function switchDatabase(setting: string, next: SqliteDb | PostgresDb, rebind: (db: SqliteDb | PostgresDb) => void): Promise<SqliteDb | PostgresDb | null> {
+    const before = database
+    const raw = db
+    saveDatabaseSetting(setting)
+    database = next
+    db = next instanceof SqliteDb ? next.raw : null
+    rebind(next)
+    if (before instanceof PostgresDb) await before.close()
+    else if (before instanceof SqliteDb) await before.alone(() => raw?.close())
+    return before
+}
+
 /** Opens the file and brings its schema up to date (or only `upTo` steps, for tests). */
 export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
     if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
     const opened = new DatabaseSync(path)
     // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes).
     opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL')
+    migrated = migrate(opened, path, upTo) ?? migrated
+    return opened
+}
+
+/** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. */
+function migrate(opened: DatabaseSync, path: string, upTo: number): {from: number, to: number} | null {
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     opened.exec('PRAGMA foreign_keys = OFF')
@@ -619,7 +797,37 @@ export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
     })
     if (opened.prepare('PRAGMA foreign_key_check').all().length) throw new Error(`${path}: a migration left rows pointing at nothing`)
     opened.exec('PRAGMA foreign_keys = ON')
+    return version < Math.min(upTo, MIGRATIONS.length) ? {from: version, to: Math.min(upTo, MIGRATIONS.length)} : null
+}
+
+/** An empty database with the schema up to date, laid down once, in memory. */
+let schema: DatabaseSync | null = null
+
+/** A new file at `path` with the schema up to date and nothing in it, copied from `schema`: a Postgres backup is
+ * written into one as often as once a minute, and every migration again (table rebuilds included) each time is the
+ * slow way there. No migration the event log hears of. */
+export function emptyDb(path: string): DatabaseSync {
+    if (!schema) {
+        schema = new DatabaseSync(':memory:')
+        migrate(schema, ':memory:', MIGRATIONS.length)
+    }
+    mkdirSync(dirname(path), {recursive: true})
+    schema.prepare('VACUUM INTO ?').run(path)
+    const opened = new DatabaseSync(path)
+    opened.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON')
     return opened
+}
+
+/** The steps the last file opened was brought up by, for the event log; null when it was up to date. */
+let migrated: {from: number, to: number} | null = null
+
+/** The migration the open database had as it opened (SQLite's steps, or Postgres's), once; then null. */
+export function takeMigration(): {from: number, to: number} | null {
+    const database = useDatabase()
+    const ran = database instanceof PostgresDb ? database.migrated : migrated
+    if (database instanceof PostgresDb) database.migrated = null
+    else migrated = null
+    return ran
 }
 
 /** Runs `work` in one transaction: all of it lands, or none of it. */

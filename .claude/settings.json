@@ -45,6 +45,17 @@
         ]
       }
     ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ORRERY_PROJECT=orrery node \"$CLAUDE_PROJECT_DIR/channel/orrery-hook.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "hooks": [

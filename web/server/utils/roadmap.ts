@@ -16,7 +16,7 @@ export interface RoadmapFile {
     chunks: ChunkFile[]
 }
 
-export interface ChunkFile {
+interface ChunkFile {
     id: string
     title: string
     summary: string

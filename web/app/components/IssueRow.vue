@@ -42,7 +42,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
       :data-project="project"
       tabindex="0"
       role="button"
-      class="group relative flex h-11 cursor-pointer items-center gap-3 border-b border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
+      class="group relative flex h-11 items-center gap-3 border-b border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
       :class="[ticked ? 'bg-accent-500/8' : isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '', issue.waiting ? 'waiting-row' : unseen ? 'unseen-row' : '']"
       :style="{paddingLeft: `${12 + depth * INDENT}px`}"
       @click="click"
@@ -65,7 +65,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
       <span v-if="unseen" class="unseen-dot" title="Changed since you last opened it" />
       <span class="min-w-0 truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-semibold' : '']"><InlineText :text="issue.title" /></span>
       <template v-if="issue.waiting">
-        <WaitingChip :asks="issue.waiting" class="max-sm:hidden" />
+        <WaitingChip :asks="issue.waiting" :proposal="pendingProposal(issue)" class="max-sm:hidden" />
         <!-- On a phone the title needs the room: the chip's dot alone, the row tinted as ever. -->
         <span class="size-2 shrink-0 rounded-full bg-violet-500 sm:hidden" role="img" :aria-label="issue.waiting === 'decision' ? 'Needs your decision' : 'Needs your feedback'" :title="issue.waiting === 'decision' ? 'Needs your decision' : 'Needs your feedback'" />
       </template>

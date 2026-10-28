@@ -1,14 +1,14 @@
 import {readFileSync} from 'node:fs'
 import {describe, expect, it} from 'vitest'
 import type {IssueStatus} from '#shared/roadmap'
-import {DEFAULT_STATUSES, freezeNote, total} from '#shared/roadmap'
+import {DEFAULT_STATUSES, freezeNote, nameBesideProject, total, trackerLinkOf} from '#shared/roadmap'
 import type {BoardInput, IssueInput, TaskFile} from '../server/utils/roadmap'
 import {RoadmapError, buildBoard, checkRoadmap, issueLine, legacyStatus, readRoadmap} from '../server/utils/roadmap'
 
 const STATUSES: IssueStatus[] = DEFAULT_STATUSES.map((s, position) => ({...s, position}))
 const first = (kind: string) => STATUSES.find(s => s.kind === kind)!.id
 
-/** A roadmap in larder's format, its statuses as Orrery's import makes them. */
+/** A roadmap in greenhouse's format, its statuses as Orrery's import makes them. */
 const legacy = (tasks: TaskFile[]): IssueInput[] => tasks.map(({plan, ...t}) => ({...t, status: first(legacyStatus(t.status, plan)), tasks: legacy(t.tasks)}))
 const fromFile = (data: unknown): BoardInput => ({chunks: checkRoadmap(data).chunks.map(c => ({...c, tasks: legacy(c.tasks)}))})
 
@@ -120,8 +120,8 @@ describe('checking the file', () => {
     })
 })
 
-describe("larder's roadmap", () => {
-    const roadmap = readRoadmap(readFileSync(new URL('./fixtures/larder-roadmap.json', import.meta.url), 'utf8'))
+describe("greenhouse's roadmap", () => {
+    const roadmap = readRoadmap(readFileSync(new URL('./fixtures/greenhouse-roadmap.json', import.meta.url), 'utf8'))
 
     it('reads as a roadmap, todo with a plan in Todo, without one in Backlog and doing in In progress', () => {
         const {chunks, kinds} = buildBoard({chunks: roadmap.chunks.map(c => ({...c, tasks: legacy(c.tasks)}))}, STATUSES)
@@ -135,8 +135,8 @@ describe("larder's roadmap", () => {
 
 describe('an issue told to a session', () => {
     it('is one line: id, title, then its column by name and its priority', () => {
-        expect(issueLine({id: 'LAR-1', title: 'Shelves', column: 'in-progress', priority: 'P1'}, STATUSES)).toBe('- LAR-1: Shelves [In progress, P1]')
-        expect(issueLine({id: 'LAR-2', title: 'Jars', column: 'proposed', priority: null}, STATUSES)).toBe('- LAR-2: Jars [Proposed]')
+        expect(issueLine({id: 'GRE-1', title: 'Shelves', column: 'in-progress', priority: 'P1'}, STATUSES)).toBe('- GRE-1: Shelves [In progress, P1]')
+        expect(issueLine({id: 'GRE-2', title: 'Jars', column: 'proposed', priority: null}, STATUSES)).toBe('- GRE-2: Jars [Proposed]')
     })
 })
 
@@ -146,5 +146,35 @@ describe('a release in feature freeze', () => {
         expect(freezeNote({version: '1.0.0', frozen_on: '2026-10-20', shipped_on: '2026-10-26'})).toBeNull()
         expect(freezeNote({version: '1.0.0'})).toBeNull()
         expect(freezeNote(undefined)).toBeNull()
+    })
+})
+
+describe("a session's name beside its project", () => {
+    it('drops the project Orrery put in front, and leaves any other name be', () => {
+        expect(nameBesideProject({name: 'orrery · Odin', project: 'orrery'})).toBe('Odin')
+        expect(nameBesideProject({name: 'Odin', project: 'orrery'})).toBe('Odin')
+        expect(nameBesideProject({name: 'hub · fixing CI', project: 'orrery'})).toBe('hub · fixing CI')
+        expect(nameBesideProject({name: 'orrery · ', project: 'orrery'})).toBe('orrery · ')
+    })
+})
+
+describe("the team tracker's link", () => {
+    it('keeps a link with {id} as it is', () => {
+        expect(trackerLinkOf(' https://tracker.example.com/issue/{id} ')).toBe('https://tracker.example.com/issue/{id}')
+    })
+
+    it("turns a link into a known tracker's workspace into its task link", () => {
+        for (const pasted of [
+            'https://linear.app/acme/team/ENG/projects/all',
+            'https://linear.app/acme/view/my-view-123',
+            'https://linear.app/acme/issue/ENG-1567/some-title',
+            'https://linear.app/acme',
+        ]) expect(trackerLinkOf(pasted), pasted).toBe('https://linear.app/acme/issue/{id}')
+    })
+
+    it('has none for another link without {id}, nor for what is no link', () => {
+        expect(trackerLinkOf('https://tracker.example.com/projects')).toBeNull()
+        expect(trackerLinkOf('https://linear.app/')).toBeNull()
+        expect(trackerLinkOf('not a link')).toBeNull()
     })
 })

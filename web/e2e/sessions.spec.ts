@@ -3,8 +3,8 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
-// on one stream, a message to every idle session, Focus on this starting one and New session on this another, and a
-// preset.
+// on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
+// one Orrery started, the session on an issue shown on its page, and a preset.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
@@ -33,7 +33,8 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await page.goto('/sessions')
         const card = page.locator('#session-e2e-1')
         await expect(card).toContainText('kitchen shelves')
-        await expect(card.getByText('listening')).toBeVisible()
+        // Listening, so it says nothing about hearing signals.
+        await expect(card.getByText("can't hear signals")).toBeHidden()
         await card.getByLabel('Message kitchen shelves').fill('Use the oak hinges, not pine.')
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
@@ -167,19 +168,82 @@ test('with a session listening, New session on this starts another on the issue'
     }
 })
 
+test("shows on an issue's page which session is on it, while it listens", async ({page, request, baseURL}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Descale the kettle', status: 'todo'})
+    const ids = ['e2e-w1', 'e2e-w2']
+    for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'SessionStart', name: id}})
+    const streams = ids.map(id => hold(baseURL!, `/api/projects/kitchen/signals/stream?session=${id}&name=${id}&format=text`))
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
+        await page.goto(`/p/kitchen/issues/${issue.id}`)
+        const chip = page.getByRole('link', {name: /^e2e-w2 ·/})
+        await expect(chip).toHaveCount(0)
+        // Asked to focus on it, the second one is on it: in the header, and first in the panel, marked.
+        await api(request, 'post', `/issues/${issue.id}/focus`, {session: 'e2e-w2'}, OWNER)
+        await expect(chip).toBeVisible()
+        const rows = page.getByRole('listitem').filter({hasText: /^e2e-w/})
+        await expect(rows.first()).toContainText('on this issue')
+        await expect(rows.first()).toContainText('e2e-w2')
+        await expect(rows.filter({hasText: 'on this issue'})).toHaveCount(1)
+        // Gone from the header once it stops listening.
+        streams[1]!.stop()
+        await expect(chip).toHaveCount(0)
+        await expect(page.getByText('on this issue')).toHaveCount(0)
+    } finally {
+        for (const stream of streams) stream.stop()
+    }
+})
+
+test('a session Orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e5709e2e57', tmux: 'orrery-e2e-stop'}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-s&name=e2e-started&started=e2e5709e2e57&format=text')
+        // On an issue's page its row only points it at the issue; its name leads to the card that manages it.
+        const issue = await api(request, 'post', '/issues', {title: 'Wind the clock', status: 'todo'})
+        await page.goto(`/p/kitchen/issues/${issue.id}`)
+        const row = page.getByRole('listitem').filter({has: page.getByRole('link', {name: 'e2e-started'})})
+        await expect(row.getByRole('button', {name: 'Focus on this', exact: true})).toBeVisible()
+        await expect(row.getByRole('button', {name: 'Watch'})).toHaveCount(0)
+        await expect(row.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
+        await row.getByRole('link', {name: 'e2e-started'}).click()
+        await expect(page).toHaveURL(/\/sessions#session-e2e-s$/)
+        const card = page.locator('#session-e2e-s')
+        await expect(card.getByRole('button', {name: 'Watch'})).toBeVisible()
+        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        await expect(card).toContainText('Stop e2e-started?')
+        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: stop')
+    } finally {
+        stream?.stop()
+        launcher.stop()
+    }
+})
+
 test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {
     await page.goto('/sessions#presets')
-    await page.getByLabel('New preset name').fill('Review')
-    await page.getByLabel('New preset text').fill("You're reviewing: read the diff and comment, don't change code.")
-    await page.getByRole('button', {name: 'Add preset'}).click()
-    // A preset is a role card with its badge, name and first line; clicking opens it, and New preset the form for another.
+    // New preset opens a dialog with the cursor in its text, what a session is told.
+    await page.getByRole('button', {name: 'New preset'}).click()
+    const writing = page.getByRole('dialog', {name: 'New preset'})
+    await expect(writing.getByLabel('What it tells a session')).toBeFocused()
+    await page.keyboard.type("You're reviewing: read the diff and comment, don't change code.")
+    // Named apart from the Review preset Orrery ships.
+    await writing.getByLabel('Preset name').fill('Close review')
+    await writing.getByRole('button', {name: 'Add preset'}).click()
+    // A preset is a role card with its badge, name and first line; clicking it opens it in the same dialog.
+    await expect(writing).toBeHidden()
     await expect(page.locator('#presets')).toContainText("You're reviewing: read the diff")
-    await expect(page.getByLabel('New preset name')).toBeHidden()
-    await page.getByRole('button', {name: 'Edit Review'}).click()
-    await expect(page.getByLabel('Preset name', {exact: true})).toHaveValue('Review')
-    // Its badge is its initials until an icon is picked.
-    await page.locator('#presets').getByRole('button', {name: 'shield-check', exact: true}).click()
-    await expect(page.getByRole('button', {name: 'Use its initials'})).toBeVisible()
+    await page.getByRole('button', {name: 'Edit Close review'}).click()
+    const editing = page.getByRole('dialog', {name: 'Edit Close review'})
+    await expect(editing.getByLabel('Preset name')).toHaveValue('Close review')
+    // Its badge is its initials until an icon is picked, behind the badge's button; it's kept as the preset is saved.
+    await editing.getByRole('button', {name: 'Badge', exact: true}).click()
+    await editing.getByRole('button', {name: 'shield-check', exact: true}).click()
+    await expect(editing.getByRole('button', {name: 'Use its initials'})).toBeVisible()
+    await editing.getByRole('button', {name: 'Save preset'}).click()
+    await expect(editing).toBeHidden()
     await expect(page.getByRole('button', {name: 'New preset'})).toBeVisible()
     // A template says what it's for, and shows its text only on Edit.
     await expect(page.getByLabel('Focus on an issue', {exact: true})).toBeHidden()
@@ -192,4 +256,27 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     // No launcher is running now, so kitchen can't be picked; the reason says so.
     await expect(dialog.getByRole('group', {name: 'Projects'})).toContainText('No launcher running')
     await page.keyboard.press('Escape')
+})
+
+test('ships presets that can be reset to default, and restored once removed', async ({page}) => {
+    await page.goto('/sessions#presets')
+    const presets = page.locator('#presets')
+    await expect(presets.getByRole('button', {name: 'Edit Security audit'})).toBeVisible()
+    // Changed, it can be reset to what Orrery ships.
+    await presets.getByRole('button', {name: 'Edit Debug an error'}).click()
+    const editing = page.getByRole('dialog', {name: 'Edit Debug an error'})
+    await expect(editing.getByRole('button', {name: 'Reset to default'})).toBeHidden()
+    await editing.getByLabel('What it tells a session').fill('Just look.')
+    await editing.getByRole('button', {name: 'Save preset'}).click()
+    await expect(presets).toContainText('Just look.')
+    await presets.getByRole('button', {name: 'Edit Debug an error'}).click()
+    await editing.getByRole('button', {name: 'Reset to default'}).click()
+    await expect(presets).toContainText("You're looking into an error from the event log")
+    // Removed, Restore defaults brings it back.
+    await presets.getByRole('button', {name: 'Edit Debug an error'}).click()
+    await editing.getByRole('button', {name: 'Remove Debug an error'}).click()
+    await expect(presets.getByRole('button', {name: 'Edit Debug an error'})).toBeHidden()
+    await presets.getByRole('button', {name: 'Restore defaults'}).click()
+    await expect(presets.getByRole('button', {name: 'Edit Debug an error'})).toBeVisible()
+    await expect(presets.getByRole('button', {name: 'Restore defaults'})).toBeHidden()
 })

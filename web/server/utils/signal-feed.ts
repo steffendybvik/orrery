@@ -1,6 +1,7 @@
 import type {Signal, StartedSession} from '#shared/roadmap'
 import {renderPrompt} from '#shared/prompt'
 import {freezeNote} from '#shared/roadmap'
+import type {EventEntry} from './event-log'
 
 // One project's signals for a session, as its stream sends them: the owner's, for every session, for one Orrery picks
 // (pool.ts) or for this one; what it missed, and what it should hear as it connects. A session's channel follows its
@@ -22,6 +23,10 @@ export interface Listener {
     stops: boolean
     /** The name its server goes by in the repo's .mcp.json. */
     server?: string
+    /** Its channel says it's an untrusted schedule's session (`untrusted=yes`), whether or not Orrery knows its launch. */
+    untrusted: boolean
+    /** Its channel says it's the owner's chat (`chat=yes`), the same way. */
+    chat: boolean
 }
 
 export type Feed = Awaited<ReturnType<typeof openFeed>>
@@ -32,8 +37,11 @@ export async function openFeed(project: string, who: Listener, from: number | un
     const store = useStore()
     await store.project(project)
     const {heard} = who
-    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server) : null
-    const stopListening = heard ? listen(project) : () => {}
+    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server, who.untrusted, who.chat) : null
+    // An untrusted run's session hears only its own message, and a chat only its chat, so neither is someone there to
+    // hear the owner's signals.
+    const narrow = who.untrusted || !!who.started?.untrusted || who.chat || !!who.started?.chat
+    const stopListening = heard && !narrow ? listen(project) : () => {}
     const done = () => {
         stopListening()
         attended?.done()
@@ -55,7 +63,9 @@ export async function openFeed(project: string, who: Listener, from: number | un
         const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
         const name = (column: string) => columnName(column, statuses)
         if (signal.kind === 'message') {
-            if (signal.schedule === undefined) return {...signal, title: null, column: null, priority: null, chunk: null}
+            // One the owner's chat sent for them says so, to whatever channel hears it.
+            const note = signal.via === 'chat' ? `${signal.note}\n\n(Sent by the owner through their chat.)` : signal.note
+            if (signal.schedule === undefined) return {...signal, note, title: null, column: null, priority: null, chunk: null}
             let title = 'a schedule'
             try {
                 title = (await useScheduler().get(project, signal.schedule)).title
@@ -238,5 +248,38 @@ export function listenerOf(text: (key: string) => string | undefined, launchedHe
     return {
         session: text('session'), pid: Number(text('pid')) || undefined, name: text('name'), heard: text('channel') !== 'no',
         started: launch ? launched(launch) : undefined, launch, stops: text('stops') === 'yes', server: text('server'),
+        untrusted: text('untrusted') === 'yes',
+        chat: text('chat') === 'yes',
+    }
+}
+
+/** A session's channel connecting to the feed (`connected`) or leaving it (`left`), as the event log keeps it: who,
+ * on which projects (`every` for `*`), and whether Claude Code hears it. */
+export function channelEntry(what: 'connected' | 'left', projects: string[], every: boolean, who: Listener, session?: string, name?: string): EventEntry {
+    const called = name || who.name || session || (who.pid ? `pid ${who.pid}` : 'A session')
+    const on = every ? 'every project' : projects.join(', ')
+    return {
+        level: 'info', kind: `channel.${what}`, ...projects.length === 1 && !every ? {project: projects[0]} : {},
+        message: `${called} ${what === 'connected' ? 'connected to' : 'left'} the feed for ${on}${what === 'connected' && !who.heard ? " (not started with the channel flag: it won't hear)" : ''}`,
+        details: {
+            ...session ? {session} : {}, projects: every ? ['*'] : projects, heard: who.heard,
+            ...who.launch ? {launch: who.launch} : {}, ...who.untrusted ? {untrusted: true} : {},
+        },
+    }
+}
+
+/** Logs the channel connecting, and gives what logs it leaving, once. Not the owner's chat: like the sessions Orrery starts
+ * for it, it's logged as neither, so nothing runs on it. */
+export function noteChannel(projects: string[], every: boolean, who: Listener, session: () => string | undefined): () => void {
+    if (who.chat || who.started?.chat) return () => {}
+    const id = session()
+    useEventLog().note(channelEntry('connected', projects, every, who, id, sessionName(id)))
+    // However the stream ends (it can say so more than once), it left once.
+    let open = true
+    return () => {
+        if (!open) return
+        open = false
+        const now = session() ?? id
+        useEventLog().note(channelEntry('left', projects, every, who, now, sessionName(now)))
     }
 }

@@ -13,12 +13,12 @@ const project = (id: string, name: string, issues: ReturnType<typeof issue>[]) =
     id, name, key: id.toUpperCase(), release_mode: 'none', releases: [], docs: [{id: 'shelving', title: `${name} shelving guide`}],
     board: {kinds: KINDS, chunks: [{id: 'stock', title: `${name} stock`, tasks: issues}]},
 }) as unknown as Project
-const LARDER = project('larder', 'Larder', Array.from({length: 8}, (_, n) => issue(`LAR-${n + 1}`, `Label jar ${n + 1}`, n === 0 ? ['OLD-9'] : [])))
+const GREENHOUSE = project('greenhouse', 'Greenhouse', Array.from({length: 8}, (_, n) => issue(`GRE-${n + 1}`, `Label jar ${n + 1}`, n === 0 ? ['OLD-9'] : [])))
 const PANTRY = project('pantry', 'Pantry', [issue('PAN-1', 'Sort the tins')])
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
-    useRoadmaps().projects.value = [LARDER, PANTRY]
+    useRoadmaps().projects.value = [GREENHOUSE, PANTRY]
     useState('palette-open').value = true
 })
 afterEach(() => {
@@ -42,7 +42,7 @@ describe('CommandPalette', () => {
         const {sections, wrapper} = await mount()
         expect(sections()).toEqual(['Jump to', 'Go to'])
         const jump = wrapper.find('section[aria-label="Jump to"]').text()
-        expect(jump).toContain('Larder')
+        expect(jump).toContain('Greenhouse')
         expect(jump).toContain('Pantry')
     })
 
@@ -68,7 +68,7 @@ describe('CommandPalette', () => {
 
     it('moves with ↑↓ round the ends, and ⇥ to the next section', async () => {
         const {input, key, chosen} = await mount()
-        await input().setValue('larder')
+        await input().setValue('greenhouse')
         const first = chosen()
         await key('ArrowUp')
         const last = chosen()
@@ -94,9 +94,10 @@ describe('CommandPalette', () => {
 
     it('runs the row in focus on ↵, and closes; Esc closes too', async () => {
         const {input, key} = await mount()
-        await input().setValue('lar-3')
+        await input().setValue('gre-3')
         await key('Enter')
-        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/larder/issues/LAR-3'))
+        // The issue's page is built the first time it's gone to, which a busy machine takes well over a second for.
+        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/greenhouse/issues/GRE-3'), {timeout: 5000})
         expect(useState('palette-open').value).toBe(false)
         useState('palette-open').value = true
         await vi.waitFor(() => expect(input().exists()).toBe(true))

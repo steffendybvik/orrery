@@ -59,10 +59,14 @@ export interface ChunkRecord extends Omit<Chunk, 'tasks'> {
     issues: string[]
 }
 
-/** Who's asking, by the name it gives; `owner` when that's the owner's name. */
+/** Who's asking, by the name it gives; `owner` when that's the owner's name; `untrusted` for an untrusted schedule's
+ * session, whose writes set no schedule off. */
 export interface Actor {
     name: string
     owner: boolean
+    untrusted?: boolean
+    /** The owner, as their chat speaking for them (`chatOwner`). */
+    via?: 'chat'
 }
 
 export const AGENT: Actor = {name: 'agent', owner: false}
@@ -89,7 +93,7 @@ export interface IssueFilter {
     q?: string
 }
 
-export interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
+interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 export interface ProjectRow extends Made {
     id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
     focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
@@ -107,8 +111,8 @@ export interface CommentRow extends Made { id: number, project: string, issue: s
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, position: number }
-export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, created_at: string, updated_at: string }
-export interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
+export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
+export interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
@@ -120,7 +124,7 @@ const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 export const PROJECT_FIELDS: Record<string, Field> = {
     id: {type: 'string', pattern: SLUG, hint: 'use lowercase letters, digits and dashes'},
     name: {type: 'string', required: true},
-    key: {type: 'string', pattern: KEY, hint: 'use capitals and digits, starting with a capital, e.g. LAR'},
+    key: {type: 'string', pattern: KEY, hint: 'use capitals and digits, starting with a capital, e.g. GRE'},
     description: {type: 'string', nullable: true},
     icon: {type: 'string', nullable: true, pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, hint: "use a Heroicon's name, e.g. shopping-cart"},
     icon_color: TINT,
@@ -169,7 +173,7 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     priority: {type: 'string', values: PRIORITIES, nullable: true},
     assignee: {type: 'string', nullable: true},
     labels: {type: 'strings', nullable: true},
-    /** Its tasks on the team's tracker: ids (`CIR-1567`) or full URLs. */
+    /** Its tasks on the team's tracker: ids (`ENG-1567`) or full URLs. */
     external: {type: 'strings', nullable: true},
     notes: {type: 'string', nullable: true},
     /** `pending` makes it a proposal (or puts one up again); `null` commits it, the owner's to do. The owner
@@ -271,6 +275,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
     /** Keeps agents off a proposal while it waits on the owner; false lets them. */
     restrict_proposals: {type: 'boolean'},
+    /** Shows the Events page and error notices in the bell, and records what Orrery did as well as its errors. */
+    advanced: {type: 'boolean'},
 }
 
 /** A preset's name and its text, both needed; its badge's icon and colour, neither. */
@@ -336,7 +342,7 @@ export function eventOf(row: EventRow): IssueEvent {
 
 export function signalOf(row: SignalRow): Signal {
     return {
-        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined,
+        id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
         target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
 }

@@ -10,30 +10,30 @@ import NewIssueDialog from '~/components/NewIssueDialog.vue'
 let sent: {path: string, actor?: string, body: unknown}[] = []
 let failing = false
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
-registerEndpoint('/api/projects/larder/issues', {method: 'POST', handler: async event => {
+registerEndpoint('/api/projects/greenhouse/issues', {method: 'POST', handler: async event => {
     if (failing) {
         setResponseStatus(event, 400)
-        return {message: 'Larder is archived'}
+        return {message: 'Greenhouse is archived'}
     }
     sent.push({path: 'issues', actor: getHeader(event, 'orrery-actor'), body: await readBody(event)})
-    return {id: 'LAR-7'}
+    return {id: 'GRE-7'}
 }})
-registerEndpoint('/api/projects/larder/issues/LAR-7/focus', {method: 'POST', handler: async event => {
+registerEndpoint('/api/projects/greenhouse/issues/GRE-7/focus', {method: 'POST', handler: async event => {
     sent.push({path: 'focus', actor: getHeader(event, 'orrery-actor'), body: await readBody(event)})
     return {}
 }})
 
-const LARDER = {id: 'larder', name: 'Larder', key: 'LAR', board: {chunks: [{id: 'pantry', title: 'Pantry', tasks: []}, {id: '', title: 'No chunk', tasks: []}]}} as unknown as Project
+const GREENHOUSE = {id: 'greenhouse', name: 'Greenhouse', key: 'GRE', board: {chunks: [{id: 'pantry', title: 'Pantry', tasks: []}, {id: '', title: 'No chunk', tasks: []}]}} as unknown as Project
 const mounted: VueWrapper[] = []
 beforeEach(() => {
     sent = []
     failing = false
-    useRoadmaps().projects.value = [LARDER]
+    useRoadmaps().projects.value = [GREENHOUSE]
     useAppSettings().settings.value.statuses = [
         {id: 'backlog', name: 'Backlog', kind: 'backlog', color: 'slate'},
         {id: 'todo', name: 'Todo', kind: 'todo', color: 'blue'},
     ] as never
-    useNewIssue().open('larder', 'pantry')
+    useNewIssue().open('greenhouse', 'pantry')
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
@@ -62,7 +62,9 @@ describe('NewIssueDialog', () => {
         await wrapper.find('input[aria-label="Title"]').setValue('Fix the hinge')
         await wrapper.find('input[type="checkbox"]').setValue(true)
         await wrapper.find('form').trigger('submit')
-        await vi.waitFor(() => expect(sent).toHaveLength(2))
+        // Until it has closed: a create still on its way would close the next test's dialog.
+        await vi.waitFor(() => expect(useNewIssue().target.value).toBeNull())
+        expect(sent).toHaveLength(2)
         expect(sent[1]).toEqual({path: 'focus', actor: 'skoll', body: {note: 'A new issue: please pick it up.'}})
     })
 
@@ -74,7 +76,7 @@ describe('NewIssueDialog', () => {
         failing = true
         await wrapper.find('input[aria-label="Title"]').setValue('Sweep the floor')
         await wrapper.find('form').trigger('submit')
-        await vi.waitFor(() => expect(wrapper.text()).toContain('Larder is archived'))
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Greenhouse is archived'))
         expect(useNewIssue().target.value).not.toBeNull()
         expect((wrapper.find('input[aria-label="Title"]').element as HTMLInputElement).value).toBe('Sweep the floor')
     })

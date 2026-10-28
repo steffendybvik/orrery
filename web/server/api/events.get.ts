@@ -4,8 +4,9 @@ import type {Project, Signal} from '#shared/roadmap'
 // roadmap changes, `removed` (its id) when it goes, and `listeners` ({project, count}) when a session
 // starts or stops listening for its signals, `launchers` ({project, count}) when a launcher that starts
 // sessions for it connects or goes, and `schedules` ({project, schedules}) when they change or
-// run, and `secrets` (the list, never a value) when they change or one is used, so open pages update
-// without a reload.
+// run, `secrets` (the list, never a value) when they change or one is used, and `logged` ({event, fresh}) when the
+// event log records or resolves one, and `chat` (the chat) when one of the owner's chats changes or ends, so open
+// pages update without a reload.
 export default defineEventHandler(async event => {
     const stream = createEventStream(event)
     const onProject = (project: Project) => stream.push({event: 'project', data: JSON.stringify(project)})
@@ -17,6 +18,8 @@ export default defineEventHandler(async event => {
     const onNotice = (notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)})
     const onSettings = (settings: unknown) => stream.push({event: 'settings', data: JSON.stringify(settings)})
     const onSecrets = (secrets: unknown) => stream.push({event: 'secrets', data: JSON.stringify(secrets)})
+    const onLogged = (logged: unknown) => stream.push({event: 'logged', data: JSON.stringify(logged)})
+    const onChat = (chat: unknown) => stream.push({event: 'chat', data: JSON.stringify(chat)})
     const onSchedules = (project: string) => useScheduler().list(project)
         .then(schedules => stream.push({event: 'schedules', data: JSON.stringify({project, schedules})}), () => {})
     projectEvents.on('project', onProject)
@@ -29,6 +32,8 @@ export default defineEventHandler(async event => {
     projectEvents.on('schedules', onSchedules)
     projectEvents.on('settings', onSettings)
     projectEvents.on('secrets', onSecrets)
+    projectEvents.on('logged', onLogged)
+    projectEvents.on('chat', onChat)
     // Keeps proxies and the browser from dropping a quiet connection.
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
     // The headers go out with the first event: without one, the browser waits to call it open. It
@@ -47,6 +52,8 @@ export default defineEventHandler(async event => {
         projectEvents.off('schedules', onSchedules)
         projectEvents.off('settings', onSettings)
         projectEvents.off('secrets', onSecrets)
+        projectEvents.off('logged', onLogged)
+        projectEvents.off('chat', onChat)
         await stream.close()
     })
     return stream.send()

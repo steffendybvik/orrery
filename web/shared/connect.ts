@@ -36,8 +36,9 @@ export interface ConnectPieces {
 }
 
 // PreToolUse runs on every tool call, so it runs in the background (`async`): it catches the turns
-// no prompt started (a focus signal, a background task finishing).
-const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'Notification', 'SessionEnd']
+// no prompt started (a focus signal, a background task finishing). StopFailure runs instead of Stop when a turn
+// ends on an API error, which lets go of what the session had in progress.
+const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'StopFailure', 'Notification', 'SessionEnd']
 
 export function connectPieces(target: ConnectTarget): ConnectPieces {
     const {origin, repoDir, id, key, isNew} = target

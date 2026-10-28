@@ -29,6 +29,10 @@ interface Known extends Session {
     /** The launch its channel says Orrery started it for, kept for when Orrery doesn't know that launch yet
      * (Orrery restarted): the launcher's report of it then marks the session started again. */
     launch?: string
+    /** Its channel said it's an untrusted schedule's session: it's held to that whatever Orrery knows of its launch. */
+    untrusted?: boolean
+    /** Its channel said it's the owner's chat: the same, for that. */
+    chat?: boolean
 }
 
 const sessions = new Map<string, Known>()
@@ -45,6 +49,8 @@ const STATES: Record<string, SessionState | 'end'> = {
     UserPromptSubmit: 'working',
     PreToolUse: 'working',
     Stop: 'idle',
+    // In place of Stop when the turn ended on an API error (rate limit, overloaded, the network…).
+    StopFailure: 'idle',
     SessionEnd: 'end',
 }
 
@@ -207,7 +213,9 @@ export function report(input: Report): Session | null {
     changed(session.project)
     // Free now: it takes up what was sent to one session while every one was busy (pool.ts).
     if (state === 'idle') projectEvents.emit('session-idle', session.id)
-    if (input.command) {
+    // What it's about to run names the issues it writes to, unless it's an untrusted schedule's: that one writes to
+    // none but its proposals, and a command's text is what it read.
+    if (input.command && !untrustedSession(session.id)) {
         const {id, project} = session
         for (const write of issueWrites(input.command, project)) {
             useStore().workedBy(write.project, write.issue, id).catch(() => {})
@@ -255,9 +263,10 @@ function changedAll(session: Known) {
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
  * started with the channel flag, so its messages would be dropped; `started` is the launch Orrery started it for;
- * `stops` when the channel ends its session when the owner stops it (an older one doesn't); `server` the name its server goes by. Says the session's id, the one it
- * has now: a `/clear` changes it while the channel stays connected. */
-export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string): {id: string, done: () => void} {
+ * `stops` when the channel ends its session when the owner stops it (an older one doesn't); `server` the name its server goes by;
+ * `untrusted` when its channel says it's an untrusted schedule's, and `chat` the owner's chat, which it stays. Says the
+ * session's id, the one it has now: a `/clear` changes it while the channel stays connected. */
+export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string, untrusted = false, chat = false): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
@@ -274,6 +283,8 @@ export function attend(project: string, id: string | undefined, pid: number | un
     held.channels.set(project, {streams: count.streams + 1, heard: count.heard + Number(heard), stops: count.stops + Number(stops)})
     tally(held)
     if (started) held.started = started
+    if (untrusted || started?.untrusted) held.untrusted = true
+    if (chat || started?.chat) held.chat = true
     if (launch) {
         held.launch = launch
         // A focus made for the launch is this session's.
@@ -337,7 +348,8 @@ export function stopSession(project: string, id: string): Session {
 /** How many sessions Orrery started are running, on the project or over all of them: one whose channel
  * has gone (it crashed, or was stopped by hand) no longer counts. */
 export function startedSessions(project?: string): number {
-    return listSessions(project).filter(s => s.started && s.listening && (!project || s.project === project)).length
+    // A chat takes up no room.
+    return listSessions(project).filter(s => s.started && !s.started.chat && s.listening && (!project || s.project === project)).length
 }
 
 /** The session Orrery started for the launch, if it's still known. */
@@ -380,9 +392,10 @@ export function listSessions(project?: string): Session[] {
 }
 
 /** The sessions a message to every session reaches: each listening one once, however many projects it hears, in
- * `states` (idle when left out), on any of `projects` (its own or one it also hears) when given. */
+ * `states` (idle when left out), on any of `projects` (its own or one it also hears) when given. A chat hears only
+ * its own. */
 export function recipients(projects?: string[], states: SessionState[] = ['idle']): Session[] {
-    return listSessions().filter(s => s.listening && states.includes(s.state)
+    return listSessions().filter(s => s.listening && !chatSession(s.id) && states.includes(s.state)
         && (!projects?.length || projects.some(p => s.project === p || s.also?.includes(p))))
 }
 
@@ -390,6 +403,18 @@ export function recipients(projects?: string[], states: SessionState[] = ['idle'
 export function sessionNow(id: string): (Session & {idleAt?: number}) | undefined {
     const session = sessions.get(currentId(id))
     return session && {...publicOf(session), idleAt: session.idleAt}
+}
+
+/** Whether the session (by any id it has had) was started for an untrusted schedule's run. */
+export function untrustedSession(id: string): boolean {
+    const session = sessions.get(currentId(id))
+    return !!session?.untrusted || !!session?.started?.untrusted
+}
+
+/** Whether it's the owner's chat (chats.ts), by its channel's word or its launch's. */
+export function chatSession(id: string): boolean {
+    const session = sessions.get(currentId(id))
+    return !!session?.chat || !!session?.started?.chat
 }
 
 /** When the session's hooks last said it went idle; nothing when they never have (no hooks, or none yet). */

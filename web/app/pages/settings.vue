@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {TINTS, issueRef} from '#shared/roadmap'
+import {TINTS, issueRef, trackerLinkOf} from '#shared/roadmap'
+import type {DatabaseInfo} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
 // This Orrery's own settings (a project's are on its Settings tab): whose it is, how issues work in every project, and
@@ -22,10 +23,11 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'proposals', text: 'Proposals', level: 2},
         {id: 'tracker', text: 'Team tracker', level: 2},
     ]},
-    {value: 'orrery', label: 'This Orrery', scope: 'This Orrery as a whole: how it looks, the keys its agents use, and where it keeps its data. How sessions start is under Sessions → Setup.', sections: [
+    {value: 'orrery', label: 'This Orrery', scope: 'This Orrery as a whole: how it looks, the keys its agents use, where it keeps its data, and what it shows for looking into problems. How sessions start is under Sessions → Setup.', sections: [
         {id: 'tint', text: 'Background tint', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
         {id: 'database', text: 'Database', level: 2},
+        {id: 'advanced', text: 'Advanced', level: 2},
     ]},
 ]
 const tabs = TABS.map(({value, label}) => ({value, label}))
@@ -84,17 +86,28 @@ async function saveHandle() {
 }
 
 // Where the team's tracker shows a task, so an issue's team tasks open there; saved like the name.
+// A link into the tracker that isn't a task's (its team or projects page) is turned into its task link, and said so.
 const tracker = ref('')
 const trackerFailed = ref('')
+/** The task link a pasted link was turned into, to say so until the field changes again. */
+const trackerTurned = ref('')
 watch(() => settings.value.tracker, now => {
     tracker.value = now ?? ''
 }, {immediate: true})
 async function saveTracker() {
-    const next = tracker.value.trim()
-    if (next === (settings.value.tracker ?? '')) return
+    const typed = tracker.value.trim()
+    if (typed === (settings.value.tracker ?? '')) return
     trackerFailed.value = ''
+    trackerTurned.value = ''
+    const next = typed ? trackerLinkOf(typed) : null
+    if (typed && !next) {
+        trackerFailed.value = "That link opens the same page for every task: put {id} where a task's id goes, e.g. https://tracker.example.com/issue/{id}"
+        return
+    }
     try {
-        await save({tracker: next || null})
+        await save({tracker: next})
+        tracker.value = next ?? ''
+        if (next && next !== typed) trackerTurned.value = next
     } catch (error) {
         trackerFailed.value = errorMessage(error)
     }
@@ -108,6 +121,33 @@ async function restrictProposals(on: boolean) {
         await save({restrict_proposals: on})
     } catch (error) {
         proposalsFailed.value = errorMessage(error)
+    }
+}
+
+// Advanced: the Events page and error notices in the bell, and what Orrery does recorded as well as its errors.
+const advancedFailed = ref('')
+async function setAdvanced(on: boolean) {
+    advancedFailed.value = ''
+    try {
+        await save({advanced: on})
+    } catch (error) {
+        advancedFailed.value = errorMessage(error)
+    }
+}
+
+// Back up now: the same backup each change makes a few seconds after, made at once, with when it was made.
+const backingUp = ref(false)
+const backupFailed = ref('')
+async function backUpNow() {
+    backingUp.value = true
+    backupFailed.value = ''
+    try {
+        const actor = await loadOwner()
+        settings.value.database = await $fetch<DatabaseInfo>('/api/backups', {method: 'POST', headers: {'Orrery-Actor': actor}})
+    } catch (error) {
+        backupFailed.value = errorMessage(error)
+    } finally {
+        backingUp.value = false
     }
 }
 
@@ -228,6 +268,12 @@ async function pick(tint: string | null) {
           >
           <span v-if="trackerFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ trackerFailed }}</span>
         </form>
+        <p v-if="trackerTurned" class="text-xs text-muted" role="status">
+          Saved as a task link, with <span class="font-mono">{id}</span> where a task's id goes: <span class="font-mono text-fg">{{ trackerTurned }}</span>
+        </p>
+        <p v-else class="text-xs text-faint">
+          For a tracker this board knows, a link to its team or projects page works too: it's saved as the link to a task.
+        </p>
       </section>
 
       <section v-if="tab === 'orrery'" id="tint" class="scroll-mt-6 flex flex-col gap-3">
@@ -261,7 +307,7 @@ async function pick(tint: string | null) {
               class="flex h-9 items-center gap-2 rounded-lg px-3 text-[13px] ring-1"
               :class="settings.tint?.startsWith('#') ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line'"
           >
-            <input v-model="custom" type="color" aria-label="Custom tint" class="size-5 cursor-pointer rounded border-0 bg-transparent p-0" @change="pick(custom)">
+            <input v-model="custom" type="color" aria-label="Custom tint" class="size-5 rounded border-0 bg-transparent p-0" @change="pick(custom)">
             Custom
           </label>
         </div>
@@ -284,19 +330,61 @@ async function pick(tint: string | null) {
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.database }}</h2>
           <p class="text-xs text-muted">
-            Where this Orrery keeps everything. It's set as Orrery starts (<code>ORRERY_DATABASE</code>), not here: to move to
-            Postgres or a hosted database, copy the data over with <code>pnpm orrery:copy</code> and start Orrery on the new one
+            Where this Orrery keeps everything: a SQLite file on this machine, or Postgres, yours or a hosted one. Move it here
+            from localhost, or set it as Orrery starts with <code>ORRERY_DATABASE</code>
             (<a href="https://github.com/steffendybvik/orrery/blob/main/docs/running.md#postgres" target="_blank" rel="noopener" class="underline underline-offset-2 hover:text-fg">how</a>).
           </p>
         </header>
         <dl v-if="settings.database" class="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[13px]">
           <dt class="text-muted">{{ settings.database.kind === 'postgres' ? 'Postgres' : 'SQLite file' }}</dt>
-          <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.where">{{ settings.database.where }}</code><CopyButton :text="settings.database.where" /></dd>
+          <dd class="min-w-0">
+            <DatabasePlace :path="settings.database.where" :host="settings.database.host" :volume="settings.database.volume">
+              <span v-if="settings.database.moved" class="block text-xs text-faint">moved here from App settings</span>
+            </DatabasePlace>
+          </dd>
+          <template v-if="settings.database.size !== undefined">
+            <dt class="text-muted">Size</dt>
+            <dd class="text-fg tabular-nums" :title="`${settings.database.size.toLocaleString()} bytes`">{{ bytes(settings.database.size) }}</dd>
+          </template>
           <template v-if="settings.database.backup">
             <dt class="text-muted">Backed up to</dt>
-            <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.backup">{{ settings.database.backup }}</code><CopyButton :text="settings.database.backup" /></dd>
+            <dd class="min-w-0"><DatabasePlace :path="settings.database.backup" :host="settings.database.backup_host" :volume="settings.database.backup_volume" /></dd>
+            <template v-if="settings.database.backup_size !== undefined">
+              <dt class="text-muted">Backups</dt>
+              <dd class="text-fg tabular-nums" :title="`${settings.database.backup_size.toLocaleString()} bytes`">{{ bytes(settings.database.backup_size) }}</dd>
+            </template>
+            <dt class="text-muted">Latest backup</dt>
+            <dd class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span class="text-fg" :title="settings.database.backed_up_at && new Date(settings.database.backed_up_at).toLocaleString()">{{ settings.database.backed_up_at ? ago(settings.database.backed_up_at) : 'None yet' }}</span>
+              <UiButton :disabled="backingUp" @click="backUpNow">{{ backingUp ? 'Backing up…' : 'Back up now' }}</UiButton>
+              <span v-if="backupFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ backupFailed }}</span>
+            </dd>
           </template>
         </dl>
+        <p v-if="settings.database && !settings.database.backup" class="text-xs text-faint">
+          Not backed up: give Orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker).
+        </p>
+        <DatabaseMove v-if="settings.database?.movable" :database="settings.database" />
+        <p v-else-if="settings.database" class="text-xs text-faint">
+          <code>ORRERY_DATABASE</code> names this Postgres, so it's moved there: copy the data with <code>pnpm orrery:copy</code>, change it and restart Orrery.
+        </p>
+      </section>
+
+      <section v-if="tab === 'orrery'" id="advanced" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.advanced }}</h2>
+          <p class="text-xs text-muted">
+            For looking into a problem. Orrery always keeps a log of its errors, in the server and in this page, on this machine only.
+            With Advanced on, it also records what it does (sessions starting and stopping, launchers, schedule runs, backups,
+            migrations), shows it all on an <NuxtLink to="/events" class="underline underline-offset-2 hover:text-fg">Events</NuxtLink> page,
+            and puts a notice in the bell for each new kind of error.
+          </p>
+        </header>
+        <label class="flex items-center gap-2 text-[13px] text-fg">
+          <input type="checkbox" class="accent-accent-500" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
+          Show the event log, and record what Orrery does
+        </label>
+        <p v-if="advancedFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ advancedFailed }}</p>
       </section>
     </div>
     <aside class="hidden w-56 shrink-0 xl:block">
