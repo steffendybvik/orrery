@@ -846,6 +846,27 @@ describe('proposals in the bell', () => {
         expect((await store.notices({list: 'waiting'})).map(n => n.issue)).not.toContain(id)
     })
 
+    it('clear one by one, leaving the proposal pending, until it is put up again', async () => {
+        const agent = {name: 'claude', owner: false}
+        const owner = {name: 'skoll', owner: true}
+        const {id} = await store.createIssue('greenhouse', {title: 'Dark mode', notes: 'Why and how', proposal: 'pending'}, agent)
+        const {id: other} = await store.createIssue('greenhouse', {title: 'B'})
+        const comment = await store.createComment('greenhouse', other, {body: 'Ship it?', asks: 'decision'}, agent)
+        expect(await store.clearNotices({ids: [comment.id], proposals: [{project: 'greenhouse', issue: id}, {project: 'greenhouse', issue: other}]})).toBe(2)
+        for (const list of ['bell', 'waiting', 'inbox'] as const) expect(await store.notices({list})).toEqual([])
+        expect((await store.notices({list: 'cleared'})).map(n => [n.issue, n.cleared, !!n.proposal])).toEqual([[other, true, false], [id, true, true]])
+        expect((await store.issue('greenhouse', id)).proposal).toBe('pending')
+        // Again changes nothing; on a later page of Cleared it isn't listed twice.
+        expect(await store.clearNotices({proposals: [{project: 'greenhouse', issue: id}]})).toBe(0)
+        expect((await store.notices({list: 'cleared', before: comment.id})).map(n => n.issue)).toEqual([])
+        await store.decide('greenhouse', id, {decision: 'changes', note: 'Shorter'}, owner)
+        expect((await store.notices({list: 'cleared'})).map(n => n.issue)).toEqual([other])
+        await new Promise(resolve => setTimeout(resolve, 5))
+        await store.updateIssue('greenhouse', id, {proposal: 'pending'}, agent)
+        expect((await store.notices()).map(n => n.issue)).toEqual([id])
+        expect((await failure(() => store.clearNotices({proposals: [{project: 'greenhouse'}]}))).status).toBe(400)
+    })
+
     it('make the issue wait on your decision too, as the bell has it, until you decide', async () => {
         const agent = {name: 'claude', owner: false}
         const owner = {name: 'skoll', owner: true}
