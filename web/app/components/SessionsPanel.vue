@@ -29,7 +29,6 @@ const sent = ref<Signal[]>([])
 const sending = ref<string | null>(null)
 const failed = ref<string | null>(null)
 
-const STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 
 async function loadSent() {
     sent.value = await $fetch<Signal[]>(`/api/projects/${encodeURIComponent(props.project)}/signals`, {query: about.value}).catch(() => [])
@@ -141,7 +140,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
         >{{ session.name }}</NuxtLink>
         <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
         <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
-          {{ STATE[session.state] }} · {{ ago(session.since) }}
+          {{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}
         </span>
         <button
             v-if="session.listening"

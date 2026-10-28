@@ -19,7 +19,7 @@ test('an agent\'s question marks its issue as waiting on the owner until they an
 
     await page.goto('/p/asks?view=list')
     const row = page.locator(`[data-issue="${id}"]`)
-    await expect(row.getByText('Needs your decision')).toBeVisible()
+    await expect(row.getByText('Decision needed')).toBeVisible()
     await expect(row).toHaveClass(/waiting-row/)
 
     await page.goto('/mine')
@@ -36,5 +36,5 @@ test('an agent\'s question marks its issue as waiting on the owner until they an
     await expect(banner).toBeHidden()
     expect((await api(request, 'get', `/projects/asks/issues/${id}`)).waiting).toBeUndefined()
     await page.goto('/p/asks?view=list')
-    await expect(page.locator(`[data-issue="${id}"]`).getByText('Needs your decision')).toBeHidden()
+    await expect(page.locator(`[data-issue="${id}"]`).getByText('Decision needed')).toBeHidden()
 })

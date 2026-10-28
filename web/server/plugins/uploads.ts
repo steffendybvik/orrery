@@ -1,6 +1,6 @@
 // Keeps the images uploaded before they were compressed (ORR-446) as WebP too, once, as orrery starts, in the
 // background. On SQLite the file is then compacted, as the space they gave back would otherwise stay in it, and the
-// WAL the VACUUM wrote (as big as the database) is emptied (ORR-465).
+// `-wal` the compacting filled is written through and cut back.
 export default defineNitroPlugin(() => {
     const store = useStore()
     store.compressUploads().then(async done => {
