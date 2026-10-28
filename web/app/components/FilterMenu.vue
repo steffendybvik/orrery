@@ -37,7 +37,7 @@ function lightFirst() {
     <div v-if="open" class="glass absolute top-full right-0 z-40 mt-1.5 w-48 animate-fade-up rounded-xl p-1" @vue:mounted="lightFirst">
       <ListboxOptions ref="list" class="focus:outline-none">
         <ListboxOption v-for="option in options" :key="option.value" v-slot="{active, selected}" :value="option.value" as="template">
-          <li class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg" :class="active && 'bg-hover'">
+          <li class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg" :class="active && 'bg-hover'">
             <span class="grid size-3.5 place-items-center rounded ring-1" :class="selected ? 'bg-accent-500 ring-accent-500' : 'ring-faint/60'">
               <svg v-if="selected" class="size-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
             </span>

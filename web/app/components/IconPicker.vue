@@ -45,7 +45,7 @@ const shown = computed(() => {
           class="flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs ring-1"
           :class="color?.startsWith('#') ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line'"
       >
-        <input v-model="custom" type="color" :aria-label="`Custom ${(label ?? 'icon').toLowerCase()} colour`" class="size-4 cursor-pointer rounded border-0 bg-transparent p-0" @change="emit('change', {color: custom})">
+        <input v-model="custom" type="color" :aria-label="`Custom ${(label ?? 'icon').toLowerCase()} colour`" class="size-4 rounded border-0 bg-transparent p-0" @change="emit('change', {color: custom})">
         Custom
       </label>
     </div>

@@ -71,7 +71,7 @@ const OUTCOME = {
         data-nav
         tabindex="0"
         role="button"
-        class="group flex cursor-pointer items-center gap-3 border-b border-line/60 px-4 py-3 text-sm outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-active"
+        class="group flex items-center gap-3 border-b border-line/60 px-4 py-3 text-sm outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-active"
         @click="edit(s.project, s)"
         @contextmenu="openMenu($event, s)"
     >
