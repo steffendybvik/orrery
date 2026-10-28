@@ -5,7 +5,8 @@ import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 // and the newest at the bottom, each with the time it happened and coloured by its level. What went wrong (a 5xx, an
 // error in the page, a schedule or backup that failed) and, while Advanced is on, what Orrery did (sessions and
 // launchers, schedule runs, backups, migrations, starts) and each change to the roadmap (issues, comments, chunks, docs,
-// releases). Levels can be switched off and kinds hidden (ORR-379), per browser. A line opens to its details, and an
+// releases). Levels can be switched off and kinds hidden (ORR-379), per browser; it keeps to a project (`?project=`)
+// and a kind or a family of them (`?kind=`, ORR-401), in the URL so the view can be linked. A line opens to its details, and an
 // error can be resolved; the issue ids in it, and its project, link to them (ORR-403). It's there while Advanced is on (App settings
 // → This Orrery); opening it marks the new errors seen.
 useHead({title: 'Events · Orrery'})
@@ -46,15 +47,35 @@ const only = computed({
     get: () => (route.query.project as string | undefined) ?? '',
     set: id => router.replace({query: {...route.query, project: id || undefined}}),
 })
+/** A kind's family, when it has one: `issue` for `issue.status`. */
+const familyOf = (kind: string) => kind.includes('.') ? kind.split('.')[0] : undefined
 const projectOptions = computed(() => [{value: '', label: 'All projects'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
+const kind = computed({
+    get: () => (route.query.kind as string | undefined) ?? '',
+    set: k => router.replace({query: {...route.query, kind: k || undefined}}),
+})
+/** Whether the event is of `kind`: that kind itself, or one in its family (`session` is every `session.*`). */
+const ofKind = (event: LoggedEvent, k: string) => !k || event.kind === k || event.kind.startsWith(`${k}.`)
+/** Every kind in the log, in the project kept to (and the one asked for), each family first with its kinds under it. */
+const kindOptions = computed(() => {
+    const kinds = [...new Set([...events.value.filter(e => !only.value || e.project === only.value).map(e => e.kind), ...kind.value ? [kind.value] : []])].sort()
+    const families = [...new Set(kinds.map(k => familyOf(k)).filter((f): f is string => !!f))]
+    const loose = kinds.filter(k => !familyOf(k) && !families.includes(k))
+    return [
+        {value: '', label: 'All events'},
+        ...[...families, ...loose].sort().flatMap(f => families.includes(f)
+            ? [{value: f, label: `${f}.* (all)`}, ...kinds.filter(k => familyOf(k) === f).map(k => ({value: k, label: k}))]
+            : [{value: f, label: f}]),
+    ]
+})
+/** The kind kept to, as it reads: `session.*` for a family. */
+const kindLabel = computed(() => kindOptions.value.some(o => o.label === `${kind.value}.* (all)`) ? `${kind.value}.*` : kind.value)
 /** Oldest first, as a console reads. */
-const inProject = computed(() => events.value.filter(e => !only.value || e.project === only.value))
+const inProject = computed(() => events.value.filter(e => (!only.value || e.project === only.value) && ofKind(e, kind.value)))
 const shown = computed(() => inProject.value.filter(shows).toReversed())
 /** How many the filters keep out, to say so when none are left. */
 const filteredAway = computed(() => inProject.value.length - shown.value.length)
 const LEVELS: EventLevel[] = ['error', 'warn', 'info']
-/** A kind's family, when it has one: `issue` for `issue.status`. */
-const familyOf = (kind: string) => kind.includes('.') ? kind.split('.')[0] : undefined
 
 const open = ref<number | null>(null)
 const failed = ref('')
@@ -116,17 +137,20 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
     <PropertyPicker v-model="only" :options="projectOptions" label="Project" field small>
       <span class="truncate">{{ projectOptions.find(o => o.value === only)?.label ?? only }}</span>
     </PropertyPicker>
+    <PropertyPicker v-model="kind" :options="kindOptions" label="Kind" field small>
+      <span class="truncate" :class="kind && 'font-mono text-[12px]'">{{ kind ? kindLabel : 'All events' }}</span>
+    </PropertyPicker>
     <template #end>
       <div class="flex min-w-0 flex-wrap items-center justify-end gap-1">
         <button
-            v-for="kind in hidden.kinds"
-            :key="kind"
+            v-for="gone in hidden.kinds"
+            :key="gone"
             type="button"
             class="inline-flex h-6 items-center gap-1 rounded-md bg-well px-2 font-mono text-[11px] text-muted ring-1 ring-line hover:text-fg"
-            :title="`Show ${kind} again`"
-            @click="showKind(kind)"
+            :title="`Show ${gone} again`"
+            @click="showKind(gone)"
         >
-          <span class="line-through">{{ kind }}</span><span aria-hidden="true">×</span>
+          <span class="line-through">{{ gone }}</span><span aria-hidden="true">×</span>
         </button>
       </div>
       <div class="flex shrink-0 items-center gap-1" role="group" aria-label="Levels">
@@ -159,7 +183,7 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
     <div ref="scroller" class="absolute inset-0 overflow-auto py-2 font-mono text-xs leading-5" @scroll="onScroll">
       <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center font-sans">
         <p v-if="filteredAway" class="text-sm text-muted">{{ filteredAway }} line{{ filteredAway === 1 ? '' : 's' }} hidden by the filters above.</p>
-        <p v-else class="text-sm text-muted">Nothing logged{{ only ? ` in ${projectName(only)}` : '' }} yet.</p>
+        <p v-else class="text-sm text-muted">Nothing logged{{ kind ? ` of ${kindLabel}` : '' }}{{ only ? ` in ${projectName(only)}` : '' }} yet.</p>
         <p v-if="!filteredAway" class="text-xs text-faint">Errors in the server and the page land here, and while Advanced is on, what Orrery does and each change to the roadmap, a line each. Nothing leaves this machine.</p>
       </div>
       <div v-for="event in shown" :key="event.id" :class="event.resolved_at ? 'opacity-50' : ''">

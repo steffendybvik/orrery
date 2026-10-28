@@ -16,7 +16,7 @@ const ticked = computed(() => isSelected(props.project, props.id))
       :aria-checked="ticked"
       :aria-label="`Select ${id}`"
       :title="`Select ${id} (x; drag over others, or shift-click, for a run)`"
-      class="group/tick -mx-1.5 shrink-0 cursor-pointer px-1.5 outline-none"
+      class="group/tick -mx-1.5 shrink-0 px-1.5 outline-none"
       :class="row ? '-my-[15px] py-[15px]' : '-my-1.5 py-1.5'"
       @pointerdown="drag($event, project, id)"
       @click.stop="toggle(project, id, $event.shiftKey)"

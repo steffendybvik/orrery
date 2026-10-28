@@ -33,7 +33,7 @@ const image = 'e961abaa8718ef8efe55380b'
 describe("the owner's chat", () => {
     it('starts with its session on its way, and nothing said yet', async () => {
         const chat = await chats.openChat('greenhouse')
-        expect(chat).toMatchObject({id: 'c1c2c3c4c5c6', project: 'greenhouse', messages: []})
+        expect(chat).toMatchObject({id: 'c1c2c3c4c5c6', project: 'greenhouse', messages: [], issues: 'todo'})
         expect(chats.listChats()).toEqual([chat])
         expect(changes).toHaveLength(1)
     })
@@ -102,9 +102,31 @@ describe("the owner's chat", () => {
         await expect(as()).rejects.toMatchObject({statusCode: 403})
     })
 
-    it('makes what its session asks for with nobody on it, in the status new issues start in', () => {
+    it('makes what its session asks for with nobody on it, in Todo whatever status it asks for', () => {
         expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', chunk: '3'}))
-            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3'})
+            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3', status: 'todo'})
+        for (const status of [undefined, 'backlog', 'done', 'canceled']) expect(chats.asChatIssue({title: 'Seed trays', status, plan: null})).toEqual({title: 'Seed trays', status: 'todo'})
+    })
+
+    it('lands what it makes where the owner picked for that chat, whatever status its session asks for', async () => {
+        const chat = await chats.openChat('greenhouse', 'backlog')
+        expect(chat.issues).toBe('backlog')
+        expect(chats.asChatIssue({title: 'Seed trays', status: 'todo'}, chat.id)).toEqual({title: 'Seed trays', status: 'backlog'})
+        expect(chats.landChatIssues(chat.id, 'todo')).toMatchObject({issues: 'todo'})
+        expect(changes.at(-1)).toMatchObject({issues: 'todo'})
+        expect(chats.asChatIssue({title: 'Grow lights', status: 'backlog'}, chat.id)).toEqual({title: 'Grow lights', status: 'todo'})
+        // A chat it doesn't know (ended, or Orrery restarted) lands in Todo.
+        expect(chats.asChatIssue({title: 'Jars', status: 'backlog'}, 'gone')).toEqual({title: 'Jars', status: 'todo'})
+    })
+
+    it('reads where its issues land as todo or backlog, todo when not said', () => {
+        expect(chats.chatIssuesOf(undefined)).toBe('todo')
+        expect(chats.chatIssuesOf('backlog')).toBe('backlog')
+        expect(() => chats.chatIssuesOf('in-progress')).toThrow(/"todo" or "backlog"/)
+    })
+
+    it('leaves a proposal one, for the owner to decide', () => {
+        expect(chats.asChatIssue({title: 'Grow lights', proposal: 'pending', status: 'todo', assignee: 'claude'})).toEqual({title: 'Grow lights', proposal: 'pending'})
     })
 })
 
@@ -143,6 +165,7 @@ describe("a chat session's writes", () => {
         expect(refused('PUT', '/api/projects/greenhouse/docs/shelving')).toBe(403)
         expect(refused('POST', '/api/egress')).toBe(403)
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)
+        expect(refused('PATCH', '/api/chats/c1c2c3c4c5c6')).toBe(403)
         // Anyone else's go on to their own checks.
         expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4', false)).toBeUndefined()
     })

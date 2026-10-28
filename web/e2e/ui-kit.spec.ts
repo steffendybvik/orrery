@@ -17,6 +17,17 @@ test('UiButton: every variant at every size', async ({page}) => {
         await expect(page.getByRole('button', {name: variant, exact: true})).toHaveCount(3)
 })
 
+test('everything you can click shows the pointer, a disabled button the arrow', async ({page}) => {
+    const cursor = (target: Locator) => target.evaluate(el => getComputedStyle(el).cursor)
+    expect(await cursor(page.getByRole('button', {name: 'primary', exact: true}).first())).toBe('pointer')
+    expect(await cursor(page.getByRole('radio', {name: /Board/}))).toBe('pointer')
+    await page.getByRole('button', {name: 'Status', exact: true}).click()
+    expect(await cursor(page.getByRole('option').first())).toBe('pointer')
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', {name: 'primary', exact: true}).first().evaluate(el => (el as HTMLButtonElement).disabled = true)
+    expect(await cursor(page.getByRole('button', {name: 'primary', exact: true}).first())).toBe('default')
+})
+
 test('PropertyPicker: types to narrow, ↵ picks, and the focus comes back', async ({page}) => {
     const status = page.getByRole('button', {name: 'Status', exact: true})
     await status.click()
