@@ -111,9 +111,10 @@ export async function ask(id: string, body: unknown): Promise<ChatMessage> {
     return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
 }
 
-/** The listening session `name` (its name or id, any case) that a chat may message: never a chat. */
+/** The listening session `name` (its name or id, any case) that a chat may message: never a chat. An id it had before a
+ * `/clear` finds it under its new one, as a request asked before it cleared keeps the old (ORR-480). */
 function sessionNamed(name: string) {
-    const wanted = name.trim().toLowerCase()
+    const wanted = currentId(name.trim()).toLowerCase()
     const session = listSessions().find(s => (s.id.toLowerCase() === wanted || s.name.toLowerCase() === wanted) && !chatSession(s.id))
     if (!session) throw notFound(`No session ${name}: the sessions tool lists them`)
     if (!hearing(session.project, session.id)) throw conflict(`${session.name} isn't listening, so a message can't reach it`)

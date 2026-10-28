@@ -21,6 +21,7 @@ beforeEach(async () => {
     vi.stubGlobal('useStore', () => ({messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text})}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+    vi.stubGlobal('currentId', (id: string) => id)
     vi.resetModules()
     chats = await import('../server/utils/chats')
 })
@@ -139,6 +140,29 @@ describe("the owner's chat", () => {
         await expect(chats.askSend('c1c2c3c4c5c6', {message: {text: 'Hi', states: ['asleep']}})).rejects.toMatchObject({statusCode: 400})
         await expect(chats.ask('c1c2c3c4c5c6', {message: {text: ' '}})).rejects.toMatchObject({statusCode: 400})
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'session.messaged', 'session.messaged', 'chat.answered', 'chat.asked', 'chat.answered', 'chat.asked'])
+    })
+
+    it('sends to a session that cleared since it was asked, under its new id (ORR-480)', async () => {
+        const sent: string[] = []
+        let listed = [{id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true}]
+        const aliases = new Map<string, string>()
+        vi.stubGlobal('useStore', () => ({messageSession: async (_project: string, target: string) => void sent.push(target)}))
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('listSessions', () => listed)
+        vi.stubGlobal('chatSession', () => false)
+        vi.stubGlobal('hearing', (_project: string, id: string) => listed.some(s => s.id === id && s.listening))
+        vi.stubGlobal('currentId', (id: string) => aliases.get(id) ?? id)
+        vi.stubGlobal('messaged', () => {})
+        await chats.openChat('greenhouse')
+        const asked = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Look at GRE-3.', session: 'Nordre'}})
+        expect(asked.send).toMatchObject({session: 'abc'})
+        // Its launcher clears it: a new id, the old one an alias.
+        listed = [{...listed[0]!, id: 'xyz'}]
+        aliases.set('abc', 'xyz')
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, owner)
+        expect(sent).toEqual(['xyz', 'launch-c1c2c3c4c5c6'])
+        expect(asked.send).toMatchObject({state: 'allowed', sent: ['Nordre']})
     })
 
     it('sends once however often Send is pressed, and only to the rest after one failed (ORR-455)', async () => {
