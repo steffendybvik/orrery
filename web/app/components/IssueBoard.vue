@@ -84,7 +84,7 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             <SelectBox :project="project" :id="issue.id" />
             <span v-if="issueUnseen(project, issue)" class="unseen-dot" title="Changed since you last opened it" />
             <span class="font-mono">{{ issue.id }}</span>
-            <span class="min-w-0 flex-1 truncate"><NuxtLink :to="chunkPath(project, chunk.id)" class="hover:text-fg hover:underline" @click.stop>{{ chunk.title }}</NuxtLink></span>
+            <span class="min-w-0 flex-1 truncate">{{ chunk.title }}</span>
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />
           </div>
           <div class="flex items-start gap-2">
