@@ -62,7 +62,9 @@ export async function openFeed(project: string, who: Listener, from: number | un
         const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
         const name = (column: string) => columnName(column, statuses)
         if (signal.kind === 'message') {
-            if (signal.schedule === undefined) return {...signal, title: null, column: null, priority: null, chunk: null}
+            // One the owner's chat sent for them says so, to whatever channel hears it.
+            const note = signal.via === 'chat' ? `${signal.note}\n\n(Sent by the owner through their chat.)` : signal.note
+            if (signal.schedule === undefined) return {...signal, note, title: null, column: null, priority: null, chunk: null}
             let title = 'a schedule'
             try {
                 title = (await useScheduler().get(project, signal.schedule)).title

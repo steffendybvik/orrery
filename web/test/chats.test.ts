@@ -90,6 +90,18 @@ describe("the owner's chat", () => {
         await expect(chats.say('c1c2c3c4c5c6', 'Still there?', [], owner)).rejects.toMatchObject({statusCode: 404})
     })
 
+    it("speaks for the owner while it runs, marked as the chat, and for nobody otherwise", async () => {
+        vi.stubGlobal('getHeader', (event: {headers: Record<string, string>}, name: string) => event.headers[name])
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'})}))
+        const as = (launch?: string) => chats.chatOwner({headers: launch ? {'orrery-launch': launch} : {}} as never)
+        await expect(as('c1c2c3c4c5c6')).rejects.toMatchObject({statusCode: 403})
+        await chats.openChat('greenhouse')
+        await expect(as('c1c2c3c4c5c6')).resolves.toEqual({name: 'skoll', owner: true, via: 'chat'})
+        await expect(as('nope')).rejects.toMatchObject({statusCode: 403})
+        await expect(as()).rejects.toMatchObject({statusCode: 403})
+    })
+
     it('makes what its session asks for with nobody on it, in the status new issues start in', () => {
         expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', chunk: '3'}))
             .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3'})
@@ -118,8 +130,12 @@ describe("a chat session's writes", () => {
         }
     }
 
-    it('make issues, comment and answer in the chat, and read anything; nothing else', () => {
+    it('make issues, comment, answer in the chat, message sessions, and read anything; nothing else', () => {
         expect(refused('POST', '/api/projects/greenhouse/issues')).toBeUndefined()
+        expect(refused('POST', '/api/sessions/message')).toBeUndefined()
+        expect(refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBeUndefined()
+        expect(refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
+        expect(refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/comments')).toBeUndefined()
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/replies')).toBeUndefined()
         expect(refused('GET', '/api/projects/greenhouse/docs')).toBeUndefined()

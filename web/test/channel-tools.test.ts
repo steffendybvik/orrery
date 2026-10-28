@@ -69,6 +69,26 @@ describe("the channel's tools", () => {
         expect(listed.filter((n: string) => NOT_FOR_CHAT.includes(n))).toEqual([])
     })
 
+    it("in the owner's chat, message idle sessions, or one by its name, for the owner", async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            const body = url.endsWith('/api/sessions/message') ? {sent: (JSON.parse(init.body!).states ?? ['idle']).includes('working') ? [{name: 'Nordre'}, {name: 'Sudri'}] : [{name: 'Nordre'}]}
+                : url.endsWith('/api/sessions') ? [{id: 'abc', project: 'greenhouse', name: 'Nordre'}, {id: 'def', project: 'pantry', name: 'Sudri'}]
+                    : {id: 1}
+            return {ok: true, status: 200, statusText: '', text: async () => JSON.stringify(body)}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('message_sessions', {text: 'Pick up Todo.'})).content[0]!.text).toBe('Sent to Nordre.')
+        expect(calls[0]).toEqual({url: 'http://o/api/sessions/message', method: 'POST', body: {text: 'Pick up Todo.'}})
+        expect((await call('message_sessions', {text: 'Wrap up.', states: ['idle', 'working']})).content[0]!.text).toBe('Sent to Nordre, Sudri.')
+        expect((await call('message_session', {session: 'sudri', text: 'Look at PAN-2.'})).content[0]!.text).toBe('Sent to Sudri.')
+        expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/pantry/sessions/def/message', method: 'POST', body: {text: 'Look at PAN-2.'}})
+        expect((await call('message_session', {session: 'Austri', text: 'Hi'})).isError).toBe(true)
+        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['message_sessions', 'message_session']))
+        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('message_sessions')
+    })
+
     it("outside a chat, have no chat tools", async () => {
         const {call} = harness({})
         expect(await call('reply', {text: 'hi'})).toMatchObject({error: true})
