@@ -13,7 +13,7 @@ import {known} from '#shared/known'
 // (`chat` events). A chat is kept while its session runs, here only, and ends when the owner ends it.
 
 /** What the chat's session on `project` is told it is, with every message. */
-export const chatBrief = (project: string) => `This session is the owner's chat in Orrery: they type to you on its page and read what you send with the reply tool.
+export const chatBrief = (project: string) => `This session is the owner's chat in orrery: they type to you on its page and read what you send with the reply tool.
 Answer their questions about this project: its code (read it), its roadmap and its docs (the issues, issue, chunks,
 releases, docs and doc tools). When they ask for an issue or a comment, make it (create_issue, comment) and say which
 id it got. When they ask to change an issue (its priority, labels, chunk, release, title…), change it (edit_issue). You
@@ -58,7 +58,7 @@ export const listChats = (): Chat[] => [...chats.values()].reverse()
 
 export function chatOf(id: string): Chat {
     const chat = chats.get(id)
-    if (!chat) throw notFound(`No chat ${id}: it has ended, or Orrery restarted since`)
+    if (!chat) throw notFound(`No chat ${id}: it has ended, or orrery restarted since`)
     return chat
 }
 
@@ -69,7 +69,7 @@ function add(chat: Chat, message: Omit<ChatMessage, 'id' | 'at'>): ChatMessage {
     return said
 }
 
-/** The page the owner is on as they write (`{path, title?}`), if it's one: a path on this Orrery, and its tab's title. */
+/** The page the owner is on as they write (`{path, title?}`), if it's one: a path on this orrery, and its tab's title. */
 function pageOf(page: unknown): {path: string, title?: string} | undefined {
     if (page === undefined || page === null) return undefined
     const {path, title} = page as {path?: unknown, title?: unknown}
@@ -190,7 +190,7 @@ export function chatEnded(id: string) {
     changed({...chat, ended: true})
 }
 
-/** Whether the request is a chat session's: its channel says so (`Orrery-Chat: yes`) on all it sends, or Orrery knows
+/** Whether the request is a chat session's: its channel says so (`Orrery-Chat: yes`) on all it sends, or orrery knows
  * its session (`Orrery-Session`) as one. */
 export function chatWrite(event: H3Event): boolean {
     const session = getHeader(event, 'orrery-session')?.trim()

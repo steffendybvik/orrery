@@ -26,10 +26,10 @@ interface Known extends Session {
     /** When a `/clear` ended it: the next session to start after a clear on its project and folder is its
      * window, under a new id, when no pid says so. */
     cleared?: number
-    /** The launch its channel says Orrery started it for, kept for when Orrery doesn't know that launch yet
-     * (Orrery restarted): the launcher's report of it then marks the session started again. */
+    /** The launch its channel says orrery started it for, kept for when orrery doesn't know that launch yet
+     * (orrery restarted): the launcher's report of it then marks the session started again. */
     launch?: string
-    /** Its channel said it's an untrusted schedule's session: it's held to that whatever Orrery knows of its launch. */
+    /** Its channel said it's an untrusted schedule's session: it's held to that whatever orrery knows of its launch. */
     untrusted?: boolean
     /** Its channel said it's the owner's chat: the same, for that. */
     chat?: boolean
@@ -98,7 +98,7 @@ function clearedIn(project: string, cwd: string | undefined): Known | undefined 
         .sort((a, b) => (b.cleared ?? 0) - (a.cleared ?? 0))[0]
 }
 
-/** A session new to Orrery under an id another one had before: that id is its own now. */
+/** A session new to orrery under an id another one had before: that id is its own now. */
 function add(session: Known) {
     aliases.delete(session.id)
     sessions.set(session.id, session)
@@ -137,7 +137,7 @@ function rename(session: Known) {
 export const NAME_ORDER: string[] = SESSION_NAMES.map((name, i) => ({name, at: i * 30 % SESSION_NAMES.length})) // 30: 29's inverse, mod 79
     .sort((a, b) => a.at - b.at).map(n => n.name)
 /** Where in NAME_ORDER the next name is looked for: after the last handed out, so they rotate, starting somewhere new
- * each time Orrery starts. */
+ * each time orrery starts. */
 let turn = randomInt(NAME_ORDER.length)
 
 /** 2 → II, 14 → XIV. */
@@ -262,7 +262,7 @@ function changedAll(session: Known) {
 }
 
 /** The session's channel connecting; `done` marks it gone. `heard` is false when the session wasn't
- * started with the channel flag, so its messages would be dropped; `started` is the launch Orrery started it for;
+ * started with the channel flag, so its messages would be dropped; `started` is the launch orrery started it for;
  * `stops` when the channel ends its session when the owner stops it (an older one doesn't); `server` the name its server goes by;
  * `untrusted` when its channel says it's an untrusted schedule's, and `chat` the owner's chat, which it stays. Says the
  * session's id, the one it has now: a `/clear` changes it while the channel stays connected. */
@@ -275,7 +275,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     }
     const held = session
     // A skipped channel that connected before the hook spoke filed the window under its project. One channel
-    // heard on several projects keeps the one Orrery started it for, else the one its hooks name, else the first
+    // heard on several projects keeps the one orrery started it for, else the one its hooks name, else the first
     // it was heard on.
     if (heard && held.project !== project && (started || !held.started && project === held.hooked || !heardOn(held, held.project))) moveTo(held, project)
     held.channels ??= new Map()
@@ -332,34 +332,34 @@ function tally(session: Known) {
     session.stoppable = own?.stops ?? 0
 }
 
-/** The owner stopping a session: one Orrery started, through its launcher; any other through its channel,
+/** The owner stopping a session: one orrery started, through its launcher; any other through its channel,
  * which ends its claude process. One with no channel open is out of reach (only its terminal closes it). */
 export function stopSession(project: string, id: string): Session {
     const session = sessions.get(currentId(id))
     if (!session || !covers(session, project)) throw notFound(`No session ${id} in ${project}`)
     // With no launcher connected to stop it, its channel can.
     if (session.started && (launchersOf(project) || !session.stoppable)) return stopLaunch(project, session.started.launch)
-    if (!session.stoppable) throw conflict(`${session.name} has no Orrery channel running that can stop it (an older channel needs the session restarted): close it in its terminal`)
+    if (!session.stoppable) throw conflict(`${session.name} has no orrery channel running that can stop it (an older channel needs the session restarted): close it in its terminal`)
     session.stopping = true
     projectEvents.emit('session-stop', {project, id: session.id})
     return publicOf(session)
 }
 
-/** How many sessions Orrery started are running, on the project or over all of them: one whose channel
+/** How many sessions orrery started are running, on the project or over all of them: one whose channel
  * has gone (it crashed, or was stopped by hand) no longer counts. */
 export function startedSessions(project?: string): number {
     // A chat takes up no room.
     return listSessions(project).filter(s => s.started && !s.started.chat && s.listening && (!project || s.project === project)).length
 }
 
-/** The session Orrery started for the launch, if it's still known. */
+/** The session orrery started for the launch, if it's still known. */
 export function sessionOfLaunch(project: string, launch: string): Session | undefined {
     const session = [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
     return session && publicOf(session)
 }
 
 /** A launch its launcher says it runs: the session started for it counts as started again, with its stop time,
- * if its channel connected before Orrery heard of the launch (Orrery restarted). */
+ * if its channel connected before orrery heard of the launch (orrery restarted). */
 export function adoptLaunch(project: string, started: StartedSession) {
     const session = [...sessions.values()].find(s => covers(s, project) && (s.started?.launch === started.launch || s.launch === started.launch))
     if (!session) return
@@ -399,7 +399,7 @@ export function recipients(projects?: string[], states: SessionState[] = ['idle'
         && (!projects?.length || projects.some(p => s.project === p || s.also?.includes(p))))
 }
 
-/** The session as it is now, with when its hooks last said it went idle; nothing for one Orrery doesn't know. */
+/** The session as it is now, with when its hooks last said it went idle; nothing for one orrery doesn't know. */
 export function sessionNow(id: string): (Session & {idleAt?: number}) | undefined {
     const session = sessions.get(currentId(id))
     return session && {...publicOf(session), idleAt: session.idleAt}

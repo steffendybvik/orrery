@@ -1,4 +1,4 @@
-# Running Orrery
+# Running orrery
 
 ```sh
 docker compose up -d --build        # http://localhost:9000
@@ -23,26 +23,26 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
-| `ORRERY_DATABASE` | a `postgres://` URL to keep the Orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
+| `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | none (no secrets) |
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
-| `ORRERY_ENVIRONMENT` | this Orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
+| `ORRERY_ENVIRONMENT` | this orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
 ## Backups
 
 A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks. A new, empty
 volume starts from the latest one. The live file never goes in the backup folder: a synced SQLite
 file gets corrupted, a snapshot doesn't. On Postgres it's a SQLite snapshot of the database, made a minute after
-a change, or at most ten minutes after the first while changes keep coming (the whole database is copied each time), so a backup opens anywhere and a new SQLite Orrery starts from
-it. App settings → This Orrery → Database says when the latest was made, with **Back up now**.
+a change, or at most ten minutes after the first while changes keep coming (the whole database is copied each time), so a backup opens anywhere and a new SQLite orrery starts from
+it. App settings → This orrery → Database says when the latest was made, with **Back up now**.
 
 ## Postgres
 
-SQLite suits one machine. To keep the Orrery in Postgres instead (a server shared by a team, or a
-database you already back up), the simplest way is to pick it when you first open Orrery on its machine (localhost).
+SQLite suits one machine. To keep the orrery in Postgres instead (a server shared by a team, or a
+database you already back up), the simplest way is to pick it when you first open orrery on its machine (localhost).
 Before it asks your name, it asks where to keep the data: **On this machine** (SQLite) or **Postgres**, a URL or its
-details. Orrery checks it's empty and sets it up, or picks up an Orrery's own from before, as
-[Moving it from the app](#moving-it-from-the-app) does. Or set it as Orrery starts, which skips that question: put this
+details. orrery checks it's empty and sets it up, or picks up an orrery's own from before, as
+[Moving it from the app](#moving-it-from-the-app) does. Or set it as orrery starts, which skips that question: put this
 in `.env`:
 
 ```sh
@@ -51,23 +51,23 @@ ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery
 ```
 
 and `docker compose up -d`: the `postgres` profile adds a Postgres 17 service, its data in the
-`orrery-pg` volume, and Orrery waits for it, then lays down its tables. Set `ORRERY_PG_PASSWORD` to
-change the bundled database's password (it's only reachable from Orrery's container). For a Postgres
+`orrery-pg` volume, and orrery waits for it, then lays down its tables. Set `ORRERY_PG_PASSWORD` to
+change the bundled database's password (it's only reachable from orrery's container). For a Postgres
 of your own, leave out the profile and point `ORRERY_DATABASE` at it.
 
-Orrery backs it up to `ORRERY_BACKUP` as a SQLite snapshot (see [Backups](#backups)). For a large database,
+orrery backs it up to `ORRERY_BACKUP` as a SQLite snapshot (see [Backups](#backups)). For a large database,
 or to restore into Postgres as it was, back it up with Postgres's own means as well: `pg_dump` on a
 schedule (`docker compose exec postgres pg_dump -U orrery orrery > orrery.sql`), or a managed service's
 backups.
 
 ### Moving it from the app
 
-App settings → This Orrery → Database → **Move to another database…**, on the Orrery's own machine (localhost):
-pick a SQLite file or Postgres (its URL, or host, port, name, user and password), and Orrery checks it first. An
-empty one has everything copied in, ids and all; an Orrery's own (one you ran on before, or after a reinstall) is
-run on as it is. Orrery switches at once, no restart, and keeps the choice beside its SQLite file
+App settings → This orrery → Database → **Move to another database…**, on the orrery's own machine (localhost):
+pick a SQLite file or Postgres (its URL, or host, port, name, user and password), and orrery checks it first. An
+empty one has everything copied in, ids and all; an orrery's own (one you ran on before, or after a reinstall) is
+run on as it is. orrery switches at once, no restart, and keeps the choice beside its SQLite file
 (`orrery.db.moved.json`, in Docker in the data volume, with the URL's password in it), so it starts on it again.
-If it can't save that (a full disk, say), the move fails and Orrery stays on the one before, all of it there.
+If it can't save that (a full disk, say), the move fails and orrery stays on the one before, all of it there.
 The database it leaves stays as it was: moving back to it runs on it as it was then. A SQLite file named without a
 leading `/` goes in the data folder; in Docker only the data volume outlives the container.
 
@@ -75,7 +75,7 @@ When `ORRERY_DATABASE` names Postgres it's set there, and the app can't move it.
 
 ### From the command line
 
-To move an Orrery between SQLite and Postgres without the app, stop it and copy it across, ids and all, into an empty
+To move an orrery between SQLite and Postgres without the app, stop it and copy it across, ids and all, into an empty
 one (both ends are brought up to the latest schema first):
 
 ```sh
@@ -88,7 +88,7 @@ for the copy, or into a Postgres of your own.
 
 ## Two servers: personal and work
 
-Each Orrery is its own server with its own database, so work and personal projects never mix. Run
+Each orrery is its own server with its own database, so work and personal projects never mix. Run
 each as its own compose project with its own env file:
 
 ```sh
@@ -117,7 +117,7 @@ The project name keeps them apart: each gets its own volumes (`orrery-personal_o
 other alone (`docker compose --env-file .env.work down`). Give each its own backup folder, too: a
 backup folder holds one database. Env files other than `.env.example` are git-ignored.
 
-In a checkout you also work on Orrery in, build them from a release rather than the folder:
+In a checkout you also work on orrery in, build them from a release rather than the folder:
 `ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main` in each env file, then
 `docker compose --env-file … up -d --build` when a release lands on `main`. Try changes in the
 [playground](../.playground/README.md) instead.
@@ -127,14 +127,14 @@ A repo's channel and hook point at the server its projects are on, by `ORRERY_UR
 
 ## Reach it from your phone
 
-Compose publishes Orrery on `127.0.0.1`, so only this machine can open it. Orrery has no accounts:
+Compose publishes orrery on `127.0.0.1`, so only this machine can open it. orrery has no accounts:
 whoever can reach it can read everything, change it and give your agents instructions (see
 [SECURITY.md](../SECURITY.md)). Open it only as far as you need.
 
 **Your own devices only (best).** Put this machine and the phone on a private VPN: a free app on
 each that links your own devices, so the phone reaches the machine from anywhere, as if both were
 on the same Wi-Fi. It isn't the paid kind that hides your browsing, and several are free for a
-handful of devices. Then publish Orrery on this machine's address on that VPN, and nowhere else:
+handful of devices. Then publish orrery on this machine's address on that VPN, and nowhere else:
 
 ```sh
 # .env.personal
@@ -148,14 +148,14 @@ be connected when Docker starts the container, since that's when the address is 
 
 **Your Wi-Fi (quickest, nothing to install).** `ORRERY_HOST=0.0.0.0`, then open
 `http://<this machine's IP>:9010` on the phone. It only works at home, and anyone else on that
-Wi-Fi, guests included, can use Orrery too.
+Wi-Fi, guests included, can use orrery too.
 
 Either way, the database is still moved only from this machine: App settings → Database refuses a
 move from any other address.
 
 ## Where each database is
 
-App settings → This Orrery → Database shows it for the Orrery you're on: the SQLite file, or the Postgres database
+App settings → This orrery → Database shows it for the orrery you're on: the SQLite file, or the Postgres database
 (never its password), and its backup folder with when the latest backup was made, with how big each is. One moved
 from the app says so. Under Docker it shows where each is on your computer: the folder `ORRERY_DATA` or
 `ORRERY_BACKUP` names (a relative one from this folder), or, without one, the Docker volume it's in, which isn't a
@@ -178,6 +178,6 @@ NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs
 
 The database file is made if it isn't there (by default `.data/orrery.db`). A relative path is taken
 from the folder the server starts in, so give `NUXT_DATABASE` an absolute one. It can also be a
-Postgres URL (`postgres://user:password@host:5432/orrery`): Orrery lays down its tables on an empty
+Postgres URL (`postgres://user:password@host:5432/orrery`): orrery lays down its tables on an empty
 database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
 `NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY` and `NUXT_PUBLIC_ENVIRONMENT`.

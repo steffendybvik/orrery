@@ -3,7 +3,7 @@ import type {Session} from '#shared/roadmap'
 import {TERMINALS} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 
-// A session Orrery started, at the end of its card's first row: Watch (its launcher opens a terminal on it), Show
+// A session orrery started, at the end of its card's first row: Watch (its launcher opens a terminal on it), Show
 // screen (`viewing`, its live screen on the page) and Stop out front, Stop asking once more, as whatever the session
 // was in the middle of goes with it; the rest under ⋯: the command that attaches to its tmux session to copy, and the
 // owner's +30 min (for one with a time). Headless UI's Menu does the keys, focus and outside-click.

@@ -3,13 +3,13 @@ import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 
 // The event log (ORR-322), for looking into a problem, read like a console (ORR-378): a line each, oldest at the top
 // and the newest at the bottom, each with the time it happened and coloured by its level. What went wrong (a 5xx, an
-// error in the page, a schedule or backup that failed) and, while Advanced is on, what Orrery did (sessions and
+// error in the page, a schedule or backup that failed) and, while Advanced is on, what orrery did (sessions and
 // launchers, schedule runs, backups, migrations, starts) and each change to the roadmap (issues, comments, chunks, docs,
 // releases). Levels can be switched off and kinds hidden (ORR-379), per browser; it keeps to a project (`?project=`)
 // and a kind or a family of them (`?kind=`, ORR-401), in the URL so the view can be linked. A line opens to its details, and an
 // error can be resolved; the issue ids in it, and its project, link to them (ORR-403). It's there while Advanced is on (App settings
-// → This Orrery); opening it marks the new errors seen.
-useHead({title: 'Events · Orrery'})
+// → This orrery); opening it marks the new errors seen.
+useHead({title: 'Events · orrery'})
 const route = useRoute()
 const router = useRouter()
 const {settings} = useAppSettings()
@@ -174,7 +174,7 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
     <p class="rounded-lg bg-well px-3 py-2 text-xs text-muted ring-1 ring-line">
       Advanced is off, so only errors are recorded. Turn it on in
       <NuxtLink to="/settings?tab=orrery#advanced" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>
-      to record what Orrery does and each change to the roadmap as well.
+      to record what orrery does and each change to the roadmap as well.
     </p>
   </div>
   <p v-if="failed" class="px-4 pt-3 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
@@ -184,7 +184,7 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
       <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center font-sans">
         <p v-if="filteredAway" class="text-sm text-muted">{{ filteredAway }} line{{ filteredAway === 1 ? '' : 's' }} hidden by the filters above.</p>
         <p v-else class="text-sm text-muted">Nothing logged{{ kind ? ` of ${kindLabel}` : '' }}{{ only ? ` in ${projectName(only)}` : '' }} yet.</p>
-        <p v-if="!filteredAway" class="text-xs text-faint">Errors in the server and the page land here, and while Advanced is on, what Orrery does and each change to the roadmap, a line each. Nothing leaves this machine.</p>
+        <p v-if="!filteredAway" class="text-xs text-faint">Errors in the server and the page land here, and while Advanced is on, what orrery does and each change to the roadmap, a line each. Nothing leaves this machine.</p>
       </div>
       <div v-for="event in shown" :key="event.id" :class="event.resolved_at ? 'opacity-50' : ''">
         <!-- A div with the toggle, not a button: the links in it can't go in a button. -->

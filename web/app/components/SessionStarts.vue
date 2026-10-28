@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Whether Orrery may start Claude sessions itself, with no terminal: the owner's one opt-in, for every project whose
+// Whether orrery may start Claude sessions itself, with no terminal: the owner's one opt-in, for every project whose
 // repo has a launcher installed (how many at once, over every project, and, if they like, how long each runs and how long one
 // may sit idle; blank runs it until stopped). On the Sessions page, above the sessions.
 const {settings, save: saveSettings} = useAppSettings()
@@ -32,7 +32,7 @@ async function saveStarts(on = !!settings.value.starts) {
   <div class="flex flex-col gap-2 rounded-xl border border-line p-3 text-[13px]">
     <label class="flex items-center gap-2 text-fg">
       <input type="checkbox" class="accent-accent-500" :checked="!!settings.starts" @change="saveStarts(($event.target as HTMLInputElement).checked)">
-      Let Orrery start sessions
+      Let orrery start sessions
     </label>
     <div class="flex flex-wrap items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
       <span>At most</span>

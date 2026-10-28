@@ -23,8 +23,8 @@ async function failure(call: () => unknown): Promise<{status: number, message: s
     throw new Error('it did not fail')
 }
 
-describe('the presets Orrery ships', () => {
-    it('are seeded once into a new Orrery, the Orrery\'s own, each knowing its key', async () => {
+describe('the presets orrery ships', () => {
+    it('are seeded once into a new orrery, the orrery\'s own, each knowing its key', async () => {
         expect(await store.seedPresets()).toBe(DEFAULT_PRESETS.length)
         expect(await store.seedPresets()).toBe(0)
         const presets = await store.presets()
@@ -33,7 +33,7 @@ describe('the presets Orrery ships', () => {
         expect(presets.find(p => p.name === 'Review')).toMatchObject({icon: 'eye', color: 'teal', default: {key: 'review', changed: false}})
     })
 
-    it('are seeded into an Orrery that has presets of its own, leaving those be', async () => {
+    it('are seeded into an orrery that has presets of its own, leaving those be', async () => {
         await store.createPreset(null, {name: 'Review', text: 'My own way of reviewing.'}, me)
         await store.seedPresets()
         const reviews = (await store.presets()).filter(p => p.name === 'Review')
@@ -64,7 +64,7 @@ describe('the presets Orrery ships', () => {
         expect(await store.resetPreset(review.id, me)).toMatchObject({name: shipped.name, text: shipped.text, icon: shipped.icon, color: shipped.color, default: {changed: false}})
     })
 
-    it("can't reset one Orrery doesn't ship", async () => {
+    it("can't reset one orrery doesn't ship", async () => {
         const own = await store.createPreset(null, {name: 'Mine', text: 'Mine.'}, me)
         expect(own.default).toBeUndefined()
         expect(await failure(() => store.resetPreset(own.id, me))).toMatchObject({status: 409})

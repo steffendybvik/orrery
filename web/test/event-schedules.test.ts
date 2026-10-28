@@ -79,7 +79,7 @@ describe('event types', () => {
         ])
     })
 
-    it('come out of the event log with Advanced on: what Orrery did each time, a line each', async () => {
+    it('come out of the event log with Advanced on: what orrery did each time, a line each', async () => {
         await store.updateSettings({advanced: true}, me)
         const log = new EventLog(store.db)
         const said: OrreryEvent[] = []
@@ -231,7 +231,7 @@ describe('a schedule on an event', () => {
         expect((await schedules.get('greenhouse', s.id)).runs[0]).toMatchObject({outcome: 'made', subject: two.id})
     })
 
-    it('hears what happens to the Orrery as a whole in every project, and nothing of another project\'s', async () => {
+    it('hears what happens to the orrery as a whole in every project, and nothing of another project\'s', async () => {
         await store.createProject({name: 'pantry', key: 'PAN'})
         await schedules.create('greenhouse', {title: 'Down', kind: 'message', notes: 'Check it', on: 'backup.failed'}, me)
         await schedules.create('greenhouse', {title: 'Made', kind: 'message', notes: 'Look', on: 'issue.created'}, me)

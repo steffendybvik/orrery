@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Getting started: the steps from a new Orrery to a Claude session working from it, each ticked from what the
-// Orrery knows (useGettingStarted), with what to do for the one you're on. As a page it's the first run (in place
+// Getting started: the steps from a new orrery to a Claude session working from it, each ticked from what the
+// orrery knows (useGettingStarted), with what to do for the one you're on. As a page it's the first run (in place
 // of "No projects yet", and at /getting-started); `card` is its fold-away form at the top of Now.
 defineProps<{card?: boolean}>()
 
@@ -13,10 +13,10 @@ const router = useRouter()
 const open = ref(true)
 
 const TEXT = [
-    {title: 'You own this Orrery', text: 'What you make, no one else can delete. Your name is in App settings.'},
+    {title: 'You own this orrery', text: 'What you make, no one else can delete. Your name is in App settings.'},
     {title: 'Make a project', text: 'One for each app or repo. Its issues get a key of their own, like SHP-1.'},
     {title: 'Connect a folder', text: "Open a terminal in your app's folder (any folder works; an empty one to try it), run claude, and paste this. It writes the folder's .mcp.json, hooks and CLAUDE.md itself, and the step ticks once the session says hello."},
-    {title: 'Start Claude with the channel', text: 'So Orrery can send the session work. Ticked once a session is listening.'},
+    {title: 'Start Claude with the channel', text: 'So orrery can send the session work. Ticked once a session is listening.'},
     {title: 'Send it work', text: 'Make an issue and press Focus on this on its page, or ask from the Sessions page. Ticked when a session starts one.'},
 ]
 
@@ -105,7 +105,7 @@ async function tryDemo() {
       </li>
     </ol>
     <p class="text-xs text-faint">
-      Later: let Orrery start sessions itself, from the <NuxtLink to="/sessions#starts" class="text-accent-600 hover:underline dark:text-accent-400">Sessions page</NuxtLink>.
+      Later: let orrery start sessions itself, from the <NuxtLink to="/sessions#starts" class="text-accent-600 hover:underline dark:text-accent-400">Sessions page</NuxtLink>.
       Every step by hand is on <NuxtLink to="/connect" class="text-accent-600 hover:underline dark:text-accent-400">Connect an agent</NuxtLink>.
     </p>
   </div>

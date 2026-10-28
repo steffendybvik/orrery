@@ -3,7 +3,7 @@
 // answered, or an agent's proposal they haven't decided (`waiting`). Then every open urgent (P0) issue, whoever
 // has it; then every open issue assigned to the owner, by project: what waits on them (proposals first) and what
 // they took on. Sub-issues included; each issue shows once, in the first list it's in.
-useHead({title: 'My issues · Orrery'})
+useHead({title: 'My issues · orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {matches, shows} = useFilters()

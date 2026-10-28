@@ -1,4 +1,4 @@
-// `GET /api/settings` → this Orrery's own settings, e.g. `{id, environment, tint}`, and where its data is and how big
+// `GET /api/settings` → this orrery's own settings, e.g. `{id, environment, tint}`, and where its data is and how big
 // it is (`database`).
 export default defineEventHandler(async () => {
     const store = useStore()

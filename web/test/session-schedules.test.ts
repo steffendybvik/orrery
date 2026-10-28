@@ -30,7 +30,7 @@ beforeEach(async () => {
     release = await store.createPreset(null, {name: 'Release', text: 'Cut the release.'}, me)
     review = await store.createPreset('greenhouse', {name: 'Review', text: 'Review its pull request.'}, me)
     schedules = new Schedules(store, () => {}, () => 1, undefined, undefined, async (_project, start) => {
-        if (!room) throw Object.assign(new Error('Orrery already has its 2 sessions at once'), {statusCode: 409})
+        if (!room) throw Object.assign(new Error('orrery already has its 2 sessions at once'), {statusCode: 409})
         started.push(start)
         return {tmux: 'orrery-greenhouse-abc'}
     })
@@ -105,7 +105,7 @@ describe('a session schedule', () => {
     it("is skipped saying why when there's no room for a session", async () => {
         const s = await schedules.create('greenhouse', {kind: 'session', title: 'Review', presets: [review.id], on: 'issue.status'}, me)
         room = false
-        expect(await schedules.runNow('greenhouse', s.id, me)).toMatchObject({outcome: 'skipped', note: 'Orrery already has its 2 sessions at once'})
+        expect(await schedules.runNow('greenhouse', s.id, me)).toMatchObject({outcome: 'skipped', note: 'orrery already has its 2 sessions at once'})
     })
 
     it("is the owner's to make, as it starts work as them", async () => {

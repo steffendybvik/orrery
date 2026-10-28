@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Column, Priority} from '#shared/roadmap'
 
-// Writing a new issue, as the owner (so agents can't delete it); Orrery hands out its id. Its labels say
+// Writing a new issue, as the owner (so agents can't delete it); orrery hands out its id. Its labels say
 // what kind it is (bug, feature request, …), and it can go straight to the listening Claude sessions to
 // pick up. An image pasted, dropped or picked goes into the description as Markdown. ⌘↵ creates it and
 // opens its page, Esc closes.

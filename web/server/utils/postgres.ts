@@ -1,4 +1,4 @@
-// Postgres behind the same `Db` the store awaits (server/utils/database.ts), for an Orrery given a
+// Postgres behind the same `Db` the store awaits (server/utils/database.ts), for an orrery given a
 // `postgres://` URL. A pool serves what comes in at once; a transaction holds one connection, and what
 // runs inside it (found through AsyncLocalStorage) goes to that connection. The SQL is the store's own,
 // written so SQLite and Postgres both understand it; `?` placeholders become `$1, $2, …` here.
@@ -10,7 +10,7 @@ import {AsyncLocalStorage} from 'node:async_hooks'
 import pg from 'pg'
 import {runAfter, type Db, type Value} from './database'
 
-// Counts come back as int8, which pg hands over as text; Orrery's never outgrow a number.
+// Counts come back as int8, which pg hands over as text; orrery's never outgrow a number.
 pg.types.setTypeParser(pg.types.builtins.INT8, value => Number(value))
 
 /** SQLite's step this schema matches (`PRAGMA user_version`). */

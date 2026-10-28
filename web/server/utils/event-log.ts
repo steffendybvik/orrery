@@ -1,5 +1,5 @@
-// The event log (ORR-322): what Orrery did and what went wrong, kept in its own `events` table and never sent off
-// the machine. Errors are recorded always; warnings, what Orrery did (sessions, launchers, schedules, backups,
+// The event log (ORR-322): what orrery did and what went wrong, kept in its own `events` table and never sent off
+// the machine. Errors are recorded always; warnings, what orrery did (sessions, launchers, schedules, backups,
 // migrations) and the changes to the roadmap (ORR-378: issues, comments, chunks, docs, releases) only while the owner
 // has Advanced on in App settings, as most never look. Each is a row of its own, as the owner reads it line by line
 // (ORR-378); a repeat of an error that isn't resolved is no news, to the bell or the schedules, and resolving one
@@ -52,7 +52,7 @@ interface EventRow {
 }
 
 const DAY = 24 * 60 * 60 * 1000
-/** How long what Orrery did is kept, and how long warnings and errors are. */
+/** How long what orrery did is kept, and how long warnings and errors are. */
 export const KEEP_INFO = 7 * DAY
 export const KEEP_PROBLEMS = 30 * DAY
 /** The most rows kept, the oldest going first: of changes to the roadmap, and of the rest. */
@@ -143,7 +143,7 @@ export class EventLog {
         const event = eventOf(row)
         this.onLogged(event, !again)
         // Its message isn't passed on: an error's can hold what a page or another site sent. Its row is, to read.
-        // What Orrery did is passed on each time: each is news.
+        // What orrery did is passed on each time: each is news.
         if (!again || entry.level === 'info') this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}, ...entry.untrusted ? {untrusted: true} : {}})
         return event
     }

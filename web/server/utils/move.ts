@@ -1,6 +1,6 @@
 // Moving to another database from App settings: a SQLite file on this machine, or Postgres. It's checked first
 // (`POST /api/database/check`): an empty one has everything copied into it (the same copy as `pnpm orrery:copy`),
-// an Orrery's own is run on as it is. Then Orrery runs on it at once, no restart, and keeps where it went beside the
+// an orrery's own is run on as it is. Then orrery runs on it at once, no restart, and keeps where it went beside the
 // SQLite file NUXT_DATABASE names, for the next start. The one it leaves stays as it was. Not when NUXT_DATABASE is
 // Postgres: that one is changed where it's set.
 import {existsSync, statSync} from 'node:fs'
@@ -17,15 +17,15 @@ import {databaseSetting, hidePassword, movedFile, openDb, switchDatabase, useDat
 import {PostgresDb, isPostgres} from './postgres'
 import {badRequest, conflict, forbidden} from './input'
 
-/** The names only this machine reaches Orrery by: a move hands the data to wherever it's pointed. */
+/** The names only this machine reaches orrery by: a move hands the data to wherever it's pointed. */
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
 
 /** Only the owner moves the database, and only on this machine. */
 export async function mayMove(event: H3Event) {
     const actor = await actorOf(event)
     if (!actor.owner) throw forbidden('Only the owner moves the database; send Orrery-Actor: <owner>')
-    if (!THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))) throw forbidden('The database is moved from the machine Orrery runs on: open it at localhost')
-    if (!movedFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the database is set there: change it and restart Orrery')
+    if (!THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))) throw forbidden('The database is moved from the machine orrery runs on: open it at localhost')
+    if (!movedFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the database is set there: change it and restart orrery')
 }
 
 /** Where `{kind: "sqlite", path}` or `{kind: "postgres", url}` points: a file (one not starting at / is in the data
@@ -112,17 +112,17 @@ function reason(error: unknown): string {
 /** One move at a time. */
 let moving = false
 
-/** Moves to the database `setting` points to: `copy` takes everything into an empty one, `use` runs on an Orrery's
+/** Moves to the database `setting` points to: `copy` takes everything into an empty one, `use` runs on an orrery's
  * own as it is. Says what was copied. What's written while it copies (seconds) stays behind in the one before. */
 export async function moveDatabase(setting: string, how: 'copy' | 'use', rebind: (db: SqliteDb | PostgresDb) => void): Promise<{check: DatabaseCheck, copied?: Record<string, number>}> {
     if (moving) throw conflict('The database is already being moved')
     moving = true
     try {
         const check = await checkDatabase(setting)
-        if (check.state === 'current') throw conflict('Orrery already runs on that database')
-        if (check.state === 'other') throw conflict(`${check.where} has tables of something else's: give Orrery a database of its own`)
-        if (how === 'copy' && check.state === 'orrery' && check.projects) throw conflict(`${check.where} is an Orrery's already, with ${check.projects} project${check.projects === 1 ? '' : 's'}: run on it as it is, or copy into an empty one`)
-        if (how === 'use' && check.state !== 'orrery') throw conflict(`${check.where} isn't an Orrery's yet: copy this one into it`)
+        if (check.state === 'current') throw conflict('orrery already runs on that database')
+        if (check.state === 'other') throw conflict(`${check.where} has tables of something else's: give orrery a database of its own`)
+        if (how === 'copy' && check.state === 'orrery' && check.projects) throw conflict(`${check.where} is an orrery's already, with ${check.projects} project${check.projects === 1 ? '' : 's'}: run on it as it is, or copy into an empty one`)
+        if (how === 'use' && check.state !== 'orrery') throw conflict(`${check.where} isn't an orrery's yet: copy this one into it`)
         const target = isPostgres(setting) ? new PostgresDb(setting) : new SqliteDb(openDb(setting))
         let copied: Record<string, number> | undefined
         try {

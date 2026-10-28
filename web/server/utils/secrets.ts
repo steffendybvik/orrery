@@ -1,6 +1,6 @@
 // Secrets agents use without ever seeing them. The owner sets one (its value, the hosts it may go to, and
-// the projects that may use it) and nothing gives the value back. An agent asks Orrery to make a request
-// with `{{secret:NAME}}` in it; Orrery fills the value in, sends it only to a host the secret allows, and
+// the projects that may use it) and nothing gives the value back. An agent asks orrery to make a request
+// with `{{secret:NAME}}` in it; orrery fills the value in, sends it only to a host the secret allows, and
 // hands back the answer with the value scrubbed out. Each use is kept, without the value.
 //
 // The value is encrypted with ORRERY_SECRET_KEY, its hosts and projects sealed in with it: there's no
@@ -150,7 +150,7 @@ export class Secrets {
         const text = input.body === undefined || method === 'GET' || method === 'HEAD' ? undefined : String(input.body)
         const template = String(input.url)
         const names = [...new Set([template, ...Object.values(headers), text ?? ''].flatMap(part => [...part.matchAll(PLACEHOLDER)].flatMap(m => m[1] ?? [])))]
-        if (!names.length) throw badRequest('Put a secret in the request as {{secret:NAME}}; Orrery only makes requests that use one')
+        if (!names.length) throw badRequest('Put a secret in the request as {{secret:NAME}}; orrery only makes requests that use one')
         // Says what the caller says it's for: a guard against using a key in the wrong project by mistake,
         // not a boundary, as nothing proves who's calling.
         const project = input.project === undefined ? null : await this.store.projectId(String(input.project))
@@ -257,7 +257,7 @@ export class Secrets {
 
     private cipherKey(): Buffer {
         const key = this.key()
-        if (!key) throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'Secrets need ORRERY_SECRET_KEY: set it to a long random string (openssl rand -base64 32) and restart Orrery'})
+        if (!key) throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'Secrets need ORRERY_SECRET_KEY: set it to a long random string (openssl rand -base64 32) and restart orrery'})
         return createHash('sha256').update(key).digest()
     }
 
@@ -282,7 +282,7 @@ export class Secrets {
             try {
                 secrets.set(row.name, {value: this.open(row)})
             } catch {
-                // Sealed with another key: not one this Orrery can send, so not one it would log.
+                // Sealed with another key: not one this orrery can send, so not one it would log.
             }
         }
         if (!secrets.size) return text => text
@@ -299,7 +299,7 @@ export class Secrets {
             decipher.setAuthTag(raw.subarray(12, 28))
             return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8')
         } catch {
-            throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: `${row.name} won't open: ORRERY_SECRET_KEY isn't the key it was set with, or it was changed outside Orrery. Set it again`})
+            throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: `${row.name} won't open: ORRERY_SECRET_KEY isn't the key it was set with, or it was changed outside orrery. Set it again`})
         }
     }
 }

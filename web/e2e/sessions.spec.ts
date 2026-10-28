@@ -4,7 +4,7 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
-// one Orrery started, the session on an issue shown on its page, and a preset.
+// one orrery started, the session on an issue shown on its page, and a preset.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
@@ -14,10 +14,10 @@ test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Dairy', key: 'DAI'})
 })
 
-test('lets Orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
+test('lets orrery start sessions once, for every project, on the Sessions page', async ({page, request}) => {
     await page.goto('/sessions#starts')
     const starts = page.locator('#starts')
-    await starts.getByRole('checkbox', {name: 'Let Orrery start sessions'}).check()
+    await starts.getByRole('checkbox', {name: 'Let orrery start sessions'}).check()
     await starts.getByLabel('Sessions at once').fill('2')
     await starts.getByLabel('Sessions at once').blur()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2})
@@ -194,7 +194,7 @@ test("shows on an issue's page which session is on it, while it listens", async 
     }
 })
 
-test('a session Orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
+test('a session orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
     try {
@@ -229,7 +229,7 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     const writing = page.getByRole('dialog', {name: 'New preset'})
     await expect(writing.getByLabel('What it tells a session')).toBeFocused()
     await page.keyboard.type("You're reviewing: read the diff and comment, don't change code.")
-    // Named apart from the Review preset Orrery ships.
+    // Named apart from the Review preset orrery ships.
     await writing.getByLabel('Preset name').fill('Close review')
     await writing.getByRole('button', {name: 'Add preset'}).click()
     // A preset is a role card with its badge, name and first line; clicking it opens it in the same dialog.
@@ -262,7 +262,7 @@ test('ships presets that can be reset to default, and restored once removed', as
     await page.goto('/sessions#presets')
     const presets = page.locator('#presets')
     await expect(presets.getByRole('button', {name: 'Edit Security audit'})).toBeVisible()
-    // Changed, it can be reset to what Orrery ships.
+    // Changed, it can be reset to what orrery ships.
     await presets.getByRole('button', {name: 'Edit Debug an error'}).click()
     const editing = page.getByRole('dialog', {name: 'Edit Debug an error'})
     await expect(editing.getByRole('button', {name: 'Reset to default'})).toBeHidden()

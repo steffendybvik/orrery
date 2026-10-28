@@ -1,5 +1,5 @@
 // `jiti scripts/e2e-postgres.ts`: empties the Postgres the e2e run uses (E2E_POSTGRES_URL), as removing
-// the SQLite file does, so the flows start from a new Orrery. It drops every table in `public`, so it only
+// the SQLite file does, so the flows start from a new orrery. It drops every table in `public`, so it only
 // touches a database whose name says it's for the tests (`orrery_e2e`), never a real one by mistake.
 import pg from 'pg'
 

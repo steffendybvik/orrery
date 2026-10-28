@@ -1,13 +1,13 @@
-// What a Claude session in an app's repo needs to keep that app's roadmap in Orrery: the brief (served
+// What a Claude session in an app's repo needs to keep that app's roadmap in orrery: the brief (served
 // at /connect/<project>.md and shown on the Connect page) and the pieces it sets up. Built in one
 // place, so the page and the URL say the same. A project's name and a session's come from the URL, so
 // nothing in them reaches a shell command unquoted or adds a line to the brief.
 import {keyFor, slugify} from './roadmap'
 
 export interface ConnectTarget {
-    /** Where Orrery runs, as the agent should reach it. */
+    /** Where orrery runs, as the agent should reach it. */
     origin: string
-    /** Where the Orrery repo is on the machine (for the channel and hook scripts). */
+    /** Where the orrery repo is on the machine (for the channel and hook scripts). */
     repoDir: string
     id: string
     name: string
@@ -16,8 +16,8 @@ export interface ConnectTarget {
     isNew: boolean
     /** ORRERY_SESSION for the window, to tell windows apart. */
     session?: string
-    /** This Orrery: its id (ORRERY_ID, which the channel checks) and environment, which names the channel's
-     * server, one per Orrery for all of a repo's projects. Without it, the server is named after the project. */
+    /** This orrery: its id (ORRERY_ID, which the channel checks) and environment, which names the channel's
+     * server, one per orrery for all of a repo's projects. Without it, the server is named after the project. */
     orrery?: {id: string, environment: string}
 }
 
@@ -60,16 +60,16 @@ curl -sN '${origin}/api/projects/${id}/signals/stream?format=text'`
 
     const claudeMd = `## Roadmap
 
-The roadmap is in Orrery (${origin}), project \`${id}\`, issue ids \`${key}-n\`. How to use it: \`curl -s ${origin}/llms-full.txt\`.
+The roadmap is in orrery (${origin}), project \`${id}\`, issue ids \`${key}-n\`. How to use it: \`curl -s ${origin}/llms-full.txt\`.
 
 - Work from an issue: set it to \`in-progress\` (assignee \`claude\`) before starting, comment as it moves, \`done\` when it ships (\`canceled\` when it's dropped).
 - Knowledge (decisions, how things work) goes in the project's docs.
-- Send \`Orrery-Actor: claude\` on every write. Orrery hands out ids; don't send one.
-- With Orrery's server in \`.mcp.json\`, its tools (\`issue\`, \`start_issue\`, \`comment\`, \`finish_issue\`, …) do all of this without curl.`
+- Send \`Orrery-Actor: claude\` on every write. orrery hands out ids; don't send one.
+- With orrery's server in \`.mcp.json\`, its tools (\`issue\`, \`start_issue\`, \`comment\`, \`finish_issue\`, …) do all of this without curl.`
 
-    const brief = `# Connect ${name} to Orrery
+    const brief = `# Connect ${name} to orrery
 
-You're working in the ${name} repo. Its roadmap lives in Orrery at ${origin}, as project \`${id}\` (issue ids \`${key}-1\`, \`${key}-2\`, …). Orrery is the source of truth: don't keep the roadmap in a file here.
+You're working in the ${name} repo. Its roadmap lives in orrery at ${origin}, as project \`${id}\` (issue ids \`${key}-1\`, \`${key}-2\`, …). orrery is the source of truth: don't keep the roadmap in a file here.
 
 First read how to use it:
 
@@ -95,13 +95,13 @@ Merge with what's already in each file.
 
 ${claudeMd.split('\n').map(line => line ? `    ${line}` : '').join('\n')}
 
-2. Register Orrery's channel in \`.mcp.json\`, so Orrery can ask this session to focus on an issue:
+2. Register orrery's channel in \`.mcp.json\`, so orrery can ask this session to focus on an issue:
 
 ${mcpJson.split('\n').map(line => `    ${line}`).join('\n')}
 
-   One entry serves all of the repo's projects on this Orrery: if \`.mcp.json\` already runs \`orrery-channel.mjs\` for it (the same \`ORRERY_ID\`, or the same \`ORRERY_URL\`), add \`${id}\` to that entry's \`ORRERY_PROJECTS\` (comma-separated, or \`*\` for every project on it) instead, and fold any entry that serves one project (\`ORRERY_PROJECT\`) into it.
+   One entry serves all of the repo's projects on this orrery: if \`.mcp.json\` already runs \`orrery-channel.mjs\` for it (the same \`ORRERY_ID\`, or the same \`ORRERY_URL\`), add \`${id}\` to that entry's \`ORRERY_PROJECTS\` (comma-separated, or \`*\` for every project on it) instead, and fold any entry that serves one project (\`ORRERY_PROJECT\`) into it.
 
-3. Add these hooks to \`.claude/settings.json\`, so Orrery sees this session's name and whether it's idle, working or needs the owner:
+3. Add these hooks to \`.claude/settings.json\`, so orrery sees this session's name and whether it's idle, working or needs the owner:
 
 ${settingsJson.split('\n').map(line => `    ${line}`).join('\n')}
 
@@ -114,11 +114,11 @@ Tell the owner what's in progress and what's urgent, and ask them to restart you
 
     const query = session ? `?session=${encodeURIComponent(session)}` : isNew ? `?name=${encodeURIComponent(name)}` : ''
     const url = `${origin}/connect/${id}.md${query}`
-    const prompt = `Set this repo up for Orrery: read ${url} (curl -s '${url}') and follow it.`
+    const prompt = `Set this repo up for orrery: read ${url} (curl -s '${url}') and follow it.`
     return {brief, claudeMd, mcpJson, settingsJson, server, launch, monitor, prompt, url}
 }
 
-/** A name's id and prefix, as Orrery would make them (`app` for an id when the name makes none). */
+/** A name's id and prefix, as orrery would make them (`app` for an id when the name makes none). */
 export function idsFor(name: string): {id: string, key: string} {
     return {id: slugify(name) || 'app', key: keyFor(name)}
 }
@@ -133,7 +133,7 @@ function shellQuote(text: string): string {
     return `'${text.replace(/'/g, `'\\''`)}'`
 }
 
-/** The channel's server name for an Orrery, as Connect writes it in .mcp.json: `orrery-<environment>` (`Work` →
+/** The channel's server name for an orrery, as Connect writes it in .mcp.json: `orrery-<environment>` (`Work` →
  * `orrery-work`). channel/server-name.mjs is the same for the channel. */
 export function serverName(environment: string): string {
     return `orrery-${slugify(environment) || 'orrery'}`

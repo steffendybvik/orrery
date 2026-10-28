@@ -61,7 +61,7 @@ export function plist({node, script, path, log}) {
 export function systemdUnit({node, script, path}) {
     const quote = text => `"${String(text).replace(/(["\\])/g, '\\$1')}"`
     return `[Unit]
-Description=Orrery launcher: starts Claude sessions for Orrery
+Description=orrery launcher: starts Claude sessions for orrery
 
 [Service]
 ExecStart=${quote(node)} ${quote(script)} --service

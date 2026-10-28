@@ -3,7 +3,7 @@ import type {Issue} from '#shared/roadmap'
 
 // Every issue being worked on (started), or urgent or high-priority and to do, in every project, by
 // project, started first. A parent stands for its sub-issues, so nothing shows twice.
-useHead({title: 'Now · Orrery'})
+useHead({title: 'Now · orrery'})
 const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {matches, active, shows} = useFilters()
