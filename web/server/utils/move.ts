@@ -114,6 +114,14 @@ function sqliteTables(path: string): {names: string[], projects: number} | null 
     }
 }
 
+/** What the Postgres database at `url` holds, read without writing to it: nothing, an orrery's tables, or something
+ * else's. */
+export async function postgresHolds(url: string): Promise<'empty' | 'orrery' | 'other'> {
+    const tables = await postgresTables(url)
+    if (!tables) return 'empty'
+    return tables.names.includes('projects') && tables.names.includes('schema_version') ? 'orrery' : 'other'
+}
+
 /** The tables in the Postgres database's schema and, if it has them, its projects; none when it has no tables. */
 async function postgresTables(url: string): Promise<{names: string[], projects: number} | null> {
     const client = new pg.Client({connectionString: url, connectionTimeoutMillis: 8000})
