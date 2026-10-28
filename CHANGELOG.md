@@ -11,6 +11,9 @@ the database schema are the public surface, and a database always migrates forwa
   never sets off another outcome.
 - **Schedules that start sessions:** a schedule can start a session with presets, on a clock or an event, and a
   message schedule can send presets, so a preset like Release is written once and runs by itself.
+- **Suggested schedules:** Schedules offers a ready-made event schedule for each preset Orrery ships (Release and
+  Security audit when a release is frozen, a nudge to get the next release going when one ships, Review when an issue
+  moves to In review, Debug an error on a new error). **Add** opens New schedule filled in; none runs until you save it.
 - **Run now instead:** a schedule's menu has *Run now instead of 09:00*, which runs it now and skips its next run.
 - **Untrusted schedules get a locked-down session:** a schedule that brings in what others wrote (the daily
   GitHub-issues review) gets a session of its own for each run, and whatever that session raises becomes a proposal
