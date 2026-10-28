@@ -65,7 +65,7 @@ const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p
 // Every Claude session, at the bottom: the ones waiting on you first, then by project as arranged. One that hears
 // several projects is listed once, as spanning them (All projects, or how many), with them in its tooltip.
 const {open: startSession} = useStartSession()
-/** Whether any project lets Orrery start sessions, so Start session has somewhere to go. */
+/** Whether any project lets orrery start sessions, so Start session has somewhere to go. */
 const canStart = computed(() => ordered.value.some(p => p.starts))
 const allSessions = computed(() => ordered.value
     .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id).map(session => ({session, project})))
@@ -99,7 +99,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           <OrreryMark class="size-4 text-zinc-950" />
         </div>
         <span class="text-sm font-semibold tracking-tight">orrery</span>
-        <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} Orrery: its own database, apart from any other`">{{ environment }}</span>
+        <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} orrery: its own database, apart from any other`">{{ environment }}</span>
       </NuxtLink>
       <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="LIVE[live].title">
         <span class="relative flex size-1.5">
@@ -271,7 +271,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd, session.started?.context?.presets.length ? `as ${session.started.context.presets.join(', ')}` : ''].filter(Boolean).join(' · ')"
         >
           <SessionDot :session="session" />
-          <!-- What it's working on first (ORR-330): its project, or what it spans; the name Orrery gave it after, quieter. -->
+          <!-- What it's working on first (ORR-330): its project, or what it spans; the name orrery gave it after, quieter. -->
           <span class="flex min-w-0 flex-1 items-center gap-1.5">
             <ProjectIcon v-if="!spanLabel(session) && project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3 shrink-0" />
             <!-- The project keeps its room; the name gives way first. -->
@@ -289,7 +289,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           target="_blank"
           rel="noopener"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg"
-          title="Orrery's code, issues and releases on GitHub"
+          title="orrery's code, issues and releases on GitHub"
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
         <span class="flex-1">GitHub</span>

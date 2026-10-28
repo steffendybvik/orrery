@@ -97,7 +97,7 @@ async function move(version: string, index: number) {
     }
 }
 
-useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orrery` : 'Orrery'}))
+useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orrery` : 'orrery'}))
 </script>
 
 <template>

@@ -2,7 +2,7 @@
 import type {Doc} from '#shared/roadmap'
 
 // Writing a doc in a project, as the owner (so agents can't delete it): its title and its text, in Markdown.
-// Orrery makes its id from the title. An image pasted or dropped anywhere on the dialog, or picked, goes into the text
+// orrery makes its id from the title. An image pasted or dropped anywhere on the dialog, or picked, goes into the text
 // as Markdown. ⌘↵ creates it and opens it, Esc closes.
 const {target, close} = useNewDoc()
 const {byId} = useRoadmaps()

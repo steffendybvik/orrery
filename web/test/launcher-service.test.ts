@@ -10,7 +10,7 @@ const greenhouse = {url: 'http://localhost:9000', project: 'greenhouse', dir: '/
 const opts = {node: '/opt/homebrew/bin/node', script: '/code/orrery/channel/orrery-launcher.mjs', path: '/opt/homebrew/bin:/usr/bin', log: '/Users/me/Library/Logs/orrery-launcher.log'}
 
 describe("the launcher's list", () => {
-    it('has each project of each Orrery once, in the repo it was last installed from', () => {
+    it('has each project of each orrery once, in the repo it was last installed from', () => {
         let config = withProject({projects: []}, greenhouse)
         config = withProject(config, {...greenhouse, dir: '/moved/greenhouse'})
         config = withProject(config, {...greenhouse, url: 'http://localhost:9010'})

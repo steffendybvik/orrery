@@ -344,7 +344,7 @@ describe('proposals with choices', () => {
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
     const PARTS = {key: 'parts', question: 'Which parts?', pick: 'any', recommended: ['A', 'B'],
-        options: [{key: 'A', title: 'Write-only store'}, {key: 'B', title: 'Orrery makes the call'}, {key: 'D', title: 'Approve risky uses', body: 'Holds the request until you say yes.'}]}
+        options: [{key: 'A', title: 'Write-only store'}, {key: 'B', title: 'orrery makes the call'}, {key: 'D', title: 'Approve risky uses', body: 'Holds the request until you say yes.'}]}
     const KEY = {key: 'key', question: 'Where the key lives', pick: 'one', recommended: ['env'], options: [{key: 'env', title: 'ORRERY_SECRET_KEY'}, {key: 'keychain', title: 'OS keychain'}]}
     const propose = async (choices: object[]) => (await store.createIssue('greenhouse', {title: 'Secrets', proposal: 'pending', choices}, claude)).id
 
@@ -353,7 +353,7 @@ describe('proposals with choices', () => {
         expect((await store.issue('greenhouse', id)).choices.map(c => c.key)).toEqual(['parts', 'key'])
         expect((await store.decide('greenhouse', id, {decision: 'approved'}, owner)).picks).toEqual({parts: ['A', 'B'], key: ['env']})
         expect((await store.listComments('greenhouse', id)).at(-1)?.body)
-            .toBe('Approved this proposal with:\n- Which parts? → **A** Write-only store, **B** Orrery makes the call\n- Where the key lives → **ORRERY_SECRET_KEY**')
+            .toBe('Approved this proposal with:\n- Which parts? → **A** Write-only store, **B** orrery makes the call\n- Where the key lives → **ORRERY_SECRET_KEY**')
         await store.updateIssue('greenhouse', id, {proposal: 'pending'}, claude)
         expect((await store.issue('greenhouse', id)).picks).toBeUndefined()
         expect((await store.decide('greenhouse', id, {decision: 'approved', picks: {parts: ['A', 'D'], key: ['keychain']}, note: 'D too'}, owner)).picks)
@@ -752,7 +752,7 @@ describe('releases', () => {
 describe('what sessions are told', () => {
     const owner: Actor = {name: 'skoll', owner: true}
 
-    it("uses the project's templates, else the Orrery's, else the defaults", async () => {
+    it("uses the project's templates, else the orrery's, else the defaults", async () => {
         expect(await store.prompts('greenhouse')).toEqual({focus: DEFAULT_FOCUS_PROMPT, chunk: DEFAULT_CHUNK_PROMPT})
         await store.updateSettings({focus_prompt: 'Look at {issue}.'}, owner)
         await store.updateProject('greenhouse', {chunk_prompt: 'Do chunk {chunk}.'}, owner)
@@ -785,11 +785,11 @@ describe('what sessions are told', () => {
 
 describe('docs', () => {
     it('list with a summary of their first paragraph, and search their title and text', async () => {
-        await store.createDoc('greenhouse', {title: 'Decision: ids', body: '# Decision: ids\n\n![logo](/api/uploads/x)\n\nIssues get the project\'s **prefix** and a number, [handed out](https://x.y) by `Orrery`.\nNever reused.\n\nMore later.'})
+        await store.createDoc('greenhouse', {title: 'Decision: ids', body: '# Decision: ids\n\n![logo](/api/uploads/x)\n\nIssues get the project\'s **prefix** and a number, [handed out](https://x.y) by `orrery`.\nNever reused.\n\nMore later.'})
         await store.createDoc('greenhouse', {title: 'Running', body: '```sh\npnpm dev\n```\n\n' + 'word '.repeat(60)})
         const docs = await store.listDocs('greenhouse')
         expect(docs.map(d => d.summary)).toEqual([
-            "Issues get the project's prefix and a number, handed out by Orrery. Never reused.",
+            "Issues get the project's prefix and a number, handed out by orrery. Never reused.",
             expect.stringMatching(/^(word ){20,}word…$/),
         ])
         expect(docs[1]!.summary.length).toBeLessThanOrEqual(161)
@@ -1043,7 +1043,7 @@ describe('a signal reaching sessions', () => {
 })
 
 describe('a focus aimed at no session', () => {
-    it("goes to the session already on its issue while it's listening, else to one Orrery picks", async () => {
+    it("goes to the session already on its issue while it's listening, else to one orrery picks", async () => {
         const owner = {name: 'skoll', owner: true}
         const jars = (await store.createIssue('greenhouse', {title: 'Jars'})).id
         expect((await store.focus('greenhouse', jars, {}, owner)).target).toBeUndefined()
@@ -1164,7 +1164,7 @@ describe('presets', () => {
     const owner: Actor = {name: 'skoll', owner: true}
     const claude: Actor = {name: 'claude', owner: false}
 
-    it("are the owner's to make: the Orrery's for any project, or a project's own", async () => {
+    it("are the owner's to make: the orrery's for any project, or a project's own", async () => {
         expect((await failure(() => store.createPreset(null, {name: 'Review', text: "You're reviewing."}, claude))).status).toBe(403)
         expect((await failure(() => store.createPreset(null, {name: ' ', text: 'x'}, owner))).status).toBe(400)
         const review = await store.createPreset(null, {name: ' Review ', text: "You're reviewing: don't change code."}, owner)
@@ -1173,7 +1173,7 @@ describe('presets', () => {
         const e2e = await store.createPreset('greenhouse', {name: 'E2E', text: 'Run pnpm test:e2e before you finish.'}, owner)
         await store.createPreset('pantry', {name: 'Pantry only', text: 'Mind the jars.'}, owner)
         expect((await failure(() => store.createPreset('nowhere', {name: 'x', text: 'y'}, owner))).status).toBe(404)
-        // A session on a project can have the Orrery's, then its own; another project's aren't among them.
+        // A session on a project can have the orrery's, then its own; another project's aren't among them.
         expect((await store.presets()).map(p => p.name)).toEqual(['Review'])
         expect((await store.presets('greenhouse')).map(p => p.name)).toEqual(['Review', 'E2E'])
         expect((await store.presetsFor('greenhouse', [e2e.id, review.id, e2e.id])).map(p => p.name)).toEqual(['E2E', 'Review'])
@@ -1257,7 +1257,7 @@ describe('statuses', () => {
 })
 
 describe('settings', () => {
-    it('give the Orrery an id the first time, kept after', async () => {
+    it('give the orrery an id the first time, kept after', async () => {
         const {id} = await store.settings()
         expect(id).toMatch(/^orr_[0-9a-f]{6}$/)
         expect((await store.settings()).id).toBe(id)
@@ -1631,7 +1631,7 @@ describe('images', () => {
 })
 
 describe('the database', () => {
-    it("makes letting Orrery start sessions the Orrery's one setting, from the first project that had it", async () => {
+    it("makes letting orrery start sessions the orrery's one setting, from the first project that had it", async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 34)
         old.prepare(`INSERT INTO projects (id, name, key, starts, created_by, created_at, updated_at) VALUES
@@ -1659,7 +1659,7 @@ describe('the database', () => {
         expect((await upgraded.issue('greenhouse', 'GRE-3'))).toMatchObject({column: 'done', proposal: undefined})
     })
 
-    it("keeps the Orrery's prompts through the API going snake_case", async () => {
+    it("keeps the orrery's prompts through the API going snake_case", async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 27)
         old.prepare(`INSERT INTO settings (key, value) VALUES ('focusPrompt', '"Look at {issue}"'), ('chunkPrompt', '"Work {chunk}"')`).run()
@@ -1716,26 +1716,26 @@ describe('the database', () => {
         expect(existsSync(again)).toBe(false)
     })
 
-    it('refuses a database from a newer Orrery and leaves it as it is', async () => {
+    it('refuses a database from a newer orrery and leaves it as it is', async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'orrery.db')
         const raw = openDb(path)
         const newest = (raw.prepare('PRAGMA user_version').get() as {user_version: number}).user_version
         raw.exec(`PRAGMA user_version = ${newest + 1}`)
         raw.close()
-        expect(() => openDb(path)).toThrow(`was written by a newer Orrery (schema step ${newest + 1}; this one knows up to ${newest})`)
+        expect(() => openDb(path)).toThrow(`was written by a newer orrery (schema step ${newest + 1}; this one knows up to ${newest})`)
         const after = new DatabaseSync(path)
         expect((after.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(newest + 1)
         after.close()
     })
 
-    it.runIf(process.env.TEST_POSTGRES_URL)('refuses a Postgres database from a newer Orrery', async () => {
+    it.runIf(process.env.TEST_POSTGRES_URL)('refuses a Postgres database from a newer orrery', async () => {
         const schema = `test_newer_${Date.now().toString(36)}`
         const first = new PostgresDb(process.env.TEST_POSTGRES_URL!, schema)
         const {version} = (await first.get<{version: number}>('SELECT version FROM schema_version'))!
         await first.run('UPDATE schema_version SET version = ?', version + 1)
         await first.close()
         const second = new PostgresDb(process.env.TEST_POSTGRES_URL!, schema)
-        await expect(second.get('SELECT 1')).rejects.toThrow(`newer Orrery (schema step ${version + 1}; this one knows up to ${version})`)
+        await expect(second.get('SELECT 1')).rejects.toThrow(`newer orrery (schema step ${version + 1}; this one knows up to ${version})`)
         await second.close()
         const cleanup = new pg.Client({connectionString: process.env.TEST_POSTGRES_URL})
         await cleanup.connect()
@@ -1743,7 +1743,7 @@ describe('the database', () => {
         await cleanup.end()
     })
 
-    // On Postgres as a SQLite snapshot, so a new SQLite Orrery starts from it either way.
+    // On Postgres as a SQLite snapshot, so a new SQLite orrery starts from it either way.
     it('is backed up to a folder and restored from it', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
         const cloud = join(dir, 'cloud')

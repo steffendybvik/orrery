@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
 
-// The live view of a session Orrery started: its screen, as its launcher captures it, refreshed about once a second
+// The live view of a session orrery started: its screen, as its launcher captures it, refreshed about once a second
 // while this is shown and the tab is visible. Read only: nothing goes into the session.
 const props = defineProps<{session: Session}>()
 const {load} = useOwner()

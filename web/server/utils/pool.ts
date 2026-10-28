@@ -2,13 +2,13 @@
 // already on its issue (made its target as it's sent), else a listening session that's idle when it comes, else the
 // next one to go idle. The project's own sessions come first: one that spans several projects (its channel hears
 // others too) takes it only while none of them is free. Aimed at `*`, it goes to every session, as all of them used to. Each such signal is taken by
-// the first session free to, here in memory (Orrery is one process), so two streams can't both send it on.
+// the first session free to, here in memory (orrery is one process), so two streams can't both send it on.
 import type {Signal} from '#shared/roadmap'
 
 /** The target that sends a signal to every session on the project. */
 export const EVERY = '*'
 
-/** Whether the signal goes to one session Orrery picks. A comment has its own way: the session on its issue. */
+/** Whether the signal goes to one session orrery picks. A comment has its own way: the session on its issue. */
 export function pooled(signal: Signal): boolean {
     return !signal.target && signal.kind !== 'comment'
 }

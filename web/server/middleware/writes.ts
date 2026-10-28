@@ -1,4 +1,4 @@
-// There are no accounts, so Orrery guards against the browser being used against it. Any website open
+// There are no accounts, so orrery guards against the browser being used against it. Any website open
 // in the owner's browser could otherwise post a form here and plant issues or comments for the sessions
 // to read, or point its own domain at this machine (DNS rebinding) to read the board and write to it.
 //
@@ -6,10 +6,10 @@
 //   one listed in NUXT_ALLOWED_HOSTS (ORRERY_ALLOWED_HOSTS in compose), e.g. `orrery.lan`.
 // - A write from a page on another site (its `Origin`) is refused; agents, curl and the channel send none.
 // - A write's body must be JSON, which a page on another site can't send without the browser asking
-//   first, and Orrery never says yes.
-// - The sessions' streams (`…/signals/stream`, `…/launches/stream`) change what Orrery thinks is listening
+//   first, and orrery never says yes.
+// - The sessions' streams (`…/signals/stream`, `…/launches/stream`) change what orrery thinks is listening
 //   just by being opened, so they're guarded like a write; and since a picture (`<img>`, an agent's
-//   Markdown image) sends no Origin, a browser opening one has to be Orrery's own page, as an EventSource.
+//   Markdown image) sends no Origin, a browser opening one has to be orrery's own page, as an EventSource.
 //   The channel, the launcher and curl send no Sec-Fetch headers.
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const STREAM = /^\/api\/(projects\/[^/]+\/(signals|launches)|signals)\/stream(\?|$)/
@@ -20,14 +20,14 @@ export default defineEventHandler(event => {
     const name = host.replace(/:\d+$/, '')
     const allowed = String(useRuntimeConfig().allowedHosts ?? '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean)
     if (!LOCAL.test(name) && !allowed.includes(name.toLowerCase())) {
-        throw createError({statusCode: 403, statusMessage: `Orrery doesn't answer to "${name}"; add it to NUXT_ALLOWED_HOSTS`})
+        throw createError({statusCode: 403, statusMessage: `orrery doesn't answer to "${name}"; add it to NUXT_ALLOWED_HOSTS`})
     }
 
     const stream = STREAM.test(event.path)
     if (!(WRITES.has(event.method) && event.path.startsWith('/api/')) && !stream) return
     const origin = getHeader(event, 'origin')
     if (origin && (origin === 'null' || hostOf(origin) !== host)) {
-        throw createError({statusCode: 403, statusMessage: "Orrery takes writes from its own page, not another site's"})
+        throw createError({statusCode: 403, statusMessage: "orrery takes writes from its own page, not another site's"})
     }
     if (stream) {
         const site = getHeader(event, 'sec-fetch-site')

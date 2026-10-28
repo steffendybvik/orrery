@@ -1,6 +1,6 @@
 import type {Chunk, Issue, Place} from '#shared/roadmap'
 
-// A small sample project to try Orrery on before connecting a repo (Getting started): a board with issues in
+// A small sample project to try orrery on before connecting a repo (Getting started): a board with issues in
 // each status, a sub-issue, chunks, a proposal from Claude and a question waiting in the bell. It's an ordinary
 // project the owner made, so its Settings delete it like any other.
 export function useDemoProject() {
@@ -19,7 +19,7 @@ export function useDemoProject() {
             const post = <T>(path: string, body: object, headers: Record<string, string> = owner) =>
                 $fetch<T>(`/api/projects${path}`, {method: 'POST', headers, body})
 
-            const project = await post<{id: string}>('', {name: 'Demo', id: DEMO, key: 'DEM', description: 'A sample board to try Orrery on: delete it from its Settings when you like'})
+            const project = await post<{id: string}>('', {name: 'Demo', id: DEMO, key: 'DEM', description: 'A sample board to try orrery on: delete it from its Settings when you like'})
             const at = `/${encodeURIComponent(project.id)}`
             const basics = await post<Chunk>(`${at}/chunks`, {title: 'Getting around', summary: 'Open an issue, move it, give it a priority. Right-click a row for more.'})
             const later = await post<Chunk>(`${at}/chunks`, {title: 'Later'})

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The playground: Orrery's dev server with a demo database of its own, to try things on (see README.md).
+# The playground: orrery's dev server with a demo database of its own, to try things on (see README.md).
 #   .playground/play [up]   start it, seeding an empty database
 #   .playground/play reset  throw the database away and start over with a fresh demo
 #   .playground/play seed   seed it again (only when it has no projects)

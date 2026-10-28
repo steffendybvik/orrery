@@ -11,7 +11,7 @@ export interface Look {
 
 const PROPOSED: Look = {id: 'proposed', label: 'Proposed', kind: 'proposed', color: TINTS.amber}
 
-// The Orrery's issue statuses, from its settings (kept current from `/api/events`), as the columns
+// The orrery's issue statuses, from its settings (kept current from `/api/events`), as the columns
 // the board draws: `places` in the order an issue moves through them (Proposed first), `columns` as the
 // boards and lists show them, what's started first and what's closed last.
 export function useStatuses() {

@@ -84,7 +84,7 @@
     color-scheme: dark;
 }
 
-/* An Orrery's tint (App settings), so one looks unlike another: the backgrounds take on a little of
+/* An orrery's tint (App settings), so one looks unlike another: the backgrounds take on a little of
    its colour, more in the dark. useAppSettings sets `data-tint` and `--tint` on <html>. */
 :root[data-tint] {
     --canvas: color-mix(in oklab, var(--tint) 9%, #fafafa);

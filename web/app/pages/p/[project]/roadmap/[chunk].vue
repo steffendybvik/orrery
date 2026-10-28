@@ -105,7 +105,7 @@ function onKey(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
-useHead(() => ({title: chunk.value ? `${chunk.value.title} · Orrery` : 'Orrery'}))
+useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'}))
 </script>
 
 <template>

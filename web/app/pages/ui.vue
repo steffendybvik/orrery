@@ -2,9 +2,9 @@
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 
 // The kit in one place (docs/components.md), so a new screen reuses its pieces rather than copying them. Only
-// under `nuxt dev`: a built Orrery says Not found here.
+// under `nuxt dev`: a built orrery says Not found here.
 if (!import.meta.dev) throw createError({statusCode: 404, statusMessage: 'Not found'})
-useHead({title: 'UI kit · Orrery'})
+useHead({title: 'UI kit · orrery'})
 
 const VARIANTS = ['primary', 'secondary', 'ghost', 'danger', 'danger-outline', 'danger-ghost', 'success', 'success-outline', 'warning-outline'] as const
 const SIZES = ['xs', 'sm', 'md'] as const

@@ -1,4 +1,4 @@
-// Follows one of Orrery's server-sent event streams for good, for the channel and the launcher: `url()` says
+// Follows one of orrery's server-sent event streams for good, for the channel and the launcher: `url()` says
 // where (asked again on each reconnect, so it can pick up where it left off), `onEvent({event, data, id})`
 // hears each event in order, `onOpen()` each time it connects, and a drop reconnects after a growing wait.
 export async function follow({url, onEvent, onOpen = () => {}, log}) {
@@ -21,7 +21,7 @@ export async function follow({url, onEvent, onOpen = () => {}, log}) {
             }
             log('the stream ended; reconnecting')
         } catch (error) {
-            log(`can't reach Orrery (${error.message}); trying again in ${wait / 1000}s`)
+            log(`can't reach orrery (${error.message}); trying again in ${wait / 1000}s`)
         }
         await new Promise(resolve => setTimeout(resolve, wait))
     }

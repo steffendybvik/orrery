@@ -6,7 +6,7 @@ import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 import {isObject} from './input'
 import {known} from '#shared/known'
 
-/** The statuses and plans of the `roadmap.json` format (and of Orrery before it had statuses of its own). */
+/** The statuses and plans of the `roadmap.json` format (and of orrery before it had statuses of its own). */
 const LEGACY_STATUSES = ['todo', 'doing', 'done'] as const
 export const LEGACY_PLANS = ['now', 'next', 'later'] as const
 

@@ -115,7 +115,7 @@ const scroller = ref<HTMLElement | null>(null)
 const {size} = useDocSize()
 const sizes = [{value: 'sm' as const, label: 'S'}, {value: 'md' as const, label: 'M'}, {value: 'lg' as const, label: 'L'}]
 
-useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
+useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
 </script>
 
 <template>

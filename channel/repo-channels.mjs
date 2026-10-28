@@ -1,5 +1,5 @@
-// A repo's Orrery channels, as its .mcp.json registers them, and the projects the launcher serves from them. A
-// monorepo can register several, one per project or per Orrery (`orrery-hub`, `orrery-css` on work's, `orrery` on
+// A repo's orrery channels, as its .mcp.json registers them, and the projects the launcher serves from them. A
+// monorepo can register several, one per project or per orrery (`orrery-hub`, `orrery-css` on work's, `orrery` on
 // the personal one), so each project's sessions must load the channel that serves it, not the first.
 import {readFileSync} from 'node:fs'
 import {basename, join} from 'node:path'
@@ -22,8 +22,8 @@ export function channelsIn(dir) {
     }
 }
 
-/** A channel's Orrery (its own `ORRERY_URL`, else the one given, else the default), and the projects it names:
- * each of `ORRERY_PROJECTS`, or `ORRERY_PROJECT`; none for `*`, which serves whatever the Orrery has. */
+/** A channel's orrery (its own `ORRERY_URL`, else the one given, else the default), and the projects it names:
+ * each of `ORRERY_PROJECTS`, or `ORRERY_PROJECT`; none for `*`, which serves whatever the orrery has. */
 function served(channel, fallbackUrl) {
     const url = trim(plain(channel.env.ORRERY_URL) ?? fallbackUrl ?? DEFAULT_URL)
     const listed = plain(channel.env.ORRERY_PROJECTS)?.split(',').map(p => p.trim()).filter(Boolean) ?? []
@@ -33,11 +33,11 @@ function served(channel, fallbackUrl) {
     return {url, every, projects: projects.length ? projects : one ? [one] : []}
 }
 
-/** The projects to serve from the repo at `dir`, each with its Orrery and folder. With `project` (ORRERY_PROJECT),
- * that one, on the Orrery of the channel that names it (or serves every project); without, every project each
+/** The projects to serve from the repo at `dir`, each with its orrery and folder. With `project` (ORRERY_PROJECT),
+ * that one, on the orrery of the channel that names it (or serves every project); without, every project each
  * channel names. `url` (ORRERY_URL) stands in where a channel's own address isn't plain, but doesn't override one
- * that is: a session's own ORRERY_URL would send a monorepo's projects to another Orrery. With no channel naming
- * any, the folder's name. A project no channel serves is on `url`, else the first channel's Orrery. */
+ * that is: a session's own ORRERY_URL would send a monorepo's projects to another orrery. With no channel naming
+ * any, the folder's name. A project no channel serves is on `url`, else the first channel's orrery. */
 export function projectsIn(dir, {project, url} = {}) {
     const channels = channelsIn(dir).map(channel => ({channel, ...served(channel, url)}))
     const unnamed = trim(url ?? channels[0]?.url ?? DEFAULT_URL)
@@ -58,7 +58,7 @@ export function projectsIn(dir, {project, url} = {}) {
     return out.length ? out : [{url: unnamed, project: basename(dir), dir}]
 }
 
-/** The channel a session for `project` on the Orrery at `url` loads: the one naming that project there, else
+/** The channel a session for `project` on the orrery at `url` loads: the one naming that project there, else
  * one serving every project there, else the one naming it anywhere, else the first. Undefined with none. */
 export function channelFor(dir, url, project) {
     const channels = channelsIn(dir).map(channel => ({channel, ...served(channel)}))
@@ -70,7 +70,7 @@ export function channelFor(dir, url, project) {
     return found?.channel
 }
 
-/** Whether a session for `project` here, told nothing to hear, hears every project on the Orrery at `url`: its
+/** Whether a session for `project` here, told nothing to hear, hears every project on the orrery at `url`: its
  * channel serves `*`. */
 export function servesEvery(dir, url, project) {
     const channel = channelFor(dir, url, project)
@@ -78,7 +78,7 @@ export function servesEvery(dir, url, project) {
 }
 
 /** The projects a channel hears: those it lists (ORRERY_PROJECTS), as `hear` (ORRERY_HEAR, comma-separated) narrows
- * them to the ones named that it serves; `null` for every project on its Orrery (`*`, and no `hear`). A `hear` naming
+ * them to the ones named that it serves; `null` for every project on its orrery (`*`, and no `hear`). A `hear` naming
  * none it serves is let go, so a session never ends up hearing nothing. */
 export function narrowed(listed, hear) {
     const named = (hear ?? '').split(',').map(p => p.trim()).filter(Boolean)

@@ -1,4 +1,4 @@
-// Sessions Orrery started get a fresh context between pieces of work: once one goes idle with nothing in progress
+// Sessions orrery started get a fresh context between pieces of work: once one goes idle with nothing in progress
 // and nothing waiting for it, its launcher types `/clear` into it. The process, its tmux session and its channel
 // stay. Its hooks' SessionStart brief then hands the fresh context what's left: the issues in progress, and the
 // rest of a chunk or scope it was asked to work through (its run). A brief starts no turn, so when some of the run
@@ -37,7 +37,7 @@ export function startRun(session: string, signal: Signal) {
     else if (signal.issue && signal.note !== CARRY_ON) sessionIds(currentId(session)).forEach(id => runs.delete(id))
 }
 
-/** The session Orrery started is back from a `/clear`: if its run has issues left, a focus on them goes to it
+/** The session orrery started is back from a `/clear`: if its run has issues left, a focus on them goes to it
  * alone, as the run's was sent (by whom, the statuses and release), so a new turn starts. Says if it sent one.
  * Not when nothing left has changed since the last time: a session that won't take any of it (blocked, or waiting
  * on the owner) would otherwise be cleared and sent it again every few seconds. */
@@ -60,7 +60,7 @@ export function runOf(session: string): Signal | undefined {
     return sessionIds(session).map(id => runs.get(id)).find(Boolean)
 }
 
-/** The session went idle: if Orrery started it, and after a moment it's still idle, with no issue in progress
+/** The session went idle: if orrery started it, and after a moment it's still idle, with no issue in progress
  * and no signal waiting for it, its launcher clears it. */
 export function considerClear(project: string, id: string) {
     const before = sessionNow(id)
