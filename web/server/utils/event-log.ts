@@ -270,10 +270,12 @@ export function refusal(status: number, method: string, path: string, message: s
     }
 }
 
-/** Passwords in addresses (`postgres://me:…@host`) and bearer tokens, whoever's they are. */
+/** Passwords in addresses (`postgres://me:…@host`, with no user or an `@` in the password too), as a setting
+ * (`?password=…`, `host=db password=…`), and bearer tokens, whoever's they are. */
 export function redact(text: string): string {
     return text
-        .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@/]+@/gi, '$1…@')
+        .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]*:)[^\s/]+@/gi, '$1…@')
+        .replace(/\b(password\s*=\s*)('[^']*'|"[^"]*"|[^\s&'"]+)/gi, '$1…')
         .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 …')
 }
 

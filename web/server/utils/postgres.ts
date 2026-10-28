@@ -9,6 +9,7 @@
 import {AsyncLocalStorage} from 'node:async_hooks'
 import pg from 'pg'
 import {runAfter, type Db, type Value} from './database'
+import {redact} from './event-log'
 
 // Counts come back as int8, which pg hands over as text; Orrery's never outgrow a number.
 pg.types.setTypeParser(pg.types.builtins.INT8, value => Number(value))
@@ -367,6 +368,9 @@ export class PostgresDb implements Db {
     constructor(url: string, schema?: string) {
         this.pool = new pg.Pool({connectionString: url, max: 10, allowExitOnIdle: true})
         if (schema) this.pool.on('connect', client => void client.query(`SET search_path TO "${schema}"`))
+        // An idle connection dropping (Postgres restarting) is said, not thrown: unheard, it would end the server. The
+        // pool opens another for the next query.
+        this.pool.on('error', error => console.error('[orrery] postgres connection lost:', redact(error.message)))
         this.ready = this.migrate(schema)
         // A failed start shows when the first query is made; this only keeps it from going unhandled.
         this.ready.catch(() => {})

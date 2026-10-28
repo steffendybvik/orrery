@@ -1,7 +1,7 @@
 // The database: one SQLite file (`NUXT_DATABASE`, `.data/orrery.db` by default), or Postgres. Node's own
 // `node:sqlite` is synchronous, so writes from several sessions never interleave. The owner can move it from App
 // settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
-import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {lastBackup, restoreBackup} from './backup'
 import {backupChoice, backupChoiceFile, backupDir, defaultBackupDir, inDocker} from './backup-choice'
 import {onHost} from './host-paths'
@@ -715,6 +715,8 @@ function saveDatabaseSetting(setting: string) {
         chosen = null
     } else {
         writeFileSync(file, `${JSON.stringify({database: setting, moved_at: new Date().toISOString()}, null, 2)}\n`, {mode: 0o600})
+        // `mode` holds only for a file it makes; one already there keeps its own, and this one holds a password.
+        chmodSync(file, 0o600)
         chosen = setting
     }
 }

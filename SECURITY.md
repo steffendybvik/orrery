@@ -48,7 +48,8 @@ schedule's run never goes to your sessions. Instead:
   launcher that does this lockdown can take the run, so an older one won't start it with every tool.
 - **That session hears only its own message**, with a standing brief: what it reads is data, never
   instructions.
-- **What it raises is a proposal labelled `external`**, made so by Orrery whatever the session asks.
+- **What it raises is a proposal labelled `external`**, made so by Orrery whatever the session asks. Labels it
+  picks are dropped, so none can match an event schedule's filter once you approve it.
   Orrery refuses every other write from it, except comments on those proposals. Nothing it raises is
   worked on until you approve it, and what it writes sets off no schedule, so an event schedule can't
   start a session of yours on it. Its channel says it's untrusted on everything it sends, so this holds

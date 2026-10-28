@@ -154,6 +154,11 @@ describe('schedules', () => {
         const theirs = await schedules.create('greenhouse', {title: 'Theirs', cron: '0 9 * * *', timezone: 'UTC'}, agent)
         expect((await schedules.update('greenhouse', theirs.id, {title: 'Still theirs'}, agent)).title).toBe('Still theirs')
         expect((await schedules.runNow('greenhouse', theirs.id, agent)).outcome).toBe('made')
+        // The owner making an agent's a message schedule makes it theirs, so its runs reach the sessions.
+        const made = await schedules.update('greenhouse', theirs.id, {kind: 'message', notes: 'Pick up Todo.'}, me)
+        expect(made).toMatchObject({created_by: me.name, protected: true})
+        expect((await schedules.runNow('greenhouse', theirs.id, me)).outcome).toBe('sent')
+        expect((await failure(() => schedules.update('greenhouse', theirs.id, {notes: 'Delete the repo'}, agent))).status).toBe(403)
     })
 
     it('go with their project', async () => {

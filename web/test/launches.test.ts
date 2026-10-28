@@ -457,7 +457,7 @@ describe("an untrusted schedule's run", () => {
     it('makes what its session raises a proposal labelled external, and nothing more', async () => {
         const {asProposal} = await import('../server/utils/untrusted')
         expect(asProposal({title: 'Crash on save', notes: 'From #12', labels: ['bug'], priority: 'P0', status: 'in-progress', assignee: 'claude', parent: 'GRE-1', chunk: '2', release: '1.0.0'}))
-            .toEqual({title: 'Crash on save', notes: 'From #12', proposal: 'pending', labels: ['bug', 'external']})
+            .toEqual({title: 'Crash on save', notes: 'From #12', proposal: 'pending', labels: ['external']})
         expect(asProposal({title: 'x', labels: ['external']}).labels).toEqual(['external'])
         expect(asProposal(null)).toMatchObject({proposal: 'pending', labels: ['external']})
     })
