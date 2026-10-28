@@ -73,7 +73,9 @@ channels flag; only the pushed messages need the flag.
 `channel/orrery-hook.mjs` tells Orrery what each session is doing, so the page can show it and aim
 work at an idle one. Before a Bash command it also says which issues the command writes to, so the
 owner's comment on one goes to the session working it rather than to every session. Register it in the repo's `.claude/settings.json` for `SessionStart`,
-`UserPromptSubmit`, `PreToolUse` (with `"async": true`), `Stop`, `Notification` and `SessionEnd`:
+`UserPromptSubmit`, `PreToolUse` (with `"async": true`), `Stop`, `StopFailure`, `Notification` and `SessionEnd`.
+`StopFailure` is a turn an API error cut off (the network, a rate limit): the issues that session had in progress go
+back to Todo with nobody on it, and a comment says why.
 
 ```json
 {
