@@ -429,7 +429,7 @@ while it runs, so it's gone after Orrery restarts.
 
 | | |
 |---|---|
-| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}]}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message |
+| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}], problem?}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message. `problem` says why its session can't start (a launcher too old to start a chat was refused it: restart the launcher), until the session connects |
 | `POST /chats` | `{project}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's); 409 without a launcher for the project |
 | `GET /chats/:chat` | the chat; 404 once it has ended |
 | `POST /chats/:chat/messages` | `{text, images?}` → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted; it goes to the chat's session alone |
@@ -507,7 +507,8 @@ problem. **Errors** are recorded always: a 5xx the server answers with (`server.
 (`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What Orrery did** is
 recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → This Orrery):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
-`session.refused`), launchers coming and going (`launcher.connected`, `launcher.gone`), schedule runs and skips
+`session.refused`), launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
+their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), schedule runs and skips
 (`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `migration.ran`,
 `database.moved`, `server.started`). So is **each change to the roadmap**, as an `info` line with the change's
 type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.created`, `issue.status`,

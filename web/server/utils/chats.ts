@@ -75,6 +75,16 @@ export function endChat(id: string) {
     chatEnded(id)
 }
 
+/** Why the chat's session can't start (a launcher too old to start one refused it), for the page to say instead of
+ * waiting. It goes once the session connects. */
+export function chatProblem(id: string, problem: string | null) {
+    const chat = chats.get(id)
+    if (!chat || (chat.problem ?? null) === problem) return
+    if (problem) chat.problem = problem
+    else delete chat.problem
+    changed(chat)
+}
+
 /** The chat's launch has ended (stopped, or its session gone): the chat goes with it. */
 export function chatEnded(id: string) {
     const chat = chats.get(id)

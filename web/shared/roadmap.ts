@@ -554,6 +554,8 @@ export interface Chat {
     started_at: string
     messages: ChatMessage[]
     ended?: boolean
+    /** Why its session can't start, while that holds: a launcher too old to start a chat refused it (ORR-383). */
+    problem?: string
 }
 
 /** A message in a chat: the owner's (with the ids of the uploads they pasted) or the session's answer, in Markdown. */
