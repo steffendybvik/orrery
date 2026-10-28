@@ -277,7 +277,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
     />
 
-    <div v-if="sends !== 'issue' && presets.length" class="grid gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
+    <div v-if="sends !== 'issue' && presets.length" class="grid grid-cols-1 gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
       <button
           v-for="p in presets"
           :key="p.id"

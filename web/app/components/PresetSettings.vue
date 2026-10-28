@@ -42,7 +42,7 @@ const writing = ref<Preset | 'new' | null>(null)
 
 <template>
   <div class="flex flex-col gap-3">
-    <ul class="grid gap-2 sm:grid-cols-2">
+    <ul class="grid grid-cols-1 gap-2 sm:grid-cols-2">
       <li v-for="p in presets" :key="p.id">
         <button
             type="button"
