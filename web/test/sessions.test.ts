@@ -122,6 +122,12 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse').find(s => s.id === 'b')).toMatchObject({name: 'greenhouse · Odin', listening: false})
     })
 
+    it("says the version its channel's code is, when the channel does", () => {
+        sessions.attend('greenhouse', 'new', undefined, undefined, true, undefined, false, undefined, undefined, false, false, '1.0.0-rc.10')
+        sessions.attend('greenhouse', 'old', undefined, undefined)
+        expect(sessions.listSessions('greenhouse').map(s => [s.id, s.version])).toEqual([['new', '1.0.0-rc.10'], ['old', undefined]])
+    })
+
     it('takes the focus made for its launch as its own', () => {
         const {id} = sessions.attend('greenhouse', 'a', undefined, undefined, true, undefined, false, 'l9')
         expect(sessions.currentId('launch-l9')).toBe(id)

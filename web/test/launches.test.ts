@@ -100,12 +100,25 @@ describe('starting a session', () => {
         expect(sent).toEqual([{type: 'launch', after: 6, minutes: 30}])
         // The launch on its way covers what comes after it, until its session connects.
         expect(await launches.considerLaunch(signal(8))).toBeNull()
-        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, folders: [], every: false, started: 0, starting: 1, total: 1})
+        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], every: false, started: 0, starting: 1, total: 1})
         expect(launches.launched(launch!.id)).toMatchObject({launch: launch!.id, tmux: launch!.tmux})
         started = {greenhouse: 1, all: 1}
         expect(await launches.considerLaunch(signal(9))).not.toBeNull()
         done()
         expect(launches.launchState('greenhouse').launchers).toBe(0)
+    })
+
+    it('knows the version each launcher runs, until it goes', () => {
+        const old = launches.addLauncher('greenhouse', '/repo', false, '1.0.0-rc.9')
+        const now = launches.addLauncher('greenhouse', '/repo', false, '1.0.0-rc.10')
+        const unsaid = launches.addLauncher('greenhouse')
+        expect(launches.launchState('greenhouse').versions).toEqual(['1.0.0-rc.9', '1.0.0-rc.10', ''])
+        old()
+        old()
+        expect(launches.launchState('greenhouse').versions).toEqual(['1.0.0-rc.10', ''])
+        unsaid()
+        now()
+        expect(launches.launchState('greenhouse').versions).toEqual([])
     })
 
     it("isn't for a signal aimed at one session, or one that's been delivered", async () => {
@@ -184,7 +197,7 @@ describe('the owner starting a session by hand', () => {
         launches.addLauncher('greenhouse')
         started = {greenhouse: 0, all: 2}
         await expect(launches.startLaunch('greenhouse')).rejects.toThrow('Orrery already has its 2 sessions at once')
-        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, folders: [], every: false, started: 0, starting: 0, total: 2})
+        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], every: false, started: 0, starting: 0, total: 2})
     })
 
     it('starts one session hearing several projects only when their launchers share a folder', async () => {

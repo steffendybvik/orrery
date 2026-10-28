@@ -66,12 +66,22 @@ const folders = new Map<string, Map<string, number>>()
 /** How many of each project's launchers run where its channel serves every project (`*`, `?every=1`), so a session
  * started there hearing no one project hears them all. */
 const everywhere = counter('everywhere')
-/** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, until
- * `done` is called. */
-export function addLauncher(project: string, dir?: string, every = false): () => void {
+/** The version each of a project's launchers runs, as it says (`?version=`; one from before 1.0.0-rc.10 doesn't, and
+ * counts as `''`). */
+const versions = new Map<string, string[]>()
+/** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, and the
+ * version of its code, until `done` is called. */
+export function addLauncher(project: string, dir?: string, every = false, version = ''): () => void {
     const gone = launchers.add(project)
     const away = every ? everywhere.add(project) : () => {}
+    versions.set(project, [...versions.get(project) ?? [], version])
+    let held = true
     const done = () => {
+        if (held) {
+            held = false
+            const left = versions.get(project) ?? []
+            left.splice(left.indexOf(version), 1)
+        }
         away()
         gone()
     }
@@ -444,8 +454,8 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
     return extended
 }
 
-/** For the project's settings: its launchers, the sessions it has started and on their way, and those on every
- * project, which the limit counts. */
-export function launchState(project: string): {launchers: number, folders: string[], every: boolean, started: number, starting: number, total: number} {
-    return {launchers: launchersOf(project), folders: foldersOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
+/** For the project's settings: its launchers and the versions they run, the sessions it has started and on their way,
+ * and those on every project, which the limit counts. */
+export function launchState(project: string): {launchers: number, versions: string[], folders: string[], every: boolean, started: number, starting: number, total: number} {
+    return {launchers: launchersOf(project), versions: [...versions.get(project) ?? []], folders: foldersOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
 }
