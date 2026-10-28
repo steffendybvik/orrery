@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {TINTS, issueRef} from '#shared/roadmap'
+import {TINTS, issueRef, trackerLinkOf} from '#shared/roadmap'
 import type {DatabaseInfo} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
@@ -86,17 +86,28 @@ async function saveHandle() {
 }
 
 // Where the team's tracker shows a task, so an issue's team tasks open there; saved like the name.
+// A link into the tracker that isn't a task's (its team or projects page) is turned into its task link, and said so.
 const tracker = ref('')
 const trackerFailed = ref('')
+/** The task link a pasted link was turned into, to say so until the field changes again. */
+const trackerTurned = ref('')
 watch(() => settings.value.tracker, now => {
     tracker.value = now ?? ''
 }, {immediate: true})
 async function saveTracker() {
-    const next = tracker.value.trim()
-    if (next === (settings.value.tracker ?? '')) return
+    const typed = tracker.value.trim()
+    if (typed === (settings.value.tracker ?? '')) return
     trackerFailed.value = ''
+    trackerTurned.value = ''
+    const next = typed ? trackerLinkOf(typed) : null
+    if (typed && !next) {
+        trackerFailed.value = "That link opens the same page for every task: put {id} where a task's id goes, e.g. https://tracker.example.com/issue/{id}"
+        return
+    }
     try {
-        await save({tracker: next || null})
+        await save({tracker: next})
+        tracker.value = next ?? ''
+        if (next && next !== typed) trackerTurned.value = next
     } catch (error) {
         trackerFailed.value = errorMessage(error)
     }
@@ -257,6 +268,12 @@ async function pick(tint: string | null) {
           >
           <span v-if="trackerFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ trackerFailed }}</span>
         </form>
+        <p v-if="trackerTurned" class="text-xs text-muted" role="status">
+          Saved as a task link, with <span class="font-mono">{id}</span> where a task's id goes: <span class="font-mono text-fg">{{ trackerTurned }}</span>
+        </p>
+        <p v-else class="text-xs text-faint">
+          For a tracker this board knows, a link to its team or projects page works too: it's saved as the link to a task.
+        </p>
       </section>
 
       <section v-if="tab === 'orrery'" id="tint" class="scroll-mt-6 flex flex-col gap-3">
