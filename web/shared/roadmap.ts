@@ -416,6 +416,30 @@ export type TerminalApp = keyof typeof TERMINALS
 /** Where this orrery keeps its data, as App settings shows it (read only): a SQLite file's path, or a Postgres
  * database as `user@host:port/name`, never its password; the folder it's backed up to, if any, and when the
  * latest backup there was made. */
+/** A copy in the backup folder (`GET /api/backups`, ORR-448): the latest, a daily one, or one taken before an upgrade
+ * or a restore (or set aside as another orrery's), with when it was written, its size in bytes, and the orrery it's a
+ * copy of: its id, the name it ran under (`ORRERY_ENVIRONMENT`) and its projects, when it can be read. */
+export interface Snapshot {
+    name: string
+    kind: 'latest' | 'daily' | 'before'
+    at: string
+    size: number
+    of?: string
+    environment?: string
+    projects?: number
+}
+
+/** The backups to restore from, and what's needed to offer them (`GET /api/backups`). */
+export interface Backups {
+    snapshots: Snapshot[]
+    /** A new orrery's database: no projects, no owner. */
+    fresh: boolean
+    /** Whether the app can restore one: a SQLite orrery, not set to Postgres by ORRERY_DATABASE. */
+    restorable: boolean
+    environment: string
+    docker: boolean
+}
+
 export interface DatabaseInfo {
     kind: 'sqlite' | 'postgres'
     where: string

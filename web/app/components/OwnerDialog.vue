@@ -2,15 +2,28 @@
 // The first time an orrery is opened, it asks whose it is. That name is the owner's (what they make,
 // no one else can delete), and their `Orrery-Actor` is it in lowercase snake case. A brand-new one (no projects) opened
 // on this machine asks first where to keep its data (ORR-319): here, or Postgres, moved to as App settings does it, so
-// ORRERY_DATABASE isn't needed. Not when ORRERY_DATABASE names Postgres, or once it's moved.
+// ORRERY_DATABASE isn't needed. Not when ORRERY_DATABASE names Postgres, or once it's moved. Before either, a new one
+// whose backup folder has backups asks whether to restore one (ORR-448): it never starts from one by itself.
+import type {Backups} from '#shared/roadmap'
+
 const {named, rename} = useOwner()
 const {settings} = useAppSettings()
 const {ordered} = useProjectOrder()
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
 const asksData = computed(() => !!settings.value.database?.movable && !settings.value.database.moved && !ordered.value.length
     && THIS_MACHINE.test(location.hostname))
-const step = ref<'data' | 'postgres' | 'name'>('data')
-const showing = computed(() => asksData.value ? step.value : 'name')
+const step = ref<'restore' | 'data' | 'postgres' | 'name'>('restore')
+const backups = ref<Backups | null>(null)
+watch(named, async now => {
+    if (!now && !backups.value) backups.value = await $fetch<Backups>('/api/backups').catch(() => null)
+}, {immediate: true})
+const asksRestore = computed(() => !!backups.value?.fresh && !!backups.value.snapshots.length)
+const showing = computed(() => {
+    if (step.value === 'restore' && asksRestore.value) return 'restore'
+    return asksData.value ? step.value === 'restore' ? 'data' : step.value : 'name'
+})
+/** In Docker, a new one with no backups may have had its data in a volume of another name. */
+const otherVolume = computed(() => !!backups.value?.fresh && backups.value.docker && !backups.value.snapshots.length)
 const display = ref('')
 const saving = ref(false)
 const failed = ref('')
@@ -25,6 +38,7 @@ const id = computed(() => display.value.normalize('NFKD').replace(/[̀-ͯ]/g, ''
 const ready = computed(() => !!id.value && id.value !== 'agent' && !saving.value)
 
 function submit() {
+    if (showing.value === 'restore') return
     if (showing.value === 'data') step.value = 'name'
     else if (showing.value === 'name') save()
 }
@@ -44,8 +58,24 @@ async function save() {
 </script>
 
 <template>
-  <UiDialog :open="!named" :label="showing === 'name' ? 'Your name' : 'Where to keep its data'" :width="showing === 'postgres' ? 'lg' : 'md'" required @submit="submit">
-    <template v-if="showing !== 'name' && settings.database">
+  <UiDialog
+      :open="!named"
+      :label="showing === 'name' ? 'Your name' : showing === 'restore' ? 'Restore a backup' : 'Where to keep its data'"
+      :width="showing === 'postgres' || showing === 'restore' ? 'lg' : 'md'"
+      required
+      @submit="submit"
+  >
+    <template v-if="showing === 'restore' && backups">
+      <div class="flex flex-col gap-1">
+        <h2 class="text-[15px] font-semibold text-fg">Found backups. Restore one?</h2>
+        <p class="text-xs text-muted">
+          This orrery is empty, and its backup folder has {{ backups.snapshots.length }} backup{{ backups.snapshots.length === 1 ? '' : 's' }}, the latest from
+          {{ new Date(backups.snapshots[0]!.at).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}) }}. Pick one to carry on from it, or start fresh.
+        </p>
+      </div>
+      <BackupRestore :backups="backups" first @fresh="step = 'data'" />
+    </template>
+    <template v-else-if="showing !== 'name' && settings.database">
       <div class="flex flex-col gap-1">
         <h2 class="text-[15px] font-semibold text-fg">Where should this orrery keep its data?</h2>
         <p class="text-xs text-muted">You can move it later in App settings → Database.</p>
@@ -68,6 +98,10 @@ async function save() {
         <p class="text-xs text-muted">You're its owner: what you make, no one else can delete. Change it later in Settings.</p>
       </div>
       <input ref="input" v-model="display" placeholder="Your name" aria-label="Your name" maxlength="60" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
+      <p v-if="otherVolume" class="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-500/30 dark:text-amber-300" data-other-volume>
+        Had data here before? This orrery starts empty, and it may be in another Docker volume, from a folder with another name:
+        see <code>docker volume ls</code>.
+      </p>
       <p class="text-xs text-faint">
         Your <span class="font-mono text-muted">Orrery-Actor</span> header will be <span class="font-mono text-muted">{{ id || 'your_name' }}</span>
       </p>

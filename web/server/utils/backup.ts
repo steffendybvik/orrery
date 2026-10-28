@@ -176,10 +176,30 @@ export function putInPlace(from: string, to: string) {
     renameSync(from, to)
 }
 
+/** The id of the orrery a SQLite file is (`settings.id`), if it can be read. */
+export function idOf(path: string): string | undefined {
+    let opened: DatabaseSync | undefined
+    try {
+        opened = new DatabaseSync(path, {readOnly: true})
+        const row = opened.prepare('SELECT value FROM settings WHERE key = \'id\'').get() as {value: string} | undefined
+        return row ? JSON.parse(row.value) as string : undefined
+    } catch {
+        return undefined
+    } finally {
+        opened?.close()
+    }
+}
+
 /** Puts the written backup in place as the latest, keeps today's, and lets go of the daily ones past `days` and of
- * all but the newest few taken before an upgrade. */
+ * all but the newest few taken before an upgrade. A latest that's another orrery's (a new one started fresh over a
+ * folder with backups, or two sharing one) is set aside as `orrery-pre-other-<time>.db` rather than written over. */
 function keep(dir: string, days: number) {
-    putInPlace(join(dir, PARTIAL), join(dir, LATEST))
+    const latest = join(dir, LATEST)
+    if (existsSync(latest)) {
+        const [was, now] = [idOf(latest), idOf(join(dir, PARTIAL))]
+        if (was && now && was !== now) renameSync(latest, join(dir, `orrery-pre-other-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.db`))
+    }
+    putInPlace(join(dir, PARTIAL), latest)
     const today = join(dir, `orrery-${new Date().toISOString().slice(0, 10)}.db`)
     // Copied beside it and renamed, so a copy cut short is never taken for today's.
     if (!existsSync(today)) {
@@ -199,12 +219,4 @@ export function lastBackup(dir: string): string | undefined {
     } catch {
         return undefined
     }
-}
-
-/** A database that isn't there yet (a new machine, a fresh volume) starts from the backup. */
-export function restoreBackup(path: string, dir: string) {
-    if (!dir || existsSync(path) || !existsSync(join(dir, LATEST))) return
-    mkdirSync(join(path, '..'), {recursive: true})
-    copyFileSync(join(dir, LATEST), path)
-    console.info(`[orrery] restored the database from ${join(dir, LATEST)}`)
 }

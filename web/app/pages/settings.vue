@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {TINTS, issueRef, trackerLinkOf} from '#shared/roadmap'
-import type {DatabaseInfo} from '#shared/roadmap'
+import type {Backups, DatabaseInfo} from '#shared/roadmap'
 import type {Heading} from '~/utils/markdown'
 
 // This orrery's own settings (a project's are on its Settings tab): whose it is, how issues work in every project, and
@@ -150,6 +150,14 @@ async function backUpNow() {
         backingUp.value = false
     }
 }
+
+// The backups in the folder, to restore one (ORR-448): read when the page opens, and again after a backup.
+const backups = ref<Backups | null>(null)
+const loadBackups = async () => {
+    backups.value = await $fetch<Backups>('/api/backups').catch(() => backups.value)
+}
+onMounted(loadBackups)
+watch(() => settings.value.database?.backed_up_at, loadBackups)
 
 /** The latest backup is old enough to look into (ORR-448): over two days, while backups are on. */
 const STALE = 48 * 60 * 60_000
@@ -503,6 +511,7 @@ async function pick(tint: string | null) {
           Not backed up: give orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker),
           or a Postgres database with <code>ORRERY_BACKUP_DATABASE</code> (<code>NUXT_BACKUP_DATABASE</code>).
         </p>
+        <BackupRestore v-if="backups?.snapshots.length && backups.restorable" :backups="backups" :id="settings.id" />
         <DatabaseMove v-if="settings.database?.movable" :database="settings.database" />
         <p v-else-if="settings.database" class="text-xs text-faint">
           <code>ORRERY_DATABASE</code> names this Postgres, so it's moved there: copy the data with <code>pnpm orrery:copy</code>, change it and restart orrery.

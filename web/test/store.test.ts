@@ -8,7 +8,7 @@ import sharp from 'sharp'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
-import {backUp, backupPostgres, lastBackup, restoreBackup} from '../server/utils/backup'
+import {backUp, backupPostgres, lastBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
 import {SqliteDb} from '../server/utils/database'
 import {PostgresDb} from '../server/utils/postgres'
@@ -1795,9 +1795,7 @@ describe('the database', () => {
         // One file each, the latest and today's, with nothing left beside them.
         expect(readdirSync(cloud).sort()).toEqual(['orrery.db', `orrery-${new Date().toISOString().slice(0, 10)}.db`].sort())
 
-        const fresh = join(dir, 'new', 'orrery.db')
-        restoreBackup(fresh, cloud)
-        expect((await new Store(new SqliteDb(openDb(fresh))).issue('greenhouse', id)).title).toBe('saved')
+        expect((await new Store(new SqliteDb(openDb(join(cloud, 'orrery.db')))).issue('greenhouse', id)).title).toBe('saved')
     })
 
     it("is copied whole into a SQLite snapshot, as a Postgres one is, whatever it's on", async () => {

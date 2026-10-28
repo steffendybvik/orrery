@@ -2,7 +2,7 @@
 // `node:sqlite` is synchronous, so writes from several sessions never interleave. The owner can move it from App
 // settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
 import {chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
-import {lastBackup, lastBackupFailure, lastPostgresBackup, putInPlace, restoreBackup} from './backup'
+import {lastBackup, lastBackupFailure, lastPostgresBackup, putInPlace} from './backup'
 import {backupChoice, backupChoiceFile, backupDir, backupEvery, backupKeep, backupTarget, defaultBackupDir, inDocker} from './backup-choice'
 import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
@@ -694,7 +694,7 @@ let db: DatabaseSync | null = null
 
 function useDb(path: string): DatabaseSync {
     if (db) return db
-    restoreBackup(path, backupDir())
+    // A new database doesn't start from a backup by itself (ORR-448): its first page asks, see server/utils/restore.ts.
     // Before an upgrade's steps, a copy as it was: in the backup folder, or beside the file when backups are off.
     db = openDb(path, MIGRATIONS.length, join(backupDir() || dirname(path), `orrery-pre-${useRuntimeConfig().public?.version ?? 'upgrade'}.db`))
     return db
