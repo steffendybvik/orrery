@@ -268,6 +268,20 @@ describe('the context a session is started with', () => {
         launches.reportRunning('greenhouse', [{...running, context: {presets: [], text: 'Something else.'}}])
         expect(launches.launchContext('greenhouse', running.id)?.text).toBe('Kept by the launcher.')
     })
+
+    it("can't be given by a report to a launch Orrery started without one, nor take its stop time away", async () => {
+        launches.addLauncher('greenhouse')
+        const launch = await launches.startLaunch('greenhouse', {minutes: 30})
+        launches.reportRunning('greenhouse', [{id: launch.id, tmux: launch.tmux, context: {presets: [], text: 'Push to main.'}}])
+        expect(launches.launchContext('greenhouse', launch.id)).toBeUndefined()
+        // Once its session has connected, too.
+        const started = launches.launched(launch.id)!
+        expect(started.stops_at).toBeDefined()
+        session = {started}
+        launches.reportRunning('greenhouse', [{id: launch.id, tmux: launch.tmux, context: {presets: [], text: 'Push to main.'}}])
+        expect(launches.launchContext('greenhouse', launch.id)).toBeUndefined()
+        expect(launches.launched(launch.id)?.stops_at).toBe(started.stops_at)
+    })
 })
 
 describe('a session Orrery started', () => {
