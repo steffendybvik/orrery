@@ -61,7 +61,7 @@ export class EventLog {
     constructor(
         /** Changed only when the owner moves the database (`rebindDatabase`). */
         public db: Db,
-        /** What takes secrets' values out of a text, made once for each event recorded. */
+        /** What takes secrets' values out of a text, made once and kept until `forget`. */
         private readonly scrubber: () => Promise<(text: string) => string> = async () => text => text,
         private readonly onLogged: (event: LoggedEvent, fresh: boolean) => void = () => {},
         private readonly now: () => Date = () => new Date(),
@@ -73,10 +73,41 @@ export class EventLog {
      * time when it isn't kept, and only a new one when it is (a repeat of an open error isn't news). The server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 
+    /** Advanced and the scrubber, as last read: each event would otherwise read the setting and open every secret,
+     * and some come often (`backup.made`). The server forgets them when the settings or secrets change. */
+    private known: {db: Db, advanced?: Promise<boolean>, scrub?: Promise<(text: string) => string>} | null = null
+
+    /** Reads Advanced and the secrets again on the next event. */
+    forget() {
+        this.known = null
+    }
+
     /** Whether the owner has Advanced on, so more than errors is recorded. */
-    async advanced(): Promise<boolean> {
-        const row = await this.db.get<{value: string}>("SELECT value FROM settings WHERE key = 'advanced'")
-        return row ? JSON.parse(row.value) === true : false
+    advanced(): Promise<boolean> {
+        const known = this.read()
+        known.advanced ??= this.db.get<{value: string}>("SELECT value FROM settings WHERE key = 'advanced'")
+            .then(row => row ? JSON.parse(row.value) === true : false)
+        return this.kept(known.advanced)
+    }
+
+    private scrub(): Promise<(text: string) => string> {
+        const known = this.read()
+        known.scrub ??= this.scrubber()
+        return this.kept(known.scrub)
+    }
+
+    /** What's known of the database it's on now (a moved one starts afresh). */
+    private read() {
+        if (this.known?.db !== this.db) this.known = {db: this.db}
+        return this.known
+    }
+
+    /** `read`, forgotten when it fails, so the next event tries again. */
+    private kept<T>(read: Promise<T>): Promise<T> {
+        return read.catch(error => {
+            this.forget()
+            throw error
+        })
     }
 
     /** Records it, or adds to the same one not yet resolved; null when it isn't kept (Advanced is off and it's no error). */
@@ -87,7 +118,7 @@ export class EventLog {
             this.happened({type: entry.kind, level: entry.level, ...entry.project ? {project: entry.project} : {}})
             return null
         }
-        const scrub = await this.scrubber()
+        const scrub = await this.scrub()
         const message = cut(redact(scrub(entry.message.trim() || entry.kind)), MESSAGE)
         const details = entry.details ? JSON.stringify(clean(entry.details, scrub)) : null
         const project = entry.project || null

@@ -21,6 +21,7 @@ import type {OnFilter, OrreryEvent} from '#shared/happenings'
 import {EVENT_PATTERN, matchesType} from '#shared/happenings'
 import type {Preset, Priority, Schedule, ScheduleRun} from '#shared/roadmap'
 import {CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
+import type {Db} from './database'
 import {one} from './database'
 import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
@@ -143,6 +144,7 @@ export class Schedules {
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false),
             Number(input.untrusted ?? false), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
+        this.listeners = null
         this.onChange(project)
         return await this.get(project, id)
     }
@@ -188,6 +190,7 @@ export class Schedules {
         }
         const fields = Object.entries(set).filter(([, v]) => v !== undefined)
         await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), id)
+        this.listeners = null
         this.onChange(project)
         return await this.get(project, id)
     }
@@ -198,6 +201,7 @@ export class Schedules {
         if (row.owned && !actor.owner) throw forbidden(`Deleting schedule ${id}: it's the owner's; only they can delete it`)
         await this.db.run('DELETE FROM schedules WHERE id = ?', id)
         await this.db.run('UPDATE issues SET schedule = NULL WHERE schedule = ?', id)
+        this.listeners = null
         this.onChange(project)
     }
 
@@ -244,8 +248,26 @@ export class Schedules {
         return heard
     }
 
+    /** The event schedules switched on, `{project, on_event}`, as last read from the database they were read from: a
+     * bulk edit makes hundreds of events, most for no schedule, and they're turned away without a query. Read again
+     * once a schedule is made, changed or deleted. */
+    private listeners: {db: Db, read: Promise<{project: string, on_event: string}[]>} | null = null
+
+    private async eventSchedules(): Promise<{project: string, on_event: string}[]> {
+        let listeners = this.listeners
+        if (listeners?.db !== this.db) {
+            const read = this.db.all<{project: string, on_event: string}>('SELECT project, on_event FROM schedules WHERE enabled = 1 AND on_event IS NOT NULL')
+            listeners = this.listeners = {db: this.db, read}
+            read.catch(() => {
+                if (this.listeners?.read === read) this.listeners = null
+            })
+        }
+        return await listeners.read
+    }
+
     private async hearOne(event: OrreryEvent, cause: number | undefined, now: Date): Promise<number> {
         if (cause !== undefined || event.untrusted) return 0
+        if (!(await this.eventSchedules()).some(s => (!event.project || s.project === event.project) && matchesType(s.on_event, event.type))) return 0
         const rows = await this.db.all<ScheduleRow>(`SELECT * FROM schedules WHERE enabled = 1 AND on_event IS NOT NULL${event.project ? ' AND project = ?' : ''}`,
             ...event.project ? [event.project] : [])
         let ran = 0

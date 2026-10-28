@@ -766,6 +766,12 @@ export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
     const opened = new DatabaseSync(path)
     // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes).
     opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL')
+    migrated = migrate(opened, path, upTo) ?? migrated
+    return opened
+}
+
+/** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. */
+function migrate(opened: DatabaseSync, path: string, upTo: number): {from: number, to: number} | null {
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     opened.exec('PRAGMA foreign_keys = OFF')
@@ -778,7 +784,24 @@ export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
     })
     if (opened.prepare('PRAGMA foreign_key_check').all().length) throw new Error(`${path}: a migration left rows pointing at nothing`)
     opened.exec('PRAGMA foreign_keys = ON')
-    if (version < Math.min(upTo, MIGRATIONS.length)) migrated = {from: version, to: Math.min(upTo, MIGRATIONS.length)}
+    return version < Math.min(upTo, MIGRATIONS.length) ? {from: version, to: Math.min(upTo, MIGRATIONS.length)} : null
+}
+
+/** An empty database with the schema up to date, laid down once, in memory. */
+let schema: DatabaseSync | null = null
+
+/** A new file at `path` with the schema up to date and nothing in it, copied from `schema`: a Postgres backup is
+ * written into one as often as once a minute, and every migration again (table rebuilds included) each time is the
+ * slow way there. No migration the event log hears of. */
+export function emptyDb(path: string): DatabaseSync {
+    if (!schema) {
+        schema = new DatabaseSync(':memory:')
+        migrate(schema, ':memory:', MIGRATIONS.length)
+    }
+    mkdirSync(dirname(path), {recursive: true})
+    schema.prepare('VACUUM INTO ?').run(path)
+    const opened = new DatabaseSync(path)
+    opened.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON')
     return opened
 }
 

@@ -1,6 +1,7 @@
 import {mkdtempSync, readFileSync, readdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {DatabaseSync} from 'node:sqlite'
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
@@ -1687,6 +1688,14 @@ describe('the database', () => {
         expect(readdirSync(dir)).toContain('orrery.db')
         expect(readdirSync(dir).filter(name => name.includes('partial') || name.endsWith('-wal'))).toEqual([])
         expect((await new Store(new SqliteDb(openDb(join(dir, 'orrery.db')))).issue('greenhouse', id)).title).toBe('snapped')
+
+        // Each from the schema laid down once, up to date, with nothing of the last one left in it.
+        await store.updateIssue('greenhouse', id, {title: 'snapped again'})
+        await backupPostgres(store.db, dir)
+        const again = new DatabaseSync(join(dir, 'orrery.db'))
+        const version = (raw: DatabaseSync) => (raw.prepare('PRAGMA user_version').get() as {user_version: number}).user_version
+        expect(version(again)).toBe(version(openDb(':memory:')))
+        expect(again.prepare('SELECT title FROM issues').all().map(row => row.title)).toEqual(['snapped again'])
     })
 })
 

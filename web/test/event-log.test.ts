@@ -28,6 +28,7 @@ describe('the event log', () => {
         expect(await log.record({level: 'error', kind: 'server.error', message: 'boom'})).toMatchObject({level: 'error', kind: 'server.error', count: 1})
 
         await store.updateSettings({advanced: true}, owner)
+        log.forget()
         expect((await store.settings()).advanced).toBe(true)
         expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toMatchObject({project: 'hub', count: 1})
         expect((await log.list()).map(e => e.kind)).toEqual(['session.started', 'server.error'])
@@ -62,8 +63,27 @@ describe('the event log', () => {
         expect(redact('Basic dXNlcjpwYXNzd29yZA==')).toBe('Basic …')
     })
 
+    it('reads Advanced and the secrets once, and again only once told they changed', async () => {
+        let made = 0
+        const counted = new EventLog(store.db, async () => {
+            made++
+            return text => text
+        })
+        await counted.record({level: 'error', kind: 'server.error', message: 'one'})
+        await counted.record({level: 'error', kind: 'server.error', message: 'two'})
+        expect(made).toBe(1)
+        expect(await counted.record({level: 'info', kind: 'backup.made', message: 'Backed up'})).toBeNull()
+
+        await store.updateSettings({advanced: true}, owner)
+        expect(await counted.record({level: 'info', kind: 'backup.made', message: 'Backed up'})).toBeNull()
+        counted.forget()
+        expect(await counted.record({level: 'info', kind: 'backup.made', message: 'Backed up'})).toMatchObject({kind: 'backup.made'})
+        expect(made).toBe(2)
+    })
+
     it('lists by level, kind, project and time, newest first', async () => {
         await store.updateSettings({advanced: true}, owner)
+        log.forget()
         await log.record({level: 'info', kind: 'launcher.connected', project: 'hub', message: 'A launcher connected'})
         later(1000)
         await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})
@@ -91,6 +111,7 @@ describe('the event log', () => {
 
     it('lets go of what Orrery did after a week, problems after a month', async () => {
         await store.updateSettings({advanced: true}, owner)
+        log.forget()
         await log.record({level: 'info', kind: 'backup.made', message: 'Backed up'})
         await log.record({level: 'error', kind: 'backup.failed', message: 'Disk full'})
         later(KEEP_INFO + 1000)
