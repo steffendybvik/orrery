@@ -685,6 +685,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         PRIMARY KEY (project, issue, put_up),
         FOREIGN KEY (project, issue) REFERENCES issues(project, id) ON DELETE CASCADE ON UPDATE CASCADE
     );
+`, `
+    -- Agents' comments in the order the bell and Notifications list them (ORR-441), so a page of them is read off it.
+    CREATE INDEX comments_notices ON comments(owned, cleared, created_at, id);
 `]
 
 let db: DatabaseSync | null = null

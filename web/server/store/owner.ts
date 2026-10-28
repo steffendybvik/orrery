@@ -4,7 +4,7 @@ import {NOTICE_LISTS} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, forbidden} from '../utils/input'
 import type {CommentRow} from './schema'
-import {AGENT, OWNER_FIELDS, actorId, ANSWERED, commentOf, stamp} from './schema'
+import {AGENT, OWNER_FIELDS, actorId, ANSWERED, SINCE, commentOf, stamp} from './schema'
 import {StatusStore} from './statuses'
 
 export abstract class OwnerStore extends StatusStore {
@@ -86,23 +86,33 @@ export abstract class OwnerStore extends StatusStore {
     }
 
     private async commentNotices({list = 'bell', before, limit}: {list?: NoticeList, before?: number, limit?: number}): Promise<Notice[]> {
-        const which = {
-            bell: 'cleared = 0',
-            waiting: 'cleared = 0 AND asks IS NOT NULL AND NOT answered',
-            inbox: 'cleared = 0 AND NOT (asks IS NOT NULL AND NOT answered)',
-            cleared: 'cleared = 1',
-        }[list]
         if (!NOTICE_LISTS.includes(list)) throw badRequest(`Unknown list "${list}"; use ${NOTICE_LISTS.join(', ')}`)
+        // The bell: those waiting on the owner first, then the latest, 30 in all.
+        if (list === 'bell') {
+            const waiting = await this.commentRows(`c.cleared = 0 AND c.asks IS NOT NULL AND NOT ${SINCE}`, 30)
+            const latest = await this.commentRows('c.cleared = 0', 30)
+            const seen = new Set(waiting.map(n => n.id))
+            return [...waiting, ...latest.filter(n => !seen.has(n.id))].slice(0, 30)
+        }
+        const which = {
+            waiting: `c.cleared = 0 AND c.asks IS NOT NULL AND NOT ${SINCE}`,
+            inbox: `c.cleared = 0 AND (c.asks IS NULL OR ${SINCE})`,
+            cleared: 'c.cleared = 1',
+        }[list]
         const paged = list === 'inbox' || list === 'cleared'
-        const after = paged && before !== undefined ? 'AND (created_at, id) < (SELECT created_at, id FROM comments WHERE id = ?)' : ''
-        const count = list === 'bell' ? 30 : paged ? Math.min(Math.max(1, limit ?? 50), 200) : undefined
+        return await this.commentRows(which, paged ? Math.min(Math.max(1, limit ?? 50), 200) : undefined, paged ? before : undefined)
+    }
+
+    /** Agents' comments matching `which`, newest first, at most `count`, older than the comment `before`. Filtered
+     * before they're joined to their issues and `answered` is worked out, so an index on the comments walks them in
+     * order and stops at `count` (ORR-441). */
+    private async commentRows(which: string, count?: number, before?: number): Promise<Notice[]> {
+        const after = before !== undefined ? 'AND (c.created_at, c.id) < (SELECT created_at, id FROM comments WHERE id = ?)' : ''
         return (await this.all<CommentRow & {title: string, cleared: number}>(`
-            SELECT * FROM (
-                SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
-                WHERE c.owned = 0) AS listed
-            WHERE ${which} ${after}
-            ORDER BY ${list === 'bell' ? '(asks IS NOT NULL AND NOT answered) DESC, ' : ''}created_at DESC, id DESC ${count ? 'LIMIT ?' : ''}`,
-        ...after && before !== undefined ? [before] : [], ...count ? [count] : []))
+            SELECT c.*, i.title, ${ANSWERED} FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
+            WHERE c.owned = 0 AND ${which} ${after}
+            ORDER BY c.created_at DESC, c.id DESC ${count ? 'LIMIT ?' : ''}`,
+        ...before !== undefined ? [before] : [], ...count ? [count] : []))
             .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.cleared ? {cleared: true} : {}}))
     }
 
