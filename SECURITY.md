@@ -70,7 +70,10 @@ The chat (the button in the corner) is a session started for you to talk to on t
 `secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
 unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release or parent (any other
 change is refused), commenting, and
-answering you. Three more go further, and you should know how far:
+answering you. It changes those fields even on an issue another session is working: the check that refuses one
+session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
+
+Three more go further, and you should know how far:
 
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
   Secrets, the database, statuses and how sessions start aren't among them.
@@ -111,7 +114,8 @@ the owner puts it in. (ORR-333 proposed opening presets to agents and was declin
 What an event schedule passes on follows the same rule. A session schedule's instructions and a message schedule's
 message end with what happened, said by ids: the change for a status, priority, chunk, release or parent, never a
 label's text, and an agent by its handle. A launcher's report of what it runs can't give a session a context
-Orrery didn't start it with.
+Orrery didn't start it with. A launcher's claim on a session waiting to start isn't checked, though: anything that
+reaches Orrery can claim one first and keep it from starting, until launchers prove which one they are (ORR-443).
 
 ### The owner's chat
 
