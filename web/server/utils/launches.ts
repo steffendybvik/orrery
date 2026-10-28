@@ -56,6 +56,9 @@ export function asLaunch<T>(id: string, note: () => T): T {
  * `claimed` once a launcher has taken it on. */
 const pending = new Map<string, Launch & {at: number, claimed: boolean}>()
 const PENDING_FOR = 3 * 60 * 1000
+/** How long one an outdated launcher was refused waits for a launcher that can take it, as it's offered again to each
+ * that connects (ORR-471); a chat waits until the owner ends it. */
+const REFUSED_FOR = 30 * 60 * 1000
 /** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
  * each reports its sessions when it connects, so one that reconnects to a restarted orrery is known again. */
 const reported = new Map<string, {project: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean}>()
@@ -110,13 +113,23 @@ export function addLauncher(project: string, dir?: string, every = false, versio
 export const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
 
 function pendingOn(project?: string): number {
-    for (const [id, launch] of pending) if (Date.now() - launch.at > PENDING_FOR) pending.delete(id)
+    for (const [id, launch] of pending) {
+        const waits = !told.has(id) ? PENDING_FOR : launch.chat ? Infinity : REFUSED_FOR
+        if (Date.now() - launch.at > waits) pending.delete(id)
+    }
     // A chat on its way takes up no room.
     return [...pending.values()].filter(l => !l.chat && (!project || l.project === project)).length
 }
 
 function emit(event: LaunchEvent) {
     projectEvents.emit('launches', event)
+}
+
+/** The project's launches no launcher has taken on yet, to offer a launcher as it connects: one refused for an outdated
+ * launcher is started once that launcher restarts on new code (ORR-471). */
+export function unclaimedLaunches(project: string): Launch[] {
+    pendingOn()
+    return [...pending.values()].filter(l => l.project === project && !l.claimed).map(({at: _at, claimed: _claimed, ...launch}) => launch)
 }
 
 /** Set while the owner sends work asking for a session to be started for it when nobody's listening (Focus on this,
@@ -290,22 +303,27 @@ export function claim(project: string, id: string, token: string | undefined, lo
     const launch = pending.get(id)
     if (!launch || launch.project !== project || launch.claimed) return false
     if (!token || tokens.get(token) !== project) {
-        outdated(project, id, `A claim on a session waiting to start on ${project} came without a running launcher's token, so it was refused. A launcher from before 1.0.0-rc.10 sends none: restart it to start the session (it runs the channel folder's code when it starts).`)
+        outdated(project, id, `A claim on a session waiting to start on ${project} came without a running launcher's token, so it was refused. A launcher running older code sends none: restart it, and it's offered the session again (it runs the channel folder's code when it starts).`)
         return false
     }
     if (launch.untrusted && !locksDown || launch.chat && !chats) {
         const what = launch.chat ? 'a chat' : "an untrusted schedule's session"
-        outdated(project, id, `A launcher on ${project} is running code from before orrery could start ${what}, so it was refused it. Restart the launcher to start it (it runs the channel folder's code when it starts).`)
+        outdated(project, id, `A launcher on ${project} is running older code that can't start ${what}, so it was refused it. Restart the launcher, and it's offered it again (it runs the channel folder's code when it starts).`)
         return false
     }
     launch.claimed = true
+    // Refused before: it's on its way now, with the usual time to connect.
+    if (told.delete(id)) {
+        launch.at = Date.now()
+        chatProblem(id, null)
+    }
     return true
 }
 
 /** A launcher whose code is older than the launch it was offered (it sends no token, or doesn't say it can lock a
  * session down, or start a chat) was refused it, and nothing else will start it until that launcher restarts on the new
- * code (ORR-383). Said once a launch: as a warning in the event log, and on the chat, so it doesn't sit at "Starting the
- * session…". */
+ * code (ORR-383), which is offered it again as it connects (`unclaimedLaunches`). Said once a launch: as a warning in
+ * the event log, and on the chat, so it doesn't sit at "Starting the session…". */
 const told = new Set<string>()
 function outdated(project: string, id: string, message: string) {
     if (told.has(id)) return
