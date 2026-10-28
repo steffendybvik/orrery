@@ -33,15 +33,27 @@ function inside(path: string): Pick<Snapshot, 'of' | 'environment' | 'projects'>
     }
 }
 
+/** What each copy said about itself, by path, while its file is unchanged (its time and size): a year of daily copies
+ * isn't opened again on each list (ORR-483). */
+const read = new Map<string, {at: number, size: number, said: ReturnType<typeof inside>}>()
+
 /** The copies in `dir`, newest first. */
 export function listSnapshots(dir: string): Snapshot[] {
     if (!dir || !existsSync(dir)) return []
-    return readdirSync(dir).flatMap(name => {
+    const listed = new Set<string>()
+    const found = readdirSync(dir).flatMap(name => {
         const kind = kindOf(name)
         if (!kind) return []
-        const stat = statSync(join(dir, name))
-        return [{name, kind, at: stat.mtime.toISOString(), size: stat.size, ...inside(join(dir, name))}]
+        const path = join(dir, name)
+        const stat = statSync(path)
+        listed.add(path)
+        let known = read.get(path)
+        if (known?.at !== stat.mtimeMs || known.size !== stat.size) read.set(path, known = {at: stat.mtimeMs, size: stat.size, said: inside(path)})
+        return [{name, kind, at: stat.mtime.toISOString(), size: stat.size, ...known.said}]
     }).sort((a, b) => b.at.localeCompare(a.at) || a.name.localeCompare(b.name))
+    // Copies pruned since are forgotten.
+    for (const path of read.keys()) if (dirname(path) === dir && !listed.has(path)) read.delete(path)
+    return found
 }
 
 /** Whether `db` is a new orrery's: no projects, and no owner named yet. */

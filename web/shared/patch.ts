@@ -70,8 +70,10 @@ export function withoutClosed<T extends Project>(project: T): T {
     return {...project, board: {...project.board, chunks: project.board.chunks.map(chunk => ({...chunk, tasks: keep(chunk.tasks)}))}}
 }
 
-/** What changed from `before` (none: everything) to `after`. */
-export function diffProject(before: Project | undefined, after: Project, base: number, rev: number): ProjectPatch {
+/** What changed from `before` (none: everything) to `after`. `seen` saves work on a big project (ORR-483): its
+ * `before`, when given, is each of `before`'s issues as JSON, from the diff before, and `after` is filled in with
+ * `after`'s, for the next. */
+export function diffProject(before: Project | undefined, after: Project, base: number, rev: number, seen?: {before?: Map<string, string>, after?: Map<string, string>}): ProjectPatch {
     const {board: _, ...fields} = after
     const {board: __, ...had} = before ?? {board: undefined}
     const changed: Record<string, unknown> = {}
@@ -80,14 +82,16 @@ export function diffProject(before: Project | undefined, after: Project, base: n
     for (const [key, value] of Object.entries(fields)) if (value !== undefined && (!before || json(value) !== json(was[key]))) changed[key] = value
     const unset = before ? Object.keys(was).filter(key => was[key] !== undefined && (fields as Record<string, unknown>)[key] === undefined) : []
 
-    const old = issueJson(before?.board.chunks ?? [])
+    const old = seen?.before ?? issueJson(before?.board.chunks ?? [])
     const oldChunks = new Map((before?.board.chunks ?? []).map(chunk => [chunk.id, chunk]))
     const issues: Record<string, IssueFields> = {}
     const chunks = after.board.chunks.map(chunk => {
         let same = true
         const walk = (list: Issue[]) => list.forEach(issue => {
             const now = fieldsOf(issue)
-            if (old.get(issue.id) !== json(now)) {
+            const text = json(now)
+            seen?.after?.set(issue.id, text)
+            if (old.get(issue.id) !== text) {
                 issues[issue.id] = now
                 same = false
             }

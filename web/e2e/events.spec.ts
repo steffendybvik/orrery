@@ -107,6 +107,9 @@ test("counts each sender's reports apart, so a script can't use up the page's (O
     for (let i = 0; i < 21; i++) sent.push((await request.post('/api/events/log', {headers: script, data: {message: `noise ${i}`, kind: `page.noise${i}`}})).status())
     expect(sent.slice(0, 20).every(s => s === 201)).toBe(true)
     expect(sent[20]).toBe(429)
+    // Another name from the same place gets no new allowance (ORR-483).
+    const renamed = await request.post('/api/events/log', {headers: {'Orrery-Actor': `other${Date.now()}`}, data: {message: 'more noise', kind: 'page.noise-renamed'}})
+    expect(renamed.status()).toBe(429)
     const page = await request.post('/api/events/log', {data: {message: `the page's own ${Date.now()}`}})
     expect(page.status(), await page.text()).toBe(201)
 })

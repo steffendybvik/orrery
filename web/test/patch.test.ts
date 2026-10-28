@@ -54,6 +54,19 @@ describe('patches', () => {
         expect((await roundTrip(between)).unset).toEqual(['icon'])
     })
 
+    it("give the same patches from the issues' JSON kept from the patch before as from the project before (ORR-483)", async () => {
+        const first = await store.project('greenhouse')
+        const kept = new Map<string, string>()
+        diffProject(undefined, first, 0, 1, {after: kept})
+        expect(kept.size).toBe(4)
+        await store.updateIssue('greenhouse', 'GRE-2', {title: 'Brass hinges'})
+        await store.createIssue('greenhouse', {title: 'Vents', chunk: '2'})
+        const after = await store.project('greenhouse')
+        const next = new Map<string, string>()
+        expect(diffProject(first, after, 1, 2, {before: kept, after: next})).toEqual(diffProject(first, after, 1, 2))
+        expect(next.size).toBe(5)
+    })
+
     it('send nothing of an issue or chunk that did not change', async () => {
         const before = await store.project('greenhouse')
         const patch = await roundTrip(before)

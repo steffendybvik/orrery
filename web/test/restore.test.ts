@@ -39,6 +39,27 @@ describe('the backups', () => {
         expect(listSnapshots(join(dir, 'none'))).toEqual([])
     })
 
+    it('hold up the writes only while the copy is made, not while it is checked and kept (ORR-483)', async () => {
+        const store = await orrery('orrery.db', 'work')
+        let backedUp = false
+        const backing = backUp(store.db, backups).then(() => {
+            backedUp = true
+        })
+        await store.createProject({name: 'mesa', key: 'MES', release_mode: 'own'})
+        expect(backedUp).toBe(false)
+        await backing
+        expect(listSnapshots(backups).find(s => s.kind === 'latest')).toMatchObject({projects: 1})
+    })
+
+    it('read each copy again only once it has changed (ORR-483)', async () => {
+        const store = await orrery('orrery.db', 'work')
+        await backUp(store.db, backups)
+        expect(listSnapshots(backups).find(s => s.kind === 'latest')).toMatchObject({projects: 1})
+        await store.createProject({name: 'mesa', key: 'MES', release_mode: 'own'})
+        await backUp(store.db, backups)
+        expect(listSnapshots(backups).find(s => s.kind === 'latest')).toMatchObject({projects: 2})
+    })
+
     it('tell a new orrery from one in use', async () => {
         const store = await orrery('fresh.db', 'personal', false)
         expect(await isFresh(store.db)).toBe(true)

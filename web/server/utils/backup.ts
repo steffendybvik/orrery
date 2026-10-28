@@ -8,7 +8,9 @@
 // its own last one, never another orrery's or the live database. Each snapshot is written beside the one it replaces
 // and passes SQLite's `quick_check` before it takes its place (ORR-448): one that fails is let go, and the one before
 // stays.
-import {copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync} from 'node:fs'
+import {existsSync, mkdirSync, renameSync, rmSync, statSync} from 'node:fs'
+import {copyFile, readdir, rename, rm, stat} from 'node:fs/promises'
+import {Worker} from 'node:worker_threads'
 import {randomBytes} from 'node:crypto'
 import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
@@ -50,12 +52,8 @@ export function backupDelay(every: BackupEvery, settle: number, now: number, sin
     return Math.max(settle, last + INTERVAL[every] - now)
 }
 
-/** Writes a consistent copy of `db` to `dir`, then today's copy if there isn't one yet, keeping `days` of those. */
-export function backup(db: DatabaseSync, dir: string, days = KEEP_DAYS) {
-    const temporary = partial(dir)
-    db.prepare('VACUUM INTO ?').run(temporary)
-    keep(dir, days)
-}
+/** Writes a consistent copy of `db` beside the latest in `dir`, for `keep` to check and put in place. */
+const snapshot = (db: DatabaseSync, dir: string) => db.prepare('VACUUM INTO ?').run(partial(dir))
 
 /** Writes a SQLite snapshot of the Postgres database `db` to `dir`, as `backup` does a SQLite one. */
 export async function backupPostgres(db: Db, dir: string, days = KEEP_DAYS) {
@@ -65,16 +63,20 @@ export async function backupPostgres(db: Db, dir: string, days = KEEP_DAYS) {
     } finally {
         snapshot.close()
     }
-    keep(dir, days)
+    await keep(dir, days)
 }
 
 /** The backup being made, so another waits for it rather than writing over it. */
 let making: Promise<void> = Promise.resolve()
 
 /** Backs up the database orrery runs on to `dir`, after any backup already being made: a SQLite one in line with
- * the writes (`VACUUM INTO` can't run in the middle of a transaction), a Postgres one as a snapshot. */
+ * the writes (`VACUUM INTO` can't run in the middle of a transaction), a Postgres one as a snapshot. Only the copy
+ * holds up the writes: checking it, the daily copy and pruning come after, off the writes' way, so a slow backup folder
+ * doesn't (ORR-483). */
 export function backUp(database: Db, dir: string, days = KEEP_DAYS): Promise<void> {
-    making = making.catch(() => {}).then(() => database instanceof SqliteDb ? database.alone(raw => backup(raw, dir, days)) : backupPostgres(database, dir, days))
+    making = making.catch(() => {}).then(() => database instanceof SqliteDb
+        ? database.alone(raw => snapshot(raw, dir)).then(() => keep(dir, days))
+        : backupPostgres(database, dir, days))
     return making
 }
 
@@ -177,7 +179,41 @@ export function checkSnapshot(path: string, full = false) {
     } finally {
         opened?.close()
     }
+    unlessOk(found)
+}
+
+/** Throws unless what SQLite's check found is `ok` alone. */
+function unlessOk(found: string[]) {
     if (found.length !== 1 || found[0] !== 'ok') throw new Error(`the copy is damaged (${found.slice(0, 3).join('; ')})`)
+}
+
+/** Reads each SQLite file in a worker thread, so the writes go on meanwhile: what `quick_check` finds (`check`), and the
+ * id of the orrery it is, if it can be read. */
+function readAside(files: {path: string, check?: boolean}[]): Promise<{found?: string[], id?: string}[]> {
+    return new Promise((resolve, reject) => {
+        const worker = new Worker(`
+            const {parentPort, workerData} = require('node:worker_threads')
+            const {DatabaseSync} = require('node:sqlite')
+            parentPort.postMessage(workerData.map(({path, check}) => {
+                let db
+                try {
+                    db = new DatabaseSync(path, {readOnly: true})
+                    const found = check ? db.prepare('PRAGMA quick_check').all().map(row => String(Object.values(row)[0])) : undefined
+                    let id
+                    try {
+                        const row = db.prepare("SELECT value FROM settings WHERE key = 'id'").get()
+                        id = row ? JSON.parse(row.value) : undefined
+                    } catch {}
+                    return {found, id}
+                } catch (error) {
+                    return {found: check ? [error.message] : undefined}
+                } finally {
+                    db?.close()
+                }
+            }))`, {eval: true, workerData: files})
+        worker.once('message', resolve)
+        worker.once('error', reject)
+    })
 }
 
 /** Puts `from`, a snapshot just written, at `to` once it passes its check; one that doesn't is let go, and what was at
@@ -192,40 +228,31 @@ export function putInPlace(from: string, to: string) {
     renameSync(from, to)
 }
 
-/** The id of the orrery a SQLite file is (`settings.id`), if it can be read. */
-export function idOf(path: string): string | undefined {
-    let opened: DatabaseSync | undefined
-    try {
-        opened = new DatabaseSync(path, {readOnly: true})
-        const row = opened.prepare('SELECT value FROM settings WHERE key = \'id\'').get() as {value: string} | undefined
-        return row ? JSON.parse(row.value) as string : undefined
-    } catch {
-        return undefined
-    } finally {
-        opened?.close()
-    }
-}
-
 /** Puts the written backup in place as the latest, keeps today's, and lets go of the daily ones past `days` and of
  * all but the newest few taken before an upgrade. A latest that's another orrery's (a new one started fresh over a
  * folder with backups, or two sharing one) is set aside as `orrery-pre-other-<time>.db` rather than written over. */
-function keep(dir: string, days: number) {
+async function keep(dir: string, days: number) {
     const latest = join(dir, LATEST)
-    if (existsSync(latest)) {
-        const [was, now] = [idOf(latest), idOf(join(dir, PARTIAL))]
-        if (was && now && was !== now) renameSync(latest, join(dir, `orrery-pre-other-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.db`))
+    const written = join(dir, PARTIAL)
+    const [now = {}, was] = await readAside([{path: written, check: true}, ...existsSync(latest) ? [{path: latest}] : []])
+    try {
+        unlessOk(now.found ?? [])
+    } catch (error) {
+        remove(written)
+        throw new Error(`${(error as Error).message}: kept the one before`, {cause: error})
     }
-    putInPlace(join(dir, PARTIAL), latest)
+    if (was?.id && now.id && was.id !== now.id) await rename(latest, join(dir, `orrery-pre-other-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.db`))
+    await rename(written, latest)
     const today = join(dir, `orrery-${new Date().toISOString().slice(0, 10)}.db`)
     // Copied beside it and renamed, so a copy cut short is never taken for today's.
     if (!existsSync(today)) {
-        copyFileSync(join(dir, LATEST), `${today}.partial`)
-        renameSync(`${today}.partial`, today)
+        await copyFile(latest, `${today}.partial`)
+        await rename(`${today}.partial`, today)
     }
-    const names = readdirSync(dir)
-    names.filter(name => DAILY.test(name)).sort().slice(0, -days).forEach(name => rmSync(join(dir, name)))
-    names.filter(name => BEFORE_UPGRADE.test(name)).map(name => ({name, at: statSync(join(dir, name)).mtimeMs}))
-        .sort((a, b) => b.at - a.at).slice(KEEP_BEFORE_UPGRADE).forEach(({name}) => rmSync(join(dir, name)))
+    const names = await readdir(dir)
+    await Promise.all(names.filter(name => DAILY.test(name)).sort().slice(0, -days).map(name => rm(join(dir, name))))
+    const upgrades = await Promise.all(names.filter(name => BEFORE_UPGRADE.test(name)).map(async name => ({name, at: (await stat(join(dir, name))).mtimeMs})))
+    await Promise.all(upgrades.sort((a, b) => b.at - a.at).slice(KEEP_BEFORE_UPGRADE).map(({name}) => rm(join(dir, name))))
 }
 
 /** When the latest backup in `dir` was made, if there is one. */

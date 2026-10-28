@@ -3,8 +3,9 @@
 // `kind` is `page.error` unless it says another under `page.`. Anyone can send one, so it's kept as a report
 // (`details.reported`), and at most PER_KIND a minute of a kind and ALL a minute in all are taken from each sender (a
 // 429 past that), and EVERYONE from all of them, so nobody can push the older errors out of the log with them
-// (ORR-420), nor use up what the page itself may send (ORR-457). A sender is who it says it is (`Orrery-Actor`; the
-// page sends none) and where it's from.
+// (ORR-420), nor use up what the page itself may send (ORR-457). A sender is where it's from, and whether it names itself
+// (`Orrery-Actor`; the page sends none): every name from one address counts as one, so changing it gets no new
+// allowance (ORR-483).
 const PER_KIND = 5
 const ALL = 20
 const EVERYONE = 100
@@ -21,7 +22,7 @@ export default defineEventHandler(async event => {
         minute = now
         counts.clear()
     }
-    const sender = `${getHeader(event, 'orrery-actor') ?? 'page'}@${event.node.req.socket?.remoteAddress ?? ''}`
+    const sender = `${getHeader(event, 'orrery-actor') === undefined ? 'page' : 'named'}@${event.node.req.socket?.remoteAddress ?? ''}`
     const [everyone, all, ofKind] = [counts.get('') ?? 0, counts.get(sender) ?? 0, counts.get(`${sender} ${kind}`) ?? 0]
     if (everyone >= EVERYONE || all >= ALL || ofKind >= PER_KIND) {
         const sent = everyone >= EVERYONE ? `Pages have sent ${EVERYONE} errors` : `This page has sent ${all >= ALL ? `${ALL} errors` : `${PER_KIND} ${kind}`}`
