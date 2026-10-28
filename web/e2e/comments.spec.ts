@@ -33,6 +33,54 @@ test('puts a picked image in a new issue, and in a comment on it', async ({page,
     await expect.poll(async () => (await api(request, 'get', `/issues/${id}/comments`)).at(-1)?.body).toMatch(/^!\[shelf\]\(\/api\/uploads\//)
 })
 
+test('takes an image dropped or pasted anywhere on the dialog or the comment box, showing where it can go', async ({page}) => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    /** What a drag or a paste carrying the image hands over. */
+    const carrying = (name: string) => page.evaluateHandle(([data, name]) => {
+        const transfer = new DataTransfer()
+        transfer.items.add(new File([Uint8Array.from(atob(data!), c => c.charCodeAt(0))], `${name}.png`, {type: 'image/png'}))
+        return transfer
+    }, [png, name])
+    await page.goto('/p/studio')
+    await page.getByRole('button', {name: 'New issue'}).first().click()
+    const dialog = page.getByRole('dialog', {name: 'New issue'})
+    const title = dialog.getByLabel('Title')
+    await title.fill('Pack the crate')
+    // Dragged over the title, not the description: the whole dialog says it takes it, and dragged text doesn't.
+    await title.dispatchEvent('dragenter', {dataTransfer: await page.evaluateHandle(() => {
+        const transfer = new DataTransfer()
+        transfer.setData('text/plain', 'words')
+        return transfer
+    })})
+    await expect(dialog.getByText('Drop image to add')).toHaveCount(0)
+    const drag = await carrying('crate')
+    await title.dispatchEvent('dragenter', {dataTransfer: drag})
+    await dialog.getByLabel('Description').dispatchEvent('dragenter', {dataTransfer: drag})
+    await title.dispatchEvent('dragleave', {dataTransfer: drag})
+    // Still over the dialog, on the description.
+    await expect(dialog.getByText('Drop image to add')).toBeVisible()
+    await title.dispatchEvent('drop', {dataTransfer: drag})
+    await expect(dialog.getByText('Drop image to add')).toHaveCount(0)
+    await expect(dialog.getByLabel('Description')).toHaveValue(/^!\[crate\]\(\/api\/uploads\/[0-9a-f]{24}\)\n$/)
+    await expect(dialog.getByLabel('Description')).toBeFocused()
+    // Pasted while typing the title, it goes into the description too.
+    await title.focus()
+    const clipboard = await carrying('lid')
+    await title.evaluate((field, clipboardData) => field.dispatchEvent(new ClipboardEvent('paste', {clipboardData, bubbles: true, cancelable: true})), clipboard)
+    await expect(dialog.getByLabel('Description')).toHaveValue(/!\[lid\]/)
+    await dialog.getByRole('button', {name: /Create issue/}).click()
+    await expect(page).toHaveURL(/\/p\/studio\/issues\/STU-\d+/)
+
+    // Dropped on the comment box's buttons, it goes into the comment.
+    const box = page.locator('form').filter({has: page.getByRole('textbox', {name: 'Comment'})})
+    const onBox = await carrying('hinge')
+    await box.getByRole('button', {name: 'Add an image'}).dispatchEvent('dragenter', {dataTransfer: onBox})
+    await expect(box.getByText('Drop image to add')).toBeVisible()
+    await box.getByRole('button', {name: 'Add an image'}).dispatchEvent('drop', {dataTransfer: onBox})
+    await expect(page.getByRole('textbox', {name: 'Comment'})).toHaveValue(/!\[hinge\]/)
+    await expect(page.getByRole('textbox', {name: 'Comment'})).toBeFocused()
+})
+
 test("edits and deletes the owner's own comment, but not an agent's", async ({page, request}) => {
     const {id} = await api(request, 'post', '/issues', {title: 'Oil the hinges'})
     await api(request, 'post', `/issues/${id}/comments`, {body: 'Bought the oil'})

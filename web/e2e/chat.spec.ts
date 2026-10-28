@@ -24,6 +24,28 @@ test.afterAll(async ({request}) => {
     await request.patch('/api/settings', {data: {starts}, headers: OWNER})
 })
 
+test('takes an image dropped anywhere on the pane, showing where it can go, and goes back to the message', async ({page}) => {
+    await page.goto('/p/larder')
+    await page.getByRole('button', {name: 'Chat', exact: true}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const drag = await page.evaluateHandle(() => {
+        const transfer = new DataTransfer()
+        const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), c => c.charCodeAt(0))
+        transfer.items.add(new File([png], 'jar.png', {type: 'image/png'}))
+        return transfer
+    })
+    // Over the greeting, far from the message box.
+    const greeting = pane.getByRole('heading', {name: 'Ask about Larder'})
+    await greeting.dispatchEvent('dragenter', {dataTransfer: drag})
+    await expect(pane.getByText('Drop image to add')).toBeVisible()
+    await greeting.dispatchEvent('drop', {dataTransfer: drag})
+    await expect(pane.getByText('Drop image to add')).toHaveCount(0)
+    await expect(pane.getByRole('button', {name: 'Remove image 1'})).toBeVisible()
+    await expect(pane.getByLabel('Message')).toBeFocused()
+    await pane.getByRole('button', {name: 'Remove image 1'}).click()
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+})
+
 test('chats with a session that answers on the page, and is listed nowhere', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
     let session: ReturnType<typeof hold> | undefined

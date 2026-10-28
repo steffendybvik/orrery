@@ -2,7 +2,9 @@ import type {Ref} from 'vue'
 import type {Upload} from '#shared/roadmap'
 
 // Images in a Markdown field (a comment, an issue's description): pasted, dropped or picked, each is kept
-// by Orrery and goes into `text` as Markdown where the cursor is in `field`, on a line of its own.
+// by Orrery and goes into `text` as Markdown where the cursor is in `field`, on a line of its own, and the focus goes
+// back to `field` after it. Pasting and dropping work on the whole area around the field (`over` and `on`, see
+// useImageDrop).
 // `uploading` counts those on their way; `failed` says why the last didn't make it. `reset` drops those still on
 // their way, for a field opened afresh (another issue, a dialog opened again, an edit cancelled), so a late one
 // doesn't land in what's there now; leaving the component does the same.
@@ -10,7 +12,6 @@ export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement
     const {load} = useOwner()
     const uploading = ref(0)
     const failed = ref('')
-    const dragging = ref(false)
     /** Which opening of the field the uploads are for: one from an earlier one is dropped. */
     let round = 0
 
@@ -30,7 +31,10 @@ export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement
         const trail = after.startsWith('\n') ? '' : '\n'
         text.value = before + lead + markdown + trail + after
         const cursor = (before + lead + markdown + trail).length
-        nextTick(() => element?.setSelectionRange(cursor, cursor))
+        nextTick(() => {
+            element?.focus()
+            element?.setSelectionRange(cursor, cursor)
+        })
     }
 
     async function upload(files: File[]) {
@@ -54,19 +58,51 @@ export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement
         }
     }
 
-    function onPaste(event: ClipboardEvent) {
-        const files = [...event.clipboardData?.files ?? []].filter(file => file.type.startsWith('image/'))
-        if (!files.length) return
-        event.preventDefault()
-        upload(files)
-    }
+    return {uploading, failed, upload, reset, ...useImageDrop(upload)}
+}
 
-    function onDrop(event: DragEvent) {
-        dragging.value = false
-        upload([...event.dataTransfer?.files ?? []])
+/** A whole area taking images (ORR-437): `on` goes on it (`v-on`), and while an image is dragged over it, `over`, it
+ * shows ImageDropOverlay. One dropped anywhere on it, or pasted while the focus is anywhere inside it, goes to
+ * `upload`. Only a drag carrying files counts, not dragged text or a link. dragenter and dragleave fire on every element
+ * inside it, so they're counted, or the overlay would flicker. */
+export function useImageDrop(upload: (files: File[]) => unknown) {
+    const over = ref(false)
+    let depth = 0
+    const carriesFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes('Files')
+    const images = (files: FileList | undefined) => [...files ?? []].filter(file => file.type.startsWith('image/'))
+    const on = {
+        dragenter(event: DragEvent) {
+            if (!carriesFiles(event)) return
+            event.preventDefault()
+            depth++
+            over.value = true
+        },
+        dragover(event: DragEvent) {
+            if (!carriesFiles(event)) return
+            event.preventDefault()
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+        },
+        dragleave(event: DragEvent) {
+            if (!carriesFiles(event)) return
+            depth = Math.max(0, depth - 1)
+            if (!depth) over.value = false
+        },
+        drop(event: DragEvent) {
+            if (!carriesFiles(event)) return
+            event.preventDefault()
+            depth = 0
+            over.value = false
+            const files = images(event.dataTransfer?.files)
+            if (files.length) upload(files)
+        },
+        paste(event: ClipboardEvent) {
+            const files = images(event.clipboardData?.files)
+            if (!files.length) return
+            event.preventDefault()
+            upload(files)
+        },
     }
-
-    return {uploading, failed, dragging, upload, reset, onPaste, onDrop}
+    return {over, on}
 }
 
 /** The file as a `data:` URL, as `POST /api/uploads` takes it. */

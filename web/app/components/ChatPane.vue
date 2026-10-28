@@ -6,7 +6,7 @@ import type {ChatIssues} from '#shared/roadmap'
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
 // session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
-// dropped goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
+// dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
 // one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
@@ -106,13 +106,10 @@ async function attach(files: File[]) {
             uploading.value--
         }
     }
+    // Back to typing the message it goes with.
+    field.value?.focus()
 }
-function onPaste(event: ClipboardEvent) {
-    const files = [...event.clipboardData?.files ?? []].filter(f => f.type.startsWith('image/'))
-    if (!files.length) return
-    event.preventDefault()
-    attach(files)
-}
+const {over, on: drop} = useImageDrop(attach)
 </script>
 
 <template>
@@ -133,8 +130,10 @@ function onPaste(event: ClipboardEvent) {
       class="fixed right-4 bottom-4 z-40 flex w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
       :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : 'h-[min(40rem,calc(100dvh-2rem))] sm:w-[min(28rem,calc(100vw-2rem))]'"
       aria-label="Chat"
+      v-on="drop"
       @keydown.esc="!chat || chat.ended ? close() : undefined"
   >
+    <ImageDropOverlay v-if="over" />
     <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-4">
       <div class="flex min-w-0 flex-1 flex-col">
         <div class="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-fg">
@@ -256,9 +255,6 @@ v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-
             placeholder="Ask anything…"
             class="field-sizing-content max-h-40 min-h-9 resize-none bg-transparent px-2 py-1.5 text-[13px] text-fg placeholder:text-faint focus:outline-none"
             @keydown="onKey"
-            @paste="onPaste"
-            @dragover.prevent
-            @drop.prevent="attach([...$event.dataTransfer?.files ?? []])"
         />
         <div class="flex items-center gap-1">
           <UiButton variant="ghost" size="xs" square aria-label="Add an image" title="Add an image (or paste or drop one)" @click="picker?.click()">
