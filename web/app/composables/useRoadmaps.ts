@@ -1,6 +1,6 @@
 import type {Project, Session, Signal} from '#shared/roadmap'
 
-// Every project with its board, loaded once and kept current by `/api/events` (see the
+// Every project with its board (without the issues' notes: an issue's page reads its own), loaded once and kept current by `/api/events` (see the
 // `roadmaps` plugin). `changed` holds the ids of issues that just changed, so rows can flash.
 export function useRoadmaps() {
     const projects = useState<Project[]>('projects', () => [])
@@ -22,7 +22,7 @@ export function useRoadmaps() {
     /** Loads one project afresh and puts it in place: for when its update hasn't come yet (a page opened right
      * after a write), or won't (offline). Nothing when it can't be loaded. */
     async function reload(id: string): Promise<Project | undefined> {
-        const project = await $fetch<Project>(`/api/projects/${encodeURIComponent(id)}`).catch(() => undefined)
+        const project = await $fetch<Project>(`/api/projects/${encodeURIComponent(id)}`, {query: {notes: '0'}}).catch(() => undefined)
         if (project) {
             projects.value = byId(id) ? projects.value.map(p => p.id === id ? project : p)
                 : [...projects.value, project].sort((a, b) => a.name.localeCompare(b.name))
