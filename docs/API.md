@@ -314,8 +314,8 @@ an agent's P0. A schedule that asks the sessions sends its one focus, saying the
 
 | | |
 |---|---|
-| `POST /projects/:project/issues/:issue/focus` | `{note?, instructions?}` → `{signal, listeners}`: sends it, and says how many sessions heard |
-| `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?, release?, instructions?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk; `all`: every chunk's); `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, and `release` (a version) to those set for it, at any depth |
+| `POST /projects/:project/issues/:issue/focus` | `{note?, instructions?, start?}` → `{signal, listeners}`: sends it, and says how many sessions heard; `start: true` (the owner's) starts a session for it when nobody's listening, even with `on_signal` off (see [Starting sessions](#starting-sessions)) |
+| `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?, release?, instructions?, start?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk; `all`: every chunk's); `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, and `release` (a version) to those set for it, at any depth |
 | `GET /projects/:project/signals?after=` | the signals after that id, oldest first; `?issue=` or `?chunk=` for the latest about one |
 | `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up), and `name` `{name}`: what orrery calls the session, once it's known and again when it changes; a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
 | `GET /signals/stream?projects=hub,css` | the same for a session on several projects, on one stream: each `signal` says its `project`; `*` follows every project, and each one made later; `404` for a project that doesn't exist |
@@ -396,10 +396,13 @@ and its old ids still find it.
 
 ### Starting sessions
 
-Once the owner lets orrery start sessions (`PATCH /settings {starts: {limit, min?, minutes?, idle_minutes?}}`, one setting
+Once the owner lets orrery start sessions (`PATCH /settings {starts: {limit, min?, minutes?, idle_minutes?, on_signal?}}`, one setting
 for every project; `null` stops it), a project gets sessions started for it, with no terminal: when
 the owner's signal (a focus, a comment, a schedule's) finds nobody listening on it, orrery asks the
 project's launcher (`channel/orrery-launcher.mjs`, on the host, installed as a service with `--install`) to start one in a detached tmux session.
+With `on_signal: false` (kept only when false; missing is true), work alone doesn't: it waits for a session the owner
+starts, by hand or with a focus sent with `start: true` (Focus on this, with nobody listening). Schedules that start
+sessions still do.
 A project whose repo has no launcher gets none. Each project shows the setting as its `starts`.
 At most `limit` run at once, counted over every project. Each
 runs until it's stopped: by the owner, or, when the setting has them, once `minutes` are up or it has sat

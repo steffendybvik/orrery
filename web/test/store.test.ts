@@ -1011,7 +1011,10 @@ describe('starting sessions', () => {
         // A minimum kept running, up to the limit.
         expect((await store.updateSettings({starts: {limit: 3, min: 3, minutes: 60}}, owner)).starts).toEqual({limit: 3, min: 3, minutes: 60})
         expect((await store.updateSettings({starts: {limit: 3, min: null}}, owner)).starts).toEqual({limit: 3})
-        for (const wrong of [{limit: 2, min: 3}, {limit: 2, min: 0}, {limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
+        // Work finding nobody listening starts one unless turned off, which is all that's kept.
+        expect((await store.updateSettings({starts: {limit: 3, on_signal: false}}, owner)).starts).toEqual({limit: 3, on_signal: false})
+        expect((await store.updateSettings({starts: {limit: 3, on_signal: true}}, owner)).starts).toEqual({limit: 3})
+        for (const wrong of [{limit: 2, on_signal: 'no'}, {limit: 2, min: 3}, {limit: 2, min: 0}, {limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
             expect((await failure(() => store.updateSettings({starts: wrong}, owner))).status).toBe(400)
         }
         expect((await store.updateSettings({starts: null}, owner)).starts).toBeNull()

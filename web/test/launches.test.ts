@@ -88,6 +88,16 @@ afterEach(() => {
 const signal = (id: number, more: Partial<Signal> = {}) => ({id, project: 'greenhouse', kind: 'focus', protected: true, delivered_to: [], ...more}) as Signal
 
 describe('starting a session', () => {
+    it("doesn't happen for work alone once the owner turns that off, only when they ask for one with it", async () => {
+        starts = {limit: 2, minutes: 30, on_signal: false}
+        launches.addLauncher('greenhouse')
+        expect(await launches.considerLaunch(signal(5))).toBeNull()
+        expect(sent).toEqual([])
+        expect(launches.launchState('greenhouse').starting).toBe(0)
+        // Focus on this, pressed with nobody listening.
+        expect(await launches.startAsked.run(true, () => launches.considerLaunch(signal(6)))).toMatchObject({after: 5, minutes: 30})
+    })
+
     it("happens for the owner's signal that nobody is listening for, once a launcher is there", async () => {
         expect(await launches.considerLaunch(signal(5))).toBeNull()
         const done = launches.addLauncher('greenhouse')

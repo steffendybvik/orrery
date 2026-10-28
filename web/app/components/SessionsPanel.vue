@@ -52,13 +52,14 @@ const offered = computed(() => {
 const ticked = ref<string[]>([])
 watch(() => offered.value.map(i => `${i.id}:${i.on}`).join(), () => ticked.value = offered.value.filter(i => i.on).map(i => i.id), {immediate: true})
 
-async function focus(session: Session | null) {
+/** Sends the focus; `start` asks orrery to start a session for it, nobody being there to hear it. */
+async function focus(session: Session | null, start = false) {
     sending.value = session?.id ?? 'all'
     failed.value = null
     try {
         const owner = await load()
         const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...session ? {session: session.id} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
+            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...session ? {session: session.id} : {}, ...start ? {start} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
     } catch {
@@ -117,7 +118,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
           class="ml-auto h-7 rounded-md bg-accent-500/10 px-2.5 text-xs font-medium text-accent-700 ring-1 ring-accent-500/40 hover:bg-accent-500/20 disabled:opacity-50 dark:text-accent-300"
           :disabled="!!sending"
           :title="`orrery starts a Claude session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
-          @click="focus(null)"
+          @click="focus(null, true)"
       >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
     </div>
 

@@ -6,6 +6,7 @@
 // it, or orrery has its launcher stop it once its time is up or it has sat idle too long (the setting's `minutes`
 // and `idle_minutes`, when set), and only while it's idle with nothing open. With a minimum (`min`), one stopped that
 // way is replaced by one like it once it has ended, so the count doesn't fall to nothing when no new work comes in.
+import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomBytes} from 'node:crypto'
 import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
@@ -118,8 +119,13 @@ function emit(event: LaunchEvent) {
     projectEvents.emit('launches', event)
 }
 
+/** Set while the owner sends work asking for a session to be started for it when nobody's listening (Focus on this,
+ * `start: true`): its signal starts one even when the setting's `on_signal` is off. */
+export const startAsked = new AsyncLocalStorage<boolean>()
+
 /** Starts a session for the signal if it's the owner's, nobody on its project is there to hear it, the owner
- * lets the project have sessions started, a launcher is there to start one, and the limits allow it. One
+ * lets the project have sessions started (for any signal, unless `on_signal` is off and the owner didn't ask for one with
+ * it), a launcher is there to start one, and the limits allow it. One
  * launch on its way covers every signal after it, as its channel catches up from the first. The launch is
  * held from the first check, so signals that come together start one session, not one each. */
 export async function considerLaunch(signal: Signal): Promise<Launch | null> {
@@ -127,6 +133,7 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     // One aimed at a session only that session hears, and a delivered one has been heard.
     if (!signal.protected || signal.target && signal.target !== EVERY || signal.delivered_to.length) return null
     if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
+    const asked = !!startAsked.getStore()
     const id = randomBytes(6).toString('hex')
     const held: Launch & {at: number, claimed: boolean} = {id, project, after: signal.id - 1, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
     pending.set(id, held)
@@ -134,7 +141,7 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
         pending.delete(id)
         throw error
     })
-    if (!starts) {
+    if (!starts || starts.on_signal === false && !asked) {
         pending.delete(id)
         return null
     }
