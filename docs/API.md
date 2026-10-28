@@ -478,7 +478,7 @@ handle with `PATCH /settings {handle}` (their GitHub login, say; `null` uses the
 
 What Orrery did and what went wrong, kept in its own database and never sent anywhere, for looking into a
 problem. **Errors** are recorded always: a 5xx the server answers with (`server.error`), an error in the page
-(`page.error`), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What Orrery did** is
+(`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What Orrery did** is
 recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → This Orrery):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), launchers coming and going (`launcher.connected`, `launcher.gone`), schedule runs and skips
