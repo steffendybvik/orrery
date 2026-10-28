@@ -493,6 +493,10 @@ async function pick(tint: string | null) {
               holding another orrery is left alone. To restore, run on it (Move to another database…, then run on it as it is).
             </template>
             <template v-else-if="settings.database.backups_settable === 'folder'">A folder that syncs off this machine is best. Turned on, it's backed up there at once.</template>
+            <template v-else-if="settings.database.backup_local">
+              <span class="text-amber-700 dark:text-amber-400" data-backup-local>The backups are only on this computer, in the default folder.</span>
+              Set <code>ORRERY_BACKUP</code> to a folder that leaves it (iCloud Drive, Dropbox, one Time Machine covers).
+            </template>
             <template v-else-if="settings.database.backup_default">In Docker the backups go to <code>/backup</code>: choose its folder on this machine with <code>ORRERY_BACKUP</code>.</template>
             <template v-else>Give orrery a folder for its backups with <code>ORRERY_BACKUP</code>.</template>
             <template v-if="settings.database.backup && settings.database.backup_kind !== 'postgres'"> Each backup writes the whole database again, so a synced folder uploads it each time: back up less often to upload less. The daily copies are most of the folder's size.</template>

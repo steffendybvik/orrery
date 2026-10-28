@@ -755,7 +755,9 @@ export function describeDatabase(): DatabaseInfo {
     const backups = {...settable, ...choice?.on === false ? {backups_off: true} : {}, ...choice?.folder ? {backup_folder: choice.folder} : {},
         ...choice?.postgres ? {backup_postgres: hidePassword(choice.postgres)} : {},
         ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}, backup_every: backupEvery(), backup_keep: backupKeep(),
-        ...target && failed ? {backup_failed: failed} : {}}
+        ...target && failed ? {backup_failed: failed} : {},
+        // In Docker, backups in the default folder (ORRERY_BACKUP unset) never leave this computer.
+        ...target?.kind === 'folder' && inDocker() && !config.backupChosen ? {backup_local: true as const} : {}}
     if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup, ...backups}
     return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup, ...backups}
 }
