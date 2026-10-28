@@ -401,12 +401,14 @@ export interface Owner {
  * or for `minutes` when set. `idle_minutes` stops one that has sat idle with nothing to do for that long. Neither
  * stops a session mid-work: it waits until the session is idle with nothing in progress or waiting. `min` keeps that many
  * running over every project: one stopped as done (time up, idle too long) is replaced by one like it, with a fresh context;
- * one the owner stops isn't. */
+ * one the owner stops isn't. `on_signal: false` stops the owner's work that finds nobody listening on a project from starting
+ * one there: it waits for a session they start (Start session, or Focus on this, which asks for one). Missing is true. */
 export interface Starts {
     limit: number
     min?: number
     minutes?: number
     idle_minutes?: number
+    on_signal?: boolean
 }
 
 /** The terminal apps Watch can open (on macOS; elsewhere the system's own terminal opens), by their setting. */

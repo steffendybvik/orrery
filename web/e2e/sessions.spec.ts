@@ -27,6 +27,13 @@ test('lets orrery start sessions once, for every project, on the Sessions page',
     await starts.getByLabel('Sessions kept running').fill('2')
     await starts.getByLabel('Sessions kept running').blur()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
+    // Work alone can stop starting one, and says so; back on for the tests after this.
+    const onSignal = starts.getByRole('checkbox', {name: "Start a session when work arrives and nobody's listening"})
+    await onSignal.uncheck()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2, on_signal: false})
+    await expect(starts.getByText('when you press Start session or Focus on this')).toBeVisible()
+    await onSignal.check()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
 })
 
 test("shows a listening session on the Sessions page, and sends it a message only it hears", async ({page, request, baseURL}) => {
