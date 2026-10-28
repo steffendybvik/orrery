@@ -8,7 +8,8 @@ import type {Heading} from '~/utils/markdown'
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
 // Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default).
 // Three tabs keep them apart: Sessions, what's running; Setup (`?tab=setup`, or a link to one of its sections): first the
-// presets to start one with, as they're used most, then whether orrery may start sessions and how, and what sessions hear;
+// launcher's install command, always in view as each new repo needs it (ORR-473), with whether orrery may start sessions
+// and how, then the presets to start one with, and what sessions hear;
 // presets and what they hear for every project or, picked in For, one project's own; and Permissions
 // (`?tab=permissions`), what each kind of session may do, read-only (ORR-459).
 useHead({title: 'Sessions · orrery'})
@@ -24,6 +25,7 @@ const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
 const scopeOptions = computed(() => [{value: '', label: 'Every project'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
 const terminalOptions = Object.entries(TERMINALS).map(([value, label]) => ({value, label}))
+const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
 
 // A session that hears several projects spans them (heardBy): it's listed once, on top under Across projects, and in
 // each project it hears that has sessions of its own as a line saying so (`via`).
@@ -58,8 +60,8 @@ const headings = computed<Heading[]>(() => tab.value === 'permissions'
         ...groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 2 as const})),
     ]
     : [
-        {id: 'presets', text: 'Presets', level: 2},
         {id: 'starts', text: 'Starting sessions', level: 2},
+        {id: 'presets', text: 'Presets', level: 2},
         {id: 'watch', text: 'Watching sessions', level: 2},
         {id: 'hear', text: 'What sessions hear', level: 2},
     ])
@@ -112,7 +114,19 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     <EmptyProjects v-if="ready && !projects.length" />
     <div v-else class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-6 sm:px-8">
     <div v-if="tab === 'setup'" class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
-      <section id="presets" class="flex scroll-mt-14 flex-col gap-2">
+      <section id="starts" class="flex scroll-mt-14 flex-col gap-2">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
+          <p class="text-xs text-muted">
+            orrery can start sessions itself, with no terminal: when your work finds nobody listening, or when you press
+            Start session. It does so for any project whose repo has its launcher installed.
+          </p>
+        </header>
+        <CopyBlock title="Install the launcher: in each project's repo, run" :text="install" hint="Again in another repo adds its project; --uninstall takes one off. Installing again restarts it, which stops the sessions it's running." />
+        <SessionStarts />
+        <StartingSessionsGuide />
+      </section>
+      <section id="presets" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
           <div class="flex items-center gap-3">
             <h2 class="text-[15px] font-semibold text-fg">Presets</h2>
@@ -126,17 +140,6 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
           </p>
         </header>
         <PresetSettings :key="scope" :project="scoped" />
-      </section>
-      <section id="starts" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
-          <p class="text-xs text-muted">
-            orrery can start sessions itself, with no terminal: when your work finds nobody listening, or when you press
-            Start session. It does so for any project whose repo has its launcher installed.
-          </p>
-        </header>
-        <SessionStarts />
-        <StartingSessionsGuide />
       </section>
       <section id="watch" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
         <header class="flex flex-col gap-0.5">
