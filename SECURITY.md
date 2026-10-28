@@ -89,8 +89,8 @@ Three more go further, and you should know how far:
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
   Secrets, the database, statuses and how sessions start aren't among them.
 - **Schedules** it can only ask for too: a new one with each field it sets, or a change with each field from → to.
-  Nothing is saved until you press **Allow**, and then it's yours, so a schedule that starts sessions starts them as
-  you. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
+  Nothing is saved until you press **Allow**, and then a new one is yours, so a schedule that starts sessions starts
+  them as you. A change to an agent's schedule leaves it the agent's: only **Make it mine** makes it yours. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
   the Schedules page.
 - **Messages to your sessions** it can only ask for as well: you see the text and who it goes to, and nothing is sent
   until you press **Send**. orrery refuses the chat on both message routes, so this holds whatever it was talked into.
@@ -124,6 +124,11 @@ middle ground.
 
 So when a session should help with a preset or a prompt, it drafts the text in a comment or a doc, and
 the owner puts it in. (ORR-333 proposed opening presets to agents and was declined for this reason.)
+
+A schedule an agent makes is its words, not yours: a message schedule's runs don't reach the sessions, and a session
+schedule starts none, until you open it, read what it says and its presets, and press **Make it mine**. That's refused
+if the agent changed it after you opened it, so you never take on text you haven't read. Pausing, renaming, retiming
+or editing it leaves it the agent's, and it's tinted as unseen whenever the agent changes it (ORR-456).
 
 What an event schedule passes on follows the same rule. A session schedule's instructions and a message schedule's
 message end with what happened, said by ids: the change for a status, priority, chunk, release or parent, never a

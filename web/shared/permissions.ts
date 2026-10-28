@@ -162,7 +162,7 @@ export const PERMISSIONS: Permission[] = [
         id: 'schedules.message', area: 'Schedules', action: 'Make a schedule that messages sessions',
         why: 'Its message would reach sessions as the owner’s words.',
         routes: ['POST /api/projects/:project/schedules'],
-        session: {level: 'owned', note: 'Saved, but each run is skipped until you change it and it becomes yours'},
+        session: {level: 'owned', note: 'Saved, but each run is skipped until you read it and press Make it mine'},
         chat: {level: 'asks', note: 'Saved as yours on your Allow'},
         untrusted: refused,
     },
@@ -172,6 +172,14 @@ export const PERMISSIONS: Permission[] = [
         routes: ['POST /api/projects/:project/schedules'],
         session: {level: 'owner'},
         chat: {level: 'asks', note: 'Saved as yours on your Allow'},
+        untrusted: refused,
+    },
+    {
+        id: 'schedules.adopt', area: 'Schedules', action: 'Make an agent’s schedule the owner’s (Make it mine)',
+        why: 'From then on its words reach sessions as the owner’s, so the owner reads them first: changing it, a pause or a rename, doesn’t make it theirs.',
+        routes: ['POST /api/projects/:project/schedules/:schedule/adopt'],
+        session: {level: 'owner'},
+        chat: {level: 'owner'},
         untrusted: refused,
     },
     {

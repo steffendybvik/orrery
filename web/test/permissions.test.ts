@@ -155,6 +155,13 @@ describe("a working session's column", () => {
             expect(await schedules.runNow('greenhouse', made.id, agent)).toMatchObject({outcome: 'skipped'})
         },
         'schedules.session': async () => expect(await status(() => schedules.create('greenhouse', {title: 'Review', kind: 'session', cron: '0 9 * * *'}, agent))).toBe(403),
+        'schedules.adopt': async () => {
+            const made = await schedules.create('greenhouse', {title: 'Nudge', kind: 'message', notes: 'Pick up Todo.', cron: '0 9 * * *'}, agent)
+            expect(await status(() => schedules.adopt('greenhouse', made.id, agent))).toBe(403)
+            // An owner's change leaves it the agent's; only Make it mine takes it on.
+            expect(await schedules.update('greenhouse', made.id, {title: 'Morning nudge'}, me)).toMatchObject({protected: false})
+            expect(await schedules.adopt('greenhouse', made.id, me)).toMatchObject({protected: true})
+        },
         'schedules.owners': async () => {
             const theirs = await schedules.create('greenhouse', {title: 'Weekly tidy', cron: '0 9 * * 1'}, me)
             expect(await status(() => schedules.update('greenhouse', theirs.id, {title: 'Tidy'}, agent))).toBe(403)
