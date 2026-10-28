@@ -337,7 +337,9 @@ The owner moves it from localhost (403 from any other address): `POST /database/
 `orrery` (an Orrery's own, with its `projects`), `current` (the one it runs on) or `other` (something else's tables);
 400 when it can't be reached. A `path` without a leading `/` is in the data folder. `POST /database/move {kind, path |
 url, how}` runs on it from then on, no restart: `how: "copy"` copies everything into an empty one, `"use"` runs on an
-Orrery's own as it is; → `{check, copied?, database}`, 409 when it doesn't suit `how`. The one it leaves stays as it was.
+Orrery's own as it is; → `{check, copied?, database}`, 409 when it doesn't suit `how`. Where it went is saved before
+anything is written there, so a move that can't save it (a full disk) fails and leaves everything on the one before.
+The one it leaves stays as it was.
 A session heard on several projects is listed on each one's
 group on the Sessions page, with the others in `also`. A channel that finds the name its server goes by in the
 repo's `.mcp.json` sends it (`?server=`), and the session lists it as `server`, for the command that restarts it with
