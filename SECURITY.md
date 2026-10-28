@@ -22,9 +22,13 @@ keeps agents from deleting the owner's things, as long as they name themselves h
 protection against a person or program that wants to pretend: anyone who can reach Orrery can send
 the owner's id.
 
-That includes moving the database (App settings → Database → Move…), which repoints Orrery at a database the
-mover picks. Orrery only allows it when it's reached by `localhost`, but that's the address the request names (its
-`Host`), not where it came from, so it matters once Orrery is open to your network (ORR-421).
+Moving the database (App settings → Database → Move…) repoints Orrery at a database the mover picks, and setting
+the backups chooses where a copy of everything goes, so both are kept to the machine Orrery runs on, from where
+the connection comes rather than the name the request gives (its `Host`, which the caller chooses: ORR-421).
+Outside Docker the connection has to come from a loopback address. In Docker every request reaches the container
+through its bridge, so Orrery can't tell; there both work only while it's published on loopback (`ORRERY_HOST`
+left at 127.0.0.1), and with `ORRERY_HOST=0.0.0.0` they're refused, and done outside the app instead
+(`pnpm orrery:copy` and `ORRERY_DATABASE`, `ORRERY_BACKUP`).
 
 ## Your agents act on what's in Orrery
 
