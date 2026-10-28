@@ -995,7 +995,7 @@ describe("an owner's comment", () => {
 describe('starting sessions', () => {
     const owner = {name: 'skoll', owner: true}
 
-    it("is the owner's to allow once for every project, as {limit, minutes?, idle_minutes?}, and to stop with null", async () => {
+    it("is the owner's to allow once for every project, as {limit, min?, minutes?, idle_minutes?}, and to stop with null", async () => {
         await store.createProject({name: 'pantry', key: 'PAN'})
         expect((await store.settings()).starts).toBeNull()
         expect((await store.project('greenhouse')).starts).toBeUndefined()
@@ -1008,7 +1008,10 @@ describe('starting sessions', () => {
         // Without minutes, they run until stopped; idle minutes stop one that has nothing to do.
         expect((await store.updateSettings({starts: {limit: 2}}, owner)).starts).toEqual({limit: 2})
         expect((await store.updateSettings({starts: {limit: 2, minutes: null, idle_minutes: 60}}, owner)).starts).toEqual({limit: 2, idle_minutes: 60})
-        for (const wrong of [{limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
+        // A minimum kept running, up to the limit.
+        expect((await store.updateSettings({starts: {limit: 3, min: 3, minutes: 60}}, owner)).starts).toEqual({limit: 3, min: 3, minutes: 60})
+        expect((await store.updateSettings({starts: {limit: 3, min: null}}, owner)).starts).toEqual({limit: 3})
+        for (const wrong of [{limit: 2, min: 3}, {limit: 2, min: 0}, {limit: 0, minutes: 30}, {minutes: 30}, {limit: 2, minutes: 0}, {limit: 2, idle_minutes: 1441}, {limit: 2, minutes: 30, model: 'x'}, {limit: 1.5, minutes: 30}, 'yes']) {
             expect((await failure(() => store.updateSettings({starts: wrong}, owner))).status).toBe(400)
         }
         expect((await store.updateSettings({starts: null}, owner)).starts).toBeNull()

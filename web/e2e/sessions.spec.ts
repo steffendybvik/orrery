@@ -23,6 +23,10 @@ test('lets orrery start sessions once, for every project, on the Sessions page',
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2})
     // A project shows it as its own.
     expect((await api(request, 'get', '')).starts).toEqual({limit: 2})
+    // And keeps a minimum running, up to the limit.
+    await starts.getByLabel('Sessions kept running').fill('2')
+    await starts.getByLabel('Sessions kept running').blur()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
 })
 
 test("shows a listening session on the Sessions page, and sends it a message only it hears", async ({page, request, baseURL}) => {

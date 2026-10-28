@@ -399,9 +399,12 @@ export interface Owner {
 
 /** The sessions orrery may start, the owner's one setting for every project: at most `limit` running at once on each, each running until it's stopped,
  * or for `minutes` when set. `idle_minutes` stops one that has sat idle with nothing to do for that long. Neither
- * stops a session mid-work: it waits until the session is idle with nothing in progress or waiting. */
+ * stops a session mid-work: it waits until the session is idle with nothing in progress or waiting. `min` keeps that many
+ * running over every project: one stopped as done (time up, idle too long) is replaced by one like it, with a fresh context;
+ * one the owner stops isn't. */
 export interface Starts {
     limit: number
+    min?: number
     minutes?: number
     idle_minutes?: number
 }
@@ -714,6 +717,8 @@ export interface StartedSession {
     stops_at?: string
     /** What the owner gave it to go on when they started it, if anything. */
     context?: SessionContext
+    /** The projects it hears, its own first, when it was started to hear more than its repo's channel says. */
+    hears?: string[]
     /** Started for an untrusted schedule's run: it reads what others wrote, so it hears only that run's message,
      * has only the orrery tools (`github_issues` among them), and what it raises is a proposal. */
     untrusted?: boolean

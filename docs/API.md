@@ -390,7 +390,7 @@ and its old ids still find it.
 
 ### Starting sessions
 
-Once the owner lets orrery start sessions (`PATCH /settings {starts: {limit, minutes?, idle_minutes?}}`, one setting
+Once the owner lets orrery start sessions (`PATCH /settings {starts: {limit, min?, minutes?, idle_minutes?}}`, one setting
 for every project; `null` stops it), a project gets sessions started for it, with no terminal: when
 the owner's signal (a focus, a comment, a schedule's) finds nobody listening on it, orrery asks the
 project's launcher (`channel/orrery-launcher.mjs`, on the host, installed as a service with `--install`) to start one in a detached tmux session.
@@ -398,10 +398,14 @@ A project whose repo has no launcher gets none. Each project shows the setting a
 At most `limit` run at once, counted over every project. Each
 runs until it's stopped: by the owner, or, when the setting has them, once `minutes` are up or it has sat
 idle for `idle_minutes` (1 to 1440 each). Neither stops one mid-work: orrery waits until the session is
-idle with no issue in progress and no signal waiting for it, then has its launcher stop it. Several signals at once start one
+idle with no issue in progress and no signal waiting for it, then has its launcher stop it. With `min` (1 to `limit`), orrery keeps that many running over every project: once a
+session it stopped that way has ended, it starts one like it in its place, on the same project with the same `context`
+and the projects it heard, with a fresh context, unless enough are running without it. One the owner stops isn't
+replaced, nor an untrusted schedule's run. A replacement waits, checked every 30 seconds, while its project has no
+launcher or the limit has no room. Waiting replacements are kept in memory, so an orrery that restarts forgets them. Several signals at once start one
 session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
 signal it was started for. The owner can also start one by hand (`POST .../launches`, Start session on the
-Sessions page), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at?, context?}` (no `stops_at`: until stopped), and count toward
+Sessions page), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at?, context?, hears?}` (no `stops_at`: until stopped), and count toward
 the limits while their channel is connected.
 
 One started by hand can be given more context: presets the owner picks (any number, the orrery's and the

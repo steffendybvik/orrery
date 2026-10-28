@@ -1,19 +1,21 @@
 <script setup lang="ts">
 // Whether orrery may start Claude sessions itself, with no terminal: the owner's one opt-in, for every project whose
-// repo has a launcher installed (how many at once, over every project, and, if they like, how long each runs and how long one
-// may sit idle; blank runs it until stopped). On the Sessions page, above the sessions.
+// repo has a launcher installed (how many at once, over every project, how many to keep running, and, if they like, how long
+// each runs and how long one may sit idle; blank runs it until stopped). On the Sessions page, above the sessions.
 const {settings, save: saveSettings} = useAppSettings()
 const failed = ref('')
 const field = 'h-8 w-20 field'
 
 const limit = ref(1)
-// Blank (an empty input gives '') is no limit.
+// Blank (an empty input gives '') is no minimum, and no limit on the minutes.
+const min = ref<number | ''>('')
 const minutes = ref<number | ''>('')
 const idleMinutes = ref<number | ''>('')
 // Only when they change: a live update that brings the same values back would undo what's being typed.
 watch(() => JSON.stringify(settings.value.starts ?? null), () => {
     const starts = settings.value.starts
     limit.value = starts?.limit ?? 1
+    min.value = starts?.min ?? ''
     minutes.value = starts?.minutes ?? ''
     idleMinutes.value = starts?.idle_minutes ?? ''
 }, {immediate: true})
@@ -21,7 +23,7 @@ watch(() => JSON.stringify(settings.value.starts ?? null), () => {
 async function saveStarts(on = !!settings.value.starts) {
     failed.value = ''
     try {
-        await saveSettings({starts: on ? {limit: limit.value, ...minutes.value ? {minutes: minutes.value} : {}, ...idleMinutes.value ? {idle_minutes: idleMinutes.value} : {}} : null})
+        await saveSettings({starts: on ? {limit: limit.value, ...min.value ? {min: min.value} : {}, ...minutes.value ? {minutes: minutes.value} : {}, ...idleMinutes.value ? {idle_minutes: idleMinutes.value} : {}} : null})
     } catch (error) {
         failed.value = errorMessage(error)
     }
@@ -37,7 +39,9 @@ async function saveStarts(on = !!settings.value.starts) {
     <div class="flex flex-wrap items-center gap-2 text-xs text-muted" :class="{'opacity-50': !settings.starts}">
       <span>At most</span>
       <input v-model.number="limit" type="number" min="1" max="20" aria-label="Sessions at once" :class="field" :disabled="!settings.starts" @change="saveStarts()">
-      <span>at once, over every project. Stop each after</span>
+      <span>at once, over every project. Keep at least</span>
+      <input v-model.number="min" type="number" min="1" :max="limit" placeholder="none" aria-label="Sessions kept running" :class="field" :disabled="!settings.starts" @change="saveStarts()">
+      <span>running. Stop each after</span>
       <input v-model.number="minutes" type="number" min="1" max="1440" placeholder="never" aria-label="Minutes each" :class="field" :disabled="!settings.starts" @change="saveStarts()">
       <span>minutes, or once idle for</span>
       <input v-model.number="idleMinutes" type="number" min="1" max="1440" placeholder="never" aria-label="Idle minutes" :class="field" :disabled="!settings.starts" @change="saveStarts()">
@@ -45,6 +49,7 @@ async function saveStarts(on = !!settings.value.starts) {
     </div>
     <p class="text-xs text-faint" :class="{'opacity-50': !settings.starts}">
       Left blank, a session runs until you stop it. Neither stops one mid-work: it waits until the session is idle with nothing in progress.
+      With a minimum, one stopped that way is replaced by a fresh one with the same presets; one you stop yourself isn't.
     </p>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
   </div>

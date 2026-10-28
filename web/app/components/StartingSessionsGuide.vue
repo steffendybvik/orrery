@@ -31,7 +31,7 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
           <span class="font-medium text-fg">Let orrery start sessions</span>
           <span>
             Once, for every project, above:
-            how many may run at once, over every project, and, if you like, how long each runs or may sit idle.
+            how many may run at once, over every project, and, if you like, how many to keep running and how long each runs or may sit idle.
           </span>
         </div>
       </li>
