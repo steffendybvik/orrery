@@ -392,8 +392,8 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     </section>
 
     <section v-if="sends === 'message'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
-      <p v-if="untrusted">Each run starts a Claude session for this message alone. It can only read the repo's GitHub issues and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
-      <p v-else>Each run sends this to {{ here?.name ?? 'the project' }}'s listening Claude sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
+      <p v-if="untrusted">Each run starts a session for this message alone. It can only read the repo's GitHub issues and raise proposals, labelled <i>external</i>, for you to weigh. It needs a launcher and Starting sessions on.</p>
+      <p v-else>Each run sends this to {{ here?.name ?? 'the project' }}'s listening sessions, with no issue. If none is listening, the next one to connect within a day gets it.</p>
       <label class="flex items-center gap-1.5">
         <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">
         Skip a run when no issue or comment changed since the last message
@@ -405,7 +405,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     </section>
     <section v-else-if="sends === 'session'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
       <p>
-        Each run starts a Claude session on {{ here?.name ?? 'the project' }} through its launcher, with the presets ticked and your words.
+        Each run starts a session on {{ here?.name ?? 'the project' }} through its launcher, with the presets ticked and your words.
         <template v-if="trigger === 'event'">It starts on what the event was about: the issue, or the release's work; for anything else, the event's id is in its words.</template>
         It needs a launcher, Starting sessions on and room under the limit, or the run is skipped saying why.
       </p>
@@ -436,7 +436,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       </div>
       <label class="flex items-center gap-1.5 text-xs text-muted">
         <input v-model="ask" type="checkbox" class="accent-accent-500">
-        Ask {{ here?.name ?? 'the project' }}'s Claude sessions to pick it up (if none is listening, the next one to connect gets it)
+        Ask {{ here?.name ?? 'the project' }}'s sessions to pick it up (if none is listening, the next one to connect gets it)
       </label>
       <label class="flex items-center gap-1.5 text-xs text-muted">
         <input v-model="skipOpen" type="checkbox" class="accent-accent-500">

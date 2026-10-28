@@ -97,13 +97,13 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
   <section class="flex flex-col gap-3 rounded-2xl bg-well/50 p-4 ring-1 ring-line">
     <div class="flex items-center gap-2">
       <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
-      <h2 class="text-[13px] font-medium text-fg">Claude sessions</h2>
+      <h2 class="text-[13px] font-medium text-fg">Sessions</h2>
       <span class="text-xs text-faint">{{ listening.length ? `${listening.length} listening` : 'none listening' }}</span>
       <span v-if="listening.length" class="ml-auto flex items-center gap-2">
         <UiButton
             v-if="canStartAnother"
             :disabled="!!sending"
-            :title="`orrery starts another Claude session on ${project}, working on this issue alone`"
+            :title="`orrery starts another session on ${project}, working on this issue alone`"
             @click="startOn"
         >{{ sending === 'new' ? 'Starting…' : 'New session on this' }}</UiButton>
         <UiButton
@@ -117,7 +117,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
           type="button"
           class="ml-auto h-7 rounded-md bg-accent-500/10 px-2.5 text-xs font-medium text-accent-700 ring-1 ring-accent-500/40 hover:bg-accent-500/20 disabled:opacity-50 dark:text-accent-300"
           :disabled="!!sending"
-          :title="`orrery starts a Claude session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
+          :title="`orrery starts a session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
           @click="focus(null, true)"
       >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
     </div>
@@ -161,10 +161,10 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
       </li>
     </ul>
     <p v-else-if="canStart" class="text-[13px] leading-relaxed text-muted">
-      No Claude session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has orrery start one, in its repo, through the launcher.
+      No session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has orrery start one, in its repo, through the launcher.
     </p>
     <p v-else class="text-[13px] leading-relaxed text-muted">
-      No Claude session on {{ project }} has said hello yet.
+      No session on {{ project }} has said hello yet.
       <NuxtLink :to="`/connect?project=${project}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
       to point it at issues from here.
       <template v-if="byId(project)?.starts && launch && !launch.launchers">

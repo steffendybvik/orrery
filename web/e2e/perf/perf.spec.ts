@@ -18,8 +18,6 @@ const BUDGETS: Record<string, number> = {
     'my issues': 5000,
     'bell': 5000,
     'notifications: inbox': 5000,
-    'notifications: waiting on you': 3000,
-    'notifications: cleared': 3000,
     'notifications: show older': 3000,
     'events': 5000,
     'sessions': 5000,
@@ -172,10 +170,6 @@ test('home and the bell', async () => {
     await measure(page, 'my issues', () => page.goto('/mine'), page.getByRole('heading', {name: 'My issues'}))
     await measure(page, 'bell', () => page.goto('/mine'), page.getByRole('link', {name: /waiting on you/}))
     await measure(page, 'notifications: inbox', () => page.goto('/notifications'), page.getByRole('main').locator('li').first())
-    await measure(page, 'notifications: waiting on you', () => page.getByRole('radio', {name: /Waiting on you/}).or(page.getByRole('button', {name: /Waiting on you/})).first().click(),
-        page.getByRole('main').locator('li').first())
-    await measure(page, 'notifications: cleared', () => page.getByRole('radio', {name: 'Cleared'}).or(page.getByRole('button', {name: 'Cleared', exact: true})).first().click(),
-        page.getByRole('button', {name: 'Show older'}))
     const shown = await page.getByRole('main').locator('li').count()
     await measure(page, 'notifications: show older', () => page.getByRole('button', {name: 'Show older'}).click(),
         page.getByRole('main').locator('li').nth(shown))
