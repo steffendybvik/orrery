@@ -396,7 +396,7 @@ the database schema are the public surface, and a database always migrates forwa
   Todo, and one whose work has started or finished keeps its status. It keeps who approved it, the note
   and the picks, and the panel offers Put it up again while it's open. Proposals approved before are
   committed the same way as the database migrates.
-- **Team tasks:** an issue links to its tasks on the team's tracker (`external`: `CIR-1567`, or a URL),
+- **Team tasks:** an issue links to its tasks on the team's tracker (`external`: `ENG-1567`, or a URL),
   editable under its properties and opening there through App settings → Team tracker
   (`https://linear.app/your-team/issue/{id}`). `?external=` finds the issues linked to a task, and
   `create_issue` and `update_issue` take it.

@@ -118,8 +118,8 @@ describe("the owner's chat", () => {
         vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
         await chats.openChat('greenhouse')
         const url = 'https://tracker.example.com/issue/{id}'
-        const asked = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url, why: 'Links CIR-1234 to its task.'})
-        expect(asked).toMatchObject({from: 'claude', text: 'Links CIR-1234 to its task.', request: {setting: 'tracker', from: null, to: url, state: 'asked'}})
+        const asked = await chats.askSetting('c1c2c3c4c5c6', {setting: 'tracker', value: url, why: 'Links ENG-1234 to its task.'})
+        expect(asked).toMatchObject({from: 'claude', text: 'Links ENG-1234 to its task.', request: {setting: 'tracker', from: null, to: url, state: 'asked'}})
         expect(saved).toEqual([])
         // Denied saves nothing, and can't be answered again.
         await chats.answerSetting('c1c2c3c4c5c6', asked.id, false, owner)

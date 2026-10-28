@@ -108,9 +108,9 @@ until the release ships.
 - `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
 - `notes` may use inline `` `code` `` and `**bold**`
-- `external`: its tasks on the team's tracker, a list of ids (`CIR-1567`) or full URLs; the Orrery's
+- `external`: its tasks on the team's tracker, a list of ids (`ENG-1567`) or full URLs; the Orrery's
   `tracker` (`PATCH /settings {tracker}`, a task's web address with `{id}` where its id goes) links an id;
-  `?external=CIR-1567` finds the issues linked to a task
+  `?external=ENG-1567` finds the issues linked to a task
 - `ref` (read only, on `GET …/issues` and `GET …/issues/:issue`): what says whose board the issue is on,
   `orrery-<handle>: <id>` (`orrery-steffendybvik: DOC-132`), from the Orrery's `handle` (see [For agents](#for-agents))
 
@@ -511,7 +511,7 @@ gets it.
 An issue id is only unique within its Orrery, and an Orrery is one person's board. So when a commit body
 or PR description names an issue, write its `ref` (`orrery-steffendybvik: DOC-132`) as a trailer on a
 line of its own, never a bare id, and never in a title or branch name. The team's tracker
-stays the source of truth: its id goes in that repo's own trailer (`Part of CIR-1567`), and in the issue's
+stays the source of truth: its id goes in that repo's own trailer (`Part of ENG-1567`), and in the issue's
 `external`, so the board knows which team task the issue serves. A PR description also links the issue's
 page on this Orrery (`/p/<project>/issues/<id>` on its address, `http://localhost:9010/p/doc/issues/DOC-132`),
 so the owner can jump from the PR to it. The owner sets the

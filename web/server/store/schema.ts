@@ -173,7 +173,7 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     priority: {type: 'string', values: PRIORITIES, nullable: true},
     assignee: {type: 'string', nullable: true},
     labels: {type: 'strings', nullable: true},
-    /** Its tasks on the team's tracker: ids (`CIR-1567`) or full URLs. */
+    /** Its tasks on the team's tracker: ids (`ENG-1567`) or full URLs. */
     external: {type: 'strings', nullable: true},
     notes: {type: 'string', nullable: true},
     /** `pending` makes it a proposal (or puts one up again); `null` commits it, the owner's to do. The owner

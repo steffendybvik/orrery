@@ -90,7 +90,7 @@ export interface Issue {
     /** Who's on it: a person, or `claude`. */
     assignee?: string
     labels: string[]
-    /** Its tasks on the team's tracker: ids (`CIR-1567`), linked through the Orrery's `tracker`, or full URLs. */
+    /** Its tasks on the team's tracker: ids (`ENG-1567`), linked through the Orrery's `tracker`, or full URLs. */
     external: string[]
     /** A status's id, as written; a parent's own status is ignored, its issues decide its column. */
     status: string
