@@ -9,10 +9,14 @@ import {applyPatch} from '#shared/patch'
 export default defineNuxtPlugin(() => {
     const {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, whole} = useRoadmaps()
     const router = useRouter()
-    /** The project the page is on, read whole once the projects are in. */
+    /** The project the page is on, read whole once the projects are in, and those it shares releases with, whose
+     * issues its release pages show. */
     const wholeForPage = () => {
         const id = router.currentRoute.value.params.project
-        if (typeof id === 'string' && ready.value) whole(id).catch(() => {})
+        if (typeof id !== 'string' || !ready.value) return
+        const project = projects.value.find(p => p.id === id)
+        const sharing = projects.value.filter(p => p.releases_from === id || p.id === project?.releases_from || project?.releases_from && p.releases_from === project.releases_from)
+        for (const p of new Set([id, ...sharing.map(p => p.id)])) whole(p).catch(() => {})
     }
     watch(() => router.currentRoute.value.params.project, wholeForPage)
 
@@ -21,10 +25,13 @@ export default defineNuxtPlugin(() => {
         app.settings.value = await $fetch<Settings>('/api/settings').catch(() => app.settings.value)
         app.apply()
         await useOwner().refresh()
-        const read = await $fetch<(Project & {rev: number})[]>('/api/projects', {query: {expand: 'board', notes: '0', closed: '0'}})
+        // The page's own project comes whole in the same call.
+        const here = router.currentRoute.value.params.project
+        const own = typeof here === 'string' ? here : undefined
+        const read = await $fetch<(Project & {rev: number})[]>('/api/projects', {query: {expand: 'board', notes: '0', closed: '0', ...own ? {whole: own} : {}}})
         revs.clear()
         for (const project of read) revs.set(project.id, project.rev)
-        partial.value = Object.fromEntries(read.map(p => [p.id, true]))
+        partial.value = Object.fromEntries(read.map(p => [p.id, p.id !== own]))
         projects.value = read
         ready.value = true
         wholeForPage()
