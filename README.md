@@ -17,13 +17,15 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
   or waiting. Only one session can work on an issue at a time.
 - **Starting sessions:** optionally, a launcher on the host starts Claude sessions in tmux when work
   arrives with nobody listening, or when you start one, within limits set on the Sessions page.
-- **Schedules:** cron jobs that create an issue or send the sessions a message.
+- **Schedules:** at a time or when something happens (an issue moves, a release is frozen, an error), make an
+  issue, send the sessions a message, or start a session.
 - **Releases:** versions with their issues and a drafted changelog, shared across a monorepo's projects
   if wanted.
 - **Docs:** Markdown pages for each project. Comments and descriptions accept images.
 - **Secrets:** API keys that agents use through Orrery's egress, without ever seeing the value.
-- **Storage:** one SQLite file with automatic backups, or Postgres, picked when you first open it or moved to later
-  from App settings. There are no accounts; the first name given becomes the owner.
+- **Event log:** Orrery's errors, and with Advanced on what it did, on an Events page that sessions can read too.
+- **Storage:** one SQLite file or Postgres, both backed up automatically, picked when you first open it or moved to
+  later from App settings. There are no accounts; the first name given becomes the owner.
 
 [Using Orrery](docs/using.md) describes each page, menu and shortcut.
 
