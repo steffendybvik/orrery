@@ -16,7 +16,27 @@ watch(text, now => now.trim() || (from.value = null))
 
 /** The presets, asked for as the menu opens, so one made since the page loaded is there. */
 async function loadPresets() {
+    placing()
     presets.value = await $fetch<Preset[]>(`/api/projects/${encodeURIComponent(props.project)}/presets`).catch(() => presets.value)
+    await nextTick()
+    placing()
+}
+
+// The menu opens above the box, as it sits at a card's foot, unless what scrolls the page (or the window) has no room
+// for it there and more below: the top session on a page would have it cut off under the page's header.
+const button = ref<{$el: HTMLElement} | null>(null)
+const menu = ref<{$el: HTMLElement | null} | null>(null)
+const up = ref(true)
+function placing() {
+    const el = button.value?.$el
+    if (!el) return
+    let scroller = el.parentElement
+    while (scroller && !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement
+    const box = el.getBoundingClientRect()
+    const area = scroller?.getBoundingClientRect() ?? {top: 0, bottom: window.innerHeight}
+    const height = (menu.value?.$el?.offsetHeight ?? 0) + 6
+    const above = box.top - Math.max(area.top, 0)
+    up.value = above >= height || above > Math.min(area.bottom, window.innerHeight) - box.bottom
 }
 
 function use(preset: Preset) {
@@ -56,12 +76,12 @@ async function send() {
     <div class="flex items-end gap-2">
       <Menu as="div" class="relative">
         <MenuButton as="template">
-          <UiButton variant="ghost" square :aria-label="from ? `From the preset ${from.name}` : 'Pick a preset'" :title="from ? `From the preset ${from.name}` : 'Pick a preset'" @click="loadPresets">
+          <UiButton ref="button" variant="ghost" square :aria-label="from ? `From the preset ${from.name}` : 'Pick a preset'" :title="from ? `From the preset ${from.name}` : 'Pick a preset'" @click="loadPresets">
             <PresetBadge v-if="from" :preset="from" :size="18" />
             <BookmarkIcon v-else class="size-4" />
           </UiButton>
         </MenuButton>
-        <MenuItems class="menu absolute bottom-full left-0 z-40 mb-1.5 w-64">
+        <MenuItems ref="menu" class="menu absolute left-0 z-40 w-64" :class="up ? 'bottom-full mb-1.5' : 'top-full mt-1.5'">
           <MenuItem v-for="preset in presets" :key="preset.id" v-slot="{active}" as="template">
             <UiMenuItem :lit="active" :active="from?.id === preset.id" @click="use(preset)">
               <PresetBadge :preset="preset" :size="18" />

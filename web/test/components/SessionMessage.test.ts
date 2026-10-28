@@ -21,7 +21,10 @@ registerEndpoint('/api/projects/greenhouse/sessions/shelves/message', {method: '
 const session = {id: 'shelves', name: 'shelves', project: 'greenhouse', state: 'idle', listening: true, since: '', started_at: ''} as Session
 const mounted: VueWrapper[] = []
 beforeEach(() => sent = [])
-afterEach(() => mounted.splice(0).forEach(w => w.unmount()))
+afterEach(() => {
+    mounted.splice(0).forEach(w => w.unmount())
+    vi.restoreAllMocks()
+})
 
 async function mount() {
     const wrapper = await mountSuspended(SessionMessage, {props: {session, project: 'greenhouse'}, attachTo: document.body})
@@ -59,5 +62,32 @@ describe('SessionMessage', () => {
         await wrapper.find('form').trigger('submit')
         await vi.waitFor(() => expect(sent).toHaveLength(1))
         expect(sent[0]).toEqual({text: 'Look at the hinges'})
+    })
+
+    it("opens the presets below the box when the page it scrolls in has no room above", async () => {
+        // The top session's card on a page: its box sits just under the top of what scrolls.
+        const scroller = document.createElement('div')
+        scroller.style.overflowY = 'auto'
+        document.body.append(scroller)
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(80)
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+            const at = this === scroller ? {top: 100, bottom: 800} : {top: 140, bottom: 168}
+            return {...at, left: 0, right: 0, width: 0, height: at.bottom - at.top, x: 0, y: at.top, toJSON: () => at} as DOMRect
+        })
+        const wrapper = await mountSuspended(SessionMessage, {props: {session, project: 'greenhouse'}, attachTo: scroller})
+        mounted.push(wrapper)
+        await wrapper.find('button[aria-label="Pick a preset"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(2))
+        await vi.waitFor(() => expect(wrapper.find('[role="menu"]').classes()).toContain('top-full'))
+        scroller.remove()
+    })
+
+    it('opens them above the box when there is room', async () => {
+        const {wrapper} = await mount()
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(80)
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({top: 500, bottom: 528, left: 0, right: 0, width: 0, height: 28, x: 0, y: 500, toJSON: () => ({})}) as DOMRect)
+        await wrapper.find('button[aria-label="Pick a preset"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.findAll('[role="menuitem"]')).toHaveLength(2))
+        expect(wrapper.find('[role="menu"]').classes()).toContain('bottom-full')
     })
 })
