@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {Project} from '#shared/roadmap'
-import {applyPatch, diffProject} from '#shared/patch'
+import {applyPatch, diffProject, withoutNotes} from '#shared/patch'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
@@ -69,5 +69,17 @@ describe('patches', () => {
         await store.updateIssue('greenhouse', 'GRE-1', {title: 'Double doors'})
         const patch = diffProject(before, await store.project('greenhouse'), 1, 2)
         expect(applyPatch({...before, board: {...before.board, chunks: []}}, patch)).toBeNull()
+    })
+
+    it('leave the notes of every issue out, at any depth, and nothing else', async () => {
+        await store.updateIssue('greenhouse', 'GRE-1', {notes: 'Oak, not pine'})
+        await store.updateIssue('greenhouse', 'GRE-2', {notes: 'Brass'})
+        const project = await store.project('greenhouse')
+        const light = withoutNotes(project)
+        expect(JSON.stringify(light)).not.toMatch(/Oak, not pine|Brass/)
+        const doors = light.board.chunks.flatMap(c => c.tasks).find(i => i.id === 'GRE-1')
+        expect(doors).toMatchObject({title: 'Doors', tasks: [{id: 'GRE-2', title: 'Hinges'}]})
+        expect(doors && 'notes' in doors).toBe(false)
+        expect(JSON.stringify(project)).toMatch(/Oak, not pine/)
     })
 })

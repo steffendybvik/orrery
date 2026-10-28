@@ -48,7 +48,10 @@ function reread(id: string) {
         const rev = (last?.rev ?? 0) + 1
         pushed.set(id, {rev, project})
         projectEvents.emit('project', project)
-        projectEvents.emit('patch', diffProject(last?.project, project, last?.rev ?? 0, rev))
+        const patch = diffProject(last?.project, project, last?.rev ?? 0, rev)
+        // The page reads an issue's notes on its own page (ORR-439); a changed issue says so by its `updated_at`.
+        for (const issue of Object.values(patch.issues)) delete issue.notes
+        projectEvents.emit('patch', patch)
     }, error => {
         // Only a project that's gone is removed; any other failure leaves the pages as they are.
         if ((error as {statusCode?: number}).statusCode === 404) {
