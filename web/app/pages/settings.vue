@@ -151,6 +151,13 @@ async function backUpNow() {
     }
 }
 
+/** The latest backup is old enough to look into (ORR-448): over two days, while backups are on. */
+const STALE = 48 * 60 * 60_000
+const backupStale = computed(() => {
+    const at = settings.value.database?.backed_up_at
+    return !!at && Date.now() - new Date(at).getTime() > STALE
+})
+
 // Whether the database is backed up, and where: a folder (outside Docker, any; in it, ORRERY_BACKUP's), or a Postgres
 // database (ORR-427). Ticked or saved, and turned on it's backed up there at once, so a place that won't take it says
 // so here. The kind starts on where they go now, else on the database's own kind.
@@ -408,9 +415,19 @@ async function pick(tint: string | null) {
             </template>
             <dt class="text-muted">Latest backup</dt>
             <dd class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <span class="text-fg" :title="settings.database.backed_up_at && new Date(settings.database.backed_up_at).toLocaleString()">{{ settings.database.backed_up_at ? ago(settings.database.backed_up_at) : 'None yet' }}</span>
+              <span
+                  :class="backupStale || settings.database.backup_failed ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-fg'"
+                  :title="settings.database.backed_up_at && new Date(settings.database.backed_up_at).toLocaleString()"
+                  data-backup-latest
+              >{{ settings.database.backed_up_at ? ago(settings.database.backed_up_at) : 'None yet' }}<template v-if="backupStale"> (over two days old)</template></span>
               <UiButton :disabled="backingUp" @click="backUpNow">{{ backingUp ? 'Backing up…' : 'Back up now' }}</UiButton>
               <span v-if="backupFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ backupFailed }}</span>
+              <span
+                  v-else-if="settings.database.backup_failed"
+                  class="basis-full text-xs text-rose-600 dark:text-rose-400"
+                  :title="new Date(settings.database.backup_failed.at).toLocaleString()"
+                  data-backup-failed
+              >The last try failed {{ ago(settings.database.backup_failed.at) }}: {{ settings.database.backup_failed.message }}</span>
             </dd>
           </template>
         </dl>
