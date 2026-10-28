@@ -60,7 +60,8 @@ export class EventLog {
     /** `scrub` takes secrets' values out of what's kept; `onLogged` hears each event written, `fresh` when it's a row of its own. */
     constructor(
         private readonly db: Db,
-        private readonly scrub: (text: string) => Promise<string> = async text => text,
+        /** What takes secrets' values out of a text, made once for each event recorded. */
+        private readonly scrubber: () => Promise<(text: string) => string> = async () => text => text,
         private readonly onLogged: (event: LoggedEvent, fresh: boolean) => void = () => {},
         private readonly now: () => Date = () => new Date(),
     ) {}
@@ -85,8 +86,9 @@ export class EventLog {
             this.happened({type: entry.kind, level: entry.level, ...entry.project ? {project: entry.project} : {}})
             return null
         }
-        const message = cut(redact(await this.scrub(entry.message.trim() || entry.kind)), MESSAGE)
-        const details = entry.details ? JSON.stringify(await this.clean(entry.details)) : null
+        const scrub = await this.scrubber()
+        const message = cut(redact(scrub(entry.message.trim() || entry.kind)), MESSAGE)
+        const details = entry.details ? JSON.stringify(clean(entry.details, scrub)) : null
         const project = entry.project || null
         const at = this.now().toISOString()
         const again = await this.db.get<EventRow>(`UPDATE events SET count = count + 1, last_seen = ?, details = ?
@@ -99,7 +101,9 @@ export class EventLog {
         const event = eventOf(row)
         this.onLogged(event, !again)
         // Its message isn't passed on: an error's can hold what a page or another site sent. Its row is, to read.
+        // What Orrery did is passed on each time, as when it isn't kept: it repeats into one row, but each is news.
         if (!again) this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}})
+        else if (entry.level === 'info') this.happened({type: entry.kind, level: entry.level, ...project ? {project} : {}})
         return event
     }
 
@@ -116,12 +120,14 @@ export class EventLog {
             const levels = filter.level.split(',').map(l => l.trim()).filter(Boolean)
             const wrong = levels.find(l => !EVENT_LEVELS.includes(l as EventLevel))
             if (wrong) throw badRequest(`"level" has "${wrong}"; use ${EVENT_LEVELS.join(', ')}`)
-            where.push(`level IN (${levels.map(() => '?').join(', ')})`)
-            params.push(...levels)
+            if (levels.length) {
+                where.push(`level IN (${levels.map(() => '?').join(', ')})`)
+                params.push(...levels)
+            }
         }
         if (filter.kind) {
-            where.push("(kind = ? OR kind LIKE ?)")
-            params.push(filter.kind, `${filter.kind.replace(/[%_]/g, '')}.%`)
+            where.push("(kind = ? OR kind LIKE ? ESCAPE '\\')")
+            params.push(filter.kind, `${filter.kind.replace(/[\\%_]/g, '\\$&')}.%`)
         }
         if (filter.project) {
             where.push('project = ?')
@@ -157,15 +163,14 @@ export class EventLog {
         const over = await this.db.run(`DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY last_seen DESC, id DESC LIMIT ${MAX_ROWS})`)
         return info.changes + rest.changes + over.changes
     }
+}
 
-    /** Its texts cut short and with no secret in them, any depth down. */
-    private async clean(value: unknown, depth = 0): Promise<unknown> {
-        if (typeof value === 'string') return cut(redact(await this.scrub(value)), TEXT)
-        if (depth > 4 || value === null || typeof value !== 'object') return typeof value === 'bigint' ? Number(value) : value
-        if (Array.isArray(value)) return Promise.all(value.slice(0, 50).map(v => this.clean(v, depth + 1)))
-        const entries = await Promise.all(Object.entries(value).slice(0, 50).map(async ([k, v]) => [k, await this.clean(v, depth + 1)] as const))
-        return Object.fromEntries(entries)
-    }
+/** Its texts cut short and with no secret in them, any depth down. */
+function clean(value: unknown, scrub: (text: string) => string, depth = 0): unknown {
+    if (typeof value === 'string') return cut(redact(scrub(value)), TEXT)
+    if (depth > 4 || value === null || typeof value !== 'object') return typeof value === 'bigint' ? Number(value) : value
+    if (Array.isArray(value)) return value.slice(0, 50).map(v => clean(v, scrub, depth + 1))
+    return Object.fromEntries(Object.entries(value).slice(0, 50).map(([k, v]) => [k, clean(v, scrub, depth + 1)]))
 }
 
 /** Passwords in addresses (`postgres://me:…@host`) and bearer tokens, whoever's they are. */

@@ -78,6 +78,19 @@ describe('event types', () => {
             {type: 'session.started', level: 'info', project: 'greenhouse'},
         ])
     })
+
+    it('come out of the event log with Advanced on: what Orrery did each time, though it repeats into one row', async () => {
+        await store.updateSettings({advanced: true}, me)
+        const log = new EventLog(store.db)
+        const said: OrreryEvent[] = []
+        log.happened = event => said.push(event)
+        await log.record({level: 'info', kind: 'session.stopped', project: 'greenhouse', message: 'A session stopped'})
+        await log.record({level: 'info', kind: 'session.stopped', project: 'greenhouse', message: 'A session stopped'})
+        expect(said).toEqual([
+            {type: 'session.stopped', level: 'info', project: 'greenhouse', subject: expect.stringMatching(/^event \d+$/)},
+            {type: 'session.stopped', level: 'info', project: 'greenhouse'},
+        ])
+    })
 })
 
 describe('a schedule on an event', () => {
@@ -150,6 +163,31 @@ describe('a schedule on an event', () => {
         expect(heard.map(h => [h.event.type, h.cause])).toEqual([['issue.created', s.id]])
         expect(await pass(later(2))).toBe(0)
         expect((await schedules.get('greenhouse', s.id)).runs).toHaveLength(1)
+    })
+
+    it('runs once for events heard at the same moment, as each waits for the one before', async () => {
+        const s = await schedules.create('greenhouse', {title: 'Each', kind: 'message', notes: 'Look', on: 'issue.created'}, me)
+        const events = [1, 2, 3].map(n => ({type: 'issue.created', project: 'greenhouse', subject: `GRE-${n}`}))
+        expect(await Promise.all(events.map(event => schedules.hear(event)))).toEqual([1, 0, 0])
+        expect((await schedules.get('greenhouse', s.id)).runs).toHaveLength(1)
+    })
+
+    it("runs for a subject again when its run there was skipped", async () => {
+        const s = await schedules.create('greenhouse', {title: 'Review', on: 'issue.status', on_filter: {to: 'in-review'}}, me)
+        const one = await store.createIssue('greenhouse', {title: 'One'}, me)
+        const two = await store.createIssue('greenhouse', {title: 'Two'}, me)
+        await store.updateIssue('greenhouse', one.id, {status: 'in-review'}, me)
+        expect(await pass()).toBe(1)
+        // Its last issue isn't done, so Two is skipped.
+        await store.updateIssue('greenhouse', two.id, {status: 'in-review'}, me)
+        expect(await pass(later(2))).toBe(1)
+        const [skipped, made] = (await schedules.get('greenhouse', s.id)).runs
+        expect([skipped?.outcome, made?.outcome]).toEqual(['skipped', 'made'])
+        await store.updateIssue('greenhouse', made!.issue!, {status: 'done'}, me)
+        await store.updateIssue('greenhouse', two.id, {status: 'todo'}, me)
+        await store.updateIssue('greenhouse', two.id, {status: 'in-review'}, me)
+        expect(await pass(later(4))).toBe(1)
+        expect((await schedules.get('greenhouse', s.id)).runs[0]).toMatchObject({outcome: 'made', subject: two.id})
     })
 
     it('hears what happens to the Orrery as a whole in every project, and nothing of another project\'s', async () => {

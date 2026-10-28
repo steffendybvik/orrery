@@ -231,16 +231,27 @@ export class Schedules {
         return await this.run(row, new Date(), true, undefined, `instead of ${day(skipped, row.timezone)} ${time(skipped, row.timezone)}`)
     }
 
+    /** What `hear` is on: events are heard one at a time, so a burst of them can't each pass a schedule's checks
+     * before any has recorded its run. */
+    private hearing: Promise<unknown> = Promise.resolve()
+
     /** Runs the event schedules `event` is for, each once per subject and not within a minute of its last run; none when a
      * schedule's run (`cause`) did it, so one can't set another off, or itself. Says how many ran. */
-    async hear(event: OrreryEvent, cause?: number, now = new Date()): Promise<number> {
+    hear(event: OrreryEvent, cause?: number, now = new Date()): Promise<number> {
+        const heard = this.hearing.then(() => this.hearOne(event, cause, now))
+        this.hearing = heard.catch(() => {})
+        return heard
+    }
+
+    private async hearOne(event: OrreryEvent, cause: number | undefined, now: Date): Promise<number> {
         if (cause !== undefined) return 0
         const rows = await this.db.all<ScheduleRow>(`SELECT * FROM schedules WHERE enabled = 1 AND on_event IS NOT NULL${event.project ? ' AND project = ?' : ''}`,
             ...event.project ? [event.project] : [])
         let ran = 0
         for (const row of rows) {
             if (!matchesType(row.on_event ?? '', event.type) || !await this.fits(row, event)) continue
-            if (event.subject && await this.db.get('SELECT 1 FROM schedule_runs WHERE schedule = ? AND subject = ?', row.id, event.subject)) continue
+            // A run that was skipped or failed didn't do it for its subject, so a later event can.
+            if (event.subject && await this.db.get("SELECT 1 FROM schedule_runs WHERE schedule = ? AND subject = ? AND outcome IN ('made', 'sent')", row.id, event.subject)) continue
             const last = await this.db.get<{at: string}>('SELECT at FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT 1', row.id)
             if (last && now.getTime() - new Date(last.at).getTime() < COOLDOWN) continue
             await this.run(row, now, false, event)

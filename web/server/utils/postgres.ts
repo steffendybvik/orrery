@@ -8,7 +8,7 @@
 // STEPS here.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import pg from 'pg'
-import type {Db, Value} from './database'
+import {runAfter, type Db, type Value} from './database'
 
 // Counts come back as int8, which pg hands over as text; Orrery's never outgrow a number.
 pg.types.setTypeParser(pg.types.builtins.INT8, value => Number(value))
@@ -341,7 +341,7 @@ const STEPS: string[] = [`
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether
  * it's still open (work it started can outlive its COMMIT, and then goes to the pool, not a released client). */
-const current = new AsyncLocalStorage<{db: PostgresDb, client: pg.PoolClient, open: boolean}>()
+const current = new AsyncLocalStorage<{db: PostgresDb, client: pg.PoolClient, open: boolean, after: (() => void)[]}>()
 
 export class PostgresDb implements Db {
     readonly dialect = 'postgres'
@@ -384,11 +384,12 @@ export class PostgresDb implements Db {
         if (this.ongoing()) return work()
         await this.ready
         const client = await this.pool.connect()
-        const transaction = {db: this, client, open: true}
+        const transaction = {db: this, client, open: true, after: [] as (() => void)[]}
         try {
             await client.query('BEGIN')
             const result = await current.run(transaction, work)
             await client.query('COMMIT')
+            runAfter(current, transaction.after)
             return result
         } catch (error) {
             await client.query('ROLLBACK').catch(() => {})
@@ -397,6 +398,12 @@ export class PostgresDb implements Db {
             transaction.open = false
             client.release()
         }
+    }
+
+    afterCommit(work: () => void) {
+        const transaction = this.ongoing()
+        if (transaction) transaction.after.push(work)
+        else runAfter(current, [work])
     }
 
     /** The open transaction of this database the code running now is part of, if any. */

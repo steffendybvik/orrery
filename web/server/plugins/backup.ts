@@ -13,9 +13,15 @@ export default defineNitroPlugin(nitro => {
         })
     const wait = database instanceof SqliteDb ? 3000 : 60_000
     let timer: ReturnType<typeof setTimeout> | undefined
+    // Changes that keep coming put it off, but never past ten waits from the first of them.
+    let since: number | undefined
     const soon = () => {
+        since ??= Date.now()
         clearTimeout(timer)
-        timer = setTimeout(save, wait)
+        timer = setTimeout(() => {
+            since = undefined
+            save()
+        }, Math.max(0, Math.min(wait, since + 10 * wait - Date.now())))
     }
     save()
     for (const change of ['project', 'removed', 'settings', 'secrets', 'schedules']) projectEvents.on(change, soon)

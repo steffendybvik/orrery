@@ -52,16 +52,17 @@ let log: EventLog | null = null
 
 /** The event log, secrets' values scrubbed out of what it keeps. */
 export function useEventLog(): EventLog {
-    log ??= new EventLog(useDatabase(), text => useSecrets().scrub(text),
+    log ??= new EventLog(useDatabase(), () => useSecrets().scrubber(),
         (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
     log.happened = happened
     return log
 }
 
-/** Passes it on once what did it is done (the write's transaction), with the schedule whose run did it, if one did. */
+/** Passes it on once what did it is done (the write's transaction has committed, and nothing when it rolls back),
+ * with the schedule whose run did it, if one did. */
 function happened(event: OrreryEvent) {
     const cause = scheduleRunning.getStore()
-    setImmediate(() => projectEvents.emit('happened', {event, cause}))
+    useDatabase().afterCommit(() => projectEvents.emit('happened', {event, cause}))
 }
 
 let schedules: Schedules | null = null

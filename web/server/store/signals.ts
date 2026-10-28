@@ -165,6 +165,12 @@ export abstract class SignalStore extends IssueStore {
         return signal
     }
 
+    /** Whether the owner sent this session something of its own (by one of its ids) that it hasn't heard yet. */
+    async waitingFor(project: string, ids: string[]): Promise<boolean> {
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
+            AND target IN (${ids.map(() => '?').join(', ')}) LIMIT 1`, project, ...ids)
+    }
+
     /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or
      * for the one Orrery picks. */
     async waiting(project: string, ids: string[]): Promise<boolean> {
