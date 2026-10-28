@@ -70,9 +70,14 @@ const everywhere = counter('everywhere')
 /** The version each of a project's launchers runs, as it says (`?version=`; one from before 1.0.0-rc.10 doesn't, and
  * counts as `''`). */
 const versions = new Map<string, string[]>()
+/** Each connected launcher's token, to the project it serves: its stream hands it over (`ready`), and a claim counts
+ * only with one, so nothing but a launcher on its stream can take a launch and keep it from starting (ORR-443). */
+const tokens = new Map<string, string>()
 /** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, and the
- * version of its code, until `done` is called. */
-export function addLauncher(project: string, dir?: string, every = false, version = ''): () => void {
+ * version of its code, until `done` is called. `done.token` is the one its claims are to send. */
+export function addLauncher(project: string, dir?: string, every = false, version = ''): (() => void) & {token: string} {
+    const token = randomBytes(18).toString('base64url')
+    tokens.set(token, project)
     const gone = launchers.add(project)
     const away = every ? everywhere.add(project) : () => {}
     versions.set(project, [...versions.get(project) ?? [], version])
@@ -80,24 +85,25 @@ export function addLauncher(project: string, dir?: string, every = false, versio
     const done = () => {
         if (held) {
             held = false
+            tokens.delete(token)
             const left = versions.get(project) ?? []
             left.splice(left.indexOf(version), 1)
         }
         away()
         gone()
     }
-    if (!dir) return done
+    if (!dir) return Object.assign(done, {token})
     const counts = folders.get(project) ?? new Map<string, number>()
     folders.set(project, counts.set(dir, (counts.get(dir) ?? 0) + 1))
     let counted = true
-    return () => {
+    return Object.assign(() => {
         if (!counted) return
         counted = false
         const left = (counts.get(dir) ?? 1) - 1
         if (left > 0) counts.set(dir, left)
         else counts.delete(dir)
         done()
-    }
+    }, {token})
 }
 /** The folders a project's launchers run in. */
 export const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
@@ -262,28 +268,33 @@ async function allowedStarts(project: string): Promise<Starts | null> {
     return starts && startedSessions() + pendingOn() <= starts.limit ? starts : null
 }
 
-/** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. An
- * untrusted launch only goes to one that `locksDown`, and a chat to one that `chats`: an older launcher would start
- * either with every tool. */
-export function claim(project: string, id: string, locksDown = false, chats = false): boolean {
+/** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. Only
+ * a launcher connected for the project counts, by the `token` its stream gave it. An untrusted launch only goes to one
+ * that `locksDown`, and a chat to one that `chats`: an older launcher would start either with every tool. */
+export function claim(project: string, id: string, token: string | undefined, locksDown = false, chats = false): boolean {
     const launch = pending.get(id)
     if (!launch || launch.project !== project || launch.claimed) return false
+    if (!token || tokens.get(token) !== project) {
+        outdated(project, id, `A claim on a session waiting to start on ${project} came without a running launcher's token, so it was refused. A launcher from before 1.0.0-rc.10 sends none: restart it to start the session (it runs the channel folder's code when it starts).`)
+        return false
+    }
     if (launch.untrusted && !locksDown || launch.chat && !chats) {
-        outdated(project, id, launch.chat ? 'a chat' : "an untrusted schedule's session")
+        const what = launch.chat ? 'a chat' : "an untrusted schedule's session"
+        outdated(project, id, `A launcher on ${project} is running code from before orrery could start ${what}, so it was refused it. Restart the launcher to start it (it runs the channel folder's code when it starts).`)
         return false
     }
     launch.claimed = true
     return true
 }
 
-/** A launcher whose code is older than the launch it was offered (it doesn't say it can lock a session down, or start
- * a chat) was refused it, and nothing else will start it until that launcher restarts on the new code (ORR-383).
- * Said once a launch: as a warning in the event log, and on the chat, so it doesn't sit at "Starting the session…". */
+/** A launcher whose code is older than the launch it was offered (it sends no token, or doesn't say it can lock a
+ * session down, or start a chat) was refused it, and nothing else will start it until that launcher restarts on the new
+ * code (ORR-383). Said once a launch: as a warning in the event log, and on the chat, so it doesn't sit at "Starting the
+ * session…". */
 const told = new Set<string>()
-function outdated(project: string, id: string, what: string) {
+function outdated(project: string, id: string, message: string) {
     if (told.has(id)) return
     told.add(id)
-    const message = `A launcher on ${project} is running code from before orrery could start ${what}, so it was refused it. Restart the launcher to start it (it runs the channel folder's code when it starts).`
     useEventLog().note({level: 'warn', kind: 'launcher.outdated', project, message})
     chatProblem(id, message)
 }

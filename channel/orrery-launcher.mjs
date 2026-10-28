@@ -341,12 +341,15 @@ async function getPast(id, dir) {
 function serve({url, project, dir}) {
     const api = `${url}/api/projects/${encodeURIComponent(project)}`
     adopt(project, api)
+    /** The token this connection's stream gave it (`ready`), which its claims send, so orrery knows they're a
+     * launcher's (ORR-443). A new one comes with each reconnect. */
+    let token = ''
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
         // It says it locks an untrusted launch down with no Bash, and starts a chat able only to read and answer: orrery
         // gives either only to a launcher that does.
-        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST'}).then(r => r.json()).catch(() => ({claimed: false}))
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST', headers: {'Orrery-Launcher': token}}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
@@ -370,8 +373,9 @@ function serve({url, project, dir}) {
         url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
+                const {starts, version, token: given} = JSON.parse(data)
+                token = given ?? ''
                 await report(api)
-                const {starts, version} = JSON.parse(data)
                 if (version) orreryVersions.set(url, version)
                 restartIfBehind()
                 log(starts
