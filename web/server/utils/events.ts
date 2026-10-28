@@ -1,13 +1,15 @@
 // The one store the routes share, and the events it sends: `project` (the project, read again)
 // after any change to it, `removed` (its id) once it's deleted, and `signal` (a Signal) when someone
 // asks the sessions on a project to focus on an issue, `schedules` (the project) when its schedules
-// change or run, `secrets` (the list, no values) when they change or one is used, and `logged` ({event, fresh}) when the
-// event log records or resolves one. `/api/events` and the signal streams pass them on.
+// change or run, `secrets` (the list, no values) when they change or one is used, `logged` ({event, fresh}) when the
+// event log records or resolves one, and `happened` ({event, cause}) for what the schedules can run on (ORR-341), `cause`
+// the schedule whose run did it. `/api/events` and the signal streams pass them on.
 import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
+import type {OrreryEvent} from '#shared/happenings'
 import type {LoggedEvent} from '#shared/roadmap'
 import {EventLog} from './event-log'
-import {Schedules} from './schedules'
+import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
 import {Store} from './store'
 
@@ -34,6 +36,7 @@ export function useStore(): Store {
         })
     }, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
     store.hears = hearing
+    store.happened = happened
     return store
 }
 
@@ -51,7 +54,14 @@ let log: EventLog | null = null
 export function useEventLog(): EventLog {
     log ??= new EventLog(useDatabase(), text => useSecrets().scrub(text),
         (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
+    log.happened = happened
     return log
+}
+
+/** Passes it on once what did it is done (the write's transaction), with the schedule whose run did it, if one did. */
+function happened(event: OrreryEvent) {
+    const cause = scheduleRunning.getStore()
+    setImmediate(() => projectEvents.emit('happened', {event, cause}))
 }
 
 let schedules: Schedules | null = null

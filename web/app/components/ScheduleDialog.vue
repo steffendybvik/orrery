@@ -1,12 +1,16 @@
 <script setup lang="ts">
+import {COMMON_EVENTS, EVENT_PATTERN} from '#shared/happenings'
+import type {OnFilter} from '#shared/happenings'
 import type {Priority, Schedule} from '#shared/roadmap'
+import {EVENT_LEVELS} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
 // Writing a schedule, or changing one, as the owner: in a project (picked here for a new one), whether each run makes an issue or
 // only sends a message to the project's Claude sessions, what it says, when it runs (presets, or a cron
 // under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
 // sessions to pick it up. One already made can be paused or resumed from here, at once, or removed (asked once more). ⌘↵ saves, Esc
-// closes.
+// closes. Or it runs on an event instead of a time (ORR-341): a common one picked, or any type or pattern typed, with what
+// the event must also say (the status it moves to, who did it, the level).
 const {editing, pause} = useSchedules()
 const {byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -26,6 +30,26 @@ const starts = computed(() => places.value.filter(p => p.kind !== 'proposed' && 
 const startOptions = computed(() => starts.value.map(p => ({value: p.id, label: p.label})))
 const MINUTES = [5, 10, 15, 20, 30].map(n => ({value: String(n), label: `${n} minutes`}))
 const HOURS = [1, 2, 3, 4, 6, 8, 12].map(n => ({value: String(n), label: n === 1 ? 'hour' : `${n} hours`}))
+
+// Time or Event, and the event: a common one, or another typed in (`other`).
+type Trigger = 'time' | 'event'
+const TRIGGERS: {value: Trigger, label: string}[] = [{value: 'time', label: 'Time'}, {value: 'event', label: 'Event'}]
+const OTHER = 'other'
+const EVENT_OPTIONS = [...COMMON_EVENTS.map(e => ({value: e.type, label: e.label})), {value: OTHER, label: 'Another event or pattern…'}]
+const BY_OPTIONS = [{value: '', label: 'Anyone'}, {value: 'owner', label: 'You'}, {value: 'session', label: 'A session'}]
+const LEVEL_OPTIONS = [{value: '', label: 'Any level'}, ...EVENT_LEVELS.map(l => ({value: l, label: l}))]
+const trigger = ref<Trigger>('time')
+const eventPick = ref('issue.status')
+const pattern = ref('')
+const to = ref('')
+const by = ref<'' | 'owner' | 'session'>('')
+const level = ref('')
+const on = computed(() => eventPick.value === OTHER ? pattern.value.trim() : eventPick.value)
+const common = computed(() => COMMON_EVENTS.find(e => e.type === on.value))
+// A status's id or kind, for an issue moving: any status, the kinds first.
+const statusOptions = computed(() => [{value: '', label: 'Any status'}, ...places.value.filter(p => p.kind !== 'proposed').map(p => ({value: p.id, label: p.label}))])
+const onFilter = computed<OnFilter>(() => ({...to.value.trim() ? {to: to.value.trim()} : {}, ...by.value ? {by: by.value} : {},
+    ...level.value ? {level: level.value as OnFilter['level']} : {}}))
 
 const project = ref('')
 const sends = ref<'issue' | 'message'>('issue')
@@ -103,6 +127,12 @@ watch(editing, now => {
     }
     once.value = repeat.kind === 'once' ? local(repeat.at) : local(new Date(Date.now() + 3600_000).toISOString())
     cron.value = s?.cron ?? '0 9 * * 1-5'
+    trigger.value = s?.on ? 'event' : 'time'
+    eventPick.value = !s?.on ? 'issue.status' : COMMON_EVENTS.some(e => e.type === s.on) ? s.on : OTHER
+    pattern.value = s?.on && eventPick.value === OTHER ? s.on : ''
+    to.value = s?.on_filter?.to ?? ''
+    by.value = s?.on_filter?.by ?? ''
+    level.value = s?.on_filter?.level ?? ''
     failed.value = ''
 }, {immediate: true})
 // Its field takes the cursor once it's there: on the first open the dialog is still loading when the watch above runs.
@@ -123,7 +153,7 @@ const cronText = computed(() => toCron(repeat.value))
 const atText = computed(() => repeat.value.kind === 'once' ? repeat.value.at : null)
 const upcoming = computed(() => nextTimes(cronText.value, atText.value, timezone.value))
 const ready = computed(() => !!project.value && !!title.value.trim() && (sends.value === 'issue' || !!notes.value.trim())
-    && upcoming.value.length > 0 && !saving.value)
+    && (trigger.value === 'event' ? EVENT_PATTERN.test(on.value) : upcoming.value.length > 0) && !saving.value)
 
 function toggleDay(d: number) {
     days.value = days.value.includes(d) ? days.value.filter(x => x !== d) : [...days.value, d]
@@ -157,7 +187,7 @@ async function save() {
         kind: sends.value,
         title: title.value.trim(),
         notes: notes.value.trim() || null,
-        ...cronText.value ? {cron: cronText.value} : {at: atText.value},
+        ...trigger.value === 'event' ? {on: on.value, on_filter: onFilter.value} : cronText.value ? {cron: cronText.value} : {at: atText.value},
         timezone: timezone.value,
         column: column.value,
         chunk: chunk.value || null,
@@ -233,8 +263,44 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     />
 
     <section class="flex flex-col gap-2 border-t border-line pt-3">
-      <span class="label">When</span>
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="flex items-center gap-3">
+        <span class="label">When</span>
+        <SegmentedControl v-model="trigger" :options="TRIGGERS" />
+      </div>
+      <template v-if="trigger === 'event'">
+        <div class="flex flex-wrap items-center gap-2">
+          <PropertyPicker v-model="eventPick" :options="EVENT_OPTIONS" label="Event" field>
+            <span class="truncate">{{ labelOf(EVENT_OPTIONS, eventPick) }}</span>
+          </PropertyPicker>
+          <input v-if="eventPick === OTHER" v-model="pattern" placeholder="issue.priority, release.*, *.failed" aria-label="Event type or pattern" :class="[field, 'w-56 font-mono']">
+          <template v-if="on === 'issue.status'">
+            <span class="text-xs text-muted">to</span>
+            <PropertyPicker v-model="to" :options="statusOptions" label="Moves to" field>
+              <StatusIcon v-if="to" :column="to" />
+              <span class="truncate" :class="!to && 'text-faint'">{{ labelOf(statusOptions, to) }}</span>
+            </PropertyPicker>
+          </template>
+          <template v-else-if="common?.filter === 'value' || eventPick === OTHER">
+            <span class="text-xs text-muted">to</span>
+            <input v-model="to" placeholder="any value" aria-label="Changed to" :class="[field, 'w-32']">
+          </template>
+          <PropertyPicker v-if="common?.filter === 'level' || eventPick === OTHER" v-model="level" :options="LEVEL_OPTIONS" label="Level" field>
+            <span class="truncate" :class="!level && 'text-faint'">{{ labelOf(LEVEL_OPTIONS, level) }}</span>
+          </PropertyPicker>
+          <span class="text-xs text-muted">by</span>
+          <PropertyPicker v-model="by" :options="BY_OPTIONS" label="By" field>
+            <span class="truncate">{{ labelOf(BY_OPTIONS, by) }}</span>
+          </PropertyPicker>
+        </div>
+        <p class="text-xs text-faint">
+          <template v-if="EVENT_PATTERN.test(on)">
+            Runs once for each thing it's about (an issue, a release), at most once a minute. What a schedule's run does sets nothing off.
+            An event's type is <code>thing.what</code> (<code>issue.&lt;field&gt;</code>, <code>release.frozen</code>, a kind from the event log); <code>*</code> stands for any part.
+          </template>
+          <span v-else class="text-rose-600 dark:text-rose-400">Type an event, e.g. <code>issue.priority</code>, or a pattern like <code>release.*</code></span>
+        </p>
+      </template>
+      <div v-else class="flex flex-wrap items-center gap-2">
         <PropertyPicker v-model="kind" :options="KINDS" label="Repeats" field>
           <span class="truncate">{{ labelOf(KINDS, kind) }}</span>
         </PropertyPicker>
@@ -267,7 +333,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
           <input v-model="timezone" aria-label="Timezone" :class="[field, 'w-40']">
         </label>
       </div>
-      <div v-if="kind === 'weekly'" class="flex gap-0.5 self-start rounded-lg bg-well p-0.5 ring-1 ring-line">
+      <div v-if="trigger === 'time' && kind === 'weekly'" class="flex gap-0.5 self-start rounded-lg bg-well p-0.5 ring-1 ring-line">
         <button
             v-for="d in [1, 2, 3, 4, 5, 6, 0]"
             :key="d"
@@ -278,7 +344,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
             @click="toggleDay(d)"
         >{{ DAYS[d] }}</button>
       </div>
-      <p class="text-xs text-faint">
+      <p v-if="trigger === 'time'" class="text-xs text-faint">
         <template v-if="upcoming.length">Next runs <span class="text-muted">{{ upcoming.map(t => when(t, timezone)).join(' · ') }}</span></template>
         <span v-else class="text-rose-600 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
       </p>

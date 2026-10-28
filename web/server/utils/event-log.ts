@@ -3,6 +3,7 @@
 // migrations) only while the owner has Advanced on in App settings, as most never look. The same event again,
 // while it isn't resolved, counts on its row instead of taking another, so a loop can't fill the database; and old
 // rows go: what Orrery did after a week, the rest after a month, and past MAX_ROWS the oldest.
+import type {OrreryEvent} from '#shared/happenings'
 import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 import {EVENT_LEVELS} from '#shared/roadmap'
 import type {Db} from './database'
@@ -48,7 +49,7 @@ const DAY = 24 * 60 * 60 * 1000
 export const KEEP_INFO = 7 * DAY
 export const KEEP_PROBLEMS = 30 * DAY
 /** The most rows kept, the oldest going first. */
-export const MAX_ROWS = 5000
+const MAX_ROWS = 5000
 /** How often (in rows written) old ones are pruned, besides on start. */
 const PRUNE_EVERY = 200
 const MESSAGE = 1000
@@ -66,6 +67,10 @@ export class EventLog {
 
     private written = 0
 
+    /** Hears each kind as it happens, for the schedules that run on it (`backup.failed`, `session.started`): every
+     * time when it isn't kept, and only a new one when it is (a repeat of an open error isn't news). The server sets it. */
+    happened: (event: OrreryEvent) => void = () => {}
+
     /** Whether the owner has Advanced on, so more than errors is recorded. */
     async advanced(): Promise<boolean> {
         const row = await this.db.get<{value: string}>("SELECT value FROM settings WHERE key = 'advanced'")
@@ -76,7 +81,10 @@ export class EventLog {
     async record(entry: EventEntry): Promise<LoggedEvent | null> {
         if (!EVENT_LEVELS.includes(entry.level)) throw badRequest(`"level" is "${entry.level}"; use ${EVENT_LEVELS.join(', ')}`)
         if (!KIND.test(entry.kind)) throw badRequest(`"kind" is "${entry.kind}"; use a dotted name, e.g. page.error`)
-        if (entry.level !== 'error' && !await this.advanced()) return null
+        if (entry.level !== 'error' && !await this.advanced()) {
+            this.happened({type: entry.kind, level: entry.level, ...entry.project ? {project: entry.project} : {}})
+            return null
+        }
         const message = cut(redact(await this.scrub(entry.message.trim() || entry.kind)), MESSAGE)
         const details = entry.details ? JSON.stringify(await this.clean(entry.details)) : null
         const project = entry.project || null
@@ -90,6 +98,8 @@ export class EventLog {
         if (++this.written % PRUNE_EVERY === 0) await this.prune()
         const event = eventOf(row)
         this.onLogged(event, !again)
+        // Its message isn't passed on: an error's can hold what a page or another site sent. Its row is, to read.
+        if (!again) this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}})
         return event
     }
 

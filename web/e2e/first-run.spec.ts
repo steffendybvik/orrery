@@ -6,7 +6,7 @@ import {projectApi} from './support'
 // `first-run` project in playwright.config.ts), so they find the owner named Ada Lovelace.
 test.describe.configure({mode: 'serial'})
 
-const api = projectApi('larder')
+const api = projectApi('greenhouse')
 
 test('asks the owner their name on first open', async ({page, request}) => {
     await page.goto('/')
@@ -25,10 +25,10 @@ test('makes a project', async ({page}) => {
     await page.goto('/')
     await page.getByRole('button', {name: 'New project'}).first().click()
     const dialog = page.getByRole('dialog', {name: 'New project'})
-    await dialog.getByLabel('Name').fill('Larder')
+    await dialog.getByLabel('Name').fill('Greenhouse')
     await dialog.getByRole('button', {name: /Create project/}).click()
-    await expect(page).toHaveURL(/\/p\/larder/)
-    await expect(page.getByRole('heading', {name: 'Larder'})).toBeVisible()
+    await expect(page).toHaveURL(/\/p\/greenhouse/)
+    await expect(page.getByRole('heading', {name: 'Greenhouse'})).toBeVisible()
 })
 
 test('Now, My issues and Connect show what they should', async ({page, request}) => {
@@ -47,7 +47,7 @@ test('Now, My issues and Connect show what they should', async ({page, request})
     await page.getByRole('button', {name: 'Working with Claude after all?'}).click()
     await page.goto('/now')
     await expect(card).toBeVisible()
-    await page.goto('/connect?project=larder')
-    await expect(page.getByText(/Set this repo up for Orrery: read .*\/connect\/larder\.md/)).toBeVisible()
+    await page.goto('/connect?project=greenhouse')
+    await expect(page.getByText(/Set this repo up for Orrery: read .*\/connect\/greenhouse\.md/)).toBeVisible()
     await api(request, 'patch', `/issues/${urgent.id}`, {status: 'done'})
 })

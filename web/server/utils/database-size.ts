@@ -30,7 +30,7 @@ function fileSize(path: string): number | undefined {
 }
 
 /** The files in the folder and the folders in it, together; none for one that isn't there. */
-export function folderSize(dir: string): number | undefined {
+function folderSize(dir: string): number | undefined {
     try {
         return readdirSync(dir, {withFileTypes: true}).reduce((total, entry) => {
             const path = join(dir, entry.name)
