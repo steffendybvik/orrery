@@ -4,7 +4,8 @@
 // within the limit, which counts every session it has started, whatever the project. The first launcher to
 // claim the launch starts it; its channel catches up from that signal. The session runs until the owner stops
 // it, or orrery has its launcher stop it once its time is up or it has sat idle too long (the setting's `minutes`
-// and `idle_minutes`, when set), and only while it's idle with nothing open.
+// and `idle_minutes`, when set), and only while it's idle with nothing open. With a minimum (`min`), one stopped that
+// way is replaced by one like it once it has ended, so the count doesn't fall to nothing when no new work comes in.
 import {randomBytes} from 'node:crypto'
 import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
@@ -292,7 +293,7 @@ export function launched(id: string): StartedSession | undefined {
     const launch = pending.get(id)
     pending.delete(id)
     if (told.delete(id)) chatProblem(id, null)
-    if (launch) return {launch: id, tmux: launch.tmux, ...launch.minutes ? {stops_at: new Date(Date.now() + launch.minutes * 60_000).toISOString()} : {}, ...launch.context ? {context: launch.context} : {}, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}}
+    if (launch) return {launch: id, tmux: launch.tmux, ...launch.minutes ? {stops_at: new Date(Date.now() + launch.minutes * 60_000).toISOString()} : {}, ...launch.context ? {context: launch.context} : {}, ...launch.hears ? {hears: launch.hears} : {}, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}}
     const known = reported.get(id)
     return known && {launch: id, tmux: known.tmux, ...known.stops_at ? {stops_at: known.stops_at} : {}, ...known.context ? {context: known.context} : {}, ...known.untrusted ? {untrusted: true} : {}, ...known.chat ? {chat: true} : {}}
 }
@@ -322,6 +323,8 @@ export function reportRunning(project: string, launches: {id: string, tmux: stri
 
 /** The launch has ended, whether or not its session ever connected: it no longer holds the project's place. */
 export function launchGone(id: string) {
+    const replaced = replacing.get(id)
+    if (replaced) replaced.ended = true
     chatEnded(id)
     causes.delete(id)
     pending.delete(id)
@@ -366,10 +369,51 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         const waiting = started.untrusted ? store.waitingFor(session.project, ids) : store.waiting(session.project, ids)
         if (!overdue && ((await store.workingOn(session.project, ids)).length || await waiting)) continue
         stopping.set(started.launch, now)
+        if (starts.get(session.project)?.min && !started.untrusted) {
+            replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {}, ended: false})
+        }
         emit({type: 'stop', project: session.project, id: started.launch})
         stopped.push(started.launch)
     }
     return stopped
+}
+
+/** The sessions orrery stopped as done (time up, or idle too long) while the owner keeps a minimum running, by launch:
+ * once one has `ended`, one like it (its project, context and the projects it hears) is started in its place, with a
+ * fresh context. One the owner stops isn't among them, nor an untrusted run's. Kept in memory: an orrery that restarts
+ * before one has been replaced forgets it, and its launchers' sessions carry on as they were. */
+const replacing = new Map<string, {project: string, context?: SessionContext, hears?: string[], ended: boolean}>()
+let filling: Promise<Launch[]> | null = null
+
+/** Starts sessions in place of those stopped as done that have ended, until `min` are running and on their way over
+ * every project, within the limit. One waits while its project has no launcher or there's no room, and is tried again
+ * at the next check; it's dropped once the minimum is met without it, or taken away. One fill at a time, so a check and
+ * a session ending together don't both start one. Says the launches it started. */
+export function keepMinimum(): Promise<Launch[]> {
+    filling ??= fill().finally(() => {
+        filling = null
+    })
+    return filling
+}
+
+async function fill(): Promise<Launch[]> {
+    const started: Launch[] = []
+    for (const [id, {project, context, hears, ended}] of replacing) {
+        if (!ended) continue
+        const starts = await useStore().starts(project).catch(() => undefined)
+        if (!starts?.min || startedSessions() + pendingOn() >= starts.min) {
+            replacing.delete(id)
+            continue
+        }
+        if (!launchersOf(project)) continue
+        try {
+            started.push(await startLaunch(project, {...context ? {context} : {}, ...hears ? {hears} : {}}))
+            replacing.delete(id)
+        } catch {
+            // No room under the limit, or its repo no longer serves what it heard: tried again at the next check.
+        }
+    }
+    return started
 }
 
 /** How long past its stop time a session that isn't done is stopped anyway: its minutes again, from 15 minutes

@@ -410,6 +410,75 @@ describe('stopping the sessions orrery started that are done', () => {
     })
 })
 
+describe('keeping a minimum of sessions running', () => {
+    const now = Date.parse('2026-10-26T15:00:00.000Z')
+    const context = {presets: ['Review'], text: 'Review what lands.'}
+    const due = (launch: string, more: Record<string, unknown> = {}) => ({id: `s-${launch}`, project: 'greenhouse', state: 'idle', since: new Date(now - 60_000).toISOString(),
+        started: {launch, tmux: `orrery-greenhouse-${launch}`, stops_at: new Date(now - 60_000).toISOString(), ...more}})
+
+    it('replaces one stopped as done, once it has ended, with its context and the projects it hears', async () => {
+        starts = {limit: 3, min: 2, minutes: 60}
+        launches.addLauncher('greenhouse', '/src/mono')
+        launches.addLauncher('pantry', '/src/mono')
+        vi.stubGlobal('listSessions', () => [due('old', {context, hears: ['greenhouse', 'pantry']})])
+        started = {greenhouse: 1, all: 1}
+        expect(await launches.stopDue(now)).toEqual(['old'])
+        // Not while it's still stopping: it holds its place until its launcher says it's gone.
+        expect(await launches.keepMinimum()).toEqual([])
+        launches.launchGone('old')
+        started = {greenhouse: 0, all: 0}
+        const [launch, ...more] = await launches.keepMinimum()
+        expect(more).toEqual([])
+        expect(launch).toMatchObject({project: 'greenhouse', after: 41, minutes: 60, context, hears: ['greenhouse', 'pantry']})
+        // Replaced once.
+        expect(await launches.keepMinimum()).toEqual([])
+    })
+
+    it("replaces none the owner stops, nor an untrusted run's, nor any without a minimum", async () => {
+        starts = {limit: 3, min: 3, minutes: 60}
+        launches.addLauncher('greenhouse')
+        session = {started: {launch: 'mine', tmux: 'orrery-greenhouse-mine'}}
+        launches.stopLaunch('greenhouse', 'mine')
+        launches.launchGone('mine')
+        vi.stubGlobal('listSessions', () => [due('locked', {untrusted: true})])
+        expect(await launches.stopDue(now)).toEqual(['locked'])
+        launches.launchGone('locked')
+        expect(await launches.keepMinimum()).toEqual([])
+        starts = {limit: 3, minutes: 60}
+        vi.stubGlobal('listSessions', () => [due('plain')])
+        expect(await launches.stopDue(now)).toEqual(['plain'])
+        launches.launchGone('plain')
+        expect(await launches.keepMinimum()).toEqual([])
+    })
+
+    it('waits for a launcher and room under the limit, and drops one the minimum no longer needs', async () => {
+        starts = {limit: 2, min: 2, minutes: 60}
+        vi.stubGlobal('listSessions', () => [due('a'), due('b')])
+        expect(await launches.stopDue(now)).toEqual(['a', 'b'])
+        launches.launchGone('a')
+        launches.launchGone('b')
+        // No launcher yet: they wait.
+        expect(await launches.keepMinimum()).toEqual([])
+        launches.addLauncher('greenhouse')
+        // One started by hand meanwhile makes the minimum with one of them.
+        started = {greenhouse: 1, all: 1}
+        expect(await launches.keepMinimum()).toHaveLength(1)
+        expect(await launches.keepMinimum()).toEqual([])
+        expect(sent.filter(e => e.type === 'launch')).toHaveLength(1)
+    })
+
+    it('starts one replacement when a check and an ending come together', async () => {
+        starts = {limit: 3, min: 1, minutes: 60}
+        launches.addLauncher('greenhouse')
+        vi.stubGlobal('listSessions', () => [due('a')])
+        await launches.stopDue(now)
+        launches.launchGone('a')
+        const [first, second] = await Promise.all([launches.keepMinimum(), launches.keepMinimum()])
+        expect(first).toHaveLength(1)
+        expect(second).toBe(first)
+    })
+})
+
 describe("an untrusted schedule's run", () => {
     const owner = {name: 'skoll', owner: true}
 

@@ -142,15 +142,15 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     releases_from: {type: 'string', nullable: true, pattern: SLUG, hint: "use the other project's id"},
 }
 
-/** `{limit, minutes}`, each a whole number from 1 (minutes up to a day), as the JSON to store. */
+/** `{limit, min?, minutes?, idle_minutes?}`, each a whole number from 1 (`min` up to `limit`, minutes up to a day), as the JSON to store. */
 function parseStarts(value: unknown): string {
-    const {limit, minutes, idle_minutes, ...rest} = (isObject(value) ? value : {})
+    const {limit, min, minutes, idle_minutes, ...rest} = (isObject(value) ? value : {})
     const whole = (n: unknown, most: number) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= most
-    const maybe = (n: unknown) => n === undefined || n === null || whole(n, 24 * 60)
-    if (Object.keys(rest).length || !whole(limit, 20) || !maybe(minutes) || !maybe(idle_minutes)) {
-        throw new Error(`should be {limit, minutes?, idle_minutes?}: at most 20 sessions at once, each for 1 to 1440 minutes or until stopped, and stopped after 1 to 1440 idle minutes or never, not ${JSON.stringify(value)}`)
+    const maybe = (n: unknown, most = 24 * 60) => n === undefined || n === null || whole(n, most)
+    if (Object.keys(rest).length || !whole(limit, 20) || !maybe(min, limit as number) || !maybe(minutes) || !maybe(idle_minutes)) {
+        throw new Error(`should be {limit, min?, minutes?, idle_minutes?}: at most 20 sessions at once, at least 1 to that many kept running or none, each for 1 to 1440 minutes or until stopped, and stopped after 1 to 1440 idle minutes or never, not ${JSON.stringify(value)}`)
     }
-    return JSON.stringify({limit, ...minutes ? {minutes} : {}, ...idle_minutes ? {idle_minutes} : {}})
+    return JSON.stringify({limit, ...min ? {min} : {}, ...minutes ? {minutes} : {}, ...idle_minutes ? {idle_minutes} : {}})
 }
 
 /** What a project's sessions are told: only the owner changes these. */
@@ -269,7 +269,7 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://tracker.example.com/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
-    /** `{limit, minutes?, idle_minutes?}` lets orrery start sessions, for any project with a launcher; null stops that. */
+    /** `{limit, min?, minutes?, idle_minutes?}` lets orrery start sessions, for any project with a launcher; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
     /** The terminal app Watch opens; null is Terminal. */
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
