@@ -336,6 +336,19 @@ describe('a session', () => {
         vi.setSystemTime(new Date('2026-10-25T16:00:01Z'))
         expect(sessions.listSessions().map(s => s.id)).toEqual(['listening'])
     })
+
+    it('is forgotten after an idle hour when no channel is open: its terminal was most likely closed', () => {
+        vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
+        sessions.report({id: 'idle', project: 'greenhouse', event: 'Stop'})
+        sessions.report({id: 'working', project: 'greenhouse', event: 'PreToolUse'})
+        // A channel that can't hear signals still says its process is there.
+        sessions.attend('greenhouse', 'unheard', undefined, undefined, false)
+        sessions.report({id: 'unheard', project: 'greenhouse', event: 'Stop'})
+        vi.setSystemTime(new Date('2026-10-25T10:59:00Z'))
+        expect(sessions.listSessions('greenhouse').map(s => s.id)).toEqual(['idle', 'working', 'unheard'])
+        vi.setSystemTime(new Date('2026-10-25T11:00:01Z'))
+        expect(sessions.listSessions('greenhouse').map(s => s.id)).toEqual(['working', 'unheard'])
+    })
 })
 
 describe('listeners', () => {
@@ -382,6 +395,32 @@ describe('the issues a session writes to', () => {
         sessions.report({id: 'locked', project: 'greenhouse', event: 'PreToolUse', command: `gh issue list --search "curl -X POST /projects/greenhouse/issues/GRE-7"`})
         await Promise.resolve()
         expect(worked).toEqual([])
+    })
+})
+
+describe('forgetting a session', () => {
+    beforeEach(() => {
+        vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+    })
+
+    it('takes one with no channel open off the list, and its next hook brings it back', () => {
+        expect(() => sessions.forgetSession('greenhouse', 'a')).toThrow('No session a in greenhouse')
+        sessions.report({id: 'a', project: 'greenhouse', event: 'SessionStart'})
+        expect(() => sessions.forgetSession('mesa', 'a')).toThrow('No session a in mesa')
+        changed = []
+        expect(sessions.forgetSession('greenhouse', 'a').name).toBe('greenhouse · Odin')
+        expect([sessions.listSessions('greenhouse'), changed]).toEqual([[], ['greenhouse']])
+        sessions.report({id: 'a', project: 'greenhouse', event: 'Stop'})
+        expect(sessions.listSessions('greenhouse').map(s => s.id)).toEqual(['a'])
+    })
+
+    it('refuses one whose channel is open: it is running, so it is stopped instead', () => {
+        const channel = sessions.attend('greenhouse', 'a', undefined, undefined, false)
+        expect(() => sessions.forgetSession('greenhouse', 'a')).toThrow('has its channel open')
+        channel.done()
+        sessions.report({id: 'a', project: 'greenhouse', event: 'Stop'})
+        expect(sessions.forgetSession('greenhouse', 'a').id).toBe('a')
     })
 })
 
