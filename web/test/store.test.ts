@@ -1,5 +1,5 @@
 import {randomBytes} from 'node:crypto'
-import {existsSync, mkdtempSync, readFileSync, readdirSync} from 'node:fs'
+import {mkdtempSync, readFileSync, readdirSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
@@ -1741,22 +1741,32 @@ describe('the database', () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
         const path = join(dir, 'orrery.db')
         const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0.db')
+        const taken = join(dir, 'backup', 'orrery-pre-1.0.0-step40.db')
         // A new file has nothing to keep.
         openDb(path, 40, snapshot).close()
-        expect(existsSync(snapshot)).toBe(false)
+        expect(readdirSync(dir)).not.toContain('backup')
         const old = openDb(path, 40)
         old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'agent', 'x', 'x')").run()
         old.close()
 
         openDb(path, undefined, snapshot).close()
-        const copy = new DatabaseSync(snapshot)
+        const copy = new DatabaseSync(taken)
         expect((copy.prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(40)
         expect(copy.prepare('SELECT id FROM projects').all().map(row => row.id)).toEqual(['greenhouse'])
         copy.close()
         // Up to date, it takes no copy.
-        const again = join(dir, 'backup', 'orrery-pre-1.0.1.db')
-        openDb(path, undefined, again).close()
-        expect(existsSync(again)).toBe(false)
+        openDb(path, undefined, join(dir, 'backup', 'orrery-pre-1.0.1.db')).close()
+        expect(readdirSync(join(dir, 'backup'))).toEqual(['orrery-pre-1.0.0-step40.db'])
+    })
+
+    it('takes a fresh copy for each step an upgrade starts from, under the same version (ORR-457)', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
+        const path = join(dir, 'orrery.db')
+        const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0-rc.10.db')
+        openDb(path, 39).close()
+        openDb(path, 40, snapshot).close()
+        openDb(path, undefined, snapshot).close()
+        expect(readdirSync(join(dir, 'backup')).sort()).toEqual(['orrery-pre-1.0.0-rc.10-step39.db', 'orrery-pre-1.0.0-rc.10-step40.db'])
     })
 
     it('refuses a database from a newer orrery and leaves it as it is', async () => {

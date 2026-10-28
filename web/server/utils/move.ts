@@ -29,6 +29,10 @@ const LOOPBACK = /^(127(\.\d{1,3}){3}|::1|\[::1\]|::ffff:127(\.\d{1,3}){3}|local
  * loopback alone (`ORRERY_HOST`, 127.0.0.1 by default, which compose passes in as NUXT_LISTEN_HOST). */
 export function fromThisMachine(event: H3Event): boolean {
     if (!THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))) return false
+    // A reverse proxy on this machine makes every request come from it, whoever sent it: one it passes on says so in
+    // these headers, so it isn't taken as local (ORR-457). `nuxt dev` adds its own, to a request with no socket address.
+    const {headers} = event.node.req
+    if (event.node.req.socket?.remoteAddress && ['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip'].some(name => headers[name] !== undefined)) return false
     if (inDocker()) return LOOPBACK.test(String(useRuntimeConfig().listenHost ?? ''))
     return LOOPBACK.test(clientAddress(event))
 }

@@ -99,3 +99,13 @@ test("takes only a few of the page's reports of a kind a minute", async ({reques
     for (let i = 0; i < 6; i++) sent.push((await request.post('/api/events/log', {data: {message: `flood ${i}`, kind}})).status())
     expect(sent).toEqual([201, 201, 201, 201, 201, 429])
 })
+
+test("counts each sender's reports apart, so a script can't use up the page's (ORR-457)", async ({request}) => {
+    const script = {'Orrery-Actor': `script${Date.now()}`}
+    const sent = []
+    for (let i = 0; i < 21; i++) sent.push((await request.post('/api/events/log', {headers: script, data: {message: `noise ${i}`, kind: `page.noise${i}`}})).status())
+    expect(sent.slice(0, 20).every(s => s === 201)).toBe(true)
+    expect(sent[20]).toBe(429)
+    const page = await request.post('/api/events/log', {data: {message: `the page's own ${Date.now()}`}})
+    expect(page.status(), await page.text()).toBe(201)
+})

@@ -9,9 +9,9 @@ import {Store} from '../server/utils/store'
 
 /** A data folder of its own, NUXT_DATABASE its `orrery.db` and NUXT_BACKUP_DIR `backupDir`, and db.ts and
  * backup-choice.ts loaded fresh for it. */
-async function setUp(backupDir = '') {
+async function setUp(backupDir = '', backupDatabase = '') {
     const dir = mkdtempSync(join(tmpdir(), 'orrery-backups-'))
-    vi.stubGlobal('useRuntimeConfig', () => ({database: join(dir, 'data', 'orrery.db'), backupDir: backupDir && join(dir, backupDir)}))
+    vi.stubGlobal('useRuntimeConfig', () => ({database: join(dir, 'data', 'orrery.db'), backupDir: backupDir && join(dir, backupDir), backupDatabase}))
     mkdirSync(join(dir, 'data'))
     vi.resetModules()
     const db = await import('../server/utils/db')
@@ -54,6 +54,18 @@ describe('choosing the backups', () => {
         await choice.chooseBackups({on: true, folder: null})
         expect(choice.backupDir()).toBe(join(dir, 'backup'))
         expect(existsSync(join(dir, 'data', 'orrery.db.backups.json'))).toBe(false)
+    })
+
+    it('keeps the default folder when chosen over a default Postgres database (ORR-457)', async () => {
+        const {dir, choice} = await setUp('backup', 'postgres://orrery:secret@db.invalid:5432/backups')
+        expect(choice.backupTarget()).toEqual({kind: 'postgres', url: 'postgres://orrery:secret@db.invalid:5432/backups'})
+        await choice.chooseBackups({on: true, folder: join(dir, 'backup')})
+        expect(choice.backupTarget()).toEqual({kind: 'folder', dir: join(dir, 'backup')})
+        vi.resetModules()
+        expect((await import('../server/utils/backup-choice')).backupTarget()).toEqual({kind: 'folder', dir: join(dir, 'backup')})
+        // Back to what orrery was given: the Postgres database.
+        await choice.chooseBackups({on: true, folder: null})
+        expect(choice.backupTarget()?.kind).toBe('postgres')
     })
 
     it('turns them off, remembering the folder for when they\'re on again', async () => {
