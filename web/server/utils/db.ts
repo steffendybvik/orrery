@@ -3,6 +3,7 @@
 // settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
 import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {lastBackup, restoreBackup} from './backup'
+import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
@@ -716,10 +717,16 @@ export function describeDatabase(): DatabaseInfo {
     const setting = databaseSetting()
     const dir = String(config.backupDir ?? '')
     const at = dir ? lastBackup(dir) : undefined
-    const backup = dir ? {backup: resolve(dir), ...at ? {backed_up_at: at} : {}} : {}
+    const base = String(config.public?.repoDir ?? '')
+    // Under Docker, where each is on the computer too (`/data` and `/backup` mean nothing there): ORR-399.
+    const backupOn = dir ? onHost(resolve(dir), '/backup', String(config.backupHost ?? ''), base) : {}
+    const backup = dir ? {
+        backup: resolve(dir), ...at ? {backed_up_at: at} : {},
+        ...backupOn.host ? {backup_host: backupOn.host} : {}, ...backupOn.volume ? {backup_volume: backupOn.volume} : {},
+    } : {}
     const how = movedFile() ? {movable: true, ...chosen ? {moved: true} : {}} : {}
     if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup}
-    return {kind: 'sqlite', where: setting, ...how, ...backup}
+    return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup}
 }
 
 /** A Postgres URL as the owner sees it: `user@host:port/name`, no password. */

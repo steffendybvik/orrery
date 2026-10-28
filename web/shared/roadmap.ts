@@ -414,7 +414,14 @@ export type TerminalApp = keyof typeof TERMINALS
 export interface DatabaseInfo {
     kind: 'sqlite' | 'postgres'
     where: string
+    /** Under Docker, where the SQLite file is on the computer (from `ORRERY_DATA`), or the Docker volume it's in
+     * instead; `where` stays the path Orrery opens, inside the container. */
+    host?: string
+    volume?: string
     backup?: string
+    /** The same for the backup folder (from `ORRERY_BACKUP`). */
+    backup_host?: string
+    backup_volume?: string
     backed_up_at?: string
     /** How big it is, in bytes: a SQLite file with its `-wal`, or the Postgres database; none when it can't be read. */
     size?: number
