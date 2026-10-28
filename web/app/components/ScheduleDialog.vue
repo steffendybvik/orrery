@@ -289,7 +289,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     </div>
 
     <div v-if="agents && existing" class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-500/30 dark:text-amber-200" role="note">
-      <span class="min-w-0 flex-1"><strong class="font-semibold">{{ existing.created_by }}</strong> (an agent) made this schedule. {{ agents }} Read what it says and its presets first.</span>
+      <span class="min-w-0 flex-1"><strong class="font-semibold">An agent</strong> made this schedule. {{ agents }} Read what it says and its presets first.</span>
       <UiButton size="sm" :disabled="adopting" title="Runs it as yours from now on, and only you can change it" @click="makeMine">{{ adopting ? 'Making it yours…' : 'Make it mine' }}</UiButton>
     </div>
     <SegmentedControl v-model="sends" :options="SENDS" class="self-start" />
