@@ -41,6 +41,10 @@ const projectName = (id: string) => projects.value.find(p => p.id === id)?.name 
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
 /** Which project it's about: the chat's, else the one the first message will start it on. */
 const about = computed(() => chat.value && !chat.value.ended ? chat.value.project : project.value)
+/** No launcher running for the project, and no chat running: the chat is a session it starts, so none can start yet,
+ * and the pane says how to install one instead of offering things to ask (ORR-426). */
+const {state: launch} = useLaunchState(() => about.value ?? '')
+const noLauncher = computed(() => (!chat.value || chat.value.ended) && launch.value?.launchers === 0)
 /** Nothing said yet: the pane greets you, with some things to ask. */
 const empty = computed(() => !chat.value?.messages.length)
 
@@ -73,7 +77,7 @@ watch(open, now => now && nextTick(() => field.value?.focus()))
 /** Sends what's in the composer, starting the chat first when there's none yet. */
 async function submit() {
     const text = draft.value.trim()
-    if (!text && !images.value.length || sending.value || uploading.value) return
+    if (!text && !images.value.length || sending.value || uploading.value || noLauncher.value) return
     sending.value = true
     if (chat.value?.ended) fresh()
     if ((chat.value || await start()) && await send(text, images.value.map(i => i.id))) {
@@ -116,7 +120,9 @@ function onPaste(event: ClipboardEvent) {
       v-if="!open"
       type="button"
       class="fixed right-4 bottom-4 z-40 flex h-11 items-center gap-2 rounded-full bg-accent-500 pr-4 pl-3.5 text-sm font-medium text-white shadow-lg shadow-accent-600/30 transition hover:opacity-90"
-      :title="chats.length ? 'Back to your chat: it is still running' : 'Chat with Claude about a project: it answers and makes issues'"
+      :title="chats.length ? 'Back to your chat: it is still running'
+        : noLauncher && about ? `No launcher is running for ${projectName(about)}, so a chat can't start: open to see how to install one`
+        : 'Chat with Claude about a project: it answers and makes issues'"
       @click="show()"
   >
     <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
@@ -160,7 +166,8 @@ function onPaste(event: ClipboardEvent) {
       <div class="flex w-full max-w-sm flex-col items-center gap-2 text-center">
         <h2 class="text-base font-semibold text-fg">{{ about ? `Ask about ${projectName(about)}` : 'Ask away' }}</h2>
         <p class="text-[13px] text-muted">Code, roadmap and docs. I can file issues and comments for you.</p>
-        <div class="mt-3 flex flex-wrap justify-center gap-1.5">
+        <LauncherHint v-if="noLauncher && about" :project="about" need="The chat is a Claude session orrery starts through the launcher, so to chat" class="mt-3 text-left" />
+        <div v-else class="mt-3 flex flex-wrap justify-center gap-1.5">
           <button
               v-for="example in examples"
               :key="example"
@@ -243,7 +250,7 @@ function onPaste(event: ClipboardEvent) {
               </MenuItem>
             </MenuItems>
           </Menu>
-          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send (↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length">
+          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send (↵)" :disabled="sending || !!uploading || !about || noLauncher || !draft.trim() && !images.length">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
           </UiButton>
         </div>

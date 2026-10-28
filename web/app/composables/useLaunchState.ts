@@ -12,26 +12,34 @@ export interface LaunchState {
     total: number
 }
 
-/** The ask on its way for each project, so several asking at once share it. */
-const asking = new Map<string, Promise<void>>()
+/** The ask on its way for each project, so several asking at once share it; `again` when something changed while it
+ * was on its way, so its answer may be from before, and it's asked once more (a launcher connecting as the page loads). */
+const asking = new Map<string, {ask: Promise<void>, again: boolean}>()
 
 export function useLaunchState(project: MaybeRefOrGetter<string>) {
     const all = useState<Record<string, LaunchState | null>>('launch-state', () => ({}))
     const {launchers, sessions} = useRoadmaps()
     const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
 
-    function refresh(): Promise<void> {
-        const id = toValue(project)
+    function refreshOf(id: string): Promise<void> {
         const already = asking.get(id)
-        if (already) return already
-        const ask = $fetch<LaunchState>(`/api/projects/${encodeURIComponent(id)}/launches`).catch(() => null)
+        if (already) {
+            already.again = true
+            return already.ask
+        }
+        const asked = {again: false, ask: Promise.resolve()}
+        asked.ask = $fetch<LaunchState>(`/api/projects/${encodeURIComponent(id)}/launches`).catch(() => null)
             .then(state => {
                 all.value = {...all.value, [id]: state}
             })
-            .finally(() => asking.delete(id))
-        asking.set(id, ask)
-        return ask
+            .finally(() => {
+                asking.delete(id)
+                if (asked.again) void refreshOf(id)
+            })
+        asking.set(id, asked)
+        return asked.ask
     }
+    const refresh = (): Promise<void> => toValue(project) ? refreshOf(toValue(project)) : Promise.resolve()
     watch(() => [toValue(project), launchers.value, sessions.value], refresh, {immediate: true})
 
     return {state: computed(() => all.value[toValue(project)] ?? null), refresh, install}

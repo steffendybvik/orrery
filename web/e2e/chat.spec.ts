@@ -196,6 +196,30 @@ test('asks the owner to change a setting, and saves it only on their Allow', asy
     }
 })
 
+// With no launcher running for the project, a chat can't start (it's a session the launcher starts): the pane says so,
+// with the line that installs one, and holds Send back until one connects (ORR-426).
+test('says how to install the launcher when none is running, and chats once one is', async ({page, request, baseURL}) => {
+    await endChats(request)
+    await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(0)
+    await page.goto('/p/larder')
+    await expect(page.getByRole('button', {name: 'Chat'})).toHaveAttribute('title', /No launcher is running for Larder/)
+    await page.getByRole('button', {name: 'Chat'}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    await expect(pane).toContainText('No launcher is running for Larder.')
+    await expect(pane).toContainText('orrery-launcher.mjs --install')
+    await pane.getByRole('textbox').fill('What is left?')
+    await expect(pane.getByRole('button', {name: 'Send'})).toBeDisabled()
+
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await expect(pane).not.toContainText('No launcher is running')
+        await expect(pane.getByRole('button', {name: 'Send'})).toBeEnabled()
+    } finally {
+        launcher.stop()
+    }
+})
+
 // Where the chat's issues land (ORR-408): the owner picks Todo or Backlog beside Send, before the chat starts or
 // during it, and it's remembered for the next one. The server holds the chat to it, whatever status its session asks
 // for, and the session can't change it.

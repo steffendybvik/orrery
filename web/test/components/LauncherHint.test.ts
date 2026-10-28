@@ -32,6 +32,13 @@ describe('LauncherHint', () => {
         await vi.waitFor(() => expect(wrapper.text()).not.toContain('No launcher'))
     })
 
+    it('says what the launcher is needed for where it shows', async () => {
+        const wrapper = await mountSuspended(LauncherHint, {props: {project: 'greenhouse', need: 'To chat'}})
+        mounted.push(wrapper)
+        await vi.waitFor(() => expect(wrapper.text()).toContain('To chat, install the launcher once in the repo.'))
+        expect(wrapper.text()).not.toContain('Start session')
+    })
+
     it('says nothing when a launcher is running', async () => {
         launchers = 1
         const wrapper = await mountSuspended(LauncherHint, {props: {project: 'greenhouse'}})

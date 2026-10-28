@@ -186,7 +186,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
 | `GettingStarted` | a new Orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
-| `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step), gone once one connects |
+| `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step, and in the chat before it starts), gone once one connects; `need` says what it's for there |
 | `NotificationBell` | the bell in the header: agents' comments, and those and their proposals waiting on the owner |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
 | `OrreryMark` | the logo's mark, in `currentColor` |
