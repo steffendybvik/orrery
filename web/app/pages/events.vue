@@ -5,7 +5,8 @@ import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 // and the newest at the bottom, each with the time it happened and coloured by its level. What went wrong (a 5xx, an
 // error in the page, a schedule or backup that failed) and, while Advanced is on, what Orrery did (sessions and
 // launchers, schedule runs, backups, migrations, starts) and each change to the roadmap (issues, comments, chunks, docs,
-// releases). A line opens to its details, and an error can be resolved. It's there while Advanced is on (App settings
+// releases). Levels can be switched off and kinds hidden (ORR-379), per browser. A line opens to its details, and an
+// error can be resolved. It's there while Advanced is on (App settings
 // → This Orrery); opening it marks the new errors seen.
 useHead({title: 'Events · Orrery'})
 const route = useRoute()
@@ -14,6 +15,7 @@ const {settings} = useAppSettings()
 const {ordered} = useProjectOrder()
 const {events, loaded, load, seen, resolve} = useLoggedEvents()
 const {byId} = useRoadmaps()
+const {hidden, levelShown, toggleLevel, hideKind, showKind, shows} = useHiddenEvents()
 
 const scroller = ref<HTMLElement | null>(null)
 /** Whether it's scrolled to the bottom, so a new line keeps it there, as a console does. */
@@ -46,7 +48,13 @@ const only = computed({
 })
 const projectOptions = computed(() => [{value: '', label: 'All projects'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
 /** Oldest first, as a console reads. */
-const shown = computed(() => events.value.filter(e => !only.value || e.project === only.value).toReversed())
+const inProject = computed(() => events.value.filter(e => !only.value || e.project === only.value))
+const shown = computed(() => inProject.value.filter(shows).toReversed())
+/** How many the filters keep out, to say so when none are left. */
+const filteredAway = computed(() => inProject.value.length - shown.value.length)
+const LEVELS: EventLevel[] = ['error', 'warn', 'info']
+/** A kind's family, when it has one: `issue` for `issue.status`. */
+const familyOf = (kind: string) => kind.includes('.') ? kind.split('.')[0] : undefined
 
 const open = ref<number | null>(null)
 const failed = ref('')
@@ -88,6 +96,34 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
     <PropertyPicker v-model="only" :options="projectOptions" label="Project" field small>
       <span class="truncate">{{ projectOptions.find(o => o.value === only)?.label ?? only }}</span>
     </PropertyPicker>
+    <template #end>
+      <div class="flex min-w-0 flex-wrap items-center justify-end gap-1">
+        <button
+            v-for="kind in hidden.kinds"
+            :key="kind"
+            type="button"
+            class="inline-flex h-6 items-center gap-1 rounded-md bg-well px-2 font-mono text-[11px] text-muted ring-1 ring-line hover:text-fg"
+            :title="`Show ${kind} again`"
+            @click="showKind(kind)"
+        >
+          <span class="line-through">{{ kind }}</span><span aria-hidden="true">×</span>
+        </button>
+      </div>
+      <div class="flex shrink-0 items-center gap-1" role="group" aria-label="Levels">
+        <button
+            v-for="level in LEVELS"
+            :key="level"
+            type="button"
+            class="h-6 rounded-md px-2 font-mono text-[11px] font-semibold ring-1"
+            :class="levelShown(level) ? [LEVEL[level].text, 'ring-line'] : 'text-faint line-through ring-transparent'"
+            :aria-pressed="levelShown(level)"
+            :title="levelShown(level) ? `Hide ${level} lines` : `Show ${level} lines`"
+            @click="toggleLevel(level)"
+        >
+          {{ LEVEL[level].label }}
+        </button>
+      </div>
+    </template>
   </ViewToolbar>
 
   <div v-if="!settings.advanced" class="px-4 pt-3">
@@ -102,8 +138,9 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
   <div class="relative min-h-0 flex-1">
     <div ref="scroller" class="absolute inset-0 overflow-auto py-2 font-mono text-xs leading-5" @scroll="onScroll">
       <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center font-sans">
-        <p class="text-sm text-muted">Nothing logged{{ only ? ` in ${projectName(only)}` : '' }} yet.</p>
-        <p class="text-xs text-faint">Errors in the server and the page land here, and while Advanced is on, what Orrery does and each change to the roadmap, a line each. Nothing leaves this machine.</p>
+        <p v-if="filteredAway" class="text-sm text-muted">{{ filteredAway }} line{{ filteredAway === 1 ? '' : 's' }} hidden by the filters above.</p>
+        <p v-else class="text-sm text-muted">Nothing logged{{ only ? ` in ${projectName(only)}` : '' }} yet.</p>
+        <p v-if="!filteredAway" class="text-xs text-faint">Errors in the server and the page land here, and while Advanced is on, what Orrery does and each change to the roadmap, a line each. Nothing leaves this machine.</p>
       </div>
       <div v-for="event in shown" :key="event.id" :class="event.resolved_at ? 'opacity-50' : ''">
         <button
@@ -139,6 +176,8 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
             <UiButton v-if="event.level !== 'info' && !event.resolved_at" size="xs" variant="success-outline" @click="resolveIt(event)">Resolve</UiButton>
             <CopyButton :text="JSON.stringify(event, null, 2)" />
             <span class="text-faint">Copy it to an issue for an agent to look into.</span>
+            <UiButton class="ml-auto" size="xs" variant="ghost" @click="hideKind(event.kind)">Hide {{ event.kind }}</UiButton>
+            <UiButton v-if="familyOf(event.kind)" size="xs" variant="ghost" @click="hideKind(familyOf(event.kind)!)">Hide all {{ familyOf(event.kind) }}</UiButton>
           </div>
         </div>
       </div>
