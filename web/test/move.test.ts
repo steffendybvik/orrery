@@ -94,7 +94,7 @@ describe('moving the database', () => {
         expect(rebound).toHaveLength(0)
         expect(db.databaseSetting()).toBe(join(dir, 'orrery.db'))
         expect(db.useDatabase()).toBe(before)
-        expect((await store.listBoards()).map(p => p.id)).toEqual(['larder'])
+        expect((await store.listBoards()).map(p => p.id)).toEqual(['greenhouse'])
         await db.closeDb()
     })
 
