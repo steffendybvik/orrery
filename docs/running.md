@@ -19,7 +19,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | Variable | What it does | Default |
 |---|---|---|
 | `ORRERY_PORT` | the port on this machine | `9000` |
-| `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts) | `127.0.0.1` |
+| `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts); see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
@@ -124,6 +124,34 @@ In a checkout you also work on Orrery in, build them from a release rather than 
 
 A repo's channel and hook point at the server its projects are on, by `ORRERY_URL`:
 `http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
+
+## Reach it from your phone
+
+Compose publishes Orrery on `127.0.0.1`, so only this machine can open it. Orrery has no accounts:
+whoever can reach it can read everything, change it and give your agents instructions (see
+[SECURITY.md](../SECURITY.md)). Open it only as far as you need.
+
+**Your own devices only (best).** Put this machine and the phone on a private VPN: a free app on
+each that links your own devices, so the phone reaches the machine from anywhere, as if both were
+on the same Wi-Fi. It isn't the paid kind that hides your browsing, and several are free for a
+handful of devices. Then publish Orrery on this machine's address on that VPN, and nowhere else:
+
+```sh
+# .env.personal
+ORRERY_HOST=100.64.0.7               # this machine's address on the VPN
+ORRERY_ALLOWED_HOSTS=mac.my-vpn.net  # only to open it by the VPN's name for the machine
+```
+
+`docker compose --env-file .env.personal up -d` again, then open `http://100.64.0.7:9010` (or
+`http://mac.my-vpn.net:9010`) on the phone. Nobody else on the Wi-Fi can reach it. The VPN has to
+be connected when Docker starts the container, since that's when the address is taken.
+
+**Your Wi-Fi (quickest, nothing to install).** `ORRERY_HOST=0.0.0.0`, then open
+`http://<this machine's IP>:9010` on the phone. It only works at home, and anyone else on that
+Wi-Fi, guests included, can use Orrery too.
+
+Either way, the database is still moved only from this machine: App settings → Database refuses a
+move from any other address.
 
 ## Where each database is
 
