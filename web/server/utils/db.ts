@@ -10,7 +10,7 @@ import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
 import {SqliteDb} from './database'
 import {PostgresDb, isPostgres} from './postgres'
-import {dirname, resolve} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
 
 // Each step brings the schema up one version (`PRAGMA user_version`); add steps, never edit them.
@@ -679,7 +679,8 @@ let db: DatabaseSync | null = null
 function useDb(path: string): DatabaseSync {
     if (db) return db
     restoreBackup(path, backupDir())
-    db = openDb(path)
+    // Before an upgrade's steps, a copy as it was: in the backup folder, or beside the file when backups are off.
+    db = openDb(path, MIGRATIONS.length, join(backupDir() || dirname(path), `orrery-pre-${useRuntimeConfig().public?.version ?? 'upgrade'}.db`))
     return db
 }
 
@@ -778,19 +779,35 @@ export async function switchDatabase(setting: string, next: SqliteDb | PostgresD
     return before
 }
 
-/** Opens the file and brings its schema up to date (or only `upTo` steps, for tests). */
-export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
+/** Opens the file and brings its schema up to date (or only `upTo` steps, for tests), copying it to `snapshot` first
+ * when there are steps to take and no copy there yet. */
+export function openDb(path: string, upTo = MIGRATIONS.length, snapshot?: string): DatabaseSync {
     if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
     const opened = new DatabaseSync(path)
-    // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes).
-    opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL')
-    migrated = migrate(opened, path, upTo) ?? migrated
+    try {
+        // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes).
+        opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL')
+        migrated = migrate(opened, path, upTo, snapshot) ?? migrated
+    } catch (error) {
+        opened.close()
+        throw error
+    }
     return opened
 }
 
-/** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. */
-function migrate(opened: DatabaseSync, path: string, upTo: number): {from: number, to: number} | null {
+/** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. Refuses one
+ * from a newer Orrery (ORR-433): this code can't know what its steps changed. */
+function migrate(opened: DatabaseSync, path: string, upTo: number, snapshot?: string): {from: number, to: number} | null {
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
+    if (version > MIGRATIONS.length) {
+        throw new Error(`${path} was written by a newer Orrery (schema step ${version}; this one knows up to ${MIGRATIONS.length}). `
+            + 'Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>.db, in the backup folder or beside the database).')
+    }
+    // A new file has nothing to keep; a copy already there is from before an earlier try at this upgrade, so it stays.
+    if (snapshot && version > 0 && version < Math.min(upTo, MIGRATIONS.length) && !existsSync(snapshot)) {
+        mkdirSync(dirname(snapshot), {recursive: true})
+        opened.prepare('VACUUM INTO ?').run(snapshot)
+    }
     // Foreign keys are off while tables are rebuilt (SQLite can't turn them off inside a transaction).
     opened.exec('PRAGMA foreign_keys = OFF')
     MIGRATIONS.slice(version, upTo).forEach((step, i) => {

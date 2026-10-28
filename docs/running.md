@@ -14,7 +14,10 @@ case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → Yo
 1. **Back it up**: App settings → This orrery → **Back up now**, and keep a copy of that backup under a name of its own
    until you're happy with the new version.
 2. **Rebuild**: `git pull` in this folder (or nothing, when `ORRERY_BUILD_CONTEXT` names a branch on GitHub), then
-   `docker compose up -d --build` again. The database moves to the new schema by itself.
+   `docker compose up -d --build` again. The database moves to the new schema by itself. On SQLite it keeps a copy
+   as it was first, `orrery-pre-<version>.db`, in the backup folder (beside the database when backups are off).
+   An older version won't open a database a newer one has moved on: it stops and says so. To go back, restore that
+   copy.
 3. **The channel and the launcher** run from this folder on your machine, not in the container, so they're as new as
    what it has checked out: keep it on the version you run (`git pull`). Sessions pick up the channel as they start.
    The launcher only when it restarts, which stops the sessions it started, so do it when nothing's mid-work:
