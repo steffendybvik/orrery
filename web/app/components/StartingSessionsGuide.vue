@@ -41,9 +41,9 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
           <div class="flex flex-col gap-0.5">
             <span class="font-medium text-fg">Install the launcher, once in each project's repo</span>
             <span>
-              orrery runs in Docker and can't start Claude on your machine, so a small launcher does it. Installed, it runs in the
+              orrery runs in Docker and can't start sessions on your machine, so a small launcher does it. Installed, it runs in the
               background (launchd on macOS, systemd on Linux), starts at login and serves every project installed this way.
-              It finds the project in the repo's <span class="font-mono">.mcp.json</span>. If Claude hasn't run in the repo before,
+              It finds the project in the repo's <span class="font-mono">.mcp.json</span>. If it's new to the repo,
               run <span class="font-mono">claude</span> there once to trust the folder.
             </span>
           </div>
@@ -56,7 +56,7 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
           <span class="font-medium text-fg">Start one</span>
           <span>
             Press <strong class="font-medium text-fg">Start session</strong> above, or send a project work (focus on an issue, a chunk,
-            a comment) while no session is listening on it. It runs Claude in a detached tmux session in the repo, with the channel, in
+            a comment) while no session is listening on it. It runs <span class="font-mono">claude</span> in a detached tmux session in the repo, with the channel, in
             <span class="font-mono">auto</span> permission mode, as nobody is there to answer a prompt.
           </span>
         </div>

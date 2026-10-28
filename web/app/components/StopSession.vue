@@ -39,7 +39,7 @@ async function stop() {
         size="xs"
         :class="{'bg-rose-500/10': sure}"
         :disabled="busy"
-        :title="`End ${session.name}: Claude quits in its terminal`"
+        :title="`End ${session.name}: it quits in its terminal`"
         @click="stop"
     >
       {{ busy ? 'Stopping…' : sure ? 'Stop it?' : 'Stop' }}

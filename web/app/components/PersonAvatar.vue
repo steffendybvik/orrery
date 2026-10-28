@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// An assignee's initials on a colour of their own; Claude gets the accent. The owner shows as their name.
+// An assignee's initials on a colour of their own; an agent gets the accent. The owner shows as their name.
 const props = withDefaults(defineProps<{name: string, size?: number}>(), {size: 18})
 const {who} = useOwner()
 const shown = computed(() => who(props.name))

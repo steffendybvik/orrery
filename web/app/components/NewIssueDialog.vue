@@ -130,7 +130,7 @@ async function create() {
         <LabelPicker v-model="labels" :labels="known" />
         <label class="flex items-center gap-1.5 text-xs text-muted">
           <input v-model="ask" type="checkbox" class="accent-accent-500">
-          Ask a Claude session to pick it up
+          Ask a session to pick it up
         </label>
         <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
         <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!title.trim() || saving || !!uploading">

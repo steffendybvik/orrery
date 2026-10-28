@@ -2,18 +2,16 @@
 import type {Notice} from '#shared/roadmap'
 import {noticeKey} from '#shared/roadmap'
 
-// The bell, larger: every agent's comment with its whole body, newest first, and their proposals waiting
-// on the owner (which go when decided or cleared; clearing one leaves it pending); a card opens its issue. The cleared ones stay readable here under Cleared. Opening the page marks them read;
-// the ones that were new keep their dot until you leave.
+// The bell, larger: every agent's comment with its whole body, newest first, in one list with their questions
+// and proposals waiting on the owner (which go when answered, decided or cleared; clearing a proposal leaves it
+// pending); a card opens its issue. Opening the page marks them read; the ones that were new keep their dot
+// until you leave.
 useHead({title: 'Notifications · orrery'})
-type Show = 'inbox' | 'waiting' | 'cleared'
 const {notices, lists, seenAt, seen, load, clear} = useInbox()
 const {byId} = useRoadmaps()
 const {open: openIssue} = useIssueLink()
-const {who} = useOwner()
 const {newErrors} = useLoggedEvents()
 
-const show = ref<Show>('inbox')
 const since = ref(seenAt.value)
 onMounted(() => {
     since.value = seenAt.value
@@ -23,20 +21,11 @@ onMounted(() => {
 })
 // Those arriving while it's open are read too, and keep their dot.
 watch(notices, () => seen())
-watch(show, now => {
-    if (!lists.value[now].loaded) load(now)
-})
 
 // Newest first, the waiting ones among the rest by time; their ring marks them.
-const shown = computed(() => show.value === 'inbox'
-    ? [...lists.value.waiting.items, ...lists.value.inbox.items].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id)
-    : lists.value[show.value].items)
-const loaded = computed(() => lists.value[show.value].loaded && (show.value !== 'inbox' || lists.value.waiting.loaded))
-const options = computed(() => [
-    {value: 'inbox' as const, label: 'Inbox'},
-    {value: 'waiting' as const, label: `Waiting on you ${lists.value.waiting.items.length}`},
-    {value: 'cleared' as const, label: 'Cleared'},
-])
+const shown = computed(() => [...lists.value.waiting.items, ...lists.value.inbox.items]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id))
+const loaded = computed(() => lists.value.inbox.loaded && lists.value.waiting.loaded)
 const isNew = (n: Notice) => !n.cleared && (n.created_at > since.value || isWaiting(n))
 const clearable = computed(() => shown.value.filter(n => !n.cleared))
 const projectName = (id: string) => byId(id)?.name ?? id
@@ -56,10 +45,9 @@ function openCard(notice: Notice, event: MouseEvent) {
   </PageHeader>
 
   <ViewToolbar>
-    <SegmentedControl v-model="show" :options="options" />
     <template #end>
-      <UiButton v-if="show === 'inbox' && lists.inbox.items.length" variant="ghost" size="xs" title="Clear every read one, not those waiting on you" @click="clear()">Clear read</UiButton>
-      <UiButton v-if="show !== 'cleared' && clearable.length" variant="ghost" size="xs" :title="`Clear these ${clearable.length}; they stay under Cleared`" @click="clear(clearable)">Clear all</UiButton>
+      <UiButton v-if="lists.inbox.items.length" variant="ghost" size="xs" title="Clear every read one, not those waiting on you" @click="clear()">Clear read</UiButton>
+      <UiButton v-if="clearable.length" variant="ghost" size="xs" :title="`Clear these ${clearable.length}; a proposal stays pending on its issue`" @click="clear(clearable)">Clear all</UiButton>
     </template>
   </ViewToolbar>
 
@@ -85,8 +73,6 @@ function openCard(notice: Notice, event: MouseEvent) {
       >
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-2.5 pr-12 text-[13px]">
           <span v-if="isNew(notice)" class="size-2 shrink-0 rounded-full bg-accent-500" />
-          <PersonAvatar :name="notice.created_by" :size="20" />
-          <span class="font-medium text-fg">{{ who(notice.created_by) }}</span>
           <span class="text-faint">{{ notice.proposal ? 'proposed' : 'on' }}</span>
           <span class="flex min-w-0 items-center gap-2 px-1">
             <span class="font-mono text-xs text-faint">{{ notice.issue }}</span>
@@ -112,12 +98,12 @@ function openCard(notice: Notice, event: MouseEvent) {
         </button>
       </li>
     </ul>
-    <div v-if="show !== 'waiting' && lists[show].more" class="flex justify-center pb-6">
-      <UiButton @click="load(show, true)">Show older</UiButton>
+    <div v-if="lists.inbox.more" class="flex justify-center pb-6">
+      <UiButton @click="load('inbox', true)">Show older</UiButton>
     </div>
     <div v-if="loaded && !shown.length" class="flex flex-col items-center gap-2 px-4 py-24 text-center">
-      <p class="text-sm text-muted">{{ {inbox: 'No comments from agents.', waiting: 'Nothing waiting on you.', cleared: 'Nothing cleared yet.'}[show] }}</p>
-      <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; questions and proposals for you wait under Waiting on you until you answer or decide them on the issue, or clear them.</p>
+      <p class="text-sm text-muted">No notifications.</p>
+      <p class="text-xs text-faint">Agents' comments on issues land here and in the bell; their questions and proposals for you stay, ringed, until you answer or decide them on the issue, or clear them.</p>
     </div>
   </div>
 </template>

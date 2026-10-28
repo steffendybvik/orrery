@@ -218,7 +218,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
         <form v-if="deleting" class="flex flex-col gap-3" @submit.prevent="remove" @keydown.esc="deleting = false">
           <div class="rounded-lg bg-rose-500/10 px-3 py-2.5 text-[13px] leading-relaxed text-rose-700 ring-1 ring-rose-500/30 dark:text-rose-300">
             <p class="font-semibold">This is permanent. There is no undo.</p>
-            <p>Deleting {{ project.name }} throws away {{ loses.join(', ') }}. Claude sessions on it stop getting anything.</p>
+            <p>Deleting {{ project.name }} throws away {{ loses.join(', ') }}. Sessions on it stop getting anything.</p>
             <p class="mt-1 text-xs opacity-80">Only the iCloud backups keep a copy: the daily ones for two weeks, the latest until the next change replaces it.</p>
           </div>
           <label class="flex flex-col gap-1 text-xs text-muted">

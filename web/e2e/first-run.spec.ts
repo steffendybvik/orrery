@@ -53,7 +53,7 @@ test('My issues and Connect show what they should', async ({page, request}) => {
     await card.getByRole('button', {name: "Just planning? You're set"}).click()
     await expect(card).toBeHidden()
     await page.goto('/getting-started')
-    await page.getByRole('button', {name: 'Working with Claude after all?'}).click()
+    await page.getByRole('button', {name: 'Working with agents after all?'}).click()
     await page.goto('/mine')
     await expect(card).toBeVisible()
     await page.goto('/connect?project=greenhouse')

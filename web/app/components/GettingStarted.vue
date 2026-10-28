@@ -16,7 +16,7 @@ const TEXT = [
     {title: 'You own this orrery', text: 'What you make, no one else can delete. Your name is in App settings.'},
     {title: 'Make a project', text: 'One for each app or repo. Its issues get a key of their own, like SHP-1.'},
     {title: 'Connect a folder', text: "Open a terminal in your app's folder (any folder works; an empty one to try it), run claude, and paste this. It writes the folder's .mcp.json, hooks and CLAUDE.md itself, and the step ticks once the session says hello."},
-    {title: 'Start Claude with the channel', text: 'So orrery can send the session work. Ticked once a session is listening.'},
+    {title: 'Start a session with the channel', text: 'So orrery can send the session work. Ticked once a session is listening.'},
     {title: 'Send it work', text: 'Make an issue and press Focus on this on its page, or ask from the Sessions page. Ticked when a session starts one.'},
 ]
 
@@ -39,7 +39,7 @@ async function tryDemo() {
     </div>
     <ol v-if="open" class="flex flex-col gap-3 border-t border-line px-4 py-3 text-[13px] text-muted">
       <template v-for="(step, i) in steps" :key="step.key">
-      <li v-if="i === WITHOUT_CLAUDE" class="text-[11px] font-medium uppercase tracking-wide text-faint">For working with Claude</li>
+      <li v-if="i === WITHOUT_CLAUDE" class="text-[11px] font-medium uppercase tracking-wide text-faint">For working with agents</li>
       <li class="flex gap-3" :class="!step.done && i !== current && 'opacity-60'">
         <StepMark :done="step.done" :n="i + 1" />
         <div class="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -47,8 +47,8 @@ async function tryDemo() {
           <template v-if="i === current && !step.done">
             <span>{{ TEXT[i]!.text }}</span>
             <UiButton v-if="step.key === 'project'" variant="primary" class="self-start" @click="newProject = true">New project</UiButton>
-            <CopyBlock v-else-if="step.key === 'connect'" title="Paste into Claude, in the folder" :text="pieces.prompt" />
-            <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start Claude with" :text="pieces.launch" :hint="`An alias saves typing it: alias ${project?.id ?? 'app'}='cd /path/to/folder && ${pieces.launch}'`" />
+            <CopyBlock v-else-if="step.key === 'connect'" title="Paste into a session, in the folder" :text="pieces.prompt" />
+            <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start a session with" :text="pieces.launch" :hint="`An alias saves typing it: alias ${project?.id ?? 'app'}='cd /path/to/folder && ${pieces.launch}'`" />
             <UiButton v-else-if="step.key === 'work' && project" variant="primary" class="self-start" @click="newIssue(project.id)">New issue</UiButton>
             <LauncherHint v-if="step.key === 'work' && project" :project="project.id" />
           </template>
@@ -68,7 +68,7 @@ async function tryDemo() {
       </div>
       <div class="flex flex-col">
         <h1 class="text-lg font-semibold tracking-tight">Getting started</h1>
-        <p class="text-[13px] text-muted">{{ steps.length }} steps to a Claude session working from your roadmap. Each ticks itself.</p>
+        <p class="text-[13px] text-muted">{{ steps.length }} steps to a session working from your roadmap. Each ticks itself.</p>
       </div>
     </div>
     <div class="h-1 overflow-hidden rounded-full bg-well" role="progressbar" :aria-valuenow="done" :aria-valuemax="steps.length" aria-label="Steps done">
@@ -76,7 +76,7 @@ async function tryDemo() {
     </div>
     <ol class="flex flex-col gap-4 text-[13px] leading-relaxed text-muted">
       <template v-for="(step, i) in steps" :key="step.key">
-      <li v-if="i === WITHOUT_CLAUDE" class="px-4 pt-2 text-[11px] font-medium uppercase tracking-wide text-faint">For working with Claude</li>
+      <li v-if="i === WITHOUT_CLAUDE" class="px-4 pt-2 text-[11px] font-medium uppercase tracking-wide text-faint">For working with agents</li>
       <li class="flex gap-3 rounded-xl" :class="i === current && !step.done && !(planning && i >= WITHOUT_CLAUDE) ? 'bg-panel p-4 ring-1 ring-line' : ['px-4', planning && i >= WITHOUT_CLAUDE && !step.done && 'opacity-60']">
         <StepMark :done="step.done" :n="i + 1" />
         <div class="flex min-w-0 flex-1 flex-col gap-2">
@@ -90,8 +90,8 @@ async function tryDemo() {
               </UiButton>
               <span v-if="demo.failed.value" class="text-xs text-rose-600 dark:text-rose-400">{{ demo.failed.value }}</span>
             </div>
-            <CopyBlock v-else-if="step.key === 'connect'" title="Paste into Claude, in the folder" :text="pieces.prompt" />
-            <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start Claude with" :text="pieces.launch" />
+            <CopyBlock v-else-if="step.key === 'connect'" title="Paste into a session, in the folder" :text="pieces.prompt" />
+            <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start a session with" :text="pieces.launch" />
             <UiButton v-else-if="step.key === 'work' && project" variant="primary" size="md" class="self-start" @click="newIssue(project.id)">New issue</UiButton>
             <LauncherHint v-if="step.key === 'work' && project" :project="project.id" />
           </template>
@@ -103,7 +103,7 @@ async function tryDemo() {
       </li>
       <li v-else-if="planning && done < steps.length" class="px-4 text-xs text-faint">
         You're set for planning.
-        <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="plan(false)">Working with Claude after all?</button>
+        <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="plan(false)">Working with agents after all?</button>
       </li>
     </ol>
     <p class="text-xs text-faint">

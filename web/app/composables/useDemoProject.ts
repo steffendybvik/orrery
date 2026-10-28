@@ -33,7 +33,7 @@ export function useDemoProject() {
             await issue({title: 'Press ⌘K and find this issue by typing "find"', status: status('todo'), priority: 'P2', chunk: basics.id})
             await issue({title: 'Ideas go to the backlog', status: status('backlog'), chunk: later.id})
             // What Claude does: proposes work for you to approve, and asks when it needs you.
-            await issue({title: 'Add a dark-mode toggle to the settings page', proposal: 'pending', chunk: later.id, notes: 'Proposed by Claude: approve it, ask for changes, or reject it.'}, claude)
+            await issue({title: 'Add a dark-mode toggle to the settings page', proposal: 'pending', chunk: later.id, notes: 'Proposed by an agent: approve it, ask for changes, or reject it.'}, claude)
             const asking = await issue({title: 'Pick a default page size', status: status('todo'), chunk: later.id}, claude)
             await post(`${at}/issues/${encodeURIComponent(asking.id)}/comments`, {body: 'Should lists show 25 or 50 rows by default? Answer here and I carry on.', asks: 'decision'}, claude)
             return project.id

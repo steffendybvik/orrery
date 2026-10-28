@@ -26,9 +26,9 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8 sm:py-12">
       <header class="flex flex-col gap-3">
-        <h2 class="text-2xl font-semibold tracking-tight">Give a Claude session its roadmap</h2>
+        <h2 class="text-2xl font-semibold tracking-tight">Give a session its roadmap</h2>
         <p class="text-[15px] leading-relaxed text-muted">
-          Pick the app and copy the line into a Claude session in its repo. The agent reads its brief from orrery, starts keeping
+          Pick the app and copy the line into a session in its repo. The agent reads its brief from orrery, starts keeping
           the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the window.
           Any agent can also start from <a :href="`${origin}/llms.txt`" target="_blank" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">/llms.txt</a>.
         </p>
@@ -68,7 +68,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
 
       <section class="flex flex-col gap-3 rounded-2xl bg-accent-500/5 p-5 ring-1 ring-accent-500/25">
         <div class="flex items-center gap-3">
-          <h3 class="flex-1 text-[15px] font-semibold">Paste this into a Claude session in the repo</h3>
+          <h3 class="flex-1 text-[15px] font-semibold">Paste this into a session in the repo</h3>
           <CopyButton :text="pieces.prompt" />
         </div>
         <p class="rounded-lg bg-canvas/60 px-3 py-2.5 font-mono text-[12.5px] leading-relaxed wrap-break-word text-fg ring-1 ring-line">{{ pieces.prompt }}</p>
@@ -92,7 +92,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
           <CopyBlock title="CLAUDE.md section" :text="pieces.claudeMd" />
           <CopyBlock title=".mcp.json" hint="Needs Node and the orrery repo's packages (pnpm install there)." :text="pieces.mcpJson" />
           <CopyBlock title=".claude/settings.json" hint="Merge into the file if it exists." :text="pieces.settingsJson" />
-          <CopyBlock title="Start the session with" :hint="`Claude asks once to approve the ${pieces.server} server; say yes.`" :text="pieces.launch" />
+          <CopyBlock title="Start the session with" :hint="`It asks once to approve the ${pieces.server} server; say yes.`" :text="pieces.launch" />
           <CopyBlock title="Without the preview: ask the session to watch" hint="Uses the Monitor tool; a watch lasts up to 30 minutes, then the session restarts it." :text="pieces.monitor" />
         </div>
       </details>

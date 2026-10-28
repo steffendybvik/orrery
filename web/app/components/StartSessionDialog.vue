@@ -194,7 +194,7 @@ async function start() {
 <template>
   <UiDialog :open="target" label="Start session" class="max-h-[76vh]" @close="close" @submit="start">
     <div class="flex items-center gap-2 text-xs text-faint">
-      <span>Start a Claude session</span>
+      <span>Start a session</span>
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
 

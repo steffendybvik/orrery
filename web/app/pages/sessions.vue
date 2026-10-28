@@ -131,7 +131,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
           <p class="text-xs text-muted">
-            orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
+            orrery can start sessions itself, with no terminal: when your work finds nobody listening, or when you press
             Start session. It does so for any project whose repo has its launcher installed.
           </p>
         </header>
@@ -166,7 +166,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
             </PropertyPicker>
           </div>
           <p class="text-xs text-muted">
-            The message a Claude session gets when you ask it to focus on an issue or work through a chunk. For one project, its
+            The message a session gets when you ask it to focus on an issue or work through a chunk. For one project, its
             own templates (empty follows every project's) and instructions. Sessions started before a change hear it once they restart.
           </p>
         </header>
@@ -177,9 +177,9 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     <div v-else class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
       <LaunchersBehind />
       <p v-if="ready && !count" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
-        No Claude sessions right now.
+        No sessions right now.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
-        or open Claude in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
+        or run <span class="font-mono">claude</span> in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
         orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
       </p>
       <section v-if="spanning.length" id="sessions-across" class="flex scroll-mt-14 flex-col gap-3">
