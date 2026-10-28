@@ -176,6 +176,15 @@ describe("the owner's chat", () => {
         expect(() => chats.chatIssuesOf('in-progress')).toThrow(/"todo" or "backlog"/)
     })
 
+    it("changes an issue's fields, but never its state of work", () => {
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        expect(chats.asChatEdit({priority: 'P0', labels: ['chat'], chunk: '3', release: '1.0.0', parent: null, title: 'Jars', notes: 'Glass'}))
+            .toEqual({priority: 'P0', labels: ['chat'], chunk: '3', release: '1.0.0', parent: null, title: 'Jars', notes: 'Glass'})
+        for (const field of ['status', 'assignee', 'proposal', 'project', 'position', 'plan', 'choices'])
+            expect(() => chats.asChatEdit({priority: 'P1', [field]: 'x'})).toThrow(expect.objectContaining({statusCode: 403}))
+        expect(() => chats.asChatEdit('P0')).toThrow(expect.objectContaining({statusCode: 400}))
+    })
+
     it('leaves a proposal one, for the owner to decide', () => {
         expect(chats.asChatIssue({title: 'Grow lights', proposal: 'pending', status: 'todo', assignee: 'claude'})).toEqual({title: 'Grow lights', proposal: 'pending'})
     })
@@ -218,7 +227,9 @@ describe("a chat session's writes", () => {
         expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/comments')).toBeUndefined()
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/replies')).toBeUndefined()
         expect(refused('GET', '/api/projects/greenhouse/docs')).toBeUndefined()
-        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBe(403)
+        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBeUndefined()
+        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4/comments/3')).toBe(403)
+        expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/focus')).toBe(403)
         expect(refused('PUT', '/api/projects/greenhouse/docs/shelving')).toBe(403)
         expect(refused('POST', '/api/egress')).toBe(403)
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)

@@ -55,7 +55,8 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
     instructions: chat ? [
         `Orrery (${base}) keeps this repo's roadmap as ${serves}. This session is the owner's chat: their messages arrive as <channel ...> blocks,`,
         'and your answers reach them only through the reply tool, in Markdown. Answer questions about the project from its code and its roadmap',
-        '(issues, issue, chunks, releases, docs, doc, schedules, sessions, presets, events); make an issue (create_issue) or a comment (comment) when they ask, and say its id.',
+        '(issues, issue, chunks, releases, docs, doc, schedules, sessions, presets, events); make an issue (create_issue) or a comment (comment) when they ask, and say its id;',
+        'change an issue (edit_issue: its priority, labels, chunk, release, title…) when they ask.',
         'Each message ends with the page the owner has open: when they say "this" or "here", read that page with the matching tool first.',
         "Don't work on anything: no code changes, and don't start, move or finish issues. When the owner pastes an image, its message names it: look with the image tool.",
     ].join(' ') : [

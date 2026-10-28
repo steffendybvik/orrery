@@ -123,13 +123,19 @@ export const TOOLS = [
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
-/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, messaging
- * other sessions for the owner when they ask, and asking them to change a setting. */
+/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
+ * issue's fields when they ask (never its state of work), messaging other sessions for the owner when they ask, and
+ * asking them to change a setting. */
 export const CHAT_TOOLS = [
     {
         name: 'reply',
         description: "Answers the owner in the chat, in Markdown: the only way what you say reaches them. Say an issue you made by its id.",
         inputSchema: {type: 'object', required: ['text'], properties: {text: {type: 'string'}}},
+    },
+    {
+        name: 'edit_issue',
+        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release or parent, when the owner asks in this chat. It can't start, move, assign or finish one.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent'].map(f => [f, FIELDS[f]]))}},
     },
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
@@ -324,6 +330,9 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async resolve_event({id}) {
             const event = await call('POST', `/events/log/${encodeURIComponent(id)}/resolve`, undefined, root)
             return `Resolved #${event.id} ${event.kind}: ${event.message}`
+        },
+        async edit_issue({id, ...fields}) {
+            return `Now ${line(await call('PATCH', issuePath(id), fields, at(await projectOf({id}))))}`
         },
         async reply({text}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/replies`, {text}, root)

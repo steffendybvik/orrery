@@ -3,7 +3,7 @@ import type {Chat, ChatIssues, ChatMessage, ChatSetting} from '#shared/roadmap'
 import {CHAT_ISSUES, CHAT_SETTINGS, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {SETTINGS_FIELDS} from '../store/schema'
-import {checkInput} from './input'
+import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
@@ -16,8 +16,8 @@ import {known} from '#shared/known'
 export const chatBrief = (project: string) => `This session is the owner's chat in Orrery: they type to you on its page and read what you send with the reply tool.
 Answer their questions about this project: its code (read it), its roadmap and its docs (the issues, issue, chunks,
 releases, docs and doc tools). When they ask for an issue or a comment, make it (create_issue, comment) and say which
-id it got. You don't work on anything: don't change code, and don't start, move or finish issues; other sessions do
-that. When the owner asks you to, in this chat, message other sessions (sessions lists them): message_sessions
+id it got. When they ask to change an issue (its priority, labels, chunk, release, title…), change it (edit_issue). You
+don't work on anything: don't change code, and don't start, move or finish issues; other sessions do that. When the owner asks you to, in this chat, message other sessions (sessions lists them): message_sessions
 nudges every idle one, message_session one by its name. Never on your own. Say in your reply what you sent and to
 whom; for more than one session, draft it in a reply first and send it once the owner says go.
 When the owner asks you to change an App setting (the team tracker, the background tint, keeping agents off
@@ -217,4 +217,16 @@ export function asChatIssue(body: unknown, chat?: string): unknown {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return body
     const {status: _status, plan: _plan, assignee: _assignee, ...rest} = body as Record<string, unknown>
     return rest.proposal === 'pending' ? rest : {...rest, status: (chat && chats.get(chat)?.issues) || 'todo'}
+}
+
+/** What the chat may change on an issue when the owner asks: what it says and where it sits, never its state of work. */
+export const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent']
+
+/** An edit to an issue from the chat, as it asks for it: refused (403) when it would change anything but `CHAT_EDITS`,
+ * so a chat never starts, moves, assigns or finishes work, puts up a proposal or moves an issue to another project. */
+export function asChatEdit(body: unknown): Record<string, unknown> {
+    if (!isObject(body)) throw badRequest(`Send what to change: any of ${CHAT_EDITS.join(', ')}`)
+    const refused = Object.keys(body).filter(key => !CHAT_EDITS.includes(key))
+    if (refused.length) throw forbidden(`The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: it doesn't start, move or finish work`)
+    return body
 }
