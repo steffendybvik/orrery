@@ -1,7 +1,7 @@
-import type {Issue, LoggedEvent, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
+import type {Chat, Issue, LoggedEvent, Notice, Project, Schedule, Secret, Session, Settings, Signal} from '#shared/roadmap'
 
 // Loads the projects, then listens to `/api/events`: a change through the API replaces that
-// project in place, without a reload. After a dropped connection it loads them all again, and the secrets; one
+// project in place, without a reload (and the owner's chats, as they change). After a dropped connection it loads them all again, and the secrets; one
 // the browser gave up on (refused while the server restarted) it opens again itself.
 export default defineNuxtPlugin(() => {
     const {projects, ready, live, changed, listeners, launchers, sessions, signals} = useRoadmaps()
@@ -16,6 +16,7 @@ export default defineNuxtPlugin(() => {
         useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
         await useLoggedEvents().loadNew()
         await useSchedules().load()
+        await useChat().fetchChats()
         const all = await $fetch<Session[]>('/api/sessions').catch(() => [])
         // Under each project it's on, as the `sessions` event lists them: its own and the others its channel hears.
         const grouped: Record<string, Session[]> = {}
@@ -107,6 +108,9 @@ export default defineNuxtPlugin(() => {
         events.addEventListener('logged', event => {
             const {event: logged, fresh} = JSON.parse((event as MessageEvent).data) as {event: LoggedEvent, fresh: boolean}
             useLoggedEvents().arrived(logged, fresh)
+        })
+        events.addEventListener('chat', event => {
+            useChat().arrived(JSON.parse((event as MessageEvent).data) as Chat)
         })
         events.addEventListener('removed', event => {
             const id = (event as MessageEvent).data as string

@@ -46,5 +46,6 @@ const projectDialog = openedOnce(() => newProject.value)
     <OwnerDialog />
     <ImageView />
     <BulkBar />
+    <ChatPane />
   </div>
 </template>

@@ -64,7 +64,8 @@ export function runOf(session: string): Signal | undefined {
  * and no signal waiting for it, its launcher clears it. */
 export function considerClear(project: string, id: string) {
     const before = sessionNow(id)
-    if (!before?.started || before.state !== 'idle') return
+    // A chat keeps its conversation.
+    if (!before?.started || before.started.chat || before.state !== 'idle') return
     setTimeout(async () => {
         try {
             const now = sessionNow(id)
@@ -86,7 +87,7 @@ export function considerClear(project: string, id: string) {
  * (blocked, or waiting on the owner) would otherwise be sent it after every turn. */
 export function carryOn(project: string, id: string) {
     const before = sessionNow(id)
-    if (!before?.listening || before.state !== 'idle' || untrustedSession(id)) return
+    if (!before?.listening || before.state !== 'idle' || untrustedSession(id) || chatSession(id)) return
     setTimeout(async () => {
         try {
             const now = sessionNow(id)

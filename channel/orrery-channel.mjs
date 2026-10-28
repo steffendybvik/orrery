@@ -39,7 +39,10 @@ const window = claudeWindow()
 // `stops`: it ends the session when the owner stops it from Orrery, which takes knowing its claude process.
 /** Started for an untrusted schedule's run (the launcher says, in ORRERY_UNTRUSTED): its streams and writes say so. */
 const untrusted = process.env.ORRERY_UNTRUSTED === 'yes'
-const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes'})
+/** Started for the owner's chat (the launcher says, in ORRERY_CHAT): the launch, which is the chat's id. It answers in
+ * the chat, and says so on all it sends. */
+const chat = process.env.ORRERY_CHAT === 'yes' ? process.env.ORRERY_STARTED : undefined
+const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes', chat: chat && 'yes'})
     .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
 /** The project Orrery started the session for (the launcher says, in ORRERY_PROJECT), whose stream says so. */
 const startedFor = () => process.env.ORRERY_STARTED && (projects.includes(process.env.ORRERY_PROJECT) ? process.env.ORRERY_PROJECT : projects[0])
@@ -49,7 +52,12 @@ let refused = ''
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
 const server = new Server({name: 'orrery', version: '1.0.0'}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
-    instructions: [
+    instructions: chat ? [
+        `Orrery (${base}) keeps this repo's roadmap as ${serves}. This session is the owner's chat: their messages arrive as <channel ...> blocks,`,
+        'and your answers reach them only through the reply tool, in Markdown. Answer questions about the project from its code and its roadmap',
+        '(issues, issue, chunks, releases, docs, doc, events); make an issue (create_issue) or a comment (comment) when they ask, and say its id.',
+        "Don't work on anything: no code changes, and don't start, move or finish issues. When the owner pastes an image, its message names it: look with the image tool.",
+    ].join(' ') : [
         `Orrery (${base}) keeps this repo's roadmap as ${serves}, and this server's tools read and write it`,
         '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, releases, docs, doc, write_doc): use them instead of curl.',
         ...every || projects.length > 1 ? ['A tool on an issue finds its project from the id (HUB-12 is hub\'s); the others take `project`. Each <channel> block says its project.'] : [],
@@ -66,8 +74,8 @@ const server = new Server({name: 'orrery', version: '1.0.0'}, {
         `The full API is described at ${base}/api/guide.`,
     ].join(' '),
 })
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects)}))
+const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat})
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `Orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}
@@ -154,13 +162,22 @@ log(`registered as a channel: ${channel}${registeredAs ? ` (as ${registeredAs})`
 who.set('channel', channel)
 if (registeredAs) who.set('server', registeredAs)
 
-/** Tells the session about a signal on one of its projects. */
+/** Tells the session about a signal on one of its projects. A chat hears only the owner's messages in it. */
 async function deliver(project, signal, query) {
+    if (chat && signal.kind !== 'message') return
     const api = apiOf(project)
     const where = [signal.column, signal.priority, signal.chunk].filter(Boolean).join(', ')
     const issue = `${api}/issues/${encodeURIComponent(signal.issue)}`
     // A focus comes with what to say (the owner's template, filled in); an older Orrery's doesn't.
-    let content = signal.prompt
+    let content = chat
+        ? [
+            `${signal.created_by}, in the chat:`,
+            '',
+            signal.note.split('\n').map(line => `> ${line}`).join('\n'),
+            '',
+            'Answer with the reply tool.',
+        ].join('\n')
+        : signal.prompt
         ? signal.prompt
         : signal.kind === 'message' && !signal.schedule
         ? [

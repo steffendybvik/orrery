@@ -7,6 +7,7 @@ let session: {project: string, state: string, started?: {launch: string}, idleAt
 let working: string[]
 let issues: {id: string, parent: string | null, kind: string, column: string, priority?: string, updated_at: string}[]
 let untrusted: boolean
+let chat: boolean
 let waiting: boolean
 let sent: unknown[]
 let left: {id: string}[]
@@ -19,6 +20,7 @@ beforeEach(async () => {
     working = []
     issues = []
     untrusted = false
+    chat = false
     carried = []
     waiting = false
     sent = []
@@ -32,6 +34,7 @@ beforeEach(async () => {
     vi.stubGlobal('currentId', (id: string) => id.replace(/-before$/, ''))
     vi.stubGlobal('scopeOf', async () => ({open: left}))
     vi.stubGlobal('untrustedSession', () => untrusted)
+    vi.stubGlobal('chatSession', () => chat)
     vi.stubGlobal('useStore', () => ({
         workingOn: async () => working.map(id => ({id})), waiting: async () => waiting,
         focusChunk: async (...args: unknown[]) => void focused.push(args),
@@ -72,6 +75,13 @@ describe('a session Orrery started, gone idle', () => {
         session = {...session!, state: 'working'}
         await after()
         session = {...session!, state: 'idle', idleAt: 2}
+        await after()
+        expect(sent).toEqual([])
+    })
+
+    it("isn't cleared when it's the owner's chat, which keeps its conversation", async () => {
+        session = {...session!, started: {launch: 'l1', chat: true} as {launch: string}}
+        clearing.considerClear('orrery', 'w')
         await after()
         expect(sent).toEqual([])
     })
@@ -154,7 +164,7 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
         expect(carried).toHaveLength(1)
     })
 
-    it("is left be with a signal waiting, a new turn started, nothing in progress, no sub-issue to do, or an untrusted schedule's run", async () => {
+    it("is left be with a signal waiting, a new turn started, nothing in progress, no sub-issue to do, an untrusted schedule's run or a chat", async () => {
         waiting = true
         clearing.carryOn('orrery', 'w')
         await after()
@@ -172,6 +182,10 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
         await after()
         issues.push(sub('ORR-6'))
         untrusted = true
+        clearing.carryOn('orrery', 'w')
+        await after()
+        untrusted = false
+        chat = true
         clearing.carryOn('orrery', 'w')
         await after()
         expect(carried).toEqual([])

@@ -104,6 +104,7 @@ const everywhere = computed<Entry[]>(() => [
         router.push('/getting-started')
     }},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
+    {key: 'chat', group: 'Chat', label: project.value ? `Chat about ${project.value.name}` : 'Chat', detail: 'answers and makes issues', run: () => useChat().show(project.value?.id)},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Reset the filters to the open issues', run: clear}] : []),
     ...[...PRIORITIES, 'none'].map(p => ({

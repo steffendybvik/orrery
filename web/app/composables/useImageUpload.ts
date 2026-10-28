@@ -69,7 +69,8 @@ export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement
     return {uploading, failed, dragging, upload, reset, onPaste, onDrop}
 }
 
-function readAsDataUrl(file: File): Promise<string> {
+/** The file as a `data:` URL, as `POST /api/uploads` takes it. */
+export function readAsDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader()
         reader.onload = () => resolve(String(reader.result))

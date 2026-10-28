@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
+import {NOT_FOR_CHAT, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
@@ -46,6 +46,33 @@ describe("the channel's tools", () => {
         const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', untrusted: true, fetch}) as (name: string, args?: object) => Promise<unknown>
         await call('issue', {id: 'GRE-1'})
         expect(calls[0]!.headers).toMatchObject({'Orrery-Session': 'abc', 'Orrery-Untrusted': 'yes'})
+    })
+
+    it("in the owner's chat, answer in it and see what was pasted, say so on every call, and go without what takes up work", async () => {
+        const calls: {url: string, init: {method: string, headers: Record<string, string>, body?: string}}[] = []
+        const png = Buffer.from('89504e47', 'hex')
+        const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string} = {method: 'GET', headers: {}}) => {
+            calls.push({url, init})
+            if (url.includes('/uploads/')) return {ok: true, status: 200, statusText: '', headers: new Headers({'content-type': 'image/png'}), arrayBuffer: async () => png}
+            return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 1})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {type: string, text?: string, data?: string, mimeType?: string}[]}>
+        expect((await call('reply', {text: 'GRE-4 is the one.'})).content[0]!.text).toBe('Sent.')
+        expect(calls[0]!.url).toBe('http://o/api/chats/c1c2c3c4c5c6/replies')
+        expect(JSON.parse(calls[0]!.init.body!)).toEqual({text: 'GRE-4 is the one.'})
+        expect(calls[0]!.init.headers).toMatchObject({'Orrery-Chat': 'yes', 'Orrery-Launch': 'c1c2c3c4c5c6', 'Orrery-Session': 'abc'})
+        expect((await call('image', {id: 'e961abaa8718ef8efe55380b'})).content[0]).toEqual({type: 'image', data: png.toString('base64'), mimeType: 'image/png'})
+        expect((await call('image', {id: '../secrets'})).isError).toBe(true)
+        for (const name of NOT_FOR_CHAT) expect((await call(name, {id: 'GRE-1'})).isError).toBe(true)
+        const listed = toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)
+        expect(listed).toEqual(expect.arrayContaining(['issues', 'issue', 'create_issue', 'comment', 'docs', 'doc', 'reply', 'image']))
+        expect(listed.filter((n: string) => NOT_FOR_CHAT.includes(n))).toEqual([])
+    })
+
+    it("outside a chat, have no chat tools", async () => {
+        const {call} = harness({})
+        expect(await call('reply', {text: 'hi'})).toMatchObject({error: true})
+        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('reply')
     })
 
     it("read the presets the project's sessions can have, and only those", async () => {
