@@ -447,6 +447,10 @@ export interface DatabaseInfo {
     backup_postgres?: string
     /** NUXT_BACKUP_DIR, the folder orrery is given as it starts. */
     backup_default?: string
+    /** How often it backs up: a few seconds after a change, or at most every 15 minutes, hour or day (ORR-445). */
+    backup_every?: 'change' | '15m' | 'hour' | 'day'
+    /** How many daily copies (`orrery-YYYY-MM-DD.db`) stay in the backup folder. */
+    backup_keep?: number
 }
 
 /** A database the owner could move to, as `POST /api/database/check` finds it. */

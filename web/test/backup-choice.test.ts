@@ -1,8 +1,9 @@
-import {existsSync, mkdirSync, mkdtempSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, mkdtempSync, readdirSync, utimesSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import pg from 'pg'
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {backupDelay} from '../server/utils/backup'
 import {PostgresDb} from '../server/utils/postgres'
 import {Store} from '../server/utils/store'
 
@@ -86,6 +87,71 @@ describe('choosing the backups', () => {
     })
 })
 
+describe('how often, and how many daily copies', () => {
+    it('backs up after each change and keeps two weeks until the owner chooses otherwise', async () => {
+        const {choice, db} = await setUp('backup')
+        expect([choice.backupEvery(), choice.backupKeep()]).toEqual(['change', 14])
+        expect(db.describeDatabase()).toMatchObject({backup_every: 'change', backup_keep: 14})
+    })
+
+    it('keeps the owner\'s choice for the next start, whatever turns them on or off, and forgets it back at the defaults', async () => {
+        const {dir, db, choice} = await setUp('backup')
+        await choice.chooseBackups({every: 'hour', keep: 5})
+        expect(db.describeDatabase()).toMatchObject({backup: join(dir, 'backup'), backup_every: 'hour', backup_keep: 5})
+        await choice.chooseBackups({on: false})
+        await choice.chooseBackups({on: true})
+        vi.resetModules()
+        const fresh = await import('../server/utils/backup-choice')
+        expect([fresh.backupDir(), fresh.backupEvery(), fresh.backupKeep()]).toEqual([join(dir, 'backup'), 'hour', 5])
+        await fresh.chooseBackups({every: 'change', keep: 14})
+        expect(existsSync(join(dir, 'data', 'orrery.db.backups.json'))).toBe(false)
+    })
+
+    it('goes on backing up into the Postgres database chosen when only how often or how many changes', async () => {
+        const {choice} = await setUp()
+        const url = 'postgres://skoll:pw@cellar:5432/backup'
+        choice.saveBackupChoice({on: true, postgres: url})
+        await choice.chooseBackups({every: 'day', keep: 3})
+        expect(choice.backupTarget()).toEqual({kind: 'postgres', url})
+        expect([choice.backupEvery(), choice.backupKeep()]).toEqual(['day', 3])
+    })
+
+    it('refuses what isn\'t one of them, and keeps what it had', async () => {
+        const {choice} = await setUp('backup')
+        await choice.chooseBackups({every: 'day'})
+        for (const body of [{every: 'weekly'}, {keep: 0}, {keep: 2.5}, {keep: 366}, {keep: '7'}, {}]) expect(await status(() => choice.chooseBackups(body))).toBe(400)
+        expect([choice.backupEvery(), choice.backupKeep()]).toEqual(['day', 14])
+    })
+
+    it('keeps that many daily copies, and the three newest taken before an upgrade', async () => {
+        const {dir, choice} = await setUp('backup')
+        const folder = join(dir, 'backup')
+        mkdirSync(folder)
+        for (let day = 1; day <= 9; day++) writeFileSync(join(folder, `orrery-2026-01-0${day}.db`), '')
+        for (const [i, version] of ['1.0.0-rc.7', '1.0.0-rc.8', '1.0.0-rc.9', '1.0.0-rc.10'].entries()) {
+            writeFileSync(join(folder, `orrery-pre-${version}.db`), '')
+            utimesSync(join(folder, `orrery-pre-${version}.db`), 1_000_000 + i, 1_000_000 + i)
+        }
+        await choice.chooseBackups({on: true, keep: 3})
+        const left = readdirSync(folder).sort()
+        expect(left.filter(name => /^orrery-\d/.test(name))).toEqual(['orrery-2026-01-08.db', 'orrery-2026-01-09.db', `orrery-${new Date().toISOString().slice(0, 10)}.db`])
+        expect(left.filter(name => name.startsWith('orrery-pre-'))).toEqual(['orrery-pre-1.0.0-rc.10.db', 'orrery-pre-1.0.0-rc.8.db', 'orrery-pre-1.0.0-rc.9.db'])
+    })
+
+    it('waits a few seconds after a change, or until the interval since the last backup has gone', () => {
+        const settle = 3000
+        const minute = 60_000
+        // After each change: the settle, put off by more changes, but never past ten settles from the first.
+        expect(backupDelay('change', settle, 0, 0, -minute)).toBe(3000)
+        expect(backupDelay('change', settle, 29_000, 0, -minute)).toBe(1000)
+        expect(backupDelay('change', settle, 40_000, 0, -minute)).toBe(0)
+        // On an interval: what's left of it since the last backup, and at least the settle.
+        expect(backupDelay('15m', settle, 5 * minute, 5 * minute, 0)).toBe(10 * minute)
+        expect(backupDelay('hour', settle, 90 * minute, 90 * minute, 0)).toBe(3000)
+        expect(backupDelay('day', settle, minute, minute, 0)).toBe(24 * 60 * minute - minute)
+    })
+})
+
 describe('who may set them', () => {
     /** backup-choice.ts loaded with the actor a request names, and a request to it by the name `host`, over a connection
      * from `from`. */
@@ -157,6 +223,9 @@ describe.runIf(process.env.TEST_POSTGRES_URL)('backing up into Postgres', () => 
             expect(db.describeDatabase()).toMatchObject({backups_off: true, backup_postgres: expect.any(String)})
             await choice.chooseBackups({on: true})
             expect(choice.backupTarget()).toEqual({kind: 'postgres', url})
+            // How often stays the owner's to change too, still into the same one.
+            await choice.chooseBackups({on: true, every: 'hour'})
+            expect([choice.backupTarget(), choice.backupEvery()]).toEqual([{kind: 'postgres', url}, 'hour'])
         } finally {
             const {closeBackupDb} = await import('../server/utils/backup')
             await closeBackupDb()

@@ -45,7 +45,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 
 ## Backups
 
-A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks. A new, empty
+A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks (both can be changed, below). A new, empty
 volume starts from the latest one. The live file never goes in the backup folder: a synced SQLite
 file gets corrupted, a snapshot doesn't. On Postgres it's a SQLite snapshot of the database, made a minute after
 a change, or at most ten minutes after the first while changes keep coming (the whole database is copied each time), so a backup opens anywhere and a new SQLite orrery starts from
@@ -53,7 +53,12 @@ it. App settings → This orrery → Database says when the latest was made, wit
 
 The backups can be set there too, from this machine: **Back up this orrery** turns them off or on, and, outside
 Docker, a folder takes them instead of `NUXT_BACKUP_DIR` (**Back up here** makes one there at once, so a folder that
-won't take it says so). The choice is kept beside the database, in `orrery.db.backups.json`. In Docker they always go
+won't take it says so). **How often** backs up a few seconds after a change (as above), or at most once every 15
+minutes, hour or day, and then only when something changed. Each backup writes the whole database again, so a folder
+that syncs (iCloud Drive) uploads all of it each time: back up less often to upload less. **Daily copies kept**
+(14 unless changed, up to 365) is most of what the folder takes on disk. Of the copies taken before an upgrade
+migrates the database (`orrery-pre-<version>.db`), the three newest stay. The choice is kept beside the database, in
+`orrery.db.backups.json`. In Docker they always go
 to `/backup`, whose folder on the machine is `ORRERY_BACKUP`. When `ORRERY_DATABASE` names Postgres, backups are set
 only as orrery starts.
 

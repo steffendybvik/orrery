@@ -197,7 +197,7 @@ that comes back in the text. orrery keeps it in its database, so backups and `or
 
 | | |
 |---|---|
-| `POST /uploads` | `{data, name?}`: `data` is a PNG, JPEG, GIF or WebP in base64 (a `data:` URL works too), 10 MB at most; no SVG. → `{id, type, size, url, markdown}`, where `url` is `/api/uploads/<id>` and `markdown` is `![name](url)`. A picture whose alt text starts with `Before`, followed by nothing but one starting with `After` (on the next line, or in the next paragraph), shows as a slider between the two |
+| `POST /uploads` | `{data, name?}`: `data` is a PNG, JPEG, GIF or WebP in base64 (a `data:` URL works too), 10 MB at most; no SVG. A PNG or JPEG of 16 KB or more is kept as WebP when that's smaller (quality 90, no wider than 2,560 px), so `type` and `size` are what's kept. → `{id, type, size, url, markdown}`, where `url` is `/api/uploads/<id>` and `markdown` is `![name](url)`. A picture whose alt text starts with `Before`, followed by nothing but one starting with `After` (on the next line, or in the next paragraph), shows as a slider between the two |
 | `GET /uploads/:id` | the image |
 
 ```bash
@@ -341,12 +341,16 @@ where) or `switch` (only whether, in Docker); left out when `ORRERY_DATABASE` na
 owner turned them off, `backup_folder` the folder they chose (kept while off), `backup_postgres` the Postgres database
 they chose (`user@host:port/name`, kept while off), and `backup_default` `NUXT_BACKUP_DIR`. Backed up into Postgres,
 `backup` is that database without its password and `backup_kind` is `postgres`.
-`PUT /backups {on, folder?}` or `{on, postgres}` (the owner's, from this machine, 403 from any other, and in Docker while `ORRERY_HOST` opens it to the network) sets them: `folder` a full path
+`backup_every` is how often it backs up (`change`, a few seconds after one, or at most once every `15m`, `hour` or
+`day`, and then only when something changed), and `backup_keep` how many daily copies stay in a folder (14 unless
+chosen; into Postgres only the latest is kept).
+`PUT /backups {on?, folder?, every?, keep?}` or `{on, postgres, every?, keep?}` (the owner's, from this machine, 403 from any other, and in Docker while `ORRERY_HOST` opens it to the network) sets them: `folder` a full path
 instead of `NUXT_BACKUP_DIR`, `null` or none back to it; `postgres` a Postgres URL to back up into instead, an empty
 database or this orrery's backup already (400 for one holding another orrery, or the one it runs on). `{on}` alone keeps
 backing up into the Postgres database chosen before. Turned on, it's backed up there at once, and kept only if that
 worked (400 when it can't be, or the folder holds the database); 409 for a folder in Docker, on with nowhere to go, or
-when `ORRERY_DATABASE` names Postgres. → `database`.
+when `ORRERY_DATABASE` names Postgres. `every` and `keep` (1 to 365) change only how often and how many, alone or with
+`on`; `folder` and `postgres` come with `on`. → `database`.
 
 The owner moves it from this machine (403 from any other, judged by where the connection comes from, not its `Host`; in Docker, 403 while `ORRERY_HOST` opens it to the network): `POST /database/check {kind: "sqlite", path}` or
 `{kind: "postgres", url}` says what's there without changing it, `{kind, where, state, projects?}`, `state` `empty`,
