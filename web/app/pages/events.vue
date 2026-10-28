@@ -16,6 +16,7 @@ const {settings} = useAppSettings()
 const {ordered} = useProjectOrder()
 const {events, loaded, load, seen} = useLoggedEvents()
 const {byId} = useRoadmaps()
+const {who} = useOwner()
 const {levelShown, toggleLevel, shows} = useHiddenEvents()
 
 const scroller = ref<HTMLElement | null>(null)
@@ -89,21 +90,28 @@ function stamp(iso: string) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
 }
 const projectName = (id: string) => byId(id)?.name ?? id
+/** The message as the page says it: a roadmap change's line starts with who made it as stored (`claude moved ORR-12`),
+ * shown as `who()` names them (`Agent moved ORR-12`). */
+function messageOf(event: LoggedEvent): string {
+    const by = event.details?.by
+    return typeof by === 'string' && event.message.startsWith(`${by} `) ? `${who(by)}${event.message.slice(by.length)}` : event.message
+}
 /** The message in pieces, each of the project's issue ids in it (`ORR-12`) a link to that issue, but a deleted one's:
- * the line's own subject and any other it names, so `claude moved ORR-12` opens ORR-12. */
+ * the line's own subject and any other it names, so `Agent moved ORR-12` opens ORR-12. */
 function messageParts(event: LoggedEvent): {text: string, to?: string}[] {
+    const message = messageOf(event)
     const key = event.project ? byId(event.project)?.key : undefined
-    if (!key || !event.project) return [{text: event.message}]
+    if (!key || !event.project) return [{text: message}]
     const gone = event.kind === 'issue.deleted' ? event.subject : undefined
     const parts: {text: string, to?: string}[] = []
     let at = 0
-    for (const found of event.message.matchAll(new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+\\b`, 'g'))) {
+    for (const found of message.matchAll(new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+\\b`, 'g'))) {
         if (found[0] === gone) continue
-        if (found.index > at) parts.push({text: event.message.slice(at, found.index)})
+        if (found.index > at) parts.push({text: message.slice(at, found.index)})
         parts.push({text: found[0], to: `/p/${event.project}/issues/${found[0]}`})
         at = found.index + found[0].length
     }
-    if (at < event.message.length) parts.push({text: event.message.slice(at)})
+    if (at < message.length) parts.push({text: message.slice(at)})
     return parts
 }
 </script>
@@ -170,7 +178,7 @@ function messageParts(event: LoggedEvent): {text: string, to?: string}[] {
             class="text-accent-600 hover:underline dark:text-accent-400"
         >{{ part.text }}</NuxtLink><template v-else>{{ part.text }}</template></template></span>
         <span v-if="event.count > 1" class="text-faint">×{{ event.count }}</span>
-        <span v-if="event.resolved_at" class="text-faint">(resolved{{ event.resolved_by ? ` by ${event.resolved_by}` : '' }})</span>
+        <span v-if="event.resolved_at" class="text-faint">(resolved{{ event.resolved_by ? ` by ${who(event.resolved_by)}` : '' }})</span>
       </div>
     </div>
     <button
