@@ -341,11 +341,11 @@ export interface ScheduleRun {
 
 /** Recurring work in a project: at each time (`cron` in `timezone`, once `at`, or `on` an event) Orrery makes an issue
  * from it, and with `ask` points the project's listening Claude sessions at it; or, as a `message`
- * schedule, sends `notes` to the sessions without an issue. */
+ * schedule, sends `notes` to the sessions without an issue; or, as a `session` schedule, starts a session. */
 export interface Schedule {
     id: number
     project: string
-    kind: 'issue' | 'message'
+    kind: 'issue' | 'message' | 'session'
     title: string
     /** The issue's description, or the message. */
     notes?: string
@@ -355,6 +355,8 @@ export interface Schedule {
     on?: string
     /** What the event must also say: `{to: "in-review"}`, `{by: "owner"}`, `{level: "error"}`. */
     on_filter?: OnFilter
+    /** Preset ids a message or session schedule is given, their text before `notes`; none for an issue schedule. */
+    presets: number[]
     timezone: string
     /** Where its issues start: a status's id (not a closed one). */
     column: string

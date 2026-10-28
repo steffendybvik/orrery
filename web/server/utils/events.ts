@@ -73,7 +73,8 @@ export function useScheduler(): Schedules {
         project: schedule.project,
         message: `${schedule.title}: ${run.outcome === 'made' ? `made ${run.issue}` : run.outcome}${run.note ? `, ${run.note}` : ''}`,
         details: {schedule: schedule.id, ...run, ...manual ? {manual} : {}},
-    }))
+    }), async (project, {presets, instructions, issue, release}, actor) =>
+        await startLaunch(project, {issue, release, context: await contextFor(project, presets, instructions), actor}))
     return schedules
 }
 
