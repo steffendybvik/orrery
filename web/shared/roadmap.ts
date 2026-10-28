@@ -316,6 +316,8 @@ export interface Signal {
     note?: string
     /** A message the owner sent from a preset: its name, as it was then. */
     preset?: string
+    /** A message the owner's chat sent for them, on their say-so. */
+    via?: 'chat'
     /** The session it's for; none means every session on the project. */
     target?: string
     /** The names of the sessions it reached. */

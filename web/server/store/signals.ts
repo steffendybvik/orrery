@@ -148,7 +148,8 @@ export abstract class SignalStore extends IssueStore {
         return signal
     }
 
-    /** The owner's own words to one session, through its channel: about no issue, from no schedule. With `preset`
+    /** The owner's own words to one session, through its channel: about no issue, from no schedule; their chat's for
+     * them when the actor says it's `via` it. With `preset`
      * (an id its sessions can have), they're that preset's text as the owner sent it, tweaked or not, and the
      * message is labelled by its name. */
     async messageSession(project: string, session: string, text: unknown, actor = AGENT, preset?: unknown): Promise<Signal> {
@@ -158,8 +159,8 @@ export abstract class SignalStore extends IssueStore {
         if (!note) throw badRequest('Send the message as {"text": "…"}')
         if (preset !== undefined && preset !== null && !Number.isInteger(preset)) throw badRequest('Send preset as a preset\'s id')
         const from = typeof preset === 'number' ? known((await this.presetsFor(project, [preset]))[0], 'the preset').name : null
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, preset, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, 'message', note, from, session, actor.name, 1, stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, preset, via, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, 'message', note, from, actor.via ?? null, session, actor.name, 1, stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal
