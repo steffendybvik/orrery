@@ -265,6 +265,14 @@ export function launchContext(project: string, id: string): SessionContext | und
     return sessionOfLaunch(project, id)?.started?.context
 }
 
+/** Whether the launch is an untrusted schedule's, read without taking it from those waiting to start: its hook asks on
+ * every event, and the first comes before its channel connects, which is when `launched` takes it (ORR-468). */
+export function launchUntrusted(project: string, id: string): boolean {
+    const known = pending.get(id) ?? reported.get(id)
+    if (known) return known.project === project && !!known.untrusted
+    return !!sessionOfLaunch(project, id)?.started?.untrusted
+}
+
 /** What a session started with a scope but no statuses works through: the open work that's ready. */
 export const SCOPE_STATUSES = ['todo', 'started']
 
@@ -306,7 +314,8 @@ function outdated(project: string, id: string, message: string) {
     chatProblem(id, message)
 }
 
-/** The launch's session connected: it counts as a started session from now on. Says what it was started as. */
+/** The launch's session connected: it counts as a started session from now on. Says what it was started as. Only its
+ * channel connecting calls this, once; anything else reads the launch with `launchContext` or `launchUntrusted`. */
 export function launched(id: string): StartedSession | undefined {
     const launch = pending.get(id)
     pending.delete(id)
