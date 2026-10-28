@@ -80,4 +80,4 @@ e2e flows and keeps the report as an artifact. `PERF_NO_BUILD=1` reuses the last
 
 The database's migrations are numbered steps in `web/server/utils/db.ts`, with Postgres's after its baseline in
 `web/server/utils/postgres.ts`: add a step to both, never edit one. Before a SQLite file takes steps it's copied to
-`orrery-pre-<version>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.
+`orrery-pre-<version>-step<n>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.

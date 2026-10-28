@@ -214,6 +214,10 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
     return said
 }
 
+/** The requests being answered right now, by chat and message: a second answer while the first is under way (a
+ * double-click, another tab) is refused, rather than saving the schedule or sending the message twice (ORR-455). */
+const answering = new Set<string>()
+
 /** The owner's answer to a request (`allow`): allowed, the setting or the schedule is saved as asked; either way the
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
 export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
@@ -226,9 +230,16 @@ export async function answer(id: string, message: number, allow: boolean, actor:
         changed(chat)
     }
     if (request.state !== 'asked') throw conflict(`That request is ${request.state} already${request.state === 'expired' ? ': ask the chat again' : ''}`)
-    if (asked.send) await answerSend(chat, asked.send, allow, actor)
-    else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
-    else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
+    const key = `${chat.id}:${message}`
+    if (answering.has(key)) throw conflict('That request is being answered already')
+    answering.add(key)
+    try {
+        if (asked.send) await answerSend(chat, asked.send, allow, actor)
+        else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
+        else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
+    } finally {
+        answering.delete(key)
+    }
     return asked
 }
 
@@ -254,18 +265,31 @@ async function answerSchedule(chat: Chat, request: ChatScheduleRequest, allow: b
 
 /** The owner sending or not sending the message the chat asked to: sent, it goes as theirs, through their chat, to the
  * one session asked for, or to every session that fits now (who fits may have changed since it was asked). A session
- * that stopped listening since fails as messaging it would, still asked. */
+ * that stopped listening since fails as messaging it would, still asked. Each session reached goes in `sent` at once,
+ * so pressing Send again after one failed sends to the rest only, not to those that had it (ORR-455). */
 async function answerSend(chat: Chat, request: ChatSendRequest, allow: boolean, actor: Actor) {
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
         const to = request.session
             ? [sessionNamed(request.session)]
             : recipients(request.projects, request.states)
-        for (const session of to) {
-            await useStore().messageSession(session.project, session.id, request.text, as)
-            messaged(as, session.project, session.name)
+        const sent = [...request.sent ?? []]
+        try {
+            for (const session of to) {
+                if (sent.includes(session.name)) continue
+                await useStore().messageSession(session.project, session.id, request.text, as)
+                messaged(as, session.project, session.name)
+                sent.push(session.name)
+            }
+        } catch (error) {
+            // Still asked, with who has it already.
+            if (sent.length) {
+                request.sent = sent
+                changed(chat)
+            }
+            throw error
         }
-        request.sent = to.map(s => s.name)
+        request.sent = sent
     }
     request.state = allow ? 'allowed' : 'denied'
     changed(chat)

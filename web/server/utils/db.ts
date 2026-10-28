@@ -803,8 +803,9 @@ export async function switchDatabase(setting: string, next: SqliteDb | PostgresD
     return before
 }
 
-/** Opens the file and brings its schema up to date (or only `upTo` steps, for tests), copying it to `snapshot` first
- * when there are steps to take and no copy there yet. */
+/** Opens the file and brings its schema up to date (or only `upTo` steps, for tests), copying it first, when there are
+ * steps to take, to `snapshot` (`orrery-pre-<version>.db`) with the step it's at added (`-step<n>.db`), unless there's
+ * a copy there already. */
 export function openDb(path: string, upTo = MIGRATIONS.length, snapshot?: string): DatabaseSync {
     if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
     const opened = new DatabaseSync(path)
@@ -825,10 +826,13 @@ function migrate(opened: DatabaseSync, path: string, upTo: number, snapshot?: st
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
     if (version > MIGRATIONS.length) {
         throw new Error(`${path} was written by a newer orrery (schema step ${version}; this one knows up to ${MIGRATIONS.length}). `
-            + 'Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>.db, in the backup folder or beside the database).')
+            + 'Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>-step<n>.db, in the backup folder or beside the database).')
     }
-    // A new file has nothing to keep; a copy already there is from before an earlier try at this upgrade, so it stays.
-    // It's written beside the name and checked before it takes it (ORR-448), so a copy cut short never passes for one.
+    // A new file has nothing to keep. The copy is named by the schema step it was taken at as well as the version, so a
+    // later step under the same version gets one of its own (ORR-457); one already there is from an earlier try at this
+    // same upgrade, so it stays. It's written beside the name and checked before it takes it (ORR-448), so a copy cut
+    // short never passes for one.
+    if (snapshot) snapshot = snapshot.replace(/(\.db)?$/, `-step${version}.db`)
     if (snapshot && version > 0 && version < Math.min(upTo, MIGRATIONS.length) && !existsSync(snapshot)) {
         const temporary = `${snapshot}.partial`
         try {

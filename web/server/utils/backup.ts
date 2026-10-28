@@ -27,7 +27,7 @@ export const targetLabel = (target: BackupTarget) => target.kind === 'folder' ? 
 const LATEST = 'orrery.db'
 const PARTIAL = '.orrery.db.partial'
 const DAILY = /^orrery-\d{4}-\d{2}-\d{2}\.db$/
-/** The copies db.ts takes before an upgrade migrates the database (`orrery-pre-<version>.db`). */
+/** The copies db.ts takes before an upgrade migrates the database (`orrery-pre-<version>-step<n>.db`). */
 const BEFORE_UPGRADE = /^orrery-pre-.+\.db$/
 /** Daily copies kept unless the owner chose another number, and the most they can keep. */
 export const KEEP_DAYS = 14
@@ -96,8 +96,9 @@ export function backUpTo(database: Db, target: BackupTarget, days = KEEP_DAYS): 
     })
 }
 
-/** The Postgres database backed up to, held open between backups (one a minute at most), and when it last worked. */
-let into: {url: string, db: PostgresDb, at?: string} | null = null
+/** The Postgres database backed up to, held open between backups (one a minute at most), the database backed up into
+ * it and that one's id, and when it last worked. */
+let into: {url: string, db: PostgresDb, source: Db, id: string, at?: string} | null = null
 
 /** When the latest backup into the Postgres database at `url` was made, since orrery started. */
 export const lastPostgresBackup = (url: string) => into?.url === url ? into.at : undefined
@@ -112,23 +113,35 @@ export async function closeBackupDb() {
 /** Copies `source` into the Postgres database at `url`, in place of the backup there: only into one that's empty or
  * already this orrery's backup, and never into the database it runs on. */
 async function backupInto(source: Db, url: string) {
-    if (into?.url !== url) {
+    // What it writes to the database it runs on, it writes once a target and source are paired, not on every backup,
+    // where it would land between the store's own transactions (ORR-457).
+    if (into?.url !== url || into.source !== source) {
         await closeBackupDb()
-        into = {url, db: new PostgresDb(url)}
+        const db = new PostgresDb(url)
+        try {
+            into = {url, db, source, id: await readyToBackUp(source, db, url)}
+        } catch (error) {
+            await db.close()
+            throw error
+        }
     }
-    const target = into.db
-    // Its id, made now if it hasn't been asked for yet, as the store makes it.
-    await source.run('INSERT INTO settings (key, value) VALUES (\'id\', ?) ON CONFLICT (key) DO NOTHING', JSON.stringify(`orr_${randomBytes(3).toString('hex')}`))
-    const id = JSON.parse((await one<{value: string}>(source, 'SELECT value FROM settings WHERE key = \'id\'')).value) as string
-    // The database it runs on is never a backup, even one it was started from, so it can't pass for its own backup
-    // under another way of writing its URL.
-    await source.run('DELETE FROM settings WHERE key = \'backup_of\'')
-    if (source instanceof PostgresDb && await samePlace(source, target)) throw new Error(`${hidePassword(url)} is the database orrery runs on: back up somewhere else`)
+    const {db: target, id} = into
     const {n} = await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')
     const mark = await target.get<{value: string}>('SELECT value FROM settings WHERE key = \'backup_of\'')
     if (Number(n) && (!mark || JSON.parse(mark.value) !== id)) throw new Error(`${hidePassword(url)} holds an orrery that isn't this one's backup: back up to an empty database`)
     await copyDatabase(source, target, {replace: true, mark: id})
     into.at = new Date().toISOString()
+}
+
+/** Gets `source` ready to be backed up into `target`; says its id. It's given one if it hasn't been asked for yet, as
+ * the store makes it. The database it runs on is never a backup, even one it was started from, so it can't pass for
+ * its own backup under another way of writing its URL. */
+async function readyToBackUp(source: Db, target: PostgresDb, url: string): Promise<string> {
+    await source.run('INSERT INTO settings (key, value) VALUES (\'id\', ?) ON CONFLICT (key) DO NOTHING', JSON.stringify(`orr_${randomBytes(3).toString('hex')}`))
+    const id = JSON.parse((await one<{value: string}>(source, 'SELECT value FROM settings WHERE key = \'id\'')).value) as string
+    await source.run('DELETE FROM settings WHERE key = \'backup_of\'')
+    if (source instanceof PostgresDb && await samePlace(source, target)) throw new Error(`${hidePassword(url)} is the database orrery runs on: back up somewhere else`)
+    return id
 }
 
 /** Whether two Postgres connections reach the same database and schema, however their URLs are written. */

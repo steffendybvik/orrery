@@ -91,7 +91,8 @@ export function inDocker(): boolean {
 export function saveBackupChoice(choice: BackupChoice) {
     const file = backupChoiceFile()
     if (!file) throw new Error('NUXT_DATABASE names Postgres: set the backups where it\'s set')
-    const folder = choice.folder && choice.folder !== defaultBackupDir() ? choice.folder : undefined
+    // The default folder is worth keeping when a default Postgres would otherwise take its place (ORR-457).
+    const folder = choice.folder && (choice.folder !== defaultBackupDir() || defaultBackupDatabase()) ? choice.folder : undefined
     const postgres = choice.postgres && choice.postgres !== defaultBackupDatabase() ? choice.postgres : undefined
     const every = choice.every && choice.every !== 'change' ? choice.every : undefined
     const keep = choice.keep !== undefined && choice.keep !== KEEP_DAYS ? choice.keep : undefined
@@ -172,4 +173,6 @@ async function choosePostgres(on: boolean, postgres: unknown, how: Pick<BackupCh
         }
     }
     saveBackupChoice({on, postgres: url, ...how})
+    // Turned off, nothing backs up into it until it's turned on again (ORR-457).
+    if (!on) await closeBackupDb()
 }

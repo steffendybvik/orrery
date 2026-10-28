@@ -79,8 +79,8 @@ describe('the copy before an upgrade', () => {
     it('is written whole, with nothing left beside it', () => {
         const path = join(dir, 'orrery.db')
         openDb(path, 40).close()
-        const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0.db')
-        openDb(path, undefined, snapshot).close()
+        const snapshot = join(dir, 'backup', 'orrery-pre-1.0.0-step40.db')
+        openDb(path, undefined, join(dir, 'backup', 'orrery-pre-1.0.0.db')).close()
         expect(() => checkSnapshot(snapshot, true)).not.toThrow()
         expect(existsSync(`${snapshot}.partial`)).toBe(false)
     })
