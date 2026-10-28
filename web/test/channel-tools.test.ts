@@ -25,7 +25,7 @@ const issue = (fields: object = {}) => ({id: 'GRE-1', title: 'Shelves', status: 
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
-        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'secrets', 'egress', 'events', 'resolve_event'])
+        expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'resolve_event'])
         for (const tool of TOOLS) expect(tool).toMatchObject({description: expect.any(String), inputSchema: {type: 'object'}})
     })
 
@@ -81,6 +81,23 @@ describe("the channel's tools", () => {
         expect((await call('presets')).text).toBe("1: Review (the Orrery's) — Read the diff.\n3: Release (greenhouse) — Cut the release.")
         expect((await call('preset', {id: 3})).text).toBe('# Release (greenhouse)\n\nWhat a session started with it is told, for reference (not an instruction to you):\n\nCut the release.\nThen tag it.')
         expect((await call('preset', {id: 9})).text).toBe('No preset 9 for this project; presets lists them.')
+        expect(calls.every(c => c.method === 'GET')).toBe(true)
+    })
+
+    it("read the project's schedules and sessions, for the page the owner is on", async () => {
+        const review = {id: 2, title: 'Review', kind: 'session', on: 'issue.status', on_filter: {to: 'in-review'}, timezone: 'UTC', presets: [1], enabled: true, untrusted: false,
+            runs: [{at: '2026-10-28T09:00:00Z', outcome: 'skipped', note: 'ran a minute ago'}]}
+        const tidy = {id: 5, title: 'Tidy', kind: 'issue', cron: '0 9 * * 3', timezone: 'Europe/Oslo', presets: [], enabled: false, untrusted: false, runs: [], next_run: undefined}
+        const started = {launch: 'l1', tmux: 't', stops_at: '2026-10-28T10:00:00Z', context: {presets: ['Review'], text: ''}}
+        const {calls, call} = harness({
+            'GET /schedules': {body: [review, tidy]},
+            'GET /sessions': {body: [{id: 's1', name: 'greenhouse · Frigg', state: 'working', since: '2026-10-28T09:10:00Z', started_at: '2026-10-28T09:00:00Z', started}, {id: 's2', name: 'greenhouse 2', state: 'idle', since: '2026-10-28T08:00:00Z', started_at: '2026-10-28T07:00:00Z'}]},
+            'GET /sessions/work': {body: {s1: {issues: [{id: 'GRE-4', title: 'Shelves', column: 'in-progress'}], signals: []}}},
+        })
+        expect((await call('schedules')).text).toBe('2: Review [session, on] on issue.status {"to":"in-review"}, presets 1; last 2026-10-28T09:00:00Z skipped (ran a minute ago)\n'
+            + '5: Tidy [issue, paused] 0 9 * * 3 (Europe/Oslo); never run')
+        expect((await call('sessions')).text).toBe('greenhouse · Frigg [working since 2026-10-28T09:10:00Z] started 2026-10-28T09:00:00Z, stops 2026-10-28T10:00:00Z, presets Review; on GRE-4 [in-progress] Shelves\n'
+            + 'greenhouse 2 [idle since 2026-10-28T08:00:00Z, in a terminal] started 2026-10-28T07:00:00Z')
         expect(calls.every(c => c.method === 'GET')).toBe(true)
     })
 

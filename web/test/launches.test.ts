@@ -5,6 +5,8 @@ import type {Signal, Starts} from '#shared/roadmap'
 // The launches live in the module, so each test gets a fresh one, with Nitro's auto-imports stubbed.
 let launches: typeof import('../server/utils/launches')
 let chatsEnded: string[]
+let problems: [string, string | null][]
+let noted: {level: string, kind: string, message: string}[]
 let sent: {type: string, project?: string, id?: string, after?: number, minutes?: number, stops_at?: string}[]
 let listeners: number
 let started: {greenhouse: number, all: number}
@@ -44,6 +46,10 @@ beforeEach(async () => {
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
     vi.stubGlobal('chatEnded', (id: string) => chatsEnded.push(id))
     chatsEnded = []
+    problems = []
+    noted = []
+    vi.stubGlobal('chatProblem', (id: string, problem: string | null) => problems.push([id, problem]))
+    vi.stubGlobal('useEventLog', () => ({note: (entry: {level: string, kind: string, message: string}) => noted.push(entry)}))
     // A tick for reading the project, as the database gives, so signals can overlap.
     focused = []
     scoped = []
@@ -482,6 +488,20 @@ describe("the owner's chat", () => {
         const launch = await launches.startChat('greenhouse', context)
         expect(launches.claim('greenhouse', launch.id, true)).toBe(false)
         expect(launches.claim('greenhouse', launch.id, true, true)).toBe(true)
+    })
+
+    it('says a launcher too old to start it was refused, once, and lets that go as its session connects', async () => {
+        launches.addLauncher('greenhouse')
+        const launch = await launches.startChat('greenhouse', context)
+        // A launcher from before chats claims as it always did, and again on its next try.
+        expect(launches.claim('greenhouse', launch.id, true)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, true)).toBe(false)
+        expect(noted).toEqual([expect.objectContaining({level: 'warn', kind: 'launcher.outdated', message: expect.stringMatching(/start a chat.*Restart the launcher/)})])
+        expect(problems).toEqual([[launch.id, noted[0]!.message]])
+        // Restarted on the new code, it takes the chat on, and the chat stops saying so.
+        expect(launches.claim('greenhouse', launch.id, true, true)).toBe(true)
+        launches.launched(launch.id)
+        expect(problems.at(-1)).toEqual([launch.id, null])
     })
 
     it("isn't stopped for sitting idle, nor for its time", async () => {

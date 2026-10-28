@@ -49,12 +49,35 @@ describe("the owner's chat", () => {
         ])
     })
 
+    it('says the page the owner is on at the end of what its session hears, and keeps it out of the message', async () => {
+        await chats.openChat('greenhouse')
+        const said = await chats.say('c1c2c3c4c5c6', 'What runs here?', [], owner, {path: '/p/greenhouse/schedules', title: ' Schedules \n· Greenhouse '})
+        expect(messages.at(-1)!.text).toBe('What runs here?\n\n(The owner is on /p/greenhouse/schedules: Schedules · Greenhouse.)')
+        expect(said).not.toHaveProperty('page')
+        await chats.say('c1c2c3c4c5c6', 'And now?', [], owner, {path: '/sessions'})
+        expect(messages.at(-1)!.text).toBe('And now?\n\n(The owner is on /sessions.)')
+        for (const page of [{path: 'https://elsewhere.example'}, {path: '//elsewhere.example/x'}, {path: '/a b'}, {title: 'No path'}, '/p/greenhouse'])
+            await expect(chats.say('c1c2c3c4c5c6', 'Hm', [], owner, page)).rejects.toMatchObject({statusCode: 400})
+    })
+
     it('refuses an empty message, an image that is no upload, and an empty answer', async () => {
         await chats.openChat('greenhouse')
         await expect(chats.say('c1c2c3c4c5c6', ' ', [], owner)).rejects.toMatchObject({statusCode: 400})
         await expect(chats.say('c1c2c3c4c5c6', 'Look', ['../etc/passwd'], owner)).rejects.toMatchObject({statusCode: 400})
         expect(() => chats.reply('c1c2c3c4c5c6', '')).toThrow(/Send the answer/)
         expect(messages).toEqual([])
+    })
+
+    it("says why its session can't start, and stops once it can", async () => {
+        await chats.openChat('greenhouse')
+        chats.chatProblem('c1c2c3c4c5c6', 'Restart the launcher.')
+        expect(changes.at(-1)).toMatchObject({id: 'c1c2c3c4c5c6', problem: 'Restart the launcher.'})
+        // Said once: the same again changes nothing.
+        chats.chatProblem('c1c2c3c4c5c6', 'Restart the launcher.')
+        expect(changes).toHaveLength(2)
+        chats.chatProblem('c1c2c3c4c5c6', null)
+        expect(chats.chatOf('c1c2c3c4c5c6').problem).toBeUndefined()
+        expect(changes).toHaveLength(3)
     })
 
     it('ends when the owner ends it: its session is stopped and the chat goes, saying so', async () => {

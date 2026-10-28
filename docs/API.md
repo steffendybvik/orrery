@@ -418,7 +418,8 @@ questions about the project (from its code, read only, and the roadmap) and make
 it works on nothing. It counts towards nothing either: it needs only the project's launcher, not starts turned on or
 room under the limit; it isn't one of the started sessions the limit or `GET …/launches` counts; it isn't in the
 event log; and pages leave it out of their session lists (its session lists with `started.chat`). It runs until the
-owner ends it.
+owner ends it, which closing its pane does. Each message says which page the owner is on (`page`), so it knows what
+"this" and "here" are; that goes to its session at the end of the message and isn't kept with it.
 
 Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools but `start_issue`, `finish_issue`,
 `update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and two of its own: `reply`, its answer, the
@@ -429,10 +430,10 @@ while it runs, so it's gone after Orrery restarts.
 
 | | |
 |---|---|
-| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}]}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message |
+| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}], problem?}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message. `problem` says why its session can't start (a launcher too old to start a chat was refused it: restart the launcher), until the session connects |
 | `POST /chats` | `{project}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's); 409 without a launcher for the project |
 | `GET /chats/:chat` | the chat; 404 once it has ended |
-| `POST /chats/:chat/messages` | `{text, images?}` → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted; it goes to the chat's session alone |
+| `POST /chats/:chat/messages` | `{text, images?, page?}` → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted and the page they're on, `{path, title?}` (a path on this Orrery, starting with `/`; 400 otherwise); it goes to the chat's session alone, ending `(The owner is on <path>: <title>.)` |
 | `POST /chats/:chat/replies` | `{text}` → 201 the message: the chat's session answering, in Markdown; only that session's (`Orrery-Chat: yes` and `Orrery-Launch: <the chat's id>`) |
 | `POST /chats/:chat/end` | 204: the owner ending it; its session is stopped |
 
@@ -508,7 +509,8 @@ problem. **Errors** are recorded always: a 5xx the server answers with (`server.
 recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → This Orrery):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
-launchers coming and going (`launcher.connected`, `launcher.gone`), schedule runs and skips
+launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
+their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), schedule runs and skips
 (`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `migration.ran`,
 `database.created` when a move copies into a new one, `database.moved`, `server.started`), calls through egress
 (`egress.called`: who, which secrets, the method, host and status, never a value or path), and who changed what
