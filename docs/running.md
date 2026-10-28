@@ -82,9 +82,9 @@ won't take it says so). **How often** backs up a few seconds after a change (as 
 minutes, hour or day, and then only when something changed. Each backup writes the whole database again, so a folder
 that syncs (iCloud Drive) uploads all of it each time: back up less often to upload less. **Daily copies kept**
 (14 unless changed, up to 365) is most of what the folder takes on disk. Of the copies taken before an upgrade
-migrates the database (`orrery-pre-<version>-step<n>.db`), the three newest stay. The choice is kept beside the database, in
-`orrery.db.backups.json`. In Docker they always go
-to `/backup`, whose folder on the machine is `ORRERY_BACKUP`. When `ORRERY_DATABASE` names Postgres, backups are set
+migrates the database (`orrery-pre-<version>-step<n>.db`), the three newest stay. Copies kept before a restore and
+another orrery's latest set aside are never deleted: remove those yourself once you no longer need them. The choice is
+kept beside the database, in `orrery.db.backups.json`. In Docker they always go to `/backup`, whose folder on the machine is `ORRERY_BACKUP`. When `ORRERY_DATABASE` names Postgres, backups are set
 only as orrery starts.
 
 ### Backing up into Postgres
