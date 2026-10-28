@@ -20,7 +20,8 @@ export default defineEventHandler(async event => {
     // An untrusted schedule's session (by its launch, before its channel has said so) works no issue: what it runs is
     // no claim on one, whatever its text names.
     const started = text('started')
-    const untrusted = !!(started && launched(started)?.untrusted)
+    // Read without taking the launch: its channel connecting does that, and gets what it was started as (ORR-468).
+    const untrusted = !!(started && launchUntrusted(body.project, started))
     const session = report({
         id: text('id'), pid: Number(body.pid) || undefined, project: body.project, name: text('name'),
         cwd: text('cwd'), event: body.event, message: text('message'), command: untrusted ? undefined : text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),

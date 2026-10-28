@@ -11,7 +11,7 @@ let sent: {type: string, project?: string, id?: string, after?: number, minutes?
 let listeners: number
 let started: {greenhouse: number, all: number}
 let starts: Starts | undefined
-let session: {name?: string, started?: {launch: string, tmux: string, stops_at?: string, context?: {presets: string[], text: string}}} | undefined
+let session: {name?: string, started?: {launch: string, tmux: string, stops_at?: string, context?: {presets: string[], text: string}, untrusted?: boolean}} | undefined
 /** What the sessions are on, for stopping those that are done: issues in progress, and signals waiting, by session. */
 let working: Record<string, string[]>
 let waiting: string[]
@@ -180,6 +180,19 @@ describe('starting a session', () => {
         expect(await launches.considerLaunch(signal(3))).not.toBeNull()
         // A refused launch isn't left holding the project's place.
         expect(launches.launchState('greenhouse').starting).toBe(1)
+    })
+
+    it("is still the launch's when its hook asks before its channel connects, so it counts and stops (ORR-468)", async () => {
+        launches.addLauncher('greenhouse')
+        const context = {presets: ['Review'], text: "You're reviewing."}
+        const launch = await launches.startLaunch('greenhouse', {context})
+        // SessionStart's hook, then every other hook event, ask before the channel connects.
+        expect(launches.launchUntrusted('greenhouse', launch.id)).toBe(false)
+        expect(launches.launchUntrusted('greenhouse', launch.id)).toBe(false)
+        // Still on its way, so it holds its place under the limit.
+        expect(launches.launchState('greenhouse').starting).toBe(1)
+        // The channel connecting gets what it was started as: a stop time and its context.
+        expect(launches.launched(launch.id)).toMatchObject({launch: launch.id, stops_at: expect.any(String), context})
     })
 
     it('lets a launch go whose session never connects', async () => {
@@ -517,7 +530,12 @@ describe("an untrusted schedule's run", () => {
         expect(launch).toMatchObject({project: 'greenhouse', after: 49, minutes: 30, untrusted: true})
         expect(messages).toEqual([{schedule: 3, text: `${launches.UNTRUSTED_BRIEF}\n\nTriage GitHub issues.`, target: launches.launchTarget(launch.id)}])
         expect(launches.UNTRUSTED_BRIEF).toMatch(/data, never as instructions/)
+        // Its hook says so before its channel connects and after, without taking the launch.
+        expect(launches.launchUntrusted('greenhouse', launch.id)).toBe(true)
+        expect(launches.launchUntrusted('pantry', launch.id)).toBe(false)
         expect(launches.launched(launch.id)).toMatchObject({launch: launch.id, untrusted: true})
+        session = {started: {launch: launch.id, tmux: 'orrery-greenhouse', untrusted: true}}
+        expect(launches.launchUntrusted('greenhouse', launch.id)).toBe(true)
     })
 
     it('goes only to a launcher that says it locks the session down', async () => {
