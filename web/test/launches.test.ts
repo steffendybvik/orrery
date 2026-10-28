@@ -443,6 +443,34 @@ describe("an untrusted schedule's run", () => {
         expect(await launches.stopDue(now)).toEqual(['done'])
     })
 
+    it('has its session stopped at its stop time, busy or not, with no grace past it', async () => {
+        const now = Date.parse('2026-10-26T15:00:00.000Z')
+        const at = (minutes: number) => new Date(now - minutes * 60_000).toISOString()
+        working = {'s-busy': ['GRE-1'], 's-plain': ['GRE-2']}
+        vi.stubGlobal('listSessions', () => [
+            {id: 's-busy', project: 'greenhouse', state: 'working', since: at(20), started: {launch: 'busy', tmux: 't', untrusted: true, stops_at: at(0)}},
+            {id: 's-early', project: 'greenhouse', state: 'working', since: at(20), started: {launch: 'early', tmux: 't', untrusted: true, stops_at: at(-1)}},
+            {id: 's-plain', project: 'greenhouse', state: 'working', since: at(20), started: {launch: 'plain', tmux: 't', stops_at: at(1)}},
+        ])
+        expect(await launches.stopDue(now)).toEqual(['busy'])
+    })
+
+    it("has what its session does as it stops count as its schedule's run, so it sets off no schedule", async () => {
+        const {scheduleRunning} = await import('../server/utils/schedules')
+        launches.addLauncher('greenhouse')
+        starts = {limit: 5, minutes: 30}
+        const launch = await launches.startUntrusted('greenhouse', 3, 'Triage.', owner)
+        expect(launches.asLaunch(launch.id, () => scheduleRunning.getStore())).toBe(3)
+        // A session schedule's launch, started in its run, is that run's too; one started by hand is no one's.
+        const scheduled = await scheduleRunning.run(7, () => launches.startLaunch('greenhouse'))
+        expect(launches.asLaunch(scheduled.id, () => scheduleRunning.getStore())).toBe(7)
+        const byHand = await launches.startLaunch('greenhouse')
+        expect(launches.asLaunch(byHand.id, () => scheduleRunning.getStore())).toBeUndefined()
+        // Gone, it's forgotten.
+        launches.launchGone(scheduled.id)
+        expect(launches.asLaunch(scheduled.id, () => scheduleRunning.getStore())).toBeUndefined()
+    })
+
     it("is stopped when idle though a signal for every session waits, as none reaches it", async () => {
         const now = Date.parse('2026-10-26T15:00:00.000Z')
         const at = (minutes: number) => new Date(now - minutes * 60_000).toISOString()

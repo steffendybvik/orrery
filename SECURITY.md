@@ -53,8 +53,8 @@ schedule's run never goes to your sessions. Instead:
   worked on until you approve it, and what it writes sets off no schedule, so an event schedule can't
   start a session of yours on it. Its channel says it's untrusted on everything it sends, so this holds
   after Orrery restarts too, before the launcher has said which sessions it started.
-- **It stops** once it has sat idle for two minutes, and at half an hour. One still busy then is let finish
-  its turn, so it can run on for a while past that, up to an hour more.
+- **It stops** once it has sat idle for two minutes, and at half an hour, busy or not: it isn't let finish
+  its turn, so half an hour is as long as it runs (checked every 30 seconds).
 - **Its hook claims no issue.** What it runs is never taken as working an issue, and its refused writes set
   off no schedule either.
 
