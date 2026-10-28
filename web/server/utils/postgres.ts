@@ -337,6 +337,12 @@ const STEPS: string[] = [`
     ALTER TABLE schedules ADD COLUMN presets text NOT NULL DEFAULT '[]';
     ALTER TABLE schedules DROP CONSTRAINT schedules_kind_check;
     ALTER TABLE schedules ADD CONSTRAINT schedules_kind_check CHECK (kind IN ('issue', 'message', 'session'));
+`, `
+    ALTER TABLE presets ADD COLUMN default_key text;
+    CREATE TABLE preset_defaults (
+        key text PRIMARY KEY,
+        seeded_at text NOT NULL
+    );
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether

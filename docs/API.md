@@ -421,7 +421,9 @@ The owner sets them (an agent gets a 403):
 Saved pieces of context, `{id, project, name, text, icon, color}`, the owner gives a session as they start it
 (`POST …/launches {presets}`), or sends one that's running as a message (`POST …/sessions/:session/message {text, preset}`). The Orrery's (`project: null`) are for any project's sessions; a project's own
 for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's name, e.g. `shield-check`) in
-`color` (a tint's name or `#rrggbb`), or its initials without an icon. Orrery ships none. Only the owner makes, changes or removes them (an agent gets a 403); a session reads them
+`color` (a tint's name or `#rrggbb`), or its initials without an icon. Orrery ships a few of its own (Release,
+Security audit, Review, Debug an error), added once to each Orrery as it starts, new or upgraded; each has `default`
+`{key, changed}`. An upgrade never changes one, and one the owner removed isn't added again. Only the owner makes, changes or removes them (an agent gets a 403); a session reads them
 (the `presets` and `preset` tools) to help the owner write one.
 
 | | |
@@ -432,6 +434,8 @@ for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's n
 | `POST /projects/:project/presets` | `{name, text, icon?, color?}` → 201 a new one of the project's own |
 | `PATCH /presets/:preset` | `{name?, text?, icon?, color?}` (null takes the icon or colour off) → the preset, the Orrery's or a project's |
 | `DELETE /presets/:preset` | 204; sessions already started with it keep its text |
+| `POST /presets/:preset/reset` | → the preset, back to the name, text and badge Orrery ships it with; 409 for one it doesn't ship |
+| `POST /presets/defaults` | → the presets Orrery ships that were removed, added back as it ships them (`[]` for none) |
 
 ## For agents
 
