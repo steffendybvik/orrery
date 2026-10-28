@@ -2,7 +2,7 @@
 // what a chat is for: making issues (its route leaves them unstarted and unassigned), changing what one says and where it
 // sits when the owner asks (its route refuses status, assignee and the rest, `asChatEdit`), commenting, answering in its
 // chat, messaging other sessions for the owner when they ask (as theirs, `chatOwner`), and asking the owner to change
-// a setting (`askSetting`; only the owner's Allow saves it, a route refused here). Anything else it tries is
+// a setting or a schedule (`ask`; only the owner's Allow saves it, a route refused here). Anything else it tries is
 // refused, so a chat never takes up work or changes the roadmap otherwise.
 const ISSUES = /^\/api\/projects\/[^/?]+\/issues\/?(\?|$)/
 const ISSUE = /^\/api\/projects\/[^/?]+\/issues\/[^/?]+\/?(\?|$)/

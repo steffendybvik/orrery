@@ -20,11 +20,16 @@ import {badRequest, conflict, forbidden} from './input'
 /** The names only this machine reaches orrery by: a move hands the data to wherever it's pointed. */
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
 
+/** Whether the request reached orrery by a name only this machine reaches it by. */
+export function fromThisMachine(event: H3Event): boolean {
+    return THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))
+}
+
 /** Only the owner moves the database, and only on this machine. */
 export async function mayMove(event: H3Event) {
     const actor = await actorOf(event)
     if (!actor.owner) throw forbidden('Only the owner moves the database; send Orrery-Actor: <owner>')
-    if (!THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))) throw forbidden('The database is moved from the machine orrery runs on: open it at localhost')
+    if (!fromThisMachine(event)) throw forbidden('The database is moved from the machine orrery runs on: open it at localhost')
     if (!movedFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the database is set there: change it and restart orrery')
 }
 

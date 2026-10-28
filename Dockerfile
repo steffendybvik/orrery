@@ -10,7 +10,7 @@ WORKDIR /src
 RUN mkdir -p /src/node_modules /src/web/node_modules /src/web/.nuxt /data /backup && chown -R node:node /src /data /backup
 USER node
 # pnpm's store sits in the node_modules volume, so a new container reinstalls without downloading.
-ENV HOST=0.0.0.0 PORT=9000 NUXT_DATABASE=/data/orrery.db npm_config_store_dir=/src/node_modules/.pnpm-store
+ENV HOST=0.0.0.0 PORT=9000 ORRERY_IMAGE=1 NUXT_DATABASE=/data/orrery.db npm_config_store_dir=/src/node_modules/.pnpm-store
 VOLUME /data
 EXPOSE 9000
 CMD ["sh", "-c", "pnpm install --frozen-lockfile && cd web && exec pnpm exec nuxt dev --host 0.0.0.0 --port 9000"]
@@ -28,7 +28,7 @@ FROM node:24.22.1-bookworm-slim AS prod
 COPY --from=build /src/web/.output /app
 RUN mkdir /data /backup && chown node:node /data /backup
 USER node
-ENV HOST=0.0.0.0 PORT=9000 NODE_ENV=production NUXT_DATABASE=/data/orrery.db
+ENV HOST=0.0.0.0 PORT=9000 ORRERY_IMAGE=1 NODE_ENV=production NUXT_DATABASE=/data/orrery.db
 VOLUME /data
 EXPOSE 9000
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \

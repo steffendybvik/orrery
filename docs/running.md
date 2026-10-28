@@ -45,6 +45,12 @@ file gets corrupted, a snapshot doesn't. On Postgres it's a SQLite snapshot of t
 a change, or at most ten minutes after the first while changes keep coming (the whole database is copied each time), so a backup opens anywhere and a new SQLite orrery starts from
 it. App settings → This orrery → Database says when the latest was made, with **Back up now**.
 
+The backups can be set there too, from this machine: **Back up this orrery** turns them off or on, and, outside
+Docker, a folder takes them instead of `NUXT_BACKUP_DIR` (**Back up here** makes one there at once, so a folder that
+won't take it says so). The choice is kept beside the database, in `orrery.db.backups.json`. In Docker they always go
+to `/backup`, whose folder on the machine is `ORRERY_BACKUP`. When `ORRERY_DATABASE` names Postgres, backups are set
+only as orrery starts.
+
 ## Postgres
 
 SQLite suits one machine. To keep the orrery in Postgres instead (a server shared by a team, or a

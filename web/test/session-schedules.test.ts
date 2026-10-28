@@ -117,3 +117,17 @@ describe('a session schedule', () => {
         expect((await schedules.update('greenhouse', s.id, {kind: 'issue'}, me)).presets).toEqual([])
     })
 })
+
+describe('checking a schedule before it is made', () => {
+    it('refuses what making or changing it would, and saves nothing', async () => {
+        const nightly = await schedules.create('greenhouse', {kind: 'message', title: 'Nightly', notes: 'Triage.', cron: '0 2 * * *', timezone: 'UTC'}, me)
+        await schedules.check('greenhouse', {kind: 'session', title: 'Review', presets: [review.id], on: 'issue.status', on_filter: {to: 'in-review'}}, me)
+        await schedules.check('greenhouse', {enabled: false, cron: '0 3 * * *'}, me, nightly.id)
+        expect((await failure(() => schedules.check('greenhouse', {kind: 'session', title: 'Review', presets: [review.id], cron: '0 9 * * *'}, agent))).status).toBe(403)
+        expect((await failure(() => schedules.check('greenhouse', {title: 'Bad', cron: 'often'}, me))).status).toBe(400)
+        expect((await failure(() => schedules.check('greenhouse', {kind: 'message', title: 'Gone', presets: [999], cron: '0 9 * * *'}, me))).status).toBe(400)
+        expect((await failure(() => schedules.check('greenhouse', {enabled: false}, me, 999))).status).toBe(404)
+        expect(await schedules.list('greenhouse')).toEqual([await schedules.get('greenhouse', nightly.id)])
+        expect((await schedules.get('greenhouse', nightly.id))).toMatchObject({cron: '0 2 * * *', enabled: true})
+    })
+})

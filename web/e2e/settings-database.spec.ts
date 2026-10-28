@@ -1,3 +1,6 @@
+import {existsSync, mkdtempSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {expect, test} from '@playwright/test'
 import {OWNER} from './support'
 
@@ -53,4 +56,23 @@ test('moves the data to another database from App settings, and back', async ({p
         expect(back.ok()).toBe(true)
     }
     expect((await (await request.get('/api/settings')).json()).database).toMatchObject({where: before.where})
+})
+
+// Backups set from App settings (ORR-320): the run has no NUXT_BACKUP_DIR, so a folder is given, backed up to at once,
+// and then they're turned off again, as the files after this one expect. On Postgres they're set as it starts.
+test('backs up to a folder chosen in App settings, and turns them off again', async ({page}) => {
+    test.skip(!!process.env.E2E_POSTGRES_URL, 'ORRERY_DATABASE names Postgres, so the backups are set as it starts')
+    const folder = mkdtempSync(join(tmpdir(), 'orrery-e2e-backups-'))
+    await page.goto('/settings#database')
+    const section = page.locator('#database')
+    const backUp = section.getByRole('checkbox', {name: 'Back up this orrery'})
+    await expect(backUp).not.toBeChecked()
+    await section.getByRole('textbox', {name: 'Backup folder'}).fill(folder)
+    await section.getByRole('button', {name: 'Back up here'}).click()
+    await expect(section).toContainText('Backed up to')
+    await expect(backUp).toBeChecked()
+    expect(existsSync(join(folder, 'orrery.db'))).toBe(true)
+    await backUp.uncheck()
+    await expect(section).not.toContainText('Backed up to')
+    await expect(section.getByRole('textbox', {name: 'Backup folder'})).toHaveValue(folder)
 })

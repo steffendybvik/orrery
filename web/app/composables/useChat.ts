@@ -94,7 +94,7 @@ export function useChat() {
         }
     }
 
-    /** The owner allowing or denying a setting the chat asked to change: allowed, it's saved. */
+    /** The owner allowing or denying a setting or a schedule the chat asked for: allowed, it's saved. */
     async function answer(message: number, allow: boolean) {
         if (!chat.value || chat.value.ended) return
         failed.value = ''

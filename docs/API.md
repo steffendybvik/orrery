@@ -335,7 +335,13 @@ inside the container. And `backed_up_at` when the latest backup there was made. 
 its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
 it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABASE` names Postgres), and `moved` that it
 was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
-a backup folder.
+a backup folder. `backups_settable` is what App settings can change about backups: `folder` (whether they run, and
+where) or `switch` (only whether, in Docker); left out when `ORRERY_DATABASE` names Postgres. `backups_off` says the
+owner turned them off, `backup_folder` the folder they chose (kept while off), and `backup_default` `NUXT_BACKUP_DIR`.
+`PUT /backups {on, folder?}` (the owner's, from localhost, 403 from any other address) sets them: `folder` a full path
+instead of `NUXT_BACKUP_DIR`, `null` or none back to it. Turned on, it's backed up there at once, and kept only if that
+worked (400 when it can't be, or the folder holds the database); 409 for a folder in Docker, on with nowhere to go, or
+when `ORRERY_DATABASE` names Postgres. → `database`.
 
 The owner moves it from localhost (403 from any other address): `POST /database/check {kind: "sqlite", path}` or
 `{kind: "postgres", url}` says what's there without changing it, `{kind, where, state, projects?}`, `state` `empty`,
@@ -431,13 +437,14 @@ Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools bu
 only way what it says reaches the page, `image`, which shows it an image the owner pasted, `edit_issue`, which changes
 an issue's title, notes, priority, labels, team tasks, chunk, release or parent when the owner asks, `message_sessions` and
 `message_session`, which message other sessions for the owner when they ask in the chat (never on its own; for more
-than one session, once the owner has said go to its draft), and `update_settings`, which asks the owner to change one
-App setting (below). It hears only its chat's messages: no focus, no message to
+than one session, once the owner has said go to its draft), `update_settings`, which asks the owner to change one
+App setting (below), and `create_schedule` and `update_schedule`, which ask them to make a schedule in its project or
+change one (pause and resume included). It hears only its chat's messages: no focus, no message to
 every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
 or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), changing an issue's
 `title`, `notes`, `priority`, `labels`, `external`, `chunk`, `release` and `parent` (`PATCH` with anything else, `status`
 or `assignee` say, is a 403, and no other session's claim on it holds it back), commenting, replying, messaging
-sessions and asking to change a setting. A message it sends goes as the owner's,
+sessions and asking to change a setting or a schedule. A message it sends goes as the owner's,
 with `via: "chat"` on the signal; the session hears it ending `(Sent by the owner through their chat.)`, and the
 Sessions page and the event log (`session.messaged`) say it came through the chat. A chat is kept in memory
 while it runs, so it's gone after orrery restarts.
@@ -451,7 +458,8 @@ while it runs, so it's gone after orrery restarts.
 | `POST /chats/:chat/messages` | `{text, images?, page?}` → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted and the page they're on, `{path, title?}` (a path on this orrery, starting with `/`; 400 otherwise); it goes to the chat's session alone, ending `(The owner is on <path>: <title>.)` |
 | `POST /chats/:chat/replies` | `{text}` → 201 the message: the chat's session answering, in Markdown; only that session's (`Orrery-Chat: yes` and `Orrery-Launch: <the chat's id>`) |
 | `POST /chats/:chat/requests` | `{setting, value, why?}` → 201 the message: the chat's session asking to change one App setting, `tracker`, `tint`, `restrict_proposals`, `handle` or `advanced` (any other is a 400, as is a value the settings wouldn't take), shown in the chat as `request: {setting, from, to, state: "asked"}` with Allow and Deny. Nothing is saved yet; asking again for the same setting expires the one before. Only that session's |
-| `POST /chats/:chat/requests/:message` | `{allow}` → the message, its request `allowed` (the setting saved as asked, logged as `settings.changed` with from → to) or `denied`; the chat's session hears which. The owner's only, and never a chat session's, so a chat can't allow its own request; 409 once answered, or `expired` (30 minutes unanswered, or asked again) |
+| `POST /chats/:chat/requests` | `{schedule, id?, why?}` → 201 the message: the chat's session asking to make a [schedule](#schedules) in its project, or to change schedule `id` there. `schedule` holds the fields as Schedules takes them: `kind`, `title`, `notes`, `cron`, `at`, `on`, `on_filter`, `timezone`, `presets`, `column`, `chunk`, `priority`, `labels`, `ask`, `skip_open`, `only_if_changed` and `enabled` (any other, `untrusted` say, is a 403). It's checked as Schedules would check it for the owner (a bad cron, a preset that isn't there or an unknown schedule fails here, not on Allow), and shown in the chat as `schedule: {id?, title, changes: [{field, from?, to}], body, state: "asked"}` with Allow and Deny (a change has `from`, the schedule as it is). Nothing is saved yet; asking again about the same schedule expires the one before. Only that session's |
+| `POST /chats/:chat/requests/:message` | `{allow}` → the message, its request `allowed` (the setting saved as asked, logged as `settings.changed` with from → to; or the schedule made or changed as the owner's, through their chat, its `id` then the schedule's) or `denied`; the chat's session hears which. The owner's only, and never a chat session's, so a chat can't allow its own request; 409 once answered, or `expired` (30 minutes unanswered, or asked again) |
 | `POST /chats/:chat/end` | 204: the owner ending it; its session is stopped |
 
 ### What sessions hear
@@ -529,7 +537,7 @@ sessions started, stopped and refused (`session.started`, `session.stopping`, `s
 `session.refused`), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
 launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
 their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), schedule runs and skips
-(`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `migration.ran`,
+(`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `backup.set`, `migration.ran`,
 `database.created` when a move copies into a new one, `database.moved`, `server.started`), calls through egress
 (`egress.called`: who, which secrets, the method, host and status, never a value or path), and who changed what
 in the settings and secrets (`settings.changed` with the keys, `secret.set`, `secret.narrowed`, `secret.deleted`

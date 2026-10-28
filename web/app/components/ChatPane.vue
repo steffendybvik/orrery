@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {CHAT_SETTINGS, settingValue} from '#shared/roadmap'
+import {CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import type {ChatIssues} from '#shared/roadmap'
 
@@ -9,7 +9,9 @@ import type {ChatIssues} from '#shared/roadmap'
 // dropped goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
 // one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
-// chat asks to change shows from → to with Allow and Deny; only Allow saves it.
+// chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
+// field it sets) or change (each from → to). Under each of Claude's replies, Copy takes its Markdown as written (on a
+// wide screen it shows on hover or focus).
 const {open, large, chat, session, project, failed, chats, lands, start, send, land, fresh, answer, close, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean) {
@@ -180,8 +182,11 @@ function onPaste(event: ClipboardEvent) {
           <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
         </div>
         <div v-if="m.from === 'owner' && m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
-        <div v-else-if="m.text" class="max-w-[92%] rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
-          <MarkdownView :source="m.text" class="text-[13px]" />
+        <div v-else-if="m.text" class="group flex max-w-[92%] flex-col items-start gap-1">
+          <div class="rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
+            <MarkdownView :source="m.text" class="text-[13px]" />
+          </div>
+          <CopyButton :text="m.text" name="this reply" class="transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" />
         </div>
         <div v-if="m.request" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Change ${CHAT_SETTINGS[m.request.setting]}`">
           <span class="text-xs text-faint">Asks to change a setting</span>
@@ -192,6 +197,25 @@ function onPaste(event: ClipboardEvent) {
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
           <span v-else class="text-xs" :class="m.request.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.request.state === 'asked' ? 'Not answered' : ANSWERED[m.request.state] }}</span>
+        </div>
+        <div
+v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
+             :aria-label="m.schedule.changes.some(c => c.from !== undefined) ? `Change schedule ${m.schedule.title}` : `Make schedule ${m.schedule.title}`">
+          <span class="text-xs text-faint">{{ m.schedule.changes.some(c => c.from !== undefined) ? `Asks to change schedule ${m.schedule.id}` : 'Asks to make a schedule' }}</span>
+          <span class="font-medium text-fg">{{ m.schedule.title }}</span>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+            <template v-for="c in m.schedule.changes.filter(c => c.field !== 'title' || c.from !== undefined)" :key="c.field">
+              <dt class="text-muted">{{ CHAT_SCHEDULE_FIELDS[c.field] }}</dt>
+              <dd class="min-w-0 break-words whitespace-pre-wrap text-fg">
+                <template v-if="c.from !== undefined"><span class="text-muted line-through decoration-faint">{{ scheduleValue(c.from) }}</span> → </template>{{ scheduleValue(c.to) }}
+              </dd>
+            </template>
+          </dl>
+          <div v-if="m.schedule.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.schedule.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.schedule.state === 'asked' ? 'Not answered' : ANSWERED[m.schedule.state] }}</span>
         </div>
       </li>
       <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">

@@ -1,6 +1,6 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatIssues, ChatMessage, ChatSetting} from '#shared/roadmap'
-import {CHAT_ISSUES, CHAT_SETTINGS, settingValue} from '#shared/roadmap'
+import type {Chat, ChatIssues, ChatMessage, ChatScheduleField, ChatScheduleRequest, ChatSetting, Schedule} from '#shared/roadmap'
+import {CHAT_ISSUES, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {SETTINGS_FIELDS} from '../store/schema'
 import {checkInput, isObject} from './input'
@@ -23,6 +23,9 @@ whom; for more than one session, draft it in a reply first and send it once the 
 When the owner asks you to change an App setting (the team tracker, the background tint, keeping agents off
 proposals, their handle, Advanced), ask with update_settings, one setting at a time: it shows them the change with
 Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. Never on your own.
+When the owner asks you to set up a schedule or change one (pause, resume, its time, its message…), ask with
+create_schedule or update_schedule (the schedules tool lists them): it shows them the schedule with Allow and Deny, the
+same way. Never on your own, and never to delete one: that's theirs, on the Schedules page.
 Every answer goes back with the reply tool, in Markdown: nothing else reaches the owner. Write an issue as a link
 to its page, \`[<id>](/p/${project}/issues/<id>)\`, so the owner can open it.
 A message ends with the page the owner had open when they wrote it, e.g. \`(The owner is on /p/${project}/schedules: Schedules.)\`.
@@ -100,6 +103,53 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
 /** How long a request to change a setting waits on the owner's answer. */
 export const ASK_FOR = 30 * 60_000
 
+/** The chat's session asking the owner for something in its chat: a schedule made or changed (`{schedule, id?, why?}`,
+ * `askSchedule`), or else an App setting changed (`askSetting`). */
+export async function ask(id: string, body: unknown): Promise<ChatMessage> {
+    return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
+}
+
+/** The owner, as their chat asks for them: who a schedule it asks for is checked as, and saved as. */
+async function owner(): Promise<Actor> {
+    return {name: (await useStore().ownerOf()).name, owner: true, via: 'chat'}
+}
+
+/** The chat's session asking to make a schedule in its project, or change schedule `id` there (its `create_schedule` and
+ * `update_schedule` tools): `schedule` holds the fields, as Schedules takes them (`CHAT_SCHEDULE_FIELDS`; `enabled`
+ * pauses or resumes one). A request in the chat, checked as Schedules would check it for the owner, which saves nothing
+ * until they allow it. One it asked before for the same schedule, still unanswered, expires. */
+export async function askSchedule(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {schedule: fields, id: target, why} = body as {schedule?: unknown, id?: unknown, why?: unknown}
+    if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {schedule: {…}, id?}: the fields to set, any of ${Object.keys(CHAT_SCHEDULE_FIELDS).join(', ')}, and the schedule's id to change one`)
+    const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_SCHEDULE_FIELDS, key))
+    if (refused.length) throw forbidden(`The owner's chat sets a schedule's ${Object.keys(CHAT_SCHEDULE_FIELDS).join(', ')}, not its ${refused.join(', ')}: the rest are the owner's to set on Schedules`)
+    if (target !== undefined && target !== null && !Number.isInteger(target)) throw badRequest('Send "id" as the number of the schedule to change, or leave it out to make one')
+    const scheduler = useScheduler()
+    const current = Number.isInteger(target) ? await scheduler.get(chat.project, target as number) : undefined
+    await scheduler.check(chat.project, fields, await owner(), current?.id)
+    const presets = await presetNames(chat.project, [...(fields.presets as number[] | undefined) ?? [], ...current?.presets ?? []])
+    const shown = (field: ChatScheduleField, value: unknown) => field === 'presets' && Array.isArray(value) ? value.map(p => presets.get(p) ?? p) : value
+    const changes = (Object.entries(fields) as [ChatScheduleField, unknown][]).map(([field, to]) =>
+        current ? {field, from: shown(field, current[field as keyof Schedule] ?? null), to: shown(field, to)} : {field, to: shown(field, to)})
+    for (const m of chat.messages) if (current && m.schedule?.state === 'asked' && m.schedule.id === current.id) m.schedule.state = 'expired'
+    const request: ChatScheduleRequest = {...current ? {id: current.id} : {}, title: String(fields.title ?? current?.title ?? ''), changes, body: fields, state: 'asked'}
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], schedule: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${scheduleAsk(request)}`, details: {schedule: request.id ?? null, fields: Object.keys(fields)}})
+    return said
+}
+
+/** The names of the presets `ids`, those that are still there. */
+async function presetNames(project: string, ids: unknown[]): Promise<Map<unknown, string>> {
+    if (!ids.length) return new Map()
+    return new Map((await useStore().presets(project)).filter(p => ids.includes(p.id)).map(p => [p.id, p.name]))
+}
+
+/** What a schedule request asks, as a line: "make the schedule X", "change schedule 3 (X)". */
+const scheduleAsk = (request: ChatScheduleRequest) => request.id === undefined
+    ? `make the schedule "${request.title}"`
+    : `change schedule ${request.id} ("${request.title}"): ${request.changes.map(c => `${CHAT_SCHEDULE_FIELDS[c.field]} to ${scheduleValue(c.to)}`).join(', ')}`
+
 /** The chat's session asking to change one App setting (its `update_settings` tool), `{setting, value, why?}`: a request
  * in the chat, checked as the settings would check it, which saves nothing until the owner allows it. One it asked
  * before for the same setting, still unanswered, expires. */
@@ -118,18 +168,45 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
     return said
 }
 
-/** The owner's answer to a request (`allow`): allowed, the setting is saved as asked; either way the chat's session
- * hears it. Only the owner's, from the page: the route refuses the chat's own session. */
-export async function answerSetting(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
+/** The owner's answer to a request (`allow`): allowed, the setting or the schedule is saved as asked; either way the
+ * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
+export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const asked = chat.messages.find(m => m.id === message && m.request)
-    if (!asked?.request) throw notFound(`No request ${message} in this chat`)
-    const request = asked.request
+    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule))
+    const request = asked?.request ?? asked?.schedule
+    if (!asked || !request) throw notFound(`No request ${message} in this chat`)
     if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
         request.state = 'expired'
         changed(chat)
     }
     if (request.state !== 'asked') throw conflict(`That request is ${request.state} already${request.state === 'expired' ? ': ask the chat again' : ''}`)
+    if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
+    else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
+    return asked
+}
+
+/** The owner allowing or denying the chat's request for a schedule: allowed, it's made or changed as theirs, through
+ * their chat. A request that no longer holds (its preset deleted since) fails as Schedules would, still asked. */
+async function answerSchedule(chat: Chat, request: ChatScheduleRequest, allow: boolean, actor: Actor) {
+    let made: Schedule | undefined
+    if (allow) {
+        const as: Actor = {...actor, via: 'chat'}
+        made = request.id === undefined
+            ? await useScheduler().create(chat.project, request.body, as)
+            : await useScheduler().update(chat.project, request.id, request.body, as)
+    }
+    request.state = allow ? 'allowed' : 'denied'
+    if (made) request.id = made.id
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${scheduleAsk(request)}`,
+        details: {schedule: request.id ?? null, fields: Object.keys(request.body), allowed: allow}})
+    await useStore().messageSession(chat.project, launchTarget(chat.id), made
+        ? `(I allowed your request: schedule ${made.id} ("${made.title}") is saved${made.enabled ? '' : ', paused'}.)`
+        : `(I denied your request to ${scheduleAsk(request)}: nothing changed.)`, actor)
+}
+
+/** The owner allowing or denying the chat's request to change a setting: allowed, it's saved as asked. */
+async function answerSetting(chat: Chat, request: NonNullable<ChatMessage['request']>, allow: boolean, actor: Actor) {
     const label = CHAT_SETTINGS[request.setting]
     if (allow) {
         await useStore().updateSettings({[request.setting]: request.to}, actor)
@@ -140,11 +217,9 @@ export async function answerSetting(id: string, message: number, allow: boolean,
     changed(chat)
     useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to set ${label} to ${settingValue(request.to)}`,
         details: {setting: request.setting, from: request.from, to: request.to, allowed: allow}})
-    await useStore().messageSession(chat.project, launchTarget(id), allow
+    await useStore().messageSession(chat.project, launchTarget(chat.id), allow
         ? `(I allowed your request: ${label} is now ${settingValue(request.to)}, saved.)`
         : `(I denied your request to set ${label} to ${settingValue(request.to)}: nothing changed.)`, actor)
-    return asked
-
 }
 
 /** The owner choosing where the chat's issues land from now on. */
@@ -202,7 +277,7 @@ export function chatWrite(event: H3Event): boolean {
 export async function chatOwner(event: H3Event): Promise<Actor> {
     const launch = getHeader(event, 'orrery-launch')?.trim()
     if (!launch || !chats.has(launch)) throw forbidden("Only the owner's running chat messages sessions for them")
-    return {name: (await useStore().ownerOf()).name, owner: true, via: 'chat'}
+    return await owner()
 }
 
 /** Notes in the event log that the owner (or their chat) messaged a session. */

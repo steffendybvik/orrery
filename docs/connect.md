@@ -145,7 +145,7 @@ are up, when you press **Stop** beside it (on the Sessions page, with **+30 min*
 (`ORRERY_PERMISSION_MODE` picks another). An untrusted schedule's session is the exception: it's locked down to
 `gh issue list`/`view` and the orrery tools (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)), so a
 launcher from before rc.9 needs restarting before it will take one. So is your [chat](API.md#chats): it gets `Read`,
-`Grep`, `Glob` and the orrery tools that read, make issues, change an issue's fields, comment, message sessions and ask you to change a setting when you ask, and answers with its own `reply` tool, so a
+`Grep`, `Glob` and the orrery tools that read, make issues, change an issue's fields, comment, message sessions and ask you to change a setting or a schedule when you ask, and answers with its own `reply` tool, so a
 launcher that predates chats needs restarting before it will start one. The launcher answers the warning Claude Code shows for the channel
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
 The limits are the orrery's, on the Sessions page's Setup tab: how many at once counts every project's sessions together. The cap is time, not cost:

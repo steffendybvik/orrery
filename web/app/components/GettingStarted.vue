@@ -50,6 +50,7 @@ async function tryDemo() {
             <CopyBlock v-else-if="step.key === 'connect'" title="Paste into Claude, in the folder" :text="pieces.prompt" />
             <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start Claude with" :text="pieces.launch" :hint="`An alias saves typing it: alias ${project?.id ?? 'app'}='cd /path/to/folder && ${pieces.launch}'`" />
             <UiButton v-else-if="step.key === 'work' && project" variant="primary" class="self-start" @click="newIssue(project.id)">New issue</UiButton>
+            <LauncherHint v-if="step.key === 'work' && project" :project="project.id" />
           </template>
         </div>
       </li>
@@ -92,6 +93,7 @@ async function tryDemo() {
             <CopyBlock v-else-if="step.key === 'connect'" title="Paste into Claude, in the folder" :text="pieces.prompt" />
             <CopyBlock v-else-if="step.key === 'listen'" title="In the folder, start Claude with" :text="pieces.launch" />
             <UiButton v-else-if="step.key === 'work' && project" variant="primary" size="md" class="self-start" @click="newIssue(project.id)">New issue</UiButton>
+            <LauncherHint v-if="step.key === 'work' && project" :project="project.id" />
           </template>
         </div>
       </li>

@@ -3,6 +3,7 @@
 // settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
 import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {lastBackup, restoreBackup} from './backup'
+import {backupChoice, backupChoiceFile, backupDir, defaultBackupDir, inDocker} from './backup-choice'
 import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
@@ -677,7 +678,7 @@ let db: DatabaseSync | null = null
 
 function useDb(path: string): DatabaseSync {
     if (db) return db
-    restoreBackup(path, String(useRuntimeConfig().backupDir ?? ''))
+    restoreBackup(path, backupDir())
     db = openDb(path)
     return db
 }
@@ -718,7 +719,7 @@ function saveDatabaseSetting(setting: string) {
 export function describeDatabase(): DatabaseInfo {
     const config = useRuntimeConfig()
     const setting = databaseSetting()
-    const dir = String(config.backupDir ?? '')
+    const dir = backupDir()
     const at = dir ? lastBackup(dir) : undefined
     const base = String(config.public?.repoDir ?? '')
     // Under Docker, where each is on the computer too (`/data` and `/backup` mean nothing there): ORR-399.
@@ -728,8 +729,12 @@ export function describeDatabase(): DatabaseInfo {
         ...backupOn.host ? {backup_host: backupOn.host} : {}, ...backupOn.volume ? {backup_volume: backupOn.volume} : {},
     } : {}
     const how = movedFile() ? {movable: true, ...chosen ? {moved: true} : {}} : {}
-    if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup}
-    return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup}
+    const choice = backupChoice()
+    const settable = backupChoiceFile() ? {backups_settable: inDocker() ? 'switch' as const : 'folder' as const} : {}
+    const backups = {...settable, ...choice?.on === false ? {backups_off: true} : {}, ...choice?.folder ? {backup_folder: choice.folder} : {},
+        ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}}
+    if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup, ...backups}
+    return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup, ...backups}
 }
 
 /** A Postgres URL as the owner sees it: `user@host:port/name`, no password. */
