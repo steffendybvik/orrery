@@ -17,9 +17,13 @@ export default defineEventHandler(async event => {
         throw badRequest('Send {project, event} and the session as id or pid')
     }
     const text = (key: string) => typeof body[key] === 'string' && body[key] ? String(body[key]) : undefined
+    // An untrusted schedule's session (by its launch, before its channel has said so) works no issue: what it runs is
+    // no claim on one, whatever its text names.
+    const started = text('started')
+    const untrusted = !!(started && launched(started)?.untrusted)
     const session = report({
         id: text('id'), pid: Number(body.pid) || undefined, project: body.project, name: text('name'),
-        cwd: text('cwd'), event: body.event, message: text('message'), command: text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
+        cwd: text('cwd'), event: body.event, message: text('message'), command: untrusted ? undefined : text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
     })
     if (session && body.event === 'Stop') {
         considerClear(session.project, session.id)

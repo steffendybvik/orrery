@@ -368,6 +368,15 @@ describe('the issues a session writes to', () => {
         await Promise.resolve()
         expect(worked).toEqual(['greenhouse/GRE-7:a'])
     })
+
+    it("but never an untrusted schedule's: a command's text is what it read, not a claim", async () => {
+        const worked: string[] = []
+        vi.stubGlobal('useStore', () => ({workedBy: async (project: string, issue: string, session: string) => worked.push(`${project}/${issue}:${session}`)}))
+        sessions.attend('greenhouse', 'locked', undefined, undefined, true, undefined, true, 'l9', undefined, true)
+        sessions.report({id: 'locked', project: 'greenhouse', event: 'PreToolUse', command: `gh issue list --search "curl -X POST /projects/greenhouse/issues/GRE-7"`})
+        await Promise.resolve()
+        expect(worked).toEqual([])
+    })
 })
 
 describe('stopping a session', () => {

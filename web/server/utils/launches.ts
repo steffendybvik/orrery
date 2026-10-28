@@ -275,12 +275,19 @@ export function launched(id: string): StartedSession | undefined {
 
 /** A launcher saying which of the project's sessions it runs, as it connects: they count as started again,
  * with their stop times and context, whether their channels connected before this or connect after. The context
- * it keeps counts only for a launch orrery has forgotten (it restarted): what orrery knows stands. Untrusted is kept
- * whichever says so, and so is a chat. */
+ * and stop time it keeps count only for a launch orrery has forgotten (it restarted): what orrery knows stands, a
+ * launch started with no context and none to stop at among it, as anyone can send this. Untrusted is kept whichever
+ * says so, and so is a chat. */
 export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean}[]) {
-    for (const {id, tmux, stops_at, context: kept, untrusted: said, chat: chatSaid} of launches) {
-        const context = launchContext(project, id) ?? kept
+    for (const {id, tmux, stops_at: keptStop, context: kept, untrusted: said, chat: chatSaid} of launches) {
         const was = pending.get(id) ?? reported.get(id)
+        const started = sessionOfLaunch(project, id)?.started
+        const context = was || started ? launchContext(project, id) : kept
+        // Its session's own is the latest (the owner may have given it more time), then the launch's.
+        const waiting = pending.get(id)
+        const stops_at = started ? started.stops_at
+            : waiting ? (waiting.minutes ? new Date(Date.now() + waiting.minutes * 60_000).toISOString() : undefined)
+            : was ? reported.get(id)?.stops_at : keptStop
         const untrusted = said || !!was?.untrusted || !!sessionOfLaunch(project, id)?.started?.untrusted
         const chat = chatSaid || !!was?.chat || !!sessionOfLaunch(project, id)?.started?.chat
         const known = {tmux, ...stops_at ? {stops_at} : {}, ...context ? {context} : {}, ...untrusted ? {untrusted} : {}, ...chat ? {chat} : {}}

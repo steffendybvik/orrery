@@ -243,7 +243,9 @@ Advanced off. A repeat of an open error isn't one. `on` is a type or a pattern, 
 Such a schedule runs once per subject (an issue bounced in and out of a status runs it once; a run that was skipped or
 failed doesn't count), not within a minute of its last run (events heard together count as one), and never on what a schedule's run did, nor on what an untrusted schedule's session wrote. Its issue's title ends with the subject (`Review · ORR-12`),
 and its description or message ends with what happened by ids, never another's words:
-`On issue.status: ORR-12 (in-progress → in-review), by claude.` An event about the orrery as a whole (a server error)
+`On issue.status: ORR-12 (in-progress → in-review), by claude.` The change is given only where it's ids or fixed
+words (status, priority, chunk, release, parent, proposal); a label or an assignee isn't, nor an agent's name that isn't
+a handle (`by an agent`), and the owner is `by the owner`. An event about the orrery as a whole (a server error)
 goes to every project's schedules; any other, only its own project's.
 A run's outcome (`schedule.failed`, `schedule.ran`, `schedule.skipped`) is the exception: other schedules hear it,
 so an alert on `*.failed` hears a schedule fail, except when the run was itself set off by an outcome.

@@ -9,7 +9,8 @@ export default defineNitroPlugin(nitro => {
         const status = (error as {statusCode?: number}).statusCode ?? 500
         if (status < 500) {
             const refused = event && refusal(status, event.method, event.path, error.message, getHeader(event, 'orrery-actor')?.trim().slice(0, 60))
-            if (refused) log.note(refused)
+            // An untrusted schedule's session refused sets off no schedule: what it tried was steered by what it read.
+            if (refused) log.note(untrustedWrite(event) ? {...refused, untrusted: true} : refused)
             return
         }
         log.note({level: 'error', kind: 'server.error', message: error.message, details: {

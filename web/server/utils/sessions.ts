@@ -213,7 +213,9 @@ export function report(input: Report): Session | null {
     changed(session.project)
     // Free now: it takes up what was sent to one session while every one was busy (pool.ts).
     if (state === 'idle') projectEvents.emit('session-idle', session.id)
-    if (input.command) {
+    // What it's about to run names the issues it writes to, unless it's an untrusted schedule's: that one writes to
+    // none but its proposals, and a command's text is what it read.
+    if (input.command && !untrustedSession(session.id)) {
         const {id, project} = session
         for (const write of issueWrites(input.command, project)) {
             useStore().workedBy(write.project, write.issue, id).catch(() => {})
