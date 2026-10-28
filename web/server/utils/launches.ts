@@ -33,7 +33,7 @@ export interface Launch {
  * clear (`/clear`, a fresh context between pieces of work), open a terminal on, or send its screen for a while. */
 export type LaunchEvent =
     | {type: 'launch', launch: Launch}
-    | {type: 'stop', project: string, id: string}
+    | {type: 'stop', project: string, id: string, chat?: boolean}
     | {type: 'extend', project: string, id: string, stops_at?: string}
     | {type: 'clear', project: string, id: string}
     | {type: 'watch', project: string, id: string, terminal: TerminalApp}
@@ -82,7 +82,8 @@ export const foldersOf = (project: string): string[] => [...folders.get(project)
 
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) if (Date.now() - launch.at > PENDING_FOR) pending.delete(id)
-    return [...pending.values()].filter(l => !project || l.project === project).length
+    // A chat on its way takes up no room.
+    return [...pending.values()].filter(l => !l.chat && (!project || l.project === project)).length
 }
 
 function emit(event: LaunchEvent) {
@@ -183,9 +184,10 @@ export async function startUntrusted(project: string, schedule: number, text: st
 
 /** The owner's chat (chats.ts): a session started for it alone, which its launcher starts able only to read and to
  * answer, told what it's for in its `context`. It runs until the owner ends the chat, whatever the project gives
- * sessions, and hears only what's aimed at it. Needs what any start does. */
+ * sessions, and hears only what's aimed at it. It counts towards nothing: it needs only a launcher, not starts turned
+ * on or room under the limit, and takes up none. */
 export async function startChat(project: string, context: SessionContext): Promise<Launch> {
-    await roomFor(project)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
     const id = randomBytes(6).toString('hex')
     const held: Launch & {at: number, claimed: boolean} = {id, project, after: await useStore().lastSignal(project), context,
         tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), chat: true, at: Date.now(), claimed: false}
@@ -381,9 +383,9 @@ export function stopLaunch(project: string, id: string): Session {
 
 /** Ends the launch whether or not its session has connected yet: one still on its way is let go, and its launcher,
  * if one took it on, stops it. */
-export function endLaunch(project: string, id: string) {
+export function endLaunch(project: string, id: string, chat = false) {
     pending.delete(id)
-    emit({type: 'stop', project, id})
+    emit({type: 'stop', project, id, ...chat ? {chat} : {}})
 }
 
 /** The owner giving a session Orrery started more time: `minutes` from when it would have stopped, or from now if that's past. */

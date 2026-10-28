@@ -346,7 +346,8 @@ export function stopSession(project: string, id: string): Session {
 /** How many sessions Orrery started are running, on the project or over all of them: one whose channel
  * has gone (it crashed, or was stopped by hand) no longer counts. */
 export function startedSessions(project?: string): number {
-    return listSessions(project).filter(s => s.started && s.listening && (!project || s.project === project)).length
+    // A chat takes up no room.
+    return listSessions(project).filter(s => s.started && !s.started.chat && s.listening && (!project || s.project === project)).length
 }
 
 /** The session Orrery started for the launch, if it's still known. */

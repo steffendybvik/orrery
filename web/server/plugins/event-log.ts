@@ -22,6 +22,8 @@ export default defineNitroPlugin(nitro => {
     nitro.hooks.hook('close', () => clearInterval(timer))
 
     projectEvents.on('launches', (sent: LaunchEvent) => {
+        // The owner's chat isn't one of the sessions Orrery starts: it's logged as neither, so nothing runs on it.
+        if (sent.type === 'launch' ? sent.launch.chat : sent.type === 'stop' && sent.chat) return
         if (sent.type === 'launch') {
             const {id, project, minutes, hears} = sent.launch
             log.note({level: 'info', kind: 'session.started', project, message: `Started a session${minutes ? ` for ${minutes} minutes` : ''}`, details: {launch: id, ...hears ? {hears} : {}}})

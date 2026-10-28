@@ -460,6 +460,23 @@ describe("the owner's chat", () => {
         expect(launches.launched(launch.id)).toMatchObject({launch: launch.id, chat: true, context})
     })
 
+    it('counts towards nothing: it starts with starts turned off or the limit full, and takes up no room', async () => {
+        launches.addLauncher('greenhouse')
+        starts = undefined
+        await launches.startChat('greenhouse', context)
+        starts = {limit: 1}
+        started = {greenhouse: 1, all: 1}
+        await launches.startChat('greenhouse', context)
+        expect(launches.launchState('greenhouse')).toMatchObject({starting: 0, total: 1})
+    })
+
+    it('says it stops as a chat, so the log leaves it out', async () => {
+        launches.addLauncher('greenhouse')
+        const launch = await launches.startChat('greenhouse', context)
+        launches.endLaunch('greenhouse', launch.id, true)
+        expect(sent.at(-1)).toEqual({type: 'stop', project: 'greenhouse', id: launch.id, chat: true})
+    })
+
     it('goes only to a launcher that says it starts chats', async () => {
         launches.addLauncher('greenhouse')
         const launch = await launches.startChat('greenhouse', context)

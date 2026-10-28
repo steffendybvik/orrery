@@ -70,7 +70,7 @@ export function reply(id: string, text: unknown): ChatMessage {
 /** The owner ending the chat: its session is stopped, and the chat goes. */
 export function endChat(id: string) {
     const chat = chatOf(id)
-    endLaunch(chat.project, id)
+    endLaunch(chat.project, id, true)
     chatEnded(id)
 }
 

@@ -12,13 +12,13 @@ export function useChat() {
     const project = useState<string | null>('chat-project', () => null)
     const failed = useState('chat-failed', () => '')
     const {load} = useOwner()
-    const {sessions} = useRoadmaps()
+    const {chatSessions} = useRoadmaps()
 
     const chat = computed(() => chats.value.find(c => c.id === current.value) ?? (ended.value?.id === current.value ? ended.value : null))
     /** The chat's session, once it has connected. */
     const session = computed<Session | undefined>(() => {
         const on = chat.value
-        return on && !on.ended ? (sessions.value[on.project] ?? []).find(s => s.started?.launch === on.id) : undefined
+        return on && !on.ended ? (chatSessions.value[on.project] ?? []).find(s => s.started?.launch === on.id) : undefined
     })
 
     async function fetchChats() {

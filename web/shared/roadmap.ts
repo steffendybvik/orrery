@@ -546,7 +546,6 @@ export interface SessionWork {
     signals: Signal[]
 }
 
-/** A session Orrery started, as its launch made it. */
 /** The owner's chat with a session started for it (chats.ts): its id is its launch's. `ended` on the last word of one
  * that's gone. */
 export interface Chat {
@@ -566,6 +565,7 @@ export interface ChatMessage {
     at: string
 }
 
+/** A session Orrery started, as its launch made it. */
 export interface StartedSession {
     launch: string
     tmux: string

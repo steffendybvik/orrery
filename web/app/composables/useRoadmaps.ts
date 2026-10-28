@@ -11,8 +11,10 @@ export function useRoadmaps() {
     const listeners = useState<Record<string, number>>('projects-listeners', () => ({}))
     /** How many launchers that start sessions are connected for each project (known once one comes or goes). */
     const launchers = useState<Record<string, number>>('projects-launchers', () => ({}))
-    /** The Claude sessions on each project, as their hooks and channels last said. */
+    /** The Claude sessions on each project, as their hooks and channels last said. Not the owner's chats: they count
+     * towards nothing and aren't listed, so they're kept apart, in `chatSessions` (the chat pane's). */
     const sessions = useState<Record<string, Session[]>>('projects-sessions', () => ({}))
+    const chatSessions = useState<Record<string, Session[]>>('projects-chat-sessions', () => ({}))
     /** Signals as they're sent and delivered, latest first (what the issue pages show). */
     const signals = useState<Signal[]>('projects-signals', () => [])
 
@@ -27,5 +29,5 @@ export function useRoadmaps() {
         }
         return project
     }
-    return {projects, ready, live, changed, listeners, launchers, sessions, signals, byId, reload}
+    return {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals, byId, reload}
 }
