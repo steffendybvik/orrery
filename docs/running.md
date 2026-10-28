@@ -33,7 +33,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks. A new, empty
 volume starts from the latest one. The live file never goes in the backup folder: a synced SQLite
 file gets corrupted, a snapshot doesn't. On Postgres it's a SQLite snapshot of the database, made a minute after
-a change (the whole database is copied each time), so a backup opens anywhere and a new SQLite Orrery starts from
+a change, or at most ten minutes after the first while changes keep coming (the whole database is copied each time), so a backup opens anywhere and a new SQLite Orrery starts from
 it. App settings → This Orrery → Database says when the latest was made, with **Back up now**.
 
 ## Postgres

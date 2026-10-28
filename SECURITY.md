@@ -46,7 +46,8 @@ schedule's run never goes to your sessions. Instead:
   instructions.
 - **What it raises is a proposal labelled `external`**, made so by Orrery whatever the session asks.
   Orrery refuses every other write from it, except comments on those proposals. Nothing it raises is
-  worked on until you approve it.
+  worked on until you approve it. Its channel says it's untrusted on everything it sends, so this holds
+  after Orrery restarts too, before the launcher has said which sessions it started.
 - **It stops** once it has sat idle for two minutes, and after half an hour at most.
 
 It can still read files in its folder with read-only commands, but it has no way to send them anywhere.

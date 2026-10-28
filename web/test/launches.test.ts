@@ -12,6 +12,8 @@ let session: {name?: string, started?: {launch: string, tmux: string, stops_at?:
 /** What the sessions are on, for stopping those that are done: issues in progress, and signals waiting, by session. */
 let working: Record<string, string[]>
 let waiting: string[]
+/** Whether a signal for every session waits, heard by none yet. */
+let waitingForAll: boolean
 let adopted: string[]
 let focused: {issue: string, session: string}[]
 let scoped: {chunk: string, body: Record<string, unknown>}[]
@@ -26,6 +28,7 @@ beforeEach(async () => {
     adopted = []
     working = {}
     waiting = []
+    waitingForAll = false
     const events = new EventEmitter()
     events.on('launches', event => sent.push(event.type === 'launch' ? {type: 'launch', after: event.launch.after, minutes: event.launch.minutes} : event))
     vi.stubGlobal('projectEvents', events)
@@ -60,7 +63,8 @@ beforeEach(async () => {
         },
         presetsFor: async (_project: string, ids: number[]) => ids.map(id => ({id, name: `preset ${id}`, text: `Text ${id}.`})),
         workingOn: async (_project: string, ids: string[]) => ids.flatMap(id => working[id] ?? []),
-        waiting: async (_project: string, ids: string[]) => ids.some(id => waiting.includes(id)),
+        waiting: async (_project: string, ids: string[]) => waitingForAll || ids.some(id => waiting.includes(id)),
+        waitingFor: async (_project: string, ids: string[]) => ids.some(id => waiting.includes(id)),
     }))
     vi.stubGlobal('sessionIds', (id: string) => [id])
     vi.resetModules()
@@ -414,6 +418,17 @@ describe("an untrusted schedule's run", () => {
         ]
         vi.stubGlobal('listSessions', () => sessions)
         expect(await launches.stopDue(now)).toEqual(['done'])
+    })
+
+    it("is stopped when idle though a signal for every session waits, as none reaches it", async () => {
+        const now = Date.parse('2026-10-26T15:00:00.000Z')
+        const at = (minutes: number) => new Date(now - minutes * 60_000).toISOString()
+        waitingForAll = true
+        vi.stubGlobal('listSessions', () => [
+            {id: 's-locked', project: 'greenhouse', state: 'idle', since: at(3), started: {launch: 'locked', tmux: 't', untrusted: true}},
+            {id: 's-plain', project: 'greenhouse', state: 'idle', since: at(40), started: {launch: 'plain', tmux: 't', stops_at: at(1)}},
+        ])
+        expect(await launches.stopDue(now)).toEqual(['locked'])
     })
 
     it('makes what its session raises a proposal labelled external, and nothing more', async () => {

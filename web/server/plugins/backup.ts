@@ -12,9 +12,17 @@ export default defineNitroPlugin(nitro => {
             log.note({level: 'error', kind: 'backup.failed', message: `Backing up to ${dir}: ${(error as Error).message}`, details: {stack: (error as Error).stack}})
         })
     let timer: ReturnType<typeof setTimeout> | undefined
+    // Changes that keep coming put it off, but never past ten waits from the first of them.
+    let since: number | undefined
     const soon = () => {
+        since ??= Date.now()
         clearTimeout(timer)
-        timer = setTimeout(save, useDatabase() instanceof SqliteDb ? 3000 : 60_000)
+        // Where the data is can change (a move from App settings), so how long to wait is worked out each time.
+        const wait = useDatabase() instanceof SqliteDb ? 3000 : 60_000
+        timer = setTimeout(() => {
+            since = undefined
+            save()
+        }, Math.max(0, Math.min(wait, since + 10 * wait - Date.now())))
     }
     save()
     for (const change of ['project', 'removed', 'settings', 'secrets', 'schedules']) projectEvents.on(change, soon)

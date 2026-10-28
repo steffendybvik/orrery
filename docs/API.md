@@ -220,6 +220,14 @@ sessions: each run has a launcher start a locked-down session for its message al
 Starting sessions off, the limit). That session's new issues are made proposals labelled `external`, and its other
 writes are refused (403), except comments on those proposals (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)).
 
+**Presets and sessions.** A message schedule's `presets` (ids of [presets](#presets) its project's sessions can have)
+are its message, read at each run, before its own `notes` (which it can then do without); the signal's `preset` is
+their names. A `session` schedule, the owner's alone to make (403 for an agent), starts a session each run through the
+project's launcher, as `POST …/launches` does, with its `presets` and `notes` as the context. On an event it starts
+focused on its subject: an `issue.*` event's issue, or the work in a `release.*` event's release; any other event's
+ids are in its words. With Starting sessions off, no launcher or the limit reached, the run is `skipped` saying why.
+A run that started one is `sent`. A preset a schedule names that's been deleted fails its run.
+
 **On an event.** Instead of `cron` or `at`, a schedule can run `on` something that happens. An event's type is
 `thing.what`. Every change to an issue is `issue.<field>` (`issue.created`, `issue.status`, `issue.labels`,
 `issue.release`, `issue.proposal`… and `issue.deleted`). Comments are `comment.added` and `comment.asks`, a session
@@ -232,8 +240,8 @@ Advanced off. A repeat of an open error isn't one. `on` is a type or a pattern, 
 - `by`: `owner` or `session`.
 - `level`: the event log's.
 
-Such a schedule runs once per subject (an issue bounced in and out of a status runs it once), not within a minute
-of its last run, and never on what a schedule's run did. Its issue's title ends with the subject (`Review · ORR-12`),
+Such a schedule runs once per subject (an issue bounced in and out of a status runs it once; a run that was skipped or
+failed doesn't count), not within a minute of its last run (events heard together count as one), and never on what a schedule's run did. Its issue's title ends with the subject (`Review · ORR-12`),
 and its description or message ends with what happened by ids, never another's words:
 `On issue.status: ORR-12 (in-progress → in-review), by claude.` An event about the Orrery as a whole (a server error)
 goes to every project's schedules; any other, only its own project's.
@@ -242,11 +250,11 @@ goes to every project's schedules; any other, only its own project's.
 |---|---|
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
-| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron, at or on (with on_filter?), timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, untrusted?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `on` an event (above); setting one lets go of the others, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
+| `POST /projects/:project/schedules` | `{kind?, title, notes?, presets?, cron, at or on (with on_filter?), timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, untrusted?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `on` an event (above); setting one lets go of the others, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default), `message` (then `notes` is the message, after any `presets`, and the issue fields don't apply) or `session` (above) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?, subject?}`; the owner's, only by the owner. `{"instead": true}` runs it in place of its next run, which is skipped (a one-off is then done; 409 when it has none, as one on an event has none) |
 
-Each schedule carries `next_run` (none for one on an event) and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why), and an event run's `subject`.
+Each schedule carries `next_run` (none for one on an event), its `presets` and its latest `runs`: `made` (with the issue), `sent` (a message, or a session started), `skipped` or `failed` (with why), and an event run's `subject`.
 
 ## Secrets
 
@@ -422,7 +430,9 @@ The owner sets them (an agent gets a 403):
 Saved pieces of context, `{id, project, name, text, icon, color}`, the owner gives a session as they start it
 (`POST …/launches {presets}`), or sends one that's running as a message (`POST …/sessions/:session/message {text, preset}`). The Orrery's (`project: null`) are for any project's sessions; a project's own
 for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's name, e.g. `shield-check`) in
-`color` (a tint's name or `#rrggbb`), or its initials without an icon. Orrery ships none. Only the owner makes, changes or removes them (an agent gets a 403); a session reads them
+`color` (a tint's name or `#rrggbb`), or its initials without an icon. Orrery ships a few of its own (Release,
+Security audit, Review, Debug an error), added once to each Orrery as it starts, new or upgraded; each has `default`
+`{key, changed}`. An upgrade never changes one, and one the owner removed isn't added again. Only the owner makes, changes or removes them (an agent gets a 403); a session reads them
 (the `presets` and `preset` tools) to help the owner write one.
 
 | | |
@@ -433,13 +443,17 @@ for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's n
 | `POST /projects/:project/presets` | `{name, text, icon?, color?}` → 201 a new one of the project's own |
 | `PATCH /presets/:preset` | `{name?, text?, icon?, color?}` (null takes the icon or colour off) → the preset, the Orrery's or a project's |
 | `DELETE /presets/:preset` | 204; sessions already started with it keep its text |
+| `POST /presets/:preset/reset` | → the preset, back to the name, text and badge Orrery ships it with; 409 for one it doesn't ship |
+| `POST /presets/defaults` | → the presets Orrery ships that were removed, added back as it ships them (`[]` for none) |
 
 ## For agents
 
 `/llms.txt` says how to use Orrery and lists the projects; `/llms-full.txt` adds this reference;
 `/api/guide` is this reference alone. A Claude session with Orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
-make these calls for it. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
+make these calls for it. An untrusted schedule's session (its launcher sets `ORRERY_UNTRUSTED=yes`) sends
+`Orrery-Untrusted: yes` on every write and `untrusted=yes` on its streams, and is held to raising proposals and
+commenting on them, whether or not Orrery knows its launch. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
 to the issue, so the owner's comments on it go to that session. Such a write to an issue another session has
 started (in progress or in review), while that session is still listening, is refused with a 409: starting it, a
 comment or an edit alike, so pick another issue. Closing it (done, canceled) is any session's, and the owner's

@@ -37,6 +37,32 @@ describe('the SQLite driver', () => {
         expect(await db.get('SELECT count(*) AS n FROM log')).toEqual({n: 1})
     })
 
+    it("runs what waits on a transaction once it commits, outside it, and never when it's taken back", async () => {
+        const db = await fresh()
+        const ran: string[] = []
+        const after = (what: string) => db.afterCommit(async () => {
+            // Outside the transaction: a write of its own lands, though it's long done.
+            await db.run('INSERT INTO log (what) VALUES (?)', what)
+            ran.push(what)
+        })
+        await db.transaction(async () => {
+            await db.run('INSERT INTO log (what) VALUES (?)', 'kept')
+            after('after kept')
+            await tick()
+            expect(ran).toEqual([])
+        })
+        await db.transaction(async () => {
+            await db.run('INSERT INTO log (what) VALUES (?)', 'lost')
+            after('after lost')
+            throw new Error('take it back')
+        }).catch(() => {})
+        after('alone')
+        await tick()
+        await tick()
+        expect(ran).toEqual(['after kept', 'alone'])
+        expect((await db.all<{what: string}>('SELECT what FROM log ORDER BY id')).map(r => r.what)).toEqual(['kept', 'after kept', 'alone'])
+    })
+
     it('hands over the raw connection only between transactions', async () => {
         const db = await fresh()
         const seen: number[] = []

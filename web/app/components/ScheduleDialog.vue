@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {COMMON_EVENTS, EVENT_PATTERN} from '#shared/happenings'
 import type {OnFilter} from '#shared/happenings'
-import type {Priority, Schedule} from '#shared/roadmap'
+import type {Preset, Priority, Schedule} from '#shared/roadmap'
 import {EVENT_LEVELS} from '#shared/roadmap'
 import type {Repeat} from '~/utils/schedule'
 
@@ -10,7 +10,8 @@ import type {Repeat} from '~/utils/schedule'
 // under Advanced) with its next times shown, and for an issue where it starts and whether it asks the
 // sessions to pick it up. One already made can be paused or resumed from here, at once, or removed (asked once more). ⌘↵ saves, Esc
 // closes. Or it runs on an event instead of a time (ORR-341): a common one picked, or any type or pattern typed, with what
-// the event must also say (the status it moves to, who did it, the level).
+// the event must also say (the status it moves to, who did it, the level). A message can be presets (their text, read at each
+// run, before its own words), and a schedule can start a session with presets instead (ORR-332, ORR-342).
 const {editing, pause} = useSchedules()
 const {byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -52,8 +53,18 @@ const onFilter = computed<OnFilter>(() => ({...to.value.trim() ? {to: to.value.t
     ...level.value ? {level: level.value as OnFilter['level']} : {}}))
 
 const project = ref('')
-const sends = ref<'issue' | 'message'>('issue')
-const SENDS = [{value: 'issue' as const, label: 'Makes an issue'}, {value: 'message' as const, label: 'Sends a message'}]
+const sends = ref<Schedule['kind']>('issue')
+const SENDS = [{value: 'issue' as const, label: 'Makes an issue'}, {value: 'message' as const, label: 'Sends a message'}, {value: 'session' as const, label: 'Starts a session'}]
+// The presets the project's sessions can have, asked for as the project is picked; those ticked, in the order ticked.
+const presets = ref<Preset[]>([])
+const picked = ref<number[]>([])
+watch(project, async id => {
+    presets.value = id ? await $fetch<Preset[]>(`/api/projects/${encodeURIComponent(id)}/presets`).catch(() => []) : []
+}, {immediate: true})
+const usable = computed(() => picked.value.filter(id => presets.value.some(p => p.id === id)))
+function pick(id: number) {
+    picked.value = picked.value.includes(id) ? picked.value.filter(p => p !== id) : [...picked.value, id]
+}
 const title = ref('')
 const notes = ref('')
 const kind = ref<Repeat['kind']>('weekdays')
@@ -105,6 +116,7 @@ watch(editing, now => {
     sends.value = s?.kind ?? 'issue'
     title.value = s?.title ?? ''
     notes.value = s?.notes ?? ''
+    picked.value = [...s?.presets ?? []]
     timezone.value = s?.timezone ?? localZone()
     column.value = s?.column ?? starts.value.find(p => p.kind === 'todo')?.id ?? 'todo'
     chunk.value = s?.chunk ?? ''
@@ -152,7 +164,7 @@ const repeat = computed<Repeat>(() => {
 const cronText = computed(() => toCron(repeat.value))
 const atText = computed(() => repeat.value.kind === 'once' ? repeat.value.at : null)
 const upcoming = computed(() => nextTimes(cronText.value, atText.value, timezone.value))
-const ready = computed(() => !!project.value && !!title.value.trim() && (sends.value === 'issue' || !!notes.value.trim())
+const ready = computed(() => !!project.value && !!title.value.trim() && (sends.value !== 'message' || !!notes.value.trim() || !!usable.value.length)
     && (trigger.value === 'event' ? EVENT_PATTERN.test(on.value) : upcoming.value.length > 0) && !saving.value)
 
 function toggleDay(d: number) {
@@ -187,6 +199,7 @@ async function save() {
         kind: sends.value,
         title: title.value.trim(),
         notes: notes.value.trim() || null,
+        ...sends.value === 'issue' ? {} : {presets: usable.value},
         ...trigger.value === 'event' ? {on: on.value, on_filter: onFilter.value} : cronText.value ? {cron: cronText.value} : {at: atText.value},
         timezone: timezone.value,
         column: column.value,
@@ -250,17 +263,44 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <input
         ref="titleInput"
         v-model="title"
-        :placeholder="sends === 'issue' ? 'What to do, e.g. Groom the backlog' : 'Its name, e.g. Check CI'"
+        :placeholder="sends === 'issue' ? 'What to do, e.g. Groom the backlog' : sends === 'session' ? 'Its name, e.g. Review what moves to review' : 'Its name, e.g. Check CI'"
         aria-label="Title"
         class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none"
     >
     <textarea
         v-model="notes"
         rows="3"
-        :placeholder="sends === 'issue' ? 'Instructions for each run… (Markdown works; it\'s the issue\'s description)' : 'The message the sessions get each run, e.g. Check CI on main; if it\'s red, tell me why'"
-        :aria-label="sends === 'issue' ? 'Instructions' : 'Message'"
+        :placeholder="sends === 'issue' ? 'Instructions for each run… (Markdown works; it\'s the issue\'s description)'
+          : sends === 'session' ? 'Your own words for the session, after its presets, e.g. review its pull request and comment on the issue'
+            : usable.length ? 'Anything to add after the presets…' : 'The message the sessions get each run, e.g. Check CI on main; if it\'s red, tell me why'"
+        :aria-label="sends === 'issue' ? 'Instructions' : sends === 'session' ? 'Your own instructions' : 'Message'"
         class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
     />
+
+    <div v-if="sends !== 'issue' && presets.length" class="grid gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
+      <button
+          v-for="p in presets"
+          :key="p.id"
+          type="button"
+          :aria-pressed="picked.includes(p.id)"
+          :title="p.text"
+          class="flex min-w-0 items-center gap-2 rounded-lg p-2 text-left ring-1 transition-colors"
+          :class="picked.includes(p.id) ? 'bg-accent-500/10 ring-accent-500/50' : 'ring-line hover:bg-hover'"
+          @click="pick(p.id)"
+      >
+        <PresetBadge :preset="p" :size="24" />
+        <span class="flex min-w-0 flex-1 flex-col">
+          <span class="truncate text-xs font-medium text-fg">{{ p.name }}</span>
+          <span class="truncate text-[11px] text-muted">{{ firstLine(p.text) }}</span>
+        </span>
+        <span
+            class="grid size-4 shrink-0 place-items-center rounded-full"
+            :class="picked.includes(p.id) ? 'bg-accent-500 text-white' : 'ring-1 ring-inset ring-line'"
+        >
+          <svg v-if="picked.includes(p.id)" class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+        </span>
+      </button>
+    </div>
 
     <section class="flex flex-col gap-2 border-t border-line pt-3">
       <div class="flex items-center gap-3">
@@ -361,6 +401,13 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         <input v-model="untrusted" type="checkbox" class="accent-accent-500">
         It reads what others wrote, such as GitHub issues: give it a locked-down session of its own
       </label>
+    </section>
+    <section v-else-if="sends === 'session'" class="flex flex-col gap-2 border-t border-line pt-3 text-xs text-muted">
+      <p>
+        Each run starts a Claude session on {{ here?.name ?? 'the project' }} through its launcher, with the presets ticked and your words.
+        <template v-if="trigger === 'event'">It starts on what the event was about: the issue, or the release's work; for anything else, the event's id is in its words.</template>
+        It needs a launcher, Starting sessions on and room under the limit, or the run is skipped saying why.
+      </p>
     </section>
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">Each run makes an issue</span>

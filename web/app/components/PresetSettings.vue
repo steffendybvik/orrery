@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import {DEFAULT_PRESETS} from '#shared/presets'
 import type {Preset, Project} from '#shared/roadmap'
 
 // Presets: saved pieces of context to give a session as you start it, each a name and its text. Without `project`
 // they're the Orrery's, for sessions on any project; with it, that project's own. Each is a role card: its
-// badge, name and first line; clicking one, or New preset, opens it in a dialog to write.
+// badge, name and first line; clicking one, or New preset, opens it in a dialog to write. Orrery ships a few of its own;
+// once one's removed, Restore defaults brings it back.
 const props = defineProps<{project?: Project}>()
 const {forget} = usePresetBadges()
 
@@ -18,6 +20,20 @@ watch(list, refresh, {immediate: true})
 function saved() {
     refresh()
     forget()
+}
+
+// The Orrery's presets that Orrery ships and that were removed.
+const removed = computed(() => props.project ? [] : DEFAULT_PRESETS.filter(d => !presets.value.some(p => p.default?.key === d.key)))
+const {load} = useOwner()
+const restoring = ref(false)
+async function restore() {
+    restoring.value = true
+    try {
+        await $fetch('/api/presets/defaults', {method: 'POST', headers: {'Orrery-Actor': await load()}})
+        saved()
+    } finally {
+        restoring.value = false
+    }
 }
 
 // The preset being written in the dialog: one of these, or 'new'.
@@ -54,6 +70,10 @@ const writing = ref<Preset | 'new' | null>(null)
         </button>
       </li>
     </ul>
+    <p v-if="removed.length" class="flex items-center gap-2 text-xs text-faint">
+      {{ removed.map(d => d.name).join(', ') }} {{ removed.length === 1 ? 'was' : 'were' }} removed.
+      <UiButton size="xs" :disabled="restoring" @click="restore">Restore defaults</UiButton>
+    </p>
     <PresetDialog :open="writing" :project="project" @close="writing = null" @saved="saved" />
   </div>
 </template>

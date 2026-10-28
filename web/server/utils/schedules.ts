@@ -11,11 +11,15 @@
 // Or a schedule runs `on` an event instead of a clock (ORR-341, shared/happenings.ts): `hear` gets each one, and
 // a schedule whose pattern and `on_filter` it fits runs about it, once per subject (an issue bounced in and out of a
 // status runs it once), not within a minute of its last run, and never on what a schedule's own run did.
+//
+// A `session` schedule (ORR-342) starts a session through the project's launcher instead, as Start session does: with
+// its `presets` and its words, focused on the issue or release an event was about. A message schedule's `presets` go
+// before its words, read at each run, so a preset is written once and sent on a timer (ORR-332).
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {Cron} from 'croner'
 import type {OnFilter, OrreryEvent} from '#shared/happenings'
 import {EVENT_PATTERN, matchesType} from '#shared/happenings'
-import type {Priority, Schedule, ScheduleRun} from '#shared/roadmap'
+import type {Preset, Priority, Schedule, ScheduleRun} from '#shared/roadmap'
 import {CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
 import {one} from './database'
 import type {Field, Input} from './input'
@@ -24,11 +28,14 @@ import type {Actor, Store} from './store'
 import {AGENT} from './store'
 
 interface ScheduleRow {
-    id: number, project: string, kind: 'issue' | 'message', title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
+    id: number, project: string, kind: Schedule['kind'], title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
     place: string, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, only_if_changed: number, untrusted: number, enabled: number,
-    next_run: string | null, on_event: string | null, on_filter: string | null, created_by: string, owned: number, created_at: string, updated_at: string
+    next_run: string | null, on_event: string | null, on_filter: string | null, presets: string, created_by: string, owned: number, created_at: string, updated_at: string
 }
 interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null, subject: string | null }
+
+/** What a session schedule's run starts: as `POST …/launches` takes it. */
+export interface SessionStart { presets: number[], instructions: string, issue?: string, release?: string }
 
 /** The schedule whose run is under way, so what its run does (the issue it makes) runs no schedule. */
 export const scheduleRunning = new AsyncLocalStorage<number>()
@@ -48,9 +55,16 @@ function parseFilter(value: unknown): string {
     return JSON.stringify(Object.fromEntries(Object.entries({to, from, by, level}).filter(([, v]) => v !== undefined && v !== '')))
 }
 
+/** `presets` as it's sent (a list of preset ids), as it's stored. */
+function parsePresets(value: unknown): string {
+    if (!Array.isArray(value) || value.some(id => !Number.isInteger(id))) throw new Error('send a list of preset ids, e.g. [3, 7]')
+    return JSON.stringify([...new Set(value as number[])])
+}
+
 const SCHEDULE_FIELDS: Record<string, Field> = {
-    /** `issue` (the default) makes an issue each run; `message` sends `notes` to the sessions instead. */
-    kind: {type: 'string', values: ['issue', 'message']},
+    /** `issue` (the default) makes an issue each run; `message` sends `notes` to the sessions instead; `session` starts
+     * a session with `presets` and `notes`. */
+    kind: {type: 'string', values: ['issue', 'message', 'session']},
     title: {type: 'string', required: true},
     notes: {type: 'string', nullable: true},
     /** Five fields (minute hour day month weekday), e.g. `0 9 * * 1-5`; or `at`, once; or `on`, an event. */
@@ -59,6 +73,8 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
     /** An event's type, `*` for any part of it: `issue.status`, `release.*`, `*.failed` (shared/happenings.ts). */
     on: {type: 'string', nullable: true},
     on_filter: {type: 'json', nullable: true, parse: parseFilter},
+    /** Preset ids (the Orrery's or the project's) a message or session schedule is given, before `notes`. */
+    presets: {type: 'json', nullable: true, parse: parsePresets},
     /** An IANA zone, e.g. `Europe/Oslo`; the server's when left out. */
     timezone: {type: 'string'},
     /** Where its issues start: an open status's id, or a kind (`todo`). */
@@ -81,7 +97,7 @@ const RUNS = 10
 export class Schedules {
     /** `onChange` hears a project's schedules changed or ran; `listening` says how many sessions a project has listening;
      * `startUntrusted` starts an untrusted run's session, with its message for it alone, and says its tmux session;
-     * `onRan` hears each run, with what came of it. */
+     * `onRan` hears each run, with what came of it; `startSession` starts a session schedule's session, and says its tmux session. */
     constructor(
         private readonly store: Store,
         private readonly onChange: (project: string) => void = () => {},
@@ -89,6 +105,8 @@ export class Schedules {
         private readonly startUntrusted: (project: string, schedule: number, text: string, actor: Actor) => Promise<{tmux: string}> =
             () => Promise.reject(new Error('Orrery starts no sessions here')),
         private readonly onRan: (schedule: {id: number, project: string, title: string}, run: ScheduleRun, manual: boolean) => void = () => {},
+        private readonly startSession: (project: string, start: SessionStart, actor: Actor) => Promise<{tmux: string}> =
+            () => Promise.reject(new Error('Orrery starts no sessions here')),
     ) {}
 
     private get db() {
@@ -116,12 +134,12 @@ export class Schedules {
         const chunk = await this.chunk(project, input.chunk)
         const now = new Date().toISOString()
         const enabled = input.enabled ?? true
-        const kind = String(input.kind ?? 'issue')
-        if (kind === 'message' && !text(input.notes)?.trim()) throw badRequest('A message schedule needs its message in "notes"')
-        if (input.untrusted && kind !== 'message') throw badRequest('Only a message schedule is untrusted: send "kind": "message"')
-        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
-            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), when.timezone, await this.place(input.column ?? 'todo'), chunk,
+        const kind = String(input.kind ?? 'issue') as Schedule['kind']
+        const presets = await this.presets(project, kind, input.presets ?? '[]')
+        this.checkKind(kind, text(input.notes), presets, !!input.untrusted, actor)
+        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
+            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+            project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, when.timezone, await this.place(input.column ?? 'todo'), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false),
             Number(input.untrusted ?? false), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now)
@@ -146,16 +164,16 @@ export class Schedules {
         const filter = filterOf(when.on, input.on_filter !== undefined ? input.on_filter : row.on_filter)
         const enabled = input.enabled === undefined ? !!row.enabled : !!input.enabled
         const next = enabled && (timing || !row.enabled || !row.next_run) ? nextRun(when, new Date()) : enabled ? row.next_run : null
-        const kind = String(input.kind ?? row.kind)
+        const kind = String(input.kind ?? row.kind) as Schedule['kind']
         const message = input.notes === undefined ? row.notes : text(input.notes)
-        if (kind === 'message' && !message?.trim()) throw badRequest('A message schedule needs its message in "notes"')
+        const presets = input.presets === undefined && kind === row.kind ? row.presets : await this.presets(project, kind, input.presets === undefined ? row.presets : input.presets ?? '[]')
         const untrusted = input.untrusted === undefined ? !!row.untrusted : !!input.untrusted
-        if (untrusted && kind !== 'message') throw badRequest('Only a message schedule is untrusted: send "kind": "message", or "untrusted": false')
+        this.checkKind(kind, message, presets, untrusted, actor, ', or "untrusted": false')
         const set: Record<string, unknown> = {
             kind: input.kind,
             title: input.title === undefined ? undefined : String(input.title).trim(),
             notes: input.notes === undefined ? undefined : text(input.notes),
-            cron: when.cron, at: when.at, on_event: when.on, on_filter: filter, timezone: when.timezone,
+            cron: when.cron, at: when.at, on_event: when.on, on_filter: filter, presets, timezone: when.timezone,
             place: input.column === undefined ? undefined : await this.place(input.column),
             chunk: input.chunk === undefined ? undefined : await this.chunk(project, input.chunk),
             priority: input.priority === undefined ? undefined : text(input.priority),
@@ -213,16 +231,27 @@ export class Schedules {
         return await this.run(row, new Date(), true, undefined, `instead of ${day(skipped, row.timezone)} ${time(skipped, row.timezone)}`)
     }
 
+    /** What `hear` is on: events are heard one at a time, so a burst of them can't each pass a schedule's checks
+     * before any has recorded its run. */
+    private hearing: Promise<unknown> = Promise.resolve()
+
     /** Runs the event schedules `event` is for, each once per subject and not within a minute of its last run; none when a
      * schedule's run (`cause`) did it, so one can't set another off, or itself. Says how many ran. */
-    async hear(event: OrreryEvent, cause?: number, now = new Date()): Promise<number> {
+    hear(event: OrreryEvent, cause?: number, now = new Date()): Promise<number> {
+        const heard = this.hearing.then(() => this.hearOne(event, cause, now))
+        this.hearing = heard.catch(() => {})
+        return heard
+    }
+
+    private async hearOne(event: OrreryEvent, cause: number | undefined, now: Date): Promise<number> {
         if (cause !== undefined) return 0
         const rows = await this.db.all<ScheduleRow>(`SELECT * FROM schedules WHERE enabled = 1 AND on_event IS NOT NULL${event.project ? ' AND project = ?' : ''}`,
             ...event.project ? [event.project] : [])
         let ran = 0
         for (const row of rows) {
             if (!matchesType(row.on_event ?? '', event.type) || !await this.fits(row, event)) continue
-            if (event.subject && await this.db.get('SELECT 1 FROM schedule_runs WHERE schedule = ? AND subject = ?', row.id, event.subject)) continue
+            // A run that was skipped or failed didn't do it for its subject, so a later event can.
+            if (event.subject && await this.db.get("SELECT 1 FROM schedule_runs WHERE schedule = ? AND subject = ? AND outcome IN ('made', 'sent')", row.id, event.subject)) continue
             const last = await this.db.get<{at: string}>('SELECT at FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT 1', row.id)
             if (last && now.getTime() - new Date(last.at).getTime() < COOLDOWN) continue
             await this.run(row, now, false, event)
@@ -273,7 +302,30 @@ export class Schedules {
         const actor: Actor = {name: row.created_by, owner: !!row.owned}
         // What it ran on, said by ids for the session to read with its tools, never another's words.
         const about = event ? aboutEvent(event) : null
-        const words = [row.notes ?? (row.kind === 'message' ? row.title : null), about].filter(Boolean).join('\n\n')
+        let presets: Preset[]
+        try {
+            presets = await this.store.presetsFor(row.project, JSON.parse(row.presets) as number[])
+        } catch (error) {
+            return await record('failed', null, error instanceof Error ? error.message : String(error))
+        }
+        if (row.kind === 'session') {
+            if (!actor.owner) return await record('skipped', null, 'made by an agent, so it starts no session')
+            const subject = event?.subject && event.type !== 'issue.deleted' && event.type !== 'release.deleted' ? event.subject : undefined
+            try {
+                const {tmux} = await this.startSession(row.project, {
+                    presets: presets.map(p => p.id),
+                    instructions: [row.notes, about].filter(Boolean).join('\n\n'),
+                    ...subject && event?.type.startsWith('issue.') ? {issue: subject} : {},
+                    ...subject && event?.type.startsWith('release.') ? {release: subject} : {},
+                }, actor)
+                return await record('sent', null, `started a session (${tmux})`)
+            } catch (error) {
+                // No room, no launcher or no opt-in is a run that waits for another time, not a fault.
+                const why = error instanceof Error ? error.message : String(error)
+                return await record((error as {statusCode?: number}).statusCode === 409 ? 'skipped' : 'failed', null, why)
+            }
+        }
+        const words = [...presets.map(p => p.text), row.notes ?? (row.kind === 'message' && !presets.length ? row.title : null), about].filter(Boolean).join('\n\n')
         if (row.kind === 'message') {
             // Only the owner's signals reach sessions, as with every signal.
             if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
@@ -287,7 +339,7 @@ export class Schedules {
                     return await record('failed', null, `untrusted, so it needs a session of its own: ${error instanceof Error ? error.message : String(error)}`)
                 }
             }
-            await this.store.message(row.project, row.id, words, actor)
+            await this.store.message(row.project, row.id, words, actor, undefined, presets.map(p => p.name).join(', ') || undefined)
             const heard = this.listening(row.project)
             return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
         }
@@ -335,6 +387,22 @@ export class Schedules {
         } catch {
             return null
         }
+    }
+
+    /** The presets a message or session schedule is given, checked as its project's sessions can have them; none for an issue's. */
+    private async presets(project: string, kind: Schedule['kind'], given: Input[string]): Promise<string> {
+        if (kind === 'issue') return '[]'
+        const ids = JSON.parse(String(given)) as number[]
+        await this.store.presetsFor(project, ids)
+        return JSON.stringify(ids)
+    }
+
+    /** What each kind needs: a message has words, its own or a preset's; a session is the owner's to start, as it works
+     * as them; only a message is untrusted. */
+    private checkKind(kind: Schedule['kind'], notes: string | null, presets: string, untrusted: boolean, actor: Actor, orElse = '') {
+        if (kind === 'message' && !notes?.trim() && presets === '[]') throw badRequest('A message schedule needs its message in "notes", or a preset in "presets"')
+        if (kind === 'session' && !actor.owner) throw forbidden('Only the owner makes a session schedule: it starts work as them; send Orrery-Actor: <owner>')
+        if (untrusted && kind !== 'message') throw badRequest(`Only a message schedule is untrusted: send "kind": "message"${orElse}`)
     }
 
     /** The open status a schedule's issues start in, from an id or a kind. */
@@ -394,7 +462,7 @@ export class Schedules {
         return {
             id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
             cron: row.cron ?? undefined, at: row.at ?? undefined, on: row.on_event ?? undefined,
-            ...row.on_filter ? {on_filter: JSON.parse(row.on_filter) as OnFilter} : {}, timezone: row.timezone,
+            ...row.on_filter ? {on_filter: JSON.parse(row.on_filter) as OnFilter} : {}, presets: JSON.parse(row.presets) as number[], timezone: row.timezone,
             column: row.place, chunk: row.chunk ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
             ask: !!row.ask, skip_open: !!row.skip_open, only_if_changed: !!row.only_if_changed, untrusted: !!row.untrusted, enabled: !!row.enabled, next_run: row.next_run ?? undefined,
             runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined, ...r.subject ? {subject: r.subject} : {}})),

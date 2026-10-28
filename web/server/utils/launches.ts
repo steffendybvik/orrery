@@ -287,7 +287,9 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         const idleTooLong = !!idleFor && now - Date.parse(session.since) >= idleFor * 60_000
         if (!timeUp && !idleTooLong) continue
         const ids = sessionIds(session.id)
-        if (!overdue && ((await store.workingOn(session.project, ids)).length || await store.waiting(session.project, ids))) continue
+        // What's waiting for every session never reaches an untrusted one, so it doesn't keep one going.
+        const waiting = started.untrusted ? store.waitingFor(session.project, ids) : store.waiting(session.project, ids)
+        if (!overdue && ((await store.workingOn(session.project, ids)).length || await waiting)) continue
         stopping.set(started.launch, now)
         emit({type: 'stop', project: session.project, id: started.launch})
         stopped.push(started.launch)

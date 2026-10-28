@@ -53,23 +53,25 @@ let log: EventLog | null = null
 
 /** The event log, secrets' values scrubbed out of what it keeps. */
 export function useEventLog(): EventLog {
-    log ??= new EventLog(useDatabase(), text => useSecrets().scrub(text),
+    log ??= new EventLog(useDatabase(), () => useSecrets().scrubber(),
         (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
     log.happened = happened
     return log
 }
 
 /** Points what holds the database at the one the owner moved to (server/utils/move.ts); the secrets and schedules
- * reach it through the store. */
+ * reach it through the store. It gets the presets Orrery ships that it hasn't had yet, as a start would give it. */
 export function rebindDatabase(db: Db) {
     if (store) store.db = db
     if (log) log.db = db
+    store?.seedPresets().catch(error => console.error('[orrery] adding the presets Orrery ships:', error))
 }
 
-/** Passes it on once what did it is done (the write's transaction), with the schedule whose run did it, if one did. */
+/** Passes it on once what did it is done (the write's transaction has committed, and nothing when it rolls back),
+ * with the schedule whose run did it, if one did. */
 function happened(event: OrreryEvent) {
     const cause = scheduleRunning.getStore()
-    setImmediate(() => projectEvents.emit('happened', {event, cause}))
+    useDatabase().afterCommit(() => projectEvents.emit('happened', {event, cause}))
 }
 
 let schedules: Schedules | null = null
@@ -81,7 +83,8 @@ export function useScheduler(): Schedules {
         project: schedule.project,
         message: `${schedule.title}: ${run.outcome === 'made' ? `made ${run.issue}` : run.outcome}${run.note ? `, ${run.note}` : ''}`,
         details: {schedule: schedule.id, ...run, ...manual ? {manual} : {}},
-    }))
+    }), async (project, {presets, instructions, issue, release}, actor) =>
+        await startLaunch(project, {issue, release, context: await contextFor(project, presets, instructions), actor}))
     return schedules
 }
 

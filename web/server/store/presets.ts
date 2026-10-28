@@ -1,6 +1,8 @@
-// Presets: the context a session can be started with, the Orrery's or a project's.
+// Presets: the context a session can be started with, the Orrery's or a project's. Those Orrery ships
+// (shared/presets.ts) are seeded once each, can be reset to what it ships, and restored once removed.
+import {DEFAULT_PRESETS, asShipped} from '#shared/presets'
 import type {Preset} from '#shared/roadmap'
-import {badRequest, checkInput, notFound} from '../utils/input'
+import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {PresetRow} from './schema'
 import {AGENT, PRESET_FIELDS, nullable, presetInput, stamp} from './schema'
 import {ProjectStore} from './projects'
@@ -10,13 +12,53 @@ export abstract class PresetStore extends ProjectStore {
     /** The Orrery's presets, by name; with a project, those a session on it can have: the Orrery's, then its own. */
     async presets(project?: string): Promise<Preset[]> {
         if (project) await this.projectRow(project)
-        return await this.all<PresetRow>('SELECT id, project, name, text, icon, color, created_at, updated_at FROM presets WHERE project IS NULL OR project = ? ORDER BY project IS NOT NULL, lower(name), id', project ?? null)
+        return (await this.all<PresetRow>(`SELECT ${PRESET} FROM presets WHERE project IS NULL OR project = ? ORDER BY project IS NOT NULL, lower(name), id`, project ?? null)).map(presetOf)
     }
 
     async preset(id: number): Promise<Preset> {
-        const row = Number.isInteger(id) ? await this.get<PresetRow>('SELECT id, project, name, text, icon, color, created_at, updated_at FROM presets WHERE id = ?', id) : undefined
+        const row = Number.isInteger(id) ? await this.get<PresetRow>(`SELECT ${PRESET} FROM presets WHERE id = ?`, id) : undefined
         if (!row) throw notFound(`No preset ${id}`)
-        return row
+        return presetOf(row)
+    }
+
+    /** Adds the presets Orrery ships that this Orrery hasn't had yet, as it starts: all of them in a new one, a new
+     * one after an upgrade. One the owner removed isn't added again. Says how many it added. */
+    async seedPresets(): Promise<number> {
+        return await this.db.transaction(async () => {
+            const seeded = new Set((await this.all<{key: string}>('SELECT key FROM preset_defaults')).map(r => r.key))
+            const due = DEFAULT_PRESETS.filter(d => !seeded.has(d.key))
+            for (const d of due) {
+                await this.addDefault(d)
+                await this.run('INSERT INTO preset_defaults (key, seeded_at) VALUES (?, ?)', d.key, stamp())
+            }
+            return due.length
+        })
+    }
+
+    /** Puts a default preset back as Orrery ships it: its name, text and badge. The owner's only. */
+    async resetPreset(id: number, actor = AGENT): Promise<Preset> {
+        this.ownerOnly(actor, 'presets')
+        const preset = await this.preset(id)
+        const shipped = DEFAULT_PRESETS.find(d => d.key === preset.default?.key)
+        if (!shipped) throw conflict(`Resetting preset ${id}: ${preset.name} isn't one Orrery ships, so it has no default`)
+        await this.update('presets', 'id = ?', [id], {name: shipped.name, text: shipped.text, icon: shipped.icon, color: shipped.color})
+        return await this.preset(id)
+    }
+
+    /** Adds back the presets Orrery ships that were removed, as it ships them; says which. The owner's only. */
+    async restorePresets(actor = AGENT): Promise<Preset[]> {
+        this.ownerOnly(actor, 'presets')
+        const kept = new Set((await this.all<{default_key: string}>('SELECT default_key FROM presets WHERE default_key IS NOT NULL')).map(r => r.default_key))
+        const restored: Preset[] = []
+        for (const d of DEFAULT_PRESETS.filter(d => !kept.has(d.key))) restored.push(await this.preset(await this.addDefault(d)))
+        return restored
+    }
+
+    private async addDefault(d: (typeof DEFAULT_PRESETS)[number]): Promise<number> {
+        const now = stamp()
+        const row = await this.one<{id: number}>(`INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at)
+            VALUES (NULL, ?, ?, ?, ?, ?, 'orrery', 1, ?, ?) RETURNING id`, d.name, d.text, d.icon, d.color, d.key, now, now)
+        return Number(row.id)
     }
 
     /** A new preset, the owner's to make: `{name, text, icon?, color?}`, the Orrery's, or with `project` that project's own. */
@@ -54,4 +96,12 @@ export abstract class PresetStore extends ProjectStore {
         if (unknown.length) throw badRequest(`No preset ${unknown.join(', ')} for ${project}; its sessions can have ${usable.map(p => `${p.id} (${p.name})`).join(', ') || 'none yet'}`)
         return [...new Set(ids)].map(id => known(usable.find(p => p.id === id), `preset ${id}`))
     }
+}
+
+const PRESET = 'id, project, name, text, icon, color, default_key, created_at, updated_at'
+
+/** A preset as the API gives it: a default says which, and whether it's been changed since. */
+function presetOf({default_key, ...row}: PresetRow): Preset {
+    const shipped = default_key ? DEFAULT_PRESETS.find(d => d.key === default_key) : undefined
+    return {...row, ...shipped ? {default: {key: shipped.key, changed: !asShipped(row, shipped)}} : {}}
 }
