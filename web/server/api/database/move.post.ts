@@ -9,6 +9,12 @@ export default defineEventHandler(async event => {
     const before = describeDatabase()
     const moved = await moveDatabase(targetOf(body), body.how, rebindDatabase)
     const database = describeDatabase()
+    // Copied into an empty one: Orrery made it its own first (a swap to an Orrery's own is the move alone).
+    if (moved.copied) {
+        const rows = Object.values(moved.copied).reduce((sum, n) => sum + n, 0)
+        useEventLog().note({level: 'info', kind: 'database.created', message: `Made an Orrery database at ${database.where} and copied ${rows} row${rows === 1 ? '' : 's'} into it`,
+            details: {kind: database.kind, copied: moved.copied}})
+    }
     useEventLog().note({level: 'info', kind: 'database.moved', message: `Moved the database from ${before.where} to ${database.where}`,
         details: {from: before.kind, to: database.kind, how: body.how, ...moved.copied ? {copied: moved.copied} : {}}})
     return {...moved, database: {...database, ...await databaseSize(database, useDatabase())}}
