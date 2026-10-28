@@ -7,6 +7,7 @@ import type {Actor, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
 import {EVERY} from '../utils/pool'
+import {known} from '#shared/known'
 
 export abstract class SignalStore extends IssueStore {
     /** `Store` has it, with the claims on issues. */
@@ -147,14 +148,18 @@ export abstract class SignalStore extends IssueStore {
         return signal
     }
 
-    /** The owner's own words to one session, through its channel: about no issue, from no schedule. */
-    async messageSession(project: string, session: string, text: unknown, actor = AGENT): Promise<Signal> {
+    /** The owner's own words to one session, through its channel: about no issue, from no schedule. With `preset`
+     * (an id its sessions can have), they're that preset's text as the owner sent it, tweaked or not, and the
+     * message is labelled by its name. */
+    async messageSession(project: string, session: string, text: unknown, actor = AGENT, preset?: unknown): Promise<Signal> {
         if (!actor.owner) throw forbidden('Only the owner messages a session; send Orrery-Actor: <owner>')
         await this.projectRow(project)
         const note = typeof text === 'string' ? text.trim() : ''
         if (!note) throw badRequest('Send the message as {"text": "…"}')
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, 'message', note, session, actor.name, 1, stamp())
+        if (preset !== undefined && preset !== null && !Number.isInteger(preset)) throw badRequest('Send preset as a preset\'s id')
+        const from = typeof preset === 'number' ? known((await this.presetsFor(project, [preset]))[0], 'the preset').name : null
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, kind, note, preset, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, 'message', note, from, session, actor.name, 1, stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal

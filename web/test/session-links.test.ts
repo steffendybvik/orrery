@@ -20,9 +20,9 @@ beforeEach(async () => {
         claimed: async (_project: string, _issue: string, _status: unknown, _session: string, write: () => Promise<unknown>) => write(),
         createIssue: async (project: string, body: unknown) => {
             made.push(body)
-            return {project, id: 'LAR-9'}
+            return {project, id: 'GRE-9'}
         },
-        issue: async (_project: string, id: string) => id === 'LAR-7' ? {proposal: 'pending', labels: ['external']} : {labels: []},
+        issue: async (_project: string, id: string) => id === 'GRE-7' ? {proposal: 'pending', labels: ['external']} : {labels: []},
         updateIssue: async (project: string, id: string, body: {project?: string}) => ({project: body.project ?? project, id: body.project ? 'PAN-4' : id}),
     }
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
@@ -55,26 +55,26 @@ const settle = () => new Promise(resolve => setTimeout(resolve))
 describe("a session's writes", () => {
     it("are checked against the issue's claim when they comment, unless the owner makes them", async () => {
         const comment = (await import('../server/api/projects/[project]/issues/[issue]/comments/index.post')).default as unknown as (event: object) => Promise<unknown>
-        const at = {project: 'larder', issue: 'LAR-1'}
-        await comment(event('POST', '/api/projects/larder/issues/LAR-1/comments', at, {body: 'Done the hinges'}))
-        await comment(event('POST', '/api/projects/larder/issues/LAR-1/comments', at, {body: 'Without a session'}, ''))
-        const owners = {...event('POST', '/api/projects/larder/issues/LAR-1/comments', at, {body: 'Mine'}), headers: {'orrery-session': 'abc', 'orrery-actor': 'Skoll'}}
+        const at = {project: 'greenhouse', issue: 'GRE-1'}
+        await comment(event('POST', '/api/projects/greenhouse/issues/GRE-1/comments', at, {body: 'Done the hinges'}))
+        await comment(event('POST', '/api/projects/greenhouse/issues/GRE-1/comments', at, {body: 'Without a session'}, ''))
+        const owners = {...event('POST', '/api/projects/greenhouse/issues/GRE-1/comments', at, {body: 'Mine'}), headers: {'orrery-session': 'abc', 'orrery-actor': 'Skoll'}}
         await comment(owners)
-        expect(claims).toEqual([['larder', 'LAR-1', 'abc']])
+        expect(claims).toEqual([['greenhouse', 'GRE-1', 'abc']])
     })
 
     it('make an issue it creates its work, so it hears the decision on its proposal', async () => {
         const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
-        await create(event('POST', '/api/projects/larder/issues', {project: 'larder'}, {title: 'Shelves', proposal: 'pending'}))
-        await create(event('POST', '/api/projects/larder/issues', {project: 'larder'}, {title: 'Jars'}, ''))
+        await create(event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Shelves', proposal: 'pending'}))
+        await create(event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Jars'}, ''))
         await settle()
-        expect(worked).toEqual([['larder', 'LAR-9', 'abc']])
+        expect(worked).toEqual([['greenhouse', 'GRE-9', 'abc']])
     })
 
     it('follow an issue it moves to where it is now', async () => {
         const patch = (await import('../server/api/projects/[project]/issues/[issue]/index.patch')).default as unknown as (event: object) => Promise<unknown>
-        await patch(event('PATCH', '/api/projects/larder/issues/LAR-1', {project: 'larder', issue: 'LAR-1'}, {project: 'pantry'}))
-        await patch(event('PATCH', '/api/projects/larder/issues/LAR-1', {project: 'larder', issue: 'LAR-1'}, {title: 'Same place'}))
+        await patch(event('PATCH', '/api/projects/greenhouse/issues/GRE-1', {project: 'greenhouse', issue: 'GRE-1'}, {project: 'pantry'}))
+        await patch(event('PATCH', '/api/projects/greenhouse/issues/GRE-1', {project: 'greenhouse', issue: 'GRE-1'}, {title: 'Same place'}))
         await settle()
         // Staying put, the address says which, and the middleware marks it.
         expect(worked).toEqual([['pantry', 'PAN-4', 'abc']])
@@ -82,31 +82,31 @@ describe("a session's writes", () => {
 
     it('to an address with a bad escape are simply not found, not an error', async () => {
         const middleware = (await import('../server/middleware/session')).default as unknown as (event: object) => void
-        expect(() => middleware(event('PATCH', '/api/projects/larder/issues/LAR-%E0', {}))).not.toThrow()
+        expect(() => middleware(event('PATCH', '/api/projects/greenhouse/issues/GRE-%E0', {}))).not.toThrow()
         await settle()
-        expect(worked).toEqual([['larder', 'LAR-%E0', 'abc']])
+        expect(worked).toEqual([['greenhouse', 'GRE-%E0', 'abc']])
     })
 })
 
 describe("an untrusted schedule's session", () => {
     it('makes every issue it raises a proposal labelled external', async () => {
         const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
-        await create(event('POST', '/api/projects/larder/issues', {project: 'larder'}, {title: 'Run this', status: 'in-progress', priority: 'P0'}, 'locked'))
-        await create(event('POST', '/api/projects/larder/issues', {project: 'larder'}, {title: 'Mine', priority: 'P0'}))
+        await create(event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Run this', status: 'in-progress', priority: 'P0'}, 'locked'))
+        await create(event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Mine', priority: 'P0'}))
         expect(made).toEqual([{title: 'Run this', notes: undefined, proposal: 'pending', labels: ['external']}, {title: 'Mine', priority: 'P0'}])
     })
 
     it('may only raise proposals and comment on them; any other write is refused', async () => {
         const guard = (await import('../server/middleware/untrusted')).default as unknown as (event: object) => Promise<void>
         const tries = async (method: string, path: string, session = 'locked') => guard(event(method, path, {}, undefined, session)).then(() => 'ok', (e: {statusCode: number}) => e.statusCode)
-        expect(await tries('GET', '/api/projects/larder/issues/LAR-1')).toBe('ok')
-        expect(await tries('POST', '/api/projects/larder/issues')).toBe('ok')
-        expect(await tries('POST', '/api/projects/larder/issues/LAR-7/comments')).toBe('ok')
-        expect(await tries('POST', '/api/projects/larder/issues/LAR-1/comments')).toBe(403)
-        expect(await tries('PATCH', '/api/projects/larder/issues/LAR-7')).toBe(403)
-        expect(await tries('PUT', '/api/projects/larder/docs/setup')).toBe(403)
+        expect(await tries('GET', '/api/projects/greenhouse/issues/GRE-1')).toBe('ok')
+        expect(await tries('POST', '/api/projects/greenhouse/issues')).toBe('ok')
+        expect(await tries('POST', '/api/projects/greenhouse/issues/GRE-7/comments')).toBe('ok')
+        expect(await tries('POST', '/api/projects/greenhouse/issues/GRE-1/comments')).toBe(403)
+        expect(await tries('PATCH', '/api/projects/greenhouse/issues/GRE-7')).toBe(403)
+        expect(await tries('PUT', '/api/projects/greenhouse/docs/setup')).toBe(403)
         expect(await tries('POST', '/api/egress')).toBe(403)
         // Any other session writes as it always has.
-        expect(await tries('PATCH', '/api/projects/larder/issues/LAR-1', 'abc')).toBe('ok')
+        expect(await tries('PATCH', '/api/projects/greenhouse/issues/GRE-1', 'abc')).toBe('ok')
     })
 })

@@ -1,5 +1,6 @@
 // A project's roadmap as the board draws it: the server reads it from the database, places every
 // issue in a column and rolls the columns up into parents and chunks, so the page only draws.
+import type {OnFilter} from './happenings'
 import type {Instruction} from './prompt'
 
 /** What a status means, whatever it's called: Orrery's counts, progress and pages reason about kinds,
@@ -36,14 +37,13 @@ export type Column = string
 export type Place = Kind | 'proposed'
 
 /** Where a proposal stands: waiting on the owner (`pending`), or as they decided. */
-export const PROPOSALS = ['pending', 'approved', 'changes', 'rejected'] as const
-export type Proposal = (typeof PROPOSALS)[number]
+export type Proposal = 'pending' | 'approved' | 'changes' | 'rejected'
 /** What the owner can decide on a proposal. */
 export const DECISIONS = ['approved', 'changes', 'rejected'] as const
 export type Decision = (typeof DECISIONS)[number]
 
 /** One option of a choice: `A`, `B`, … or a word, with a title and (Markdown) more about it. */
-export interface ChoiceOption {
+interface ChoiceOption {
     key: string
     title: string
     body?: string
@@ -207,7 +207,7 @@ export interface Doc extends DocSummary {
 export interface Project {
     id: string
     name: string
-    /** The prefix of the issue ids the server hands out, e.g. `LAR` for `LAR-12`. */
+    /** The prefix of the issue ids the server hands out, e.g. `GRE` for `GRE-12`. */
     key: string
     description?: string
     /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
@@ -274,8 +274,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export const ACTIVITY_FIELDS = ['created', 'title', 'status', 'priority', 'assignee', 'labels', 'external', 'notes', 'chunk', 'parent', 'proposal', 'project', 'release'] as const
-export type ActivityField = (typeof ACTIVITY_FIELDS)[number]
+export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */
@@ -315,6 +314,8 @@ export interface Signal {
     schedule?: number
     kind: 'focus' | 'comment' | 'message'
     note?: string
+    /** A message the owner sent from a preset: its name, as it was then. */
+    preset?: string
     /** The session it's for; none means every session on the project. */
     target?: string
     /** The names of the sessions it reached. */
@@ -334,9 +335,11 @@ export interface ScheduleRun {
     outcome: 'made' | 'sent' | 'skipped' | 'failed'
     issue?: string
     note?: string
+    /** What an event run was about (an issue's id, a release's version), once per schedule. */
+    subject?: string
 }
 
-/** Recurring work in a project: at each time (`cron` in `timezone`, or once `at`) Orrery makes an issue
+/** Recurring work in a project: at each time (`cron` in `timezone`, once `at`, or `on` an event) Orrery makes an issue
  * from it, and with `ask` points the project's listening Claude sessions at it; or, as a `message`
  * schedule, sends `notes` to the sessions without an issue. */
 export interface Schedule {
@@ -348,6 +351,10 @@ export interface Schedule {
     notes?: string
     cron?: string
     at?: string
+    /** Runs when an event of this type happens instead of on a clock: `issue.status`, `release.*` (shared/happenings.ts). */
+    on?: string
+    /** What the event must also say: `{to: "in-review"}`, `{by: "owner"}`, `{level: "error"}`. */
+    on_filter?: OnFilter
     timezone: string
     /** Where its issues start: a status's id (not a closed one). */
     column: string
@@ -622,7 +629,7 @@ export function slugify(text: string): string {
     return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
 }
 
-/** Three capitals from the name, e.g. `LAR` for Larder. */
+/** Three capitals from the name, e.g. `GRE` for Greenhouse. */
 export function keyFor(name: string): string {
     const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
     return letters.slice(0, 3) || 'ISS'
@@ -646,3 +653,7 @@ const BARE_NAME = new RegExp(`^(${SESSION_NAMES.join('|')})( [IVXLCDM]+)?$`)
 /** Whether Orrery made the session's name up, rather than the session or its hooks giving it: `<project> · <name>` for
  * one that hears its own project, the bare name (`Odin`) for one that hears several. */
 export const madeUpName = (session: {name: string, project: string}) => session.name.startsWith(`${session.project} · `) || BARE_NAME.test(session.name)
+
+/** Its name where its project already shows beside it: `Odin` for `orrery · Odin`; any other name as it is. */
+export const nameBesideProject = (session: {name: string, project: string}) =>
+    session.name.startsWith(`${session.project} · `) ? session.name.slice(session.project.length + 3) || session.name : session.name

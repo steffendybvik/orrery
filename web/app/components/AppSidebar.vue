@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Issue, Session} from '#shared/roadmap'
+import {nameBesideProject} from '#shared/roadmap'
 
 // Every project with its progress and how many issues are started; Now across projects on top.
 const {projects, ready, live} = useRoadmaps()
@@ -278,13 +279,12 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd, session.started?.context?.presets.length ? `as ${session.started.context.presets.join(', ')}` : ''].filter(Boolean).join(' · ')"
         >
           <SessionDot :session="session" />
-          <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
-          <span class="flex min-w-0 max-w-[40%] items-center gap-1 text-[11px] text-faint">
-            <span v-if="spanLabel(session)" class="truncate">{{ spanLabel(session) }}</span>
-            <template v-else>
-              <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3" />
-              <span class="truncate">{{ project.name }}</span>
-            </template>
+          <!-- What it's working on first (ORR-330): its project, or what it spans; the name Orrery gave it after, quieter. -->
+          <span class="flex min-w-0 flex-1 items-center gap-1.5">
+            <ProjectIcon v-if="!spanLabel(session) && project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3 shrink-0" />
+            <!-- The project keeps its room; the name gives way first. -->
+            <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
+            <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
           </span>
           <span class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
         </NuxtLink>

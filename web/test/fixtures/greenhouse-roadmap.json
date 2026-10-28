@@ -1,5 +1,5 @@
 {
-  "$comment": "Larder's roadmap, an invented app for tests: chunks of work with their tasks. status: todo | doing | done. plan (open tasks): now | next | later, none = backlog. priority: P1 | P2 | P3.",
+  "$comment": "Greenhouse's roadmap, an invented app for tests: chunks of work with their tasks. status: todo | doing | done. plan (open tasks): now | next | later, none = backlog. priority: P1 | P2 | P3.",
   "chunks": [
     {
       "id": "review-fixes",

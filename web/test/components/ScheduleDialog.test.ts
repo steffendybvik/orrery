@@ -21,8 +21,8 @@ const record = (path: string) => async (event: H3Event) => {
     sent.push({method, path, actor: getHeader(event, 'orrery-actor'), ...method === 'DELETE' ? {} : {body: await readBody(event)}})
     return {}
 }
-registerEndpoint('/api/projects/larder/schedules', {method: 'POST', handler: record('schedules')})
-for (const method of ['PATCH', 'DELETE'] as const) registerEndpoint('/api/projects/larder/schedules/3', {method, handler: record('schedules/3')})
+registerEndpoint('/api/projects/greenhouse/schedules', {method: 'POST', handler: record('schedules')})
+for (const method of ['PATCH', 'DELETE'] as const) registerEndpoint('/api/projects/greenhouse/schedules/3', {method, handler: record('schedules/3')})
 
 const project = (id: string, name: string) => ({id, name, key: id.toUpperCase(), board: {chunks: [{id: 'pantry', title: 'Pantry', tasks: []}]}}) as unknown as Project
 const SWEEP = {id: 3, kind: 'message', title: 'Nudge', notes: 'Idle? Pick one.', cron: '*/15 * * * *', timezone: 'Europe/Oslo', column: 'todo', labels: [],
@@ -32,7 +32,7 @@ const mounted: VueWrapper[] = []
 beforeEach(() => {
     sent = []
     failing = false
-    useRoadmaps().projects.value = [project('larder', 'Larder')]
+    useRoadmaps().projects.value = [project('greenhouse', 'Greenhouse')]
     useAppSettings().settings.value.statuses = [{id: 'todo', name: 'Todo', kind: 'todo', color: 'blue'}] as never
 })
 afterEach(() => {
@@ -41,7 +41,7 @@ afterEach(() => {
 })
 
 async function mount(schedule?: Schedule) {
-    useSchedules().edit('larder', schedule)
+    useSchedules().edit('greenhouse', schedule)
     mounted.push(await mountSuspended(ScheduleDialog, {attachTo: document.body}))
     // Headless UI's Dialog draws in a portal on the page's body, not inside the component.
     const wrapper = new DOMWrapper(document.body)

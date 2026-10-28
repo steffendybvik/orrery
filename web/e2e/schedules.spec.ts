@@ -39,3 +39,15 @@ test('makes a schedule, keeps to its project, pauses and removes it', async ({pa
     await page.getByRole('menu').getByRole('button', {name: /Remove/}).last().click()
     await expect.poll(async () => (await api(request, 'get', '/schedules')).length).toBe(0)
 })
+
+test('runs a schedule now instead of its next run, which it skips', async ({page, request}) => {
+    const made = await api(request, 'post', '/schedules', {title: 'Water the vines', cron: '0 9 * * *', timezone: 'UTC'})
+    await page.goto('/schedules?project=vineyard')
+    await page.getByText('Water the vines').click({button: 'right'})
+    await page.getByRole('menu').getByRole('button', {name: /Run now instead of/}).click()
+    await expect(page.getByRole('menu')).toBeHidden()
+    await expect.poll(async () => (await api(request, 'get', `/schedules/${made.id}`)).runs[0]?.outcome).toBe('made')
+    const after = await api(request, 'get', `/schedules/${made.id}`)
+    expect(new Date(after.next_run).getTime() - new Date(made.next_run).getTime()).toBe(86_400_000)
+    expect(after.runs[0].note).toMatch(/^instead of \w{3} \d+ \w{3} 09:00$/)
+})

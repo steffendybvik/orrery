@@ -28,23 +28,23 @@ function refused(method: string, path: string, headers: Record<string, string> =
 
 describe('writes', () => {
     it('come from Orrery’s own page, or from no page at all', () => {
-        expect(refused('POST', '/api/projects/larder/issues')).toBeUndefined()
-        expect(refused('POST', '/api/projects/larder/issues', {origin: 'http://localhost:9000'})).toBeUndefined()
-        expect(refused('POST', '/api/projects/larder/issues', {origin: 'https://evil.example'})).toBe(403)
-        expect(refused('POST', '/api/projects/larder/issues', {origin: 'null'})).toBe(403)
+        expect(refused('POST', '/api/projects/greenhouse/issues')).toBeUndefined()
+        expect(refused('POST', '/api/projects/greenhouse/issues', {origin: 'http://localhost:9000'})).toBeUndefined()
+        expect(refused('POST', '/api/projects/greenhouse/issues', {origin: 'https://evil.example'})).toBe(403)
+        expect(refused('POST', '/api/projects/greenhouse/issues', {origin: 'null'})).toBe(403)
     })
 
     it('with an Origin that isn’t a URL are refused, not an error', () => {
-        expect(refused('POST', '/api/projects/larder/issues', {origin: 'foo'})).toBe(403)
+        expect(refused('POST', '/api/projects/greenhouse/issues', {origin: 'foo'})).toBe(403)
     })
 })
 
 describe('a session’s stream', () => {
-    const stream = '/api/projects/larder/signals/stream?session=abc&channel=no'
+    const stream = '/api/projects/greenhouse/signals/stream?session=abc&channel=no'
 
     it('opens for the channel, the launcher and curl, which send no Sec-Fetch headers', () => {
         expect(refused('GET', stream)).toBeUndefined()
-        expect(refused('GET', '/api/projects/larder/launches/stream')).toBeUndefined()
+        expect(refused('GET', '/api/projects/greenhouse/launches/stream')).toBeUndefined()
     })
 
     it('doesn’t open for a picture, on another site or in Orrery’s own page', () => {
@@ -58,7 +58,7 @@ describe('a session’s stream', () => {
     })
 
     it('leaves the other reads alone', () => {
-        expect(refused('GET', '/api/projects/larder/issues', {'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image'})).toBeUndefined()
+        expect(refused('GET', '/api/projects/greenhouse/issues', {'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image'})).toBeUndefined()
         expect(refused('GET', '/api/events', {'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'empty'})).toBeUndefined()
     })
 })

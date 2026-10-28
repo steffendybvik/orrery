@@ -11,6 +11,7 @@ import type {Instruction} from '#shared/prompt'
 import type {IssueRecord, ChunkRecord, Actor, ProjectRow, ChunkRow, IssueRow, CommentRow, DocRow, ReleaseRow} from './schema'
 import {OPEN_ASK, tallyReleases, releaseOf, noReleases, nullable, stamp, summaryOf, matchOf} from './schema'
 import {known} from '#shared/known'
+import type {OrreryEvent} from '#shared/happenings'
 
 export abstract class StoreBase {
     constructor(
@@ -26,6 +27,15 @@ export abstract class StoreBase {
 
     /** Whether a session on the project is there to hear a signal now; the server sets it from its sessions. */
     hears: (project: string, session: string) => boolean = () => true
+
+    /** Hears what happens (`issue.status`, `release.frozen`…), for the schedules that run on it; the server sets it. */
+    happened: (event: OrreryEvent) => void = () => {}
+
+    /** Says what happened, as `actor` did it. */
+    protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
+        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner},
+            ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
+    }
 
     /** Projects changed while a batch runs, said once it ends rather than once per issue. */
     protected held: Set<string> | null = null
@@ -328,6 +338,8 @@ export abstract class StoreBase {
             const [from, to] = field === 'notes' ? [null, null] : [before, nullable(after)]
             await this.run('INSERT INTO issue_events (project, issue, field, before, after, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 project, issue, field, from, to, actor.name, Number(actor.owner), now)
+            // Text an outsider may have written (a title, its links) isn't passed on: the issue's id is, to read.
+            this.tell(`issue.${field}`, project, issue, actor, field === 'title' || field === 'external' ? {} : {from, to})
         }
     }
 

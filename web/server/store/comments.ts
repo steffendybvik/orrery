@@ -46,6 +46,7 @@ export abstract class CommentStore extends SignalStore {
             return id
         })
         this.changed(project)
+        this.tell(input.asks ? 'comment.asks' : 'comment.added', project, issue, actor, input.asks ? {to: String(input.asks)} : {})
         if (actor.owner) await this.carryComment(project, issue, String(input.body), actor)
         else this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
         return await this.comment(project, issue, id)
