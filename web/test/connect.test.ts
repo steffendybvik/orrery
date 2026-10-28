@@ -114,8 +114,10 @@ describe('who is asking', () => {
         const store = new Store(testDb())
         await store.nameOwner({name: 'Sköll Fenrisson'})
         let header: string | undefined
+        let untrusted = false
         vi.stubGlobal('useStore', () => store)
         vi.stubGlobal('getHeader', () => header)
+        vi.stubGlobal('untrustedWrite', () => untrusted)
         const {actorOf} = await import('../server/utils/actor')
         const asking = (value?: string) => {
             header = value
@@ -126,5 +128,8 @@ describe('who is asking', () => {
         expect(await asking(undefined)).toEqual({name: 'agent', owner: false})
         expect(await asking('   ')).toEqual({name: 'agent', owner: false})
         expect((await asking('x'.repeat(80))).name).toHaveLength(60)
+        // An untrusted schedule's session is marked so, so its writes set off no schedule.
+        untrusted = true
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, untrusted: true})
     })
 })

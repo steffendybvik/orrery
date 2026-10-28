@@ -59,10 +59,12 @@ export interface ChunkRecord extends Omit<Chunk, 'tasks'> {
     issues: string[]
 }
 
-/** Who's asking, by the name it gives; `owner` when that's the owner's name. */
+/** Who's asking, by the name it gives; `owner` when that's the owner's name; `untrusted` for an untrusted schedule's
+ * session, whose writes set no schedule off. */
 export interface Actor {
     name: string
     owner: boolean
+    untrusted?: boolean
 }
 
 export const AGENT: Actor = {name: 'agent', owner: false}

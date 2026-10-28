@@ -236,7 +236,8 @@ export class Schedules {
     private hearing: Promise<unknown> = Promise.resolve()
 
     /** Runs the event schedules `event` is for, each once per subject and not within a minute of its last run; none when a
-     * schedule's run (`cause`) did it, so one can't set another off, or itself. Says how many ran. */
+     * schedule's run (`cause`) did it, so one can't set another off, or itself, nor when an untrusted schedule's session
+     * did, so what outsiders wrote can't start a session with the owner's permissions. Says how many ran. */
     hear(event: OrreryEvent, cause?: number, now = new Date()): Promise<number> {
         const heard = this.hearing.then(() => this.hearOne(event, cause, now))
         this.hearing = heard.catch(() => {})
@@ -244,7 +245,7 @@ export class Schedules {
     }
 
     private async hearOne(event: OrreryEvent, cause: number | undefined, now: Date): Promise<number> {
-        if (cause !== undefined) return 0
+        if (cause !== undefined || event.untrusted) return 0
         const rows = await this.db.all<ScheduleRow>(`SELECT * FROM schedules WHERE enabled = 1 AND on_event IS NOT NULL${event.project ? ' AND project = ?' : ''}`,
             ...event.project ? [event.project] : [])
         let ran = 0
