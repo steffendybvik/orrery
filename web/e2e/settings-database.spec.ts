@@ -84,3 +84,36 @@ test('backs up to a folder chosen in App settings, and turns them off again', as
     await expect(section).not.toContainText('Backed up to')
     await expect(section.getByRole('textbox', {name: 'Backup folder'})).toHaveValue(folder)
 })
+
+// Restoring a backup from App settings (ORR-448): a project made after the day's copy is gone once that copy is
+// restored, and orrery runs on a copy of it, the database it ran on kept as it was. Then it's moved back, the project
+// removed and backups turned off again, as the files after this one expect.
+test('restores a backup picked in App settings', async ({page, request}) => {
+    test.skip(!!process.env.E2E_POSTGRES_URL, 'orrery restores from the app only on SQLite')
+    const folder = mkdtempSync(join(tmpdir(), 'orrery-e2e-restore-'))
+    const before = (await (await request.get('/api/settings')).json()).database
+    expect((await request.put('/api/backups', {headers: OWNER, data: {on: true, folder, every: 'hour'}})).ok()).toBe(true)
+    expect(existsSync(join(folder, 'orrery.db'))).toBe(true)
+    const name = `Restored away ${Date.now()}`
+    const made = await (await request.post('/api/projects', {headers: OWNER, data: {name, key: 'RAW', release_mode: 'own'}})).json()
+    try {
+        await page.goto('/settings#database')
+        const section = page.locator('#database')
+        await section.getByRole('button', {name: 'Restore a backup…'}).click()
+        const list = section.locator('[data-backup-restore]')
+        await list.locator('label', {hasText: 'Daily'}).getByRole('radio').check()
+        await list.getByRole('button', {name: 'Restore it'}).click()
+        await expect(section).toContainText('moved here from App settings')
+        const after = (await (await request.get('/api/settings')).json()).database
+        expect(after.where).toMatch(/orrery-restored-[\dT-]+\.db$/)
+        expect((await (await request.get('/api/projects')).json()).map((p: {name: string}) => p.name)).not.toContain(name)
+        // The database as it was, the project in it, waits in the backup folder.
+        const {snapshots} = await (await request.get('/api/backups')).json()
+        expect(snapshots.some((s: {name: string}) => /^orrery-pre-restore-/.test(s.name))).toBe(true)
+    } finally {
+        await request.post('/api/database/move', {headers: OWNER, data: {kind: 'sqlite', path: before.where, how: 'use'}})
+        await request.delete(`/api/projects/${made.id}`, {headers: OWNER})
+        await request.put('/api/backups', {headers: OWNER, data: {on: false}})
+    }
+    expect((await (await request.get('/api/settings')).json()).database).toMatchObject({where: before.where})
+})

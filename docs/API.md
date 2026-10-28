@@ -336,7 +336,13 @@ inside the container. And `backed_up_at` when the latest backup there was made, 
 its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
 it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABASE` names Postgres), and `moved` that it
 was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
-a backup folder. `backups_settable` is what App settings can change about backups: `folder` (whether they run, and
+a backup folder. `GET /backups` lists the backups in the folder to restore from: `{snapshots, fresh, restorable,
+environment, docker}`, each snapshot `{name, kind, at, size, of?, environment?, projects?}` (`kind` `latest`, `daily`
+or `before`, for one taken before an upgrade or a restore; `of` the id of the orrery it's a copy of), `fresh` when this
+one is new (no projects, no owner), `restorable` when the app can restore (a SQLite orrery). `POST /backups/restore
+{name}` runs on a copy of that backup, after checking it and keeping the database as it was in the backup folder, and
+answers with `{database}`: the owner's from localhost, or anyone's on this machine while the orrery is new; 409 on
+Postgres. `backups_settable` is what App settings can change about backups: `folder` (whether they run, and
 where) or `switch` (only whether, in Docker); left out when `ORRERY_DATABASE` names Postgres. `backups_off` says the
 owner turned them off, `backup_folder` the folder they chose (kept while off), `backup_postgres` the Postgres database
 they chose (`user@host:port/name`, kept while off), and `backup_default` `NUXT_BACKUP_DIR`. Backed up into Postgres,

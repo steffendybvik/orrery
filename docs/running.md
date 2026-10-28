@@ -45,8 +45,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 
 ## Backups
 
-A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks (both can be changed, below). A new, empty
-volume starts from the latest one. The live file never goes in the backup folder: a synced SQLite
+A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks (both can be changed, below). The live file never goes in the backup folder: a synced SQLite
 file gets corrupted, a snapshot doesn't. On Postgres it's a SQLite snapshot of the database, made a minute after
 a change, or at most ten minutes after the first while changes keep coming (the whole database is copied each time), so a backup opens anywhere and a new SQLite orrery starts from
 it. App settings → This orrery → Database says when the latest was made, with **Back up now**. It marks the latest
@@ -56,6 +55,25 @@ Every copy is written beside the one it replaces and checked (SQLite's `quick_ch
 A copy that fails the check is let go, the one before stays, and the failure goes in the event log as `backup.failed`.
 The copy taken before an upgrade (`orrery-pre-<version>.db`) is made the same way. If it can't be made, orrery stops
 with the reason instead of upgrading a database it has no copy of.
+
+### Restoring
+
+A new orrery whose database is empty (no projects, no owner yet) never starts from a backup by itself. When its backup
+folder has backups, the first page asks: **Found backups. Restore one?** It lists them with their date, size, projects
+and the orrery each is a copy of (its name, `ORRERY_ENVIRONMENT`, and id), and marks one from another orrery. Pick one,
+or **Start fresh**. Until you've chosen, the empty one isn't backed up over them. In Docker, an orrery that starts
+empty with no backups says (on that page and in the log) that its data may be in another volume: a folder with
+another name gives another one, see `docker volume ls`.
+
+On a SQLite orrery, App settings → This orrery → Database → **Restore a backup…** does the same at any time. It
+checks the backup whole first (`integrity_check`), then copies the database as it is now into the backup folder
+(`orrery-pre-restore-<time>.db`). It then runs on a copy of the backup, `orrery-restored-<time>.db` beside the
+database, from then on (as a move does, without a restart). The file it ran on stays as it was. On Postgres, restore
+with Postgres's own tools.
+
+When the latest backup in the folder is another orrery's (one started fresh over a folder of backups, or two sharing a
+folder), it's set aside as `orrery-pre-other-<time>.db` rather than written over. Give each orrery its own folder all
+the same.
 
 The backups can be set there too, from this machine: **Back up this orrery** turns them off or on, and, outside
 Docker, a folder takes them instead of `NUXT_BACKUP_DIR` (**Back up here** makes one there at once, so a folder that
