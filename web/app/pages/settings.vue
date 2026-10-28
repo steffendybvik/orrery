@@ -151,13 +151,20 @@ async function backUpNow() {
     }
 }
 
-// Whether the database is backed up, and to which folder (outside Docker): ticked or saved, and turned on it's backed
-// up there at once, so a folder that won't take it says so here.
+// Whether the database is backed up, and where: a folder (outside Docker, any; in it, ORRERY_BACKUP's), or a Postgres
+// database (ORR-427). Ticked or saved, and turned on it's backed up there at once, so a place that won't take it says
+// so here. The kind starts on where they go now, else on the database's own kind.
+type BackupKind = 'folder' | 'postgres'
+const BACKUP_KINDS: {value: BackupKind, label: string}[] = [{value: 'folder', label: 'Folder'}, {value: 'postgres', label: 'Postgres'}]
+const backupKind = ref<BackupKind>('folder')
 const backupFolder = ref('')
+const backupUrl = ref('')
 const settingBackups = ref(false)
 const backupsFailed = ref('')
 watch(() => settings.value.database, now => {
-    backupFolder.value = now?.backup_folder ?? now?.backup ?? now?.backup_default ?? ''
+    backupFolder.value = now?.backup_folder ?? (now?.backup_kind ? '' : now?.backup) ?? now?.backup_default ?? ''
+    backupKind.value = now?.backup_kind === 'postgres' || now?.backup_postgres || (!now?.backup && now?.kind === 'postgres') ? 'postgres' : 'folder'
+    backupUrl.value = ''
 }, {immediate: true})
 async function putBackups(body: object) {
     settingBackups.value = true
@@ -172,7 +179,10 @@ async function putBackups(body: object) {
     }
 }
 function setBackups(on: boolean, folder: string | null = backupFolder.value.trim() || null) {
-    return putBackups(settings.value.database?.backups_settable === 'folder' ? {on, folder} : {on})
+    // Postgres with no URL typed keeps the one chosen before, whose password the page doesn't have. A folder says so
+    // (`null`: orrery's own), so it isn't taken for that Postgres database.
+    return putBackups(backupKind.value === 'postgres' ? (backupUrl.value.trim() ? {on, postgres: backupUrl.value.trim()} : {on})
+        : settings.value.database?.backups_settable === 'folder' ? {on, folder} : {on, folder: null})
 }
 
 // How often it backs up and how many daily copies stay (ORR-445), each saved as it's picked.
@@ -410,12 +420,26 @@ async function pick(tint: string | null) {
                 type="checkbox"
                 class="accent-accent-500"
                 :checked="!!settings.database.backup"
-                :disabled="settingBackups || (settings.database.backups_settable === 'switch' && !settings.database.backup_default)"
+                :disabled="settingBackups || (backupKind === 'postgres' ? !backupUrl.trim() && !settings.database.backup_postgres : settings.database.backups_settable === 'switch' && !settings.database.backup_default)"
                 @change="setBackups(($event.target as HTMLInputElement).checked)"
             >
             Back up this orrery
           </label>
-          <form v-if="settings.database.backups_settable === 'folder'" class="flex flex-wrap items-center gap-2" @submit.prevent="setBackups(true)">
+          <SegmentedControl v-model="backupKind" :options="BACKUP_KINDS" class="self-start" />
+          <form v-if="backupKind === 'postgres'" class="flex flex-wrap items-center gap-2" @submit.prevent="setBackups(true)">
+            <input
+                v-model="backupUrl"
+                type="password"
+                aria-label="Postgres URL for the backups"
+                :placeholder="settings.database.backup_postgres ? 'Another Postgres URL, to back up there instead' : 'postgres://user:password@host:5432/name'"
+                autocomplete="off"
+                spellcheck="false"
+                class="h-8 w-[28rem] max-w-full field font-mono"
+                @keydown.esc="backupUrl = ''; ($event.target as HTMLInputElement).blur()"
+            >
+            <UiButton type="submit" :disabled="settingBackups || !backupUrl.trim()">{{ settingBackups ? 'Backing up…' : 'Back up there' }}</UiButton>
+          </form>
+          <form v-else-if="settings.database.backups_settable === 'folder'" class="flex flex-wrap items-center gap-2" @submit.prevent="setBackups(true)">
             <input
                 v-model="backupFolder"
                 aria-label="Backup folder"
@@ -432,7 +456,7 @@ async function pick(tint: string | null) {
               How often
               <SegmentedControl v-model="backupEvery" :options="BACKUP_EVERY" aria-label="How often to back up" />
             </span>
-            <label class="flex items-center gap-2">
+            <label v-if="settings.database.backup_kind !== 'postgres'" class="flex items-center gap-2">
               Daily copies kept
               <input
                   v-model.number="backupKeep"
@@ -447,15 +471,20 @@ async function pick(tint: string | null) {
             </label>
           </div>
           <p class="text-xs text-faint">
-            <template v-if="settings.database.backups_settable === 'folder'">A folder that syncs off this machine is best. Turned on, it's backed up there at once.</template>
+            <template v-if="backupKind === 'postgres'">
+              An empty Postgres database, or this orrery's backup from before: each backup takes the place of the last, and a database
+              holding another orrery is left alone. To restore, run on it (Move to another database…, then run on it as it is).
+            </template>
+            <template v-else-if="settings.database.backups_settable === 'folder'">A folder that syncs off this machine is best. Turned on, it's backed up there at once.</template>
             <template v-else-if="settings.database.backup_default">In Docker the backups go to <code>/backup</code>: choose its folder on this machine with <code>ORRERY_BACKUP</code>.</template>
             <template v-else>Give orrery a folder for its backups with <code>ORRERY_BACKUP</code>.</template>
-            <template v-if="settings.database.backup"> Each backup writes the whole database again, so a synced folder uploads it each time: back up less often to upload less. The daily copies are most of the folder's size.</template>
+            <template v-if="settings.database.backup && settings.database.backup_kind !== 'postgres'"> Each backup writes the whole database again, so a synced folder uploads it each time: back up less often to upload less. The daily copies are most of the folder's size.</template>
           </p>
           <p v-if="backupsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ backupsFailed }}</p>
         </div>
         <p v-else-if="settings.database && !settings.database.backup" class="text-xs text-faint">
-          Not backed up: give orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker).
+          Not backed up: give orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker),
+          or a Postgres database with <code>ORRERY_BACKUP_DATABASE</code> (<code>NUXT_BACKUP_DATABASE</code>).
         </p>
         <DatabaseMove v-if="settings.database?.movable" :database="settings.database" />
         <p v-else-if="settings.database" class="text-xs text-faint">

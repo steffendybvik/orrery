@@ -1,7 +1,8 @@
 // Copies a whole orrery from one database to another, each SQLite or Postgres: `pnpm orrery:copy`, to move to
-// Postgres or back, and a Postgres orrery's backups, a SQLite snapshot. Every table is read in one transaction, so
-// what's copied is one moment's, then written in order, ids kept, in one transaction; the target must be empty
-// (no projects yet), and both are brought up to the latest schema first.
+// Postgres or back, and the backups, a SQLite snapshot or a Postgres database. Every table is read in one transaction,
+// so what's copied is one moment's, then written in order, ids kept, in one transaction; the target must be empty
+// (no projects yet), unless `replace` empties it in that same transaction (a backup taking the place of the last, which
+// stays whole if this one fails), and both are brought up to the latest schema first.
 import type {Db} from './database'
 import {one} from './database'
 
@@ -11,8 +12,9 @@ export const COPIED_TABLES = ['statuses', 'settings', 'projects', 'releases', 'c
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
 const NUMBERED = ['comments', 'issue_events', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
 
-export async function copyDatabase(source: Db, target: Db): Promise<Record<string, number>> {
-    if ((await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')).n) throw new Error('The target already has projects: copy into an empty orrery')
+/** `mark` is written into the target's settings as `backup_of`: the id of the orrery it's a backup of. */
+export async function copyDatabase(source: Db, target: Db, {replace = false, mark}: {replace?: boolean, mark?: string} = {}): Promise<Record<string, number>> {
+    if (!replace && (await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')).n) throw new Error('The target already has projects: copy into an empty orrery')
     // Read first, all of it in one transaction (on Postgres one snapshot of it), so a write while it copies a
     // running orrery can't leave a row pointing at one that isn't there.
     const rows = await source.transaction(async () => {
@@ -24,6 +26,7 @@ export async function copyDatabase(source: Db, target: Db): Promise<Record<strin
     const copied: Record<string, number> = {}
     await target.transaction(async () => {
         await target.deferConstraints()
+        if (replace) for (const table of [...COPIED_TABLES].reverse()) await target.run(`DELETE FROM ${table}`)
         // A new database starts with the default statuses, and may have had the presets orrery ships seeded; the source's replace them.
         await target.run('DELETE FROM statuses')
         await target.run('DELETE FROM settings')
@@ -37,6 +40,8 @@ export async function copyDatabase(source: Db, target: Db): Promise<Record<strin
             }
             copied[table] = rows[table]?.length ?? 0
         }
+        // Over the source's own, if it was started from a backup.
+        if (mark) await target.run('INSERT INTO settings (key, value) VALUES (\'backup_of\', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value', JSON.stringify(mark))
         if (target.dialect === 'postgres') {
             for (const table of NUMBERED) {
                 await target.run(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), coalesce((SELECT max(id) FROM ${table}), 0) + 1, false)`)

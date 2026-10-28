@@ -34,6 +34,9 @@ export default defineNuxtConfig({
         // In Docker, the address compose publishes orrery on (ORRERY_HOST): moving the database and setting backups
         // from the app need it to be loopback, as the container can't tell who's connecting. Compose sets NUXT_LISTEN_HOST.
         listenHost: '',
+        // A Postgres database's URL for the backups, in place of the folder (ORR-427). Compose sets NUXT_BACKUP_DATABASE
+        // from ORRERY_BACKUP_DATABASE.
+        backupDatabase: '',
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',

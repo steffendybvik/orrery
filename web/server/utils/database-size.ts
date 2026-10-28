@@ -8,7 +8,7 @@ import type {Db} from './database'
 
 export async function databaseSize(info: DatabaseInfo, db: Db): Promise<{size?: number, backup_size?: number}> {
     const size = info.kind === 'postgres' ? await postgresSize(db) : sqliteSize(info.where)
-    const backup = info.backup ? folderSize(info.backup) : undefined
+    const backup = info.backup && !info.backup_kind ? folderSize(info.backup) : undefined
     return {...size === undefined ? {} : {size}, ...backup === undefined ? {} : {backup_size: backup}}
 }
 

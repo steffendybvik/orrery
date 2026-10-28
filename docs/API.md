@@ -338,14 +338,19 @@ it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABAS
 was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
 a backup folder. `backups_settable` is what App settings can change about backups: `folder` (whether they run, and
 where) or `switch` (only whether, in Docker); left out when `ORRERY_DATABASE` names Postgres. `backups_off` says the
-owner turned them off, `backup_folder` the folder they chose (kept while off), and `backup_default` `NUXT_BACKUP_DIR`.
+owner turned them off, `backup_folder` the folder they chose (kept while off), `backup_postgres` the Postgres database
+they chose (`user@host:port/name`, kept while off), and `backup_default` `NUXT_BACKUP_DIR`. Backed up into Postgres,
+`backup` is that database without its password and `backup_kind` is `postgres`.
 `backup_every` is how often it backs up (`change`, a few seconds after one, or at most once every `15m`, `hour` or
-`day`, and then only when something changed), and `backup_keep` how many daily copies stay (14 unless chosen).
-`PUT /backups {on?, folder?, every?, keep?}` (the owner's, from this machine, 403 from any other, and in Docker while `ORRERY_HOST` opens it to the network) sets them: `folder` a full path
-instead of `NUXT_BACKUP_DIR`, `null` or none back to it. Turned on, it's backed up there at once, and kept only if that
+`day`, and then only when something changed), and `backup_keep` how many daily copies stay in a folder (14 unless
+chosen; into Postgres only the latest is kept).
+`PUT /backups {on?, folder?, every?, keep?}` or `{on, postgres, every?, keep?}` (the owner's, from this machine, 403 from any other, and in Docker while `ORRERY_HOST` opens it to the network) sets them: `folder` a full path
+instead of `NUXT_BACKUP_DIR`, `null` or none back to it; `postgres` a Postgres URL to back up into instead, an empty
+database or this orrery's backup already (400 for one holding another orrery, or the one it runs on). `{on}` alone keeps
+backing up into the Postgres database chosen before. Turned on, it's backed up there at once, and kept only if that
 worked (400 when it can't be, or the folder holds the database); 409 for a folder in Docker, on with nowhere to go, or
 when `ORRERY_DATABASE` names Postgres. `every` and `keep` (1 to 365) change only how often and how many, alone or with
-`on`; `folder` comes with `on`. → `database`.
+`on`; `folder` and `postgres` come with `on`. → `database`.
 
 The owner moves it from this machine (403 from any other, judged by where the connection comes from, not its `Host`; in Docker, 403 while `ORRERY_HOST` opens it to the network): `POST /database/check {kind: "sqlite", path}` or
 `{kind: "postgres", url}` says what's there without changing it, `{kind, where, state, projects?}`, `state` `empty`,

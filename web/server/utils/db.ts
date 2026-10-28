@@ -2,8 +2,8 @@
 // `node:sqlite` is synchronous, so writes from several sessions never interleave. The owner can move it from App
 // settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
 import {chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
-import {lastBackup, restoreBackup} from './backup'
-import {backupChoice, backupChoiceFile, backupDir, backupEvery, backupKeep, defaultBackupDir, inDocker} from './backup-choice'
+import {lastBackup, lastPostgresBackup, restoreBackup} from './backup'
+import {backupChoice, backupChoiceFile, backupDir, backupEvery, backupKeep, backupTarget, defaultBackupDir, inDocker} from './backup-choice'
 import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
@@ -735,19 +735,21 @@ function saveDatabaseSetting(setting: string) {
 export function describeDatabase(): DatabaseInfo {
     const config = useRuntimeConfig()
     const setting = databaseSetting()
-    const dir = backupDir()
-    const at = dir ? lastBackup(dir) : undefined
+    const target = backupTarget()
+    const dir = target?.kind === 'folder' ? target.dir : ''
+    const at = dir ? lastBackup(dir) : target?.kind === 'postgres' ? lastPostgresBackup(target.url) : undefined
     const base = String(config.public?.repoDir ?? '')
     // Under Docker, where each is on the computer too (`/data` and `/backup` mean nothing there): ORR-399.
     const backupOn = dir ? onHost(resolve(dir), '/backup', String(config.backupHost ?? ''), base) : {}
     const backup = dir ? {
         backup: resolve(dir), ...at ? {backed_up_at: at} : {},
         ...backupOn.host ? {backup_host: backupOn.host} : {}, ...backupOn.volume ? {backup_volume: backupOn.volume} : {},
-    } : {}
+    } : target?.kind === 'postgres' ? {backup: hidePassword(target.url), backup_kind: 'postgres' as const, ...at ? {backed_up_at: at} : {}} : {}
     const how = movedFile() ? {movable: true, ...chosen ? {moved: true} : {}} : {}
     const choice = backupChoice()
     const settable = backupChoiceFile() ? {backups_settable: inDocker() ? 'switch' as const : 'folder' as const} : {}
     const backups = {...settable, ...choice?.on === false ? {backups_off: true} : {}, ...choice?.folder ? {backup_folder: choice.folder} : {},
+        ...choice?.postgres ? {backup_postgres: hidePassword(choice.postgres)} : {},
         ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}, backup_every: backupEvery(), backup_keep: backupKeep()}
     if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup, ...backups}
     return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup, ...backups}
