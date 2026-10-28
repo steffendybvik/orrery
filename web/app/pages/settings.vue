@@ -320,9 +320,10 @@ async function pick(tint: string | null) {
         </header>
         <dl v-if="settings.database" class="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-[13px]">
           <dt class="text-muted">{{ settings.database.kind === 'postgres' ? 'Postgres' : 'SQLite file' }}</dt>
-          <dd class="flex min-w-0 items-center gap-1.5">
-            <code class="truncate font-mono text-xs text-fg" :title="settings.database.where">{{ settings.database.where }}</code><CopyButton :text="settings.database.where" />
-            <span v-if="settings.database.moved" class="shrink-0 text-xs text-faint">moved here from App settings</span>
+          <dd class="min-w-0">
+            <DatabasePlace :path="settings.database.where" :host="settings.database.host" :volume="settings.database.volume">
+              <span v-if="settings.database.moved" class="shrink-0 text-xs text-faint">moved here from App settings</span>
+            </DatabasePlace>
           </dd>
           <template v-if="settings.database.size !== undefined">
             <dt class="text-muted">Size</dt>
@@ -330,7 +331,7 @@ async function pick(tint: string | null) {
           </template>
           <template v-if="settings.database.backup">
             <dt class="text-muted">Backed up to</dt>
-            <dd class="flex min-w-0 items-center gap-1.5"><code class="truncate font-mono text-xs text-fg" :title="settings.database.backup">{{ settings.database.backup }}</code><CopyButton :text="settings.database.backup" /></dd>
+            <dd class="min-w-0"><DatabasePlace :path="settings.database.backup" :host="settings.database.backup_host" :volume="settings.database.backup_volume" /></dd>
             <template v-if="settings.database.backup_size !== undefined">
               <dt class="text-muted">Backups</dt>
               <dd class="text-fg tabular-nums" :title="`${settings.database.backup_size.toLocaleString()} bytes`">{{ bytes(settings.database.backup_size) }}</dd>

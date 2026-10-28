@@ -324,9 +324,12 @@ projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dang
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
 `GET /settings` says the orrery's `id` (made once, when it first starts) and `environment`: a channel given
 `ORRERY_ID` refuses an orrery with another id. It also says where the data is, read only: `database: {kind, where,
-backup?, backed_up_at?, size?, backup_size?}`, `kind` `sqlite` (`where` the file's path) or `postgres` (`where` as
-`user@host:port/name`, never the password), `backup` the folder it's backed up to, if any (a Postgres one as a SQLite
-snapshot), and `backed_up_at` when the latest backup there was made. `size` is how big it is in bytes (a SQLite file with
+host?, volume?, backup?, backup_host?, backup_volume?, backed_up_at?, size?, backup_size?}`, `kind` `sqlite` (`where`
+the file's path, as orrery opens it) or `postgres` (`where` as `user@host:port/name`, never the password), `backup` the
+folder it's backed up to, if any (a Postgres one as a SQLite snapshot). Under Docker, `host` is where the SQLite file is
+on the computer (from `ORRERY_DATA`, a relative one from the compose folder) or `volume` the Docker volume it's in, and
+`backup_host` / `backup_volume` the same for the backup folder (`ORRERY_BACKUP`); `where` and `backup` stay the paths
+inside the container. And `backed_up_at` when the latest backup there was made. `size` is how big it is in bytes (a SQLite file with
 its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
 it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABASE` names Postgres), and `moved` that it
 was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
