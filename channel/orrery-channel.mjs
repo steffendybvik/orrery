@@ -22,6 +22,7 @@ import {serverName} from './server-name.mjs'
 import {claudeWindow} from './session.mjs'
 import {follow} from './sse.mjs'
 import {orreryTools, toolsFor} from './tools.mjs'
+import {VERSION} from './version.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 const listed = (process.env.ORRERY_PROJECTS || process.env.ORRERY_PROJECT || basename(process.cwd())).split(',').map(p => p.trim()).filter(Boolean)
@@ -42,7 +43,7 @@ const untrusted = process.env.ORRERY_UNTRUSTED === 'yes'
 /** Started for the owner's chat (the launcher says, in ORRERY_CHAT): the launch, which is the chat's id. It answers in
  * the chat, and says so on all it sends. */
 const chat = process.env.ORRERY_CHAT === 'yes' ? process.env.ORRERY_STARTED : undefined
-const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes', chat: chat && 'yes'})
+const who = new URLSearchParams(Object.entries({session: window.id, pid: window.pid, name: window.name, stops: window.pid && 'yes', untrusted: untrusted && 'yes', chat: chat && 'yes', version: VERSION})
     .filter(([, v]) => v).map(([k, v]) => [k, String(v)]))
 /** The project Orrery started the session for (the launcher says, in ORRERY_PROJECT), whose stream says so. */
 const startedFor = () => process.env.ORRERY_STARTED && (projects.includes(process.env.ORRERY_PROJECT) ? process.env.ORRERY_PROJECT : projects[0])
@@ -50,7 +51,7 @@ const startedFor = () => process.env.ORRERY_STARTED && (projects.includes(proces
 let refused = ''
 
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
-const server = new Server({name: 'orrery', version: '1.0.0'}, {
+const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
     instructions: chat ? [
         `Orrery (${base}) keeps this repo's roadmap as ${serves}. This session is the owner's chat: their messages arrive as <channel ...> blocks,`,

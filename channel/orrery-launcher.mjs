@@ -24,7 +24,9 @@
 // to claim a launch starts it. Stopping the launcher stops the sessions it started; one that dies instead (a
 // crash, the service restarting it) takes its project's sessions back when it starts again, as each keeps its
 // stop time (or `never`) and its launcher's pid in tmux, and tells Orrery which it runs whenever it connects. A
-// second launcher leaves alone the sessions of one that's still running, so stopping it can't stop them. It
+// second launcher leaves alone the sessions of one that's still running, so stopping it can't stop them. As the
+// service, once an Orrery it serves runs other code and its checkout has been updated, it restarts itself on the new
+// code when it has no session running. It
 // answers the warning Claude Code shows for the channel flag on every start (the channel is the repo's own); run
 // the channel command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
@@ -36,6 +38,7 @@ import {chatOnly, lockedDown} from './locked-down.mjs'
 import {channelFor, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
+import {VERSION, launcherMove, versionOnDisk} from './version.mjs'
 
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
@@ -134,6 +137,27 @@ async function stop(id, why) {
         // It had ended on its own.
     }
     await fetch(`${session.api}/launches/${id}/ended`, {method: 'POST'}).catch(() => {})
+    restartIfBehind()
+}
+
+/** The version each Orrery it serves runs, as its stream said on connecting. */
+const orreryVersions = new Map()
+let toldBehind = ''
+/** An Orrery running other code than this launcher (ORR-434): as the service, with no session of its own running, it
+ * exits once the checkout it runs from has moved on, and launchd or systemd starts it again on that code (it comes back
+ * when it exits with a failure). Until the checkout is updated, it says so once. */
+function restartIfBehind() {
+    const theirs = [...orreryVersions.values()]
+    const disk = versionOnDisk()
+    const move = launcherMove({theirs, mine: VERSION, disk, running: running.size, service: args.includes('--service')})
+    const other = theirs.find(v => v !== VERSION)
+    if (move === 'tell' && toldBehind !== other) {
+        toldBehind = other
+        log(`Orrery runs ${other} and this launcher ${VERSION}: update the checkout it runs from (git pull), and it restarts itself`)
+    } else if (move === 'restart') {
+        log(`restarting on ${disk}, the code now in its checkout`)
+        process.exit(75)
+    }
 }
 
 /** Opens a terminal window on this machine attached to a session it started, as the owner pressing Watch asks, in
@@ -343,11 +367,13 @@ function serve({url, project, dir}) {
     return follow({
         // The folder it serves from, so Orrery knows which projects share one and can share a session, and whether its
         // channel serves every project, so a session started here hearing no one project hears them all.
-        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}`,
+        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 await report(api)
-                const {starts} = JSON.parse(data)
+                const {starts, version} = JSON.parse(data)
+                if (version) orreryVersions.set(url, version)
+                restartIfBehind()
                 log(starts
                     ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
                     : "connected, but Orrery doesn't start sessions yet: turn it on under Starting sessions, on its Sessions page")
