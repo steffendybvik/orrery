@@ -1,9 +1,9 @@
-// Sessions Orrery starts itself, with no terminal. When the owner's signal reaches a project nobody is
-// listening on, and the owner lets Orrery start sessions (the Orrery's `starts`), Orrery asks the
+// Sessions orrery starts itself, with no terminal. When the owner's signal reaches a project nobody is
+// listening on, and the owner lets orrery start sessions (the orrery's `starts`), orrery asks the
 // project's launchers (channel/orrery-launcher.mjs, running on the host in the repo) to start one in tmux,
 // within the limit, which counts every session it has started, whatever the project. The first launcher to
 // claim the launch starts it; its channel catches up from that signal. The session runs until the owner stops
-// it, or Orrery has its launcher stop it once its time is up or it has sat idle too long (the setting's `minutes`
+// it, or orrery has its launcher stop it once its time is up or it has sat idle too long (the setting's `minutes`
 // and `idle_minutes`, when set), and only while it's idle with nothing open.
 import {randomBytes} from 'node:crypto'
 import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
@@ -15,7 +15,7 @@ import {scheduleRunning} from './schedules'
  * catch up from; `minutes` how long it has, none until stopped; `tmux` names the tmux session it runs in;
  * `context` what the owner gave it to go on; `hears` the projects its session hears (its own first), which
  * the launcher passes on as ORRERY_HEAR; none, as its repo's channel says. `untrusted` for an untrusted schedule's
- * run: the launcher starts it locked down (only the Orrery tools, `github_issues` among them), and only a launcher
+ * run: the launcher starts it locked down (only the orrery tools, `github_issues` among them), and only a launcher
  * that says it can (`?untrusted=no-bash` on its claim) may take it. `chat` for the owner's chat (chats.ts): the launcher
  * starts it able only to read and to answer, and only one that says it can (`?chat=yes`) may take it. */
 export interface Launch {
@@ -55,7 +55,7 @@ export function asLaunch<T>(id: string, note: () => T): T {
 const pending = new Map<string, Launch & {at: number, claimed: boolean}>()
 const PENDING_FOR = 3 * 60 * 1000
 /** The launches its launchers say they run, kept across this server's restarts by the launchers themselves:
- * each reports its sessions when it connects, so one that reconnects to a restarted Orrery is known again. */
+ * each reports its sessions when it connects, so one that reconnects to a restarted orrery is known again. */
 const reported = new Map<string, {project: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean}>()
 /** How many launchers each project has connected. */
 const launchers = counter('launchers')
@@ -221,17 +221,17 @@ export async function startChat(project: string, context: SessionContext): Promi
     return launch
 }
 
-/** The project's starts, if it may have one more session started now: the owner lets Orrery start them, a launcher is
+/** The project's starts, if it may have one more session started now: the owner lets orrery start them, a launcher is
  * there, and the sessions running and on their way, on every project, are under the limit. */
 async function roomFor(project: string): Promise<Starts> {
     const starts = await useStore().starts(project)
-    if (!starts) throw conflict(`Orrery doesn't start sessions; turn it on in App settings`)
+    if (!starts) throw conflict(`orrery doesn't start sessions; turn it on in App settings`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
-    if (startedSessions() + pendingOn() >= starts.limit) throw conflict(`Orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
+    if (startedSessions() + pendingOn() >= starts.limit) throw conflict(`orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     return starts
 }
 
-/** The context a session is started with: the presets picked (by id, the Orrery's or the project's own), then the
+/** The context a session is started with: the presets picked (by id, the orrery's or the project's own), then the
  * owner's own words; none when there's neither. */
 export async function contextFor(project: string, presets: number[] = [], instructions = ''): Promise<SessionContext | undefined> {
     const picked = await useStore().presetsFor(project, presets)
@@ -244,7 +244,7 @@ export async function contextFor(project: string, presets: number[] = [], instru
 export const contextBlock = (context: SessionContext) =>
     `The owner gave this session more context as they started it; it holds for all its work:\n\n${context.text}`
 
-/** The context the launch's session was started with, while Orrery knows the launch. */
+/** The context the launch's session was started with, while orrery knows the launch. */
 export function launchContext(project: string, id: string): SessionContext | undefined {
     const known = pending.get(id) ?? reported.get(id)
     if (known) return known.project === project ? known.context : undefined
@@ -282,7 +282,7 @@ const told = new Set<string>()
 function outdated(project: string, id: string, what: string) {
     if (told.has(id)) return
     told.add(id)
-    const message = `A launcher on ${project} is running code from before Orrery could start ${what}, so it was refused it. Restart the launcher to start it (it runs the channel folder's code when it starts).`
+    const message = `A launcher on ${project} is running code from before orrery could start ${what}, so it was refused it. Restart the launcher to start it (it runs the channel folder's code when it starts).`
     useEventLog().note({level: 'warn', kind: 'launcher.outdated', project, message})
     chatProblem(id, message)
 }
@@ -299,7 +299,7 @@ export function launched(id: string): StartedSession | undefined {
 
 /** A launcher saying which of the project's sessions it runs, as it connects: they count as started again,
  * with their stop times and context, whether their channels connected before this or connect after. The context
- * and stop time it keeps count only for a launch Orrery has forgotten (it restarted): what Orrery knows stands, a
+ * and stop time it keeps count only for a launch orrery has forgotten (it restarted): what orrery knows stands, a
  * launch started with no context and none to stop at among it, as anyone can send this. Untrusted is kept whichever
  * says so, and so is a chat. */
 export function reportRunning(project: string, launches: {id: string, tmux: string, stops_at?: string, context?: SessionContext, untrusted?: boolean, chat?: boolean}[]) {
@@ -332,11 +332,11 @@ export function launchGone(id: string) {
     asked.delete(id)
 }
 
-/** The launches Orrery has had stopped, and when, so a launcher slow to say it's done isn't asked again each check. */
+/** The launches orrery has had stopped, and when, so a launcher slow to say it's done isn't asked again each check. */
 const stopping = new Map<string, number>()
 const ASK_AGAIN_AFTER = 2 * 60 * 1000
 
-/** Stops the sessions Orrery started whose time is up, or that have sat idle as long as their project allows
+/** Stops the sessions orrery started whose time is up, or that have sat idle as long as their project allows
  * (`minutes`, `idle_minutes`), but only while one is idle with nothing in progress and nothing waiting for it:
  * one that's busy is stopped once it's done, never halfway. One still not done well past its time (stuck on a
  * prompt, looping, never saying it's idle) is stopped anyway, `overdueAfter` its stop time. An untrusted run's session
@@ -378,7 +378,7 @@ export function overdueAfter(minutes?: number): number {
     return Math.min(60, Math.max(15, minutes ?? 30)) * 60_000
 }
 
-/** The owner pressing Watch on a session Orrery started: its launcher opens a terminal on its machine, attached to
+/** The owner pressing Watch on a session orrery started: its launcher opens a terminal on its machine, attached to
  * the session, in the app the settings name. Needs a launcher there to do it. */
 export function watchLaunch(project: string, id: string, terminal: TerminalApp): Session {
     const session = sessionOfLaunch(project, id)
@@ -388,7 +388,7 @@ export function watchLaunch(project: string, id: string, terminal: TerminalApp):
     return session
 }
 
-/** The screens of the sessions Orrery started that the owner is viewing, as their launchers last captured them, with
+/** The screens of the sessions orrery started that the owner is viewing, as their launchers last captured them, with
  * when; when the owner last asked for each; and when its launcher was last asked to send it. */
 const screens = new Map<string, {text: string, at: number}>()
 const viewed = new Map<string, number>()
@@ -400,7 +400,7 @@ const FRESH_FOR = 3000
 /** The most of a screen kept: a pane is far smaller, so more is something else. */
 const SCREEN_MAX = 64 * 1024
 
-/** The owner viewing a session Orrery started, about once a second while it's open: its screen as its launcher
+/** The owner viewing a session orrery started, about once a second while it's open: its screen as its launcher
  * last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. */
 export function viewLaunch(project: string, id: string, now = Date.now()): {screen: string | null, at?: string} {
     const session = sessionOfLaunch(project, id)
@@ -424,7 +424,7 @@ export function keepScreen(project: string, id: string, text: string, now = Date
     return {watching}
 }
 
-/** The owner stopping a session Orrery started: its launcher kills it, and says when it's gone. */
+/** The owner stopping a session orrery started: its launcher kills it, and says when it's gone. */
 export function stopLaunch(project: string, id: string): Session {
     const session = sessionOfLaunch(project, id)
     if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
@@ -439,7 +439,7 @@ export function endLaunch(project: string, id: string, chat = false) {
     emit({type: 'stop', project, id, ...chat ? {chat} : {}})
 }
 
-/** The owner giving a session Orrery started more time: `minutes` from when it would have stopped, or from now if that's past. */
+/** The owner giving a session orrery started more time: `minutes` from when it would have stopped, or from now if that's past. */
 export function extendLaunchBy(project: string, id: string, minutes: number): Session {
     const session = sessionOfLaunch(project, id)
     if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)

@@ -258,7 +258,7 @@ describe("the owner's chat", () => {
         expect(chats.landChatIssues(chat.id, 'todo')).toMatchObject({issues: 'todo'})
         expect(changes.at(-1)).toMatchObject({issues: 'todo'})
         expect(chats.asChatIssue({title: 'Grow lights', status: 'backlog'}, chat.id)).toEqual({title: 'Grow lights', status: 'todo'})
-        // A chat it doesn't know (ended, or Orrery restarted) lands in Todo.
+        // A chat it doesn't know (ended, or orrery restarted) lands in Todo.
         expect(chats.asChatIssue({title: 'Jars', status: 'backlog'}, 'gone')).toEqual({title: 'Jars', status: 'todo'})
     })
 

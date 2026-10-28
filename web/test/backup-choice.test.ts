@@ -98,14 +98,14 @@ describe('who may set them', () => {
         return () => fresh.maySetBackups({node: {req: {headers: {host}, socket: {remoteAddress: from}}}} as never)
     }
 
-    it('is the owner, on the machine Orrery runs on', async () => {
+    it('is the owner, on the machine orrery runs on', async () => {
         for (const host of ['localhost:9010', '127.0.0.1:9010', 'orrery.localhost']) expect(await status(await guard(true, host))).toBe('ok')
     })
 
     it('is never an agent, nor anyone reaching it by another address', async () => {
         expect(await status(await guard(false, 'localhost:9010'))).toBe(403)
         for (const host of ['192.168.1.20:9010', 'mac.lan']) expect(await status(await guard(true, host))).toBe(403)
-        // Nor by a connection from another machine that says it reached Orrery as localhost.
+        // Nor by a connection from another machine that says it reached orrery as localhost.
         expect(await status(await guard(true, 'localhost:9010', undefined, '192.168.1.20'))).toBe(403)
     })
 
@@ -138,7 +138,7 @@ describe.runIf(process.env.TEST_POSTGRES_URL)('backing up into Postgres', () => 
         }
     }
 
-    it('copies into an empty one at once, marked as this Orrery\'s backup, and the latest takes its place', async () => {
+    it('copies into an empty one at once, marked as this orrery\'s backup, and the latest takes its place', async () => {
         const {db, choice} = await setUp()
         const {url, drop} = await schema()
         try {
@@ -165,7 +165,7 @@ describe.runIf(process.env.TEST_POSTGRES_URL)('backing up into Postgres', () => 
         }
     })
 
-    it("won't write over an Orrery that isn't this one's backup, and keeps the choice it had", async () => {
+    it("won't write over an orrery that isn't this one's backup, and keeps the choice it had", async () => {
         const {db, choice} = await setUp()
         const {url, drop} = await schema()
         try {

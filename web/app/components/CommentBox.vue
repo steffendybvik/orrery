@@ -60,7 +60,7 @@ onMounted(() => {
       <ImageButton @picked="upload" />
       <span v-if="uploading" class="text-xs text-faint">Adding image…</span>
       <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
-      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">Couldn't {{ comment ? 'save' : 'post' }}. Is Orrery running?</span>
+      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">Couldn't {{ comment ? 'save' : 'post' }}. Is orrery running?</span>
       <UiButton v-if="comment" class="ml-auto" :disabled="posting" @click="emit('cancel')">Cancel <KeyHint>esc</KeyHint></UiButton>
       <UiButton
           type="submit"

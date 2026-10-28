@@ -2,7 +2,7 @@
 // Connect an agent: one line to give a Claude session in an app's repo. It points the agent at the
 // brief (/connect/<project>.md), which says how to keep the roadmap here and has it set the repo up
 // itself. The pieces are also here, folded, to set up by hand.
-useHead({title: 'Connect an agent · Orrery'})
+useHead({title: 'Connect an agent · orrery'})
 const route = useRoute()
 const router = useRouter()
 const {ordered} = useProjectOrder()
@@ -28,8 +28,8 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
       <header class="flex flex-col gap-3">
         <h2 class="text-2xl font-semibold tracking-tight">Give a Claude session its roadmap</h2>
         <p class="text-[15px] leading-relaxed text-muted">
-          Pick the app and copy the line into a Claude session in its repo. The agent reads its brief from Orrery, starts keeping
-          the roadmap here and sets the repo up, then asks you to restart it so Orrery can reach the window.
+          Pick the app and copy the line into a Claude session in its repo. The agent reads its brief from orrery, starts keeping
+          the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the window.
           Any agent can also start from <a :href="`${origin}/llms.txt`" target="_blank" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">/llms.txt</a>.
         </p>
       </header>
@@ -60,7 +60,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
             <input v-model="newName" placeholder="e.g. fitness-app" class="h-8 rounded-lg bg-well px-3 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
           </label>
           <label class="flex min-w-56 flex-1 flex-col gap-1.5">
-            <span class="text-xs text-faint">Name the window (optional): shows in Orrery, e.g. what it works on</span>
+            <span class="text-xs text-faint">Name the window (optional): shows in orrery, e.g. what it works on</span>
             <input v-model="sessionName" placeholder="e.g. joints" class="h-8 rounded-lg bg-well px-3 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none">
           </label>
         </div>
@@ -90,7 +90,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
         </summary>
         <div class="flex flex-col gap-6 px-5 pb-5">
           <CopyBlock title="CLAUDE.md section" :text="pieces.claudeMd" />
-          <CopyBlock title=".mcp.json" hint="Needs Node and the Orrery repo's packages (pnpm install there)." :text="pieces.mcpJson" />
+          <CopyBlock title=".mcp.json" hint="Needs Node and the orrery repo's packages (pnpm install there)." :text="pieces.mcpJson" />
           <CopyBlock title=".claude/settings.json" hint="Merge into the file if it exists." :text="pieces.settingsJson" />
           <CopyBlock title="Start the session with" :hint="`Claude asks once to approve the ${pieces.server} server; say yes.`" :text="pieces.launch" />
           <CopyBlock title="Without the preview: ask the session to watch" hint="Uses the Monitor tool; a watch lasts up to 30 minutes, then the session restarts it." :text="pieces.monitor" />

@@ -136,7 +136,7 @@ Where a class is all it takes, it's a utility rather than a component:
 Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-panel` (sidebar, cards),
 `bg-raised` (popovers), `bg-well` (fields, segmented controls), `border-line`, `text-fg` / `text-muted` /
 `text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…600`. Each has a light and a dark value,
-and an Orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
+and an orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
 
 ## Shared components
 
@@ -186,7 +186,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `ViewToolbar` | an issue list's toolbar (view, grouping, filters) |
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
-| `GettingStarted` | a new Orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
+| `GettingStarted` | a new orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
 | `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step), gone once one connects |
 | `NotificationBell` | the bell in the header: agents' comments, and those and their proposals waiting on the owner |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
@@ -214,7 +214,7 @@ Auto-imported, like the components. Reach for these before writing the listener 
 | `useUnseen` | what's changed since the owner last looked (`unseen-row`, `unseen-dot`) |
 | `useTheme` | light, dark or the system's, remembered in this browser |
 | `copyText` | copies text, with a fallback where the clipboard API refuses (`CopyButton` uses it) |
-| `errorMessage(error, verb)` | what a failed request says to show: the server's message, or that Orrery didn't answer |
+| `errorMessage(error, verb)` | what a failed request says to show: the server's message, or that orrery didn't answer |
 | `isTyping(target)` | whether a key went to a field, where single-letter shortcuts mustn't fire |
 | `heroicon(name)` | a project's Heroicon by name, each loaded the first time it's shown; `HEROICONS` lists the names for the picker |
 

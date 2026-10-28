@@ -1,4 +1,4 @@
-// Presets: the context a session can be started with, the Orrery's or a project's. Those Orrery ships
+// Presets: the context a session can be started with, the orrery's or a project's. Those orrery ships
 // (shared/presets.ts) are seeded once each, can be reset to what it ships, and restored once removed.
 import {DEFAULT_PRESETS, asShipped} from '#shared/presets'
 import type {Preset} from '#shared/roadmap'
@@ -9,7 +9,7 @@ import {ProjectStore} from './projects'
 import {known} from '#shared/known'
 
 export abstract class PresetStore extends ProjectStore {
-    /** The Orrery's presets, by name; with a project, those a session on it can have: the Orrery's, then its own. */
+    /** The orrery's presets, by name; with a project, those a session on it can have: the orrery's, then its own. */
     async presets(project?: string): Promise<Preset[]> {
         if (project) await this.projectRow(project)
         return (await this.all<PresetRow>(`SELECT ${PRESET} FROM presets WHERE project IS NULL OR project = ? ORDER BY project IS NOT NULL, lower(name), id`, project ?? null)).map(presetOf)
@@ -21,7 +21,7 @@ export abstract class PresetStore extends ProjectStore {
         return presetOf(row)
     }
 
-    /** Adds the presets Orrery ships that this Orrery hasn't had yet, as it starts: all of them in a new one, a new
+    /** Adds the presets orrery ships that this orrery hasn't had yet, as it starts: all of them in a new one, a new
      * one after an upgrade. One the owner removed isn't added again. Says how many it added. */
     async seedPresets(): Promise<number> {
         return await this.db.transaction(async () => {
@@ -35,17 +35,17 @@ export abstract class PresetStore extends ProjectStore {
         })
     }
 
-    /** Puts a default preset back as Orrery ships it: its name, text and badge. The owner's only. */
+    /** Puts a default preset back as orrery ships it: its name, text and badge. The owner's only. */
     async resetPreset(id: number, actor = AGENT): Promise<Preset> {
         this.ownerOnly(actor, 'presets')
         const preset = await this.preset(id)
         const shipped = DEFAULT_PRESETS.find(d => d.key === preset.default?.key)
-        if (!shipped) throw conflict(`Resetting preset ${id}: ${preset.name} isn't one Orrery ships, so it has no default`)
+        if (!shipped) throw conflict(`Resetting preset ${id}: ${preset.name} isn't one orrery ships, so it has no default`)
         await this.update('presets', 'id = ?', [id], {name: shipped.name, text: shipped.text, icon: shipped.icon, color: shipped.color})
         return await this.preset(id)
     }
 
-    /** Adds back the presets Orrery ships that were removed, as it ships them; says which. The owner's only. */
+    /** Adds back the presets orrery ships that were removed, as it ships them; says which. The owner's only. */
     async restorePresets(actor = AGENT): Promise<Preset[]> {
         this.ownerOnly(actor, 'presets')
         const kept = new Set((await this.all<{default_key: string}>('SELECT default_key FROM presets WHERE default_key IS NOT NULL')).map(r => r.default_key))
@@ -61,7 +61,7 @@ export abstract class PresetStore extends ProjectStore {
         return Number(row.id)
     }
 
-    /** A new preset, the owner's to make: `{name, text, icon?, color?}`, the Orrery's, or with `project` that project's own. */
+    /** A new preset, the owner's to make: `{name, text, icon?, color?}`, the orrery's, or with `project` that project's own. */
     async createPreset(project: string | null, body: unknown, actor = AGENT): Promise<Preset> {
         this.ownerOnly(actor, 'presets')
         if (project) await this.projectRow(project)
@@ -89,7 +89,7 @@ export abstract class PresetStore extends ProjectStore {
         await this.run('DELETE FROM presets WHERE id = ?', id)
     }
 
-    /** The presets picked for a session on the project, in the order picked: each the Orrery's or the project's own. */
+    /** The presets picked for a session on the project, in the order picked: each the orrery's or the project's own. */
     async presetsFor(project: string, ids: number[]): Promise<Preset[]> {
         const usable = await this.presets(project)
         const unknown = ids.filter(id => !usable.some(p => p.id === id))

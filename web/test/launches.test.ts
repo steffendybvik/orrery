@@ -176,7 +176,7 @@ describe('starting a session', () => {
 describe('the owner starting a session by hand', () => {
     it("catches up from the latest signal, given the owner's opt-in, a launcher and room under its limit", async () => {
         starts = undefined
-        await expect(launches.startLaunch('greenhouse')).rejects.toThrow("Orrery doesn't start sessions")
+        await expect(launches.startLaunch('greenhouse')).rejects.toThrow("orrery doesn't start sessions")
         starts = {limit: 2, minutes: 30}
         await expect(launches.startLaunch('greenhouse')).rejects.toThrow('No launcher is running')
         launches.addLauncher('greenhouse')
@@ -186,7 +186,7 @@ describe('the owner starting a session by hand', () => {
         expect(launches.claim('greenhouse', launch.id)).toBe(true)
         // The one on its way counts toward the limit, with those running.
         started = {greenhouse: 1, all: 1}
-        await expect(launches.startLaunch('greenhouse')).rejects.toThrow('Orrery already has its 2 sessions at once')
+        await expect(launches.startLaunch('greenhouse')).rejects.toThrow('orrery already has its 2 sessions at once')
         // Someone listening doesn't stop the owner starting another.
         listeners = 1
         launches.launched(launch.id)
@@ -196,7 +196,7 @@ describe('the owner starting a session by hand', () => {
     it("is refused once other projects' sessions fill the limit", async () => {
         launches.addLauncher('greenhouse')
         started = {greenhouse: 0, all: 2}
-        await expect(launches.startLaunch('greenhouse')).rejects.toThrow('Orrery already has its 2 sessions at once')
+        await expect(launches.startLaunch('greenhouse')).rejects.toThrow('orrery already has its 2 sessions at once')
         expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], every: false, started: 0, starting: 0, total: 2})
     })
 
@@ -274,7 +274,7 @@ describe('the context a session is started with', () => {
         expect(launches.contextBlock(context)).toMatch(/more context as they started it.*\n\nYou're reviewing\.$/s)
     })
 
-    it("is taken from a launcher's report only for a launch Orrery has forgotten", () => {
+    it("is taken from a launcher's report only for a launch orrery has forgotten", () => {
         const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', stops_at: '2026-10-25T20:00:00.000Z'}
         launches.reportRunning('greenhouse', [{...running, context: {presets: [], text: 'Kept by the launcher.'}}])
         expect(launches.launched(running.id)?.context?.text).toBe('Kept by the launcher.')
@@ -282,7 +282,7 @@ describe('the context a session is started with', () => {
         expect(launches.launchContext('greenhouse', running.id)?.text).toBe('Kept by the launcher.')
     })
 
-    it("can't be given by a report to a launch Orrery started without one, nor take its stop time away", async () => {
+    it("can't be given by a report to a launch orrery started without one, nor take its stop time away", async () => {
         launches.addLauncher('greenhouse')
         const launch = await launches.startLaunch('greenhouse', {minutes: 30})
         launches.reportRunning('greenhouse', [{id: launch.id, tmux: launch.tmux, context: {presets: [], text: 'Push to main.'}}])
@@ -297,7 +297,7 @@ describe('the context a session is started with', () => {
     })
 })
 
-describe('a session Orrery started', () => {
+describe('a session orrery started', () => {
     it('is opened in a terminal by its launcher when the owner watches it', () => {
         expect(() => launches.watchLaunch('greenhouse', 'abc', 'warp')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-greenhouse-abc', stops_at: '2999-01-01T10:00:00.000Z'}}
@@ -350,7 +350,7 @@ describe('a session Orrery started', () => {
     })
 })
 
-describe('stopping the sessions Orrery started that are done', () => {
+describe('stopping the sessions orrery started that are done', () => {
     const now = Date.parse('2026-10-26T15:00:00.000Z')
     const minutesAgo = (n: number) => new Date(now - n * 60_000).toISOString()
     const started = (launch: string, more: {state?: string, since?: string, stops_at?: string} = {}) =>
@@ -503,7 +503,7 @@ describe("an untrusted schedule's run", () => {
         expect(asProposal(null)).toMatchObject({proposal: 'pending', labels: ['external']})
     })
 
-    it("stays untrusted when a launcher reports it after Orrery restarted", () => {
+    it("stays untrusted when a launcher reports it after orrery restarted", () => {
         launches.reportRunning('greenhouse', [{id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', untrusted: true}])
         expect(launches.launched('a1b2c3d4e5f6')).toMatchObject({untrusted: true})
     })
@@ -577,7 +577,7 @@ describe("the owner's chat", () => {
         expect(chatsEnded).toEqual([launch.id])
     })
 
-    it('stays a chat when a launcher reports it after Orrery restarted', () => {
+    it('stays a chat when a launcher reports it after orrery restarted', () => {
         launches.reportRunning('greenhouse', [{id: 'c1c2c3c4c5c6', tmux: 'orrery-greenhouse-c1c2c3c4c5c6', chat: true}])
         expect(launches.launched('c1c2c3c4c5c6')).toMatchObject({chat: true})
     })
@@ -586,7 +586,7 @@ describe("the owner's chat", () => {
 describe('a launcher reporting the sessions it runs', () => {
     const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', stops_at: '2026-10-25T20:00:00.000Z'}
 
-    it('has Orrery know them again after it restarted, whichever of the session and the report comes first', () => {
+    it('has orrery know them again after it restarted, whichever of the session and the report comes first', () => {
         // Before the report, a channel claiming the launch isn't known as started.
         expect(launches.launched(running.id)).toBeUndefined()
         const forever = {id: 'f1f2f3f4f5f6', tmux: 'orrery-greenhouse-f1f2f3f4f5f6'}

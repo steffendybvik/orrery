@@ -274,7 +274,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE schedule_runs_new RENAME TO schedule_runs;
     CREATE INDEX schedule_runs_schedule ON schedule_runs(schedule, id);
 `, `
-    -- The Orrery's own settings (not a project's), e.g. the background tint, as keys and JSON values.
+    -- The orrery's own settings (not a project's), e.g. the background tint, as keys and JSON values.
     CREATE TABLE settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -303,7 +303,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- the Now issues in chunk 3". Unchecked, so it carries over to statuses a project makes its own.
     ALTER TABLE signals ADD COLUMN status TEXT;
 `, `
-    -- Statuses: one list for the whole Orrery, each with a kind that says what it means. An issue's
+    -- Statuses: one list for the whole orrery, each with a kind that says what it means. An issue's
     -- status and plan become one status: todo without a plan → Backlog, with one → Todo, doing → In progress.
     -- Schedules start their issues in a status too, and a chunk's focus names one.
     CREATE TABLE statuses (
@@ -406,8 +406,8 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     CREATE INDEX issue_events_issue ON issue_events(project, issue);
 `, `
-    -- What a session hears when asked to focus. A project can have its own templates (none uses the Orrery's,
-    -- kept in settings), its own standing instructions (a JSON list of {id, text, on}) and the Orrery's it
+    -- What a session hears when asked to focus. A project can have its own templates (none uses the orrery's,
+    -- kept in settings), its own standing instructions (a JSON list of {id, text, on}) and the orrery's it
     -- switches off (a JSON list of their ids). A focus keeps the instructions picked for it (a JSON list of texts).
     ALTER TABLE projects ADD COLUMN focus_prompt TEXT;
     ALTER TABLE projects ADD COLUMN chunk_prompt TEXT;
@@ -462,7 +462,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     CREATE INDEX secret_uses_secret ON secret_uses(secret, id);
 `, `
-    -- Whether Orrery may start sessions for the project itself, without a terminal: a JSON {limit, minutes}
+    -- Whether orrery may start sessions for the project itself, without a terminal: a JSON {limit, minutes}
     -- (at most \`limit\` running at once, each stopped after \`minutes\`), none while the owner hasn't let it.
     ALTER TABLE projects ADD COLUMN starts TEXT;
 `, `
@@ -501,7 +501,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- issues are set for that project's releases, and it has none of its own.
     ALTER TABLE projects ADD COLUMN releases_from TEXT;
 `, `
-    -- The API's fields are snake_case, as the columns are: the Orrery's own prompt settings follow.
+    -- The API's fields are snake_case, as the columns are: the orrery's own prompt settings follow.
     UPDATE settings SET key = 'focus_prompt' WHERE key = 'focusPrompt';
     UPDATE settings SET key = 'chunk_prompt' WHERE key = 'chunkPrompt';
 `, `
@@ -532,7 +532,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE signals ADD COLUMN release TEXT;
 `, `
     -- Presets: saved pieces of context the owner gives a session as they start it, each a name and its text;
-    -- the Orrery's (no project), for any project's sessions, or a project's own.
+    -- the orrery's (no project), for any project's sessions, or a project's own.
     CREATE TABLE presets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project TEXT REFERENCES projects(id) ON DELETE CASCADE,
@@ -544,7 +544,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         updated_at TEXT NOT NULL
     );
 `, `
-    -- Letting Orrery start sessions is the owner's one setting, not each project's: the first project that had it
+    -- Letting orrery start sessions is the owner's one setting, not each project's: the first project that had it
     -- passes its limits on, and the projects' own are let go.
     INSERT INTO settings (key, value) SELECT 'starts', starts FROM projects WHERE starts IS NOT NULL ORDER BY created_at, id LIMIT 1
         ON CONFLICT (key) DO NOTHING;
@@ -563,7 +563,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     -- A message schedule that brings in what others wrote (GitHub issues): its run gets a locked-down session of its own.
     ALTER TABLE schedules ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0;
 `, `
-    -- The event log: what Orrery did and what went wrong (server/utils/event-log.ts). A repeat of one that isn't
+    -- The event log: what orrery did and what went wrong (server/utils/event-log.ts). A repeat of one that isn't
     -- resolved counts on its row. Not tied to a project row, so what happened in one outlives it.
     CREATE TABLE events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -659,7 +659,7 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE schedules_new RENAME TO schedules;
     CREATE INDEX schedules_due ON schedules(enabled, next_run);
 `, `
-    -- The presets Orrery ships (ORR-343, shared/presets.ts): one keeps its key, and each key seeded is noted, so a
+    -- The presets orrery ships (ORR-343, shared/presets.ts): one keeps its key, and each key seeded is noted, so a
     -- default the owner removed isn't seeded again.
     ALTER TABLE presets ADD COLUMN default_key TEXT;
     CREATE TABLE preset_defaults (
@@ -704,7 +704,7 @@ export function movedFile(): string | null {
     return isPostgres(setting) ? null : `${resolve(setting)}.moved.json`
 }
 
-/** The database Orrery runs on: where the owner moved it to, else NUXT_DATABASE (a SQLite file, from where it runs). */
+/** The database orrery runs on: where the owner moved it to, else NUXT_DATABASE (a SQLite file, from where it runs). */
 let chosen: string | null | undefined
 
 export function databaseSetting(): string {
@@ -716,7 +716,7 @@ export function databaseSetting(): string {
     return chosen ?? (isPostgres(setting) ? setting : resolve(setting))
 }
 
-/** Saves where the database moved to, for Orrery to open again as it starts; back to NUXT_DATABASE's own file forgets it. */
+/** Saves where the database moved to, for orrery to open again as it starts; back to NUXT_DATABASE's own file forgets it. */
 function saveDatabaseSetting(setting: string) {
     const file = movedFile()
     if (!file) throw new Error('NUXT_DATABASE names Postgres: change it there')
@@ -813,11 +813,11 @@ export function openDb(path: string, upTo = MIGRATIONS.length, snapshot?: string
 }
 
 /** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. Refuses one
- * from a newer Orrery (ORR-433): this code can't know what its steps changed. */
+ * from a newer orrery (ORR-433): this code can't know what its steps changed. */
 function migrate(opened: DatabaseSync, path: string, upTo: number, snapshot?: string): {from: number, to: number} | null {
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
     if (version > MIGRATIONS.length) {
-        throw new Error(`${path} was written by a newer Orrery (schema step ${version}; this one knows up to ${MIGRATIONS.length}). `
+        throw new Error(`${path} was written by a newer orrery (schema step ${version}; this one knows up to ${MIGRATIONS.length}). `
             + 'Run that version again, or restore the copy taken before it upgraded (orrery-pre-<version>.db, in the backup folder or beside the database).')
     }
     // A new file has nothing to keep; a copy already there is from before an earlier try at this upgrade, so it stays.

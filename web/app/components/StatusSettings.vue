@@ -2,7 +2,7 @@
 import type {IssueStatus, Kind} from '#shared/roadmap'
 import {KINDS, TINTS} from '#shared/roadmap'
 
-// The Orrery's issue statuses on App settings, grouped by what they mean: rename one in place (Enter or
+// The orrery's issue statuses on App settings, grouped by what they mean: rename one in place (Enter or
 // leaving the field saves, Esc puts it back), recolour it, move it within its kind, add one to a kind, or
 // remove one, its issues moving to another status. Each kind keeps at least one. Saved as the owner; every
 // board follows live.

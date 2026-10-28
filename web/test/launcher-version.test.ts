@@ -4,7 +4,7 @@ import {launcherMove, VERSION} from '../../channel/version.mjs'
 
 const behind = {theirs: ['1.0.0-rc.11'], mine: '1.0.0-rc.10', service: true}
 
-describe("a launcher on other code than its Orrery's", () => {
+describe("a launcher on other code than its orrery's", () => {
     it('restarts once its checkout holds new code and no session of its own is running', () => {
         expect(launcherMove({...behind, disk: '1.0.0-rc.11', running: 0})).toBe('restart')
     })
@@ -18,7 +18,7 @@ describe("a launcher on other code than its Orrery's", () => {
         expect(launcherMove({...behind, disk: undefined, running: 0})).toBe('tell')
     })
 
-    it('does nothing in a terminal, or when every Orrery it serves runs its code', () => {
+    it('does nothing in a terminal, or when every orrery it serves runs its code', () => {
         expect(launcherMove({...behind, disk: '1.0.0-rc.11', running: 0, service: false})).toBeNull()
         expect(launcherMove({...behind, theirs: ['1.0.0-rc.10', '1.0.0-rc.10'], disk: '1.0.0-rc.11', running: 0})).toBeNull()
     })

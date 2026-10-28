@@ -1,6 +1,6 @@
 {
-  "name": "Orrery",
-  "short_name": "Orrery",
+  "name": "orrery",
+  "short_name": "orrery",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09090b",

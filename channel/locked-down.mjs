@@ -1,6 +1,6 @@
 // The flags an untrusted schedule's session starts with (orrery-launcher.mjs). That session reads what people outside
 // the project wrote (GitHub issues), which may try to steer it, so it can do little beyond reading them and raising
-// proposals; Orrery holds its writes to that too (web/server/middleware/untrusted.ts). And those the owner's chat
+// proposals; orrery holds its writes to that too (web/server/middleware/untrusted.ts). And those the owner's chat
 // starts with: it reads the repo and the roadmap and answers, making issues and comments when asked
 // (web/server/middleware/chat.ts).
 import {readFileSync} from 'node:fs'
@@ -35,7 +35,7 @@ function hooksOf(dir) {
     try {
         return JSON.parse(readFileSync(join(dir, '.claude', 'settings.json'), 'utf8')).hooks ?? {}
     } catch {
-        // No hooks: Orrery hears it only through its channel.
+        // No hooks: orrery hears it only through its channel.
         return {}
     }
 }

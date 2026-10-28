@@ -1,8 +1,8 @@
-// A big Orrery for the performance run (`pnpm test:e2e:perf`): fills a fresh database through the store, as the
+// A big orrery for the performance run (`pnpm test:e2e:perf`): fills a fresh database through the store, as the
 // API would, before the server opens it. The history and the event log go in as rows, a batch at a time: written
 // one change at a time they'd take longer to seed than the run takes to measure; a Postgres is seeded in a SQLite file
 // first and copied in as a move would, as a write at a time over the network takes minutes. Each size is a PERF_* variable,
-// its default well past what a real Orrery holds, and the same seed gives the same Orrery every run.
+// its default well past what a real orrery holds, and the same seed gives the same orrery every run.
 // `jiti e2e/perf/seed.ts <a SQLite file or postgres:// URL>` (playwright.perf.config.ts runs it).
 import {mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
@@ -47,7 +47,7 @@ const STATUSES = ['backlog', 'todo', 'todo', 'in-progress', 'in-review', 'done',
 const PRIORITIES = [null, 'P0', 'P1', 'P2', 'P2', 'P3', 'P3']
 const LABELS = ['bug', 'docs', 'ux', 'perf', 'security', 'api', 'design']
 
-/** A small seeded generator, so every run gets the same Orrery. */
+/** A small seeded generator, so every run gets the same orrery. */
 function random(seed: number) {
     let a = seed
     const next = () => {
@@ -82,7 +82,7 @@ async function insert(db: Db, table: string, columns: string[], rows: Value[][])
 /** A time `minutes` before `now`, as the store writes them. */
 const ago = (now: number, minutes: number) => new Date(now - minutes * 60_000).toISOString()
 
-/** Fills `db`, a new Orrery, and says what it put in. */
+/** Fills `db`, a new orrery, and says what it put in. */
 export async function seed(db: Db, sizes: Sizes = SIZES, log: (line: string) => void = () => {}): Promise<Record<string, number>> {
     const r = random(432)
     const store = new Store(db)

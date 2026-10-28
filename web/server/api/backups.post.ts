@@ -4,7 +4,7 @@ export default defineEventHandler(async event => {
     const actor = await actorOf(event)
     if (!actor.owner) throw forbidden('Only the owner backs the database up; send Orrery-Actor: <owner>')
     const target = backupTarget()
-    if (!target) throw conflict('Orrery isn\'t backed up: turn backups on in App settings → Database, or set ORRERY_BACKUP (NUXT_BACKUP_DIR outside Docker)')
+    if (!target) throw conflict('orrery isn\'t backed up: turn backups on in App settings → Database, or set ORRERY_BACKUP (NUXT_BACKUP_DIR outside Docker)')
     const db = useDatabase()
     await backUpTo(db, target).catch((error: Error) => {
         throw conflict(`Backing up to ${targetLabel(target)}: ${error.message}`)

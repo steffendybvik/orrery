@@ -4,8 +4,8 @@ import type {Project} from '#shared/roadmap'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, PLACEHOLDERS, renderPrompt} from '#shared/prompt'
 
 // What a Claude session hears when asked to focus: the two templates (an issue, a chunk's issues) and the
-// standing instructions added to every focus. Without `project` they're the Orrery's (every project's); with it, that
-// project's own templates (empty follows the Orrery's), its own instructions, and the Orrery's it switches off.
+// standing instructions added to every focus. Without `project` they're the orrery's (every project's); with it, that
+// project's own templates (empty follows the orrery's), its own instructions, and the orrery's it switches off.
 // Each template shows what it's for and whose it is; its text opens with Edit.
 const props = defineProps<{project?: Project}>()
 const {settings, save: saveSettings} = useAppSettings()
@@ -18,7 +18,7 @@ const KINDS = [
 ] as const
 type Key = (typeof KINDS)[number]['key']
 
-/** What a template follows when left empty: the Orrery's for a project, else the default. */
+/** What a template follows when left empty: the orrery's for a project, else the default. */
 const inherited = (key: Key) => (props.project ? settings.value[key] : null) ?? KINDS.find(k => k.key === key)?.fallback ?? ''
 const saved = (key: Key) => (props.project ? props.project[key] : settings.value[key]) ?? ''
 const drafts = reactive<Record<Key, string>>({focus_prompt: '', chunk_prompt: ''})
@@ -66,7 +66,7 @@ const preview = (key: Key) => renderPrompt(drafts[key].trim() || inherited(key),
 const showing = ref<Key | null>(null)
 const editing = ref<Key | null>(null)
 /** Whose template a session hears now. */
-const whose = (key: Key) => saved(key) ? (props.project ? `${props.project.name}'s own` : 'your own') : (props.project ? "the Orrery's" : 'the default')
+const whose = (key: Key) => saved(key) ? (props.project ? `${props.project.name}'s own` : 'your own') : (props.project ? "the orrery's" : 'the default')
 function edit(key: Key) {
     if (editing.value === key) saveTemplate(key)
     editing.value = editing.value === key ? null : key
@@ -90,7 +90,7 @@ function rename(line: Instruction, event: Event) {
 }
 const toggle = (line: Instruction) => saveLines(own.value.map(l => l.id === line.id ? {...l, on: !l.on} : l))
 const remove = (line: Instruction) => saveLines(own.value.filter(l => l.id !== line.id))
-/** On a project, one of the Orrery's instructions switched on or off for it. */
+/** On a project, one of the orrery's instructions switched on or off for it. */
 function mute(line: Instruction) {
     if (!props.project) return
     const muted = props.project.muted
@@ -132,7 +132,7 @@ const line = 'h-8 min-w-0 flex-1 field'
           <span v-for="(what, name) in kind.placeholders" :key="name" :title="what" class="font-mono">{{ '{' + name + '}' }}</span>
           <span>· a line whose placeholders are all empty is left out</span>
           <button v-if="saved(kind.key)" type="button" class="ml-auto underline-offset-2 hover:text-fg hover:underline" @click="reset(kind.key)">
-            Reset to {{ project ? "the Orrery's" : 'the default' }}
+            Reset to {{ project ? "the orrery's" : 'the default' }}
           </button>
         </p>
       </template>

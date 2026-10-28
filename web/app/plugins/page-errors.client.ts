@@ -1,7 +1,7 @@
 // Sends the page's own errors to the event log (ORR-322): what Vue's error handler catches, `window.onerror`, and a
 // promise nobody caught. A few a minute at most, and the same one once in a while, so a page stuck in a loop
 // doesn't flood it; one that can't be sent is let go. A 404 isn't one: an old or mistyped link shows Not found
-// (error.vue), and nothing went wrong in Orrery (ORR-369).
+// (error.vue), and nothing went wrong in orrery (ORR-369).
 export default defineNuxtPlugin(nuxtApp => {
     const sent = new Map<string, number>()
     let minute = 0

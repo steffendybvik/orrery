@@ -2,8 +2,8 @@ import {allIssues} from '~/utils/roadmap'
 
 export const DEMO = 'demo'
 
-// Getting started: the steps from a new Orrery to a Claude session working from it, each ticked from what the
-// Orrery already knows, so none has to be ticked by hand. Someone only planning is set after the first two: the rest
+// Getting started: the steps from a new orrery to a Claude session working from it, each ticked from what the
+// orrery already knows, so none has to be ticked by hand. Someone only planning is set after the first two: the rest
 // are for working with Claude. Hiding its card on My issues, planning, and the steps for Claude once ticked are remembered in
 // this browser.
 export function useGettingStarted() {

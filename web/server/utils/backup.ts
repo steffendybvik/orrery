@@ -2,9 +2,9 @@
 // off the machine. The live file stays local: a synced SQLite file gets corrupted, a snapshot doesn't.
 // `orrery.db` there is always the latest; `orrery-YYYY-MM-DD.db` keeps one a day for two weeks. A Postgres
 // database is backed up the same way, as a SQLite snapshot of it, so a backup opens anywhere and a new SQLite
-// Orrery starts from it. Or, either way, into a Postgres database of its own (ORR-427): the latest only, copied as a
-// move copies, and marked as this Orrery's backup (`backup_of` in its settings), so a backup only ever writes over
-// its own last one, never another Orrery's or the live database.
+// orrery starts from it. Or, either way, into a Postgres database of its own (ORR-427): the latest only, copied as a
+// move copies, and marked as this orrery's backup (`backup_of` in its settings), so a backup only ever writes over
+// its own last one, never another orrery's or the live database.
 import {copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync} from 'node:fs'
 import {randomBytes} from 'node:crypto'
 import {join} from 'node:path'
@@ -47,7 +47,7 @@ export async function backupPostgres(db: Db, dir: string) {
 /** The backup being made, so another waits for it rather than writing over it. */
 let making: Promise<void> = Promise.resolve()
 
-/** Backs up the database Orrery runs on to `dir`, after any backup already being made: a SQLite one in line with
+/** Backs up the database orrery runs on to `dir`, after any backup already being made: a SQLite one in line with
  * the writes (`VACUUM INTO` can't run in the middle of a transaction), a Postgres one as a snapshot. */
 export function backUp(database: Db, dir: string): Promise<void> {
     making = making.catch(() => {}).then(() => database instanceof SqliteDb ? database.alone(raw => backup(raw, dir)) : backupPostgres(database, dir))
@@ -64,10 +64,10 @@ export function backUpTo(database: Db, target: BackupTarget): Promise<void> {
 /** The Postgres database backed up to, held open between backups (one a minute at most), and when it last worked. */
 let into: {url: string, db: PostgresDb, at?: string} | null = null
 
-/** When the latest backup into the Postgres database at `url` was made, since Orrery started. */
+/** When the latest backup into the Postgres database at `url` was made, since orrery started. */
 export const lastPostgresBackup = (url: string) => into?.url === url ? into.at : undefined
 
-/** Lets go of the Postgres database backed up to, as Orrery stops or the backups go elsewhere. */
+/** Lets go of the Postgres database backed up to, as orrery stops or the backups go elsewhere. */
 export async function closeBackupDb() {
     const held = into
     into = null
@@ -75,7 +75,7 @@ export async function closeBackupDb() {
 }
 
 /** Copies `source` into the Postgres database at `url`, in place of the backup there: only into one that's empty or
- * already this Orrery's backup, and never into the database it runs on. */
+ * already this orrery's backup, and never into the database it runs on. */
 async function backupInto(source: Db, url: string) {
     if (into?.url !== url) {
         await closeBackupDb()
@@ -88,10 +88,10 @@ async function backupInto(source: Db, url: string) {
     // The database it runs on is never a backup, even one it was started from, so it can't pass for its own backup
     // under another way of writing its URL.
     await source.run('DELETE FROM settings WHERE key = \'backup_of\'')
-    if (source instanceof PostgresDb && await samePlace(source, target)) throw new Error(`${hidePassword(url)} is the database Orrery runs on: back up somewhere else`)
+    if (source instanceof PostgresDb && await samePlace(source, target)) throw new Error(`${hidePassword(url)} is the database orrery runs on: back up somewhere else`)
     const {n} = await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')
     const mark = await target.get<{value: string}>('SELECT value FROM settings WHERE key = \'backup_of\'')
-    if (Number(n) && (!mark || JSON.parse(mark.value) !== id)) throw new Error(`${hidePassword(url)} holds an Orrery that isn't this one's backup: back up to an empty database`)
+    if (Number(n) && (!mark || JSON.parse(mark.value) !== id)) throw new Error(`${hidePassword(url)} holds an orrery that isn't this one's backup: back up to an empty database`)
     await copyDatabase(source, target, {replace: true, mark: id})
     into.at = new Date().toISOString()
 }

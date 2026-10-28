@@ -1,4 +1,4 @@
-// Postgres behind the same `Db` the store awaits (server/utils/database.ts), for an Orrery given a
+// Postgres behind the same `Db` the store awaits (server/utils/database.ts), for an orrery given a
 // `postgres://` URL. A pool serves what comes in at once; a transaction holds one connection, and what
 // runs inside it (found through AsyncLocalStorage) goes to that connection. The SQL is the store's own,
 // written so SQLite and Postgres both understand it; `?` placeholders become `$1, $2, …` here.
@@ -11,7 +11,7 @@ import pg from 'pg'
 import {runAfter, type Db, type Value} from './database'
 import {redact} from './event-log'
 
-// Counts come back as int8, which pg hands over as text; Orrery's never outgrow a number.
+// Counts come back as int8, which pg hands over as text; orrery's never outgrow a number.
 pg.types.setTypeParser(pg.types.builtins.INT8, value => Number(value))
 
 /** SQLite's step this schema matches (`PRAGMA user_version`). */
@@ -460,9 +460,9 @@ export class PostgresDb implements Db {
             await client.query('CREATE TABLE IF NOT EXISTS schema_version (version integer NOT NULL)')
             const row = (await client.query<{version: number}>('SELECT version FROM schema_version')).rows[0]
             let version = row?.version ?? 0
-            // One from a newer Orrery is left as it is (ORR-433); its steps all ran in one transaction, so no copy is needed.
+            // One from a newer orrery is left as it is (ORR-433); its steps all ran in one transaction, so no copy is needed.
             if (version > BASELINE + STEPS.length) {
-                throw new Error(`This Postgres database was written by a newer Orrery (schema step ${version}; this one knows up to ${BASELINE + STEPS.length}). `
+                throw new Error(`This Postgres database was written by a newer orrery (schema step ${version}; this one knows up to ${BASELINE + STEPS.length}). `
                     + 'Run that version again, or restore a backup from before it upgraded.')
             }
             if (!row) {

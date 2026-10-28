@@ -1,5 +1,5 @@
-// Comparing Orrery's versions (`1.0.0`, `1.0.0-rc.10`), for the Sessions page to mark a channel or a launcher running
-// code older than the Orrery (ORR-434). A prerelease comes before its release, and `rc.9` before `rc.10`.
+// Comparing orrery's versions (`1.0.0`, `1.0.0-rc.10`), for the Sessions page to mark a channel or a launcher running
+// code older than the orrery (ORR-434). A prerelease comes before its release, and `rc.9` before `rc.10`.
 
 /** Whether `version` is older than `than`; one that's unknown (from a channel or launcher too old to say) is. */
 export function olderVersion(version: string | undefined, than: string): boolean {

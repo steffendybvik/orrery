@@ -1,5 +1,5 @@
 // The version of the code the channel and the launcher run, from the checkout they run from (web/package.json), which
-// they tell Orrery as they connect, so its Sessions page can mark one older than itself (ORR-434). Read again, it says
+// they tell orrery as they connect, so its Sessions page can mark one older than itself (ORR-434). Read again, it says
 // whether the checkout has moved on since this process started.
 import {readFileSync} from 'node:fs'
 

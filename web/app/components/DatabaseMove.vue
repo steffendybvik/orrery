@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type {DatabaseCheck, DatabaseInfo} from '#shared/roadmap'
 
-// Move to another database (App settings → Database): pick SQLite or Postgres, say where, and Orrery checks it
-// first. An empty one has everything copied in; an Orrery's own is run on as it is. Orrery switches at once and
+// Move to another database (App settings → Database): pick SQLite or Postgres, say where, and orrery checks it
+// first. An empty one has everything copied in; an orrery's own is run on as it is. orrery switches at once and
 // keeps the choice for its next start; the database it leaves stays as it was. The page loads again after, since
 // the projects may be others. `first` is the first-open step (OwnerDialog): open from the start, inside that dialog's
 // form, with Back in place of Cancel.
@@ -70,10 +70,10 @@ async function move(how: 'copy' | 'use') {
 }
 
 const STATE: Record<DatabaseCheck['state'], string> = {
-    empty: 'Empty: everything here is copied into it, then Orrery runs on it.',
-    orrery: 'Already an Orrery\'s.',
-    current: 'That\'s the database Orrery runs on now.',
-    other: 'It has tables of something else\'s: give Orrery a database of its own.',
+    empty: 'Empty: everything here is copied into it, then orrery runs on it.',
+    orrery: 'Already an orrery\'s.',
+    current: 'That\'s the database orrery runs on now.',
+    other: 'It has tables of something else\'s: give orrery a database of its own.',
 }
 const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
 </script>
@@ -90,7 +90,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
 
       <template v-if="kind === 'sqlite'">
         <input v-model="path" placeholder="orrery-2.db, or a full path" aria-label="SQLite file" autocomplete="off" :class="[input, 'w-full font-mono']">
-        <p class="text-xs text-faint">A file on the machine Orrery runs on. A name alone goes in the data folder, beside the one now; in Docker, only the data volume outlives the container.</p>
+        <p class="text-xs text-faint">A file on the machine orrery runs on. A name alone goes in the data folder, beside the one now; in Docker, only the data volume outlives the container.</p>
       </template>
 
       <template v-else>
@@ -111,14 +111,14 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
           <input v-model="fields.user" placeholder="User" aria-label="User" autocomplete="off" :class="[input, 'font-mono']">
           <input v-model="fields.password" type="password" placeholder="Password" aria-label="Password" autocomplete="new-password" :class="[input, 'font-mono sm:col-span-2']">
         </div>
-        <p class="text-xs text-faint">Your own, or a hosted one's connection URL pasted as it is. Give Orrery a database of its own: it checks there's nothing else in it.</p>
+        <p class="text-xs text-faint">Your own, or a hosted one's connection URL pasted as it is. Give orrery a database of its own: it checks there's nothing else in it.</p>
       </template>
 
       <p v-if="check" class="text-[13px] text-fg">
         <code class="font-mono text-xs">{{ check.where }}</code>:
-        {{ first && check.state === 'empty' ? 'Empty: Orrery sets it up and keeps everything there.' : STATE[check.state] }}
+        {{ first && check.state === 'empty' ? 'Empty: orrery sets it up and keeps everything there.' : STATE[check.state] }}
         <template v-if="check.state === 'orrery'">
-          {{ check.projects ? `${check.projects} project${check.projects === 1 ? '' : 's'} in it. Orrery runs on it as it is, and what's here stays behind in this one.` : 'No projects in it yet: everything here is copied in.' }}
+          {{ check.projects ? `${check.projects} project${check.projects === 1 ? '' : 's'} in it. orrery runs on it as it is, and what's here stays behind in this one.` : 'No projects in it yet: everything here is copied in.' }}
         </template>
       </p>
 

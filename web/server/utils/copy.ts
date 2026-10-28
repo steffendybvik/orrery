@@ -1,4 +1,4 @@
-// Copies a whole Orrery from one database to another, each SQLite or Postgres: `pnpm orrery:copy`, to move to
+// Copies a whole orrery from one database to another, each SQLite or Postgres: `pnpm orrery:copy`, to move to
 // Postgres or back, and the backups, a SQLite snapshot or a Postgres database. Every table is read in one transaction,
 // so what's copied is one moment's, then written in order, ids kept, in one transaction; the target must be empty
 // (no projects yet), unless `replace` empties it in that same transaction (a backup taking the place of the last, which
@@ -12,11 +12,11 @@ export const COPIED_TABLES = ['statuses', 'settings', 'projects', 'releases', 'c
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
 const NUMBERED = ['comments', 'issue_events', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
 
-/** `mark` is written into the target's settings as `backup_of`: the id of the Orrery it's a backup of. */
+/** `mark` is written into the target's settings as `backup_of`: the id of the orrery it's a backup of. */
 export async function copyDatabase(source: Db, target: Db, {replace = false, mark}: {replace?: boolean, mark?: string} = {}): Promise<Record<string, number>> {
-    if (!replace && (await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')).n) throw new Error('The target already has projects: copy into an empty Orrery')
+    if (!replace && (await one<{n: number}>(target, 'SELECT count(*) AS n FROM projects')).n) throw new Error('The target already has projects: copy into an empty orrery')
     // Read first, all of it in one transaction (on Postgres one snapshot of it), so a write while it copies a
-    // running Orrery can't leave a row pointing at one that isn't there.
+    // running orrery can't leave a row pointing at one that isn't there.
     const rows = await source.transaction(async () => {
         if (source.dialect === 'postgres') await source.exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
         const read: Partial<Record<(typeof COPIED_TABLES)[number], Record<string, unknown>[]>> = {}
@@ -27,7 +27,7 @@ export async function copyDatabase(source: Db, target: Db, {replace = false, mar
     await target.transaction(async () => {
         await target.deferConstraints()
         if (replace) for (const table of [...COPIED_TABLES].reverse()) await target.run(`DELETE FROM ${table}`)
-        // A new database starts with the default statuses, and may have had the presets Orrery ships seeded; the source's replace them.
+        // A new database starts with the default statuses, and may have had the presets orrery ships seeded; the source's replace them.
         await target.run('DELETE FROM statuses')
         await target.run('DELETE FROM settings')
         await target.run('DELETE FROM presets')

@@ -1,8 +1,8 @@
-// Fills an empty playground Orrery with a demo, through its API, as the owner (Skoll, the wolf who chases the sun)
+// Fills an empty playground orrery with a demo, through its API, as the owner (Skoll, the wolf who chases the sun)
 // and an agent (claude), with Skoll's brother Hate, who chases the moon, to assign to:
-// sessions Orrery may start; a prime-number library with releases, chunks and sub-issues; its command line, sharing its
+// sessions orrery may start; a prime-number library with releases, chunks and sub-issues; its command line, sharing its
 // releases as a monorepo's app would; graph algorithms with no releases; a proposal with choices, a question
-// waiting in the bell, and a doc. An Orrery that already has projects is left alone.
+// waiting in the bell, and a doc. An orrery that already has projects is left alone.
 //   node .playground/seed.mjs [http://localhost:9001]
 const base = (process.argv[2] ?? 'http://localhost:9001').replace(/\/+$/, '')
 const OWNER = 'skoll'

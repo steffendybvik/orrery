@@ -67,11 +67,11 @@ export function useEventLog(): EventLog {
 }
 
 /** Points what holds the database at the one the owner moved to (server/utils/move.ts); the secrets and schedules
- * reach it through the store. It gets the presets Orrery ships that it hasn't had yet, as a start would give it. */
+ * reach it through the store. It gets the presets orrery ships that it hasn't had yet, as a start would give it. */
 export function rebindDatabase(db: Db) {
     if (store) store.db = db
     if (log) log.db = db
-    store?.seedPresets().catch(error => console.error('[orrery] adding the presets Orrery ships:', error))
+    store?.seedPresets().catch(error => console.error('[orrery] adding the presets orrery ships:', error))
 }
 
 /** Passes it on once what did it is done (the write's transaction has committed, and nothing when it rolls back),
