@@ -23,7 +23,7 @@ watchEffect(() => props.session.started?.context?.presets.length && load(props.s
 const roles = computed(() => badgesFor(props.session.project, props.session.started?.context?.presets ?? []))
 
 const signalText = (s: SessionWork['signals'][number]) => s.kind === 'comment' ? `${who(s.created_by)}'s comment on ${s.issue}`
-    : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message: ${s.preset ?? s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
+    : s.kind === 'message' ? (s.schedule === undefined ? `${who(s.created_by)}'s message${s.via === 'chat' ? ' via chat' : ''}: ${s.preset ?? s.note ?? ''}` : `${who(s.created_by)}'s scheduled message`)
     : s.issue ? `${who(s.created_by)}: focus on ${s.issue}` : `${who(s.created_by)}: work through chunk ${s.chunk}`
 /** In progress first; the rest it worked are folded under them. */
 const doing = computed(() => props.work?.issues.filter(i => i.kind === 'started') ?? [])

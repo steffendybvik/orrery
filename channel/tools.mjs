@@ -123,7 +123,8 @@ export const TOOLS = [
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
-/** What the owner's chat session has besides: answering in the chat, and seeing what the owner pasted in it. */
+/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, and messaging
+ * other sessions for the owner when they ask. */
 export const CHAT_TOOLS = [
     {
         name: 'reply',
@@ -131,6 +132,20 @@ export const CHAT_TOOLS = [
         inputSchema: {type: 'object', required: ['text'], properties: {text: {type: 'string'}}},
     },
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
+    {
+        name: 'message_sessions',
+        description: "Sends a message to every listening session, as the owner's, marked as sent through their chat: only when the owner asked for it in this chat, after they said go to the text you drafted. Idle sessions only unless states says otherwise, so it interrupts no work.",
+        inputSchema: {type: 'object', required: ['text'], properties: {
+            text: {type: 'string'},
+            projects: {type: 'array', items: {type: 'string'}, description: 'Only sessions on (or hearing) these projects'},
+            states: {type: 'array', items: {type: 'string', enum: ['idle', 'working', 'waiting', 'starting']}, description: 'idle by default'},
+        }},
+    },
+    {
+        name: 'message_session',
+        description: "Sends a message to one session (by its name or id; the sessions tool lists them), as the owner's, marked as sent through their chat: only when the owner asked for it in this chat.",
+        inputSchema: {type: 'object', required: ['session', 'text'], properties: {session: {type: 'string'}, text: {type: 'string'}}},
+    },
 ]
 
 /** The tools a chat goes without: those that take up, move or finish work, write docs, reach outside services or deal
@@ -304,6 +319,17 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async reply({text}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/replies`, {text}, root)
             return 'Sent.'
+        },
+        async message_sessions({text, projects, states}) {
+            const {sent} = await call('POST', '/sessions/message', {text, ...projects ? {projects} : {}, ...states ? {states} : {}}, root)
+            return sent.length ? `Sent to ${sent.map(s => s.name).join(', ')}.` : `No ${states?.join(' or ') ?? 'idle'} session is listening, so it went to none.`
+        },
+        async message_session({session, text}) {
+            const wanted = String(session ?? '').trim().toLowerCase()
+            const found = (await call('GET', '/sessions', undefined, root)).find(s => s.id.toLowerCase() === wanted || s.name.toLowerCase() === wanted)
+            if (!found) throw new Error(`No session ${session}: the sessions tool lists them`)
+            await call('POST', `/projects/${encodeURIComponent(found.project)}/sessions/${encodeURIComponent(found.id)}/message`, {text}, root)
+            return `Sent to ${found.name}.`
         },
         async image({id}) {
             if (!/^[0-9a-f]{24}$/.test(String(id))) throw new Error(`${id} isn't an upload's id`)

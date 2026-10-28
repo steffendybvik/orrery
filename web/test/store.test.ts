@@ -1397,6 +1397,13 @@ describe('a message to one session', () => {
         expect((await store.unheardScheduled('greenhouse')).map(s => s.target)).toEqual(['abc'])
     })
 
+    it("sent by the owner's chat for them says so", async () => {
+        const signal = await store.messageSession('greenhouse', 'abc', 'Pick up Todo.', {...owner, via: 'chat'})
+        expect(signal).toMatchObject({kind: 'message', created_by: 'skoll', protected: true, via: 'chat'})
+        expect((await store.listSignals('greenhouse')).find(s => s.id === signal.id)!.via).toBe('chat')
+        expect(await store.messageSession('greenhouse', 'abc', 'Hi', owner)).not.toHaveProperty('via')
+    })
+
     it("from a preset is its text as the owner sent it, labelled by the preset's name as it was then", async () => {
         const release = await store.createPreset('greenhouse', {name: 'Release', text: 'Cut the release.'}, owner)
         await store.createProject({name: 'pantry', key: 'PAN'})

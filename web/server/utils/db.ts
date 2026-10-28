@@ -667,6 +667,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- What an event in the log is about (ORR-378): the issue, release, chunk or doc a change to the roadmap was to.
     ALTER TABLE events ADD COLUMN subject TEXT;
+`, `
+    -- A message the owner's chat sent for them (ORR-397): \`chat\`, so it's shown as relayed.
+    ALTER TABLE signals ADD COLUMN via TEXT;
 `]
 
 let db: DatabaseSync | null = null
