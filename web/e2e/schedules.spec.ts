@@ -51,3 +51,22 @@ test('runs a schedule now instead of its next run, which it skips', async ({page
     expect(new Date(after.next_run).getTime() - new Date(made.next_run).getTime()).toBe(86_400_000)
     expect(after.runs[0].note).toMatch(/^instead of \w{3} \d+ \w{3} 09:00$/)
 })
+
+test("a suggested schedule opens filled in, and leaves the list once it's made", async ({page, request}) => {
+    await page.goto('/schedules?project=cottage')
+    const suggested = page.locator('section', {has: page.getByRole('heading', {name: 'Suggested for Cottage'})})
+    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(4)
+    await suggested.getByRole('button', {name: 'Add Review an issue in review'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await expect(dialog.getByLabel('Title')).toHaveValue('Review an issue in review')
+    await expect(dialog.getByRole('button', {name: /Review/, pressed: true})).toBeVisible()
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    await expect(dialog).toBeHidden()
+
+    const cottage = projectApi('cottage')
+    const [made] = await cottage(request, 'get', '/schedules')
+    expect(made).toMatchObject({kind: 'session', on: 'issue.status', on_filter: {to: 'in-review'}, enabled: true})
+    expect(made.presets).toHaveLength(1)
+    await expect(suggested.getByRole('button', {name: 'Add Review an issue in review'})).toBeHidden()
+    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(3)
+})

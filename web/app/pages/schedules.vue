@@ -2,6 +2,7 @@
 // Every project's schedules, a card for each project that has any (ScheduleList), in the sidebar's order;
 // `?project=` keeps to one (a project's old Schedules tab comes here that way), shown even with none. New schedule
 // opens the dialog on the project kept to, else the first, and the project is picked there; a card's own makes one on it.
+// Under them, schedules suggested for that same project (ScheduleSuggestions), ready to add.
 const route = useRoute()
 const router = useRouter()
 const {projects, ready, byId} = useRoadmaps()
@@ -20,9 +21,10 @@ const cards = computed(() => ordered.value
 const active = computed(() => all.value.filter(s => s.enabled).length)
 const projectOptions = computed(() => [{value: '', label: 'All projects'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
 
+const target = computed(() => only.value || ordered.value[0]?.id || '')
+
 function newSchedule() {
-    const project = only.value || ordered.value[0]?.id
-    if (project) edit(project)
+    if (target.value) edit(target.value)
 }
 </script>
 
@@ -49,6 +51,7 @@ function newSchedule() {
     <EmptyProjects v-if="ready && !projects.length" />
     <div v-else-if="cards.length" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <ScheduleList v-for="card in cards" :key="card.project.id" :project="card.project" :schedules="card.schedules" />
+      <ScheduleSuggestions v-if="target" :project="target" :schedules="byProject[target] ?? []" />
     </div>
     <div v-else-if="ready" class="mx-auto flex max-w-4xl flex-col px-4 py-6">
       <p class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
@@ -56,6 +59,7 @@ function newSchedule() {
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="newSchedule">Make one</button>
         to message sessions, start one, or make an issue, at a set time or when something happens.
       </p>
+      <ScheduleSuggestions v-if="target" class="mt-4" :project="target" :schedules="byProject[target] ?? []" />
     </div>
   </div>
 </template>
