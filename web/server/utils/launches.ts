@@ -283,9 +283,11 @@ export function reportRunning(project: string, launches: {id: string, tmux: stri
         const was = pending.get(id) ?? reported.get(id)
         const started = sessionOfLaunch(project, id)?.started
         const context = was || started ? launchContext(project, id) : kept
+        // Its session's own is the latest (the owner may have given it more time), then the launch's.
         const waiting = pending.get(id)
-        const stops_at = waiting ? (waiting.minutes ? new Date(Date.now() + waiting.minutes * 60_000).toISOString() : undefined)
-            : was ? reported.get(id)?.stops_at : started ? started.stops_at : keptStop
+        const stops_at = started ? started.stops_at
+            : waiting ? (waiting.minutes ? new Date(Date.now() + waiting.minutes * 60_000).toISOString() : undefined)
+            : was ? reported.get(id)?.stops_at : keptStop
         const untrusted = said || !!was?.untrusted || !!sessionOfLaunch(project, id)?.started?.untrusted
         const chat = chatSaid || !!was?.chat || !!sessionOfLaunch(project, id)?.started?.chat
         const known = {tmux, ...stops_at ? {stops_at} : {}, ...context ? {context} : {}, ...untrusted ? {untrusted} : {}, ...chat ? {chat} : {}}
