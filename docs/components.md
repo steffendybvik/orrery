@@ -176,6 +176,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `CopyButton` | Copy, then Copied with a tick (Couldn't copy where the browser won't) |
 | `CopyBlock` | a titled block of text to copy as it is (a command, a config) |
 | `ImageButton` | picks images for a Markdown field |
+| `ImageDropOverlay` | covers an area taking images while one is dragged over it: "Drop image to add" |
 
 **Page frame**
 
@@ -209,7 +210,7 @@ Auto-imported, like the components. Reach for these before writing the listener 
 | `useHotkeys` | the page's keys (j/k, Enter, Esc, /, ⌘K, x, ⌘A); a row takes part by carrying `data-nav` |
 | `useSelection` | the issues ticked for a change to many (`BulkBar`); rows carry `data-issue` and `data-project` |
 | `useIssueLink` | an issue's page (`pathOf`, `open`), and the last one opened, marked when you come back |
-| `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`) |
+| `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`), then back to typing in it; pasting and dropping work on the whole area around it (`useImageDrop`, with `ImageDropOverlay` while an image is dragged over) |
 | `useUnseen` | what's changed since the owner last looked (`unseen-row`, `unseen-dot`) |
 | `useTheme` | light, dark or the system's, remembered in this browser |
 | `copyText` | copies text, with a fallback where the clipboard API refuses (`CopyButton` uses it) |

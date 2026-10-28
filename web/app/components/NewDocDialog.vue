@@ -2,7 +2,8 @@
 import type {Doc} from '#shared/roadmap'
 
 // Writing a doc in a project, as the owner (so agents can't delete it): its title and its text, in Markdown.
-// orrery makes its id from the title. ⌘↵ creates it and opens it, Esc closes.
+// orrery makes its id from the title. An image pasted or dropped anywhere on the dialog, or picked, goes into the text
+// as Markdown. ⌘↵ creates it and opens it, Esc closes.
 const {target, close} = useNewDoc()
 const {byId} = useRoadmaps()
 const {load} = useOwner()
@@ -16,7 +17,7 @@ const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
 const bodyInput = ref<HTMLTextAreaElement | null>(null)
 // An image pasted, dropped or picked goes in as Markdown where the cursor is.
-const {uploading, failed: uploadError, dragging, upload, reset: resetUploads, onPaste, onDrop} = useImageUpload(body, bodyInput)
+const {uploading, failed: uploadError, upload, reset: resetUploads, over, on: drop} = useImageUpload(body, bodyInput)
 
 watch(target, now => {
     if (!now) return
@@ -50,7 +51,8 @@ async function create() {
 </script>
 
 <template>
-  <UiDialog :open="target" label="New doc" width="2xl" @close="close" @submit="create">
+  <UiDialog :open="target" label="New doc" width="2xl" class="relative" v-on="drop" @close="close" @submit="create">
+    <ImageDropOverlay v-if="over" />
     <div class="flex items-center gap-2 text-xs text-faint">
       <span>New doc<template v-if="project"> in {{ project.name }}</template></span>
       <KeyHint class="ml-auto">esc</KeyHint>
@@ -63,11 +65,6 @@ async function create() {
         placeholder="Write it in Markdown (paste or drop an image)"
         aria-label="Text"
         class="field-sizing-content max-h-[60vh] min-h-40 resize-none bg-transparent font-mono text-[13px] leading-6 text-fg placeholder:text-faint focus:outline-none"
-        :class="dragging && 'rounded-lg ring-1 ring-accent-500/50'"
-        @paste="onPaste"
-        @dragover.prevent="dragging = true"
-        @dragleave="dragging = false"
-        @drop.prevent="onDrop"
     />
     <div class="flex items-center gap-2 border-t border-line pt-3">
       <ImageButton @picked="upload" />

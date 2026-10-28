@@ -3,7 +3,7 @@ import type {Column, Priority} from '#shared/roadmap'
 
 // Writing a new issue, as the owner (so agents can't delete it); orrery hands out its id. Its labels say
 // what kind it is (bug, feature request, …), and it can go straight to the listening Claude sessions to
-// pick up. An image pasted, dropped or picked goes into the description as Markdown. ⌘↵ creates it and
+// pick up. An image pasted or dropped anywhere on the dialog, or picked, goes into the description as Markdown. ⌘↵ creates it and
 // opens its page, Esc closes.
 const {target, close} = useNewIssue()
 const {byId} = useRoadmaps()
@@ -26,7 +26,7 @@ const saving = ref(false)
 const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
 const notesInput = ref<HTMLTextAreaElement | null>(null)
-const {uploading, failed: uploadError, dragging, upload, reset: resetUploads, onPaste, onDrop} = useImageUpload(notes, notesInput)
+const {uploading, failed: uploadError, upload, reset: resetUploads, over, on: drop} = useImageUpload(notes, notesInput)
 // Where it starts: Proposed or any open status.
 const {places} = useStatuses()
 const WHERE = computed(() => places.value.filter(p => !isClosed(p.kind)))
@@ -83,7 +83,8 @@ async function create() {
 </script>
 
 <template>
-  <UiDialog :open="target && project" label="New issue" width="2xl" @close="close" @submit="create">
+  <UiDialog :open="target && project" label="New issue" width="2xl" class="relative" v-on="drop" @close="close" @submit="create">
+    <ImageDropOverlay v-if="over" />
     <template v-if="project">
       <div class="flex items-center gap-2 text-xs text-faint">
         <span class="rounded bg-well px-1.5 py-px font-mono text-[10px] ring-1 ring-line">{{ project.key }}</span>
@@ -91,13 +92,7 @@ async function create() {
         <KeyHint class="ml-auto">esc</KeyHint>
       </div>
       <input ref="titleInput" v-model="title" placeholder="Issue title" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
-      <div
-          class="-mx-2 flex flex-col rounded-lg px-2 ring-1 ring-transparent"
-          :class="dragging && 'ring-accent-500/50'"
-          @dragover.prevent="dragging = true"
-          @dragleave="dragging = false"
-          @drop.prevent="onDrop"
-      >
+      <div class="flex flex-col">
         <textarea
             ref="notesInput"
             v-model="notes"
@@ -105,7 +100,6 @@ async function create() {
             placeholder="Add a description… (Markdown works, paste or drop an image)"
             aria-label="Description"
             class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
-            @paste="onPaste"
         />
         <div class="-ml-1.5 flex items-center gap-2">
           <ImageButton @picked="upload" />
