@@ -140,6 +140,28 @@ async function backUpNow() {
     }
 }
 
+// Whether the database is backed up, and to which folder (outside Docker): ticked or saved, and turned on it's backed
+// up there at once, so a folder that won't take it says so here.
+const backupFolder = ref('')
+const settingBackups = ref(false)
+const backupsFailed = ref('')
+watch(() => settings.value.database, now => {
+    backupFolder.value = now?.backup_folder ?? now?.backup ?? now?.backup_default ?? ''
+}, {immediate: true})
+async function setBackups(on: boolean, folder: string | null = backupFolder.value.trim() || null) {
+    settingBackups.value = true
+    backupsFailed.value = ''
+    try {
+        const actor = await loadOwner()
+        const body = settings.value.database?.backups_settable === 'folder' ? {on, folder} : {on}
+        settings.value.database = await $fetch<DatabaseInfo>('/api/backups', {method: 'PUT', body, headers: {'Orrery-Actor': actor}})
+    } catch (error) {
+        backupsFailed.value = errorMessage(error)
+    } finally {
+        settingBackups.value = false
+    }
+}
+
 async function pick(tint: string | null) {
     failed.value = ''
     try {
@@ -343,7 +365,37 @@ async function pick(tint: string | null) {
             </dd>
           </template>
         </dl>
-        <p v-if="settings.database && !settings.database.backup" class="text-xs text-faint">
+        <div v-if="settings.database?.backups_settable" class="flex flex-col gap-2">
+          <label class="flex items-center gap-2 text-[13px] text-fg">
+            <input
+                type="checkbox"
+                class="accent-accent-500"
+                :checked="!!settings.database.backup"
+                :disabled="settingBackups || (settings.database.backups_settable === 'switch' && !settings.database.backup_default)"
+                @change="setBackups(($event.target as HTMLInputElement).checked)"
+            >
+            Back up this Orrery
+          </label>
+          <form v-if="settings.database.backups_settable === 'folder'" class="flex flex-wrap items-center gap-2" @submit.prevent="setBackups(true)">
+            <input
+                v-model="backupFolder"
+                aria-label="Backup folder"
+                placeholder="/Users/you/Backups/orrery"
+                spellcheck="false"
+                class="h-8 w-[28rem] max-w-full field font-mono"
+                @keydown.esc="backupFolder = settings.database.backup_folder ?? settings.database.backup ?? settings.database.backup_default ?? ''; ($event.target as HTMLInputElement).blur()"
+            >
+            <UiButton type="submit" :disabled="settingBackups || !backupFolder.trim()">{{ settingBackups ? 'Backing up…' : 'Back up here' }}</UiButton>
+            <UiButton v-if="settings.database.backup_folder && settings.database.backup_default" variant="ghost" :disabled="settingBackups" @click="setBackups(!settings.database.backups_off, null)">Use {{ settings.database.backup_default }}</UiButton>
+          </form>
+          <p class="text-xs text-faint">
+            <template v-if="settings.database.backups_settable === 'folder'">A folder that syncs off this machine is best. Turned on, it's backed up there at once.</template>
+            <template v-else-if="settings.database.backup_default">In Docker the backups go to <code>/backup</code>: choose its folder on this machine with <code>ORRERY_BACKUP</code>.</template>
+            <template v-else>Give Orrery a folder for its backups with <code>ORRERY_BACKUP</code>.</template>
+          </p>
+          <p v-if="backupsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ backupsFailed }}</p>
+        </div>
+        <p v-else-if="settings.database && !settings.database.backup" class="text-xs text-faint">
           Not backed up: give Orrery a folder for its backups with <code>ORRERY_BACKUP</code> (<code>NUXT_BACKUP_DIR</code> outside Docker).
         </p>
         <DatabaseMove v-if="settings.database?.movable" :database="settings.database" />

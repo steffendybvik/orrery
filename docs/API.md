@@ -330,7 +330,13 @@ snapshot), and `backed_up_at` when the latest backup there was made. `size` is h
 its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
 it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABASE` names Postgres), and `moved` that it
 was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
-a backup folder.
+a backup folder. `backups_settable` is what App settings can change about backups: `folder` (whether they run, and
+where) or `switch` (only whether, in Docker); left out when `ORRERY_DATABASE` names Postgres. `backups_off` says the
+owner turned them off, `backup_folder` the folder they chose (kept while off), and `backup_default` `NUXT_BACKUP_DIR`.
+`PUT /backups {on, folder?}` (the owner's, from localhost, 403 from any other address) sets them: `folder` a full path
+instead of `NUXT_BACKUP_DIR`, `null` or none back to it. Turned on, it's backed up there at once, and kept only if that
+worked (400 when it can't be, or the folder holds the database); 409 for a folder in Docker, on with nowhere to go, or
+when `ORRERY_DATABASE` names Postgres. → `database`.
 
 The owner moves it from localhost (403 from any other address): `POST /database/check {kind: "sqlite", path}` or
 `{kind: "postgres", url}` says what's there without changing it, `{kind, where, state, projects?}`, `state` `empty`,
@@ -509,7 +515,7 @@ recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
 their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), schedule runs and skips
-(`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `migration.ran`,
+(`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `backup.set`, `migration.ran`,
 `database.moved`, `server.started`). So is **each change to the roadmap**, as an `info` line with the change's
 type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.created`, `issue.status`,
 `issue.priority`…, `issue.deleted`), `comment.added`, `comment.asks`, `chunk.created`, `doc.created`, `doc.changed`,
