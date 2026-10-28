@@ -129,13 +129,17 @@ export async function moveDatabase(setting: string, how: 'copy' | 'use', rebind:
             // Its schema laid down or brought up to date, as it would be on start.
             await target.get('SELECT 1')
             if (how === 'copy') copied = await copyDatabase(useDatabase(), target)
+            // Where it went is saved before anything writes to it: a save that fails (a full disk) leaves it all
+            // on the one before, not the store on one and the rest on the other.
+            await switchDatabase(setting, target, rebind)
         } catch (error) {
-            if (target instanceof PostgresDb) await target.close()
-            else target.raw.close()
+            // Not once it runs on it, if only letting go of the one before failed.
+            if (databaseSetting() !== setting) {
+                if (target instanceof PostgresDb) await target.close()
+                else target.raw.close()
+            }
             throw error
         }
-        rebind(target)
-        await switchDatabase(setting, target)
         return {check, ...copied ? {copied} : {}}
     } finally {
         moving = false
