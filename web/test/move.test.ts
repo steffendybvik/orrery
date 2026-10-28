@@ -1,4 +1,4 @@
-import {existsSync, mkdtempSync, readFileSync} from 'node:fs'
+import {existsSync, mkdirSync, mkdtempSync, readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
@@ -77,6 +77,19 @@ describe('moving the database', () => {
         expect(db.databaseSetting()).toBe(original)
         expect(existsSync(join(dir, 'orrery.db.moved.json'))).toBe(false)
         expect(db.describeDatabase().moved).toBeUndefined()
+        await db.closeDb()
+    })
+
+    it('stays whole on the one before when it can\'t save where it went', async () => {
+        const {dir, db, move, store} = await setUp()
+        const before = db.useDatabase()
+        // Where the move is kept is a folder, so writing it fails, as on a full disk.
+        mkdirSync(join(dir, 'orrery.db.moved.json'))
+        await expect(move.moveDatabase(join(dir, 'orrery-2.db'), 'copy', rebind)).rejects.toThrow()
+        expect(rebound).toHaveLength(0)
+        expect(db.databaseSetting()).toBe(join(dir, 'orrery.db'))
+        expect(db.useDatabase()).toBe(before)
+        expect((await store.listBoards()).map(p => p.id)).toEqual(['larder'])
         await db.closeDb()
     })
 

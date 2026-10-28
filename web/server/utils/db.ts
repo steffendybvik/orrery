@@ -745,14 +745,16 @@ export async function closeDb() {
     database = null
 }
 
-/** Runs on `next` from now on (already open, its schema up to date), saved for the next start, and lets go of the
- * one before once what it was doing is done. Says which it was. */
-export async function switchDatabase(setting: string, next: SqliteDb | PostgresDb): Promise<SqliteDb | PostgresDb | null> {
+/** Runs on `next` from now on (already open, its schema up to date), saved for the next start, with what else holds the
+ * database pointed at it (`rebind`), and lets go of the one before once what it was doing is done. Saved first: a save
+ * that fails (a full disk) changes nothing. Says which it was. */
+export async function switchDatabase(setting: string, next: SqliteDb | PostgresDb, rebind: (db: SqliteDb | PostgresDb) => void): Promise<SqliteDb | PostgresDb | null> {
     const before = database
     const raw = db
     saveDatabaseSetting(setting)
     database = next
     db = next instanceof SqliteDb ? next.raw : null
+    rebind(next)
     if (before instanceof PostgresDb) await before.close()
     else if (before instanceof SqliteDb) await before.alone(() => raw?.close())
     return before
