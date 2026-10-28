@@ -4,9 +4,12 @@ import type {Actor} from './store'
 // Who's asking, by the `Orrery-Actor` header (`agent` without one). There's no auth: it's what
 // keeps an agent from deleting what the owner (their id, from the name they gave) made, as long as
 // agents name themselves.
+// A session's write (`Orrery-Session`) carries that session's name too (ORR-466), to keep with what it wrote.
 export async function actorOf(event: H3Event): Promise<Actor> {
     const name = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
-    return {name, owner: name.toLowerCase() === (await useStore().ownerOf()).name, ...untrustedWrite(event) ? {untrusted: true} : {}}
+    const owner = name.toLowerCase() === (await useStore().ownerOf()).name
+    const session = owner ? undefined : sessionName(getHeader(event, 'orrery-session')?.trim())
+    return {name, owner, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}}
 }
 
 /** The issue a write went to is the work of the session that says it made it (`Orrery-Session`), if one

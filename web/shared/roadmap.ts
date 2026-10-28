@@ -123,6 +123,8 @@ export interface Issue {
     /** The version it ships in (a release's), if it's set for one. */
     release?: string
     created_by: string
+    /** The name of the session that made it, as it was then (ORR-466). */
+    session_name?: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
     created_at: string
@@ -263,6 +265,8 @@ export interface Comment {
     asks?: Asks
     answered?: boolean
     created_by: string
+    /** The name of the session that wrote it, as it was then (ORR-466); none for the owner's, older ones and API writes. */
+    session_name?: string
     protected: boolean
     created_at: string
     updated_at: string
@@ -285,6 +289,8 @@ export interface IssueEvent {
     before?: string
     after?: string
     created_by: string
+    /** The name of the session that made the change (ORR-466), as on a comment. */
+    session_name?: string
     protected: boolean
     created_at: string
 }

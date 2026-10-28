@@ -15,9 +15,11 @@ export function useOwner() {
     async function refresh() {
         owner.value = await $fetch<Owner>('/api/owner').catch(() => owner.value)
     }
-    /** The name to show for an actor: the owner's display name for the owner, Agent for `claude`, anyone else as they are. */
-    function who(actor: string) {
+    /** The name to show for an actor: the owner's display name for the owner, the session's name when a session wrote it
+     * (`session_name`, ORR-466), Agent for `claude`, anyone else as they are. */
+    function who(actor: string, session?: string) {
         if (owner.value && actor.toLowerCase() === owner.value.name.toLowerCase()) return owner.value.display
+        if (session) return session
         return actor.toLowerCase() === 'claude' ? 'Agent' : actor
     }
     /** Gives the owner's name (or changes it), as the owner: their id follows it. */

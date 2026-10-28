@@ -173,6 +173,7 @@ export abstract class StoreBase {
             schedule: row.schedule ?? undefined,
             release: row.ships_in ?? undefined,
             created_by: row.created_by,
+            ...row.session_name ? {session_name: row.session_name} : {},
             protected: !!row.owned,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -336,8 +337,8 @@ export abstract class StoreBase {
         for (const [field, before, after] of changes) {
             if (field !== 'created' && (after === undefined || (after ?? null) === before)) continue
             const [from, to] = field === 'notes' ? [null, null] : [before, nullable(after)]
-            await this.run('INSERT INTO issue_events (project, issue, field, before, after, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                project, issue, field, from, to, actor.name, Number(actor.owner), now)
+            await this.run('INSERT INTO issue_events (project, issue, field, before, after, created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, issue, field, from, to, actor.name, actor.session ?? null, Number(actor.owner), now)
             // Text an outsider may have written (a title, its links) isn't passed on: the issue's id is, to read.
             this.tell(`issue.${field}`, project, issue, actor, field === 'title' || field === 'external' ? {} : {from, to})
         }

@@ -29,6 +29,7 @@ beforeEach(async () => {
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('currentId', (id: string) => id)
+    vi.stubGlobal('sessionName', () => undefined)
     vi.stubGlobal('param', (event: Event, name: string) => event.params[name])
     vi.stubGlobal('readBody', async (event: Event & {body?: unknown}) => event.body)
     vi.stubGlobal('actorOf', async () => ({name: 'claude', owner: false}))
