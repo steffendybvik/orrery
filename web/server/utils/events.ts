@@ -27,17 +27,22 @@ const reading = new Map<string, 'reading' | 'again'>()
 /** Each project as it was last pushed, and its revision, which the next `patch` is made from (ORR-440). */
 const pushed = new Map<string, {rev: number, project: Project}>()
 
-/** A project as a page reads it whole, with the revision the patches after it build on. One not pushed since the
- * server started is kept as revision 0, so the first change to it is a patch from what the page read, not the whole
- * project. */
-export function withRev(project: Project): Project & {rev: number} {
-    const last = pushed.get(project.id) ?? {rev: 0, project}
-    pushed.set(project.id, last)
-    return {...project, rev: last.rev}
+/** Labels the projects a page reads whole, from a read that starts now, with the revision the patches after it build
+ * on: each one's as it is now, before the read (ORR-482). A push while it's read is then still newer than the label,
+ * and the page takes its patch; labelled once the read was done, the older read would have the newer revision, and
+ * the page would drop the patch it lacks. One not pushed since the server started is kept as revision 0, so the first
+ * change to it is a patch from what the page read, not the whole project; but not while it's being read again, as
+ * that read may be older or newer than this one: its push is then the whole project, which any page can take. */
+export function revLabel(): (project: Project) => Project & {rev: number} {
+    const revs = new Map([...pushed].map(([id, last]) => [id, last.rev]))
+    return project => {
+        if (!pushed.has(project.id) && !reading.has(project.id)) pushed.set(project.id, {rev: 0, project})
+        return {...project, rev: revs.get(project.id) ?? 0}
+    }
 }
 
-/** Reads `id` again and pushes it, as `project` and as a `patch` from the last push. */
-function reread(id: string) {
+/** Reads `id` again and pushes it, as `project` and as a `patch` from the last push. Exported for its tests. */
+export function reread(id: string) {
     if (reading.has(id)) {
         reading.set(id, 'again')
         return
