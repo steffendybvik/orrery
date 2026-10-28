@@ -1,5 +1,6 @@
 // A project's roadmap as the board draws it: the server reads it from the database, places every
 // issue in a column and rolls the columns up into parents and chunks, so the page only draws.
+import type {OnFilter} from './happenings'
 import type {Instruction} from './prompt'
 
 /** What a status means, whatever it's called: Orrery's counts, progress and pages reason about kinds,
@@ -336,9 +337,11 @@ export interface ScheduleRun {
     outcome: 'made' | 'sent' | 'skipped' | 'failed'
     issue?: string
     note?: string
+    /** What an event run was about (an issue's id, a release's version), once per schedule. */
+    subject?: string
 }
 
-/** Recurring work in a project: at each time (`cron` in `timezone`, or once `at`) Orrery makes an issue
+/** Recurring work in a project: at each time (`cron` in `timezone`, once `at`, or `on` an event) Orrery makes an issue
  * from it, and with `ask` points the project's listening Claude sessions at it; or, as a `message`
  * schedule, sends `notes` to the sessions without an issue. */
 export interface Schedule {
@@ -350,6 +353,10 @@ export interface Schedule {
     notes?: string
     cron?: string
     at?: string
+    /** Runs when an event of this type happens instead of on a clock: `issue.status`, `release.*` (shared/happenings.ts). */
+    on?: string
+    /** What the event must also say: `{to: "in-review"}`, `{by: "owner"}`, `{level: "error"}`. */
+    on_filter?: OnFilter
     timezone: string
     /** Where its issues start: a status's id (not a closed one). */
     column: string

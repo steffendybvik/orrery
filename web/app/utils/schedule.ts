@@ -1,8 +1,11 @@
 import {Cron} from 'croner'
+import type {OnFilter} from '#shared/happenings'
+import {COMMON_EVENTS} from '#shared/happenings'
 import type {Schedule} from '#shared/roadmap'
 
 // When a schedule runs, as the dialog's presets and in words. The presets are crons of a known shape:
-// every day, weekdays, some days of the week, a day of the month (each at a time), or every N minutes or hours.
+// every day, weekdays, some days of the week, a day of the month (each at a time), or every N minutes or hours. Or it
+// runs on an event (ORR-341), said by its label.
 
 export type Repeat =
     | {kind: 'daily' | 'weekdays', time: string}
@@ -50,8 +53,9 @@ export function toRepeat(schedule: Pick<Schedule, 'cron' | 'at'>): Repeat {
 
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`
 
-/** When it runs, in words: "Weekdays at 09:00", "Mon, Thu at 09:00", "Every 3 hours". */
-export function describe(schedule: Pick<Schedule, 'cron' | 'at' | 'timezone'>): string {
+/** When it runs, in words: "Weekdays at 09:00", "Mon, Thu at 09:00", "Every 3 hours", "When an issue moves to in-review". */
+export function describe(schedule: Pick<Schedule, 'cron' | 'at' | 'timezone'> & Partial<Pick<Schedule, 'on' | 'on_filter'>>): string {
+    if (schedule.on) return describeEvent(schedule.on, schedule.on_filter)
     const repeat = toRepeat(schedule)
     const zone = schedule.timezone !== localZone() ? ` (${schedule.timezone})` : ''
     switch (repeat.kind) {
@@ -92,4 +96,15 @@ export function until(iso: string): string {
     if (seconds < 3600) return `in ${Math.round(seconds / 60)}m`
     if (seconds < 86_400) return `in ${Math.round(seconds / 3600)}h`
     return `in ${Math.round(seconds / 86_400)}d`
+}
+
+/** An event schedule's trigger in words: the common one's label (its "to" said), else the pattern. */
+export function describeEvent(on: string, filter: OnFilter = {}): string {
+    const common = COMMON_EVENTS.find(e => e.type === on)
+    const label = common ? common.label : `On ${on}`
+    const to = filter.to ? (on === 'issue.status' ? ` ${filter.to}` : ` → ${filter.to}`) : ''
+    const from = filter.from ? ` from ${filter.from}` : ''
+    const by = filter.by ? `, by ${filter.by === 'owner' ? 'you' : 'a session'}` : ''
+    const level = filter.level ? ` (${filter.level})` : ''
+    return `${on === 'issue.status' && to ? 'An issue moves to' : label}${to}${from}${level}${by}`
 }

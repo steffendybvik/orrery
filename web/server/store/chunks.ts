@@ -33,6 +33,7 @@ export abstract class ChunkStore extends PresetStore {
             return id
         })
         this.changed(project)
+        this.tell('chunk.created', project, id, actor)
         return await this.chunk(project, id)
     }
 

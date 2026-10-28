@@ -33,6 +33,7 @@ export abstract class DocStore extends ChunkStore {
             await this.touchProject(project)
         })
         this.changed(project)
+        this.tell('doc.created', project, id, actor)
         return await this.doc(project, id)
     }
 
@@ -43,10 +44,10 @@ export abstract class DocStore extends ChunkStore {
         const input = checkInput(body, DOC_FIELDS)
         if (input.id !== undefined && input.id !== id) throw badRequest(`The body's id "${input.id}" isn't the URL's "${id}"`)
         if (!await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) return {doc: await this.createDoc(project, {...input, id}, actor), created: true}
-        return {doc: await this.updateDoc(project, id, {title: input.title, body: input.body ?? '', position: input.position}), created: false}
+        return {doc: await this.updateDoc(project, id, {title: input.title, body: input.body ?? '', position: input.position}, actor), created: false}
     }
 
-    async updateDoc(project: string, id: string, body: unknown): Promise<Doc> {
+    async updateDoc(project: string, id: string, body: unknown, actor = AGENT): Promise<Doc> {
         await this.docRow(project, id)
         const input = checkInput(body, DOC_FIELDS, true)
         if (input.id !== undefined && input.id !== id) throw badRequest("A doc's id can't change")
@@ -59,6 +60,7 @@ export abstract class DocStore extends ChunkStore {
             await this.touchProject(project)
         })
         this.changed(project)
+        if (input.title !== undefined || input.body !== undefined) this.tell('doc.changed', project, id, actor)
         return await this.doc(project, id)
     }
 
@@ -70,5 +72,6 @@ export abstract class DocStore extends ChunkStore {
             await this.touchProject(project)
         })
         this.changed(project)
+        this.tell('doc.deleted', project, id, actor)
     }
 }

@@ -1,5 +1,7 @@
+import type {OrreryEvent} from '#shared/happenings'
+
 // Runs the schedules that are due: on start (so a schedule missed while Orrery was down runs once), then
-// every 30 seconds.
+// every 30 seconds; and those that run on an event, as each happens.
 export default defineNitroPlugin(nitro => {
     const tick = async () => {
         try {
@@ -10,5 +12,12 @@ export default defineNitroPlugin(nitro => {
     }
     const timer = setInterval(tick, 30_000)
     setTimeout(tick, 2_000)
-    nitro.hooks.hook('close', () => clearInterval(timer))
+    const hear = ({event, cause}: {event: OrreryEvent, cause?: number}) => {
+        useScheduler().hear(event, cause).catch(error => console.error(`[orrery] running schedules on ${event.type}:`, error))
+    }
+    projectEvents.on('happened', hear)
+    nitro.hooks.hook('close', () => {
+        clearInterval(timer)
+        projectEvents.off('happened', hear)
+    })
 })
