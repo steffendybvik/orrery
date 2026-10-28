@@ -567,7 +567,32 @@ export interface ChatMessage {
     text: string
     images: string[]
     at: string
+    /** The session asking to change an App setting, which waits on the owner's Allow. */
+    request?: ChatRequest
 }
+
+/** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
+ * the database, statuses, prompts, how sessions start) stay the owner's to change there. */
+export const CHAT_SETTINGS = {
+    tracker: 'Team tracker',
+    tint: 'Background tint',
+    restrict_proposals: 'Keep agents off proposals',
+    handle: 'Your handle',
+    advanced: 'Advanced',
+} as const
+export type ChatSetting = keyof typeof CHAT_SETTINGS
+
+/** One setting the chat asked to change, from what to what: saved only once the owner allows it, and `expired` when
+ * they didn't answer in time or it asked again. */
+export interface ChatRequest {
+    setting: ChatSetting
+    from: unknown
+    to: unknown
+    state: 'asked' | 'allowed' | 'denied' | 'expired'
+}
+
+/** A setting's value as a chat's request shows it. */
+export const settingValue = (value: unknown) => value === null || value === undefined || value === '' ? '(none)' : value === true ? 'on' : value === false ? 'off' : String(value)
 
 /** A session Orrery started, as its launch made it. */
 export interface StartedSession {

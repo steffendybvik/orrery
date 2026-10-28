@@ -1,10 +1,20 @@
 <script setup lang="ts">
+import {CHAT_SETTINGS, settingValue} from '#shared/roadmap'
+
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there. With no chat running
 // the pane offers to start one on the project you're on; once started, its session's state shows in the header and
 // the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
 // dropped goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
-// one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way).
-const {open, large, chat, session, project, failed, chats, start, send, close, resize, upload, show} = useChat()
+// one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). A setting
+// the chat asks to change shows from → to with Allow and Deny; only Allow saves it.
+const {open, large, chat, session, project, failed, chats, start, send, answer, close, resize, upload, show} = useChat()
+const answering = ref<number | null>(null)
+async function decide(message: number, allow: boolean) {
+    answering.value = message
+    await answer(message, allow)
+    answering.value = null
+}
+const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed', expired: 'Expired: not answered in time, or asked again'}
 const {projects} = useRoadmaps()
 const route = useRoute()
 
@@ -139,6 +149,16 @@ function onPaste(event: ClipboardEvent) {
           </div>
           <div v-if="m.from === 'owner' && m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
           <MarkdownView v-else-if="m.text" :source="m.text" class="max-w-full text-[13px]" />
+          <div v-if="m.request" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Change ${CHAT_SETTINGS[m.request.setting]}`">
+            <span class="text-xs text-faint">Asks to change a setting</span>
+            <span class="text-fg"><span class="font-medium">{{ CHAT_SETTINGS[m.request.setting] }}</span>:
+              <span class="text-muted line-through decoration-faint">{{ settingValue(m.request.from) }}</span> → <span class="break-all">{{ settingValue(m.request.to) }}</span></span>
+            <div v-if="m.request.state === 'asked' && !chat.ended" class="flex gap-2">
+              <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+              <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
+            </div>
+            <span v-else class="text-xs" :class="m.request.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.request.state === 'asked' ? 'Not answered' : ANSWERED[m.request.state] }}</span>
+          </div>
         </li>
         <li v-if="thinking" class="text-xs text-faint" aria-live="polite">Thinking…</li>
         <li v-if="!session && chat.problem && !chat.ended" class="text-xs text-rose-600 dark:text-rose-400" role="alert">{{ chat.problem }}</li>

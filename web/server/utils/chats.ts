@@ -1,6 +1,10 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatMessage} from '#shared/roadmap'
+import type {Chat, ChatMessage, ChatSetting} from '#shared/roadmap'
+import {CHAT_SETTINGS, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
+import {SETTINGS_FIELDS} from '../store/schema'
+import {checkInput} from './input'
+import {known} from '#shared/known'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -16,6 +20,9 @@ id it got. You don't work on anything: don't change code, and don't start, move 
 that. When the owner asks you to, in this chat, message other sessions (sessions lists them): message_sessions
 nudges every idle one, message_session one by its name. Never on your own. Say in your reply what you sent and to
 whom; for more than one session, draft it in a reply first and send it once the owner says go.
+When the owner asks you to change an App setting (the team tracker, the background tint, keeping agents off
+proposals, their handle, Advanced), ask with update_settings, one setting at a time: it shows them the change with
+Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. Never on your own.
 Every answer goes back with the reply tool, in Markdown: nothing else reaches the owner. Write an issue as a link
 to its page, \`[<id>](/p/${project}/issues/<id>)\`, so the owner can open it.
 A message ends with the page the owner had open when they wrote it, e.g. \`(The owner is on /p/${project}/schedules: Schedules.)\`.
@@ -80,6 +87,55 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
     ].filter(Boolean).join('\n\n')
     await useStore().messageSession(chat.project, launchTarget(id), note, actor)
     return add(chat, {from: 'owner', text: words, images: pasted})
+}
+
+/** How long a request to change a setting waits on the owner's answer. */
+export const ASK_FOR = 30 * 60_000
+
+/** The chat's session asking to change one App setting (its `update_settings` tool), `{setting, value, why?}`: a request
+ * in the chat, checked as the settings would check it, which saves nothing until the owner allows it. One it asked
+ * before for the same setting, still unanswered, expires. */
+export async function askSetting(id: string, body: unknown): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {setting, value, why} = (body && typeof body === 'object' ? body : {}) as {setting?: unknown, value?: unknown, why?: unknown}
+    if (typeof setting !== 'string' || !Object.hasOwn(CHAT_SETTINGS, setting))
+        throw badRequest(`Send {setting, value}, setting one of ${Object.keys(CHAT_SETTINGS).join(', ')}; the rest are the owner's to change on App settings`)
+    if (value === undefined) throw badRequest('Send the value to set as "value" (null for none)')
+    const to = checkInput({[setting]: value}, {[setting]: known(SETTINGS_FIELDS[setting], 'the setting')}, true)[setting]
+    const normal = setting === 'handle' && typeof to === 'string' ? to.toLowerCase() : to
+    const from = (await useStore().settings())[setting as ChatSetting] ?? null
+    for (const m of chat.messages) if (m.request?.state === 'asked' && m.request.setting === setting) m.request.state = 'expired'
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], request: {setting: setting as ChatSetting, from, to: normal, state: 'asked'}})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to set ${CHAT_SETTINGS[setting as ChatSetting]} to ${settingValue(normal)}`, details: {setting, from, to: normal}})
+    return said
+}
+
+/** The owner's answer to a request (`allow`): allowed, the setting is saved as asked; either way the chat's session
+ * hears it. Only the owner's, from the page: the route refuses the chat's own session. */
+export async function answerSetting(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const asked = chat.messages.find(m => m.id === message && m.request)
+    if (!asked?.request) throw notFound(`No request ${message} in this chat`)
+    const request = asked.request
+    if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
+        request.state = 'expired'
+        changed(chat)
+    }
+    if (request.state !== 'asked') throw conflict(`That request is ${request.state} already${request.state === 'expired' ? ': ask the chat again' : ''}`)
+    const label = CHAT_SETTINGS[request.setting]
+    if (allow) {
+        await useStore().updateSettings({[request.setting]: request.to}, actor)
+        useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings through their chat: ${request.setting}`,
+            details: {by: actor.name, keys: [request.setting], via: 'chat', from: request.from, to: request.to}})
+    }
+    request.state = allow ? 'allowed' : 'denied'
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to set ${label} to ${settingValue(request.to)}`,
+        details: {setting: request.setting, from: request.from, to: request.to, allowed: allow}})
+    await useStore().messageSession(chat.project, launchTarget(id), allow
+        ? `(I allowed your request: ${label} is now ${settingValue(request.to)}, saved.)`
+        : `(I denied your request to set ${label} to ${settingValue(request.to)}: nothing changed.)`, actor)
+    return asked
 }
 
 /** The chat's session answering (its `reply` tool). */

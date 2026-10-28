@@ -1,10 +1,10 @@
-import {expect, test} from '@playwright/test'
+import {type APIRequestContext, expect, test} from '@playwright/test'
 import {OWNER, hold, makeProject} from './support'
 
 // The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the Chat button
 // starts one with starts turned off (a chat counts towards nothing), the owner's words reach its session alone, its
 // answer shows in the pane, it isn't listed on the Sessions page, and closing the pane ends it. It messages other
-// sessions as the owner, when they ask, marked as sent through it.
+// sessions as the owner, when they ask, marked as sent through it, and asks the owner before changing a setting.
 let starts: unknown = null
 
 test.beforeAll(async ({request}) => {
@@ -14,6 +14,11 @@ test.beforeAll(async ({request}) => {
     const off = await request.patch('/api/settings', {data: {starts: null}, headers: OWNER})
     expect(off.ok(), await off.text()).toBeTruthy()
 })
+
+/** Ends every chat still running, so the next starts alone. */
+async function endChats(request: APIRequestContext) {
+    for (const {id} of await (await request.get('/api/chats')).json() as {id: string}[]) await request.post(`/api/chats/${id}/end`, {headers: OWNER})
+}
 
 test.afterAll(async ({request}) => {
     await request.patch('/api/settings', {data: {starts}, headers: OWNER})
@@ -90,12 +95,14 @@ test("messages other sessions for the owner: idle ones by default, marked as thr
         const idle = hold(baseURL!, '/api/projects/larder/signals/stream?session=e2e-idle&name=e2e-idle&format=text')
         const busy = hold(baseURL!, '/api/projects/larder/signals/stream?session=e2e-busy&name=e2e-busy&format=text')
         streams.push(idle, busy)
+        // Both connected, then in their states, before the nudge: a state said before its stream connects can be lost.
+        const listening = async () => (await (await request.get('/api/sessions')).json())
+            .filter((s: {id: string, listening: boolean}) => ['e2e-idle', 'e2e-busy'].includes(s.id) && s.listening)
+            .map((s: {id: string, state: string}) => `${s.id} ${s.state}`).sort()
+        await expect.poll(async () => (await listening()).length).toBe(2)
         await request.post('/api/sessions', {data: {id: 'e2e-idle', project: 'larder', event: 'Stop'}})
         await request.post('/api/sessions', {data: {id: 'e2e-busy', project: 'larder', event: 'UserPromptSubmit'}})
-        // Both connected and in their states before the nudge, or it finds nobody listening yet.
-        await expect.poll(async () => (await (await request.get('/api/sessions')).json())
-            .filter((s: {id: string, listening: boolean}) => s.id.startsWith('e2e-') && s.listening && s.id !== 'e2e-chat2')
-            .map((s: {id: string, state: string}) => `${s.id} ${s.state}`).sort()).toEqual(['e2e-busy working', 'e2e-idle idle'])
+        await expect.poll(listening).toEqual(['e2e-busy working', 'e2e-idle idle'])
         const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat2', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
 
         const nudged = await request.post('/api/sessions/message', {data: {text: 'Pick up Todo.', projects: ['larder']}, headers: asChat})
@@ -117,9 +124,61 @@ test("messages other sessions for the owner: idle ones by default, marked as thr
         // The Sessions page says it came through the chat.
         await page.goto('/sessions')
         await expect(page.locator('#session-e2e-busy')).toContainText('message via chat: Wrap up first.')
-        await request.post(`/api/chats/${chat.id}/end`, {headers: OWNER})
     } finally {
+        await endChats(request)
         for (const stream of streams) stream.stop()
+        launcher.stop()
+    }
+})
+
+test('asks the owner to change a setting, and saves it only on their Allow', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        // The pane opens on the chat running, so this one alone.
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat3&name=e2e-chat3&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat3', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const tracker = async () => (await (await request.get('/api/settings')).json()).tracker
+        const url = 'https://tracker.example.com/issue/{id}'
+        const ask = async (value: unknown) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data: {setting: 'tracker', value}, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+            return (await asked.json()).id as number
+        }
+
+        await page.goto('/p/larder')
+        await page.getByRole('button', {name: 'Chat A chat is running'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        // Denied: nothing saved, and its session hears so.
+        await ask(url)
+        const card = pane.getByRole('group', {name: 'Change Team tracker'}).last()
+        await expect(card).toContainText(url)
+        await card.getByRole('button', {name: 'Deny'}).click()
+        await expect(card).toContainText('Denied')
+        await expect.poll(() => session!.said.text).toContain('denied your request')
+        expect(await tracker()).toBeNull()
+
+        // The chat's session can't allow its own request.
+        const own = await ask(url)
+        expect((await request.post(`/api/chats/${chat.id}/requests/${own}`, {data: {allow: true}, headers: asChat})).status()).toBe(403)
+        expect((await request.post(`/api/chats/${chat.id}/requests/${own}`, {data: {allow: true}, headers: {...OWNER, 'Orrery-Chat': 'yes'}})).status()).toBe(403)
+        expect(await tracker()).toBeNull()
+        // Settings, secrets and the database stay out of its reach.
+        expect((await request.patch('/api/settings', {data: {tracker: url}, headers: asChat})).status()).toBe(403)
+        expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {setting: 'starts', value: null}, headers: asChat})).status()).toBe(400)
+
+        // Allowed by the owner: saved.
+        await pane.getByRole('group', {name: 'Change Team tracker'}).last().getByRole('button', {name: 'Allow'}).click()
+        await expect.poll(tracker).toBe(url)
+        await expect(pane.getByRole('group', {name: 'Change Team tracker'}).last()).toContainText('Allowed and saved')
+        await expect.poll(() => session!.said.text).toContain('Team tracker is now')
+    } finally {
+        await endChats(request)
+        await request.patch('/api/settings', {data: {tracker: null}, headers: OWNER})
+        session?.stop()
         launcher.stop()
     }
 })

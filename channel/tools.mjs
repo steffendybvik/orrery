@@ -123,8 +123,8 @@ export const TOOLS = [
     {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
-/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, and messaging
- * other sessions for the owner when they ask. */
+/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, messaging
+ * other sessions for the owner when they ask, and asking them to change a setting. */
 export const CHAT_TOOLS = [
     {
         name: 'reply',
@@ -139,6 +139,15 @@ export const CHAT_TOOLS = [
             text: {type: 'string'},
             projects: {type: 'array', items: {type: 'string'}, description: 'Only sessions on (or hearing) these projects'},
             states: {type: 'array', items: {type: 'string', enum: ['idle', 'working', 'waiting', 'starting']}, description: 'idle by default'},
+        }},
+    },
+    {
+        name: 'update_settings',
+        description: "Asks the owner to change one App setting, only when they asked you to in this chat: it shows them the change (from → to) with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. tracker is the address of a task on the team's tracker with {id} where its id goes; tint a colour name or #rrggbb; restrict_proposals and advanced true or false; handle their login. null clears one.",
+        inputSchema: {type: 'object', required: ['setting', 'value'], properties: {
+            setting: {type: 'string', enum: ['tracker', 'tint', 'restrict_proposals', 'handle', 'advanced']},
+            value: {type: ['string', 'boolean', 'null']},
+            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
         }},
     },
     {
@@ -319,6 +328,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async reply({text}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/replies`, {text}, root)
             return 'Sent.'
+        },
+        async update_settings({setting, value, why}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {setting, value, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async message_sessions({text, projects, states}) {
             const {sent} = await call('POST', '/sessions/message', {text, ...projects ? {projects} : {}, ...states ? {states} : {}}, root)
