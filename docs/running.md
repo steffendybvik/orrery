@@ -9,8 +9,17 @@ volume, with nothing to set up. The first time you open it, it asks your name: y
 and what you make no one else can delete. Your `Orrery-Actor` header is that name in lowercase snake
 case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → You.
 
-After pulling a new version, `docker compose up -d --build` again; the database moves to the new
-schema by itself.
+## Updating
+
+1. **Back it up**: App settings → This orrery → **Back up now**, and keep a copy of that backup under a name of its own
+   until you're happy with the new version.
+2. **Rebuild**: `git pull` in this folder (or nothing, when `ORRERY_BUILD_CONTEXT` names a branch on GitHub), then
+   `docker compose up -d --build` again. The database moves to the new schema by itself.
+3. **The channel and the launcher** run from this folder on your machine, not in the container, so they're as new as
+   what it has checked out: keep it on the version you run (`git pull`). Sessions pick up the channel as they start.
+   The launcher only when it restarts, which stops the sessions it started, so do it when nothing's mid-work:
+   `node channel/orrery-launcher.mjs --install` again, or `launchctl kickstart -k gui/$(id -u)/orrery.launcher` on
+   a Mac. A launcher older than the server says so in the event log (`launcher.outdated`) when it's refused a launch.
 
 ## Settings
 

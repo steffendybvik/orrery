@@ -53,6 +53,23 @@ schedule's run never goes to your sessions. Instead:
 
 It can still read files in its folder with read-only commands, but it has no way to send them anywhere.
 
+### The chat
+
+The chat (the button in the corner) is a session started for you to talk to on the page. Its launcher starts it with
+`Read`, `Grep` and `Glob` and no Bash or edits, so it can't change the code or run anything, and without `egress`,
+`secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
+unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release or parent (any other
+change is refused), commenting, and
+answering you. Two more go further, and you should know how far:
+
+- **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
+  Secrets, the database, statuses and how sessions start aren't among them.
+- **Messages to your sessions** go out as yours, the owner's instructions in the sense below, marked as sent through
+  the chat (on the Sessions page, in the event log, and in what the session hears). It's told to send one only when you
+  ask in the chat, and to show you the text first (for several sessions, to wait for your go). That's its instructions,
+  not something orrery can check. The chat reads issues, comments, docs and the code, so a planted comment that talks
+  it into a message reaches your sessions in your voice. Keep that in mind before letting it read what others wrote.
+
 ## What only the owner writes
 
 orrery has two tiers of text a session reads:
@@ -63,6 +80,8 @@ orrery has two tiers of text a session reads:
   prompts and standing instructions (`PATCH /settings`), the signals that reach sessions, and **presets**,
   whose text a session is started with as "the owner gave this session more context … it holds for all
   its work". Only the owner writes these, and an agent gets a 403, **on purpose**.
+
+The chat's messages to sessions are the one exception, sent for you when you ask it to ([above](#the-chat)).
 
 Letting an agent write instructions would let one session write the orders for every later one. That
 includes a session talked into it by a planted comment, a fetched page or an egress response. It would
@@ -105,7 +124,7 @@ them: orrery fills it into the request and sends it.
 
 ## Your data
 
-- Everything is in one SQLite file (`/data/orrery.db` in the container), not encrypted.
+- Everything is in one SQLite file (`/data/orrery.db` in the container), or in your Postgres, not encrypted.
 - The backups are copies of it. If `ORRERY_BACKUP` is a synced folder (iCloud Drive, Dropbox, …), your
   roadmaps leave the machine for that service.
 - The session hooks send orrery each session's id, its name, its working folder, what it's doing and
