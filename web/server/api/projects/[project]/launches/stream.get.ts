@@ -3,7 +3,7 @@ import type {LaunchEvent} from '../../../../utils/launches'
 // `GET /api/projects/:project/launches/stream?dir=&every=1&version=` → server-sent events for the project's launcher
 // (channel/orrery-launcher.mjs) on the host, running in the folder `dir` (projects served from one folder can share a
 // session), with `every` where its channel serves every project (`*`), and `version` its code's: `ready` {project, starts,
-// version, token}, the orrery's version among them, and the token its claims send (`Orrery-Launcher`), so a launcher on older code knows to restart once it can; `launch` {id, project, after, minutes?, tmux, context?, hears?}, a session to start
+// version, token}, the orrery's version among them, and the token its claims send (`Orrery-Launcher`), so a launcher on older code knows to restart once it can; then each of the project's launches no launcher has taken yet; `launch` {id, project, after, minutes?, tmux, context?, hears?}, a session to start
 // once it has claimed it (no minutes: until stopped); `stop` {id}, one of its sessions to stop (the owner stopped
 // it, or it's done and its time is up or it sat idle too long); `extend` {id, stops_at}, the owner giving one longer; `clear` {id}, one of its sessions done with a piece of work, to `/clear` for a fresh context; `watch` {id, terminal}, the owner pressing Watch, to open a terminal on it in that app; `view` {id}, the owner viewing its screen, to send it (POST …/screen) until nobody is.
 export default defineEventHandler(async event => {
@@ -25,6 +25,8 @@ export default defineEventHandler(async event => {
     projectEvents.on('launches', send)
     const ping = setInterval(() => stream.push({event: 'ping', data: ''}), 25_000)
     stream.push({event: 'ready', data: JSON.stringify({project, starts: starts ?? null, version: useRuntimeConfig().public.version, token: done.token})})
+    // What no launcher has taken yet, such as a launch refused for an outdated launcher that has now restarted (ORR-471).
+    for (const launch of unclaimedLaunches(project)) stream.push({id: launch.id, event: 'launch', data: JSON.stringify(launch)})
     stream.onClosed(async () => {
         clearInterval(ping)
         projectEvents.off('launches', send)

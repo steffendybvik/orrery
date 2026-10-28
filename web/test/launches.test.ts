@@ -169,6 +169,43 @@ describe('starting a session', () => {
         expect(launches.claim('greenhouse', launch.id, token)).toBe(true)
     })
 
+    it('is offered again to a launcher that connects after an outdated one was refused it, and waits for one (ORR-471)', async () => {
+        launches.addLauncher('greenhouse')
+        const launch = (await launches.considerLaunch(signal(1)))!
+        // An outdated launcher claims with no token.
+        expect(launches.claim('greenhouse', launch.id, undefined)).toBe(false)
+        expect(noted[0].message).not.toMatch(/1\.0\.0/)
+        // Long past the usual minutes to connect, it still waits for a launcher that can take it.
+        const now = Date.now()
+        vi.useFakeTimers({now: now + 10 * 60 * 1000, toFake: ['Date']})
+        expect(launches.unclaimedLaunches('greenhouse').map(l => l.id)).toEqual([launch.id])
+        expect(launches.unclaimedLaunches('mesa')).toEqual([])
+        // The launcher restarted on new code takes it, and has the usual minutes from now for its session to connect.
+        expect(launches.claim('greenhouse', launch.id, launches.addLauncher('greenhouse').token)).toBe(true)
+        expect(launches.unclaimedLaunches('greenhouse')).toEqual([])
+        expect(launches.launchState('greenhouse').starting).toBe(1)
+    })
+
+    it('lets a refused launch go once nobody takes it for half an hour', async () => {
+        launches.addLauncher('greenhouse')
+        const launch = (await launches.considerLaunch(signal(1)))!
+        expect(launches.claim('greenhouse', launch.id, undefined)).toBe(false)
+        vi.useFakeTimers({now: Date.now() + 31 * 60 * 1000, toFake: ['Date']})
+        expect(launches.unclaimedLaunches('greenhouse')).toEqual([])
+        expect(launches.launchState('greenhouse').starting).toBe(0)
+    })
+
+    it("clears a refused chat's problem once a launcher takes it, and keeps it waiting until then", async () => {
+        launches.addLauncher('greenhouse')
+        const chat = await launches.startChat('greenhouse', {presets: [], text: 'Chat.'})
+        expect(launches.claim('greenhouse', chat.id, undefined)).toBe(false)
+        expect(problems).toEqual([[chat.id, expect.stringMatching(/restart it/)]])
+        vi.useFakeTimers({now: Date.now() + 2 * 60 * 60 * 1000, toFake: ['Date']})
+        expect(launches.unclaimedLaunches('greenhouse').map(l => l.id)).toEqual([chat.id])
+        expect(launches.claim('greenhouse', chat.id, launches.addLauncher('greenhouse').token, false, true)).toBe(true)
+        expect(problems.at(-1)).toEqual([chat.id, null])
+    })
+
     it("needs the owner's opt-in, and stays within the limit, counting every project's sessions", async () => {
         launches.addLauncher('greenhouse')
         starts = undefined
