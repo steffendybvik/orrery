@@ -811,7 +811,9 @@ export function openDb(path: string, upTo = MIGRATIONS.length, snapshot?: string
     const opened = new DatabaseSync(path)
     try {
         // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes).
-        opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL')
+        // The WAL file is cut back to 8 MB once it's checkpointed (ORR-465): left alone it stays as big as it once grew,
+        // as large as the whole database after a VACUUM.
+        opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA journal_size_limit = 8388608')
         migrated = migrate(opened, path, upTo, snapshot) ?? migrated
     } catch (error) {
         opened.close()

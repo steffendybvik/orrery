@@ -197,7 +197,7 @@ that comes back in the text. orrery keeps it in its database, so backups and `or
 
 | | |
 |---|---|
-| `POST /uploads` | `{data, name?}`: `data` is a PNG, JPEG, GIF or WebP in base64 (a `data:` URL works too), 10 MB at most; no SVG. A PNG or JPEG of 16 KB or more is kept as WebP when that's smaller (quality 90, no wider than 2,560 px), so `type` and `size` are what's kept. → `{id, type, size, url, markdown}`, where `url` is `/api/uploads/<id>` and `markdown` is `![name](url)`. A picture whose alt text starts with `Before`, followed by nothing but one starting with `After` (on the next line, or in the next paragraph), shows as a slider between the two |
+| `POST /uploads` | `{data, name?}`: `data` is a PNG, JPEG, GIF or WebP in base64 (a `data:` URL works too), 10 MB at most; no SVG. A PNG or JPEG of 16 KB or more is kept as WebP when that's smaller (quality 90 for a PNG, 82 for a JPEG; no wider than 2,560 px or taller than 16,383), and a JPEG WebP doesn't beat is written again as a JPEG at 82 when that's smaller. Either way it loses its metadata (EXIF, a photo's place), so `type` and `size` are what's kept. → `{id, type, size, url, markdown}`, where `url` is `/api/uploads/<id>` and `markdown` is `![name](url)`. A picture whose alt text starts with `Before`, followed by nothing but one starting with `After` (on the next line, or in the next paragraph), shows as a slider between the two |
 | `GET /uploads/:id` | the image |
 
 ```bash
