@@ -47,6 +47,8 @@ const STATES: Record<string, SessionState | 'end'> = {
     UserPromptSubmit: 'working',
     PreToolUse: 'working',
     Stop: 'idle',
+    // In place of Stop when the turn ended on an API error (rate limit, overloaded, the network…).
+    StopFailure: 'idle',
     SessionEnd: 'end',
 }
 

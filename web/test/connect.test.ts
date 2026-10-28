@@ -25,7 +25,7 @@ describe('connecting a repo', () => {
 
     it('hooks every event a session state needs, PreToolUse in the background', () => {
         const {hooks} = JSON.parse(connectPieces(greenhouse).settingsJson) as {hooks: Record<string, [{hooks: [{command: string, async?: boolean}]}]>}
-        expect(Object.keys(hooks)).toEqual(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'Notification', 'SessionEnd'])
+        expect(Object.keys(hooks)).toEqual(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'])
         expect(hooks.PreToolUse![0].hooks[0].async).toBe(true)
         expect(hooks.Stop![0].hooks[0]).not.toHaveProperty('async')
         expect(hooks.Stop![0].hooks[0].command).toBe('ORRERY_PROJECT=greenhouse ORRERY_URL=http://localhost:9000 node /src/orrery/channel/orrery-hook.mjs')

@@ -1,8 +1,9 @@
-// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, reason?, source?, started?} → the
-// session: a Claude session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is the
-// hook's event name. A `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what
-// the session was working on, for the hook to hand the fresh context so the work carries on. A session Orrery started
-// (`started`, its launch) with context gets that in the brief on every `SessionStart`, its first included.
+// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, reason?, source?, started?, error?} →
+// the session: a Claude session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is
+// the hook's event name; a `StopFailure` (with its `error`) lets go of the issues the session has in progress. A
+// `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what the session was working
+// on, for the hook to hand the fresh context so the work carries on. A session Orrery started (`started`, its launch)
+// with context gets that in the brief on every `SessionStart`, its first included.
 // What happened to the session, by `source`, for the brief's first line.
 const RESUMED: Record<string, string> = {
     clear: "this window's context was just cleared",
@@ -23,6 +24,11 @@ export default defineEventHandler(async event => {
     if (session && body.event === 'Stop') {
         considerClear(session.project, session.id)
         carryOn(session.project, session.id)
+    }
+    // Cut off by an API error: what it had in progress isn't being worked any more.
+    if (session && body.event === 'StopFailure') {
+        await letGo(session.project, session.id, text('error')).catch(error => console.error(`[orrery] letting go of ${session.id}'s work:`, error))
+        considerClear(session.project, session.id)
     }
     const source = text('source')
     if (!session || body.event !== 'SessionStart') return session

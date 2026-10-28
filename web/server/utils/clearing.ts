@@ -4,7 +4,9 @@
 // rest of a chunk or scope it was asked to work through (its run). A brief starts no turn, so when some of the run
 // is left, a focus on the rest goes to the session alone once it's back (`resumeRun`), and it carries on.
 // Any listening session gone idle on an issue whose sub-issues are still to do (it just split it, say) is sent on to
-// the most urgent of them (`carryOn`), since nothing else would start its next turn.
+// the most urgent of them (`carryOn`), since nothing else would start its next turn. A session whose turn was cut off
+// by an API error (the network, a rate limit) lets go of what it had in progress (`letGo`), so none of it sits there
+// in progress with nobody on it.
 import type {Signal} from '#shared/roadmap'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
@@ -109,4 +111,30 @@ export function carryOn(project: string, id: string) {
             console.error(`[orrery] carrying ${id} on:`, error)
         }
     }, CLEAR_AFTER)
+}
+
+/** What a cut-off turn's `error` (Claude Code's StopFailure) says, for the comment; any other as it is. */
+const CUT_OFF: Record<string, string> = {
+    rate_limit: 'a rate limit',
+    overloaded: 'the model being overloaded',
+    server_error: 'an API server error',
+    authentication_failed: 'a failed sign-in',
+    billing_error: 'a billing error',
+    max_output_tokens: 'the output limit',
+}
+
+/** The session's turn ended on an API error (`error`, from Claude Code's StopFailure): each issue it has in progress
+ * goes back to Todo with nobody on it, with a comment saying why, for it or anyone to pick up again. Says which. */
+export async function letGo(project: string, id: string, error?: string): Promise<string[]> {
+    const store = useStore()
+    const issues = await store.workingOn(project, sessionIds(id))
+    const why = error ? CUT_OFF[error] ?? `an API error (${error})` : 'an API error'
+    const actor = {name: 'claude', owner: false}
+    for (const issue of issues) {
+        await store.updateIssue(project, issue.id, {status: 'todo', assignee: null}, actor)
+        await store.createComment(project, issue.id, {
+            body: `The session working on this (${sessionNow(id)?.name ?? id}) had its turn cut off by ${why}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`,
+        }, actor)
+    }
+    return issues.map(i => i.id)
 }
