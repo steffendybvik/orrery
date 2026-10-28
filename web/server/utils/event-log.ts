@@ -18,6 +18,8 @@ export interface EventEntry {
     project?: string | null
     message: string
     details?: Record<string, unknown>
+    /** About what an untrusted schedule's session did (a write of its refused): no schedule hears it. */
+    untrusted?: boolean
 }
 
 export interface EventFilter {
@@ -123,7 +125,7 @@ export class EventLog {
         if (!EVENT_LEVELS.includes(entry.level)) throw badRequest(`"level" is "${entry.level}"; use ${EVENT_LEVELS.join(', ')}`)
         if (!KIND.test(entry.kind)) throw badRequest(`"kind" is "${entry.kind}"; use a dotted name, e.g. page.error`)
         if (entry.level !== 'error' && !await this.advanced()) {
-            this.happened({type: entry.kind, level: entry.level, ...entry.project ? {project: entry.project} : {}})
+            this.happened({type: entry.kind, level: entry.level, ...entry.project ? {project: entry.project} : {}, ...entry.untrusted ? {untrusted: true} : {}})
             return null
         }
         const scrub = await this.scrub()
@@ -142,7 +144,7 @@ export class EventLog {
         this.onLogged(event, !again)
         // Its message isn't passed on: an error's can hold what a page or another site sent. Its row is, to read.
         // What Orrery did is passed on each time: each is news.
-        if (!again || entry.level === 'info') this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}})
+        if (!again || entry.level === 'info') this.happened({type: entry.kind, level: entry.level, subject: `event ${row.id}`, ...project ? {project} : {}, ...entry.untrusted ? {untrusted: true} : {}})
         return event
     }
 

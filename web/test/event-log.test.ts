@@ -174,6 +174,17 @@ describe('the event log', () => {
         expect(refusal(404, 'GET', '/api/projects/nope', 'No project nope')).toBeNull()
     })
 
+    it("tells the schedules an untrusted session's refusal is its, so none runs on it", async () => {
+        const told: {untrusted?: boolean}[] = []
+        log.happened = event => told.push(event)
+        await log.record({level: 'warn', kind: 'request.refused', message: 'Refused', untrusted: true})
+        await store.updateSettings({advanced: true}, owner)
+        log.forget()
+        await log.record({level: 'warn', kind: 'request.refused', message: 'Refused again', untrusted: true})
+        await log.record({level: 'warn', kind: 'request.refused', message: 'Refused the owner'})
+        expect(told.map(event => !!event.untrusted)).toEqual([true, true, false])
+    })
+
     it('caps the changes to the roadmap apart from the rest, so they cannot push an error out', async () => {
         await store.updateSettings({advanced: true}, owner)
         log.forget()
