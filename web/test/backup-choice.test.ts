@@ -135,7 +135,7 @@ describe('how often, and how many daily copies', () => {
         expect([choice.backupEvery(), choice.backupKeep()]).toEqual(['day', 14])
     })
 
-    it('keeps that many daily copies, and the three newest taken before an upgrade', async () => {
+    it('keeps that many daily copies, the three newest taken before an upgrade, and every one kept before a restore or set aside', async () => {
         const {dir, choice} = await setUp('backup')
         const folder = join(dir, 'backup')
         mkdirSync(folder)
@@ -144,10 +144,17 @@ describe('how often, and how many daily copies', () => {
             writeFileSync(join(folder, `orrery-pre-${version}.db`), '')
             utimesSync(join(folder, `orrery-pre-${version}.db`), 1_000_000 + i, 1_000_000 + i)
         }
+        // Older than every upgrade copy, so the first to go if they were counted with them (ORR-478).
+        for (const name of ['orrery-pre-restore-2026-01-01T00-00-00.db', 'orrery-pre-other-2026-01-01T00-00-00.db']) {
+            writeFileSync(join(folder, name), '')
+            utimesSync(join(folder, name), 1000, 1000)
+        }
         await choice.chooseBackups({on: true, keep: 3})
         const left = readdirSync(folder).sort()
         expect(left.filter(name => /^orrery-\d/.test(name))).toEqual(['orrery-2026-01-08.db', 'orrery-2026-01-09.db', `orrery-${new Date().toISOString().slice(0, 10)}.db`])
-        expect(left.filter(name => name.startsWith('orrery-pre-'))).toEqual(['orrery-pre-1.0.0-rc.10.db', 'orrery-pre-1.0.0-rc.8.db', 'orrery-pre-1.0.0-rc.9.db'])
+        expect(left.filter(name => /^orrery-pre-\d/.test(name))).toEqual(['orrery-pre-1.0.0-rc.10.db', 'orrery-pre-1.0.0-rc.8.db', 'orrery-pre-1.0.0-rc.9.db'])
+        // A copy kept before a restore, and another orrery's latest set aside, are never let go of.
+        expect(left).toEqual(expect.arrayContaining(['orrery-pre-restore-2026-01-01T00-00-00.db', 'orrery-pre-other-2026-01-01T00-00-00.db']))
     })
 
     it('waits a few seconds after a change, or until the interval since the last backup has gone', () => {

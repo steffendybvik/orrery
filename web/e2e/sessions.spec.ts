@@ -34,6 +34,16 @@ test('lets orrery start sessions once, for every project, on the Sessions page',
     await expect(starts.getByText('when you press Start session or Focus on this')).toBeVisible()
     await onSignal.check()
     await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
+    // A limit lowered below the minimum takes it down too, rather than being refused (ORR-479); then back.
+    await starts.getByLabel('Sessions at once').fill('1')
+    await starts.getByLabel('Sessions at once').blur()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 1, min: 1})
+    await expect(starts.getByLabel('Sessions kept running')).toHaveValue('1')
+    await starts.getByLabel('Sessions at once').fill('2')
+    await starts.getByLabel('Sessions at once').blur()
+    await starts.getByLabel('Sessions kept running').fill('2')
+    await starts.getByLabel('Sessions kept running').blur()
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).starts).toEqual({limit: 2, min: 2})
 })
 
 test("shows a listening session on the Sessions page, and sends it a message only it hears", async ({page, request, baseURL}) => {

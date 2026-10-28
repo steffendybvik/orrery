@@ -7,7 +7,8 @@ import {withoutClosed, withoutNotes} from '#shared/patch'
 export default defineEventHandler(async event => {
     const query = getQuery(event)
     if (query.expand !== 'board') return await useStore().listProjects()
-    const boards = (await useStore().listBoards()).map(withRev)
+    const label = revLabel()
+    const boards = (await useStore().listBoards()).map(label)
     const whole = new Set(typeof query.whole === 'string' ? query.whole.split(',') : [])
     return boards.map(board => {
         const lighter = query.notes === '0' ? withoutNotes(board) : board

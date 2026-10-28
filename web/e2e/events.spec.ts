@@ -57,6 +57,9 @@ test("an issue event's line links the issue, and following it opens the issue", 
     await page.goto('/events?project=ledger')
     const line = page.getByRole('log').locator('div').filter({hasText: new RegExp(`issue\\.created.*made ${issue.id}`)})
     await expect(line).toBeVisible()
+    // Made by an agent: the line names it as the page does, not by its stored actor (ORR-477).
+    await expect(line).toContainText(`Agent made ${issue.id}`)
+    await expect(line).not.toContainText('claude')
     await expect(line.getByRole('link', {name: '[ledger]'})).toHaveAttribute('href', '/p/ledger')
     const link = line.getByRole('link', {name: issue.id})
     await expect(link).toHaveAttribute('href', `/p/ledger/issues/${issue.id}`)
@@ -91,7 +94,7 @@ test('an error an agent resolved stays on the bell, and says who resolved it', a
     await page.reload()
     await expect.poll(errors).toBe(before + 1)
     await page.goto(`/events?kind=page.error`)
-    await expect(page.getByRole('log').locator('div').filter({hasText: message})).toContainText('(resolved by claude)')
+    await expect(page.getByRole('log').locator('div').filter({hasText: message})).toContainText('(resolved by Agent)')
 })
 
 test("takes only a few of the page's reports of a kind a minute", async ({request}) => {

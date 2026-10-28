@@ -30,8 +30,10 @@ export const targetLabel = (target: BackupTarget) => target.kind === 'folder' ? 
 const LATEST = 'orrery.db'
 const PARTIAL = '.orrery.db.partial'
 const DAILY = /^orrery-\d{4}-\d{2}-\d{2}\.db$/
-/** The copies db.ts takes before an upgrade migrates the database (`orrery-pre-<version>-step<n>.db`). */
-const BEFORE_UPGRADE = /^orrery-pre-.+\.db$/
+/** The copies db.ts takes before an upgrade migrates the database (`orrery-pre-<version>-step<n>.db`): a version
+ * starts with a digit, so a copy kept before a restore (`orrery-pre-restore-…`) or another orrery's latest set aside
+ * (`orrery-pre-other-…`) isn't one, and is never let go of (ORR-478). */
+const BEFORE_UPGRADE = /^orrery-pre-\d.*\.db$/
 /** Daily copies kept unless the owner chose another number, and the most they can keep. */
 export const KEEP_DAYS = 14
 export const MAX_KEEP_DAYS = 365

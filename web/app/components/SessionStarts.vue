@@ -31,6 +31,8 @@ const starting = computed(() => Object.values(byProject.value).flat().filter(s =
 
 async function saveStarts(on = !!settings.value.starts) {
     failed.value = ''
+    // A limit lowered below the minimum takes the minimum down with it, which may never be more (ORR-479).
+    if (min.value && min.value > limit.value) min.value = limit.value
     try {
         await saveSettings({starts: on ? {limit: limit.value, ...min.value ? {min: min.value} : {}, ...minutes.value ? {minutes: minutes.value} : {}, ...idleMinutes.value ? {idle_minutes: idleMinutes.value} : {}, ...onSignal.value ? {} : {on_signal: false}} : null})
     } catch (error) {
