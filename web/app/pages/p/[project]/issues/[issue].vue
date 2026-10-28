@@ -25,6 +25,8 @@ watch(found, f => {
     if (f && f.issue.id !== issueId.value) router.replace(`/p/${route.params.project}/issues/${encodeURIComponent(f.issue.id)}`)
 }, {immediate: true})
 const issue = computed(() => found.value?.issue)
+/** The session on it, while it's listening. */
+const {worker} = useIssueWorker(() => project.value?.id ?? '', () => issue.value?.id, () => issue.value?.updated_at)
 // One it doesn't have yet (just made, and its update still on its way or lost offline) is asked for once
 // before the page says there's no such issue.
 const looking = ref(false)
@@ -185,6 +187,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             <CopyButton :text="issue.id" compact />
             <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" compact />
             <a v-if="issue.waiting" href="#waiting" title="Go to the question"><WaitingChip :asks="issue.waiting" /></a>
+            <IssueWorkerChip v-if="worker && !isClosed(issue.kind)" :session="worker" />
             <button
                 v-if="madeBy"
                 type="button"
@@ -235,7 +238,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
         <ProposalPanel :project="project.id" :issue="issue" />
 
-        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" />
+        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" :worker="worker?.id" />
 
         <section
             v-if="editingNotes"

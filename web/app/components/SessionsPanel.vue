@@ -5,9 +5,9 @@ import type {Session, Signal} from '#shared/roadmap'
 // a button to point one (or all) at this issue, or at working through this chunk. With nobody listening, when
 // Orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
 // New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
-// got them. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
+// got them. The session working the issue (`worker`) comes first, marked. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
 // links to; here a row only points it at this.
-const props = defineProps<{project: string, issue?: string, chunk?: string}>()
+const props = defineProps<{project: string, issue?: string, chunk?: string, worker?: string}>()
 const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.chunk})
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
 const {sessions: all, signals: live, byId} = useRoadmaps()
@@ -15,7 +15,7 @@ const {settings} = useAppSettings()
 const {load, who} = useOwner()
 const {look} = useStatuses()
 
-const sessions = computed(() => all.value[props.project] ?? [])
+const sessions = computed(() => [...all.value[props.project] ?? []].sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
 const listening = computed(() => sessions.value.filter(s => s.listening))
 // Whether a focus sent with nobody listening has a session started for it.
 const {state: launch} = useLaunchState(() => props.project)
@@ -138,6 +138,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
             class="min-w-0 truncate text-[13px] text-fg hover:underline"
             :title="`Open ${session.name} on the Sessions page`"
         >{{ session.name }}</NuxtLink>
+        <span v-if="session.id === worker" class="rounded-full bg-accent-500/10 px-1.5 text-[11px] font-medium text-accent-700 ring-1 ring-accent-500/30 dark:text-accent-300">on this issue</span>
         <span class="whitespace-nowrap text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">
           {{ STATE[session.state] }} · {{ ago(session.since) }}
         </span>
