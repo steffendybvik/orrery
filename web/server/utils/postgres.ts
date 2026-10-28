@@ -334,6 +334,10 @@ const STEPS: string[] = [`
     ALTER TABLE schedules ADD CONSTRAINT schedules_when CHECK ((cron IS NOT NULL)::int + (at IS NOT NULL)::int + (on_event IS NOT NULL)::int = 1);
     ALTER TABLE schedule_runs ADD COLUMN subject text;
 `, `
+    ALTER TABLE schedules ADD COLUMN presets text NOT NULL DEFAULT '[]';
+    ALTER TABLE schedules DROP CONSTRAINT schedules_kind_check;
+    ALTER TABLE schedules ADD CONSTRAINT schedules_kind_check CHECK (kind IN ('issue', 'message', 'session'));
+`, `
     ALTER TABLE presets ADD COLUMN default_key text;
     CREATE TABLE preset_defaults (
         key text PRIMARY KEY,

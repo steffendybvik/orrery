@@ -220,6 +220,14 @@ sessions: each run has a launcher start a locked-down session for its message al
 Starting sessions off, the limit). That session's new issues are made proposals labelled `external`, and its other
 writes are refused (403), except comments on those proposals (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)).
 
+**Presets and sessions.** A message schedule's `presets` (ids of [presets](#presets) its project's sessions can have)
+are its message, read at each run, before its own `notes` (which it can then do without); the signal's `preset` is
+their names. A `session` schedule, the owner's alone to make (403 for an agent), starts a session each run through the
+project's launcher, as `POST …/launches` does, with its `presets` and `notes` as the context. On an event it starts
+focused on its subject: an `issue.*` event's issue, or the work in a `release.*` event's release; any other event's
+ids are in its words. With Starting sessions off, no launcher or the limit reached, the run is `skipped` saying why.
+A run that started one is `sent`. A preset a schedule names that's been deleted fails its run.
+
 **On an event.** Instead of `cron` or `at`, a schedule can run `on` something that happens. An event's type is
 `thing.what`. Every change to an issue is `issue.<field>` (`issue.created`, `issue.status`, `issue.labels`,
 `issue.release`, `issue.proposal`… and `issue.deleted`). Comments are `comment.added` and `comment.asks`, a session
@@ -242,11 +250,11 @@ goes to every project's schedules; any other, only its own project's.
 |---|---|
 | `GET /schedules` | every project's, soonest first, paused last |
 | `GET /projects/:project/schedules` | the project's |
-| `POST /projects/:project/schedules` | `{kind?, title, notes?, cron, at or on (with on_filter?), timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, untrusted?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `on` an event (above); setting one lets go of the others, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default) or `message` (then `notes` is the message, and the issue fields don't apply) |
+| `POST /projects/:project/schedules` | `{kind?, title, notes?, presets?, cron, at or on (with on_filter?), timezone?, column?, chunk?, priority?, labels?, ask?, skip_open?, only_if_changed?, untrusted?, enabled?}`: `cron` is five fields (`0 9 * * 1-5`), `at` a time to run once, `on` an event (above); setting one lets go of the others, `timezone` an IANA zone (the server's by default), `column` the open status its issues start in (an id or a kind; `todo` by default); `kind` is `issue` (default), `message` (then `notes` is the message, after any `presets`, and the issue fields don't apply) or `session` (above) |
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?, subject?}`; the owner's, only by the owner. `{"instead": true}` runs it in place of its next run, which is skipped (a one-off is then done; 409 when it has none, as one on an event has none) |
 
-Each schedule carries `next_run` (none for one on an event) and its latest `runs`: `made` (with the issue), `sent` (a message), `skipped` or `failed` (with why), and an event run's `subject`.
+Each schedule carries `next_run` (none for one on an event), its `presets` and its latest `runs`: `made` (with the issue), `sent` (a message, or a session started), `skipped` or `failed` (with why), and an event run's `subject`.
 
 ## Secrets
 
