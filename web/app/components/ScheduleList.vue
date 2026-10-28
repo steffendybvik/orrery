@@ -11,8 +11,9 @@ import type {Project, Schedule} from '#shared/roadmap'
 const props = defineProps<{project: Project, schedules: Schedule[]}>()
 const {edit, openMenu, pause} = useSchedules()
 const {scheduleUnseen} = useUnseen()
+const {who} = useOwner()
 /** An agent's: a message or session one doesn't run until the owner makes it theirs. */
-const byAgent = (s: Schedule) => s.protected ? '' : `by ${s.created_by}${s.kind === 'issue' ? '' : ' · not running until you make it yours'}`
+const byAgent = (s: Schedule) => s.protected ? '' : `by ${who(s.created_by)}${s.kind === 'issue' ? '' : ' · not running until you make it yours'}`
 const {open: openIssue} = useIssueLink()
 
 // Ticks once a minute, so "in 5m" stays right.
