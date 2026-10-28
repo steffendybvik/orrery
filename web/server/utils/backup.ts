@@ -9,7 +9,7 @@ import type {DatabaseSync} from 'node:sqlite'
 import type {Db} from './database'
 import {SqliteDb} from './database'
 import {copyDatabase} from './copy'
-import {openDb} from './db'
+import {emptyDb} from './db'
 
 const LATEST = 'orrery.db'
 const PARTIAL = '.orrery.db.partial'
@@ -25,11 +25,9 @@ export function backup(db: DatabaseSync, dir: string) {
 
 /** Writes a SQLite snapshot of the Postgres database `db` to `dir`, as `backup` does a SQLite one. */
 export async function backupPostgres(db: Db, dir: string) {
-    const snapshot = openDb(partial(dir))
+    const snapshot = emptyDb(partial(dir))
     try {
         await copyDatabase(db, new SqliteDb(snapshot))
-        // One file, like `VACUUM INTO`'s, with nothing left in a write-ahead log beside it.
-        snapshot.exec('PRAGMA journal_mode = DELETE')
     } finally {
         snapshot.close()
     }

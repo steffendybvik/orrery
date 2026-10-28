@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
 import {matchesType} from '#shared/happenings'
 import type {Signal} from '#shared/roadmap'
@@ -229,6 +229,22 @@ describe('a schedule on an event', () => {
         await store.createIssue('pantry', {title: 'Elsewhere'}, me)
         expect(await pass()).toBe(0)
         expect(await schedules.hear({type: 'backup.failed', level: 'error', subject: 'event 1'})).toBe(1)
+    })
+
+    it('asks the database nothing for an event no schedule is on, and hears one made, changed or paused since', async () => {
+        const all = vi.spyOn(store.db, 'all')
+        expect(await schedules.hear({type: 'issue.created', project: 'greenhouse', subject: 'GRE-1'})).toBe(0)
+        expect(await schedules.hear({type: 'issue.created', project: 'greenhouse', subject: 'GRE-2'})).toBe(0)
+        expect(all).toHaveBeenCalledTimes(1)
+
+        const s = await schedules.create('greenhouse', {title: 'Made', kind: 'message', notes: 'Look', on: 'issue.created'}, me)
+        expect(await schedules.hear({type: 'issue.created', project: 'greenhouse', subject: 'GRE-3'})).toBe(1)
+        await schedules.update('greenhouse', s.id, {on: 'comment.added'}, me)
+        expect(await schedules.hear({type: 'comment.added', project: 'greenhouse', subject: 'GRE-4'}, undefined, new Date(Date.now() + 120_000))).toBe(1)
+        await schedules.update('greenhouse', s.id, {enabled: false}, me)
+        all.mockClear()
+        expect(await schedules.hear({type: 'comment.added', project: 'greenhouse', subject: 'GRE-5'}, undefined, new Date(Date.now() + 240_000))).toBe(0)
+        expect(all).toHaveBeenCalledTimes(1)
     })
 
     it('keeps the owner\'s message from an agent\'s schedule, as a clock\'s does', async () => {

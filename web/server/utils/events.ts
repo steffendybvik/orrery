@@ -53,8 +53,14 @@ let log: EventLog | null = null
 
 /** The event log, secrets' values scrubbed out of what it keeps. */
 export function useEventLog(): EventLog {
-    log ??= new EventLog(useDatabase(), () => useSecrets().scrubber(),
-        (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
+    if (!log) {
+        const made = new EventLog(useDatabase(), () => useSecrets().scrubber(),
+            (event: LoggedEvent, fresh: boolean) => projectEvents.emit('logged', {event, fresh}))
+        // Advanced and the secrets are read once, and again after either changes.
+        projectEvents.on('settings', () => made.forget())
+        projectEvents.on('secrets', () => made.forget())
+        log = made
+    }
     log.happened = happened
     return log
 }
