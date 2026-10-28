@@ -9,7 +9,8 @@ import type {ChatIssues} from '#shared/roadmap'
 // dropped goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
 // one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
-// chat asks to change shows from → to with Allow and Deny; only Allow saves it.
+// chat asks to change shows from → to with Allow and Deny; only Allow saves it. Under each of Claude's replies, Copy
+// takes its Markdown as written (on a wide screen it shows on hover or focus).
 const {open, large, chat, session, project, failed, chats, lands, start, send, land, fresh, answer, close, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean) {
@@ -180,8 +181,11 @@ function onPaste(event: ClipboardEvent) {
           <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
         </div>
         <div v-if="m.from === 'owner' && m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
-        <div v-else-if="m.text" class="max-w-[92%] rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
-          <MarkdownView :source="m.text" class="text-[13px]" />
+        <div v-else-if="m.text" class="group flex max-w-[92%] flex-col items-start gap-1">
+          <div class="rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
+            <MarkdownView :source="m.text" class="text-[13px]" />
+          </div>
+          <CopyButton :text="m.text" name="this reply" class="transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" />
         </div>
         <div v-if="m.request" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Change ${CHAT_SETTINGS[m.request.setting]}`">
           <span class="text-xs text-faint">Asks to change a setting</span>

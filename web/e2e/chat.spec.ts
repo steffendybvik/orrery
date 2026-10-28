@@ -59,6 +59,15 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         })
         expect(answered.ok(), await answered.text()).toBeTruthy()
         await expect(pane.locator('strong', {hasText: 'jam'})).toBeVisible()
+        // Copy under the reply takes its Markdown as written, not the page's text.
+        await page.evaluate(() => {
+            const copied: string[] = (window as unknown as {copied: string[]}).copied = []
+            navigator.clipboard.writeText = async text => { copied.push(text) }
+        })
+        await pane.getByText('Jars of').hover()
+        await pane.getByRole('button', {name: 'Copy this reply'}).click()
+        await expect(pane.getByRole('button', {name: 'Copy this reply'})).toHaveText('Copied')
+        expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual(['Jars of **jam**.'])
         // Anything but making issues, commenting and answering is refused.
         const moved = await request.post('/api/projects/larder/issues/LAR-1/focus', {data: {}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes'}})
         expect(moved.status()).toBe(403)

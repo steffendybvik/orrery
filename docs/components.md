@@ -173,7 +173,7 @@ Already one component each; use them rather than drawing the same thing again.
 
 | Component | For |
 |---|---|
-| `CopyButton` | Copy, then Copied with a tick |
+| `CopyButton` | Copy, then Copied with a tick (Couldn't copy where the browser won't) |
 | `CopyBlock` | a titled block of text to copy as it is (a command, a config) |
 | `ImageButton` | picks images for a Markdown field |
 
