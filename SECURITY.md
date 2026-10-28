@@ -93,6 +93,9 @@ Three more go further, and you should know how far:
 
 ## What only the owner writes
 
+The Sessions page's **Permissions** tab, and `GET /api/permissions` for agents, list what each kind of session may do,
+from one table a test holds to the code (`web/shared/permissions.ts`). What follows is why.
+
 orrery has two tiers of text a session reads:
 
 - **Material**: issues, comments, docs. A session reads it as it works and weighs it like anything else
