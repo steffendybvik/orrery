@@ -15,6 +15,7 @@ import {DatabaseSync} from 'node:sqlite'
 import type {Db} from './database'
 import {SqliteDb, one} from './database'
 import {copyDatabase} from './copy'
+import {postgresHolds} from './move'
 import {emptyDb, hidePassword} from './db'
 import {PostgresDb} from './postgres'
 
@@ -111,12 +112,14 @@ export async function closeBackupDb() {
 }
 
 /** Copies `source` into the Postgres database at `url`, in place of the backup there: only into one that's empty or
- * already this orrery's backup, and never into the database it runs on. */
+ * already this orrery's backup, and never into the database it runs on. One holding something else's tables is
+ * refused before it's opened (ORR-454): opening a database lays orrery's tables down in it. */
 async function backupInto(source: Db, url: string) {
     // What it writes to the database it runs on, it writes once a target and source are paired, not on every backup,
     // where it would land between the store's own transactions (ORR-457).
     if (into?.url !== url || into.source !== source) {
         await closeBackupDb()
+        if (await postgresHolds(url) === 'other') throw new Error(`${hidePassword(url)} has tables of something else's: back up to an empty database, or this orrery's backup`)
         const db = new PostgresDb(url)
         try {
             into = {url, db, source, id: await readyToBackUp(source, db, url)}

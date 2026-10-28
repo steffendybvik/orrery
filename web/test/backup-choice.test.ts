@@ -246,6 +246,32 @@ describe.runIf(process.env.TEST_POSTGRES_URL)('backing up into Postgres', () => 
         }
     })
 
+    it('leaves a database holding something else\'s tables as it was, without laying its own down in it', async () => {
+        const {db, choice} = await setUp()
+        const {url, drop} = await schema()
+        const tables = async () => {
+            const client = new pg.Client({connectionString: url})
+            await client.connect()
+            const names = (await client.query<{name: string}>('SELECT table_name AS name FROM information_schema.tables WHERE table_schema = current_schema() ORDER BY 1')).rows.map(r => r.name)
+            await client.end()
+            return names
+        }
+        try {
+            const client = new pg.Client({connectionString: url})
+            await client.connect()
+            await client.query('CREATE TABLE customers (id integer PRIMARY KEY, name text)')
+            await client.end()
+            await expect(choice.chooseBackups({on: true, postgres: url})).rejects.toMatchObject({statusCode: 400, message: expect.stringContaining("tables of something else's")})
+            expect(await tables()).toEqual(['customers'])
+            expect(choice.backupTarget()).toBeNull()
+        } finally {
+            const {closeBackupDb} = await import('../server/utils/backup')
+            await closeBackupDb()
+            await db.closeDb()
+            await drop()
+        }
+    })
+
     it("won't write over an orrery that isn't this one's backup, and keeps the choice it had", async () => {
         const {db, choice} = await setUp()
         const {url, drop} = await schema()
