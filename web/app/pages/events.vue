@@ -6,7 +6,7 @@ import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 // error in the page, a schedule or backup that failed) and, while Advanced is on, what Orrery did (sessions and
 // launchers, schedule runs, backups, migrations, starts) and each change to the roadmap (issues, comments, chunks, docs,
 // releases). Levels can be switched off and kinds hidden (ORR-379), per browser. A line opens to its details, and an
-// error can be resolved. It's there while Advanced is on (App settings
+// error can be resolved; the issue ids in it, and its project, link to them (ORR-403). It's there while Advanced is on (App settings
 // → This Orrery); opening it marks the new errors seen.
 useHead({title: 'Events · Orrery'})
 const route = useRoute()
@@ -82,6 +82,26 @@ const projectName = (id: string) => byId(id)?.name ?? id
 /** An issue it's about that's still there, to open. */
 const issueLink = (event: LoggedEvent) => event.subject && event.project && event.kind.startsWith('issue.') && event.kind !== 'issue.deleted'
     ? `/p/${event.project}/issues/${event.subject}` : undefined
+/** The message in pieces, each of the project's issue ids in it (`ORR-12`) a link to that issue, but a deleted one's:
+ * the line's own subject and any other it names, so `claude moved ORR-12` opens ORR-12. */
+function messageParts(event: LoggedEvent): {text: string, to?: string}[] {
+    const key = event.project ? byId(event.project)?.key : undefined
+    if (!key || !event.project) return [{text: event.message}]
+    const gone = event.kind === 'issue.deleted' ? event.subject : undefined
+    const parts: {text: string, to?: string}[] = []
+    let at = 0
+    for (const found of event.message.matchAll(new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+\\b`, 'g'))) {
+        if (found[0] === gone) continue
+        if (found.index > at) parts.push({text: event.message.slice(at, found.index)})
+        parts.push({text: found[0], to: `/p/${event.project}/issues/${found[0]}`})
+        at = found.index + found[0].length
+    }
+    if (at < event.message.length) parts.push({text: event.message.slice(at)})
+    return parts
+}
+const toggle = (event: LoggedEvent) => {
+    open.value = open.value === event.id ? null : event.id
+}
 /** Its details, but the stack, which shows on its own. */
 const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.details ?? {}).filter(([k]) => k !== 'stack'))
 </script>
@@ -143,21 +163,30 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
         <p v-if="!filteredAway" class="text-xs text-faint">Errors in the server and the page land here, and while Advanced is on, what Orrery does and each change to the roadmap, a line each. Nothing leaves this machine.</p>
       </div>
       <div v-for="event in shown" :key="event.id" :class="event.resolved_at ? 'opacity-50' : ''">
-        <button
-            type="button"
-            class="flex w-full min-w-max items-baseline gap-3 px-4 text-left whitespace-pre"
+        <!-- A div with the toggle, not a button: the links in it can't go in a button. -->
+        <div
+            role="button"
+            tabindex="0"
+            class="flex w-full min-w-max cursor-pointer items-baseline gap-3 px-4 text-left whitespace-pre focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-500"
             :class="LEVEL[event.level].line"
             :aria-expanded="open === event.id"
-            @click="open = open === event.id ? null : event.id"
+            @click="toggle(event)"
+            @keydown.enter.self.prevent="toggle(event)"
+            @keydown.space.self.prevent="toggle(event)"
         >
           <span class="text-faint">{{ stamp(event.first_seen) }}</span>
           <span class="w-10 shrink-0 font-semibold" :class="LEVEL[event.level].text">{{ LEVEL[event.level].label }}</span>
           <span class="text-muted">{{ event.kind }}</span>
-          <span v-if="event.project" class="text-faint">[{{ event.project }}]</span>
-          <span :class="event.level === 'info' ? 'text-fg' : LEVEL[event.level].text">{{ event.message }}</span>
+          <NuxtLink v-if="event.project" :to="`/p/${event.project}`" class="text-faint hover:text-fg hover:underline" @click.stop>[{{ event.project }}]</NuxtLink>
+          <span :class="event.level === 'info' ? 'text-fg' : LEVEL[event.level].text"><template v-for="(part, i) in messageParts(event)" :key="i"><NuxtLink
+              v-if="part.to"
+              :to="part.to"
+              class="text-accent-600 hover:underline dark:text-accent-400"
+              @click.stop
+          >{{ part.text }}</NuxtLink><template v-else>{{ part.text }}</template></template></span>
           <span v-if="event.count > 1" class="text-faint">×{{ event.count }}</span>
           <span v-if="event.resolved_at" class="text-faint">(resolved)</span>
-        </button>
+        </div>
         <div v-if="open === event.id" class="flex flex-col gap-2 border-l-2 border-line py-2 pr-4 pl-6 ml-4 text-[11px]">
           <dl class="grid grid-cols-[auto_1fr] gap-x-4">
             <dt class="text-faint">id</dt><dd class="text-fg">#{{ event.id }}</dd>
