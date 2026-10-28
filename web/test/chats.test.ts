@@ -141,6 +141,39 @@ describe("the owner's chat", () => {
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'session.messaged', 'session.messaged', 'chat.answered', 'chat.asked', 'chat.answered', 'chat.asked'])
     })
 
+    it('sends once however often Send is pressed, and only to the rest after one failed (ORR-455)', async () => {
+        const sent: string[] = []
+        let failing = 'def'
+        const listed = [
+            {id: 'abc', project: 'greenhouse', name: 'Nordre', state: 'idle', listening: true},
+            {id: 'def', project: 'pantry', name: 'Sudri', state: 'idle', listening: true},
+        ]
+        vi.stubGlobal('useStore', () => ({messageSession: async (_project: string, target: string) => {
+            await new Promise(resolve => setTimeout(resolve, 0))
+            if (target === failing) throw Object.assign(new Error('Sudri stopped listening'), {statusCode: 409})
+            sent.push(target)
+        }}))
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('listSessions', () => listed)
+        vi.stubGlobal('chatSession', () => false)
+        vi.stubGlobal('recipients', () => listed)
+        vi.stubGlobal('messaged', () => {})
+        await chats.openChat('greenhouse')
+        const asked = await chats.askSend('c1c2c3c4c5c6', {message: {text: 'Pick up Todo.'}})
+        // Sudri fails after Nordre had it: still asked, with Nordre kept as sent.
+        await expect(chats.answer('c1c2c3c4c5c6', asked.id, true, owner)).rejects.toThrow(/stopped listening/)
+        expect(asked.send).toMatchObject({state: 'asked', sent: ['Nordre']})
+        expect(sent).toEqual(['abc'])
+        // Pressed again twice at once: one goes through, to Sudri alone, and the other is refused.
+        failing = ''
+        const both = await Promise.allSettled([chats.answer('c1c2c3c4c5c6', asked.id, true, owner), chats.answer('c1c2c3c4c5c6', asked.id, true, owner)])
+        expect(both.map(b => b.status).sort()).toEqual(['fulfilled', 'rejected'])
+        expect(both.find(b => b.status === 'rejected')).toMatchObject({reason: {statusCode: 409}})
+        expect(sent).toEqual(['abc', 'def', 'launch-c1c2c3c4c5c6'])
+        expect(asked.send).toMatchObject({state: 'allowed', sent: ['Nordre', 'Sudri']})
+    })
+
     it("asks the owner to change a setting, saving it only once they allow it, and telling its session", async () => {
         const saved: object[] = []
         const notes: {kind: string}[] = []
