@@ -62,6 +62,13 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         // Anything but making issues, commenting and answering is refused.
         const moved = await request.post('/api/projects/larder/issues/LAR-1/focus', {data: {}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes'}})
         expect(moved.status()).toBe(403)
+        // It changes an issue's fields when the owner asks, but never its state of work.
+        const shelf = await (await request.post('/api/projects/larder/issues', {data: {title: 'Label the shelf'}, headers: OWNER})).json()
+        const urgent = await request.patch(`/api/projects/larder/issues/${shelf.id}`, {data: {priority: 'P0'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}})
+        expect(urgent.ok(), await urgent.text()).toBeTruthy()
+        expect((await urgent.json()).priority).toBe('P0')
+        const finished = await request.patch(`/api/projects/larder/issues/${shelf.id}`, {data: {status: 'done'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}})
+        expect(finished.status()).toBe(403)
 
         // It isn't one of the sessions: not listed, and nothing for the limit. Leaving the page leaves it running.
         await page.goto('/sessions')

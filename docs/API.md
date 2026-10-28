@@ -425,13 +425,17 @@ owner ends it, which closing its pane does. Each message says which page the own
 "this" and "here" are; that goes to its session at the end of the message and isn't kept with it.
 
 Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools but `start_issue`, `finish_issue`,
-`update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and two of its own: `reply`, its answer, the
-only way what it says reaches the page, `image`, which shows it an image the owner pasted, and `message_sessions` and
+`update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and its own: `reply`, its answer, the
+only way what it says reaches the page, `image`, which shows it an image the owner pasted, `edit_issue`, which changes
+an issue's title, notes, priority, labels, team tasks, chunk, release or parent when the owner asks, `message_sessions` and
 `message_session`, which message other sessions for the owner when they ask in the chat (never on its own; for more
 than one session, once the owner has said go to its draft), and `update_settings`, which asks the owner to change one
 App setting (below). It hears only its chat's messages: no focus, no message to
 every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
-or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), commenting, replying, messaging sessions and asking to change a setting. A message it sends goes as the owner's,
+or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), changing an issue's
+`title`, `notes`, `priority`, `labels`, `external`, `chunk`, `release` and `parent` (`PATCH` with anything else, `status`
+or `assignee` say, is a 403, and no other session's claim on it holds it back), commenting, replying, messaging
+sessions and asking to change a setting. A message it sends goes as the owner's,
 with `via: "chat"` on the signal; the session hears it ending `(Sent by the owner through their chat.)`, and the
 Sessions page and the event log (`session.messaged`) say it came through the chat. A chat is kept in memory
 while it runs, so it's gone after Orrery restarts.

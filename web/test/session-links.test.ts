@@ -46,7 +46,8 @@ beforeEach(async () => {
     vi.stubGlobal('asProposal', asProposal)
     vi.stubGlobal('untrustedWrite', untrustedWrite)
     vi.stubGlobal('EXTERNAL', EXTERNAL)
-    const {asChatIssue, chatWrite} = await import('../server/utils/chats')
+    const {asChatEdit, asChatIssue, chatWrite} = await import('../server/utils/chats')
+    vi.stubGlobal('asChatEdit', asChatEdit)
     vi.stubGlobal('asChatIssue', asChatIssue)
     vi.stubGlobal('chatWrite', chatWrite)
 })
@@ -74,6 +75,18 @@ describe("a session's writes", () => {
         await create(event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Jars'}, ''))
         await settle()
         expect(worked).toEqual([['greenhouse', 'GRE-9', 'abc']])
+    })
+
+    it("from the owner's chat, change an issue's fields without a claim, and never its status", async () => {
+        const patch = (await import('../server/api/projects/[project]/issues/[issue]/index.patch')).default as unknown as (event: object) => Promise<unknown>
+        const updated: unknown[] = []
+        const store = useStore() as unknown as {updateIssue: (project: string, id: string, body: unknown) => Promise<unknown>, claimed: () => never}
+        store.updateIssue = async (project, id, body) => (updated.push(body), {project, id})
+        store.claimed = () => { throw new Error('a chat edit goes without a claim') }
+        await patch(event('PATCH', '/api/projects/greenhouse/issues/GRE-1', {project: 'greenhouse', issue: 'GRE-1'}, {priority: 'P0'}, 'chat'))
+        expect(updated).toEqual([{priority: 'P0'}])
+        await expect(patch(event('PATCH', '/api/projects/greenhouse/issues/GRE-1', {project: 'greenhouse', issue: 'GRE-1'}, {status: 'done'}, 'chat'))).rejects.toMatchObject({statusCode: 403})
+        expect(updated).toHaveLength(1)
     })
 
     it('follow an issue it moves to where it is now', async () => {
