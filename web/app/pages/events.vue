@@ -209,7 +209,7 @@ const rest = (event: LoggedEvent) => Object.fromEntries(Object.entries(event.det
               @click.stop
           >{{ part.text }}</NuxtLink><template v-else>{{ part.text }}</template></template></span>
           <span v-if="event.count > 1" class="text-faint">×{{ event.count }}</span>
-          <span v-if="event.resolved_at" class="text-faint">(resolved)</span>
+          <span v-if="event.resolved_at" class="text-faint">(resolved{{ event.resolved_by ? ` by ${event.resolved_by}` : '' }})</span>
         </div>
         <div v-if="open === event.id" class="flex flex-col gap-2 border-l-2 border-line py-2 pr-4 pl-6 ml-4 text-[11px]">
           <dl class="grid grid-cols-[auto_1fr] gap-x-4">

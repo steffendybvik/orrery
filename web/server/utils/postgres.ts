@@ -348,6 +348,8 @@ const STEPS: string[] = [`
 `, `
     ALTER TABLE signals ADD COLUMN via text;
 `, `
+    ALTER TABLE events ADD COLUMN resolved_by text;
+`, `
     CREATE TABLE proposal_clears (
         project text NOT NULL,
         issue text NOT NULL,
@@ -454,6 +456,11 @@ export class PostgresDb implements Db {
             await client.query('CREATE TABLE IF NOT EXISTS schema_version (version integer NOT NULL)')
             const row = (await client.query<{version: number}>('SELECT version FROM schema_version')).rows[0]
             let version = row?.version ?? 0
+            // One from a newer Orrery is left as it is (ORR-433); its steps all ran in one transaction, so no copy is needed.
+            if (version > BASELINE + STEPS.length) {
+                throw new Error(`This Postgres database was written by a newer Orrery (schema step ${version}; this one knows up to ${BASELINE + STEPS.length}). `
+                    + 'Run that version again, or restore a backup from before it upgraded.')
+            }
             if (!row) {
                 await client.query(SCHEMA)
                 await client.query('INSERT INTO schema_version (version) VALUES ($1)', [BASELINE])

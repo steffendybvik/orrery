@@ -518,6 +518,8 @@ export interface LoggedEvent {
     last_seen: string
     /** When someone said it's dealt with; the next one starts a row of its own. */
     resolved_at?: string
+    /** Who resolved it, when it wasn't the owner (ORR-420): the bell still shows it until the owner looks. */
+    resolved_by?: string
 }
 
 /** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */

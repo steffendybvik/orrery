@@ -26,7 +26,12 @@ const {name: owner, load: loadOwner} = useOwner()
 const {unseenIn} = useUnseen()
 onMounted(loadOwner)
 const mineCount = computed(() => projects.value.reduce((sum, p) => sum + myIssues(p, owner.value).length, 0))
-const LIVE = {live: 'Live', connecting: 'Connecting…', offline: 'Offline'}
+const LIVE = {
+    connected: {label: 'Connected', title: 'Updates arrive as they happen'},
+    connecting: {label: 'Connecting…', title: 'Connecting for updates as they happen'},
+    reconnecting: {label: 'Reconnecting…', title: 'Trying again…'},
+    offline: {label: 'Offline', title: 'Trying again…'},
+}
 
 // Projects are dragged by their name to rearrange them (or moved with ⌥↑/⌥↓); a line shows where one lands.
 const {ordered, move} = useProjectOrder()
@@ -96,12 +101,12 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span class="text-sm font-semibold tracking-tight">orrery</span>
         <span v-if="environment" class="rounded-md bg-sky-500/15 px-1.5 py-px text-[11px] font-semibold text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300" :title="`This is the ${environment} Orrery: its own database, apart from any other`">{{ environment }}</span>
       </NuxtLink>
-      <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="live === 'live' ? 'Changes through the API show here as they happen' : 'Not getting changes'">
+      <span class="flex items-center gap-1.5 text-[11px] text-faint" :title="LIVE[live].title">
         <span class="relative flex size-1.5">
-          <span v-if="live === 'live'" class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'live' ? 'bg-emerald-400' : live === 'connecting' ? 'bg-amber-400' : 'bg-rose-500'" />
+          <span v-if="live === 'connected'" class="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+          <span class="relative inline-flex size-1.5 rounded-full" :class="live === 'connected' ? 'bg-emerald-400' : live === 'offline' ? 'bg-rose-500' : 'bg-amber-400'" />
         </span>
-        {{ LIVE[live] }}
+        {{ LIVE[live].label }}
       </span>
       <UiButton variant="ghost" size="md" square class="-mr-1 md:hidden" aria-label="Close the menu" @click="open = false">
         <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>

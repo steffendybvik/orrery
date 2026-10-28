@@ -551,7 +551,7 @@ what (`claude moved ORR-12: todo → done`), and its details hold `by`, `owner`,
 `schedule` whose run made it. No titles, notes or comment text are kept. Advanced also shows the Events page and
 counts each new kind of error in the bell.
 
-Each event is `{id, level, kind, project?, subject?, message, details?, count, first_seen, last_seen, resolved_at?}`,
+Each event is `{id, level, kind, project?, subject?, message, details?, count, first_seen, last_seen, resolved_at?, resolved_by?}`,
 with `level` one of `error`, `warn`, `info`. Each is a line of its own (`count` 1, `last_seen` its `first_seen`); a
 repeat of one not resolved yet (level, kind, project and message) is no news to the bell or the schedules. No request
 bodies, headers or secret values are kept: secrets are scrubbed out as they are from an answer, and so are passwords
@@ -563,7 +563,11 @@ and 5000 of the rest, each the oldest going first.
   was to (`ORR-12`, a release's version); `open=1` leaves out resolved ones. 200 by default, 1000 at most. A daily schedule can ask for `?level=error&open=1&since=…` and turn what's new
   into issues.
 - `POST /events/log/:id/resolve`: it's dealt with, and so are its repeats not resolved yet; the next one like it is news.
-- `POST /events/log {message, stack?, page?, build?}` → 201: the page reporting its own error (`page.error`).
+  Resolved by anyone but the owner, it keeps their name as `resolved_by`, and the bell still counts it until the owner
+  has looked, so a session can't hide an error it caused.
+- `POST /events/log {message, stack?, page?, build?, kind?}` → 201: the page reporting its own error (`page.error`, or
+  another `kind` under `page.`). Anyone can send one, so it's kept with `details.reported: true`, which the `events`
+  tool shows as unchecked, and at most 5 of a kind and 20 in all are taken a minute: a 429 past that.
 
 A session reads it with the channel's `events` tool (`details` for stacks) and marks what it fixed with
 `resolve_event`, so the owner can hand Claude a problem to debug.
