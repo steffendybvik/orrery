@@ -2,8 +2,9 @@
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there. With no chat running
 // the pane offers to start one on the project you're on; once started, its session's state shows in the header and
 // the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
-// dropped goes with the message. End chat stops the session; closing the pane leaves it running.
-const {open, chat, session, project, failed, chats, start, send, end, upload, show} = useChat()
+// dropped goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
+// one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way).
+const {open, large, chat, session, project, failed, chats, start, send, close, resize, upload, show} = useChat()
 const {projects} = useRoadmaps()
 const route = useRoute()
 
@@ -87,7 +88,7 @@ function onPaste(event: ClipboardEvent) {
       v-if="!open"
       type="button"
       class="fixed right-4 bottom-4 z-40 flex h-11 items-center gap-2 rounded-full bg-accent-500 pr-4 pl-3.5 text-sm font-medium text-white shadow-lg shadow-accent-600/30 transition hover:opacity-90"
-      :title="chats.length ? 'Back to your chat' : 'Chat with Claude about a project: it answers and makes issues'"
+      :title="chats.length ? 'Back to your chat: it is still running' : 'Chat with Claude about a project: it answers and makes issues'"
       @click="show()"
   >
     <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
@@ -97,9 +98,10 @@ function onPaste(event: ClipboardEvent) {
 
   <section
       v-else
-      class="fixed right-4 bottom-4 z-40 flex h-[min(40rem,calc(100dvh-2rem))] w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
+      class="fixed right-4 bottom-4 z-40 flex w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl"
+      :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : 'h-[min(40rem,calc(100dvh-2rem))] sm:w-[min(28rem,calc(100vw-2rem))]'"
       aria-label="Chat"
-      @keydown.esc="open = false"
+      @keydown.esc="!chat || chat.ended ? close() : undefined"
   >
     <header class="flex items-center gap-2 border-b border-line px-4 py-3">
       <div class="flex min-w-0 flex-1 flex-col">
@@ -108,8 +110,11 @@ function onPaste(event: ClipboardEvent) {
           <SessionDot v-if="session" :session="session" />{{ state }}
         </span>
       </div>
-      <UiButton v-if="chat && !chat.ended" variant="danger-ghost" size="xs" @click="end">End chat</UiButton>
-      <UiButton variant="ghost" size="xs" square aria-label="Close the chat; it keeps running" title="Close (it keeps running)" @click="open = false">
+      <UiButton variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
+        <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
+        <svg v-else class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
+      </UiButton>
+      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'End the chat and close it' : 'Close the chat'" :title="chat && !chat.ended ? 'End chat' : 'Close'" @click="close">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
       </UiButton>
     </header>

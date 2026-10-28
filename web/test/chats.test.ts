@@ -49,6 +49,17 @@ describe("the owner's chat", () => {
         ])
     })
 
+    it('says the page the owner is on at the end of what its session hears, and keeps it out of the message', async () => {
+        await chats.openChat('greenhouse')
+        const said = await chats.say('c1c2c3c4c5c6', 'What runs here?', [], owner, {path: '/p/greenhouse/schedules', title: ' Schedules \n· Greenhouse '})
+        expect(messages.at(-1)!.text).toBe('What runs here?\n\n(The owner is on /p/greenhouse/schedules: Schedules · Greenhouse.)')
+        expect(said).not.toHaveProperty('page')
+        await chats.say('c1c2c3c4c5c6', 'And now?', [], owner, {path: '/sessions'})
+        expect(messages.at(-1)!.text).toBe('And now?\n\n(The owner is on /sessions.)')
+        for (const page of [{path: 'https://elsewhere.example'}, {path: '//elsewhere.example/x'}, {path: '/a b'}, {title: 'No path'}, '/p/greenhouse'])
+            await expect(chats.say('c1c2c3c4c5c6', 'Hm', [], owner, page)).rejects.toMatchObject({statusCode: 400})
+    })
+
     it('refuses an empty message, an image that is no upload, and an empty answer', async () => {
         await chats.openChat('greenhouse')
         await expect(chats.say('c1c2c3c4c5c6', ' ', [], owner)).rejects.toMatchObject({statusCode: 400})
