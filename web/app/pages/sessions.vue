@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import type {SessionWork} from '#shared/roadmap'
 import {TERMINALS} from '#shared/roadmap'
+import {areaId, permissionAreas} from '#shared/permissions'
 import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
 // Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default).
-// Two tabs keep them apart: Sessions, what's running, and Setup (`?tab=setup`, or a link to one of its sections): first the
+// Three tabs keep them apart: Sessions, what's running; Setup (`?tab=setup`, or a link to one of its sections): first the
 // presets to start one with, as they're used most, then whether orrery may start sessions and how, and what sessions hear;
-// presets and what they hear for every project or, picked in For, one project's own.
+// presets and what they hear for every project or, picked in For, one project's own; and Permissions
+// (`?tab=permissions`), what each kind of session may do, read-only (ORR-459).
 useHead({title: 'Sessions · orrery'})
 const route = useRoute()
 const {projects, ready, sessions, signals} = useRoadmaps()
@@ -38,17 +40,19 @@ const groups = computed(() => ordered.value
 const count = computed(() => spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
 const router = useRouter()
-type Tab = 'sessions' | 'setup'
+type Tab = 'sessions' | 'setup' | 'permissions'
 const SETUP = ['#presets', '#starts', '#watch', '#hear']
-const tabs = [{value: 'sessions' as const, label: 'Sessions'}, {value: 'setup' as const, label: 'Setup'}]
+const tabs = [{value: 'sessions' as const, label: 'Sessions'}, {value: 'setup' as const, label: 'Setup'}, {value: 'permissions' as const, label: 'Permissions'}]
 const tab = computed<Tab>({
-    get: () => route.query.tab === 'setup' || SETUP.includes(route.hash) ? 'setup' : 'sessions',
-    set: next => router.replace({query: {...route.query, tab: next === 'setup' ? 'setup' : undefined}, hash: ''}),
+    get: () => route.query.tab === 'setup' || SETUP.includes(route.hash) ? 'setup' : route.query.tab === 'permissions' ? 'permissions' : 'sessions',
+    set: next => router.replace({query: {...route.query, tab: next === 'sessions' ? undefined : next}, hash: ''}),
 })
 
 // The contents beside the page on a wide screen, as on App settings: each project's sessions, or the setup's sections.
 const scroller = ref<HTMLElement | null>(null)
-const headings = computed<Heading[]>(() => tab.value === 'sessions'
+const headings = computed<Heading[]>(() => tab.value === 'permissions'
+    ? permissionAreas().map(area => ({id: areaId(area), text: area, level: 2 as const}))
+    : tab.value === 'sessions'
     ? [
         ...spanning.value.length ? [{id: 'sessions-across', text: 'Across projects', level: 2 as const}] : [],
         ...groups.value.map(g => ({id: `sessions-${g.project.id}`, text: g.project.name, level: 2 as const})),
@@ -169,6 +173,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <FocusPrompts :key="scope" :project="scoped" />
       </section>
     </div>
+    <SessionPermissions v-else-if="tab === 'permissions'" class="min-w-0 max-w-4xl flex-1" />
     <div v-else class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
       <LaunchersBehind />
       <p v-if="ready && !count" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">

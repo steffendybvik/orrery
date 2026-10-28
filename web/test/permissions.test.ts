@@ -1,0 +1,198 @@
+import {existsSync, readFileSync} from 'node:fs'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {PERMISSIONS} from '#shared/permissions'
+import type {PermissionCell} from '#shared/permissions'
+import {Schedules} from '../server/utils/schedules'
+import {Store} from '../server/utils/store'
+import {testDb} from './db'
+
+// The permissions table (shared/permissions.ts) against what the server does, so it can't say one thing while the code
+// does another (ORR-459): each route it names is there, the chat's and an untrusted session's guards let through what
+// it says and refuse the rest, and a working session meets what its column says, tried on the store or, for a rule a
+// route holds, read in the code that holds it.
+
+const me = {name: 'skoll', owner: true}
+const agent = {name: 'claude', owner: false}
+const allowed = (cell: PermissionCell) => cell.level === 'free' || cell.level === 'limited'
+
+/** A route's file under server/api: `POST /api/projects/:project/issues` → projects/[project]/issues/index.post.ts. */
+function routeFile(route: string): string | undefined {
+    const [method, path] = route.split(' ')
+    const parts = path!.replace(/^\/api\//, '').split('/').map(p => p.startsWith(':') ? `[${p.slice(1)}]` : p)
+    const base = `server/api/${parts.join('/')}`
+    return [`${base}.${method!.toLowerCase()}.ts`, `${base}/index.${method!.toLowerCase()}.ts`].find(f => existsSync(f))
+}
+
+/** A route as a request would ask for it. */
+const concrete = (route: string) => {
+    const [method, path] = route.split(' ')
+    return {method: method!, path: path!.replace(/:[a-z]+/g, name => ({':project': 'greenhouse', ':issue': 'GRE-1'})[name] ?? 'x')}
+}
+
+describe('the permissions table', () => {
+    it('names each thing once, with a why, and routes that exist', () => {
+        expect(new Set(PERMISSIONS.map(p => p.id)).size).toBe(PERMISSIONS.length)
+        for (const p of PERMISSIONS) {
+            expect(p.why, p.id).toMatch(/\S/)
+            for (const route of p.routes) expect(routeFile(route), `${p.id}: ${route}`).toBeDefined()
+        }
+    })
+})
+
+describe('the guards', () => {
+    type Event = {method: string, path: string, headers: Record<string, string>}
+    let untrusted: (event: Event) => Promise<void>
+    let chat: (event: Event) => void
+
+    beforeEach(async () => {
+        vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        vi.stubGlobal('decoded', (part: string) => part)
+        vi.stubGlobal('untrustedWrite', (event: Event) => event.headers['orrery-untrusted'] === 'yes')
+        vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')
+        vi.stubGlobal('EXTERNAL', 'external')
+        // The issue it comments on is one of its own proposals.
+        vi.stubGlobal('useStore', () => ({issue: async () => ({proposal: 'pending', labels: ['external']})}))
+        vi.resetModules()
+        untrusted = (await import('../server/middleware/untrusted')).default as unknown as typeof untrusted
+        chat = (await import('../server/middleware/chat')).default as unknown as typeof chat
+    })
+
+    afterEach(() => vi.unstubAllGlobals())
+
+    /** Whether the guard lets the route through. */
+    async function through(guard: (event: Event) => unknown, route: string, headers: Record<string, string>): Promise<boolean> {
+        try {
+            await guard({...concrete(route), headers})
+            return true
+        } catch (error) {
+            if ((error as {statusCode?: number}).statusCode !== 403) throw error
+            return false
+        }
+    }
+
+    it("let an untrusted session do what its column says, and refuse it the rest", async () => {
+        for (const p of PERMISSIONS) {
+            const passed = await Promise.all(p.routes.map(r => through(untrusted, r, {'orrery-untrusted': 'yes'})))
+            expect(passed.some(Boolean), p.id).toBe(allowed(p.untrusted))
+        }
+    })
+
+    it("let the owner's chat do what its column says; what it asks for goes through its requests, never the route", async () => {
+        for (const p of PERMISSIONS) {
+            const passed = await Promise.all(p.routes.map(r => through(chat, r, {'orrery-chat': 'yes'})))
+            expect(passed.some(Boolean), p.id).toBe(allowed(p.chat))
+        }
+        expect(await through(chat, 'POST /api/chats/:chat/requests', {'orrery-chat': 'yes'})).toBe(true)
+    })
+})
+
+describe("a working session's column", () => {
+    let store: Store
+    let schedules: Schedules
+
+    beforeEach(async () => {
+        store = new Store(testDb(), () => {})
+        await store.createProject({name: 'greenhouse', key: 'GRE'}, me)
+        schedules = new Schedules(store)
+    })
+
+    /** The status a call fails with, or 200. */
+    async function status(call: () => unknown): Promise<number> {
+        try {
+            await call()
+            return 200
+        } catch (error) {
+            return (error as {statusCode: number}).statusCode
+        }
+    }
+
+    // Each row the store or the schedules hold, tried as an agent: the level its column says, and what makes it so.
+    const PROBES: Record<string, () => Promise<unknown>> = {
+        'issues.create': async () => expect(await status(() => store.createIssue('greenhouse', {title: 'Shelves'}, agent))).toBe(200),
+        'issues.edit': async () => {
+            const plain = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
+            expect(await status(() => store.updateIssue('greenhouse', plain.id, {status: 'done'}, agent))).toBe(200)
+            const proposal = await store.createIssue('greenhouse', {title: 'Taller shelves', proposal: 'pending'}, agent)
+            expect(await status(() => store.updateIssue('greenhouse', proposal.id, {status: 'in-progress'}, agent))).toBe(403)
+        },
+        'issues.delete': async () => {
+            const theirs = await store.createIssue('greenhouse', {title: 'Shelves'}, me)
+            const mine = await store.createIssue('greenhouse', {title: 'Lights'}, agent)
+            expect(await status(() => store.deleteIssue('greenhouse', theirs.id, agent))).toBe(403)
+            expect(await status(() => store.deleteIssue('greenhouse', mine.id, agent))).toBe(200)
+            expect(await status(() => store.deleteProject('greenhouse', agent))).toBe(403)
+        },
+        'proposals.decide': async () => {
+            const proposal = await store.createIssue('greenhouse', {title: 'Taller shelves', proposal: 'pending'}, agent)
+            expect(await status(() => store.decide('greenhouse', proposal.id, {decision: 'approved'}, agent))).toBe(403)
+        },
+        'comments.write': async () => {
+            const issue = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
+            expect(await status(() => store.createComment('greenhouse', issue.id, {body: 'Done.', asks: 'feedback'}, agent))).toBe(200)
+        },
+        'docs.write': async () => expect(await status(() => store.putDoc('greenhouse', 'shelves', {title: 'Shelves', body: 'Oak.'}, agent))).toBe(200),
+        'presets.write': async () => expect(await status(() => store.createPreset(null, {name: 'Review', text: 'Review the PRs.'}, agent))).toBe(403),
+        'prompts.write': async () => {
+            expect(await status(() => store.updateProject('greenhouse', {focus_prompt: 'Do it.'}, agent))).toBe(403)
+            expect(await status(() => store.updateProject('greenhouse', {description: 'Plants.'}, agent))).toBe(200)
+        },
+        'settings.write': async () => {
+            expect(await status(() => store.updateSettings({tracker: null}, agent))).toBe(403)
+            expect(await status(() => store.createStatus({name: 'Blocked', kind: 'started'}, agent))).toBe(403)
+        },
+        'signals.focus': async () => {
+            const issue = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
+            expect((await store.focus('greenhouse', issue.id, {}, agent)).protected).toBe(false)
+        },
+        'sessions.message': async () => expect(await status(() => store.messageSession('greenhouse', 'abc', 'Hi', agent))).toBe(403),
+        'schedules.issue': async () => {
+            const made = await schedules.create('greenhouse', {title: 'Weekly tidy', cron: '0 9 * * 1', ask: true}, agent)
+            expect(await schedules.runNow('greenhouse', made.id, agent)).toMatchObject({outcome: 'made', note: expect.stringMatching(/didn't ask the sessions/)})
+        },
+        'schedules.message': async () => {
+            const made = await schedules.create('greenhouse', {title: 'Nudge', kind: 'message', notes: 'Pick up Todo.', cron: '0 9 * * *'}, agent)
+            expect(await schedules.runNow('greenhouse', made.id, agent)).toMatchObject({outcome: 'skipped'})
+        },
+        'schedules.session': async () => expect(await status(() => schedules.create('greenhouse', {title: 'Review', kind: 'session', cron: '0 9 * * *'}, agent))).toBe(403),
+        'schedules.owners': async () => {
+            const theirs = await schedules.create('greenhouse', {title: 'Weekly tidy', cron: '0 9 * * 1'}, me)
+            expect(await status(() => schedules.update('greenhouse', theirs.id, {title: 'Tidy'}, agent))).toBe(403)
+            expect(await status(() => schedules.runNow('greenhouse', theirs.id, agent))).toBe(403)
+            expect(await status(() => schedules.delete('greenhouse', theirs.id, agent))).toBe(403)
+            const mine = await schedules.create('greenhouse', {title: 'Lights', cron: '0 9 * * 1'}, agent)
+            expect(await status(() => schedules.update('greenhouse', mine.id, {title: 'Lamps'}, agent))).toBe(200)
+        },
+    }
+
+    // A rule a route holds rather than the store, read where it's held.
+    const HELD_IN: Record<string, [string, string][]> = {
+        'sessions.start': [
+            ['server/api/projects/[project]/launches/index.post.ts', 'Only the owner starts a session'],
+            ['server/api/projects/[project]/launches/[launch]/stop.post.ts', 'Only the owner stops'],
+            ['server/api/projects/[project]/launches/[launch]/extend.post.ts', 'Only the owner gives'],
+            ['server/api/projects/[project]/launches/[launch]/watch.post.ts', 'Only the owner watches'],
+        ],
+        'secrets.write': [['server/utils/secrets.ts', 'Only the owner sets secrets']],
+        'secrets.egress': [['server/utils/secrets.ts', 'may only go to']],
+        'database.write': [
+            ['server/api/backups.post.ts', 'Only the owner backs'],
+            ['server/utils/backup-choice.ts', 'Only the owner sets the backups'],
+            ['server/utils/move.ts', 'Only the owner moves the database'],
+        ],
+        'notices.clear': [
+            ['server/api/notices/clear.post.ts', 'Only the owner clears'],
+            ['server/api/projects/[project]/sessions/[session]/forget.post.ts', 'Only the owner forgets'],
+        ],
+    }
+
+    it('holds for every row', async () => {
+        for (const p of PERMISSIONS) {
+            const probe = PROBES[p.id]
+            const held = HELD_IN[p.id]
+            expect(probe || held, `${p.id} has nothing that checks it`).toBeTruthy()
+            if (probe) await probe()
+            for (const [file, said] of held ?? []) expect(readFileSync(file, 'utf8'), `${p.id}: ${file}`).toContain(said)
+        }
+    })
+})

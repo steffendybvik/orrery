@@ -544,6 +544,13 @@ writes are never refused. A chunk's list marks such an issue `(another session i
 other sessions. Two sessions starting the same issue at once are taken one after the other, so only the first
 gets it.
 
+`GET /permissions` → `{levels, kinds, permissions}` says what each kind of session may do: for each thing (`id`, `area`,
+`action`, `why`, the `routes` that do it), its level for a working session (`session`), the owner's chat (`chat`) and an
+untrusted session (`untrusted`), each `{level, note?}`. A level is `free`, `limited` (free within its note), `asks` (the
+owner's Allow or Send does it), `owned` (saved, but runs only once it's the owner's), `owner` (the owner's alone: a 403,
+or for a focus, no session hears it) or `refused`. Read it before something that might be the owner's, and ask in a
+comment instead of trying. The Sessions page's Permissions tab shows the same table, and a test holds it to the code.
+
 An issue id is only unique within its orrery, and an orrery is one person's board. So when a commit body
 or PR description names an issue, write its `ref` (`orrery-ada: DOC-132`) as a trailer on a
 line of its own, never a bare id, and never in a title or branch name. The team's tracker
