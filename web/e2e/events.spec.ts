@@ -3,6 +3,7 @@ import {OWNER, makeProject, projectApi} from './support'
 
 // The Events page kept to a kind (ORR-401): a family picked shows every kind in it, one kind only itself, and the
 // choice is in the URL, with the project's, so it's there again after a reload.
+// And its lines link the issue they name, and their project, from the line itself (ORR-403).
 const api = projectApi('ledger')
 let advanced = false
 
@@ -47,4 +48,23 @@ test('keeps to a family of kinds or to one kind', async ({page}) => {
     // None of a kind says which.
     await page.goto('/events?project=ledger&kind=backup.made')
     await expect(page.getByText('Nothing logged of backup.made in Ledger yet.')).toBeVisible()
+})
+
+test("an issue event's line links the issue, and following it opens the issue", async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Carry the one'})
+    await page.goto('/events?project=ledger')
+    // The line, not its Copy button, which names it too once it's open.
+    const line = page.locator('[role=button][aria-expanded]').filter({hasText: new RegExp(`issue\\.created.*made ${issue.id}`)})
+    await expect(line).toBeVisible()
+    await expect(line.getByRole('link', {name: '[ledger]'})).toHaveAttribute('href', '/p/ledger')
+    const link = line.getByRole('link', {name: issue.id})
+    await expect(link).toHaveAttribute('href', `/p/ledger/issues/${issue.id}`)
+
+    // The line still opens its details by keyboard; the link opens the issue, not them.
+    await line.focus()
+    await page.keyboard.press('Enter')
+    await expect(line).toHaveAttribute('aria-expanded', 'true')
+    await link.click()
+    await expect(page).toHaveURL(new RegExp(`/p/ledger/issues/${issue.id}$`))
+    await expect(page.getByText('Carry the one').first()).toBeVisible()
 })
