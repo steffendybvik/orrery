@@ -40,6 +40,9 @@ const sessions = new Map<string, Known>()
 const aliases = new Map<string, string>()
 // A session nothing has heard from in this long, and that isn't listening, is dropped.
 const FORGET_AFTER = 6 * 60 * 60 * 1000
+// Sooner for one idle with no channel open: closing its terminal sends no hook, so it's most likely gone. An idle
+// Claude sends no hooks either, so this can't tell it from one still open: the owner can forget one by hand too.
+const FORGET_IDLE_AFTER = 60 * 60 * 1000
 // How long a cleared session waits for the one that takes it over.
 const CLEARED_FOR = 60 * 1000
 
@@ -386,9 +389,27 @@ export function extendLaunch(project: string, launch: string, stops_at: string):
     return publicOf(session)
 }
 
+/** Whether any of its channels has a stream open: its process is still there. */
+const connected = (session: Known) => [...session.channels?.values() ?? []].some(c => c.streams > 0)
+
+/** The owner forgetting a session with no channel open: it leaves the list and nothing else, as orrery can't reach
+ * its process. If it's still running, its next hook brings it back. */
+export function forgetSession(project: string, id: string): Session {
+    const session = sessions.get(currentId(id))
+    if (!session || !covers(session, project)) throw notFound(`No session ${id} in ${project}`)
+    if (connected(session)) throw conflict(`${session.name} has its channel open, so it's still running: stop it instead`)
+    forget(session)
+    changed(session.project)
+    return publicOf(session)
+}
+
 export function listSessions(project?: string): Session[] {
     const now = Date.now()
-    for (const s of [...sessions.values()]) if (!s.listening && now - s.seenAt > FORGET_AFTER) forget(s)
+    for (const s of [...sessions.values()]) {
+        if (s.listening) continue
+        const quiet = now - s.seenAt
+        if (quiet > FORGET_AFTER || quiet > FORGET_IDLE_AFTER && s.state === 'idle' && !connected(s)) forget(s)
+    }
     return [...sessions.values()].filter(s => !project || covers(s, project))
         .sort((a, b) => a.started_at.localeCompare(b.started_at)).map(publicOf)
 }

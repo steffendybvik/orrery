@@ -5,7 +5,8 @@ import {olderVersion} from '#shared/version'
 // One Claude session on the Sessions page. Its name, then one quiet line: what it's doing and since when, its time
 // left (one Orrery started with a time), the folder it runs in and the context it was given; only a session that
 // can't hear signals says so, and one whose channel runs older code than this orrery. One Orrery started has Watch and Show screen out front, the rest under ⋯; any other
-// with its channel running, a Stop that ends it through the channel. A listening one takes a message. Then what it's on now (`work`,
+// with its channel running, a Stop that ends it through the channel; one nothing can reach, a Forget (×) that takes it
+// off the list. A listening one takes a message. Then what it's on now (`work`,
 // on `project`): its issues in progress, the rest it worked folded under them, and the latest thing it was sent, the
 // rest folded too. One that hears other projects too says which: listed across projects (`spans`), every project it
 // hears as a chip, or All projects. `lit` marks the one a link pointed at.
@@ -87,7 +88,7 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
             · started on {{ session.version ?? 'an older version' }}: {{ session.started ? 'stop it and start another' : 'restart it' }}
             <CopyButton v-if="!session.started" :text="restart(session)" label="Restart command" />
           </span>
-          <span v-if="!session.listening" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-400" :title="`${session.name} was started without the channel, so a signal can't reach it`">
+          <span v-if="!session.listening" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-400" :title="`Started without the channel: orrery sees ${session.name} but can't message${session.reachable ? '' : ' or stop'} it. ${session.reachable ? 'Restart it' : 'Close it in its terminal, or restart it'} with this command.`">
             · can't hear signals
             <CopyButton :text="restart(session)" label="Restart command" />
           </span>
@@ -95,6 +96,7 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
       </div>
       <StartedSession v-model:viewing="viewing" :session="session" class="ml-auto" />
       <StopSession v-if="!session.started && session.reachable" :session="session" class="ml-auto" />
+      <ForgetSession v-if="!session.started && !session.listening && !session.reachable" :session="session" class="ml-auto" />
     </div>
     <SessionScreen v-if="viewing && session.started" :session="session" />
     <SessionMessage v-if="session.listening" :session="session" :project="project" />
