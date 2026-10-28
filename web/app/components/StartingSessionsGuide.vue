@@ -6,7 +6,6 @@ import type {LaunchState} from '~/composables/useLaunchState'
 const {settings} = useAppSettings()
 const {launchers} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
 /** Whether any project has a launcher running, asked of each, and again as launchers come and go; null until known. */
 const running = ref<boolean | null>(null)
 async function ask() {
@@ -44,10 +43,9 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
               orrery runs in Docker and can't start sessions on your machine, so a small launcher does it. Installed, it runs in the
               background (launchd on macOS, systemd on Linux), starts at login and serves every project installed this way.
               It finds the project in the repo's <span class="font-mono">.mcp.json</span>. If it's new to the repo,
-              run <span class="font-mono">claude</span> there once to trust the folder.
+              run <span class="font-mono">claude</span> there once to trust the folder. Its command is at the top of this section.
             </span>
           </div>
-          <CopyBlock title="In the repo, run" :text="install" hint="Again in another repo adds its project; --uninstall takes one off. Installing again restarts it, which stops the sessions it's running." />
         </div>
       </li>
       <li class="flex gap-3">
