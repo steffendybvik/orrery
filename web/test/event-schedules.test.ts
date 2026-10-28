@@ -197,12 +197,11 @@ describe('a schedule on an event', () => {
         const nightly = await schedules.create('greenhouse', {title: 'Nightly', kind: 'session', notes: 'Tidy up', cron: '0 3 * * *'}, me)
         const alert = await schedules.create('greenhouse', {title: 'Alert', kind: 'session', notes: 'See what failed', on: '*.failed'}, me)
         expect(await schedules.runNow('greenhouse', nightly.id, me)).toMatchObject({outcome: 'failed'})
-        await new Promise(resolve => setTimeout(resolve))
-        expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', undefined]])
+        // The log writes the event without being awaited, and on Postgres that takes longer than a tick.
+        await vi.waitFor(() => expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', undefined]]))
         expect(await pass()).toBe(1)
         // The alert fails too, with no launcher; that outcome is told as its run's, so nothing hears it.
-        await new Promise(resolve => setTimeout(resolve))
-        expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', alert.id]])
+        await vi.waitFor(() => expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', alert.id]]))
         expect(await pass(later(2))).toBe(0)
     })
 
