@@ -6,7 +6,7 @@ export default defineEventHandler(async event => {
     const dir = backupDir()
     if (!dir) throw conflict('orrery isn\'t backed up: turn backups on in App settings → Database, or set ORRERY_BACKUP (NUXT_BACKUP_DIR outside Docker)')
     const db = useDatabase()
-    await backUp(db, dir)
+    await backUp(db, dir, backupKeep())
     const database = describeDatabase()
     return {...database, ...await databaseSize(database, db)}
 })

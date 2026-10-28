@@ -3,7 +3,7 @@
 // settings (server/utils/move.ts); where it went is kept beside the SQLite file, unless NUXT_DATABASE is Postgres.
 import {chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {lastBackup, restoreBackup} from './backup'
-import {backupChoice, backupChoiceFile, backupDir, defaultBackupDir, inDocker} from './backup-choice'
+import {backupChoice, backupChoiceFile, backupDir, backupEvery, backupKeep, defaultBackupDir, inDocker} from './backup-choice'
 import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
@@ -748,7 +748,7 @@ export function describeDatabase(): DatabaseInfo {
     const choice = backupChoice()
     const settable = backupChoiceFile() ? {backups_settable: inDocker() ? 'switch' as const : 'folder' as const} : {}
     const backups = {...settable, ...choice?.on === false ? {backups_off: true} : {}, ...choice?.folder ? {backup_folder: choice.folder} : {},
-        ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}}
+        ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}, backup_every: backupEvery(), backup_keep: backupKeep()}
     if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup, ...backups}
     return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup, ...backups}
 }
