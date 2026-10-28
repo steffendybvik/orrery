@@ -42,7 +42,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
       :data-project="project"
       tabindex="0"
       role="button"
-      class="group relative flex h-11 cursor-pointer items-center gap-3 border-b border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
+      class="group relative flex h-11 items-center gap-3 border-b border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
       :class="[ticked ? 'bg-accent-500/8' : isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '', issue.waiting ? 'waiting-row' : unseen ? 'unseen-row' : '']"
       :style="{paddingLeft: `${12 + depth * INDENT}px`}"
       @click="click"

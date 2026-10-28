@@ -290,7 +290,7 @@ async function pick(tint: string | null) {
               class="flex h-9 items-center gap-2 rounded-lg px-3 text-[13px] ring-1"
               :class="settings.tint?.startsWith('#') ? 'bg-active text-fg ring-faint/60' : 'text-muted ring-line'"
           >
-            <input v-model="custom" type="color" aria-label="Custom tint" class="size-5 cursor-pointer rounded border-0 bg-transparent p-0" @change="pick(custom)">
+            <input v-model="custom" type="color" aria-label="Custom tint" class="size-5 rounded border-0 bg-transparent p-0" @change="pick(custom)">
             Custom
           </label>
         </div>

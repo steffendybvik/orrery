@@ -205,7 +205,7 @@ async function start() {
             v-for="p in ordered"
             :key="p.id"
             class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
-            :class="why(p) ? 'text-faint' : chosen.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'cursor-pointer text-muted hover:bg-hover hover:text-fg'"
+            :class="why(p) ? 'text-faint' : chosen.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
         >
           <input v-model="chosen" type="checkbox" name="project" :value="p.id" :disabled="!!why(p)" class="accent-accent-500">
           <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
