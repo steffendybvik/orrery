@@ -5,7 +5,7 @@ import type {Secret} from '#shared/roadmap'
 // go to, the projects that may use it, and its last use. Set or replace one with its value (which never
 // comes back); take a host off without it, since that only narrows where it goes. Saved as the owner.
 const {secrets, load: loadSecrets} = useSecretList()
-const {load} = useOwner()
+const {load, who} = useOwner()
 const {projects, byId} = useRoadmaps()
 const failed = ref('')
 const busy = ref(false)
@@ -79,7 +79,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
           <span class="ml-auto flex items-center gap-1">
             <span
                 class="text-xs text-faint"
-                :title="secret.last_used ? `${secret.last_used.method} ${secret.last_used.host}${secret.last_used.path} by ${secret.last_used.created_by}: ${secret.last_used.status ?? secret.last_used.error}` : undefined"
+                :title="secret.last_used ? `${secret.last_used.method} ${secret.last_used.host}${secret.last_used.path} by ${who(secret.last_used.created_by)}: ${secret.last_used.status ?? secret.last_used.error}` : undefined"
             >
               <template v-if="secret.last_used">
                 used {{ ago(secret.last_used.created_at) }}

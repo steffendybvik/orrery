@@ -23,8 +23,8 @@ export async function overview(event: H3Event): Promise<string> {
     const projects = await useStore().listProjects()
     return `# orrery
 
-> A local roadmap board for your projects and the Claude Code sessions working on them. Each app's roadmap (chunks of work, issues with
-> sub-issues, comments, docs) lives here, kept current by the Claude sessions working in the app's repo
+> A local roadmap board for your projects and the agent sessions working on them. Each app's roadmap (chunks of work, issues with
+> sub-issues, comments, docs) lives here, kept current by the agent sessions working in the app's repo
 > through a JSON API. The page at ${origin} shows it read-only and updates live.
 
 Use it like this: before a piece of work, create (or pick) its issue and set it to \`in-progress\`, assigned

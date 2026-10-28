@@ -95,7 +95,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
     <dd class="flex min-w-0">
       <PropertyPicker v-model="assignee" :options="assigneeOptions" label="Assignee" placeholder="Find or assign someone…" creatable create-verb="Assign" :disabled="saving">
         <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
-        <span class="truncate" :class="!issue.assignee && 'text-faint'" :title="issue.assignee ?? undefined">{{ issue.assignee ? who(issue.assignee) : 'Unassigned' }}</span>
+        <span class="truncate" :class="!issue.assignee && 'text-faint'" :title="issue.assignee ? who(issue.assignee) : undefined">{{ issue.assignee ? who(issue.assignee) : 'Unassigned' }}</span>
         <template #option="{option}">
           <PersonAvatar v-if="option.value" :name="option.value" />
           <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/60" />
