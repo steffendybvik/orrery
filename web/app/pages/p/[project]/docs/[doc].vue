@@ -49,7 +49,7 @@ const editedFrom = ref('')
 const saving = ref(false)
 const saveFailed = ref('')
 // An image pasted, dropped or picked goes in as Markdown where the cursor is.
-const {uploading, failed: uploadError, dragging, upload, reset: resetUploads, onPaste, onDrop} = useImageUpload(body, bodyInput)
+const {uploading, failed: uploadError, upload, reset: resetUploads, over, on: drop} = useImageUpload(body, bodyInput)
 function edit() {
     if (!doc.value) return
     resetUploads()
@@ -180,12 +180,11 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
       </header>
       <section
           v-if="editing"
-          class="flex flex-col gap-2"
+          class="relative flex flex-col gap-2 rounded-xl"
+          v-on="drop"
           @keydown.esc.stop.prevent="editing = false"
-          @dragover.prevent="dragging = true"
-          @dragleave="dragging = false"
-          @drop.prevent="onDrop"
       >
+        <ImageDropOverlay v-if="over" />
         <p v-if="doc.updated_at !== editedFrom" class="text-xs text-amber-600 dark:text-amber-400">
           It changed while you were editing; saving replaces that change with yours.
         </p>
@@ -196,9 +195,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · Orrery` : 'Orrery'}))
             placeholder="Write it in Markdown (paste or drop an image)"
             rows="20"
             class="field-sizing-content min-h-80 w-full resize-y rounded-xl bg-well px-4 py-3 font-mono text-[13px] leading-6 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
-            :class="dragging && 'ring-accent-500/50'"
             :disabled="saving"
-            @paste="onPaste"
             @keydown.meta.enter.prevent="save"
             @keydown.ctrl.enter.prevent="save"
         />

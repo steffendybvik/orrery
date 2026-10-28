@@ -2,8 +2,8 @@
 import type {Comment} from '#shared/roadmap'
 
 // Writing a comment on an issue, as the owner (so it's theirs: agents can't edit or delete it), or, given
-// `comment`, editing one of theirs (Esc cancels). Markdown works; ⌘↵ posts. An image pasted, dropped or
-// picked goes in as Markdown where the cursor is.
+// `comment`, editing one of theirs (Esc cancels). Markdown works; ⌘↵ posts. An image pasted or dropped anywhere on the
+// box, or picked, goes in as Markdown where the cursor is.
 const props = defineProps<{project: string, issue: string, comment?: Comment}>()
 const emit = defineEmits<{posted: [comment: Comment], cancel: []}>()
 const {load} = useOwner()
@@ -11,7 +11,7 @@ const body = ref(props.comment?.body ?? '')
 const posting = ref(false)
 const failed = ref(false)
 const field = ref<HTMLTextAreaElement>()
-const {uploading, failed: uploadError, dragging, upload, onPaste, onDrop} = useImageUpload(body, field)
+const {uploading, failed: uploadError, upload, over, on: drop} = useImageUpload(body, field)
 
 async function post() {
     const text = body.value.trim()
@@ -40,14 +40,12 @@ onMounted(() => {
 
 <template>
   <form
-      class="flex flex-col gap-2 rounded-xl bg-well p-2 ring-1 ring-line focus-within:ring-accent-500/50"
-      :class="dragging && 'ring-accent-500/50'"
+      class="relative flex flex-col gap-2 rounded-xl bg-well p-2 ring-1 ring-line focus-within:ring-accent-500/50"
+      v-on="drop"
       @submit.prevent="post"
       @keydown.esc.stop.prevent="comment && emit('cancel')"
-      @dragover.prevent="dragging = true"
-      @dragleave="dragging = false"
-      @drop.prevent="onDrop"
   >
+    <ImageDropOverlay v-if="over" />
     <textarea
         ref="field"
         v-model="body"
@@ -55,7 +53,6 @@ onMounted(() => {
         :placeholder="comment ? 'Edit the comment… (⌘↵ to save, esc to cancel)' : 'Leave a comment… (Markdown works, paste or drop an image, ⌘↵ to post)'"
         :aria-label="comment ? 'Edit comment' : 'Comment'"
         class="min-h-20 resize-y bg-transparent px-2 py-1.5 text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
-        @paste="onPaste"
         @keydown.meta.enter.prevent="post"
         @keydown.ctrl.enter.prevent="post"
     />
