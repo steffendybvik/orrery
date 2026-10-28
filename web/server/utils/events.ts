@@ -8,7 +8,7 @@ import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import type {OrreryEvent} from '#shared/happenings'
 import type {LoggedEvent, Project} from '#shared/roadmap'
-import {diffProject} from '#shared/patch'
+import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
 import {Schedules, scheduleRunning} from './schedules'
@@ -24,8 +24,10 @@ let store: Store | null = null
  * each project once more when the read in hand finishes, not once per write (ORR-440). */
 const reading = new Map<string, 'reading' | 'again'>()
 
-/** Each project as it was last pushed, and its revision, which the next `patch` is made from (ORR-440). */
-const pushed = new Map<string, {rev: number, project: Project}>()
+/** Each project as it was last pushed, without its issues' notes, and its revision, which the next `patch` is made from
+ * (ORR-440); and, once a patch was made from it, each issue's JSON, so the next needn't write the old project out again
+ * (ORR-483). */
+const pushed = new Map<string, {rev: number, project: Project, issues?: Map<string, string>}>()
 
 /** Labels the projects a page reads whole, from a read that starts now, with the revision the patches after it build
  * on: each one's as it is now, before the read (ORR-482). A push while it's read is then still newer than the label,
@@ -36,7 +38,7 @@ const pushed = new Map<string, {rev: number, project: Project}>()
 export function revLabel(): (project: Project) => Project & {rev: number} {
     const revs = new Map([...pushed].map(([id, last]) => [id, last.rev]))
     return project => {
-        if (!pushed.has(project.id) && !reading.has(project.id)) pushed.set(project.id, {rev: 0, project})
+        if (!pushed.has(project.id) && !reading.has(project.id)) pushed.set(project.id, {rev: 0, project: withoutNotes(project)})
         return {...project, rev: revs.get(project.id) ?? 0}
     }
 }
@@ -51,12 +53,12 @@ export function reread(id: string) {
     useStore().project(id).then(project => {
         const last = pushed.get(id)
         const rev = (last?.rev ?? 0) + 1
-        pushed.set(id, {rev, project})
-        projectEvents.emit('project', project)
-        const patch = diffProject(last?.project, project, last?.rev ?? 0, rev)
         // The page reads an issue's notes on its own page (ORR-439); a changed issue says so by its `updated_at`.
-        for (const issue of Object.values(patch.issues)) delete issue.notes
-        projectEvents.emit('patch', patch)
+        const bare = withoutNotes(project)
+        const issues = new Map<string, string>()
+        pushed.set(id, {rev, project: bare, issues})
+        projectEvents.emit('project', project)
+        projectEvents.emit('patch', diffProject(last?.project, bare, last?.rev ?? 0, rev, {before: last?.issues, after: issues}))
     }, error => {
         // Only a project that's gone is removed; any other failure leaves the pages as they are.
         if ((error as {statusCode?: number}).statusCode === 404) {
