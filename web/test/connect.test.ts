@@ -114,10 +114,12 @@ describe('who is asking', () => {
         const store = new Store(testDb())
         await store.nameOwner({name: 'Sköll Fenrisson'})
         let header: string | undefined
+        let session: string | undefined
         let untrusted = false
         vi.stubGlobal('useStore', () => store)
-        vi.stubGlobal('getHeader', () => header)
+        vi.stubGlobal('getHeader', (_event: unknown, name: string) => name === 'orrery-session' ? session : header)
         vi.stubGlobal('untrustedWrite', () => untrusted)
+        vi.stubGlobal('sessionName', (id?: string) => id === 'abc' ? 'orrery · Frøya' : undefined)
         const {actorOf} = await import('../server/utils/actor')
         const asking = (value?: string) => {
             header = value
@@ -131,5 +133,12 @@ describe('who is asking', () => {
         // An untrusted schedule's session is marked so, so its writes set off no schedule.
         untrusted = true
         expect(await asking('claude')).toEqual({name: 'claude', owner: false, untrusted: true})
+        untrusted = false
+        // A session's write carries its name (ORR-466); one orrery doesn't know, and the owner's, don't.
+        session = 'abc'
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, session: 'orrery · Frøya'})
+        expect(await asking('Skoll_Fenrisson')).toEqual({name: 'Skoll_Fenrisson', owner: true})
+        session = 'gone'
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false})
     })
 })

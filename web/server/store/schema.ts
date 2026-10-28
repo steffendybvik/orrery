@@ -67,6 +67,8 @@ export interface Actor {
     untrusted?: boolean
     /** The owner, through their chat: what they allowed or sent from a request it asked (chats.ts `answer`). */
     via?: 'chat'
+    /** The name of the session that made the write (`Orrery-Session`), kept with what it wrote (ORR-466). */
+    session?: string
 }
 
 export const AGENT: Actor = {name: 'agent', owner: false}
@@ -105,10 +107,10 @@ export interface IssueRow extends Made {
     assignee: string | null, labels: string, external: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
-    choices: string, picks: string | null, explore: string | null, ships_in: string | null
+    choices: string, picks: string | null, explore: string | null, ships_in: string | null, session_name: string | null
 }
-export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number }
-export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, owned: number, created_at: string }
+export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null }
+export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
@@ -331,14 +333,14 @@ export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`
 export function commentOf(row: CommentRow): Comment {
     return {
         id: row.id, issue: row.issue, body: row.body, asks: row.asks ?? undefined, answered: row.asks ? !!row.answered : undefined,
-        created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
+        created_by: row.created_by, ...row.session_name ? {session_name: row.session_name} : {}, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
 }
 
 export function eventOf(row: EventRow): IssueEvent {
     return {
         id: row.id, issue: row.issue, field: row.field, before: row.before ?? undefined, after: row.after ?? undefined,
-        created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
+        created_by: row.created_by, ...row.session_name ? {session_name: row.session_name} : {}, protected: !!row.owned, created_at: row.created_at,
     }
 }
 

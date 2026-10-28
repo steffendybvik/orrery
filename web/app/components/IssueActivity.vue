@@ -60,14 +60,14 @@ function said(event: IssueEvent): string[] {
 /** Comments, and between them the changes, each write's changes as one line ("claude moved it to
  * In progress and assigned Claude"). Made is the line at the top, so `created` isn't repeated. */
 const timeline = computed(() => {
-    type Entry = {key: string, at: string, comment?: Comment, by?: string, words?: string[]}
+    type Entry = {key: string, at: string, comment?: Comment, by?: string, session?: string, words?: string[]}
     const lines: (Entry & {words: string[]})[] = []
     for (const event of activity.value) {
         const words = event.field === 'created' ? [] : said(event)
         if (!words.length) continue
         const last = lines.at(-1)
-        if (last && last.at === event.created_at && last.by === event.created_by) last.words.push(...words)
-        else lines.push({key: `e${event.id}`, at: event.created_at, by: event.created_by, words})
+        if (last && last.at === event.created_at && last.by === event.created_by && last.session === event.session_name) last.words.push(...words)
+        else lines.push({key: `e${event.id}`, at: event.created_at, by: event.created_by, session: event.session_name, words})
     }
     const all: (Entry & {text?: string})[] = [
         ...lines.map(l => ({...l, text: l.words.length > 1 ? `${l.words.slice(0, -1).join(', ')} and ${l.words.at(-1)}` : l.words[0]})),
@@ -117,7 +117,7 @@ async function removeComment(id: number) {
     <div v-if="question" id="waiting" class="flex scroll-mt-20 flex-col gap-2 rounded-xl bg-violet-500/8 p-3 ring-1 ring-violet-500/35">
       <div class="flex items-center gap-2 text-xs">
         <WaitingChip :asks="question.asks!" />
-        <span class="text-muted">{{ who(question.created_by) }} asked {{ ago(question.created_at) }}</span>
+        <span class="text-muted">{{ who(question.created_by, question.session_name) }} asked {{ ago(question.created_at) }}</span>
         <UiButton variant="primary" size="xs" class="ml-auto" @click="answer">Answer</UiButton>
       </div>
       <div
@@ -134,17 +134,17 @@ async function removeComment(id: number) {
     <ol class="relative flex flex-col gap-5 border-l border-line pl-5">
       <li class="text-xs text-faint">
         <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
-        <span class="text-muted">{{ who(issue.created_by) }}</span> created the issue · <span :title="issue.created_at">{{ ago(issue.created_at) }}</span>
+        <span class="text-muted">{{ who(issue.created_by, issue.session_name) }}</span> created the issue · <span :title="issue.created_at">{{ ago(issue.created_at) }}</span>
       </li>
       <template v-for="entry in timeline" :key="entry.key">
         <li v-if="!entry.comment" class="text-xs text-faint">
           <span class="absolute -left-[3px] mt-1.5 size-1.5 rounded-full bg-faint/60" />
-          <span class="text-muted">{{ who(entry.by!) }}</span> {{ entry.text }} · <span :title="entry.at">{{ ago(entry.at) }}</span>
+          <span class="text-muted">{{ who(entry.by!, entry.session) }}</span> {{ entry.text }} · <span :title="entry.at">{{ ago(entry.at) }}</span>
         </li>
         <li v-else :id="`comment-${entry.comment.id}`" class="group flex scroll-mt-20 flex-col gap-1.5">
           <div class="-ml-[31px] flex items-center gap-2 text-xs">
             <PersonAvatar :name="entry.comment.created_by" :size="20" />
-            <span class="font-medium text-fg">{{ who(entry.comment.created_by) }}</span>
+            <span class="font-medium text-fg">{{ who(entry.comment.created_by, entry.comment.session_name) }}</span>
             <span class="text-faint" :title="entry.comment.created_at">{{ ago(entry.comment.created_at) }}{{ entry.comment.updated_at !== entry.comment.created_at ? ' · edited' : '' }}</span>
             <span
                 v-if="entry.comment.asks"

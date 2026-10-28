@@ -168,7 +168,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
     </template>
     <dt class="label">Created by</dt>
     <dd class="flex flex-wrap items-center gap-x-2 text-muted">
-      {{ who(issue.created_by) }}
+      {{ who(issue.created_by, issue.session_name) }}
       <span v-if="issue.protected" class="flex items-center gap-1 text-xs text-faint" title="Only the owner can delete it">
         <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
         protected

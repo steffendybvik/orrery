@@ -237,6 +237,17 @@ describe('activity', () => {
         expect((await store.listActivity('greenhouse', id))[0]).toMatchObject({issue: id, protected: true})
     })
 
+    it("keeps the name of the session that wrote it, as it was then (ORR-466)", async () => {
+        const froya: Actor = {name: 'claude', owner: false, session: 'orrery · Frøya'}
+        const {id} = await store.createIssue('greenhouse', {title: 'A'}, froya)
+        await store.updateIssue('greenhouse', id, {status: 'in-progress'}, froya)
+        await store.createComment('greenhouse', id, {body: 'On it'}, froya)
+        await store.createComment('greenhouse', id, {body: 'By the API'}, claude)
+        expect((await store.issue('greenhouse', id)).session_name).toBe('orrery · Frøya')
+        expect((await store.listActivity('greenhouse', id)).map(e => e.session_name)).toEqual(['orrery · Frøya', 'orrery · Frøya'])
+        expect((await store.listComments('greenhouse', id)).map(c => c.session_name)).toEqual(['orrery · Frøya', undefined])
+    })
+
     it('notes a new parent, not the chunk that comes with it', async () => {
         const parent = (await store.createIssue('greenhouse', {title: 'P', chunk: '1'})).id
         const {id} = await store.createIssue('greenhouse', {title: 'A', chunk: '1'})
