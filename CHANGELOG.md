@@ -23,12 +23,16 @@ the database schema are the public surface, and a database always migrates forwa
   Errors are always recorded (`server.error`, `page.error`, a failed schedule or backup), and so is each change to
   the roadmap, a line of its own: who made, moved or commented on which issue, doc, chunk or release. Everything else
   (sessions, launchers, schedule runs, backups) is recorded while **Advanced** is on. Advanced also shows an Events
-  page, read like a console with **Resolve** on errors, and counts each new kind of error in the bell. Sessions read
-  the log with the channel's `events` and `resolve_event` tools.
+  page, read like a console with **Resolve** on errors, and counts each new kind of error in the bell. Refused
+  requests are logged as warnings, and channels joining and leaving, egress calls, and secret and settings changes
+  (never a value) are logged too. The page filters by level and by kind (`issue.*`, or `issue.status`, kept in the
+  URL), and the issue ids in its lines link to the issues. Sessions read the log with the channel's `events` and
+  `resolve_event` tools.
 - **Move to another database:** App settings → Database has **Move to another database…**. Pick a SQLite file or
   Postgres, check it, then copy everything into an empty one or run on another Orrery's own as it is. Orrery switches
   with no restart, keeps the choice for its next start, and saves it before writing to the new one, so a failed
-  save changes nothing.
+  save changes nothing. Under Docker, App settings shows where the database and backups are on the computer (the
+  folder `ORRERY_DATA` / `ORRERY_BACKUP` names, or the Docker volume), not the paths inside the container.
 - **Postgres is backed up:** to the same backup folder, as a SQLite snapshot read in one consistent pass, so a
   backup opens anywhere. App settings → Database shows the database's size, the backups' size, when the latest
   backup was made, and **Back up now** (`POST /backups`).
@@ -37,10 +41,17 @@ the database schema are the public surface, and a database always migrates forwa
   well like the session message box. Presets lead Sessions → Setup. A running session's message box can send one,
   tweaked or not, and it's listed by its name. Sessions can read presets (`presets` and `preset` tools) but not
   write them.
-- **Chat:** a Chat button in the corner of every page (and in ⌘K) starts a session to talk to on the page, with no
-  terminal. It answers from the project's code, roadmap and docs, and makes issues and comments when asked; it works
-  on nothing, reads only, and its writes are held to that. Paste or drop an image to show it. It counts towards no
-  session limit, isn't listed with the sessions and runs until **End chat**. Launchers need restarting to start one.
+- **Chat:** a Chat button in the corner of every page (and in ⌘K) opens a pane to talk to Claude about a project,
+  with no terminal; the first message starts its session. It answers from the project's code, roadmap and docs,
+  knows which page you're on as you write ("this" is the issue, doc or schedules in front of you), and makes issues
+  and comments when asked, landing its issues in Todo or Backlog as picked beside Send. When you ask, it also changes
+  an issue's title, notes, priority, labels, chunk, release or parent (never its status or assignee), messages your
+  other sessions as you (idle ones unless you say otherwise, marked as sent through the chat), and asks to change an
+  App setting, shown from → to with **Allow** and **Deny** and saved only on your Allow. It works on nothing itself.
+  Paste or drop an image to show it. It counts towards no session limit, isn't listed with the sessions, can be made
+  larger, and ends when you close its pane. Launchers need restarting to start one; one too old says so.
+- **A `guide` tool:** any session with Orrery's server, in any repo, can answer how Orrery works ("how do schedules
+  work?") from `docs/using.md` as the connected Orrery serves it.
 - **Agents' proposals wait on you:** an agent's pending proposal reads `waiting: "decision"`, with the violet chip
   and tint on the list, the board and My issues, and sits under *Waiting on you* until it's decided.
 - **Start a session on every project:** in Start session, with no project ticked, Orrery starts one session that
@@ -53,18 +64,28 @@ the database schema are the public surface, and a database always migrates forwa
   most urgent sub-issue, as it would be with a chunk.
 - **A calmer session card:** one quiet line for the state, time left and folder. Watch, Show screen and Stop are
   out front, with +30 min and the attach command under ⋯. The sidebar's session row leads with its project.
+- **An issue's page shows who's on it:** while a session is working the issue, its name and state sit beside the id,
+  linking to it on the Sessions page, and it comes first in the Claude sessions panel, marked *on this issue*. The
+  panel's rows keep only **Focus on this**: Watch, Stop and the rest stay on the Sessions page, which a session's
+  name links to.
+- **A pasted tracker page becomes its task link:** App settings → Team tracker turns a link into a tracker workspace
+  it recognises into that workspace's task link with `{id}`, and says what it saved.
 - **Phone fixes:** the Claude sessions card on an issue or chunk wraps its row; the preset cards on Setup and in
   the Start session and schedule dialogs fit the screen; App settings → Issues keeps status names readable; a doc's
   slug stays on one line under its byline.
 - **Smaller fixes:** a mistyped URL is no longer logged as a page error; an unknown URL's tab and a project's
   Schedules tab have the full title; Schedules' empty state names every kind of schedule; a picker near the window's
   edge opens its menu on the side with room; a session's presets menu opens below when the top is cut off; Start
-  session loads the presets as it opens; Getting started keeps the Claude steps ticked once done.
+  session loads the presets as it opens; Getting started keeps the Claude steps ticked once done; every button shows
+  the pointer; a board card's chunk is plain text, so a click anywhere opens the issue; App settings → Database shows
+  whole paths with their Copy buttons lined up.
+- **Reaching it from a phone:** `running.md` says how: over a private VPN between your devices, or on your Wi-Fi
+  with `ORRERY_HOST=0.0.0.0`.
 - **Faster:** the event log, the scheduler and Postgres backups keep what they read until it changes, instead of
   reading the database on every event.
 - **The version moves with the branch:** a build of a release branch shows the version being built.
 - **Tests and cleanup:** races where two sessions claim one issue, who may move the database and moves to Postgres,
-  two flaky dialog tests split. Values used only in their own file stop being exported, the unused StartSession
+  two flaky dialog tests split, and component tests that wait for a dialog to close before the next starts. Values used only in their own file stop being exported, the unused StartSession
   component is gone, and the example project is Greenhouse, not Larder.
 
 ## 1.0.0-rc.8 (2026-10-27)
