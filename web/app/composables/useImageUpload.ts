@@ -2,7 +2,7 @@ import type {Ref} from 'vue'
 import type {Upload} from '#shared/roadmap'
 
 // Images in a Markdown field (a comment, an issue's description): pasted, dropped or picked, each is kept
-// by Orrery and goes into `text` as Markdown where the cursor is in `field`, on a line of its own.
+// by orrery and goes into `text` as Markdown where the cursor is in `field`, on a line of its own.
 // `uploading` counts those on their way; `failed` says why the last didn't make it. `reset` drops those still on
 // their way, for a field opened afresh (another issue, a dialog opened again, an edit cancelled), so a late one
 // doesn't land in what's there now; leaving the component does the same.

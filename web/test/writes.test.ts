@@ -1,7 +1,7 @@
 import {createError} from 'h3'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-// The guard against the browser being used against Orrery; its h3 helpers are Nitro auto-imports.
+// The guard against the browser being used against orrery; its h3 helpers are Nitro auto-imports.
 type Event = {method: string, path: string, headers: Record<string, string>}
 let guard: (event: Event) => void
 
@@ -27,7 +27,7 @@ function refused(method: string, path: string, headers: Record<string, string> =
 }
 
 describe('writes', () => {
-    it('come from Orrery’s own page, or from no page at all', () => {
+    it('come from orrery’s own page, or from no page at all', () => {
         expect(refused('POST', '/api/projects/greenhouse/issues')).toBeUndefined()
         expect(refused('POST', '/api/projects/greenhouse/issues', {origin: 'http://localhost:9000'})).toBeUndefined()
         expect(refused('POST', '/api/projects/greenhouse/issues', {origin: 'https://evil.example'})).toBe(403)
@@ -47,7 +47,7 @@ describe('a session’s stream', () => {
         expect(refused('GET', '/api/projects/greenhouse/launches/stream')).toBeUndefined()
     })
 
-    it('doesn’t open for a picture, on another site or in Orrery’s own page', () => {
+    it('doesn’t open for a picture, on another site or in orrery’s own page', () => {
         expect(refused('GET', stream, {'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image'})).toBe(403)
         expect(refused('GET', stream, {'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'image'})).toBe(403)
     })

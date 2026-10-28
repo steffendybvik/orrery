@@ -1,4 +1,4 @@
-// What happens in an Orrery, as a schedule hears it (ORR-341). Nothing here is a list kept by hand: an issue's
+// What happens in an orrery, as a schedule hears it (ORR-341). Nothing here is a list kept by hand: an issue's
 // change is `issue.<field>` for whichever field changed (`issue.status`, `issue.release`, and any field added later),
 // each kind the event log records is one as it's named (`backup.failed`, `session.started`), and releases, comments,
 // chunks and docs say `<thing>.<what>` as they're written. A schedule's `on` is a pattern over the type, `*` standing
@@ -8,7 +8,7 @@ import type {EventLevel} from './roadmap'
 export interface OrreryEvent {
     /** `issue.status`, `release.frozen`, `comment.added`, `server.error`… */
     type: string
-    /** None for what happens to the Orrery as a whole (a server error), which every project's schedules hear. */
+    /** None for what happens to the orrery as a whole (a server error), which every project's schedules hear. */
     project?: string
     /** What it's about: an issue's id, a release's version, a chunk's or doc's id, the event log's row (`event 12`). */
     subject?: string
@@ -61,7 +61,7 @@ export const COMMON_EVENTS: {type: string, label: string, family: string, filter
     {type: 'session.started', label: 'A session is started', family: 'Sessions'},
     {type: 'session.stopped', label: 'A session stops', family: 'Sessions'},
     {type: 'launcher.gone', label: 'A launcher goes away', family: 'Sessions'},
-    {type: '*.error', label: 'A new error (server or page)', family: 'Orrery', filter: 'level'},
-    {type: '*.failed', label: 'Something fails (a backup, a schedule)', family: 'Orrery'},
-    {type: 'backup.made', label: 'A backup is made', family: 'Orrery'},
+    {type: '*.error', label: 'A new error (server or page)', family: 'orrery', filter: 'level'},
+    {type: '*.failed', label: 'Something fails (a backup, a schedule)', family: 'orrery'},
+    {type: 'backup.made', label: 'A backup is made', family: 'orrery'},
 ]

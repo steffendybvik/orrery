@@ -17,7 +17,7 @@ function repo(servers: Record<string, unknown>) {
 const WORK = 'http://localhost:9020'
 const PERSONAL = 'http://localhost:9010'
 
-// A monorepo with a channel per project on work's Orrery, and one on the personal Orrery.
+// A monorepo with a channel per project on work's orrery, and one on the personal orrery.
 const mono = () => repo({
     'orrery-greenhouse': channel({ORRERY_URL: WORK, ORRERY_PROJECT: 'greenhouse'}),
     'orrery-pantry': channel({ORRERY_URL: WORK, ORRERY_PROJECT: 'pantry'}),
@@ -32,7 +32,7 @@ describe("a repo's channels", () => {
         expect(channelsIn(mkdtempSync(join(tmpdir(), 'orrery-none-')))).toEqual([])
     })
 
-    it('give every project they name, each on its own Orrery', () => {
+    it('give every project they name, each on its own orrery', () => {
         const dir = mono()
         expect(projectsIn(dir)).toEqual([
             {url: WORK, project: 'greenhouse', dir},
@@ -43,13 +43,13 @@ describe("a repo's channels", () => {
         ])
     })
 
-    it('give the one ORRERY_PROJECT names, on the Orrery of its channel', () => {
+    it('give the one ORRERY_PROJECT names, on the orrery of its channel', () => {
         const dir = mono()
         expect(projectsIn(dir, {project: 'jars'})).toEqual([{url: WORK, project: 'jars', dir}])
         expect(projectsIn(dir, {project: 'orrery', url: WORK})).toEqual([{url: PERSONAL, project: 'orrery', dir}])
     })
 
-    it("put a project no channel names on ORRERY_URL, else the first channel's Orrery, not the default", () => {
+    it("put a project no channel names on ORRERY_URL, else the first channel's orrery, not the default", () => {
         const dir = mono()
         expect(projectsIn(dir, {project: 'cellar'})).toEqual([{url: WORK, project: 'cellar', dir}])
         expect(projectsIn(dir, {project: 'cellar', url: PERSONAL})).toEqual([{url: PERSONAL, project: 'cellar', dir}])
@@ -63,12 +63,12 @@ describe("a repo's channels", () => {
         expect(projectsIn(none, {url: PERSONAL})).toEqual([{url: PERSONAL, project: basename(none), dir: none}])
     })
 
-    it("load the channel that serves a session's project on its Orrery, not the first", () => {
+    it("load the channel that serves a session's project on its orrery, not the first", () => {
         const dir = mono()
         expect(channelFor(dir, WORK, 'pantry').name).toBe('orrery-pantry')
         expect(channelFor(dir, WORK, 'jars').name).toBe('orrery-shelves')
         expect(channelFor(dir, PERSONAL, 'orrery').name).toBe('orrery')
-        // A project no channel names: one serving every project on its Orrery, else the first.
+        // A project no channel names: one serving every project on its orrery, else the first.
         const every = repo({
             'orrery-personal': channel({ORRERY_URL: PERSONAL, ORRERY_PROJECTS: 'orrery'}),
             'orrery-work': channel({ORRERY_URL: WORK, ORRERY_PROJECTS: '*'}),

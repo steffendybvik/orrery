@@ -113,7 +113,7 @@ async function remove() {
         removing.value = false
     }
 }
-useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orrery` : 'Orrery'}))
+useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orrery` : 'orrery'}))
 </script>
 
 <template>
@@ -211,7 +211,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · Orr
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <h2 class="text-[15px] font-semibold text-rose-600 dark:text-rose-400">Delete this project</h2>
-            <p class="text-xs text-muted">Removes {{ project.name }} and everything in it from Orrery.</p>
+            <p class="text-xs text-muted">Removes {{ project.name }} and everything in it from orrery.</p>
           </div>
           <UiButton v-if="!deleting" variant="danger-outline" class="shrink-0" @click="deleting = true">Delete project…</UiButton>
         </header>

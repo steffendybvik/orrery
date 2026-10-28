@@ -6,12 +6,12 @@ the database schema are the public surface, and a database always migrates forwa
 ## 1.0.0-rc.9 (2026-10-28)
 
 - **Schedules that run when something happens:** a schedule can run `on` an event instead of a clock: an issue
-  moving to In review, a release frozen or shipped, a new error, or anything else Orrery records, narrowed by
+  moving to In review, a release frozen or shipped, a new error, or anything else orrery records, narrowed by
   `on_filter`. The dialog's When is Time or Event. One schedule's failed run is heard by the others, but an outcome
   never sets off another outcome.
 - **Schedules that start sessions:** a schedule can start a session with presets, on a clock or an event, and a
   message schedule can send presets, so a preset like Release is written once and runs by itself.
-- **Suggested schedules:** Schedules offers a ready-made event schedule for each preset Orrery ships (Release and
+- **Suggested schedules:** Schedules offers a ready-made event schedule for each preset orrery ships (Release and
   Security audit when a release is frozen, a nudge to get the next release going when one ships, Review when an issue
   moves to In review, Debug an error on a new error). **Add** opens New schedule filled in; none runs until you save it.
 - **Run now instead:** a schedule's menu has *Run now instead of 09:00*, which runs it now and skips its next run.
@@ -19,20 +19,20 @@ the database schema are the public surface, and a database always migrates forwa
   GitHub-issues review) gets a session of its own for each run, and whatever that session raises becomes a proposal
   for the owner. It stays locked down after a restart, since the session itself says it's untrusted on every
   write, and its writes set off no event schedules.
-- **An event log:** Orrery keeps a log on the machine of what it did and what went wrong, never sent anywhere.
+- **An event log:** orrery keeps a log on the machine of what it did and what went wrong, never sent anywhere.
   Errors are always recorded (`server.error`, `page.error`, a failed schedule or backup), and so is each change to
   the roadmap, a line of its own: who made, moved or commented on which issue, doc, chunk or release. Everything else
   (sessions, launchers, schedule runs, backups) is recorded while **Advanced** is on. Advanced also shows an Events
   page, read like a console with **Resolve** on errors, and counts each new kind of error in the bell. Sessions read
   the log with the channel's `events` and `resolve_event` tools.
 - **Move to another database:** App settings → Database has **Move to another database…**. Pick a SQLite file or
-  Postgres, check it, then copy everything into an empty one or run on another Orrery's own as it is. Orrery switches
+  Postgres, check it, then copy everything into an empty one or run on another orrery's own as it is. orrery switches
   with no restart, keeps the choice for its next start, and saves it before writing to the new one, so a failed
   save changes nothing.
 - **Postgres is backed up:** to the same backup folder, as a SQLite snapshot read in one consistent pass, so a
   backup opens anywhere. App settings → Database shows the database's size, the backups' size, when the latest
   backup was made, and **Back up now** (`POST /backups`).
-- **Presets, ready to use:** Orrery ships four (Release, Security audit, Review, Debug an error), each with *Reset
+- **Presets, ready to use:** orrery ships four (Release, Security audit, Review, Debug an error), each with *Reset
   to default*, and *Restore* after removal. A preset is written in a dialog built around its text, which sits in a
   well like the session message box. Presets lead Sessions → Setup. A running session's message box can send one,
   tweaked or not, and it's listed by its name. Sessions can read presets (`presets` and `preset` tools) but not
@@ -43,7 +43,7 @@ the database schema are the public surface, and a database always migrates forwa
   session limit, isn't listed with the sessions and runs until **End chat**. Launchers need restarting to start one.
 - **Agents' proposals wait on you:** an agent's pending proposal reads `waiting: "decision"`, with the violet chip
   and tint on the list, the board and My issues, and sits under *Waiting on you* until it's decided.
-- **Start a session on every project:** in Start session, with no project ticked, Orrery starts one session that
+- **Start a session on every project:** in Start session, with no project ticked, orrery starts one session that
   hears every project, from a launcher whose channel serves them all.
 - **Project filter on My issues and Now,** with each project's icon, in the sidebar's order.
 - **A cut-off turn lets go of its issues:** when a turn ends on an API error (`StopFailure`: a network drop, a rate

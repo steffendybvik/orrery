@@ -1,4 +1,4 @@
-# Working on Orrery
+# Working on orrery
 
 ## Where things are
 

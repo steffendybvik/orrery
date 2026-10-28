@@ -22,7 +22,7 @@ const later = (ms: number) => {
 }
 
 describe('the event log', () => {
-    it('records errors always, what Orrery did only while Advanced is on', async () => {
+    it('records errors always, what orrery did only while Advanced is on', async () => {
         expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toBeNull()
         expect(await log.record({level: 'warn', kind: 'session.refused', message: 'At the limit'})).toBeNull()
         expect(await log.record({level: 'error', kind: 'server.error', message: 'boom'})).toMatchObject({level: 'error', kind: 'server.error', count: 1})
@@ -188,7 +188,7 @@ describe('the event log', () => {
         expect(await log.list({kind: 'issue', limit: 1000})).toHaveLength(1000)
     })
 
-    it('lets go of what Orrery did after a week, problems after a month', async () => {
+    it('lets go of what orrery did after a week, problems after a month', async () => {
         await store.updateSettings({advanced: true}, owner)
         log.forget()
         await log.record({level: 'info', kind: 'backup.made', message: 'Backed up'})

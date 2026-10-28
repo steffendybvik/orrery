@@ -7,17 +7,17 @@ import type {Heading} from '~/utils/markdown'
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
 // Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default).
 // Two tabs keep them apart: Sessions, what's running, and Setup (`?tab=setup`, or a link to one of its sections): first the
-// presets to start one with, as they're used most, then whether Orrery may start sessions and how, and what sessions hear;
+// presets to start one with, as they're used most, then whether orrery may start sessions and how, and what sessions hear;
 // presets and what they hear for every project or, picked in For, one project's own.
-useHead({title: 'Sessions · Orrery'})
+useHead({title: 'Sessions · orrery'})
 const route = useRoute()
 const {projects, ready, sessions, signals} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {open} = useStartSession()
-// Which terminal Watch opens, under Setup: it's about the sessions Orrery starts, so it lives with them.
+// Which terminal Watch opens, under Setup: it's about the sessions orrery starts, so it lives with them.
 const {settings, save} = useAppSettings()
 const messaging = ref(false)
-// Whose session settings the two sections below show: the Orrery's (every project), or one project's own.
+// Whose session settings the two sections below show: the orrery's (every project), or one project's own.
 const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
 const scopeOptions = computed(() => [{value: '', label: 'Every project'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
@@ -127,7 +127,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
           <p class="text-xs text-muted">
-            Orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
+            orrery can start Claude sessions itself, with no terminal: when your work finds nobody listening, or when you press
             Start session. It does so for any project whose repo has its launcher installed.
           </p>
         </header>
@@ -138,7 +138,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Watching sessions</h2>
           <p class="text-xs text-muted">
-            Watch on a session Orrery started opens a terminal attached to it, on the machine its launcher runs on, in this app
+            Watch on a session orrery started opens a terminal attached to it, on the machine its launcher runs on, in this app
             (on Linux, the system's own terminal).
           </p>
         </header>
@@ -174,7 +174,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         No Claude sessions right now.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
         or open Claude in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
-        Orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
+        orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
       </p>
       <section v-if="spanning.length" id="sessions-across" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">

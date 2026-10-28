@@ -1,4 +1,4 @@
-// The presets Orrery ships (ORR-343): the Orrery's own, for sessions on any project, seeded once into each Orrery,
+// The presets orrery ships (ORR-343): the orrery's own, for sessions on any project, seeded once into each orrery,
 // new or upgraded, by their `key`. The owner can change or remove them; Reset to default brings back what's here,
 // and Restore defaults the ones removed. A new one added here is seeded on the next start.
 export interface DefaultPreset { key: string, name: string, text: string, icon: string, color: string }
@@ -44,7 +44,7 @@ If it isn't a bug in this code (a setting, the network, another service), say so
     },
 ]
 
-/** Whether a default preset is as Orrery ships it. */
+/** Whether a default preset is as orrery ships it. */
 export function asShipped(preset: {name: string, text: string, icon: string | null, color: string | null}, shipped: DefaultPreset): boolean {
     return preset.name === shipped.name && preset.text === shipped.text && preset.icon === shipped.icon && preset.color === shipped.color
 }

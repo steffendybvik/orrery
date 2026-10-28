@@ -126,11 +126,11 @@ export const PROJECT_FIELDS: Record<string, Field> = {
     description: {type: 'string', nullable: true},
     icon: {type: 'string', nullable: true, pattern: /^[a-z0-9]+(-[a-z0-9]+)*$/, hint: "use a Heroicon's name, e.g. shopping-cart"},
     icon_color: TINT,
-    /** The owner's: what the project's sessions hear when asked to focus (none is the Orrery's). */
+    /** The owner's: what the project's sessions hear when asked to focus (none is the orrery's). */
     focus_prompt: {type: 'string', nullable: true},
     chunk_prompt: {type: 'string', nullable: true},
     instructions: {type: 'lines', nullable: true},
-    /** Ids of the Orrery's standing instructions the project switches off. */
+    /** Ids of the orrery's standing instructions the project switches off. */
     muted: {type: 'strings', nullable: true},
     repo: {type: 'string', nullable: true, pattern: /^https?:\/\/\S+[^/\s]$/, hint: 'use the web address of its code, e.g. https://github.com/you/shop'},
     /** Whether it has releases: none (a new project's), its own, or `shared`, those of `releases_from`. */
@@ -154,7 +154,7 @@ function parseStarts(value: unknown): string {
 /** What a project's sessions are told: only the owner changes these. */
 export const PROMPT_FIELDS = ['focus_prompt', 'chunk_prompt', 'instructions', 'muted']
 
-// No `id` on chunks and issues: Orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
+// No `id` on chunks and issues: orrery numbers them in their project (chunks 1, 2, …, issues KEY-1, …).
 export const CHUNK_FIELDS: Record<string, Field> = {
     title: {type: 'string', required: true},
     summary: {type: 'string', nullable: true},
@@ -235,9 +235,9 @@ export const DECIDED: Record<Decision, string> = {approved: 'Approved this propo
 
 export const SIGNAL_FIELDS: Record<string, Field> = {
     note: {type: 'string', nullable: true},
-    /** A session id, or `*` for every session on the project; left out, one session Orrery picks gets it. */
+    /** A session id, or `*` for every session on the project; left out, one session orrery picks gets it. */
     session: {type: 'string', nullable: true},
-    /** The standing instructions to add, by id (the Orrery's or the project's); left out, those ticked by default. */
+    /** The standing instructions to add, by id (the orrery's or the project's); left out, those ticked by default. */
     instructions: {type: 'strings', nullable: true},
 }
 
@@ -267,13 +267,13 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     instructions: {type: 'lines', nullable: true},
     tracker: {type: 'string', nullable: true, pattern: /^https?:\/\/\S*\{id\}\S*$/, hint: 'use the web address of a task with {id} where its id goes, e.g. https://tracker.example.com/issue/{id}'},
     handle: {type: 'string', nullable: true, pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/, hint: 'use letters, digits, dots, dashes and underscores, e.g. your GitHub login'},
-    /** `{limit, minutes?, idle_minutes?}` lets Orrery start sessions, for any project with a launcher; null stops that. */
+    /** `{limit, minutes?, idle_minutes?}` lets orrery start sessions, for any project with a launcher; null stops that. */
     starts: {type: 'json', nullable: true, parse: parseStarts},
     /** The terminal app Watch opens; null is Terminal. */
     terminal: {type: 'string', nullable: true, values: Object.keys(TERMINALS)},
     /** Keeps agents off a proposal while it waits on the owner; false lets them. */
     restrict_proposals: {type: 'boolean'},
-    /** Shows the Events page and error notices in the bell, and records what Orrery did as well as its errors. */
+    /** Shows the Events page and error notices in the bell, and records what orrery did as well as its errors. */
     advanced: {type: 'boolean'},
 }
 
@@ -309,7 +309,7 @@ export const UPLOAD_FIELDS: Record<string, Field> = {
 /** How big an image can be, in bytes. */
 export const UPLOAD_LIMIT = 10 * 1024 * 1024
 
-/** The images Orrery takes, told by their first bytes rather than what the sender says (no SVG: it can run script). */
+/** The images orrery takes, told by their first bytes rather than what the sender says (no SVG: it can run script). */
 export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
     ['image/png', b => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
     ['image/jpeg', b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],

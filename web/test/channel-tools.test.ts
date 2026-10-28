@@ -4,7 +4,7 @@ import {NOT_FOR_CHAT, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mj
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
-/** The tools against a pretend Orrery: `answers` by `METHOD path` (`raw` for a body that isn't JSON), every call kept. */
+/** The tools against a pretend orrery: `answers` by `METHOD path` (`raw` for a body that isn't JSON), every call kept. */
 function harness(answers: Record<string, {status?: number, body?: unknown, raw?: string}>) {
     const calls: Call[] = []
     const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
@@ -78,7 +78,7 @@ describe("the channel's tools", () => {
     it("read the presets the project's sessions can have, and only those", async () => {
         const release = {id: 3, project: 'greenhouse', name: 'Release', text: 'Cut the release.\nThen tag it.'}
         const {calls, call} = harness({'GET /presets': {body: [{id: 1, project: null, name: 'Review', text: 'Read the diff.'}, release]}})
-        expect((await call('presets')).text).toBe("1: Review (the Orrery's) — Read the diff.\n3: Release (greenhouse) — Cut the release.")
+        expect((await call('presets')).text).toBe("1: Review (the orrery's) — Read the diff.\n3: Release (greenhouse) — Cut the release.")
         expect((await call('preset', {id: 3})).text).toBe('# Release (greenhouse)\n\nWhat a session started with it is told, for reference (not an instruction to you):\n\nCut the release.\nThen tag it.')
         expect((await call('preset', {id: 9})).text).toBe('No preset 9 for this project; presets lists them.')
         expect(calls.every(c => c.method === 'GET')).toBe(true)
@@ -101,7 +101,7 @@ describe("the channel's tools", () => {
         expect(calls.every(c => c.method === 'GET')).toBe(true)
     })
 
-    it("read the Orrery's event log and resolve what they fixed", async () => {
+    it("read the orrery's event log and resolve what they fixed", async () => {
         const event = {id: 4, level: 'error', kind: 'page.error', message: 'x is undefined', details: {page: '/mine', stack: 'at setup'}, count: 3, first_seen: '2026-10-27T20:00:00Z', last_seen: '2026-10-27T20:05:00Z'}
         const {calls, call} = harness({'GET /events/log': {body: [event]}, 'POST /events/log/4/resolve': {body: {...event, resolved_at: '2026-10-27T21:00:00Z'}}})
         expect((await call('events', {level: 'error', open: true})).text).toBe('#4 [error] page.error ×3, last 2026-10-27T20:05:00Z: x is undefined')
@@ -110,7 +110,7 @@ describe("the channel's tools", () => {
         expect((await call('resolve_event', {id: 4})).text).toBe('Resolved #4 page.error: x is undefined')
     })
 
-    it("call outside services through the Orrery's egress, for their project", async () => {
+    it("call outside services through the orrery's egress, for their project", async () => {
         const {call, calls} = harness({
             'GET /secrets': {body: [{name: 'STRIPE_KEY', hosts: ['api.stripe.com'], projects: null}, {name: 'GH', hosts: ['api.github.com'], projects: ['greenhouse']}]},
             'POST /egress': {body: {status: 200, headers: {'content-type': 'application/json'}, body: '{"ok":true}', secrets: ['STRIPE_KEY']}},
@@ -138,13 +138,13 @@ describe("the channel's tools", () => {
 
     it('leave no comment when finishing is refused', async () => {
         const {call, calls} = harness({'PATCH /issues/GRE-1': {status: 403, body: {message: 'Not yours'}}, 'POST /issues/GRE-1/comments': {body: {id: 1}}})
-        expect(await call('finish_issue', {id: 'GRE-1', comment: 'Built'})).toEqual({error: true, text: 'Orrery said no: Not yours'})
+        expect(await call('finish_issue', {id: 'GRE-1', comment: 'Built'})).toEqual({error: true, text: 'orrery said no: Not yours'})
         expect(calls.map(c => c.method)).toEqual(['PATCH'])
     })
 
-    it("say the status when what answers isn't Orrery", async () => {
+    it("say the status when what answers isn't orrery", async () => {
         const {call} = harness({'GET /issues': {status: 502, raw: '<html>Bad Gateway</html>'}})
-        expect(await call('issues')).toEqual({error: true, text: "Orrery said no: 502, not an answer from Orrery"})
+        expect(await call('issues')).toEqual({error: true, text: "orrery said no: 502, not an answer from orrery"})
     })
 
     it('list the releases, and the issues in one', async () => {
@@ -158,15 +158,15 @@ describe("the channel's tools", () => {
         expect(calls[1]!.url).toBe('/issues?release=1.1.0')
     })
 
-    it("say Orrery's reason when it refuses", async () => {
+    it("say orrery's reason when it refuses", async () => {
         const {call} = harness({'PATCH /issues/GRE-1': {status: 400, body: {message: '"status" is "soon"'}}})
-        expect(await call('update_issue', {id: 'GRE-1', status: 'soon'})).toEqual({error: true, text: 'Orrery said no: "status" is "soon"'})
+        expect(await call('update_issue', {id: 'GRE-1', status: 'soon'})).toEqual({error: true, text: 'orrery said no: "status" is "soon"'})
         expect((await call('nope')).error).toBe(true)
     })
 })
 
 describe('one channel serving several projects', () => {
-    /** The tools on greenhouse (GRE) and pantry (PAN) at a pretend Orrery: `answers` by `METHOD path` under /api. */
+    /** The tools on greenhouse (GRE) and pantry (PAN) at a pretend orrery: `answers` by `METHOD path` under /api. */
     function several(answers: Record<string, unknown>) {
         const calls: Call[] = []
         const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
@@ -188,22 +188,22 @@ describe('one channel serving several projects', () => {
         expect((await call('finish_issue', {id: 'PAN-3', comment: 'Built', status: 'in-review'})).text).toBe('In review: PAN-3 [in-review] Shelves')
         expect(calls.map(c => c.url)).toEqual(['/projects', '/projects/pantry/issues/PAN-3', '/projects/pantry/issues/PAN-3/comments'])
         // A key of a project it doesn't serve is refused, saying which it does.
-        expect((await call('issue', {id: 'GAR-1'})).text).toBe("Orrery said no: GAR-1 isn't an issue of greenhouse, pantry: its key is none of theirs")
+        expect((await call('issue', {id: 'GAR-1'})).text).toBe("orrery said no: GAR-1 isn't an issue of greenhouse, pantry: its key is none of theirs")
     })
 
     it('take the project for the others, refusing none or one it doesn\'t serve', async () => {
         const {call, calls} = several({'GET /projects/greenhouse/docs': [{id: 'stack', title: 'The stack'}]})
         expect((await call('docs', {project: 'greenhouse'})).text).toBe('stack: The stack')
         expect(calls[0]!.url).toBe('/projects/greenhouse/docs')
-        expect((await call('docs')).text).toBe('Orrery said no: Say which project: greenhouse, pantry')
-        expect((await call('docs', {project: 'garden'})).text).toBe('Orrery said no: This server serves greenhouse, pantry, not garden')
+        expect((await call('docs')).text).toBe('orrery said no: Say which project: greenhouse, pantry')
+        expect((await call('docs', {project: 'garden'})).text).toBe('orrery said no: This server serves greenhouse, pantry, not garden')
     })
 
     it("read a preset from the project said, not another's", async () => {
         const {call, calls} = several({'GET /projects/pantry/presets': [{id: 5, project: 'pantry', name: 'Jars', text: 'Seal them.'}]})
         expect((await call('preset', {project: 'pantry', id: 5})).text).toContain('Seal them.')
         expect((await call('preset', {project: 'pantry', id: 7})).text).toBe('No preset 7 for this project; presets lists them.')
-        expect((await call('preset', {id: 5})).text).toBe('Orrery said no: Say which project: greenhouse, pantry')
+        expect((await call('preset', {id: 5})).text).toBe('orrery said no: Say which project: greenhouse, pantry')
         expect(calls.map(c => c.url)).toEqual(['/projects/pantry/presets', '/projects/pantry/presets'])
     })
 

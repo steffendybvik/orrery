@@ -1,6 +1,6 @@
 import type {OrreryEvent} from '#shared/happenings'
 
-// Runs the schedules that are due: on start (so a schedule missed while Orrery was down runs once), then
+// Runs the schedules that are due: on start (so a schedule missed while orrery was down runs once), then
 // every 30 seconds; and those that run on an event, as each happens.
 export default defineNitroPlugin(nitro => {
     const tick = async () => {

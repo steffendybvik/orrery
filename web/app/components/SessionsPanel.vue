@@ -3,7 +3,7 @@ import type {Session, Signal} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
 // a button to point one (or all) at this issue, or at working through this chunk. With nobody listening, when
-// Orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
+// orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
 // New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
 // got them. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
 // links to; here a row only points it at this.
@@ -43,7 +43,7 @@ watch(live, now => {
     }
 })
 
-// The standing instructions that can go with it (the Orrery's the project keeps, and its own), ticked as
+// The standing instructions that can go with it (the orrery's the project keeps, and its own), ticked as
 // they are by default; unticking one leaves it out of this send only.
 const offered = computed(() => {
     const project = byId(props.project)
@@ -62,7 +62,7 @@ async function focus(session: Session | null) {
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
     } catch {
-        failed.value = "Couldn't send. Is Orrery running?"
+        failed.value = "Couldn't send. Is orrery running?"
     } finally {
         sending.value = null
     }
@@ -84,7 +84,7 @@ async function startOn() {
 
 const nameOf = (id?: string) => sessions.value.find(s => s.id === id)?.name ?? 'a session'
 /** Who a signal was for: a session, every session, one started for it (aimed at `launch-<id>` until it connects),
- * or (a comment aside) the one Orrery picks. */
+ * or (a comment aside) the one orrery picks. */
 const aimed = (signal: Signal) => signal.target === '*' || !signal.target && signal.kind === 'comment' ? 'every session'
     : signal.target?.startsWith('launch-') && !sessions.value.some(s => s.id === signal.target) ? 'a new session'
         : signal.target ? nameOf(signal.target) : 'one session'
@@ -102,7 +102,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
         <UiButton
             v-if="canStartAnother"
             :disabled="!!sending"
-            :title="`Orrery starts another Claude session on ${project}, working on this issue alone`"
+            :title="`orrery starts another Claude session on ${project}, working on this issue alone`"
             @click="startOn"
         >{{ sending === 'new' ? 'Starting…' : 'New session on this' }}</UiButton>
         <UiButton
@@ -116,7 +116,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
           type="button"
           class="ml-auto h-7 rounded-md bg-accent-500/10 px-2.5 text-xs font-medium text-accent-700 ring-1 ring-accent-500/40 hover:bg-accent-500/20 disabled:opacity-50 dark:text-accent-300"
           :disabled="!!sending"
-          :title="`Orrery starts a Claude session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
+          :title="`orrery starts a Claude session on ${project} and asks it to ${issue ? 'work on this' : 'work through this chunk'}`"
           @click="focus(null)"
       >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
     </div>
@@ -159,7 +159,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
       </li>
     </ul>
     <p v-else-if="canStart" class="text-[13px] leading-relaxed text-muted">
-      No Claude session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has Orrery start one, in its repo, through the launcher.
+      No Claude session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has orrery start one, in its repo, through the launcher.
     </p>
     <p v-else class="text-[13px] leading-relaxed text-muted">
       No Claude session on {{ project }} has said hello yet.

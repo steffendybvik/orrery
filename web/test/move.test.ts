@@ -42,7 +42,7 @@ describe('moving the database', () => {
         expect(() => move.targetOf({kind: 'sqlite', path: dir})).toThrow(/is a folder/)
     })
 
-    it('tells an empty database from an Orrery\'s, the one it runs on, and something else\'s', async () => {
+    it('tells an empty database from an orrery\'s, the one it runs on, and something else\'s', async () => {
         const {dir, move} = await setUp()
         expect(await move.checkDatabase(join(dir, 'new.db'))).toEqual({kind: 'sqlite', where: join(dir, 'new.db'), state: 'empty'})
         expect((await move.checkDatabase(join(dir, 'orrery.db'))).state).toBe('current')
@@ -71,12 +71,12 @@ describe('moving the database', () => {
         await restarted.closeDb()
     })
 
-    it('runs on an Orrery\'s own as it is, won\'t copy over it, and going back to its own file forgets the move', async () => {
+    it('runs on an orrery\'s own as it is, won\'t copy over it, and going back to its own file forgets the move', async () => {
         const {dir, db, move} = await setUp()
         const target = join(dir, 'orrery-2.db')
         await move.moveDatabase(target, 'copy', rebind)
         const original = join(dir, 'orrery.db')
-        await expect(move.moveDatabase(original, 'copy', rebind)).rejects.toThrow(/an Orrery's already, with 1 project/)
+        await expect(move.moveDatabase(original, 'copy', rebind)).rejects.toThrow(/an orrery's already, with 1 project/)
         await expect(move.moveDatabase(target, 'use', rebind)).rejects.toThrow(/already runs on/)
         await move.moveDatabase(original, 'use', rebind)
         expect(db.databaseSetting()).toBe(original)
@@ -98,9 +98,9 @@ describe('moving the database', () => {
         await db.closeDb()
     })
 
-    it('won\'t run as it is on one that isn\'t an Orrery\'s', async () => {
+    it('won\'t run as it is on one that isn\'t an orrery\'s', async () => {
         const {dir, move} = await setUp()
-        await expect(move.moveDatabase(join(dir, 'new.db'), 'use', rebind)).rejects.toThrow(/isn't an Orrery's yet/)
+        await expect(move.moveDatabase(join(dir, 'new.db'), 'use', rebind)).rejects.toThrow(/isn't an orrery's yet/)
         expect(rebound).toHaveLength(0)
     })
 })
@@ -126,7 +126,7 @@ describe('who may move it', () => {
         }
     }
 
-    it('is the owner, on the machine Orrery runs on', async () => {
+    it('is the owner, on the machine orrery runs on', async () => {
         for (const host of ['localhost:9010', '127.0.0.1:9010', '[::1]:9010', 'orrery.localhost']) expect(await status((await guard(true, host)).check)).toBe('ok')
     })
 

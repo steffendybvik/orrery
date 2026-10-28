@@ -127,7 +127,7 @@ function onKey(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
-useHead(() => ({title: release.value && project.value ? `${release.value.version} · ${project.value.name} · Orrery` : 'Orrery'}))
+useHead(() => ({title: release.value && project.value ? `${release.value.version} · ${project.value.name} · orrery` : 'orrery'}))
 </script>
 
 <template>

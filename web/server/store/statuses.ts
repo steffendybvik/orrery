@@ -1,4 +1,4 @@
-// The Orrery's statuses (every project's board has them) and its own settings.
+// The orrery's statuses (every project's board has them) and its own settings.
 import {randomBytes} from 'node:crypto'
 import type {IssueStatus, Kind, Settings, Starts, TerminalApp} from '#shared/roadmap'
 import {KINDS, slugify} from '#shared/roadmap'
@@ -11,7 +11,7 @@ import {StoreBase} from './base'
 import {known} from '#shared/known'
 
 export abstract class StatusStore extends StoreBase {
-    /** This Orrery's own settings. */
+    /** This orrery's own settings. */
     async settings(): Promise<Settings> {
         let rows = await this.all<{key: string, value: string}>('SELECT key, value FROM settings')
         // Its id is made the first time it's asked for, and kept.
@@ -139,9 +139,9 @@ export abstract class StatusStore extends StoreBase {
         for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
     }
 
-    /** The owner's to change: they're how the Orrery looks to them. */
+    /** The owner's to change: they're how the orrery looks to them. */
     async updateSettings(body: unknown, actor = AGENT): Promise<Settings> {
-        if (!actor.owner) throw forbidden("Only the owner changes the Orrery's settings; send Orrery-Actor: <owner>")
+        if (!actor.owner) throw forbidden("Only the owner changes the orrery's settings; send Orrery-Actor: <owner>")
         const input = checkInput(body, SETTINGS_FIELDS, true)
         await this.db.transaction(async () => {
             for (const [key, sent] of Object.entries(input)) {
@@ -156,7 +156,7 @@ export abstract class StatusStore extends StoreBase {
         })
         const settings = await this.settings()
         this.onSettings(settings)
-        // Every project says whether Orrery starts its sessions.
+        // Every project says whether orrery starts its sessions.
         if (input.starts !== undefined) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         return settings
     }

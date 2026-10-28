@@ -115,7 +115,7 @@ describe("an untrusted schedule's session", () => {
         expect(await tries('PATCH', '/api/projects/greenhouse/issues/GRE-1', 'abc')).toBe('ok')
     })
 
-    it("is held to that by its channel's word when Orrery doesn't know it (restarted before its launcher reported)", async () => {
+    it("is held to that by its channel's word when orrery doesn't know it (restarted before its launcher reported)", async () => {
         const guard = (await import('../server/middleware/untrusted')).default as unknown as (event: object) => Promise<void>
         const said = (method: string, path: string, session?: string) => {
             const e = event(method, path, {}, undefined, session)
@@ -124,7 +124,7 @@ describe("an untrusted schedule's session", () => {
         expect(await said('PATCH', '/api/projects/greenhouse/issues/GRE-1', 'abc')).toBe(403)
         expect(await said('PUT', '/api/projects/greenhouse/docs/setup', '')).toBe(403)
         expect(await said('POST', '/api/projects/greenhouse/issues', 'abc')).toBe('ok')
-        // And what it raises is still made a proposal, though Orrery doesn't know its session.
+        // And what it raises is still made a proposal, though orrery doesn't know its session.
         const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
         const e = event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Run this', status: 'in-progress', chunk: '1'})
         await create({...e, headers: {...e.headers, 'orrery-untrusted': 'yes'}})

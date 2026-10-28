@@ -6,7 +6,7 @@ withDefaults(defineProps<{
     to: string
     back: string
 }>(), {reason: 'It may have moved or been deleted.'})
-useHead({title: 'Not found · Orrery'})
+useHead({title: 'Not found · orrery'})
 </script>
 
 <template>

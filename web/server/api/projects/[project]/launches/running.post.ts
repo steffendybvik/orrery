@@ -1,7 +1,7 @@
 import type {SessionContext} from '#shared/roadmap'
 
 // `POST /api/projects/:project/launches/running` {launches: [{id, tmux, stops_at?, context?, untrusted?, chat?}]} → 204: the project's
-// launcher, as it connects, saying which sessions it started are still running, so an Orrery that restarted
+// launcher, as it connects, saying which sessions it started are still running, so an orrery that restarted
 // counts them as started again, with their stop times (none: until stopped), the context they were started with, and whether they're locked down or a chat.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')

@@ -1,7 +1,7 @@
 import {expect, test} from '@playwright/test'
 import {OWNER} from './support'
 
-// App settings says where this Orrery keeps its data (ORR-284), and how big it is (ORR-323): the SQLite file, or the Postgres database the
+// App settings says where this orrery keeps its data (ORR-284), and how big it is (ORR-323): the SQLite file, or the Postgres database the
 // run is on (E2E_POSTGRES_URL), never with its password. CI's password is `orrery`, also in the user and database
 // names, so the checks look for it as `:password@`, the way a URL would carry it.
 test('App settings shows where the data is, without a password', async ({page, request}) => {

@@ -48,7 +48,7 @@ export abstract class SignalStore extends IssueStore {
     }
 
     /** `focus` for an issue id already resolved and checked. Aimed at no session, it goes to the one already on the
-     * issue if that one is listening, else to one Orrery picks (pool.ts); `*` sends it to every session. */
+     * issue if that one is listening, else to one orrery picks (pool.ts); `*` sends it to every session. */
     protected async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
@@ -172,13 +172,13 @@ export abstract class SignalStore extends IssueStore {
     }
 
     /** Whether a signal of the owner's waits to reach the session (any of its `ids`), for it, for every session or
-     * for the one Orrery picks. */
+     * for the one orrery picks. */
     async waiting(project: string, ids: string[]): Promise<boolean> {
         return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
             AND (target IS NULL OR target = ? OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, EVERY, ...ids)
     }
 
-    /** The owner's signals from the last day for one session Orrery picks (pool.ts) that none has heard yet: the next
+    /** The owner's signals from the last day for one session orrery picks (pool.ts) that none has heard yet: the next
      * session to go idle takes them. */
     async pooledWaiting(project: string): Promise<Signal[]> {
         const since = new Date(Date.now() - 86_400_000).toISOString()

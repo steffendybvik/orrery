@@ -8,7 +8,7 @@ let starts: unknown = null
 
 test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Larder', key: 'LAR'})
-    // Orrery isn't let start sessions: a chat needs only the launcher. The files after this one get it back as it was.
+    // orrery isn't let start sessions: a chat needs only the launcher. The files after this one get it back as it was.
     starts = (await (await request.get('/api/settings')).json()).starts ?? null
     const off = await request.patch('/api/settings', {data: {starts: null}, headers: OWNER})
     expect(off.ok(), await off.text()).toBeTruthy()

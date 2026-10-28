@@ -1,4 +1,4 @@
-# Orrery, the built app, on http://localhost:9000 (or ORRERY_PORT): `docker compose up -d --build`.
+# orrery, the built app, on http://localhost:9000 (or ORRERY_PORT): `docker compose up -d --build`.
 #
 # The database is made on the first start, in the orrery-data volume, so it outlasts the container.
 # A copy goes to /backup a few seconds after each change, plus one a day for two weeks, and a new
@@ -8,7 +8,7 @@
 #
 # The first time it's opened, it asks your name, and keeps it in the database: what you make, no one
 # else can delete. Your `Orrery-Actor` header is it in lowercase snake case (`skoll_fenrisson`).
-# ORRERY_ENVIRONMENT names this Orrery (`personal` by default; e.g. `work`): a chip by its name and
+# ORRERY_ENVIRONMENT names this orrery (`personal` by default; e.g. `work`): a chip by its name and
 # the start of every tab's title. Each is its own server with its own database: another compose
 # project with its own .env file, e.g. `docker compose --env-file .env.work up -d` with
 # COMPOSE_PROJECT_NAME=orrery-work and its own ORRERY_PORT in it.
@@ -23,16 +23,16 @@
 # call outside services without seeing them; it encrypts them, so keep it out of the backups.
 #
 # Postgres instead of the SQLite file: `docker compose --profile postgres up -d` adds a postgres service (its
-# data in the orrery-pg volume), and ORRERY_DATABASE points Orrery at it; put both in .env to keep them:
+# data in the orrery-pg volume), and ORRERY_DATABASE points orrery at it; put both in .env to keep them:
 #   COMPOSE_PROFILES=postgres
 #   ORRERY_DATABASE=postgres://orrery:orrery@postgres:5432/orrery
-# Or set ORRERY_DATABASE to a Postgres of your own. Orrery backs Postgres up as a SQLite snapshot too; for a
+# Or set ORRERY_DATABASE to a Postgres of your own. orrery backs Postgres up as a SQLite snapshot too; for a
 # large one, or to restore into Postgres as it was, use its own means as well (pg_dump, a managed service's backups).
 #
 # ORRERY_BUILD_CONTEXT is what the image is built from: this folder by default, or a ref on GitHub, so a
 # branch switched here never ends up in it: ORRERY_BUILD_CONTEXT=https://github.com/steffendybvik/orrery.git#main
 #
-# Working on Orrery itself: the playground (.playground/play), docker-compose.dev.yml on top of this.
+# Working on orrery itself: the playground (.playground/play), docker-compose.dev.yml on top of this.
 
 services:
   orrery:

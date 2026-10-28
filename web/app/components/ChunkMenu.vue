@@ -45,7 +45,7 @@ async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Re
 }
 
 const setPriority = (priority: Priority | null) => send('', 'PATCH', {priority})
-// Aimed at no session, Orrery picks one (the one already on it, else an idle one); `every` asks them all.
+// Aimed at no session, orrery picks one (the one already on it, else an idle one); `every` asks them all.
 const focus = (every = false) => send('/focus', 'POST', every ? {session: '*'} : {}, () => {
     note.value = every ? `Sent to all ${listening.value} sessions` : listening.value === 1 ? 'Sent to the listening session' : 'Sent to one session, the first free'
 })

@@ -15,7 +15,7 @@ export const pendingProposal = (issue: Issue): {choices: number} | undefined => 
 export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'needs you', starting: 'starting'}
 
 /** The projects a session hears: its own and the others its channel serves (`also`). One that hears more than one
- * spans them, and is listed across projects; `all` when that's every project the Orrery has. */
+ * spans them, and is listed across projects; `all` when that's every project the orrery has. */
 export function heardBy(session: {project: string, also?: string[]}, projects: {id: string}[]): {ids: string[], spans: boolean, all: boolean} {
     const ids = [session.project, ...session.also ?? []]
     const spans = ids.length > 1
@@ -23,7 +23,7 @@ export function heardBy(session: {project: string, also?: string[]}, projects: {
 }
 
 /** The command that starts a session's window again with the channel: its server in the repo's `.mcp.json`, by the
- * name its channel found, else the Orrery's as the Connect page names it (`orrery-<environment>`), keeping the window's name unless it was made up. */
+ * name its channel found, else the orrery's as the Connect page names it (`orrery-<environment>`), keeping the window's name unless it was made up. */
 export function restartCommand(session: {name: string, project: string, server?: string}, environment: string): string {
     const server = session.server ?? serverName(environment)
     return `${madeUpName(session) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${server}`
@@ -169,7 +169,7 @@ export function changelogOf(release: Release, chunks: Chunk[], date = release.sh
     ].join('\n')
 }
 
-/** What a session Orrery started was given to go on, in a few words: its presets, and your own words if any. */
+/** What a session orrery started was given to go on, in a few words: its presets, and your own words if any. */
 /** A text's first line that isn't blank, as a one-line summary of it (a preset's "what it does"). */
 export const firstLine = (text: string) => text.split('\n').find(l => l.trim())?.trim() ?? ''
 export const contextLabel = (context: SessionContext) => [...context.presets, ...context.instructions ? ['your words'] : []].join(', ')
