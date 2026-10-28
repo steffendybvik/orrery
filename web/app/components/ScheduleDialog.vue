@@ -111,7 +111,8 @@ const local = (iso: string) => {
 
 watch(editing, now => {
     if (!now) return
-    const s = now.schedule
+    // One to edit, or a new one, empty or filled in from a suggestion.
+    const s: Partial<Schedule> | undefined = now.schedule ?? now.draft
     project.value = now.project
     sends.value = s?.kind ?? 'issue'
     title.value = s?.title ?? ''
