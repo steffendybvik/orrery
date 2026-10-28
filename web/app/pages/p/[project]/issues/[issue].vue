@@ -300,7 +300,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
       </aside>
     </div>
 
-    <NotFound v-else-if="ready && !looking" :to="project ? `/p/${project.id}` : '/now'" :back="project ? `Back to ${project.name}` : 'Go to Now'">
+    <NotFound v-else-if="ready && !looking" :to="project ? `/p/${project.id}` : '/mine'" :back="project ? `Back to ${project.name}` : 'Go to My issues'">
       No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}
     </NotFound>
   </div>

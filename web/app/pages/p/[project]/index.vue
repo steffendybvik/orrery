@@ -90,6 +90,6 @@ onMounted(() => nextTick(() => {
       <IssueBoard v-else-if="view === 'board'" :chunks="chunks" :project="project.id" />
       <ListView v-else :chunks="chunks" :project="project.id" :group="group" />
     </template>
-    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

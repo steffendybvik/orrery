@@ -106,7 +106,7 @@ async function remove() {
     failed.value = ''
     try {
         await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
-        router.push('/now')
+        router.push('/mine')
     } catch (error) {
         failed.value = errorMessage(error, 'delete')
     } finally {
@@ -235,6 +235,6 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
         </form>
       </section>
     </div>
-    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

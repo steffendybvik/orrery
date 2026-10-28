@@ -53,9 +53,6 @@ export function myIssues(project: Project, owner: string | null) {
         .sort((a, b) => Number(b.issue.column === 'proposed') - Number(a.issue.column === 'proposed'))
 }
 
-/** What the Now page lists: started issues, and urgent or high-priority ones to do. */
-export const isNow = (issue: Issue) => issue.kind === 'started' || (issue.kind === 'todo' && (issue.priority === 'P0' || issue.priority === 'P1'))
-
 /** Open urgent (P0) issues anywhere in the project, sub-issues included. */
 export function urgentIssues(project: Project) {
     return allIssues(project).filter(({issue}) => issue.priority === 'P0' && !isClosed(issue.kind))

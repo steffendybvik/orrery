@@ -4,7 +4,7 @@ export const DEMO = 'demo'
 
 // Getting started: the steps from a new orrery to a Claude session working from it, each ticked from what the
 // orrery already knows, so none has to be ticked by hand. Someone only planning is set after the first two: the rest
-// are for working with Claude. Hiding its card on Now, planning, and the steps for Claude once ticked are remembered in
+// are for working with Claude. Hiding its card on My issues, planning, and the steps for Claude once ticked are remembered in
 // this browser.
 export function useGettingStarted() {
     const {named, name} = useOwner()
@@ -82,7 +82,7 @@ export function useGettingStarted() {
             // As for hiding.
         }
     }
-    /** Hides its card on Now; `false` brings it back, with the steps for working with Claude. */
+    /** Hides its card on My issues; `false` brings it back, with the steps for working with Claude. */
     function hide(now = true) {
         if (!now) plan(false)
         hidden.value = now

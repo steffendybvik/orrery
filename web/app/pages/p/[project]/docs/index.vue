@@ -48,6 +48,6 @@ const {docUnseen} = useUnseen()
 {"title": "README", "body": "# …markdown…"}</pre>
       </div>
     </template>
-    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

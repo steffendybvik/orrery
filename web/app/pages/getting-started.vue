@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Getting started, as a page of its own: ⌘K brings it back, and showing it again shows its card on Now.
+// Getting started, as a page of its own: ⌘K brings it back, and showing it again shows its card on My issues.
 useHead({title: 'Getting started · orrery'})
 </script>
 

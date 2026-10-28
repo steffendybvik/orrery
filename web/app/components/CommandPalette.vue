@@ -95,7 +95,6 @@ const here = computed<Entry[]>(() => {
 })
 
 const everywhere = computed<Entry[]>(() => [
-    {key: 'go:now', group: 'Go to', label: 'Now across projects', hint: 'g n', run: () => router.push('/now')},
     {key: 'go:mine', group: 'Go to', label: 'My issues and urgent', hint: 'g m', run: () => router.push('/mine')},
     {key: 'go:notifications', group: 'Go to', label: 'Notifications', run: () => router.push('/notifications')},
     {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
