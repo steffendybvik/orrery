@@ -19,16 +19,20 @@ the database schema are the public surface, and a database always migrates forwa
 - **Restore from the app:** a new, empty orrery no longer starts from the latest backup on its own. It asks *Found
   backups. Restore one?*, or you **Start fresh**. App settings → Database → **Restore a backup…** brings back any copy,
   checked first, with the database it replaces set aside. A backup never writes over another orrery's.
-- **A compose file with each release:** `release/compose.yml` runs the published image, keeping backups in
-  `./backups`. In Docker with no backup folder set, orrery says the backups are only on this computer.
+- **A compose file with each release:** `release/compose.yml` runs the published image and backs up to the
+  `orrery-backup` volume, so no `./backups` folder shows up beside it, or to the folder `ORRERY_BACKUP` names. App
+  settings says when the backups are only in a Docker volume on this computer.
 - **Safer upgrades:** before a SQLite database takes an upgrade's steps, it's copied as it was to
-  `orrery-pre-<version>.db` (the three newest stay). A database newer than the code is refused and left alone, with a
-  message on how to go back.
+  `orrery-pre-<version>-step<n>.db` (the three newest stay). A database newer than the code is refused and left
+  alone, with a message on how to go back.
 - **Know when code is old:** the channel and the launcher tell orrery their version. Sessions marks a session or
   launcher running older code, with the command to restart it, and a launcher service restarts itself on the new code
-  once its checkout is updated and it has no session running.
-- **Smaller images:** uploaded PNGs and JPEGs are kept as WebP, and the ones already there are converted once on
-  start, links unchanged. On a real orrery the database, and every backup, shrank from 69 MB to 27 MB.
+  once its checkout changes, within a version too, and it has no session running. A launch refused for an outdated
+  launcher waits for one that can take it, so restarting the launcher starts the session or chat.
+- **Smaller images:** uploaded PNGs and JPEGs are kept as WebP (photos at quality 82, screenshots at 90 for crisp
+  text), and the ones already there are converted once on start, links unchanged. A rewritten image loses its
+  metadata, a photo's place included. SQLite's WAL is cut back once it's written through. On a real orrery the
+  database, and every backup, shrank from 69 MB to 27 MB.
 - **Drop an image anywhere:** drag one over the chat, the comment box, a description or doc being edited, or the new
   issue or doc dialog, and the whole area says *Drop image to add*. Pasted anywhere inside it goes in too, and you're
   back to typing after.
@@ -39,17 +43,32 @@ the database schema are the public surface, and a database always migrates forwa
   by default. Turned off, work waits for a session you start, and *Focus on this (starts a session)* still starts
   one. A line says what starts sessions, and how many schedules do.
 - **Faster on a big orrery:** a change sends open pages only what changed (4.2 kB instead of 859 kB for one renamed
-  issue), pages load the boards without the issues' descriptions (2.3 MB down to 1.5 MB), and the bell reads
-  agents' comments off an index (37 ms down to 0.2 ms with 20,000 comments).
+  issue), pages load the boards without the issues' descriptions (2.3 MB down to 1.5 MB) and other projects' closed
+  issues until one of their pages opens (1,474 kB down to 995 kB), and the bell reads agents' comments off an index
+  (37 ms down to 0.2 ms with 20,000 comments).
 - **The chat asks for schedules too:** it can set up a schedule or change one (pause and resume included), shown with
   **Allow** and **Deny**; once allowed it's yours. Under each of its replies, **Copy** takes the reply's Markdown.
 - **My issues is home:** Now is gone, and `/` (and `/now`, for old links) opens My issues.
-- **Clear a proposal from the bell:** clearing an agent's proposal in Notifications hides it from the bell, its count
-  and Waiting on you, and leaves it pending on its issue. Put up again, it comes back.
+- **One notifications list:** Notifications is one list, with what waits on you ringed among the rest. Clearing an
+  agent's proposal there hides it from the bell and its count, and leaves it pending on its issue. Put up again, it
+  comes back.
+- **Make it mine:** an agent's message or session schedule runs only once you press **Make it mine** in its dialog,
+  after reading it. Pausing, renaming or retiming it leaves it the agent's. Its row says it isn't running yet, and is
+  tinted as unseen until you open it.
+- **Which session wrote it:** comments, activity lines and *Created by* name the session that wrote them
+  (`orrery · Frøya`), kept with the write. Older ones, and an agent's writes with no session, say **Agent**. The page
+  no longer says Claude: sessions are just sessions.
+- **What sessions may do:** Sessions → **Permissions** shows, for a working session, the chat and an untrusted
+  session, what each may do freely, what asks you first and what's yours alone, with why. Agents read the same table
+  at `GET /api/permissions`.
+- **Plainer waiting words:** an issue waiting on you says **Decision needed** or **Feedback needed**, and a session at
+  a permission prompt says **permission needed**.
+- **Events read like a console:** each event stays one line; clicking it opens nothing.
 - **Forget a session nothing can reach:** a session started without the channel gets a × on its card, and one idle an
   hour with no channel open goes on its own, rather than after six.
 - **Getting started mentions the launcher:** its last step says when none is running, with the line that installs it,
-  and so does an issue's sessions panel.
+  and so does an issue's sessions panel. On Sessions → Setup, Starting sessions comes first and opens with the
+  install command.
 - **Connected:** the sidebar's live indicator says *Connected*, *Reconnecting…* or *Offline*, with a tooltip.
 - **The name is lowercase:** "orrery" is written the way its logo reads, everywhere.
 - **Security, from the rc.9 audit:** an untrusted schedule's session gets no Bash: a `github_issues` tool reads the
@@ -57,10 +76,15 @@ the database schema are the public surface, and a database always migrates forwa
   sessions, and only **Send** sends (#294). An agent can't quietly resolve an error or flood the event log with page
   errors (#297). A database move or backup setting has to come from this machine by its connection, not its `Host`
   header (#308). A session schedule can't restart itself on its own session stopping, and an untrusted session stops
-  at its 30 minutes, busy or not (#301). Plus five smaller fixes: the moved-database file kept private, more ways of
-  writing a Postgres password scrubbed from the log, a dropped Postgres connection no longer ending the server, an
-  untrusted proposal keeping only `external`, and an agent's schedule you change becoming yours (#300). A launch
-  waiting to start can be claimed only by a connected launcher, by the token its stream gives it (#325).
+  at its 30 minutes, busy or not (#301). Plus four smaller fixes: the moved-database file kept private, more ways of
+  writing a Postgres password scrubbed from the log, a dropped Postgres connection no longer ending the server, and
+  an untrusted proposal keeping only `external` (#300). A launch waiting to start can be claimed only by a
+  connected launcher, by the token its stream gives it (#325).
+- **Fixes from the rc.10 review:** a Postgres backup target holding anything but orrery's tables is refused before
+  it's opened, so nothing is written into it (#331). A chat request answered twice at once acts once, and a send that
+  failed partway goes again only to the sessions that missed it (#330). A request through a proxy isn't taken as from
+  this machine, and page-error reports are limited per sender (#332). Sessions orrery starts keep their launch again,
+  so their limit, stop timers and context after a `/clear` work (#340).
 - **Performance tests:** `pnpm test:e2e:perf` times every page on a big seeded orrery, on SQLite and Postgres, in CI.
 
 ## 1.0.0-rc.9 (2026-10-28)
