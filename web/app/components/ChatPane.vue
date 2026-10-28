@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// The owner's chat (useChat): a button in the corner of every page, and the pane it opens there. With no chat running
-// the pane offers to start one on the project you're on; once started, its session's state shows in the header and
-// the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
+// The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
+// The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
+// session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
 // dropped goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
 // one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way).
-const {open, large, chat, session, project, failed, chats, start, send, close, resize, upload, show} = useChat()
+const {open, large, chat, session, project, failed, chats, start, send, fresh, close, resize, upload, show} = useChat()
 const {projects} = useRoadmaps()
 const route = useRoute()
 
@@ -12,9 +12,9 @@ const draft = ref('')
 const images = ref<{id: string, url: string}[]>([])
 const uploading = ref(0)
 const sending = ref(false)
-const starting = ref(false)
 const list = ref<HTMLElement | null>(null)
 const field = ref<HTMLTextAreaElement | null>(null)
+const picker = ref<HTMLInputElement | null>(null)
 
 /** The project the chat would be about: the one you're on, else the first. */
 watch([() => route.params.project, projects], ([here]) => {
@@ -22,6 +22,22 @@ watch([() => route.params.project, projects], ([here]) => {
 }, {immediate: true})
 const projectName = (id: string) => projects.value.find(p => p.id === id)?.name ?? id
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
+/** Which project it's about: the chat's, else the one the first message will start it on. */
+const about = computed(() => chat.value && !chat.value.ended ? chat.value.project : project.value)
+/** Nothing said yet: the pane greets you, with some things to ask. */
+const empty = computed(() => !chat.value?.messages.length)
+
+/** Things to ask, one about the issue or doc you're on. */
+const examples = computed(() => {
+    const here = typeof route.params.issue === 'string' ? `Summarize ${route.params.issue}`
+        : typeof route.params.doc === 'string' ? 'Summarize this doc'
+        : null
+    return [...here ? [here] : [], "What's left in the next release?", 'How do schedules work?', ...here ? [] : ['File an issue for…']]
+})
+function ask(example: string) {
+    draft.value = example.endsWith('…') ? example.slice(0, -1) : example
+    nextTick(() => field.value?.focus())
+}
 
 const state = computed(() => {
     if (!chat.value) return ''
@@ -37,18 +53,13 @@ const thinking = computed(() => !!chat.value && !chat.value.ended && !chat.value
 watch(() => [open.value, chat.value?.messages.length], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
 watch(open, now => now && nextTick(() => field.value?.focus()))
 
-async function begin() {
-    starting.value = true
-    await start()
-    starting.value = false
-    nextTick(() => field.value?.focus())
-}
-
+/** Sends what's in the composer, starting the chat first when there's none yet. */
 async function submit() {
     const text = draft.value.trim()
     if (!text && !images.value.length || sending.value || uploading.value) return
     sending.value = true
-    if (await send(text, images.value.map(i => i.id))) {
+    if (chat.value?.ended) fresh()
+    if ((chat.value || await start()) && await send(text, images.value.map(i => i.id))) {
         draft.value = ''
         images.value = []
     }
@@ -103,9 +114,18 @@ function onPaste(event: ClipboardEvent) {
       aria-label="Chat"
       @keydown.esc="!chat || chat.ended ? close() : undefined"
   >
-    <header class="flex items-center gap-2 border-b border-line px-4 py-3">
+    <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-4">
       <div class="flex min-w-0 flex-1 flex-col">
-        <span class="truncate text-[13px] font-medium text-fg">Chat{{ chat ? ` · ${projectName(chat.project)}` : '' }}</span>
+        <div class="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-fg">
+          <span>Chat</span>
+          <template v-if="about">
+            <span class="text-faint">·</span>
+            <PropertyPicker v-if="(!chat || chat.ended) && options.length > 1" :model-value="project ?? ''" :options="options" label="Project" field small @update:model-value="project = String($event)">
+              <span class="truncate">{{ projectName(about) }}</span>
+            </PropertyPicker>
+            <span v-else class="truncate">{{ projectName(about) }}</span>
+          </template>
+        </div>
         <span v-if="state" class="flex items-center gap-1.5 text-xs text-faint">
           <SessionDot v-if="session" :session="session" />{{ state }}
         </span>
@@ -119,34 +139,47 @@ function onPaste(event: ClipboardEvent) {
       </UiButton>
     </header>
 
-    <div v-if="!chat || chat.ended && !chat.messages.length" class="flex flex-1 flex-col justify-center gap-3 px-5 text-[13px] text-muted">
-      <p>Ask Claude about a project: its code, its roadmap, its docs. It makes issues and comments when you ask, and works on nothing itself.</p>
-      <PropertyPicker v-if="options.length > 1" :model-value="project ?? ''" :options="options" label="Project" field class="self-start" @update:model-value="project = String($event)">
-        <span class="truncate">{{ project ? projectName(project) : 'Pick a project' }}</span>
-      </PropertyPicker>
-      <UiButton variant="primary" size="md" class="self-start" :disabled="!project || starting" @click="begin">
-        {{ starting ? 'Starting…' : `Chat about ${project ? projectName(project) : 'a project'}` }}
-      </UiButton>
-      <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <div v-if="empty" class="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-6">
+      <div class="flex w-full max-w-sm flex-col items-center gap-2 text-center">
+        <h2 class="text-base font-semibold text-fg">{{ about ? `Ask about ${projectName(about)}` : 'Ask away' }}</h2>
+        <p class="text-[13px] text-muted">Code, roadmap and docs. I can file issues and comments for you.</p>
+        <div class="mt-3 flex flex-wrap justify-center gap-1.5">
+          <button
+              v-for="example in examples"
+              :key="example"
+              type="button"
+              class="rounded-full px-3 py-1.5 text-xs text-muted ring-1 ring-line transition hover:bg-hover hover:text-fg"
+              @click="ask(example)"
+          >
+            {{ example }}
+          </button>
+        </div>
+      </div>
     </div>
 
-    <template v-else>
-      <ol ref="list" class="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-3 text-[13px]">
-        <li v-if="!chat.messages.length" class="text-faint">Ask away. It reads {{ projectName(chat.project) }}'s code, roadmap and docs to answer.</li>
-        <li v-for="m in chat.messages" :key="m.id" class="flex flex-col gap-1.5" :class="m.from === 'owner' ? 'items-end' : 'items-start'">
-          <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
-            <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
-          </div>
-          <div v-if="m.from === 'owner' && m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
-          <MarkdownView v-else-if="m.text" :source="m.text" class="max-w-full text-[13px]" />
-        </li>
-        <li v-if="thinking" class="text-xs text-faint" aria-live="polite">Thinking…</li>
-        <li v-if="!session && chat.problem && !chat.ended" class="text-xs text-rose-600 dark:text-rose-400" role="alert">{{ chat.problem }}</li>
-        <li v-if="chat.ended" class="text-xs text-faint">This chat has ended.</li>
-      </ol>
+    <ol v-else ref="list" class="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 text-[13px]">
+      <li v-for="m in chat!.messages" :key="m.id" class="flex flex-col gap-1.5" :class="m.from === 'owner' ? 'items-end' : 'items-start'">
+        <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
+          <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
+        </div>
+        <div v-if="m.from === 'owner' && m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
+        <div v-else-if="m.text" class="max-w-[92%] rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
+          <MarkdownView :source="m.text" class="text-[13px]" />
+        </div>
+      </li>
+      <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">
+        <span v-for="i in 3" :key="i" class="size-1.5 animate-dot rounded-full bg-faint" :style="{animationDelay: `${(i - 1) * 0.15}s`}" />
+      </li>
+      <li v-if="chat!.ended" class="flex items-center gap-2 text-xs text-faint">
+        This chat has ended.
+        <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="fresh">Start another</button>
+      </li>
+    </ol>
 
-      <form v-if="!chat.ended" class="flex flex-col gap-2 border-t border-line p-3" @submit.prevent="submit">
-        <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5">
+    <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit">
+      <p v-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
+        <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5 px-1 pt-1">
           <div v-for="(image, i) in images" :key="image.id" class="relative">
             <img :src="image.url" alt="" class="size-14 rounded-lg object-cover ring-1 ring-line">
             <button type="button" class="absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full bg-fg text-[10px] text-panel" :aria-label="`Remove image ${i + 1}`" @click="images.splice(i, 1)">×</button>
@@ -156,22 +189,25 @@ function onPaste(event: ClipboardEvent) {
         <textarea
             ref="field"
             v-model="draft"
-            rows="2"
+            rows="1"
             aria-label="Message"
-            placeholder="Ask, or ask for an issue. Paste an image to show it."
-            class="field-sizing-content max-h-40 min-h-10 resize-none rounded-lg bg-well px-3 py-2 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+            placeholder="Ask anything…"
+            class="field-sizing-content max-h-40 min-h-9 resize-none bg-transparent px-2 py-1.5 text-[13px] text-fg placeholder:text-faint focus:outline-none"
             @keydown="onKey"
             @paste="onPaste"
             @dragover.prevent
             @drop.prevent="attach([...$event.dataTransfer?.files ?? []])"
         />
-        <div class="flex items-center gap-2">
-          <span v-if="failed" class="truncate text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-          <UiButton type="submit" variant="primary" size="sm" class="ml-auto" :disabled="sending || !!uploading || !draft.trim() && !images.length">
-            Send <KeyHint class="bg-white/20 text-white ring-0">↵</KeyHint>
+        <div class="flex items-center gap-1">
+          <UiButton variant="ghost" size="xs" square aria-label="Add an image" title="Add an image (or paste or drop one)" @click="picker?.click()">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A1.5 1.5 0 0 0 21.75 19.5V4.5A1.5 1.5 0 0 0 20.25 3H3.75A1.5 1.5 0 0 0 2.25 4.5v15A1.5 1.5 0 0 0 3.75 21Zm10.5-11.25h.008v.008h-.008V9.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>
+          </UiButton>
+          <input ref="picker" type="file" accept="image/*" multiple class="hidden" @change="attach([...($event.target as HTMLInputElement).files ?? []]); ($event.target as HTMLInputElement).value = ''">
+          <UiButton type="submit" variant="primary" size="xs" square class="ml-auto rounded-full" aria-label="Send" title="Send (↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
           </UiButton>
         </div>
-      </form>
-    </template>
+      </div>
+    </form>
   </section>
 </template>

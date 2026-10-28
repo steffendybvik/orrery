@@ -44,6 +44,9 @@ services:
       NUXT_PUBLIC_REPO_DIR: ${PWD}
       NUXT_DATABASE: ${ORRERY_DATABASE:-/data/orrery.db}
       NUXT_BACKUP_DIR: /backup
+      # What /data and /backup are on this computer, the same as the volumes below, for App settings to show.
+      NUXT_DATA_HOST: ${ORRERY_DATA:-orrery-data}
+      NUXT_BACKUP_HOST: ${ORRERY_BACKUP:-orrery-backup}
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
       NUXT_SECRET_KEY: ${ORRERY_SECRET_KEY:-}
     volumes:
