@@ -49,7 +49,13 @@ A copy a few seconds after each change, `orrery.db`, plus one a day for two week
 volume starts from the latest one. The live file never goes in the backup folder: a synced SQLite
 file gets corrupted, a snapshot doesn't. On Postgres it's a SQLite snapshot of the database, made a minute after
 a change, or at most ten minutes after the first while changes keep coming (the whole database is copied each time), so a backup opens anywhere and a new SQLite orrery starts from
-it. App settings → This orrery → Database says when the latest was made, with **Back up now**.
+it. App settings → This orrery → Database says when the latest was made, with **Back up now**. It marks the latest
+when it's over two days old, and says why when the last try failed.
+
+Every copy is written beside the one it replaces and checked (SQLite's `quick_check`) before it takes that one's place.
+A copy that fails the check is let go, the one before stays, and the failure goes in the event log as `backup.failed`.
+The copy taken before an upgrade (`orrery-pre-<version>.db`) is made the same way. If it can't be made, orrery stops
+with the reason instead of upgrading a database it has no copy of.
 
 The backups can be set there too, from this machine: **Back up this orrery** turns them off or on, and, outside
 Docker, a folder takes them instead of `NUXT_BACKUP_DIR` (**Back up here** makes one there at once, so a folder that
