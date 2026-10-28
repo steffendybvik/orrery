@@ -164,6 +164,21 @@ describe('schedules', () => {
         expect(await store.db.get('SELECT count(*) AS n FROM schedule_runs')).toEqual({n: 0})
     })
 
+    it('run now instead of the next run, which is skipped', async () => {
+        const s = await schedules.create('greenhouse', {title: 'Groom', cron: '0 9 * * *', timezone: 'Europe/Oslo'}, me)
+        const run = await schedules.runNow('greenhouse', s.id, me, true)
+        expect(run).toMatchObject({outcome: 'made', note: expect.stringMatching(/^instead of \w{3} \d+ \w{3} 09:00$/)})
+        const after = await schedules.get('greenhouse', s.id)
+        expect(new Date(after.next_run!).getTime() - new Date(s.next_run!).getTime()).toBeGreaterThanOrEqual(23 * 3_600_000)
+        expect(await schedules.runDue(new Date(new Date(s.next_run!).getTime() + 1000))).toBe(0)
+        // A one-off run instead is done; a paused one has no next run to skip.
+        const once = await schedules.create('greenhouse', {title: 'Once', at: '2099-01-01T09:00:00Z'}, me)
+        await schedules.runNow('greenhouse', once.id, me, true)
+        expect(await schedules.get('greenhouse', once.id)).toMatchObject({enabled: false, next_run: undefined})
+        expect(await failure(() => schedules.runNow('greenhouse', once.id, me, true))).toEqual({status: 409, message: `Running schedule ${once.id} instead of its next run: it has none, so run it now`})
+        expect((await failure(() => schedules.runNow('greenhouse', s.id, agent, true))).status).toBe(403)
+    })
+
     it('run a one-off once and then stop', async () => {
         const s = await schedules.create('greenhouse', {title: 'Once', at: '2099-01-01T09:00:00Z'}, me)
         expect(await schedules.runDue(at('2099-01-02T00:00:00Z'))).toBe(1)

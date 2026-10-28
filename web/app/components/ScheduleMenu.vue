@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// Right-clicking a schedule: run it now, pause or resume it, edit or remove it, as the owner. The list
-// updates live once a change is saved. Esc or a click outside closes it.
+// Right-clicking a schedule: run it now (on top of its timetable, or instead of its next run, which it then
+// skips), pause or resume it, edit or remove it, as the owner. The list updates live once a change is saved.
+// Esc or a click outside closes it.
 const {menu, edit} = useSchedules()
 const {load} = useOwner()
 const {open: openIssue} = useIssueLink()
@@ -32,9 +33,18 @@ async function send<T>(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?:
     }
 }
 
-async function runNow() {
+/** The next run that running it instead skips: its time, with its day when that isn't today, and in full. */
+const skips = computed(() => {
+    const next = s.value?.enabled && s.value.next_run
+    if (!next) return null
+    const full = when(next)
+    const [day, time] = [full.replace(/ \d+:\d+$/, ''), full.replace(/^\w+ \d+ \w+ /, '')]
+    return {full, short: day === when(new Date()).replace(/ \d+:\d+$/, '') ? time : `${day.split(' ')[0]} ${time}`}
+})
+
+async function runNow(instead = false) {
     const schedule = s.value
-    const run = await send<{issue?: string}>('/run', 'POST')
+    const run = await send<{issue?: string}>('/run', 'POST', instead ? {instead: true} : undefined)
     if (!run || !schedule) return
     close()
     if (run.issue) openIssue(schedule.project, run.issue)
@@ -58,7 +68,8 @@ function editIt() {
     <template v-if="s">
       <div class="truncate px-2 pt-1.5 pb-1 text-xs text-muted">{{ s.title }}</div>
       <div v-if="!confirming" class="flex flex-col border-t border-line pt-1">
-        <UiMenuItem :disabled="busy" @click="runNow">▶ Run now</UiMenuItem>
+        <UiMenuItem :disabled="busy" @click="runNow()">▶ Run now</UiMenuItem>
+        <UiMenuItem v-if="skips" :disabled="busy" :title="`Runs it now and skips the run at ${skips.full}`" @click="runNow(true)">⏭ Run now instead of {{ skips.short }}</UiMenuItem>
         <UiMenuItem :disabled="busy" @click="toggle">{{ s.enabled ? '❙❙ Pause' : '▶ Resume' }}</UiMenuItem>
         <UiMenuItem @click="editIt">✎ Edit</UiMenuItem>
         <UiMenuItem danger :disabled="busy" @click="confirming = true">Remove…</UiMenuItem>
