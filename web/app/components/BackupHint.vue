@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Said once (ORR-448): in Docker, backups in the default folder stay on this computer, so a lost disk loses them too.
+// Said once (ORR-448): in Docker, backups in the default volume stay on this computer, so a lost disk loses them too.
 // Shown until it's dismissed in this browser, and only to the owner once they've named themselves; App settings →
 // Database says it as long as it's so, so it isn't shown over that page.
 const route = useRoute()
@@ -25,7 +25,7 @@ function dismiss() {
   >
     <p class="text-[13px] font-medium text-fg">Backups are only on this computer</p>
     <p class="text-muted">
-      They're in the default folder, on the same disk as the data. Set <code>ORRERY_BACKUP</code> to a folder that leaves
+      They're in a Docker volume, on the same disk as the data. Set <code>ORRERY_BACKUP</code> to a folder that leaves
       it (iCloud Drive, Dropbox, one Time Machine covers), then <code>docker compose up -d</code>.
     </p>
     <div class="flex items-center gap-2">

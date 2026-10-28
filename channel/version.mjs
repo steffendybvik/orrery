@@ -1,7 +1,9 @@
 // The version of the code the channel and the launcher run, from the checkout they run from (web/package.json), which
 // they tell orrery as they connect, so its Sessions page can mark one older than itself (ORR-434). Read again, it says
-// whether the checkout has moved on since this process started.
-import {readFileSync} from 'node:fs'
+// whether the checkout has moved on since this process started: by its code too, as that changes within a version
+// (ORR-470).
+import {createHash} from 'node:crypto'
+import {readdirSync, readFileSync} from 'node:fs'
 
 /** The version in the checkout now; none when it can't be read. */
 export function versionOnDisk() {
@@ -12,14 +14,32 @@ export function versionOnDisk() {
     }
 }
 
+/** The code in the checkout now, as one hash of its version and every channel/*.mjs; none when it can't be read. */
+export function codeOnDisk() {
+    try {
+        const folder = new URL('./', import.meta.url)
+        const hash = createHash('sha256').update(versionOnDisk() ?? '')
+        for (const name of readdirSync(folder).filter(name => name.endsWith('.mjs')).sort()) {
+            hash.update(`\0${name}\0`).update(readFileSync(new URL(name, folder)))
+        }
+        return hash.digest('hex').slice(0, 16)
+    } catch {
+        return undefined
+    }
+}
+
 /** The version this process started on. */
 export const VERSION = versionOnDisk() ?? '0.0.0'
 
-/** What a launcher on `mine` does about Orrerys running `theirs` (ORR-434): `restart` once the checkout holds other code
- * (`disk`) and no session of its own is running, as only the service is started again; `tell` the owner to update the
- * checkout while it still holds the code it runs; else nothing, `wait` while it has sessions running. */
-export function launcherMove({theirs, mine, disk, running, service}) {
-    if (!service || theirs.every(v => v === mine)) return null
-    if (!disk || disk === mine) return 'tell'
+/** The code this process started on. */
+export const CODE = codeOnDisk()
+
+/** What a launcher on version `mine` and code `code` does (ORR-434, ORR-470): `restart` once the checkout holds other
+ * code (`now`) and no session of its own is running, as only the service is started again, whether or not the version
+ * moved with it; `tell` the owner to update the checkout while an orrery it serves (`theirs`) runs another version and
+ * the checkout still holds the code it runs; else nothing, `wait` while it has sessions running. */
+export function launcherMove({theirs, mine, code, now, running, service}) {
+    if (!service) return null
+    if (!now || !code || now === code) return theirs.some(v => v !== mine) ? 'tell' : null
     return running ? 'wait' : 'restart'
 }

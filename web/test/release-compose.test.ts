@@ -22,9 +22,12 @@ describe('the release compose file', () => {
         expect(release).not.toMatch(/^ {4}build:/m)
     })
 
-    it('keeps the backups beside it by default, and says so when they are elsewhere', () => {
-        expect(settings(release)).toMatchObject({NUXT_BACKUP_HOST: '${ORRERY_BACKUP:-./backups}', NUXT_BACKUP_CHOSEN: '${ORRERY_BACKUP:+yes}'})
-        expect(release).toContain('- ${ORRERY_BACKUP:-./backups}:/backup')
-        expect(settings(repo)).toMatchObject({NUXT_BACKUP_CHOSEN: '${ORRERY_BACKUP:+yes}'})
+    it('backs up to a volume of its own, making no folder beside it, unless ORRERY_BACKUP names one (ORR-469)', () => {
+        for (const compose of [release, repo]) {
+            expect(settings(compose)).toMatchObject({NUXT_BACKUP_HOST: '${ORRERY_BACKUP:-orrery-backup}', NUXT_BACKUP_CHOSEN: '${ORRERY_BACKUP:+yes}'})
+            expect(compose).toContain('- ${ORRERY_BACKUP:-orrery-backup}:/backup')
+            expect(compose).toMatch(/^volumes:\n(?: {2}\S+:\n)*? {2}orrery-backup:$/m)
+        }
+        expect(release).not.toContain('./backups')
     })
 })
