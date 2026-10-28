@@ -426,8 +426,8 @@ Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools bu
 only way what it says reaches the page, `image`, which shows it an image the owner pasted, and `message_sessions` and
 `message_session`, which message other sessions for the owner when they ask in the chat (never on its own; for more
 than one session, once the owner has said go to its draft). It hears only its chat's messages: no focus, no message to
-every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in the
-status new issues start in), commenting, replying and messaging sessions. A message it sends goes as the owner's,
+every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
+whatever status it asks for; a proposal stays one), commenting, replying and messaging sessions. A message it sends goes as the owner's,
 with `via: "chat"` on the signal; the session hears it ending `(Sent by the owner through their chat.)`, and the
 Sessions page and the event log (`session.messaged`) say it came through the chat. A chat is kept in memory
 while it runs, so it's gone after Orrery restarts.

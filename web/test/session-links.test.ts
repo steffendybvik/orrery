@@ -101,6 +101,13 @@ describe("an untrusted schedule's session", () => {
         expect(made).toEqual([{title: 'Run this', notes: undefined, proposal: 'pending', labels: ['external']}, {title: 'Mine', priority: 'P0'}])
     })
 
+    it("put what the owner's chat makes in Todo, with nobody on it, whatever status it asks for", async () => {
+        const create = (await import('../server/api/projects/[project]/issues/index.post')).default as unknown as (event: object) => Promise<unknown>
+        await create(event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Seed trays', status: 'in-progress', assignee: 'claude'}, 'chat'))
+        await create(event('POST', '/api/projects/greenhouse/issues', {project: 'greenhouse'}, {title: 'Grow lights', status: 'todo'}, 'chat'))
+        expect(made).toEqual([{title: 'Seed trays', status: 'todo'}, {title: 'Grow lights', status: 'todo'}])
+    })
+
     it('may only raise proposals and comment on them; any other write is refused', async () => {
         const guard = (await import('../server/middleware/untrusted')).default as unknown as (event: object) => Promise<void>
         const tries = async (method: string, path: string, session = 'locked') => guard(event(method, path, {}, undefined, session)).then(() => 'ok', (e: {statusCode: number}) => e.statusCode)

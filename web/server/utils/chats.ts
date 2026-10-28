@@ -135,10 +135,11 @@ export function messaged(actor: Actor, project: string, session: string) {
     useEventLog().note({level: 'info', kind: 'session.messaged', project, message: `${actor.name}${actor.via ? ` (via ${actor.via})` : ''} messaged ${session}`})
 }
 
-/** An issue as a chat's session asks to make it: on the roadmap as asked, but with nobody on it and in the status
- * new issues start in, since it doesn't take work up. */
+/** An issue as a chat's session asks to make it: on the roadmap as asked, but with nobody on it and in Todo (the first
+ * status of that kind), whatever status it asks for, since the owner asked for it and a chat doesn't take work up or
+ * finish it. A proposal stays one, for the owner to decide as before. */
 export function asChatIssue(body: unknown): unknown {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return body
-    const {status: _status, assignee: _assignee, ...rest} = body as Record<string, unknown>
-    return rest
+    const {status: _status, plan: _plan, assignee: _assignee, ...rest} = body as Record<string, unknown>
+    return rest.proposal === 'pending' ? rest : {...rest, status: 'todo'}
 }

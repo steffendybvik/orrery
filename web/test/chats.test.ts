@@ -102,9 +102,14 @@ describe("the owner's chat", () => {
         await expect(as()).rejects.toMatchObject({statusCode: 403})
     })
 
-    it('makes what its session asks for with nobody on it, in the status new issues start in', () => {
+    it('makes what its session asks for with nobody on it, in Todo whatever status it asks for', () => {
         expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', chunk: '3'}))
-            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3'})
+            .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3', status: 'todo'})
+        for (const status of [undefined, 'backlog', 'done', 'canceled']) expect(chats.asChatIssue({title: 'Seed trays', status, plan: null})).toEqual({title: 'Seed trays', status: 'todo'})
+    })
+
+    it('leaves a proposal one, for the owner to decide', () => {
+        expect(chats.asChatIssue({title: 'Grow lights', proposal: 'pending', status: 'todo', assignee: 'claude'})).toEqual({title: 'Grow lights', proposal: 'pending'})
     })
 })
 
