@@ -15,7 +15,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:visual": "scripts/e2e-visual.sh",
-    "orrery:copy": "jiti scripts/copy.ts"
+    "orrery:copy": "jiti scripts/copy.ts",
+    "docs:sync": "jiti scripts/docs-sync.ts"
   },
   "dependencies": {
     "@headlessui/vue": "1.7.23",

@@ -4,7 +4,7 @@
 
 ```
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
-              public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts), its package.json
+              public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, docs-sync.ts), its package.json
 channel/      the channel and hooks Claude sessions run, by path, from every connected repo
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
@@ -23,9 +23,13 @@ shared/                 types and rules both sides use (roadmap.ts)
 ```
 
 The root is a pnpm workspace with the app as its one package: `pnpm dev`, `pnpm test`,
-`pnpm typecheck`, `pnpm test:e2e` and `pnpm orrery:copy` run there and work in `web/`. The root's
+`pnpm typecheck`, `pnpm test:e2e`, `pnpm orrery:copy` and `pnpm docs:sync` run there and work in `web/`. The root's
 own dependency is the channel's MCP SDK, so `channel/` keeps working from other repos. The database
 stays in the repo's `.data/`.
+
+`pnpm docs:sync <orrery> <project>` copies the README, changelog, contributing, security and `docs/` files into
+that project's docs at `<orrery>`, as a step of shipping a release: links to each other go to the doc pages, links to other
+files to GitHub (`--ref`, `main` by default), and images become uploads. A doc already up to date is left alone.
 
 ## The dev server
 
