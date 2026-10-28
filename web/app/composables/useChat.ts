@@ -14,6 +14,8 @@ export function useChat() {
     const ended = useState<Chat | null>('chat-ended', () => null)
     const project = useState<string | null>('chat-project', () => null)
     const failed = useState('chat-failed', () => '')
+    /** Counts the changes heard live, so a fetch that was on its way meanwhile doesn't put an older chat back. */
+    const heard = useState('chat-heard', () => 0)
     const large = useState('chat-large', () => {
         try {
             return localStorage.getItem('orrery-chat-large') === 'yes'
@@ -39,11 +41,15 @@ export function useChat() {
     })
 
     async function fetchChats() {
-        chats.value = await $fetch<Chat[]>('/api/chats').catch(() => chats.value)
+        const since = heard.value
+        const fetched = await $fetch<Chat[]>('/api/chats').catch(() => null)
+        // What came live while it was on its way is newer; the fetch only adds the chats it didn't bring.
+        if (fetched) chats.value = heard.value === since ? fetched : [...chats.value, ...fetched.filter(f => !chats.value.some(c => c.id === f.id))]
         if (!current.value && chats.value[0]) current.value = chats.value[0].id
     }
 
     function arrived(changed: Chat) {
+        heard.value++
         const others = chats.value.filter(c => c.id !== changed.id)
         if (changed.ended) {
             chats.value = others
@@ -85,6 +91,17 @@ export function useChat() {
         } catch (error) {
             failed.value = errorMessage(error, 'send')
             return false
+        }
+    }
+
+    /** The owner allowing or denying a setting the chat asked to change: allowed, it's saved. */
+    async function answer(message: number, allow: boolean) {
+        if (!chat.value || chat.value.ended) return
+        failed.value = ''
+        try {
+            await $fetch(`/api/chats/${chat.value.id}/requests/${message}`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {allow}})
+        } catch (error) {
+            failed.value = errorMessage(error, allow ? 'allow' : 'deny')
         }
     }
 
@@ -138,5 +155,5 @@ export function useChat() {
         return $fetch<Upload>('/api/uploads', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, open, large, current, chat, session, project, failed, ended, lands, fetchChats, arrived, show, start, send, land, fresh, close, resize, upload}
+    return {chats, open, large, current, chat, session, project, failed, ended, lands, fetchChats, arrived, show, start, send, land, fresh, answer, close, resize, upload}
 }
