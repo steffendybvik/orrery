@@ -150,7 +150,7 @@ async function removeComment(id: number) {
                 v-if="entry.comment.asks"
                 class="rounded-full px-1.5 py-px text-[10px] font-medium ring-1"
                 :class="entry.comment.answered ? 'text-faint ring-line' : 'bg-violet-500/12 text-violet-700 ring-violet-500/35 dark:text-violet-300'"
-            >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Needs your decision' : 'Needs your feedback' }}</span>
+            >{{ entry.comment.answered ? `${entry.comment.asks === 'decision' ? 'Decision' : 'Feedback'} answered` : entry.comment.asks === 'decision' ? 'Decision needed' : 'Feedback needed' }}</span>
             <UiConfirm
                 v-if="removingComment?.id === entry.comment.id"
                 inline
