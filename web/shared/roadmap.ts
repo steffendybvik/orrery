@@ -601,6 +601,8 @@ export interface ChatMessage {
     at: string
     /** The session asking to change an App setting, which waits on the owner's Allow. */
     request?: ChatRequest
+    /** The session asking to make or change a schedule, which waits on the owner's Allow too. */
+    schedule?: ChatScheduleRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -625,6 +627,46 @@ export interface ChatRequest {
 
 /** A setting's value as a chat's request shows it. */
 export const settingValue = (value: unknown) => value === null || value === undefined || value === '' ? '(none)' : value === true ? 'on' : value === false ? 'off' : String(value)
+
+/** What of a schedule the owner's chat may ask to set (ORR-429), by what New schedule calls it. Whether one is untrusted
+ * stays the owner's to set on Schedules. */
+export const CHAT_SCHEDULE_FIELDS = {
+    kind: 'Kind',
+    title: 'Title',
+    notes: 'Notes',
+    cron: 'Cron',
+    at: 'Once at',
+    on: 'On the event',
+    on_filter: 'Event filter',
+    timezone: 'Timezone',
+    presets: 'Presets',
+    column: 'Issues start in',
+    chunk: 'Chunk',
+    priority: 'Priority',
+    labels: 'Labels',
+    ask: 'Ask sessions',
+    skip_open: 'Skip while open',
+    only_if_changed: 'Only if changed',
+    enabled: 'Running',
+} as const
+export type ChatScheduleField = keyof typeof CHAT_SCHEDULE_FIELDS
+
+/** A schedule the chat asked to make (no `id`) or change (`id`), each field it sets from → to, `body` as it's sent to
+ * Schedules: saved as the owner's only once they allow it, and `expired` as a setting's request is. */
+export interface ChatScheduleRequest {
+    id?: number
+    title: string
+    changes: {field: ChatScheduleField, from?: unknown, to: unknown}[]
+    body: Partial<Record<ChatScheduleField, unknown>>
+    state: ChatRequest['state']
+}
+
+/** A schedule's field as a chat's request shows it: a list joined, an event filter as `key: value`. */
+export const scheduleValue = (value: unknown): string => Array.isArray(value)
+    ? value.length ? value.map(String).join(', ') : '(none)'
+    : value && typeof value === 'object'
+        ? Object.entries(value).map(([k, v]) => `${k}: ${String(v)}`).join(', ') || '(none)'
+        : settingValue(value)
 
 /** A session Orrery started, as its launch made it. */
 export interface StartedSession {

@@ -205,6 +205,57 @@ test('asks the owner to change a setting, and saves it only on their Allow', asy
     }
 })
 
+test('asks the owner to make or pause a schedule, and saves it as theirs only on their Allow', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    const schedules = async () => (await (await request.get('/api/projects/larder/schedules')).json()) as {id: number, title: string, enabled: boolean, created_by: string}[]
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat-sched&name=e2e-chat-sched&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-sched', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const ask = async (data: object) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+            return (await asked.json()).id as number
+        }
+
+        await page.goto('/p/larder')
+        await page.getByRole('button', {name: 'Chat A chat is running'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        // What Schedules would refuse, or the chat may not set, fails as it asks; it can't make one itself.
+        expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {schedule: {title: 'Bad', cron: 'often'}}, headers: asChat})).status()).toBe(400)
+        expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {schedule: {title: 'Outsiders', untrusted: true}}, headers: asChat})).status()).toBe(403)
+        expect((await request.post('/api/projects/larder/schedules', {data: {title: 'Sneaky', cron: '0 9 * * 1'}, headers: asChat})).status()).toBe(403)
+
+        // Allowed: made, as the owner's.
+        await ask({schedule: {title: 'Stock check', kind: 'message', notes: 'Count the jars.', cron: '0 9 * * 1', timezone: 'UTC'}})
+        const card = pane.getByRole('group', {name: 'Make schedule Stock check'})
+        await expect(card).toContainText('0 9 * * 1')
+        await expect(card).toContainText('Count the jars.')
+        expect(await schedules()).toEqual([])
+        await card.getByRole('button', {name: 'Allow'}).click()
+        await expect(card).toContainText('Allowed and saved')
+        await expect.poll(async () => (await schedules()).map(s => [s.title, s.enabled, s.created_by])).toEqual([['Stock check', true, OWNER['Orrery-Actor']]])
+        await expect.poll(() => session!.said.text).toContain('("Stock check") is saved')
+
+        // Pausing it, denied: nothing changes.
+        const [made] = await schedules()
+        await ask({id: made!.id, schedule: {enabled: false}})
+        const pause = pane.getByRole('group', {name: 'Change schedule Stock check'}).last()
+        await expect(pause).toContainText('Running')
+        await pause.getByRole('button', {name: 'Deny'}).click()
+        await expect(pause).toContainText('Denied')
+        expect((await schedules())[0]!.enabled).toBe(true)
+    } finally {
+        await endChats(request)
+        for (const s of await schedules()) await request.delete(`/api/projects/larder/schedules/${s.id}`, {headers: OWNER})
+        session?.stop()
+        launcher.stop()
+    }
+})
+
 // Where the chat's issues land (ORR-408): the owner picks Todo or Backlog beside Send, before the chat starts or
 // during it, and it's remembered for the next one. The server holds the chat to it, whatever status its session asks
 // for, and the session can't change it.
