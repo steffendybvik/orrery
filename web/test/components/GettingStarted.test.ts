@@ -4,7 +4,7 @@ import {mountSuspended} from '@nuxt/test-utils/runtime'
 import type {Project, Session} from '#shared/roadmap'
 import GettingStarted from '~/components/GettingStarted.vue'
 
-// The card on Now: the steps for Claude stay ticked once they were, though the sessions that ticked them have ended,
+// The card on My issues: the steps for Claude stay ticked once they were, though the sessions that ticked them have ended,
 // so it doesn't come back with the owner's work done.
 const KINDS = {proposed: 0, backlog: 0, todo: 1, started: 0, done: 0, canceled: 0}
 const project = (assignee?: string) => ({

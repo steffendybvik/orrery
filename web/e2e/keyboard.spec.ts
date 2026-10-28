@@ -2,7 +2,7 @@ import type {APIRequestContext, Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 
 // The keys (useHotkeys), on a project of their own: j/k between rows and group headers and Enter to open, j/k and Esc on
-// an issue's page, 1/2 for List and Board, / and c, x and Esc to tick and clear, g n and g m.
+// an issue's page, 1/2 for List and Board, / and c, x and Esc to tick and clear, g m.
 // Runs after first-run.spec.ts on the same Orrery, so the owner is usually named already; named here if not.
 test.describe.configure({mode: 'serial'})
 
@@ -105,11 +105,8 @@ test('x ticks the issue in focus, Esc clears the ticks', async ({page}) => {
     await expect(bar).toBeHidden()
 })
 
-test('g n goes to Now, g m to My issues', async ({page}) => {
+test('g m goes to My issues', async ({page}) => {
     await open(page)
-    await page.keyboard.press('g')
-    await page.keyboard.press('n')
-    await expect(page).toHaveURL('/now')
     await page.keyboard.press('g')
     await page.keyboard.press('m')
     await expect(page).toHaveURL('/mine')

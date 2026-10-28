@@ -192,6 +192,6 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · Orr
         <template v-else>No releases yet. Make one, then set issues for it from their pages.</template>
       </p>
     </div>
-    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/now" back="Go to Now">No project “{{ route.params.project }}”</NotFound>
+    <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>
   </div>
 </template>

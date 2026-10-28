@@ -185,7 +185,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `ViewToolbar` | an issue list's toolbar (view, grouping, filters) |
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
-| `GettingStarted` | a new Orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on Now |
+| `GettingStarted` | a new Orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
 | `NotificationBell` | the bell in the header: agents' comments, and those and their proposals waiting on the owner |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
 | `OrreryMark` | the logo's mark, in `currentColor` |

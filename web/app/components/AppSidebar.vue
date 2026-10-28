@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type {Issue, Session} from '#shared/roadmap'
+import type {Session} from '#shared/roadmap'
 import {nameBesideProject} from '#shared/roadmap'
 
-// Every project with its progress and how many issues are started; Now across projects on top.
+// Every project with its progress and how many issues are started; My issues on top.
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const {byProject: schedulesByProject} = useSchedules()
@@ -21,9 +21,6 @@ watch(() => route.fullPath, () => {
     open.value = false
 })
 
-/** Top-level issues on the Now page. */
-const nowCount = computed(() => projects.value.reduce((sum, p) =>
-    sum + p.board.chunks.reduce((n, c) => n + c.tasks.filter((t: Issue) => isNow(t)).length, 0), 0))
 const urgentCount = computed(() => projects.value.reduce((sum, p) => sum + urgentIssues(p).length, 0))
 const {name: owner, load: loadOwner} = useOwner()
 const {unseenIn} = useUnseen()
@@ -92,7 +89,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       :class="open ? 'translate-x-0' : '-translate-x-full'"
   >
     <div class="flex h-12 items-center gap-2 px-3">
-      <NuxtLink to="/now" class="flex min-w-0 flex-1 items-center gap-2">
+      <NuxtLink to="/mine" class="flex min-w-0 flex-1 items-center gap-2">
         <div class="grid size-7 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent-300 to-accent-600 shadow-lg shadow-accent-600/30">
           <OrreryMark class="size-4 text-zinc-950" />
         </div>
@@ -120,16 +117,6 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
     </div>
 
     <nav class="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-3">
-      <NuxtLink
-          to="/now"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/now' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 4 14h7l-1 7 9-11h-7l1-7Z" /></svg>
-        <span class="flex-1">Now across projects</span>
-        <span v-if="nowCount" class="font-mono text-[11px] text-faint tabular-nums">{{ nowCount }}</span>
-      </NuxtLink>
-
       <NuxtLink
           to="/mine"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
@@ -306,7 +293,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       <div class="mt-1 hidden items-center justify-between px-1 text-[11px] text-faint md:flex">
         <span><KeyHint>j</KeyHint> <KeyHint>k</KeyHint> move</span>
         <span><KeyHint>↵</KeyHint> open</span>
-        <span><KeyHint>g</KeyHint> <KeyHint>n</KeyHint> <KeyHint>u</KeyHint></span>
+        <span><KeyHint>g</KeyHint> <KeyHint>m</KeyHint> home</span>
       </div>
       <p class="mt-1.5 px-2 font-mono text-[10px] text-faint">
         <a v-if="!dev" :href="`https://github.com/steffendybvik/orrery/blob/v${version}/CHANGELOG.md`" target="_blank" rel="noopener" class="hover:text-fg hover:underline" title="What's in this version">v{{ version }}</a>

@@ -13,7 +13,7 @@ const busy = ref(false)
 const KIND_LABEL: Record<Kind, {label: string, hint: string}> = {
     backlog: {label: 'Backlog', hint: 'someday, out of the active list'},
     todo: {label: 'Todo', hint: 'committed, not started'},
-    started: {label: 'Started', hint: 'being worked on; shows on Now'},
+    started: {label: 'Started', hint: 'being worked on'},
     done: {label: 'Done', hint: 'shipped; counts towards progress'},
     canceled: {label: 'Canceled', hint: "won't be done; out of progress"},
 }

@@ -19,7 +19,7 @@ if (environment) useHead({titleTemplate: title => `${environment} · ${title ?? 
       <h1 class="truncate text-sm font-medium">{{ missing ? 'Not found' : 'Something went wrong' }}</h1>
     </PageHeader>
     <div class="min-h-0 flex-1 overflow-y-auto">
-      <NotFound v-if="missing" reason="The link may be old, or mistyped." to="/now" back="Go to Now">
+      <NotFound v-if="missing" reason="The link may be old, or mistyped." to="/mine" back="Go to My issues">
         Nothing at <span class="font-mono">{{ route.path }}</span>
       </NotFound>
       <div v-else class="grid place-items-center px-4 py-24 text-center text-sm text-muted">
