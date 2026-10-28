@@ -7,8 +7,14 @@ test.beforeAll(async ({request}) => {
 })
 
 test('an unknown URL shows inside the app, and its way back works', async ({page}) => {
+    const logged: string[] = []
+    page.on('request', request => {
+        if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/events/log') logged.push(request.postData() ?? '')
+    })
     await page.goto('/nothing-here')
     await expect(page.getByRole('heading', {name: 'Nothing at /nothing-here'})).toBeVisible()
+    // An old or mistyped link isn't an error in Orrery, so the page doesn't log one (ORR-369).
+    expect(logged).toEqual([])
     await expect(page).toHaveTitle(/Not found · Orrery$/)
     await expect(page.getByRole('link', {name: 'Quarry'}).first()).toBeVisible()
     await page.getByRole('link', {name: 'Go to Now'}).click()
