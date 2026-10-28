@@ -2,7 +2,8 @@
 import type {Preset, Project} from '#shared/roadmap'
 
 // Writing a preset, new or one already made: its text, what a session is told, is the dialog, and takes the cursor;
-// its name and badge sit above it, the badge's picker behind its button. ⌘↵ saves, Esc closes.
+// its name and badge sit above it, the badge's picker behind its button. ⌘↵ saves, Esc closes. One Orrery ships, once
+// changed, can be reset to what it ships.
 const props = defineProps<{open: Preset | 'new' | null, project?: Project}>()
 const emit = defineEmits<{close: [], saved: []}>()
 const {load} = useOwner()
@@ -45,6 +46,7 @@ function save() {
     send(editing.value ? `/api/presets/${editing.value.id}` : list.value, editing.value ? 'PATCH' : 'POST', body)
 }
 const remove = () => editing.value && send(`/api/presets/${editing.value.id}`, 'DELETE')
+const reset = () => editing.value && send(`/api/presets/${editing.value.id}/reset`, 'POST')
 </script>
 
 <template>
@@ -79,6 +81,7 @@ const remove = () => editing.value && send(`/api/presets/${editing.value.id}`, '
     />
     <div class="flex items-center gap-2 border-t border-line pt-3">
       <UiButton v-if="editing" variant="danger-ghost" size="sm" @click="remove">Remove {{ editing.name }}</UiButton>
+      <UiButton v-if="editing?.default?.changed" size="sm" title="Put back the name, text and badge Orrery ships it with" @click="reset">Reset to default</UiButton>
       <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
         {{ saving ? 'Saving…' : editing ? 'Save preset' : 'Add preset' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>

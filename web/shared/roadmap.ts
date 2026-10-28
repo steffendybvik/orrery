@@ -554,6 +554,8 @@ export interface Preset {
      * its initials. */
     icon: string | null
     color: string | null
+    /** One Orrery ships: its key (shared/presets.ts), and whether it's been changed since, so it can be reset. */
+    default?: {key: string, changed: boolean}
     created_at: string
     updated_at: string
 }

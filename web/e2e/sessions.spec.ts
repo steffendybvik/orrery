@@ -175,14 +175,15 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     const writing = page.getByRole('dialog', {name: 'New preset'})
     await expect(writing.getByLabel('What it tells a session')).toBeFocused()
     await page.keyboard.type("You're reviewing: read the diff and comment, don't change code.")
-    await writing.getByLabel('Preset name').fill('Review')
+    // Named apart from the Review preset Orrery ships.
+    await writing.getByLabel('Preset name').fill('Close review')
     await writing.getByRole('button', {name: 'Add preset'}).click()
     // A preset is a role card with its badge, name and first line; clicking it opens it in the same dialog.
     await expect(writing).toBeHidden()
     await expect(page.locator('#presets')).toContainText("You're reviewing: read the diff")
-    await page.getByRole('button', {name: 'Edit Review'}).click()
-    const editing = page.getByRole('dialog', {name: 'Edit Review'})
-    await expect(editing.getByLabel('Preset name')).toHaveValue('Review')
+    await page.getByRole('button', {name: 'Edit Close review'}).click()
+    const editing = page.getByRole('dialog', {name: 'Edit Close review'})
+    await expect(editing.getByLabel('Preset name')).toHaveValue('Close review')
     // Its badge is its initials until an icon is picked, behind the badge's button; it's kept as the preset is saved.
     await editing.getByRole('button', {name: 'Badge', exact: true}).click()
     await editing.getByRole('button', {name: 'shield-check', exact: true}).click()
@@ -201,4 +202,27 @@ test('keeps a preset on the Sessions page and offers it in Start session', async
     // No launcher is running now, so kitchen can't be picked; the reason says so.
     await expect(dialog.getByRole('group', {name: 'Projects'})).toContainText('No launcher running')
     await page.keyboard.press('Escape')
+})
+
+test('ships presets that can be reset to default, and restored once removed', async ({page}) => {
+    await page.goto('/sessions#presets')
+    const presets = page.locator('#presets')
+    await expect(presets.getByRole('button', {name: 'Edit Security audit'})).toBeVisible()
+    // Changed, it can be reset to what Orrery ships.
+    await presets.getByRole('button', {name: 'Edit Debug an error'}).click()
+    const editing = page.getByRole('dialog', {name: 'Edit Debug an error'})
+    await expect(editing.getByRole('button', {name: 'Reset to default'})).toBeHidden()
+    await editing.getByLabel('What it tells a session').fill('Just look.')
+    await editing.getByRole('button', {name: 'Save preset'}).click()
+    await expect(presets).toContainText('Just look.')
+    await presets.getByRole('button', {name: 'Edit Debug an error'}).click()
+    await editing.getByRole('button', {name: 'Reset to default'}).click()
+    await expect(presets).toContainText("You're looking into an error from the event log")
+    // Removed, Restore defaults brings it back.
+    await presets.getByRole('button', {name: 'Edit Debug an error'}).click()
+    await editing.getByRole('button', {name: 'Remove Debug an error'}).click()
+    await expect(presets.getByRole('button', {name: 'Edit Debug an error'})).toBeHidden()
+    await presets.getByRole('button', {name: 'Restore defaults'}).click()
+    await expect(presets.getByRole('button', {name: 'Edit Debug an error'})).toBeVisible()
+    await expect(presets.getByRole('button', {name: 'Restore defaults'})).toBeHidden()
 })
