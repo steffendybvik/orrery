@@ -12,7 +12,7 @@ import type {Priority, Schedule, ScheduleRun} from '#shared/roadmap'
 import {CLOSED, PRIORITIES} from '#shared/roadmap'
 import {one} from './database'
 import type {Field, Input} from './input'
-import {badRequest, checkInput, forbidden, notFound} from './input'
+import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
 
@@ -167,16 +167,25 @@ export class Schedules {
         return ran
     }
 
-    /** Runs it now, whatever its time, and even while the last run's issue is open; the owner's, only by them. */
-    async runNow(project: string, id: number, actor = AGENT): Promise<ScheduleRun> {
+    /** Runs it now, whatever its time, and even while the last run's issue is open; the owner's, only by them.
+     * `instead` runs it in place of its next run, which is skipped (claimed as `runDue` claims one): a daily
+     * 09:00 run at 07:00 next runs tomorrow at 09:00, and a one-off is done. */
+    async runNow(project: string, id: number, actor = AGENT, instead = false): Promise<ScheduleRun> {
         const row = await this.row(project, id)
         if (row.owned && !actor.owner) throw forbidden(`Running schedule ${id}: it's the owner's; only they can run it`)
-        return await this.run(row, new Date(), true)
+        if (!instead) return await this.run(row, new Date(), true)
+        if (!row.enabled || !row.next_run) throw conflict(`Running schedule ${id} instead of its next run: it has none, so run it now`)
+        const skipped = new Date(row.next_run)
+        const next = row.at ? null : nextRun(row, skipped)
+        const claimed = (await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
+        if (!claimed) throw conflict(`Running schedule ${id} instead of its next run: that run has just started`)
+        return await this.run(row, new Date(), true, `instead of ${day(skipped, row.timezone)} ${time(skipped, row.timezone)}`)
     }
 
-    /** Makes the issue and asks the sessions; the run is recorded whatever happens. */
-    private async run(row: ScheduleRow, now: Date, manual: boolean): Promise<ScheduleRun> {
-        const record = async (outcome: ScheduleRun['outcome'], issue: string | null, note: string | null): Promise<ScheduleRun> => {
+    /** Makes the issue and asks the sessions; the run is recorded whatever happens, its note ending with `aside`. */
+    private async run(row: ScheduleRow, now: Date, manual: boolean, aside?: string): Promise<ScheduleRun> {
+        const record = async (outcome: ScheduleRun['outcome'], issue: string | null, said: string | null): Promise<ScheduleRun> => {
+            const note = [said, aside].filter(Boolean).join('; ') || null
             await this.db.run('INSERT INTO schedule_runs (schedule, at, outcome, issue, note) VALUES (?, ?, ?, ?, ?)', row.id, now.toISOString(), outcome, issue, note)
             this.onChange(row.project)
             const run = {at: now.toISOString(), outcome, issue: issue ?? undefined, note: note ?? undefined}
@@ -318,6 +327,11 @@ function nextRun(when: {cron: string | null, at: string | null, timezone: string
 /** The day a run is for, as its issue's title ends: `Mon 26 Oct`. */
 function day(at: Date, timezone: string): string {
     return new Intl.DateTimeFormat('en-GB', {timeZone: timezone, weekday: 'short', day: 'numeric', month: 'short'}).format(at).replace(',', '')
+}
+
+/** The time of day a run is at, as `09:00`. */
+function time(at: Date, timezone: string): string {
+    return new Intl.DateTimeFormat('en-GB', {timeZone: timezone, hour: '2-digit', minute: '2-digit'}).format(at)
 }
 
 function text(value: unknown): string | null {
