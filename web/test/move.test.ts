@@ -2,7 +2,8 @@ import {existsSync, mkdirSync, mkdtempSync, readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {DatabaseSync} from 'node:sqlite'
-import {beforeEach, describe, expect, it, vi} from 'vitest'
+import pg from 'pg'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Db} from '../server/utils/database'
 import {Store} from '../server/utils/store'
 
@@ -14,8 +15,8 @@ async function setUp() {
     const db = await import('../server/utils/db')
     const move = await import('../server/utils/move')
     const store = new Store(db.useDatabase())
-    await store.createProject({name: 'Larder', key: 'LAR'}, {name: 'skoll', owner: true})
-    await store.createIssue('larder', {title: 'Shelf labels'})
+    await store.createProject({name: 'Greenhouse', key: 'GRE'}, {name: 'skoll', owner: true})
+    await store.createIssue('greenhouse', {title: 'Shelf labels'})
     return {dir, db, move, store}
 }
 
@@ -24,6 +25,10 @@ const rebind = (db: Db) => void rebound.push(db)
 
 beforeEach(() => {
     rebound.length = 0
+})
+
+afterEach(() => {
+    vi.doUnmock('../server/utils/actor')
 })
 
 describe('moving the database', () => {
@@ -57,7 +62,7 @@ describe('moving the database', () => {
         expect(db.useDatabase()).toBe(rebound[0])
         expect(db.describeDatabase()).toMatchObject({kind: 'sqlite', where: target, movable: true, moved: true})
         expect(JSON.parse(readFileSync(join(dir, 'orrery.db.moved.json'), 'utf8'))).toMatchObject({database: target})
-        expect((await new Store(db.useDatabase()).listBoards()).map(p => p.id)).toEqual(['larder'])
+        expect((await new Store(db.useDatabase()).listBoards()).map(p => p.id)).toEqual(['greenhouse'])
 
         // A fresh start reads where it went.
         vi.resetModules()
@@ -97,5 +102,65 @@ describe('moving the database', () => {
         const {dir, move} = await setUp()
         await expect(move.moveDatabase(join(dir, 'new.db'), 'use', rebind)).rejects.toThrow(/isn't an Orrery's yet/)
         expect(rebound).toHaveLength(0)
+    })
+})
+
+describe('who may move it', () => {
+    /** move.ts loaded with the actor a request names, and a request to it from `host`. */
+    async function guard(owner: boolean, host: string, database?: string) {
+        const {move} = await setUp()
+        if (database) vi.stubGlobal('useRuntimeConfig', () => ({database, backupDir: ''}))
+        vi.doMock('../server/utils/actor', () => ({actorOf: async () => ({name: owner ? 'skoll' : 'claude', owner})}))
+        vi.resetModules()
+        const fresh = await import('../server/utils/move')
+        const event = {node: {req: {headers: {host}}}} as never
+        return {move, check: () => fresh.mayMove(event)}
+    }
+
+    async function status(call: () => Promise<unknown>): Promise<number | 'ok'> {
+        try {
+            await call()
+            return 'ok'
+        } catch (error) {
+            return (error as {statusCode: number}).statusCode
+        }
+    }
+
+    it('is the owner, on the machine Orrery runs on', async () => {
+        for (const host of ['localhost:9010', '127.0.0.1:9010', '[::1]:9010', 'orrery.localhost']) expect(await status((await guard(true, host)).check)).toBe('ok')
+    })
+
+    it('is never an agent, nor anyone reaching it by another address', async () => {
+        expect(await status((await guard(false, 'localhost:9010')).check)).toBe(403)
+        for (const host of ['192.168.1.20:9010', 'mac.lan', 'localhost.evil.com']) expect(await status((await guard(true, host)).check)).toBe(403)
+    })
+
+    it('is nobody while ORRERY_DATABASE names Postgres: it changes where that is set', async () => {
+        expect(await status((await guard(true, 'localhost:9010', 'postgres://u:p@db:5432/o')).check)).toBe(409)
+    })
+})
+
+describe.runIf(process.env.TEST_POSTGRES_URL)('moving to Postgres', () => {
+    it('copies everything into an empty database and runs on it, then sees it as the one it runs on', async () => {
+        const schema = `test_move_${Date.now().toString(36)}`
+        const admin = new pg.Client({connectionString: process.env.TEST_POSTGRES_URL})
+        await admin.connect()
+        await admin.query(`CREATE SCHEMA "${schema}"`)
+        const url = new URL(process.env.TEST_POSTGRES_URL!)
+        url.searchParams.set('options', `-c search_path=${schema}`)
+        const {db, move} = await setUp()
+        try {
+            expect((await move.checkDatabase(url.toString())).state).toBe('empty')
+            const {copied} = await move.moveDatabase(url.toString(), 'copy', rebind)
+            expect(copied).toMatchObject({projects: 1, issues: 1})
+            expect(db.describeDatabase()).toMatchObject({kind: 'postgres', moved: true})
+            if (url.password) expect(db.describeDatabase().where).not.toContain(`:${url.password}@`)
+            expect((await new Store(db.useDatabase()).listBoards()).map(p => p.id)).toEqual(['greenhouse'])
+            expect((await move.checkDatabase(url.toString())).state).toBe('current')
+        } finally {
+            await db.closeDb()
+            await admin.query(`DROP SCHEMA "${schema}" CASCADE`)
+            await admin.end()
+        }
     })
 })
