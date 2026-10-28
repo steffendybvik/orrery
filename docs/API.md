@@ -212,12 +212,13 @@ listening sessions each run, the first one free (see `POST …/focus`), with no 
 time a schedule makes an issue (its title plus the day, e.g.
 `Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
 the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
-is listening, the next to connect within a day gets it). With `skip_open` (the default) a run is skipped
+is listening, the next to connect within a day gets it). An agent's schedule the owner changes into a message or
+session one becomes theirs, so its runs aren't skipped. With `skip_open` (the default) a run is skipped
 while the last run's issue isn't done; with `only_if_changed`, a message run is skipped (`nothing changed`) when no
 issue or comment in the project changed since the last run it sent. Missed runs while Orrery was down run once when it's back.
 An `untrusted` message schedule, one whose session reads what others wrote (GitHub issues), never messages the project's
 sessions: each run has a launcher start a locked-down session for its message alone, or fails saying why (no launcher,
-Starting sessions off, the limit). That session's new issues are made proposals labelled `external`, and its other
+Starting sessions off, the limit). That session's new issues are made proposals labelled `external` (only that: labels it picks are dropped), and its other
 writes are refused (403), except comments on those proposals (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)).
 
 **Presets and sessions.** A message schedule's `presets` (ids of [presets](#presets) its project's sessions can have)

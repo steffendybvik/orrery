@@ -62,6 +62,12 @@ describe('the event log', () => {
         expect(event?.message).toBe('calling with {{secret:STRIPE}} failed')
         expect(event?.details).toEqual({url: 'postgres://orrery:…@db.example.com/orrery', nested: {auth: 'Bearer …'}})
         expect(redact('Basic dXNlcjpwYXNzd29yZA==')).toBe('Basic …')
+        // A password with no user, with an @ in it, or given as a setting.
+        expect(redact('postgres://:hunter22@db/orrery')).toBe('postgres://:…@db/orrery')
+        expect(redact('postgres://me:hun@ter22@db/orrery and more')).toBe('postgres://me:…@db/orrery and more')
+        expect(redact('postgres://me@db/orrery?sslmode=require&password=hunter22')).toBe('postgres://me@db/orrery?sslmode=require&password=…')
+        expect(redact("host=db user=me password='hunter 22' dbname=orrery")).toBe('host=db user=me password=… dbname=orrery')
+        expect(redact('host=db password=hunter22')).toBe('host=db password=…')
     })
 
     it('reads Advanced and the secrets once, and again only once told they changed', async () => {
