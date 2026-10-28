@@ -9,6 +9,7 @@ import {randomBytes} from 'node:crypto'
 import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
 import {EVERY} from './pool'
+import {scheduleRunning} from './schedules'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
  * catch up from; `minutes` how long it has, none until stopped; `tmux` names the tmux session it runs in;
@@ -38,6 +39,16 @@ export type LaunchEvent =
     | {type: 'clear', project: string, id: string}
     | {type: 'watch', project: string, id: string, terminal: TerminalApp}
     | {type: 'view', project: string, id: string}
+
+/** The schedule whose run started each launch, while it runs: what its session does as it stops is that run's doing,
+ * so a session schedule on `session.stopped` can't start itself again without end (ORR-422). */
+const causes = new Map<string, number>()
+
+/** Runs `note` as the launch's schedule run, when one started it, so what it records sets off no schedule. */
+export function asLaunch<T>(id: string, note: () => T): T {
+    const cause = causes.get(id)
+    return cause === undefined ? note() : scheduleRunning.run(cause, note)
+}
 
 /** Launches asked for whose session hasn't connected yet; one that never does is let go after a while.
  * `claimed` once a launcher has taken it on. */
@@ -146,6 +157,8 @@ export async function startLaunch(project: string, {issue, statuses, release, co
         throw error
     }
     const {at: _at, claimed: _claimed, ...launch} = held
+    const cause = scheduleRunning.getStore()
+    if (cause !== undefined) causes.set(id, cause)
     emit({type: 'launch', launch})
     return launch
 }
@@ -178,6 +191,7 @@ export async function startUntrusted(project: string, schedule: number, text: st
         throw error
     }
     const {at: _at, claimed: _claimed, ...launch} = held
+    causes.set(id, schedule)
     emit({type: 'launch', launch})
     return launch
 }
@@ -299,6 +313,7 @@ export function reportRunning(project: string, launches: {id: string, tmux: stri
 /** The launch has ended, whether or not its session ever connected: it no longer holds the project's place. */
 export function launchGone(id: string) {
     chatEnded(id)
+    causes.delete(id)
     pending.delete(id)
     reported.delete(id)
     stopping.delete(id)
@@ -315,7 +330,8 @@ const ASK_AGAIN_AFTER = 2 * 60 * 1000
  * (`minutes`, `idle_minutes`), but only while one is idle with nothing in progress and nothing waiting for it:
  * one that's busy is stopped once it's done, never halfway. One still not done well past its time (stuck on a
  * prompt, looping, never saying it's idle) is stopped anyway, `overdueAfter` its stop time. An untrusted run's session
- * has done its one piece of work once it has sat idle `UNTRUSTED_IDLE` minutes; a chat is left to the owner. Says the
+ * has done its one piece of work once it has sat idle `UNTRUSTED_IDLE` minutes, and is stopped at its stop time
+ * whatever it's doing; a chat is left to the owner. Says the
  * launches it stopped. */
 export async function stopDue(now = Date.now()): Promise<string[]> {
     const stopped: string[] = []
@@ -328,7 +344,8 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         const stopsAt = started.stops_at ? Date.parse(started.stops_at) : Infinity
         if (session.state !== 'idle' && stopsAt > now) continue
         if (!starts.has(session.project)) starts.set(session.project, await store.starts(session.project).catch(() => undefined))
-        const overdue = now - stopsAt >= overdueAfter(starts.get(session.project)?.minutes)
+        // An untrusted run's session is stopped on the dot, busy or not: its cap is a promise (ORR-422).
+        const overdue = now - stopsAt >= (started.untrusted ? 0 : overdueAfter(starts.get(session.project)?.minutes))
         if (session.state !== 'idle' && !overdue) continue
         const idleFor = started.untrusted ? UNTRUSTED_IDLE : starts.get(session.project)?.idle_minutes
         const timeUp = stopsAt <= now
