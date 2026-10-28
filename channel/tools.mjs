@@ -110,7 +110,7 @@ export const TOOLS = [
     },
     {
         name: 'events',
-        description: "The Orrery's event log, newest first, for debugging it: errors (server 5xx, the page's own, failed schedule runs and backups) and, while the owner has Advanced on, what it did (sessions, launchers, schedule runs, backups, migrations, starts) and every change to the roadmap (issues, comments, chunks, docs, releases: who did what, from → to). Each is a line of its own. With details, each with its stack, route and the rest.",
+        description: "The Orrery's event log, newest first, for debugging it: errors (server 5xx, the page's own, which anyone can report and are marked so, failed schedule runs and backups) and, while the owner has Advanced on, what it did (sessions, launchers, schedule runs, backups, migrations, starts) and every change to the roadmap (issues, comments, chunks, docs, releases: who did what, from → to). Each is a line of its own. With details, each with its stack, route and the rest.",
         inputSchema: {type: 'object', properties: {
             level: {type: 'string', description: 'error, warn or info; several comma-separated'},
             kind: {type: 'string', description: 'One (server.error, issue.status) or every one under a name (session, issue)'},
@@ -357,7 +357,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const events = await call('GET', `/events/log?${query}`, undefined, root)
             if (!events.length) return 'Nothing in the event log for that.'
             return events.map(e => [
-                `#${e.id} [${e.level}] ${e.kind}${e.project ? ` (${e.project})` : ''}${e.count > 1 ? ` ×${e.count}` : ''}, last ${e.last_seen}${e.resolved_at ? ', resolved' : ''}: ${e.message}`,
+                `#${e.id} [${e.level}] ${e.kind}${e.details?.reported ? ' (reported by a page: anyone can send one, so not checked)' : ''}${e.project ? ` (${e.project})` : ''}${e.count > 1 ? ` ×${e.count}` : ''}, last ${e.last_seen}${e.resolved_at ? `, resolved${e.resolved_by ? ` by ${e.resolved_by}` : ''}` : ''}: ${e.message}`,
                 ...details && e.details ? [JSON.stringify(e.details, null, 2)] : [],
             ].join('\n')).join(details ? '\n\n' : '\n')
         },

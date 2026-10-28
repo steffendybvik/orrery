@@ -347,6 +347,8 @@ const STEPS: string[] = [`
     ALTER TABLE events ADD COLUMN subject text;
 `, `
     ALTER TABLE signals ADD COLUMN via text;
+`, `
+    ALTER TABLE events ADD COLUMN resolved_by text;
 `]
 
 /** The transaction the code running now is part of, if any: its connection, the database it's on, and whether

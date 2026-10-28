@@ -49,6 +49,7 @@ interface EventRow {
     first_seen: string
     last_seen: string
     resolved_at: string | null
+    resolved_by: string | null
 }
 
 const DAY = 24 * 60 * 60 * 1000
@@ -215,13 +216,16 @@ export class EventLog {
         return rows.map(eventOf)
     }
 
-    /** Marks it dealt with, and its repeats not resolved yet: the next one like it is news again. */
-    async resolve(id: number): Promise<LoggedEvent> {
+    /** Marks it dealt with, and its repeats not resolved yet: the next one like it is news again. `by` is who resolved
+     * it, kept when it isn't the owner (ORR-420): the bell still shows one an agent resolved until the owner looks. */
+    async resolve(id: number, by?: {name: string, owner: boolean}): Promise<LoggedEvent> {
         const at = this.now().toISOString()
-        const row = await this.db.get<EventRow>('UPDATE events SET resolved_at = coalesce(resolved_at, ?) WHERE id = ? RETURNING *', at, id)
+        const who = by && !by.owner ? by.name : null
+        const row = await this.db.get<EventRow>(`UPDATE events SET resolved_by = CASE WHEN resolved_at IS NULL THEN ? ELSE resolved_by END,
+            resolved_at = coalesce(resolved_at, ?) WHERE id = ? RETURNING *`, who, at, id)
         if (!row) throw notFound(`No event ${id}`)
-        const repeats = await this.db.all<EventRow>(`UPDATE events SET resolved_at = ? WHERE resolved_at IS NULL AND level = ? AND kind = ?
-            AND coalesce(project, '') = ? AND message = ? RETURNING *`, at, row.level, row.kind, row.project ?? '', row.message)
+        const repeats = await this.db.all<EventRow>(`UPDATE events SET resolved_at = ?, resolved_by = ? WHERE resolved_at IS NULL AND level = ? AND kind = ?
+            AND coalesce(project, '') = ? AND message = ? RETURNING *`, at, who, row.level, row.kind, row.project ?? '', row.message)
         for (const repeat of repeats) this.onLogged(eventOf(repeat), false)
         const event = eventOf(row)
         this.onLogged(event, false)
@@ -308,5 +312,6 @@ function eventOf(row: EventRow): LoggedEvent {
         first_seen: row.first_seen,
         last_seen: row.last_seen,
         ...row.resolved_at ? {resolved_at: row.resolved_at} : {},
+        ...row.resolved_by ? {resolved_by: row.resolved_by} : {},
     }
 }
