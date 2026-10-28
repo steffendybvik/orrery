@@ -4,6 +4,7 @@
 import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {lastBackup, restoreBackup} from './backup'
 import {backupChoice, backupChoiceFile, backupDir, defaultBackupDir, inDocker} from './backup-choice'
+import {onHost} from './host-paths'
 import {renumberSync} from './renumber'
 import type {DatabaseInfo} from '#shared/roadmap'
 import type {Db} from './database'
@@ -668,6 +669,9 @@ const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
 `, `
     -- What an event in the log is about (ORR-378): the issue, release, chunk or doc a change to the roadmap was to.
     ALTER TABLE events ADD COLUMN subject TEXT;
+`, `
+    -- A message the owner's chat sent for them (ORR-397): \`chat\`, so it's shown as relayed.
+    ALTER TABLE signals ADD COLUMN via TEXT;
 `]
 
 let db: DatabaseSync | null = null
@@ -713,17 +717,24 @@ function saveDatabaseSetting(setting: string) {
 
 /** Where the data is, to show the owner: the SQLite file's full path, or the Postgres database without its password. */
 export function describeDatabase(): DatabaseInfo {
+    const config = useRuntimeConfig()
     const setting = databaseSetting()
     const dir = backupDir()
     const at = dir ? lastBackup(dir) : undefined
-    const backup = dir ? {backup: resolve(dir), ...at ? {backed_up_at: at} : {}} : {}
+    const base = String(config.public?.repoDir ?? '')
+    // Under Docker, where each is on the computer too (`/data` and `/backup` mean nothing there): ORR-399.
+    const backupOn = dir ? onHost(resolve(dir), '/backup', String(config.backupHost ?? ''), base) : {}
+    const backup = dir ? {
+        backup: resolve(dir), ...at ? {backed_up_at: at} : {},
+        ...backupOn.host ? {backup_host: backupOn.host} : {}, ...backupOn.volume ? {backup_volume: backupOn.volume} : {},
+    } : {}
     const how = movedFile() ? {movable: true, ...chosen ? {moved: true} : {}} : {}
     const choice = backupChoice()
     const settable = backupChoiceFile() ? {backups_settable: inDocker() ? 'switch' as const : 'folder' as const} : {}
     const backups = {...settable, ...choice?.on === false ? {backups_off: true} : {}, ...choice?.folder ? {backup_folder: choice.folder} : {},
         ...defaultBackupDir() ? {backup_default: defaultBackupDir()} : {}}
     if (isPostgres(setting)) return {kind: 'postgres', where: hidePassword(setting), ...how, ...backup, ...backups}
-    return {kind: 'sqlite', where: setting, ...how, ...backup, ...backups}
+    return {kind: 'sqlite', where: setting, ...onHost(setting, '/data', String(config.dataHost ?? ''), base), ...how, ...backup, ...backups}
 }
 
 /** A Postgres URL as the owner sees it: `user@host:port/name`, no password. */
