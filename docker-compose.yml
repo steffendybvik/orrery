@@ -49,6 +49,8 @@ services:
       # What /data and /backup are on this computer, the same as the volumes below, for App settings to show.
       NUXT_DATA_HOST: ${ORRERY_DATA:-orrery-data}
       NUXT_BACKUP_HOST: ${ORRERY_BACKUP:-orrery-backup}
+      # Set when ORRERY_BACKUP names a folder: without one, App settings says the backups stay on this computer.
+      NUXT_BACKUP_CHOSEN: ${ORRERY_BACKUP:+yes}
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
       NUXT_LISTEN_HOST: ${ORRERY_HOST:-127.0.0.1}
       NUXT_SECRET_KEY: ${ORRERY_SECRET_KEY:-}

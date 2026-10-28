@@ -35,7 +35,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_PORT` | the port on this machine | `9000` |
 | `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts); see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
-| `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best) | the `orrery-backup` volume |
+| `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best). Without it they stay on this computer, and orrery says so once, and in App settings | the `orrery-backup` volume |
 | `ORRERY_BACKUP_DATABASE` | a `postgres://` URL to back up into instead of the folder: an empty database, or this orrery's backup from before (see [Backups](#backups)) | none |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |

@@ -28,6 +28,9 @@ export default defineNuxtConfig({
         // name, so App settings shows where they are there. Compose sets NUXT_DATA_HOST and NUXT_BACKUP_HOST.
         dataHost: '',
         backupHost: '',
+        // Set (NUXT_BACKUP_CHOSEN, from compose) when ORRERY_BACKUP names a folder of the owner's, not the default: the
+        // default stays on this computer, which App settings says (ORR-448).
+        backupChosen: '',
         // Host names orrery answers to besides localhost and IP addresses, comma-separated (e.g. `orrery.lan`).
         // Override with NUXT_ALLOWED_HOSTS.
         allowedHosts: '',

@@ -459,6 +459,8 @@ export interface DatabaseInfo {
     backed_up_at?: string
     /** Why the latest backup failed and when, until one works again (ORR-448). */
     backup_failed?: {at: string, message: string}
+    /** In Docker, backups go to the default folder (ORRERY_BACKUP isn't set), on the same computer (ORR-448). */
+    backup_local?: true
     /** How big it is, in bytes: a SQLite file with its `-wal`, or the Postgres database; none when it can't be read. */
     size?: number
     /** The backup folder's files together, in bytes. */

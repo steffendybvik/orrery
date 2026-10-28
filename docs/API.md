@@ -332,7 +332,7 @@ the file's path, as orrery opens it) or `postgres` (`where` as `user@host:port/n
 folder it's backed up to, if any (a Postgres one as a SQLite snapshot). Under Docker, `host` is where the SQLite file is
 on the computer (from `ORRERY_DATA`, a relative one from the compose folder) or `volume` the Docker volume it's in, and
 `backup_host` / `backup_volume` the same for the backup folder (`ORRERY_BACKUP`); `where` and `backup` stay the paths
-inside the container. And `backed_up_at` when the latest backup there was made, and `backup_failed` (`{at, message}`) while the last try failed. `size` is how big it is in bytes (a SQLite file with
+inside the container. And `backed_up_at` when the latest backup there was made, and `backup_failed` (`{at, message}`) while the last try failed, and `backup_local` in Docker while the backups are in the default folder, on the same computer (`ORRERY_BACKUP` isn't set). `size` is how big it is in bytes (a SQLite file with
 its `-wal`, or `pg_database_size` on Postgres) and `backup_size` the backup folder's files together; each is left out when
 it can't be read. `movable` says the owner can move it (not when `ORRERY_DATABASE` names Postgres), and `moved` that it
 was moved there from App settings. `POST /backups` (the owner's) backs it up now and answers with `database`; 409 without
