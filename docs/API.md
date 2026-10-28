@@ -391,12 +391,12 @@ with review instructions in it.
 
 | | |
 |---|---|
-| `GET /projects/:project/launches/stream?dir=&every=1` | for the launcher, running in the folder `dir` (projects whose launchers share one are in one repo), with `every=1` where its channel serves every project (`*`): server-sent `launch` `{id, project, after, minutes?, tmux, context?, hears?}` (claim it, then start it with `hears` as its session's `ORRERY_HEAR`, then start it; no `minutes`: until stopped), `stop` `{id}` (the owner stopped it, or it's done and past its time or idle too long), `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through; `watch` `{id, terminal}`: the owner pressed Watch, so the launcher running that session opens a terminal on its machine attached to it, in that app; and `view` `{id}`: the owner is viewing that session's screen, so its launcher sends it (`POST …/screen`) about once a second until told nobody is |
+| `GET /projects/:project/launches/stream?dir=&every=1` | for the launcher, running in the folder `dir` (projects whose launchers share one are in one repo), with `every=1` where its channel serves every project (`*`): server-sent `launch` `{id, project, after, minutes?, tmux, context?, hears?, untrusted?, chat?}` (claim it, then start it with `hears` as its session's `ORRERY_HEAR`, then start it; no `minutes`: until stopped), `stop` `{id}` (the owner stopped it, or it's done and past its time or idle too long), `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through; `watch` `{id, terminal}`: the owner pressed Watch, so the launcher running that session opens a terminal on its machine attached to it, in that app; and `view` `{id}`: the owner is viewing that session's screen, so its launcher sends it (`POST …/screen`) about once a second until told nobody is |
 | `POST /projects/:project/launches` | `{issue?, statuses?, release?, presets?, instructions?, hears?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); with `statuses` (ids or kinds; `todo` and `started` when only `release` is sent) and `release`, from a focus made the same way on the whole project's issues in them (chunk `all`); `presets` (ids, the Orrery's or the project's) and `instructions` (text) give it context; `hears` (project ids) is what the session hears: the project alone, or it and others whose launchers run in the same folder, as one session (without it, what the repo's channel lists); 400 for another project's preset; 409 without the project's opt-in, a launcher or room under the limit, or for a project in `hears` not served from its folder |
 | `GET /projects/:project/launches` | `{launchers, folders, every, started, starting, total}`: whether a launcher is there, the folders its launchers run in, whether one serves every project (so a launch without `hears` hears them all), the sessions it started and has on their way, and `total`, those on every project, which the limit counts |
-| `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true`. An untrusted schedule's launch (`untrusted: true`) goes only to one that sends `?untrusted=yes`, saying it starts it locked down |
+| `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true`. An untrusted schedule's launch (`untrusted: true`) goes only to one that sends `?untrusted=yes`, saying it starts it locked down, and a chat's (`chat: true`) only to one that sends `?chat=yes`, saying it starts it able only to read and answer |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
-| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at?, context?, untrusted?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again, with the context they were given (a launch Orrery still knows keeps its own) |
+| `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at?, context?, untrusted?, chat?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted Orrery counts them as started again, with the context they were given (a launch Orrery still knows keeps its own) |
 | `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
 | `POST /projects/:project/launches/:launch/watch` | the session: the owner watching it; its launcher opens a terminal attached to it, in the app `GET /settings` names (`terminal`: `terminal`, `iterm`, `warp` or `ghostty`, set with `PATCH /settings {terminal}`; on Linux the system's own terminal); 409 when no launcher is running for the project |
 | `GET /projects/:project/launches/:launch/screen` | `{screen, at?}`: the owner viewing its screen, read only, polled about once a second; the launcher sends the tmux pane as text for as long as this is asked for, and `screen` is null until the first comes in; 409 when no launcher is running for the project |
@@ -410,6 +410,31 @@ listening; else whichever listening session is idle when it comes; else, with ev
 (`ORRERY_PROJECTS`) gets it only while none of the project's own is listening and idle. A schedule's message goes the same way. A focus on one session makes it the issue's session, unless another listening session has the issue started:
 then it stays with that one, and the session asked gets the 409 if it tries to start it. Each signal lists the sessions it reached in `delivered_to`
 (`POST /projects/:project/signals/:signal/delivered`, sent by the channel).
+
+### Chats
+
+The owner's **chat** is a Claude session started for them to talk to on the page, with no terminal. It answers
+questions about the project (from its code, read only, and the roadmap) and makes issues and comments when asked;
+it works on nothing. It counts towards nothing either: it needs only the project's launcher, not starts turned on or
+room under the limit; it isn't one of the started sessions the limit or `GET …/launches` counts; it isn't in the
+event log; and pages leave it out of their session lists (its session lists with `started.chat`). It runs until the
+owner ends it.
+
+Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools but `start_issue`, `finish_issue`,
+`update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and two of its own: `reply`, its answer, the
+only way what it says reaches the page, and `image`, which shows it an image the owner pasted. It hears only its chat's
+messages: no focus, no message to every session, and nobody listening never wakes it. Its writes are held to making
+issues (with nobody on them, in the status new issues start in), commenting and replying. A chat is kept in memory
+while it runs, so it's gone after Orrery restarts.
+
+| | |
+|---|---|
+| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}]}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message |
+| `POST /chats` | `{project}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's); 409 without a launcher for the project |
+| `GET /chats/:chat` | the chat; 404 once it has ended |
+| `POST /chats/:chat/messages` | `{text, images?}` → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted; it goes to the chat's session alone |
+| `POST /chats/:chat/replies` | `{text}` → 201 the message: the chat's session answering, in Markdown; only that session's (`Orrery-Chat: yes` and `Orrery-Launch: <the chat's id>`) |
+| `POST /chats/:chat/end` | 204: the owner ending it; its session is stopped |
 
 ### What sessions hear
 
@@ -457,7 +482,8 @@ Security audit, Review, Debug an error), added once to each Orrery as it starts,
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
 make these calls for it. An untrusted schedule's session (its launcher sets `ORRERY_UNTRUSTED=yes`) sends
 `Orrery-Untrusted: yes` on every write and `untrusted=yes` on its streams, and is held to raising proposals and
-commenting on them, whether or not Orrery knows its launch. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
+commenting on them, whether or not Orrery knows its launch. A chat's session (`ORRERY_CHAT=yes`) sends `Orrery-Chat: yes`
+and `Orrery-Launch: <its chat>` on every call and `chat=yes` on its streams, and is held to what a [chat](#chats) does. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
 to the issue, so the owner's comments on it go to that session. Such a write to an issue another session has
 started (in progress or in review), while that session is still listening, is refused with a 409: starting it, a
 comment or an edit alike, so pick another issue. Closing it (done, canceled) is any session's, and the owner's
@@ -532,6 +558,7 @@ fields are refused, so typos show); 403 for the owner's things; 404; 409 for a t
 - `listeners` and `launchers` (`{project, count}`): sessions listening for signals, and launchers that start them
 - `sessions` (`{project, sessions}`), `signal` (one sent), and `notice` (a comment for the owner's bell)
 - `schedules` (`{project, schedules}`, after a change or a run) and `secrets` (the list, never a value)
+- `chat` (the chat, with `ended` on its last): one of the owner's chats changed
 - `logged` (`{event, fresh}`): the [event log](#event-log) recorded or resolved one; `fresh` when it's a row of its own
 
 ## Example
