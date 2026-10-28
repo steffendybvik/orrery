@@ -4,7 +4,8 @@ import {withoutClosed, withoutNotes} from '#shared/patch'
 // on; `?notes=0` leaves the issues' notes out (ORR-439), and `?closed=0` the closed issues with no open sub-issue (ORR-447).
 export default defineEventHandler(async event => {
     const query = getQuery(event)
-    const project = withRev(await useStore().project(param(event, 'project')))
+    const label = revLabel()
+    const project = label(await useStore().project(param(event, 'project')))
     const lighter = query.notes === '0' ? withoutNotes(project) : project
     return query.closed === '0' ? withoutClosed(lighter) : lighter
 })
