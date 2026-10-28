@@ -24,7 +24,8 @@ case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → Yo
    `node channel/orrery-launcher.mjs --install` again, or `launchctl kickstart -k gui/$(id -u)/orrery.launcher` on
    a Mac. A launcher older than the server says so in the event log (`launcher.outdated`) when it's refused a launch.
    Since 1.0.0-rc.10 the Sessions page marks a session whose channel is older than the server, and a launcher on older
-   code. The launcher service restarts itself on the new code once this folder is pulled and it has no session running.
+   code. The launcher service restarts itself on the new code once this folder is pulled (a new version, or a change
+   within one) and it has no session running.
 
 ## Settings
 
