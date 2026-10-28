@@ -803,6 +803,9 @@ export async function switchDatabase(setting: string, next: SqliteDb | PostgresD
     return before
 }
 
+/** The most the `-wal` file keeps once written through, in bytes. */
+export const WAL_LIMIT = 4 * 1024 * 1024
+
 /** Opens the file and brings its schema up to date (or only `upTo` steps, for tests), copying it first, when there are
  * steps to take, to `snapshot` (`orrery-pre-<version>.db`) with the step it's at added (`-step<n>.db`), unless there's
  * a copy there already. */
@@ -810,8 +813,10 @@ export function openDb(path: string, upTo = MIGRATIONS.length, snapshot?: string
     if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
     const opened = new DatabaseSync(path)
     try {
-        // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes).
-        opened.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL')
+        // The wait first: in `nuxt dev` the server it replaces may still have the file (backing it up as it goes). The
+        // `-wal` beside it is cut back to WAL_LIMIT once written through, or it stays as big as the largest write it
+        // ever took (a VACUUM: the whole file again, ORR-464).
+        opened.exec(`PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA journal_size_limit = ${WAL_LIMIT}`)
         migrated = migrate(opened, path, upTo, snapshot) ?? migrated
     } catch (error) {
         opened.close()
