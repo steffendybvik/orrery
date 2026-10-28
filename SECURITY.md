@@ -28,7 +28,14 @@ the connection comes rather than the name the request gives (its `Host`, which t
 Outside Docker the connection has to come from a loopback address. In Docker every request reaches the container
 through its bridge, so orrery can't tell; there both work only while it's published on loopback (`ORRERY_HOST`
 left at 127.0.0.1), and with `ORRERY_HOST=0.0.0.0` they're refused, and done outside the app instead
-(`pnpm orrery:copy` and `ORRERY_DATABASE`, `ORRERY_BACKUP`).
+(`pnpm orrery:copy` and `ORRERY_DATABASE`, `ORRERY_BACKUP`). A reverse proxy on the same machine makes every request
+come from loopback, whoever sent it, so a request that carries a proxy's headers (`Forwarded`, `X-Forwarded-For`,
+`-Host`, `-Proto`, `X-Real-IP`) is refused too (ORR-457). A proxy that strips them, or that passes on requests
+without saying so, defeats this check: don't put one in front of orrery that forwards from other machines without
+asking for a login.
+
+Errors the page reports (`POST /api/events/log`) are taken from anyone, a few a minute from each sender (who it
+says it is, and where from) and a hundred from all of them, so one script can't use up what the page may send.
 
 ## Your agents act on what's in orrery
 

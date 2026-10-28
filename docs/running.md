@@ -15,7 +15,7 @@ case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → Yo
    until you're happy with the new version.
 2. **Rebuild**: `git pull` in this folder (or nothing, when `ORRERY_BUILD_CONTEXT` names a branch on GitHub), then
    `docker compose up -d --build` again. The database moves to the new schema by itself. On SQLite it keeps a copy
-   as it was first, `orrery-pre-<version>.db`, in the backup folder (beside the database when backups are off).
+   as it was first, `orrery-pre-<version>-step<n>.db` (`<n>` the schema step it was at, so each step taken under one version gets its own), in the backup folder (beside the database when backups are off).
    An older version won't open a database a newer one has moved on: it stops and says so. To go back, restore that
    copy.
 3. **The channel and the launcher** run from this folder on your machine, not in the container, so they're as new as
@@ -53,7 +53,7 @@ when it's over two days old, and says why when the last try failed.
 
 Every copy is written beside the one it replaces and checked (SQLite's `quick_check`) before it takes that one's place.
 A copy that fails the check is let go, the one before stays, and the failure goes in the event log as `backup.failed`.
-The copy taken before an upgrade (`orrery-pre-<version>.db`) is made the same way. If it can't be made, orrery stops
+The copy taken before an upgrade (`orrery-pre-<version>-step<n>.db`) is made the same way. If it can't be made, orrery stops
 with the reason instead of upgrading a database it has no copy of.
 
 ### Restoring
@@ -81,7 +81,7 @@ won't take it says so). **How often** backs up a few seconds after a change (as 
 minutes, hour or day, and then only when something changed. Each backup writes the whole database again, so a folder
 that syncs (iCloud Drive) uploads all of it each time: back up less often to upload less. **Daily copies kept**
 (14 unless changed, up to 365) is most of what the folder takes on disk. Of the copies taken before an upgrade
-migrates the database (`orrery-pre-<version>.db`), the three newest stay. The choice is kept beside the database, in
+migrates the database (`orrery-pre-<version>-step<n>.db`), the three newest stay. The choice is kept beside the database, in
 `orrery.db.backups.json`. In Docker they always go
 to `/backup`, whose folder on the machine is `ORRERY_BACKUP`. When `ORRERY_DATABASE` names Postgres, backups are set
 only as orrery starts.

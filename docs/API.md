@@ -593,7 +593,7 @@ and 5000 of the rest, each the oldest going first.
   has looked, so a session can't hide an error it caused.
 - `POST /events/log {message, stack?, page?, build?, kind?}` → 201: the page reporting its own error (`page.error`, or
   another `kind` under `page.`). Anyone can send one, so it's kept with `details.reported: true`, which the `events`
-  tool shows as unchecked, and at most 5 of a kind and 20 in all are taken a minute: a 429 past that.
+  tool shows as unchecked, and at most 5 of a kind and 20 in all a minute are taken from each sender (its `Orrery-Actor`, or none for the page, and where it comes from), and 100 from all of them: a 429 past that.
 
 A session reads it with the channel's `events` tool (`details` for stacks) and marks what it fixed with
 `resolve_event`, so the owner can hand Claude a problem to debug.
