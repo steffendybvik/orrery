@@ -1,6 +1,6 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatMessage, ChatSetting} from '#shared/roadmap'
-import {CHAT_SETTINGS, settingValue} from '#shared/roadmap'
+import type {Chat, ChatIssues, ChatMessage, ChatSetting} from '#shared/roadmap'
+import {CHAT_ISSUES, CHAT_SETTINGS, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {SETTINGS_FIELDS} from '../store/schema'
 import {checkInput} from './input'
@@ -36,10 +36,18 @@ function changed(chat: Chat) {
     projectEvents.emit('chat', chat)
 }
 
-/** Starts a chat on the project: its session is on its way, and the chat is there to write in at once. */
-export async function openChat(project: string): Promise<Chat> {
+/** Where `issues` says a chat's issues land; Todo when it says nothing. */
+export function chatIssuesOf(issues: unknown): ChatIssues {
+    if (issues === undefined || issues === null) return 'todo'
+    if (!CHAT_ISSUES.includes(issues as ChatIssues)) throw badRequest(`"issues" is ${CHAT_ISSUES.map(i => `"${i}"`).join(' or ')}: where the issues the chat makes land`)
+    return issues as ChatIssues
+}
+
+/** Starts a chat on the project, its issues landing in `issues`: its session is on its way, and the chat is there to
+ * write in at once. */
+export async function openChat(project: string, issues: ChatIssues = 'todo'): Promise<Chat> {
     const launch = await startChat(project, {presets: [], text: chatBrief(project)})
-    const chat: Chat = {id: launch.id, project, started_at: new Date().toISOString(), messages: []}
+    const chat: Chat = {id: launch.id, project, started_at: new Date().toISOString(), messages: [], issues}
     chats.set(chat.id, chat)
     changed(chat)
     return chat
@@ -136,6 +144,17 @@ export async function answerSetting(id: string, message: number, allow: boolean,
         ? `(I allowed your request: ${label} is now ${settingValue(request.to)}, saved.)`
         : `(I denied your request to set ${label} to ${settingValue(request.to)}: nothing changed.)`, actor)
     return asked
+
+}
+
+/** The owner choosing where the chat's issues land from now on. */
+export function landChatIssues(id: string, issues: ChatIssues): Chat {
+    const chat = chatOf(id)
+    if (chat.issues !== issues) {
+        chat.issues = issues
+        changed(chat)
+    }
+    return chat
 }
 
 /** The chat's session answering (its `reply` tool). */
@@ -191,10 +210,11 @@ export function messaged(actor: Actor, project: string, session: string) {
     useEventLog().note({level: 'info', kind: 'session.messaged', project, message: `${actor.name}${actor.via ? ` (via ${actor.via})` : ''} messaged ${session}`})
 }
 
-/** An issue as a chat's session asks to make it: on the roadmap as asked, but with nobody on it and in the status
- * new issues start in, since it doesn't take work up. */
-export function asChatIssue(body: unknown): unknown {
+/** An issue as the chat `chat` (its `Orrery-Launch`) asks to make it: on the roadmap as asked, but with nobody on it
+ * and in the first status of the kind the owner picked for the chat (Todo, or Backlog), whatever status it asks for,
+ * since a chat doesn't take work up or finish it. A proposal stays one, for the owner to decide as before. */
+export function asChatIssue(body: unknown, chat?: string): unknown {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return body
-    const {status: _status, assignee: _assignee, ...rest} = body as Record<string, unknown>
-    return rest
+    const {status: _status, plan: _plan, assignee: _assignee, ...rest} = body as Record<string, unknown>
+    return rest.proposal === 'pending' ? rest : {...rest, status: (chat && chats.get(chat)?.issues) || 'todo'}
 }

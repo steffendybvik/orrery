@@ -430,17 +430,18 @@ only way what it says reaches the page, `image`, which shows it an image the own
 `message_session`, which message other sessions for the owner when they ask in the chat (never on its own; for more
 than one session, once the owner has said go to its draft), and `update_settings`, which asks the owner to change one
 App setting (below). It hears only its chat's messages: no focus, no message to
-every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in the
-status new issues start in), commenting, replying, messaging sessions and asking to change a setting. A message it sends goes as the owner's,
+every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
+or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), commenting, replying, messaging sessions and asking to change a setting. A message it sends goes as the owner's,
 with `via: "chat"` on the signal; the session hears it ending `(Sent by the owner through their chat.)`, and the
 Sessions page and the event log (`session.messaged`) say it came through the chat. A chat is kept in memory
 while it runs, so it's gone after Orrery restarts.
 
 | | |
 |---|---|
-| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}], problem?}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message. `problem` says why its session can't start (a launcher too old to start a chat was refused it: restart the launcher), until the session connects |
-| `POST /chats` | `{project}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's); 409 without a launcher for the project |
+| `GET /chats` | the chats running, newest first: `{id, project, started_at, messages: [{id, from, text, images, at}], issues, problem?}`, `from` being `owner` or `claude`, and `images` the ids of uploads pasted with a message. `issues` is where the issues it makes land, `todo` or `backlog` (the first status of that kind), whatever status its session sends. `problem` says why its session can't start (a launcher too old to start a chat was refused it: restart the launcher), until the session connects |
+| `POST /chats` | `{project, issues?}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's), its issues landing in `issues` (`todo` by default, or `backlog`); 409 without a launcher for the project |
 | `GET /chats/:chat` | the chat; 404 once it has ended |
+| `PATCH /chats/:chat` | `{issues}` → the chat: the owner choosing where the issues it makes land from now on, `todo` or `backlog`; its own session can't (403) |
 | `POST /chats/:chat/messages` | `{text, images?, page?}` → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted and the page they're on, `{path, title?}` (a path on this Orrery, starting with `/`; 400 otherwise); it goes to the chat's session alone, ending `(The owner is on <path>: <title>.)` |
 | `POST /chats/:chat/replies` | `{text}` → 201 the message: the chat's session answering, in Markdown; only that session's (`Orrery-Chat: yes` and `Orrery-Launch: <the chat's id>`) |
 | `POST /chats/:chat/requests` | `{setting, value, why?}` → 201 the message: the chat's session asking to change one App setting, `tracker`, `tint`, `restrict_proposals`, `handle` or `advanced` (any other is a 400, as is a value the settings wouldn't take), shown in the chat as `request: {setting, from, to, state: "asked"}` with Allow and Deny. Nothing is saved yet; asking again for the same setting expires the one before. Only that session's |

@@ -105,7 +105,7 @@ async function send() {
         <label
             v-for="p in heard"
             :key="p.id"
-            class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]"
             :class="projects.includes(p.id) ? 'bg-accent-500/10 text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
         >
           <input v-model="projects" type="checkbox" name="project" :value="p.id" class="accent-accent-500">

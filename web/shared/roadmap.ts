@@ -517,6 +517,24 @@ export function taskUrl(tracker: string | null, task: string): string | undefine
     return tracker ? tracker.replace('{id}', encodeURIComponent(task)) : undefined
 }
 
+/** A tracker link as `tracker` keeps it (ORR-404): one with `{id}` as it is; a link into a known tracker's workspace
+ * (a team, project, view or a task of it, as an owner pastes one) as that workspace's task link; null for any other
+ * link without `{id}`, which would open the same page for every task. */
+export function trackerLinkOf(sent: string): string | null {
+    const link = sent.trim()
+    if (link.includes('{id}')) return link
+    let url: URL
+    try {
+        url = new URL(link)
+    } catch {
+        return null
+    }
+    const workspace = url.pathname.split('/').filter(Boolean)[0]
+    // linear.app/<workspace>/…: its tasks are at /<workspace>/issue/<id>.
+    if (url.hostname === 'linear.app' && workspace) return `https://linear.app/${workspace}/issue/{id}`
+    return null
+}
+
 /** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-steffendybvik: DOC-132`. */
 export const issueRef = (handle: string, id: string) => `orrery-${handle.toLowerCase()}: ${id}`
 
@@ -565,7 +583,14 @@ export interface Chat {
     ended?: boolean
     /** Why its session can't start, while that holds: a launcher too old to start a chat refused it (ORR-383). */
     problem?: string
+    /** Where the issues it makes land, the first status of that kind, whatever its session asks: the owner picks it
+     * beside Send (ORR-408). */
+    issues: ChatIssues
 }
+
+/** Where a chat's issues land: Todo or Backlog. */
+export type ChatIssues = 'todo' | 'backlog'
+export const CHAT_ISSUES: ChatIssues[] = ['todo', 'backlog']
 
 /** A message in a chat: the owner's (with the ids of the uploads they pasted) or the session's answer, in Markdown. */
 export interface ChatMessage {

@@ -188,3 +188,45 @@ test('asks the owner to change a setting, and saves it only on their Allow', asy
         launcher.stop()
     }
 })
+
+// Where the chat's issues land (ORR-408): the owner picks Todo or Backlog beside Send, before the chat starts or
+// during it, and it's remembered for the next one. The server holds the chat to it, whatever status its session asks
+// for, and the session can't change it.
+test('lands the issues it makes in Todo or Backlog, as picked beside Send', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const chatSays = (chat: string) => ({'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat})
+    const statusOf = async (id: string) => (await (await request.get(`/api/projects/larder/issues/${id}`)).json()).status
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await page.goto('/p/larder')
+        await page.getByRole('button', {name: 'Chat', exact: true}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        // Todo by default; Backlog picked before the first message, and kept through a reload.
+        await pane.getByRole('button', {name: 'New issues → Todo'}).click()
+        await page.getByRole('menuitem', {name: 'New issues → Backlog'}).click()
+        await page.reload()
+        await page.getByRole('button', {name: 'Chat', exact: true}).click()
+        await expect(pane.getByRole('button', {name: 'New issues → Backlog'})).toBeVisible()
+
+        await pane.getByLabel('Message').fill('File one for the jam jars')
+        await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        const [chat] = await (await request.get('/api/chats')).json()
+        expect(chat.issues).toBe('backlog')
+        const jars = await (await request.post('/api/projects/larder/issues', {data: {title: 'Jam jars', status: 'todo'}, headers: chatSays(chat.id)})).json()
+        expect(await statusOf(jars.id)).toBe('backlog')
+
+        // Switched to Todo while it runs: what it makes next lands there, whatever it asks for.
+        await pane.getByRole('button', {name: 'New issues → Backlog'}).click()
+        await page.getByRole('menuitem', {name: 'New issues → Todo'}).click()
+        await expect.poll(async () => (await (await request.get('/api/chats')).json())[0].issues).toBe('todo')
+        const lids = await (await request.post('/api/projects/larder/issues', {data: {title: 'Jar lids', status: 'in-progress'}, headers: chatSays(chat.id)})).json()
+        expect(await statusOf(lids.id)).toBe('todo')
+
+        // Its session can't pick for the owner.
+        expect((await request.patch(`/api/chats/${chat.id}`, {data: {issues: 'backlog'}, headers: chatSays(chat.id)})).status()).toBe(403)
+        await request.post(`/api/chats/${chat.id}/end`, {headers: OWNER})
+    } finally {
+        launcher.stop()
+    }
+})

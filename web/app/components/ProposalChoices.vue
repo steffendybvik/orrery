@@ -43,7 +43,7 @@ function toggle(choice: Choice, option: string) {
       <label
           v-for="option in choice.options"
           :key="option.key"
-          class="group flex cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 ring-1 transition-colors hover:bg-hover"
+          class="group flex items-start gap-2.5 rounded-lg px-2.5 py-2 ring-1 transition-colors hover:bg-hover"
           :class="ticked(choice, option.key) ? 'bg-panel ring-accent-500/40' : 'ring-line'"
       >
         <input
