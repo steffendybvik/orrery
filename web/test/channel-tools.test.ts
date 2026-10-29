@@ -317,6 +317,28 @@ describe("the channel's tools", () => {
         expect(text).not.toMatch(/ignore-your-rules|ignore your rules|Cupboards/i)
     })
 
+    it("give an issue's open sub-issues, a count of the finished, and only its latest comments and open questions in full (ORR-547)", async () => {
+        const task = (n: number, status: string, kind = status) => ({id: `GRE-${n}`, title: `Task ${n}`, status, kind})
+        const comment = (n: number, more: object = {}) => ({created_by: 'claude', created_at: `2026-10-29T08:${String(n).padStart(2, '0')}:00Z`, body: `\nComment ${n}\nand more of it`, ...more})
+        const comments = [comment(1, {asks: 'decision', answered: false}), comment(2, {asks: 'feedback', answered: true}), ...[3, 4, 5, 6, 7, 8, 9].map(n => comment(n))]
+        const {call} = harness({
+            'GET /issues/GRE-1': {body: issue({tasks: [task(2, 'todo'), task(3, 'done'), task(4, 'done'), task(5, 'canceled'), task(6, 'shipped', 'done')]})},
+            'GET /issues/GRE-1/comments': {body: comments},
+            'GET /issues/GRE-1/pulls': {body: {pulls: []}},
+        })
+        const shown = JSON.parse((await call('issue', {id: 'GRE-1'})).text)
+        expect(shown.sub_issues).toEqual(['GRE-2 [todo] Task 2'])
+        expect(shown.finished_sub_issues).toBe('2 done, 1 canceled, 1 shipped')
+        // The unanswered question and the last five in full; the rest by their first line.
+        expect(shown.comments.map((c: {body?: string, first_line?: string}) => c.body ? 'full' : c.first_line)).toEqual(['full', 'Comment 2', 'Comment 3', 'Comment 4', 'full', 'full', 'full', 'full', 'full'])
+        expect(shown.comments[0]).toEqual({by: 'claude', at: '2026-10-29T08:01:00Z', asks: 'decision', answered: false, body: '\nComment 1\nand more of it'})
+        expect(shown.older_comments).toBe('3 shown by their first line: comments: "all" gives them in full')
+        // Every one in full when asked.
+        const all = JSON.parse((await call('issue', {id: 'GRE-1', comments: 'all'})).text)
+        expect(all.comments.every((c: {body?: string}) => c.body)).toBe(true)
+        expect(all).not.toHaveProperty('older_comments')
+    })
+
     it('leave no comment when finishing is refused', async () => {
         const {call, calls} = harness({'PATCH /issues/GRE-1': {status: 403, body: {message: 'Not yours'}}, 'POST /issues/GRE-1/comments': {body: {id: 1}}})
         expect(await call('finish_issue', {id: 'GRE-1', comment: 'Built'})).toEqual({error: true, text: 'orrery said no: Not yours'})
