@@ -5,8 +5,8 @@
 //
 // With a GITHUB_TOKEN secret each repo is one GraphQL query a minute: its open PRs, and those most recently merged or
 // closed. Without one GitHub allows 60 requests an hour, so it's two REST lists every ten minutes, which say nothing of
-// a PR's state but do say it merged or closed. A repo's first poll only records: turning it on tells nothing of the PRs
-// already open. A rate limit holds the repo until GitHub's reset (shared with the pages); a refused token holds it an
+// a PR's state but do say it merged or closed. A repo's first poll only records, as does its first with a token after
+// polls without one: turning it on, or adding a token, tells nothing of the PRs already open. A rate limit holds the repo until GitHub's reset (shared with the pages); a refused token holds it an
 // hour, said once in the event log until a poll works again.
 import type {PullState} from '#shared/roadmap'
 import {PULL_NEEDS} from '#shared/roadmap'
@@ -214,13 +214,16 @@ export class PullPoll {
                     this.note({level: 'warn', kind: 'github.refused', message: `GitHub turned down the ${GITHUB_SECRET} secret for ${repo}: pull requests aren't polled until it's set again with a token that works (tried again in an hour)`})
                 }
             }
-            await this.store.db.run(`INSERT INTO pull_repos (repo, polled_at, token, error) VALUES (?, ?, 0, ?)
-                ON CONFLICT (repo) DO UPDATE SET error = excluded.error`, repo, new Date(this.now()).toISOString(), message)
+            // Said on a repo it has read before; one it never has stays unread, so its first good poll still only records (ORR-525).
+            await this.store.db.run('UPDATE pull_repos SET error = ? WHERE repo = ?', message, repo)
             return
         }
         this.told401.delete(repo)
         const at = new Date(this.now()).toISOString()
-        const first = !await this.store.db.get('SELECT 1 FROM pull_repos WHERE repo = ?', repo)
+        // Only records: the repo's first poll, and its first with a token after polls without one, which couldn't tell a
+        // PR's state, checks or reviews, so every PR already conflicting or failing would read as news (ORR-525).
+        const before = await this.store.db.get<{token: number}>('SELECT token FROM pull_repos WHERE repo = ?', repo)
+        const first = !before || (token && !before.token)
         const kept = new Map((await this.store.db.all<KeptPull>('SELECT * FROM pull_states WHERE repo = ?', repo)).map(k => [k.number, k]))
         const changes: PullChange[] = []
         const seen = new Set<number>()
