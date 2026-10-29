@@ -8,9 +8,12 @@ import StartSessionDialog from '~/components/StartSessionDialog.vue'
 
 // Starting sessions as the owner: why a project can't, what each project's launch is sent (the scope, the orrery's
 // presets ticked and only its own, its project alone to hear), one session for projects served from one repo, none
-// ticked for one session hearing every project, and a refused one staying ticked to try again.
+// ticked for one session hearing every project, a refused one staying ticked to try again, and several of each at once,
+// as many as the limit has room for.
 let sent: {project: string, actor?: string, body: unknown}[] = []
 let refusing: string[] = []
+/** Sessions each project starts before refusing the rest, when it's set. */
+let room: Record<string, number> = {}
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 registerEndpoint('/api/presets', () => [{id: 1, project: null, name: 'Reviewer', text: 'Review it first'}])
 const STATES: Record<string, object> = {
@@ -24,7 +27,7 @@ for (const [n, id] of Object.keys(STATES).entries()) {
     registerEndpoint(`/api/projects/${id}/presets`, () => [{id: 1, project: null, name: 'Reviewer', text: ''}, {id: 11 + n, project: id, name: `${id} hand`, text: ''}])
     registerEndpoint(`/api/projects/${id}/launches`, {method: 'GET', handler: () => STATES[id]})
     registerEndpoint(`/api/projects/${id}/launches`, {method: 'POST', handler: async event => {
-        if (refusing.includes(id)) {
+        if (refusing.includes(id) || sent.filter(s => s.project === id).length >= (room[id] ?? Infinity)) {
             setResponseStatus(event, 409)
             return {message: 'orrery already has its 2 sessions at once'}
         }
@@ -43,8 +46,9 @@ const mounted: VueWrapper[] = []
 beforeEach(() => {
     sent = []
     refusing = []
+    room = {}
     useRoadmaps().projects.value = [
-        project('greenhouse', {limit: 2, minutes: 30}), project('pantry', {limit: 2}), project('cellar', {limit: 2}), project('loft', {limit: 1}), project('attic', null), project('scullery', {limit: 2}),
+        project('greenhouse', {limit: 4, minutes: 30}), project('pantry', {limit: 2}), project('cellar', {limit: 2}), project('loft', {limit: 1}), project('attic', null), project('scullery', {limit: 2}),
     ]
     useAppSettings().settings.value.statuses = [
         {id: 'backlog', name: 'Backlog', kind: 'backlog', color: 'slate'},
@@ -167,5 +171,47 @@ describe('StartSessionDialog', () => {
         expect((wrapper.find('input[value="greenhouse"]').element as HTMLInputElement).checked).toBe(false)
         expect((wrapper.find('input[value="pantry"]').element as HTMLInputElement).checked).toBe(true)
         expect(useStartSession().target.value).not.toBeNull()
+    })
+
+    it('starts several of the same, as many as the limit has room for', async () => {
+        const {wrapper} = await mount('greenhouse')
+        const count = () => wrapper.find('input[aria-label="Sessions to start"]')
+        await vi.waitFor(() => expect(count().attributes('max')).toBe('4'))
+        await count().setValue(9)
+        await count().trigger('change')
+        expect((count().element as HTMLInputElement).value).toBe('4')
+        await count().setValue(3)
+        expect(wrapper.find('button[type=submit]').text()).toContain('Start 3 sessions')
+        await wrapper.find('form').trigger('submit')
+        await started(3)
+        expect(sent.map(s => s.body)).toEqual(Array(3).fill({statuses: ['todo', 'in-progress'], presets: [], hears: ['greenhouse']}))
+    })
+
+    it('splits the room among the projects picked, and starts one on a single issue', async () => {
+        const {wrapper} = await mount('greenhouse')
+        const count = () => wrapper.find('input[aria-label="Sessions to start"]')
+        await vi.waitFor(() => expect(count().exists()).toBe(true))
+        // Pantry's limit is 2, so a session each leaves room for one of each.
+        await wrapper.find('input[value="pantry"]').setValue(true)
+        await vi.waitFor(() => expect(count().exists()).toBe(false))
+        await wrapper.find('input[value="pantry"]').setValue(false)
+        await vi.waitFor(() => expect(count().exists()).toBe(true))
+        // A session on one issue is never joined by another.
+        await wrapper.find('button[aria-label="Issue"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').length).toBeGreaterThan(1))
+        // Headless UI picks on the press.
+        await wrapper.findAll('[role="option"]').find(o => o.text().includes('greenhouse-1 ·'))!.trigger('mousedown', {button: 0})
+        await vi.waitFor(() => expect(count().exists()).toBe(false))
+    })
+
+    it('says how many started when the limit refuses the rest', async () => {
+        room = {greenhouse: 1}
+        const {wrapper} = await mount('greenhouse')
+        const count = () => wrapper.find('input[aria-label="Sessions to start"]')
+        await vi.waitFor(() => expect(count().exists()).toBe(true))
+        await count().setValue(3)
+        await wrapper.find('form').trigger('submit')
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Greenhouse: 1 of 3 started, then orrery already has its 2 sessions at once'))
+        expect(sent).toHaveLength(1)
     })
 })

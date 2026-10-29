@@ -8,8 +8,9 @@ import type {LaunchState} from '~/composables/useLaunchState'
 // project, where a launcher's channel serves them all (`*`). On one project it can focus on an open issue;
 // else it works through a scope, the issues of the statuses ticked (and of a release), most urgent first, or with
 // nothing ticked waits for your work. It can be given more context: presets (the orrery's, and each project's own)
-// and your own words, which go with every signal to it. Their launchers start them in tmux, for each project's
-// minutes or until stopped; the Sessions page shows them arriving.
+// and your own words, which go with every signal to it. Several at once can be started of each, as many as the limit
+// has room for, each taking a different issue of the scope (a session on one issue is never joined by another).
+// Their launchers start them in tmux, for each project's minutes or until stopped; the Sessions page shows them arriving.
 const {target, close} = useStartSession()
 const {launchers, sessions, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
@@ -17,6 +18,8 @@ const {load} = useOwner()
 const {places} = useStatuses()
 const router = useRouter()
 
+/** The most sessions to start at once of each, when the limit isn't known yet. */
+const MOST = 9
 const chosen = ref<string[]>([])
 const issue = ref('')
 /** The statuses ticked for the scope; the open work that's ready to begin with. */
@@ -31,6 +34,8 @@ const picked = ref<number[]>([])
 const instructions = ref('')
 /** One session for every project picked, rather than one each, when they share a repo. */
 const together = ref<'one' | 'each'>('one')
+/** How many sessions to start of each: every project's, or the one for all. */
+const count = ref(1)
 
 /** Whether a launcher is there and how many are running, for each project that lets orrery start sessions. */
 async function loadStates() {
@@ -48,6 +53,7 @@ watch(target, now => {
     issue.value = release.value = failed.value = instructions.value = ''
     picked.value = []
     together.value = 'one'
+    count.value = 1
     statuses.value = open.value.filter(p => p.kind === 'todo' || p.kind === 'started').map(p => p.id)
     loadStates()
 }, {immediate: true})
@@ -126,6 +132,21 @@ const ways = computed(() => [{value: 'one' as const, label: `One session for all
  * one now where its channel serves them all. */
 const everywhere = computed(() => projects.value.length ? undefined : ordered.value.find(p => !why(p) && states.value[p.id]?.every))
 
+/** The sessions one of the count starts: one for all, or one for every project picked. */
+const launches = computed(() => everywhere.value || oneSession.value ? 1 : Math.max(projects.value.length, 1))
+/** The most of each that can start now: one on a single issue, else as many as the limit has room for, which counts
+ * the sessions on every project. */
+const most = computed(() => {
+    if (issue.value) return 1
+    const asked = everywhere.value ? [everywhere.value] : projects.value
+    const room = Math.min(...asked.map(p => {
+        const state = states.value[p.id]
+        return p.starts && state ? p.starts.limit - state.total : Infinity
+    }))
+    return Number.isFinite(room) ? Math.max(Math.floor(room / launches.value), 1) : MOST
+})
+watch(most, now => count.value = Math.min(count.value, now))
+
 const ready = computed(() => !busy.value && (projects.value.length
     ? projects.value.every(p => !why(p) && !!states.value[p.id])
     : !!everywhere.value))
@@ -148,34 +169,25 @@ async function start() {
         ...own,
     })
     const refused = new Map<string, string>()
-    if (everywhere.value) {
-        // Without `hears`, so it hears what its channel serves: every project. Nothing ticked, so no work is set.
-        const {id, name} = everywhere.value
-        try {
-            await $fetch(`/api/projects/${encodeURIComponent(id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: {presets: picked.value, ...own}})
-        } catch (error) {
-            refused.set(id, `${name}: ${errorMessage(error)}`)
+    // The count of them through the project's launcher, stopping at the first refused, as the rest would be too.
+    const launch = async (id: string, name: string | null, sent: object) => {
+        for (let n = 0; n < count.value; n++) {
+            try {
+                await $fetch(`/api/projects/${encodeURIComponent(id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: sent})
+            } catch (error) {
+                refused.set(id, `${name ? `${name}: ` : ''}${n ? `${n} of ${count.value} started, then ` : ''}${errorMessage(error)}`)
+                return
+            }
         }
     }
+    // Without `hears`, so it hears what its channel serves: every project. Nothing ticked, so no work is set.
+    if (everywhere.value) await launch(everywhere.value.id, everywhere.value.name, {presets: picked.value, ...own})
     if (oneSession.value) {
         // Started from the first project's launcher, hearing every one picked, with every preset ticked.
         const first = projects.value[0]?.id ?? ''
-        try {
-            await $fetch(`/api/projects/${encodeURIComponent(first)}/launches`, {
-                method: 'POST', headers: {'Orrery-Actor': actor},
-                body: {...body(first), presets: picked.value, hears: projects.value.map(p => p.id)},
-            })
-        } catch (error) {
-            refused.set(first, errorMessage(error))
-        }
+        await launch(first, null, {...body(first), presets: picked.value, hears: projects.value.map(p => p.id)})
     }
-    for (const p of oneSession.value ? [] : projects.value) {
-        try {
-            await $fetch(`/api/projects/${encodeURIComponent(p.id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: {...body(p.id), hears: [p.id]}})
-        } catch (error) {
-            refused.set(p.id, `${p.name}: ${errorMessage(error)}`)
-        }
-    }
+    for (const p of oneSession.value ? [] : projects.value) await launch(p.id, p.name, {...body(p.id), hears: [p.id]})
     busy.value = false
     if (refused.size) {
         // Those that started are on their way; only the refused stay ticked, to try again (all of them, for one session).
@@ -300,8 +312,12 @@ async function start() {
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
       <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
-      <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ busy ? 'Starting…' : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+      <label v-if="most > 1" class="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-faint" :title="`At most ${most} under the limit`">
+        <input v-model.number="count" type="number" min="1" :max="most" aria-label="Sessions to start" class="h-8 w-14 field" @change="count = Math.min(Math.max(Math.floor(count) || 1, 1), most)">
+        <template v-if="launches > 1">each, {{ count * launches }} in all</template>
+      </label>
+      <UiButton type="submit" variant="primary" size="md" :class="most > 1 ? '' : 'ml-auto'" :disabled="!ready">
+        {{ busy ? 'Starting…' : count > 1 ? `Start ${count} sessions` : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>
