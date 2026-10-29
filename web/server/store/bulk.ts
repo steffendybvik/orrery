@@ -1,13 +1,14 @@
 // Many issues at once, and what moves or deletes an issue with its sub-issues.
 import type {Choice, Decision, Picks} from '#shared/roadmap'
 import type {Input} from '../utils/input'
-import {badRequest, checkInput, forbidden} from '../utils/input'
+import {badRequest, checkInput} from '../utils/input'
 import {describePicks, resolvePicks} from '../utils/choices'
 import {UPSERT_ISSUE_ALIAS} from '../utils/renumber'
 import type {BulkResult, IssueDetail, Actor} from './schema'
 import {BULK_FIELDS, AGENT, DECISION_FIELDS, DECIDED, stamp} from './schema'
 import {CommentStore} from './comments'
 import {known} from '#shared/known'
+import {ownerOnly} from '../utils/permission'
 
 export abstract class BulkStore extends CommentStore {
     /** Runs `work` for each issue on its own, so one refusal doesn't stop the rest, and says each one's outcome. */
@@ -108,7 +109,7 @@ export abstract class BulkStore extends CommentStore {
     async decide(project: string, id: string, body: unknown, actor = AGENT): Promise<IssueDetail> {
         id = await this.issueId(project, id)
         const row = await this.issueRow(project, id)
-        if (!actor.owner) throw forbidden(`Deciding on ${id} is the owner's call; send Orrery-Actor: <owner>`)
+        ownerOnly(actor, 'proposals.decide')
         if (!row.proposal) throw badRequest(`${id} isn't a proposal; make it one with PATCH {"proposal": "pending"}`)
         const input = checkInput(body ?? {}, DECISION_FIELDS)
         const decision = input.decision as Decision

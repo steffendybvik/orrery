@@ -191,26 +191,20 @@ describe("a working session's column", () => {
         },
     }
 
-    // A rule a route or a util holds rather than the store, read where it's held.
-    const HELD_IN: Record<string, [string, string][]> = {
-        'secrets.write': [['server/utils/secrets.ts', 'Only the owner sets secrets']],
-        'secrets.egress': [['server/utils/secrets.ts', 'may only go to']],
-        'database.write': [
-            ['server/utils/backup-choice.ts', 'Only the owner sets the backups'],
-            ['server/utils/move.ts', 'Only the owner moves the database'],
-        ],
-    }
+    /** Every file under server/, read once. */
+    const sources = (dir = 'server'): string[] => readdirSync(dir, {withFileTypes: true}).flatMap(e => e.isDirectory() ? sources(join(dir, e.name)) : [readFileSync(join(dir, e.name), 'utf8')])
+    const server = sources().join('\n')
 
     /** Whether every route of the row asks `authorize` for it (ORR-512). */
     const authorized = (p: Permission) => p.routes.every(route => readFileSync(routeFile(route)!, 'utf8').includes(`authorize(event, '${p.id}')`))
+    /** Whether the store or a util refuses by the row, owner-only or within its limits. */
+    const held = (p: Permission) => server.includes(`ownerOnly(actor, '${p.id}')`) || server.includes(`refusedFor('${p.id}'`)
 
     it('holds for every row', async () => {
         for (const p of PERMISSIONS) {
             const probe = PROBES[p.id]
-            const held = HELD_IN[p.id]
-            expect(probe || held || authorized(p), `${p.id} has nothing that checks it`).toBeTruthy()
+            expect(probe || held(p) || authorized(p), `${p.id} has nothing that checks it`).toBeTruthy()
             if (probe) await probe()
-            for (const [file, said] of held ?? []) expect(readFileSync(file, 'utf8'), `${p.id}: ${file}`).toContain(said)
         }
     })
 })
@@ -250,11 +244,11 @@ describe('authorize', () => {
         }
     })
 
-    it('is asked only for rows the table has', () => {
+    it('is asked only for rows the table has, by the routes, the store and the utils', () => {
         const files = (dir: string): string[] => readdirSync(dir, {withFileTypes: true}).flatMap(e => e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)])
         const ids = new Set(PERMISSIONS.map(p => p.id))
-        for (const file of files('server/api')) {
-            for (const [, id] of readFileSync(file, 'utf8').matchAll(/authorize\(event, '([^']+)'\)/g)) expect(ids.has(id!), `${file}: ${id}`).toBe(true)
+        for (const file of files('server')) {
+            for (const [, id] of readFileSync(file, 'utf8').matchAll(/(?:authorize\(event, |ownerOnly\(actor, |refusedFor\()'([a-z][^']*)'/g)) expect(ids.has(id!), `${file}: ${id}`).toBe(true)
         }
     })
 })
