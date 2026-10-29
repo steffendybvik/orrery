@@ -137,6 +137,12 @@ orrery didn't start it with. A launcher's claim on a session waiting to start co
 was given as it connected (ORR-443), so a program posting claims can't take a launch and keep it from starting. Anything
 that can open a launcher stream is a launcher, though, and gets a token like any other.
 
+**Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
+there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the
+cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". As with Watch and
+Stop, though, the owner is a name, not a password: whoever can reach orrery can press Allow, so a session's
+permission prompts are only as safe as who can reach orrery ([above](#who-can-reach-it)).
+
 ### The owner's chat
 
 The chat on the page writes as `claude`, like any agent, under the same rules: it makes and changes issues and

@@ -82,6 +82,14 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse')).toEqual([])
     })
 
+    it('says what it asks permission for while it waits, and forgets it once it goes on', () => {
+        const report = (event: string, message?: string) => sessions.report({id: 'a', project: 'greenhouse', event, message})
+        expect(report('Notification', 'Claude needs your permission to use Bash')?.asks).toBe('Claude needs your permission to use Bash')
+        expect(report('PreToolUse')?.asks).toBeUndefined()
+        expect(sessions.report({id: 'b', project: 'greenhouse', event: 'Notification', message: 'Claude needs your permission to use Edit'})?.asks).toBe('Claude needs your permission to use Edit')
+        expect(sessions.report({id: 'c', project: 'greenhouse', event: 'Notification', message: 'Claude is waiting for your input'})?.asks).toBeUndefined()
+    })
+
     it('keeps the time its state began until the state changes', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
         const first = sessions.report({id: 'a', project: 'greenhouse', event: 'UserPromptSubmit'})!
