@@ -80,13 +80,14 @@ export function useChat() {
         }
     }
 
-    async function send(text: string, images: string[]) {
+    /** Sends the owner's message, or a run of them held and sent together (`text` as their parts), as one. */
+    async function send(text: string | string[], images: string[]) {
         if (!chat.value || chat.value.ended) return false
         failed.value = ''
         try {
             // The page's tab title, without the app's name it ends in.
             const title = document.title.replace(/\s*·\s*orrery$/, '')
-            await $fetch(`/api/chats/${chat.value.id}/messages`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {text, images, page: {path: location.pathname + location.search, title}}})
+            await $fetch(`/api/chats/${chat.value.id}/messages`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {...Array.isArray(text) ? {parts: text} : {text}, images, page: {path: location.pathname + location.search, title}}})
             return true
         } catch (error) {
             failed.value = errorMessage(error, 'send')

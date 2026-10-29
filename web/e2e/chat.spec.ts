@@ -489,3 +489,56 @@ test("clears its session's context on /clear, marking the cut and keeping what w
         launcher.stop()
     }
 })
+
+// A run of messages (ORR-517): Enter holds each under the box, and they go together, as one, once the owner stops
+// typing for a moment; ⌘/Ctrl-Enter sends at once, and ✕ takes one back.
+test('holds a run of messages and sends them together, at once on ⌘-Enter', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        await page.goto('/p/larder')
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        const box = pane.getByLabel('Message')
+        await box.fill('what about')
+        await box.press('Enter')
+        await box.fill('the jam')
+        await box.press('Enter')
+        const held = pane.getByRole('group', {name: 'Held to send together'})
+        await expect(held).toContainText('what about')
+        await expect(held).toContainText('the jam')
+        await expect(held).toContainText('after you stop typing')
+        // Taken back before it goes, it's in the box again.
+        await box.fill('oops')
+        await box.press('Enter')
+        await held.getByRole('button', {name: 'Take back: oops'}).click()
+        await expect(box).toHaveValue('oops')
+        await box.fill('')
+
+        // Once the owner stops typing, both go as one message, still shown as two.
+        await expect.poll(() => launcher.said.text, {timeout: 8000}).toContain('"chat":true')
+        await expect(held).toHaveCount(0)
+        const [chat] = await (await request.get('/api/chats')).json()
+        const after = launcher.said.text.match(/"after":(\d+)/)![1]
+        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-run&name=e2e-run&started=${chat.id}&chat=yes&after=${after}&format=text`)
+        // One message (the text stream puts it on one line).
+        await expect.poll(() => session!.said.text).toContain('(to you): what about the jam (The owner is on')
+        expect(session.said.text).not.toContain('oops')
+        expect((await (await request.get(`/api/chats/${chat.id}`)).json()).messages[0]).toMatchObject({text: 'what about\n\nthe jam', parts: ['what about', 'the jam']})
+        await expect(pane.getByText('what about', {exact: true})).toBeVisible()
+        await expect(pane.getByText('the jam', {exact: true})).toBeVisible()
+
+        // ⌘-Enter (Ctrl-Enter) sends at once, with no wait.
+        await box.fill('and the honey?')
+        const sent = Date.now()
+        await box.press('ControlOrMeta+Enter')
+        await expect.poll(() => session!.said.text).toContain('and the honey?')
+        expect(Date.now() - sent).toBeLessThan(1500)
+        await request.post(`/api/chats/${chat.id}/end`, {headers: OWNER})
+    } finally {
+        session?.stop()
+        launcher.stop()
+    }
+})

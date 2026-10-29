@@ -63,6 +63,17 @@ describe("the owner's chat", () => {
             await expect(chats.say('c1c2c3c4c5c6', 'Hm', [], owner, page)).rejects.toMatchObject({statusCode: 400})
     })
 
+    it('sends a run of messages held together as one, and keeps its parts (ORR-517)', async () => {
+        await chats.openChat('greenhouse')
+        const said = await chats.say('c1c2c3c4c5c6', undefined, [], owner, undefined, [' what about ', '', 'the shelves in GRE-4 '])
+        expect(messages).toEqual([{project: 'greenhouse', target: 'launch-c1c2c3c4c5c6', text: 'what about\n\nthe shelves in GRE-4'}])
+        expect(said).toMatchObject({from: 'owner', text: 'what about\n\nthe shelves in GRE-4', parts: ['what about', 'the shelves in GRE-4']})
+        // One part is just a message.
+        expect(await chats.say('c1c2c3c4c5c6', undefined, [], owner, undefined, ['and?'])).not.toHaveProperty('parts')
+        await expect(chats.say('c1c2c3c4c5c6', undefined, [], owner, undefined, ['ok', 3])).rejects.toMatchObject({statusCode: 400})
+        await expect(chats.say('c1c2c3c4c5c6', undefined, [], owner, undefined, [' '])).rejects.toMatchObject({statusCode: 400})
+    })
+
     it('refuses an empty message, an image that is no upload, and an empty answer', async () => {
         await chats.openChat('greenhouse')
         await expect(chats.say('c1c2c3c4c5c6', ' ', [], owner)).rejects.toMatchObject({statusCode: 400})

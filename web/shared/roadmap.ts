@@ -664,6 +664,8 @@ export interface ChatMessage {
     text: string
     images: string[]
     at: string
+    /** The owner's run of messages sent together (ORR-517), each as they wrote it; `text` is them joined by blank lines. */
+    parts?: string[]
     /** The session asking to change an App setting, which waits on the owner's Allow. */
     request?: ChatRequest
     /** The session asking to make or change a schedule, which waits on the owner's Allow too. */
