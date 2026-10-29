@@ -104,29 +104,36 @@ let holdTimer: ReturnType<typeof setTimeout> | undefined
 /** Counts each restart of the wait, so the draining bar starts over. */
 const holds = ref(0)
 
+/** What's held couldn't go (no launcher, or the server said no): it waits for Send now rather than trying every few
+ * seconds on its own (ORR-530). */
+const stuck = ref(false)
+
 /** Starts the wait over, from now: what's held goes once it runs out. */
 function restartHold() {
     clearTimeout(holdTimer)
-    if (!held.value.length) return
+    if (!held.value.length || stuck.value) return
     holds.value++
     holdTimer = setTimeout(() => void flush(), HOLD_MS)
 }
 
-/** Sends what's held as one message, starting the chat first when there's none yet; what's held stays if it can't go. */
-async function flush() {
+/** Sends what's held as one message, starting the chat first when there's none yet: whether all of it went. What's held
+ * stays if it can't go, and waits for Send now. */
+async function flush(): Promise<boolean> {
     clearTimeout(holdTimer)
-    if (!held.value.length || sending.value || uploading.value) return
+    if (!held.value.length) return true
+    if (sending.value || uploading.value) return false
     const run = held.value
     sending.value = true
     if (chat.value?.ended) fresh()
     const texts = run.map(m => m.text).filter(Boolean)
     const ids = run.flatMap(m => m.images.map(i => i.id))
-    if ((chat.value || await start()) && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)) {
-        held.value = held.value.filter(m => !run.includes(m))
-    }
+    const went = !!(chat.value || await start()) && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)
+    if (went) held.value = held.value.filter(m => !run.includes(m))
+    stuck.value = !went
     sending.value = false
     // Held while that went: their wait starts now.
     restartHold()
+    return went && !held.value.length
 }
 
 /** Takes a held message back before it goes: into the box when the box is empty. */
@@ -134,6 +141,7 @@ function takeBack(key: number) {
     const message = held.value.find(m => m.key === key)
     if (!message) return
     held.value = held.value.filter(m => m !== message)
+    if (!held.value.length) stuck.value = false
     if (!draft.value.trim() && !images.value.length) {
         draft.value = message.text
         images.value = message.images
@@ -143,13 +151,13 @@ function takeBack(key: number) {
 }
 
 /** Holds what's in the composer to go with the rest (`now`: sends it all at once). A slash command goes at once, after
- * what's held; `/clear` clears the running chat's context instead, and with none running there's nothing to clear. */
+ * what's held, and waits in the box while that can't go; `/clear` clears the running chat's context instead, and with
+ * none running there's nothing to clear. */
 async function submit(now = false) {
     const text = draft.value.trim()
     if (uploading.value) return
     if (/^\/[a-z][\w-]*(\s|$)/i.test(text) && !images.value.length) {
-        await flush()
-        if (sending.value) return
+        if (!await flush()) return
         sending.value = true
         if (text === '/clear') {
             if (!chat.value || chat.value.ended || await clear()) draft.value = ''
@@ -425,10 +433,10 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
         </div>
         <div class="flex w-full items-center gap-2 text-[11px] text-faint" aria-live="polite">
           <span class="relative h-0.5 flex-1 overflow-hidden rounded-full bg-line">
-            <span v-if="!sending" :key="holds" class="absolute inset-0 animate-drain origin-right rounded-full bg-accent-500 motion-reduce:hidden" :style="{animationDuration: `${HOLD_MS}ms`}" />
+            <span v-if="!sending && !stuck" :key="holds" class="absolute inset-0 animate-drain origin-right rounded-full bg-accent-500 motion-reduce:hidden" :style="{animationDuration: `${HOLD_MS}ms`}" />
           </span>
-          <span>{{ sending ? 'Sending…' : `Sends ${HOLD_MS / 1000} s after you stop typing` }}</span>
-          <button type="button" class="text-accent-600 hover:underline disabled:opacity-50 dark:text-accent-400" :disabled="sending" @click="flush()">Send now</button>
+          <span>{{ sending ? 'Sending…' : stuck ? "Couldn't send: held until you try again" : `Sends ${HOLD_MS / 1000} s after you stop typing` }}</span>
+          <button type="button" class="text-accent-600 hover:underline disabled:opacity-50 dark:text-accent-400" :disabled="sending" @click="flush()">{{ stuck ? 'Try again' : 'Send now' }}</button>
         </div>
       </div>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">

@@ -542,3 +542,43 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         launcher.stop()
     }
 })
+
+// A run that can't go (ORR-530): no launcher, so the chat can't start. It's tried once, then held until the owner
+// tries again, and a slash command waits behind it rather than going first.
+test("holds a run that couldn't go until the owner tries again, and keeps a slash command behind it", async ({page, request, baseURL}) => {
+    await endChats(request)
+    await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(0)
+    const starts: string[] = []
+    page.on('request', r => {
+        if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/chats') starts.push(r.url())
+    })
+    await page.goto('/p/larder')
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const box = pane.getByLabel('Message')
+    await box.fill('what about the jam')
+    await box.press('Enter')
+    const held = pane.getByRole('group', {name: 'Held to send together'})
+    await expect(held).toContainText("Couldn't send", {timeout: 5000})
+    // Tried once, not again every few seconds.
+    await page.waitForTimeout(4500)
+    expect(starts).toHaveLength(1)
+    // A slash command stays in the box while the run ahead of it can't go.
+    await box.fill('/compact')
+    await box.press('Enter')
+    await expect(box).toHaveValue('/compact')
+    expect(starts).toHaveLength(2)
+    await box.fill('')
+
+    // With a launcher, Try again sends the run.
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await held.getByRole('button', {name: 'Try again'}).click()
+        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        await expect(held).toHaveCount(0)
+        await endChats(request)
+    } finally {
+        launcher.stop()
+    }
+})
