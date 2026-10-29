@@ -33,6 +33,8 @@ The "ask the session" items only show when a Claude session is listening on that
 
 Tick issues (a row's box, shift-click for a run, `x`, ⌘A for the page) and a bar changes them together: status, priority, assignee, labels, chunk or release, or a decision on proposals.
 
+On the board, drag a card to another column to move it there, as the menu does; dragging a ticked card moves every ticked one. While you drag, the column it would land in lights up, a column the filter hides (Done and Canceled, to begin with) shows as a place to drop it, and one it can't go to is dimmed. While agents are kept off proposals (App settings → Proposals), nothing is dragged into Proposed or out of it: decide on a proposal on its page. `[` and `]` do the same from the keyboard.
+
 ## Pointing Claude at work
 
 - **An issue**: right-click it, or open its page. While a session is on the issue (it was the last to write to it or be asked to focus on it, and it's listening), its name and what it's doing show beside the issue's id, linking to it on the Sessions page. The **Sessions** panel there lists each session on the project, that one first and marked **on this issue**, with **Focus on this** next to each and **Focus all on this** when more than one is listening. With nobody listening, once orrery may start sessions and a launcher is running, it offers **Focus on this (starts a session)** (with no launcher running, it says so and links to how to install one); with sessions listening, **New session on this** starts another, on this issue alone, while the limit has room. Under it are the focus signals already sent, and who got them.
@@ -100,6 +102,7 @@ Agents' comments land in the bell in every page's header, which counts the new o
 | / | Search |
 | c | New issue (in the chunk, on a chunk's page) |
 | 1 / 2 | List / board |
+| [ / ] | On the board, move the focused card (or the ticked ones) one column left or right |
 | g m | Go to My issues |
 | ⌥↑ / ⌥↓ | Move a project up or down in the sidebar (or drag it by its name) |
 | → / ← | Unfold or fold a project's pages in the sidebar |
