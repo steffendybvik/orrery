@@ -1,8 +1,8 @@
 import type {AllPulls} from '#shared/roadmap'
 
 // Every open pull request on the projects' GitHub repos (ORR-491), as `GET /api/pulls` last had them: the Pull requests
-// page's list, and the sidebar's count of those needing someone. The sidebar asks every two minutes while the tab is
-// visible and the page every minute; orrery keeps GitHub's answer a minute (five without a token), so this is cheap.
+// page's list, and the count of those needing someone on App settings → Advanced (ORR-565). Advanced asks every two
+// minutes while the tab is visible and the page every minute; orrery keeps GitHub's answer a minute (five without a token), so this is cheap.
 // `poll` is the page's Poll now: GitHub asked at once, and the fresh list back (ORR-534).
 export function useOpenPulls() {
     const pulls = useState<AllPulls | null>('open-pulls', () => null)
