@@ -120,3 +120,22 @@ test("a new issue's labels: one made by typing it, and ticked", async ({page, re
     await expect(dialog).toBeHidden()
     await expect.poll(async () => (await api(request, 'get', '/issues')).find((i: {title: string}) => i.title === 'Bank the kiln')?.labels).toEqual(['kiln'])
 })
+
+// A picker that takes several (labels here) stays open while each pick saves, keeping the one before, and its Esc
+// closes it without leaving the issue's page (ORR-602).
+test('picks two labels in a row, and Esc closes the picker, not the page', async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Pour the bells'})
+    await page.goto(`/p/foundry/issues/${issue.id}`)
+    const side = page.locator('aside')
+    await side.getByRole('button', {name: 'Labels'}).click()
+    const find = side.getByRole('combobox', {name: 'Labels'})
+    await find.fill('bronze')
+    await side.getByRole('option', {name: /Add “\s*bronze\s*”/}).click()
+    await find.fill('tin')
+    await side.getByRole('option', {name: /Add “\s*tin\s*”/}).click()
+    await expect.poll(async () => (await api(request, 'get', `/issues/${issue.id}`)).labels).toEqual(['bronze', 'tin'])
+    await expect(find).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(find).toBeHidden()
+    await expect(page).toHaveURL(new RegExp(`/p/foundry/issues/${issue.id}$`))
+})
