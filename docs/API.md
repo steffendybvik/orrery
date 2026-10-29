@@ -339,7 +339,7 @@ An issue the owner moves into a Todo status, or makes there, goes to an idle ses
 and nothing queued, a different one for each issue, the project's own before one hearing several. A burst of
 moves (a bulk move) is handed out once, about a second and a half after it, the most urgent first, one per idle
 session; the rest wait in Todo. With nobody idle nothing is sent or queued and no session is started. Not for a
-proposal, a parent, an issue assigned to the owner or waiting on them, one moved within Todo, or one with a
+proposal, a parent, an issue assigned to anyone but `claude` or waiting on the owner, one moved within Todo, or one with a
 focus already on its way (Focus on this, a `P0`'s push); not for an agent's move, a schedule's or an untrusted
 session's.
 
@@ -532,7 +532,7 @@ while it runs, so it's gone after orrery restarts.
 A focus reaches a session as its `prompt`: a template filled in, with standing instructions after it.
 The owner sets them (an agent gets a 403):
 
-- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?, terminal?, restrict_proposals?, advanced?, pick_next?}`: the orrery's (`terminal`: the app Watch opens; `restrict_proposals`: see [Proposals](#proposals); `advanced`: see [Event log](#event-log); `starts`: see [Starting sessions](#starting-sessions); `pick_next`, false by default: a listening session out of work, with nothing in progress, no run left and nothing waiting on the owner, is sent a message, alone and as the owner's, listing the issues it may start (Todo, or Backlog once Todo is empty, most urgent first, at most 10, from the projects it hears; no proposals, nothing assigned to or waiting on the owner, no parents) to pick one; never the same list twice, and nothing with nothing to pick. One orrery started is sent it after its `/clear`. The idle sessions are tried again a few seconds after the board changes, one at a time). A template is text with
+- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?, terminal?, restrict_proposals?, advanced?, pick_next?}`: the orrery's (`terminal`: the app Watch opens; `restrict_proposals`: see [Proposals](#proposals); `advanced`: see [Event log](#event-log); `starts`: see [Starting sessions](#starting-sessions); `pick_next`, false by default: a listening session out of work, with nothing in progress, no run left and nothing waiting on the owner, is sent a message, alone and as the owner's, listing the issues it may start (Todo, or Backlog once Todo is empty, most urgent first, at most 10, from the projects it hears; no proposals, nothing assigned to anyone but `claude` or waiting on the owner, no parents) to pick one; never the same list twice, and nothing with nothing to pick. One orrery started is sent it after its `/clear`. The idle sessions are tried again a few seconds after the board changes, one at a time). A template is text with
   placeholders (`{issue}`, `{title}`, `{status}`, `{priority}`, `{chunk}`, `{where}`, `{note}`, `{url}`,
   `{actor}`; a chunk's also `{issues}`), and a line whose placeholders all come out empty is left out.
   `null` or `""` goes back to the default. `instructions` is a list of `{text, on?, id?}`, lines such as

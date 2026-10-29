@@ -6,6 +6,7 @@
 // no session is handed two. An agent's move, a schedule run's or an untrusted session's sends nothing: only the
 // owner's signals reach sessions.
 import type {OrreryEvent} from '#shared/happenings'
+import {forSessions} from './pick'
 
 /** How long after the owner's move the issues are handed out, so a burst is one hand-out. */
 export const TODO_AFTER = 1500
@@ -56,14 +57,13 @@ export async function handTodo(project: string, issues: Map<string, {from?: stri
     if (!idle.length) return 0
     idle.sort((a, b) => Number(!!a.also?.length) - Number(!!b.also?.length))
 
-    const owner = (await store.ownerOf()).name
     const board = await store.listIssues(project)
     const parents = new Set(board.map(i => i.parent).filter(Boolean))
     const work = []
     for (const issue of board) {
         const move = issues.get(issue.id)
         if (!move || issue.kind !== 'todo' || (move.from && kinds.get(move.from) === 'todo')) continue
-        if (issue.proposal || issue.waiting || issue.assignee === owner || parents.has(issue.id)) continue
+        if (issue.proposal || issue.waiting || !forSessions(issue) || parents.has(issue.id)) continue
         if (await store.focusOnItsWay(project, issue.id)) continue
         work.push({issue, by: move.by})
     }
