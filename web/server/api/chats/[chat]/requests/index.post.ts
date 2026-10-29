@@ -5,6 +5,7 @@
 // or {text, projects?, states?}), shown with who it goes to and Send and Don't send. Nothing is saved or sent until the
 // owner says so. Only that chat's session.
 export default defineEventHandler(async event => {
+    await authorize(event, 'chats.reply')
     const id = param(event, 'chat')
     if (!chatWrite(event) || getHeader(event, 'orrery-launch') !== id) throw forbidden("Only the chat's own session asks in it")
     return created(event, await ask(id, await readBody(event).catch(() => null)))
