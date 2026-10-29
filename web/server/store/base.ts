@@ -126,6 +126,13 @@ export abstract class StoreBase {
             }))
     }
 
+    /** The project's board alone, without its docs and releases: what reading its issues takes. Refuses a project
+     * there isn't. */
+    protected async boardOf(project: string): Promise<Board> {
+        await this.projectRow(project)
+        return this.board(project)
+    }
+
     protected async board(project: string): Promise<Board> {
         const chunks = await this.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project)
         const issues = await this.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
@@ -190,19 +197,19 @@ export abstract class StoreBase {
         return buildBoard({chunks: grouped}, await this.statuses())
     }
 
-    protected issueRecords(project: Project): IssueRecord[] {
+    protected issueRecords(project: string, board: Board): IssueRecord[] {
         const records: IssueRecord[] = []
         const walk = (issues: Issue[], parent: string | null, chunk: string) => {
             for (const {tasks, ...issue} of issues) {
-                records.push({...issue, project: project.id, parent, chunk: chunk || null, sub_issues: tasks.map(t => t.id)})
+                records.push({...issue, project, parent, chunk: chunk || null, sub_issues: tasks.map(t => t.id)})
                 walk(tasks, issue.id, chunk)
             }
         }
-        project.board.chunks.forEach(c => walk(c.tasks, null, c.id))
+        board.chunks.forEach(c => walk(c.tasks, null, c.id))
         return records
     }
 
-    protected findIssue(project: Project, id: string): {issue: Issue, parent: string | null, chunk: string} | null {
+    protected findIssue(board: Board, id: string): {issue: Issue, parent: string | null, chunk: string} | null {
         const search = (issues: Issue[], parent: string | null, chunk: string): {issue: Issue, parent: string | null, chunk: string} | null => {
             for (const issue of issues) {
                 if (issue.id === id) return {issue, parent, chunk}
@@ -211,7 +218,7 @@ export abstract class StoreBase {
             }
             return null
         }
-        for (const chunk of project.board.chunks) {
+        for (const chunk of board.chunks) {
             const found = search(chunk.tasks, null, chunk.id)
             if (found) return found
         }
