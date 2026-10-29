@@ -246,14 +246,15 @@ export function uninstall(entries, {node = process.execPath, script, path = proc
     if (config.projects.length || config.pickUp) {
         apply(where, config, {node, script, path})
     } else {
-        writeList(config)
-        removeService(where)
+        removeService(where, config)
     }
     return {config, file: where.file}
 }
 
-/** Stops the service and removes its file, whatever is on the list, which stays for the next `--install`. */
-export function removeService(where = platform()) {
+/** Stops the service and removes its file, whatever is on the list, which stays for the next `--install`. Pick-up goes
+ * off with it, so no channel puts a repo on a list nothing serves. */
+export function removeService(where = platform(), config = readConfig()) {
+    writeList({...config, pickUp: false})
     try {
         where.stop()
     } catch {
