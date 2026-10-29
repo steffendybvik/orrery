@@ -145,7 +145,8 @@ describe('the pull request poll', () => {
             open = [sha.startsWith('ok') ? pr(1, {headRefOid: sha}) : failing(sha)]
             await minuteOn()
         }
-        expect(changes.filter(c => c.kind === 'checks_failed').map(c => c.failures)).toEqual([1, 2])
+        // Green in between counts them afresh (ORR-529).
+        expect(changes.filter(c => c.kind === 'checks_failed').map(c => c.failures)).toEqual([1, 1])
         open = [pr(1, {headRefOid: 'f2', reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R1', author: {login: 'skoll'}, body: 'Split it.', comments: {nodes: [{path: 'a.ts', line: 3, body: 'Rename.'}]}}]}})]
         await minuteOn()
         expect(changes.at(-1)).toMatchObject({kind: 'changes_requested', review: {by: 'skoll', body: 'Split it.', comments: [{path: 'a.ts', line: 3, body: 'Rename.'}]}})
