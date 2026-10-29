@@ -254,7 +254,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           <span>{{ release.issues }} {{ release.issues === 1 ? 'issue' : 'issues' }}<template v-if="progress(release.kinds).total !== release.issues"> · {{ progress(release.kinds).total }} with sub-issues</template></span>
         </div>
 
-        <details v-if="release.issues" class="group rounded-xl border border-line">
+        <details v-if="release.issues" class="group rounded-xl border border-line dark:bg-panel">
           <summary class="flex list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-fg">
             <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
             Changelog draft

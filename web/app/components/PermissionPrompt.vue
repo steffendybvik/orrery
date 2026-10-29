@@ -2,8 +2,10 @@
 import type {Session} from '#shared/roadmap'
 
 // A session at a permission prompt pops up on whatever page the owner has open (ORR-489), small: Claude Code's line on
-// what it wants and, for one orrery started, the command or file from its prompt in one line (the whole prompt on
-// hover; its screen stays in tmux), with Allow (its launcher answers "Yes" once, only while the prompt is still
+// what it wants, the command or file from its prompt in one line for one orrery started (the whole prompt on hover; its
+// screen stays in tmux), and without a screen the tool it asks for with the command, file or address (ORR-562: its hook
+// says, so the notification's line needn't). The screen comes first: it's what Allow answers, and anything can post a
+// session's hook (ORR-572). With Allow (its launcher answers "Yes" once, only while the prompt is still
 // there) and Open tmux (Watch). One started by hand has no tmux orrery knows, so it says what it wants without the
 // buttons. It goes once the session moves on; × hides it until it asks again.
 const props = defineProps<{session: Session}>()
@@ -65,6 +67,10 @@ async function act(what: 'allow' | 'watch') {
     </div>
     <p v-if="session.asks" class="text-muted">{{ session.asks }}</p>
     <p v-if="prompt?.what" class="truncate rounded-md bg-well px-2 py-1 font-mono text-[11px] text-fg" :title="prompt.text">{{ prompt.what }}</p>
+    <p v-else-if="session.asking" class="flex min-w-0 items-baseline gap-1.5" data-asking>
+      <span class="shrink-0 font-medium text-fg">{{ toolLabel(session.asking.name) }}</span>
+      <span v-if="session.asking.detail" class="min-w-0 truncate rounded-md bg-well px-2 py-1 font-mono text-[11px] text-fg" :title="session.asking.detail">{{ session.asking.detail }}</span>
+    </p>
     <div v-if="launch" class="flex items-center gap-2">
       <UiButton variant="primary" size="xs" :disabled="!!busy" title="Answers “Yes” once" @click="act('allow')">{{ busy === 'allow' ? 'Allowing…' : 'Allow' }}</UiButton>
       <UiButton size="xs" :disabled="!!busy" @click="act('watch')">{{ busy === 'watch' ? 'Opening…' : 'Open tmux' }}</UiButton>

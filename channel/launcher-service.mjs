@@ -1,15 +1,39 @@
 // The launcher as a background service, so nobody keeps a terminal open for it: `--install`, run once in a
 // project's repo, adds the project to the launcher's list (~/.config/orrery/launcher.json) and registers one
-// service for every project on it, with launchd on macOS or systemd on Linux. It starts at login, comes back
-// if it dies, and starts each project's sessions in its repo. `--uninstall` takes the repo's project off the
+// service for every project on it, with launchd on macOS or systemd on Linux (on Windows, inside WSL with systemd
+// on: ORR-576). It starts at login, comes back if it dies, and starts each project's sessions in its repo. `--uninstall` takes the repo's project off the
 // list, and the service with the last one.
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {dirname, join} from 'node:path'
 
 export const LABEL = 'orrery.launcher'
 export const configFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'orrery', 'launcher.json')
+
+/** Whether this is Linux inside WSL on Windows: WSL's own variables say so, or its kernel's name. */
+export function inWsl({env = process.env, kernel = () => readFileSync('/proc/version', 'utf8')} = {}) {
+    if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true
+    try {
+        return /microsoft/i.test(kernel())
+    } catch {
+        return false
+    }
+}
+
+/** Whether `url` is this machine's own address, which inside WSL is the distro's, not always Windows'. */
+export const wslLocalhost = url => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(url)
+
+/** What stops the service being installed here, said with what to do; none when nothing does. Windows runs it inside
+ * WSL, which needs systemd turned on, as plain Linux without systemd can't run it as a service either. */
+export function serviceProblem({platform = process.platform, wsl = platform === 'linux' && inWsl(), systemd = existsSync('/run/systemd/system')} = {}) {
+    if (platform === 'darwin') return null
+    if (platform === 'win32') return 'on Windows the launcher runs inside WSL: open your WSL distro, get the repo there, and run this again from it'
+    if (platform !== 'linux') return `the launcher installs as a service on macOS and Linux only, not ${platform}; run it in a terminal instead`
+    if (systemd) return null
+    if (wsl) return 'systemd is off in this WSL distro: add "[boot]" and "systemd=true" to /etc/wsl.conf, run "wsl --shutdown" in Windows, open the distro again and run this again'
+    return "systemd isn't running here, so the launcher can't install as a service; run it in a terminal instead"
+}
 
 /** The launcher's list: `{projects: [{url, project, dir}]}`, empty when there's none yet. */
 export function readConfig(file = configFile()) {
@@ -57,8 +81,9 @@ export function plist({node, script, path, log}) {
 `
 }
 
-/** systemd's user unit for the service, the same way; it logs to the journal. */
-export function systemdUnit({node, script, path}) {
+/** systemd's user unit for the service, the same way; it logs to the journal. Inside WSL, `distro` is the one it was
+ * installed from, which Watch opens Windows Terminal on (the service doesn't get WSL's own variables). */
+export function systemdUnit({node, script, path, distro}) {
     const quote = text => `"${String(text).replace(/(["\\])/g, '\\$1')}"`
     return `[Unit]
 Description=orrery launcher: starts Claude sessions for orrery
@@ -66,7 +91,7 @@ Description=orrery launcher: starts Claude sessions for orrery
 [Service]
 ExecStart=${quote(node)} ${quote(script)} --service
 Environment=${quote(`PATH=${path}`)}
-Restart=on-failure
+${distro ? `Environment=${quote(`WSL_DISTRO_NAME=${distro}`)}\n` : ''}Restart=on-failure
 RestartSec=10
 
 [Install]
@@ -78,6 +103,8 @@ const run = (command, ...args) => execFileSync(command, args, {encoding: 'utf8',
 
 /** Where the service's file goes, and how it's (re)started and removed, on this machine. */
 function platform() {
+    const problem = serviceProblem()
+    if (problem) throw new Error(problem)
     const uid = process.getuid?.()
     if (process.platform === 'darwin') {
         const file = join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`)
@@ -104,19 +131,17 @@ function platform() {
             stop: () => run('launchctl', 'bootout', `gui/${uid}/${LABEL}`),
         }
     }
-    if (process.platform === 'linux') {
-        const file = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd', 'user', 'orrery-launcher.service')
-        return {
-            file, logs: 'journalctl --user -u orrery-launcher -f', render: systemdUnit,
-            start: () => {
-                run('systemctl', '--user', 'daemon-reload')
-                run('systemctl', '--user', 'enable', 'orrery-launcher')
-                run('systemctl', '--user', 'restart', 'orrery-launcher')
-            },
-            stop: () => run('systemctl', '--user', 'disable', '--now', 'orrery-launcher'),
-        }
+    // Linux, WSL's included: systemd.
+    const file = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd', 'user', 'orrery-launcher.service')
+    return {
+        file, logs: 'journalctl --user -u orrery-launcher -f', render: opts => systemdUnit({...opts, distro: process.env.WSL_DISTRO_NAME}),
+        start: () => {
+            run('systemctl', '--user', 'daemon-reload')
+            run('systemctl', '--user', 'enable', 'orrery-launcher')
+            run('systemctl', '--user', 'restart', 'orrery-launcher')
+        },
+        stop: () => run('systemctl', '--user', 'disable', '--now', 'orrery-launcher'),
     }
-    throw new Error(`the launcher installs as a service on macOS and Linux only, not ${process.platform}; run it in a terminal instead`)
 }
 
 /** Adds the project to the list and (re)starts the service with it. Restarting stops the sessions it was running. */

@@ -21,6 +21,7 @@ beforeEach(async () => {
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('launchContext', () => ({presets: ['Review'], text: 'Review the open PRs.'}))
     vi.stubGlobal('contextBlock', (context: {text: string}) => `Started with: ${context.text}`)
+    vi.stubGlobal('contextSoFar', (id: string) => id === 's1' ? [{at: '2026-10-29T10:00:00.000Z', kind: 'tool', title: 'issues', text: 'ORR-1', chars: 5, tokens: 2}] : [])
     vi.resetModules()
     view = await import('../server/utils/context-view')
 })
@@ -52,6 +53,8 @@ describe('the context view', () => {
         const running = view.sessionContextView('s1', 'http://o')!
         expect(running).toMatchObject({kind: 'chat', projects: ['orrery', 'hub'], session: 's1'})
         expect(running.parts.at(-1)).toMatchObject({id: 'start', text: 'Started with: Review the open PRs.'})
+        expect(running.sofar).toEqual([expect.objectContaining({kind: 'tool', title: 'issues'})])
+        expect(view.contextView('work', ['orrery'], 'http://o')).not.toHaveProperty('sofar')
         session = undefined
         expect(view.sessionContextView('gone', 'http://o')).toBeUndefined()
     })

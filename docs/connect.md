@@ -75,8 +75,11 @@ channels flag; only the pushed messages need the flag.
 
 `channel/orrery-hook.mjs` tells orrery what each session is doing, so the page can show it and aim
 work at an idle one. Before a Bash command it also says which issues the command writes to, so the
-owner's comment on one goes to the session working it rather than to every session. Register it in the repo's `.claude/settings.json` for `SessionStart`,
-`UserPromptSubmit`, `PreToolUse` (with `"async": true`), `Stop`, `StopFailure`, `Notification` and `SessionEnd`.
+owner's comment on one goes to the session working it rather than to every session. Before each tool, and when a
+permission dialog opens, it says which tool and, in short, what it would do (the command, the file, the address), so a
+permission prompt says what it's for. Register it in the repo's `.claude/settings.json` for `SessionStart`,
+`UserPromptSubmit`, `PreToolUse` and `PermissionRequest` (both with `"async": true`, so they never hold up a tool or
+answer its prompt), `Stop`, `StopFailure`, `Notification` and `SessionEnd`.
 `StopFailure` is a turn an API error cut off (the network, a rate limit): the issues that session had in progress go
 back to Todo with nobody on it, and a comment says why.
 
@@ -118,7 +121,8 @@ launcher once, in the repo:
 node /path/to/orrery/channel/orrery-launcher.mjs --install
 ```
 
-It runs in the background from then on (launchd on macOS, systemd on Linux), starts at login, and serves
+It runs in the background from then on (launchd on macOS, systemd on Linux; on Windows, inside WSL, see
+[On Windows](#on-windows)), starts at login, and serves
 every project installed this way; run `--install` again in another repo to add its projects, and
 `--uninstall` to take them off. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
 channel there, each with the projects in its `ORRERY_PROJECTS` (or its `ORRERY_PROJECT`), so a monorepo with a
@@ -150,3 +154,21 @@ launcher that predates chats needs restarting before it will start one. The laun
 flag; run the channel command by hand once in the repo first, to trust the folder, which it won't do for you.
 The limits are the orrery's, on the Sessions page's Setup tab: how many at once counts every project's sessions together. The cap is time, not cost:
 Claude Code only caps spend for non-interactive runs.
+
+### On Windows
+
+The launcher, like the channel and hooks, runs inside [WSL](https://learn.microsoft.com/windows/wsl/) 2, with Claude
+Code, tmux and the repo installed in the distro. Run `--install` from the distro, in the repo there. Started on Windows
+itself, `--install` says to do this instead.
+
+- **systemd on:** the service is systemd's, so turn it on once. Put `[boot]` and `systemd=true` in the distro's
+  `/etc/wsl.conf`, run `wsl --shutdown` in Windows, and open the distro again. Without it, `--install` says the same.
+- **Reaching orrery:** inside WSL, `localhost` is the distro's own. An orrery in Docker Desktop with WSL integration
+  on is reached there anyway. One running on Windows outside Docker needs `networkingMode=mirrored` under `[wsl2]` in
+  Windows' `%UserProfile%\.wslconfig`, or the Windows host's address in `.mcp.json`. When the launcher can't reach a
+  `localhost` address, it says so.
+- **While the distro runs:** the service starts with the distro, not at Windows sign-in. Windows starts the distro
+  when you open it, and can stop it a while after its last window closes, so keep a WSL window open while sessions
+  should start.
+- **Watch** opens a Windows Terminal window on the session (`wt.exe`, through WSL's interop), whatever the terminal
+  setting says. If it can't, the launcher's log has the `tmux attach` line to run by hand.

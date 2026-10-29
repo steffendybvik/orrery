@@ -334,8 +334,9 @@ export function toolsFor(projects, {chat = false, untrusted = false} = {}) {
 /** The tools against an orrery's API, writing as `claude` from `session`: on one project's (`api`,
  * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). `untrusted` for an untrusted
  * schedule's session, which says so on every call and reads GitHub issues through `gh` (its arguments; run in the
- * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh}) {
+ * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. `report` hears each call's
+ * tool and the text it answered, for the Context page (ORR-549). */
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}}) {
     const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
         ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
@@ -607,13 +608,16 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         const chatOnly = CHAT_TOOLS.some(t => t.name === name) || CHAT_READS.includes(name)
         const untrustedOnly = UNTRUSTED_TOOLS.some(t => t.name === name)
         if (!run[name] || chatOnly && !chat || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
+        let answer
         try {
             const result = await run[name](args)
             // Most answer in text; an image comes as itself.
-            return typeof result === 'string' ? {content: [{type: 'text', text: result}]} : result
+            answer = typeof result === 'string' ? {content: [{type: 'text', text: result}]} : result
         } catch (error) {
-            return {isError: true, content: [{type: 'text', text: `orrery said no: ${error.message}`}]}
+            answer = {isError: true, content: [{type: 'text', text: `orrery said no: ${error.message}`}]}
         }
+        report(name, answer.content.map(c => c.type === 'text' ? c.text : `[${c.type}]`).join('\n'))
+        return answer
     }
 }
 

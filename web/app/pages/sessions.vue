@@ -39,6 +39,7 @@ const groups = computed(() => ordered.value
         via: spanning.value.filter(s => heardBy(s, projects.value).ids.includes(project.id)),
     }))
     .filter(g => g.sessions.length))
+// With none, the toolbar says nothing and offers no Message sessions: the empty state below says it once (ORR-555).
 const count = computed(() => spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
 
 const router = useRouter()
@@ -100,9 +101,9 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
 
   <ViewToolbar>
     <SegmentedControl v-model="tab" :options="tabs" />
-    <span class="truncate text-xs text-muted">{{ count ? `${count} ${count === 1 ? 'session' : 'sessions'}` : 'No sessions right now' }}</span>
+    <span v-if="count" class="truncate text-xs text-muted">{{ `${count} ${count === 1 ? 'session' : 'sessions'}` }}</span>
     <template #end>
-      <UiButton class="shrink-0" :disabled="!count" @click="messaging = true">Message sessions</UiButton>
+      <UiButton v-if="count" class="shrink-0" @click="messaging = true">Message sessions</UiButton>
       <UiButton variant="primary" class="shrink-0" @click="open()">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         Start session

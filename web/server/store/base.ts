@@ -10,7 +10,7 @@ import type {Actor, ProjectRow, ChunkRow, IssueRow, CommentRow, DocRow, ReleaseR
 import {noReleases, nullable, stamp} from './schema'
 import type {OrreryEvent} from '#shared/happenings'
 import {refusedFor} from '../utils/permission'
-import {drawingOn, readBoard, readDocSummaries, readReleases} from './reads'
+import {drawingOn, readBoard, readDocSections, readDocSummaries, readReleases} from './reads'
 
 export abstract class StoreBase {
     constructor(
@@ -94,6 +94,7 @@ export abstract class StoreBase {
             updated_at: row.updated_at,
             board,
             docs: await readDocSummaries(this.db, row.id),
+            doc_sections: await readDocSections(this.db, row.id),
             releases: await readReleases(this.db, row, board, statuses),
         }
     }

@@ -181,6 +181,10 @@ instead of `done` when it won't ship.
 | `PUT /projects/:project/docs/:doc` | `{title, body?, section?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync. A `section` left out keeps the one it has |
 | `PATCH /projects/:project/docs/:doc` | `{title?, body?, section?}`; `section` `null` or `""` takes it out of one. Moving a doc to another section doesn't count as changing it (its `updated_at` stays) |
 | `DELETE /projects/:project/docs/:doc` | |
+| `GET /projects/:project/doc-sections` | its docs' sections, A–Z: each one a doc is filed under, and the empty ones made with `POST`. A project's own read has them too, as `doc_sections` |
+| `POST /projects/:project/doc-sections` | `{name}` (up to 60 characters) → 201 `{name}`: a section with no docs in it yet, kept until it's deleted; 409 when there's one by that name |
+| `PATCH /projects/:project/doc-sections/:section` | `{name}` → `{name}`: renames it on every doc in it at once, without counting as a change to them (their `updated_at` stays); 409 when there's already one by the new name |
+| `DELETE /projects/:project/doc-sections/:section` | 204; its docs are kept, under no section |
 
 ## Comments
 
@@ -408,7 +412,7 @@ the channel.
 
 The Claude sessions working on a project, live (not stored): their name, what they're doing and
 whether they're listening. Hooks report state (`channel/orrery-hook.mjs` on `SessionStart`,
-`UserPromptSubmit`, `Stop`, `StopFailure`, `Notification`, `SessionEnd`); the channel's connection says it's
+`UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `Stop`, `StopFailure`, `Notification`, `SessionEnd`); the channel's connection says it's
 listening. Both identify the window by `CLAUDE_CODE_SESSION_ID`; `ORRERY_SESSION` names it. One with no name of its
 own gets one made up, starting with its project, renamed for a project it moves to; one whose channel is heard on
 several projects goes by the name alone, unique across every session, and gets its project back once it hears one. A `/clear`
@@ -418,15 +422,16 @@ and its old ids still find it.
 | | |
 |---|---|
 | `GET /sessions` | every session |
-| `GET /projects/:project/sessions` | the project's, each `{id, name, state, since, listening, reachable, version?}`; `version` is its channel's code, as the channel says on connecting (`?version=` on its stream; one from before 1.0.0-rc.10 doesn't); `state` is `idle`, `working`, `waiting` (at a permission prompt, with `asks`, what Claude Code's notification says it wants) or `starting`; `reachable` when its channel is open and knows to end it, so it can be stopped |
+| `GET /projects/:project/sessions` | the project's, each `{id, name, state, since, listening, reachable, version?}`; `version` is its channel's code, as the channel says on connecting (`?version=` on its stream; one from before 1.0.0-rc.10 doesn't); `state` is `idle`, `working`, `waiting` (at a permission prompt, with `asks`, what Claude Code's notification says it wants, and `asking`, `{name, detail?}`: the tool and what it would do, as its hook said) or `starting`; `reachable` when its channel is open and knows to end it, so it can be stopped |
 | `POST /projects/:project/sessions/:session/stop` | the session: the owner stopping it, one orrery started through its launcher, any other through its channel, which ends its claude process; 409 when it has no channel running |
 | `POST /projects/:project/sessions/:session/forget` | the session: the owner taking one with no channel open off the list (nothing reaches its process; its next hook brings it back if it's still running); 409 when its channel is open. One not listening is also dropped on its own after six quiet hours, or one idle hour with no channel open |
 | `POST /projects/:project/sessions/:session/message` | `{text, preset?}` → 201 the signal: the owner's own words to that one session, a `message` with it as `target` and no `schedule`, which its channel shows as a message to it alone. With `preset` (the id of one its sessions can have, else a 400) the words are that preset's text as the owner sent it, tweaked or not, and the signal's `preset` keeps its name as it was then, to label it by; 404 for a session not on the project, 409 for one that isn't listening. Never the owner's [chat](#chats)'s (a 403): it asks the owner instead |
 | `POST /sessions/message` | `{text, projects?, states?}` → 201 `{sent: [{project, session, name, signal}]}`: the owner's own words to every listening session at once, each a `message` with it as `target`, as above. Only `idle` ones unless `states` lists others (`working`, `waiting`); `projects` narrows it to sessions on or hearing any of them. A session hearing several projects gets it once; nobody listening is an empty `sent`, and starts no session. Never the owner's [chat](#chats)'s, as above |
 | `GET /projects/:project/sessions/work` | `{<session id>: {issues, signals}}`: what each is on, for its Sessions page: the open issues it worked last (newest first, each `{id, title, column, kind, priority, since}`, `since` being when it took the issue) and the last five signals that went to it |
 | `GET /sessions/work?projects=a,b` | `{<project>: {<session id>: {issues, signals}}}`: the same for every project with sessions (or those named), in one call |
-| `GET /projects/:project/context?kind=` | what orrery puts into a session's context on the project, part by part (ORR-549): `{kind, projects, parts, chars, tokens}`, each part `{id, group, title, text, chars, tokens}`: the channel's `instructions`, each of its `tools` as listed, and the `start` context a session was started with. `kind` is `work` (the default), `chat` or `untrusted`; `?session=<id>` gives a running one's, its kind and projects its own. Tokens are estimated as a quarter of the characters |
-| `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?, command?, reason?, source?, started?, error?}`: what a hook sends. A `SessionEnd` with `reason: "clear"` keeps the session, and the next `SessionStart` with `source: "clear"` in its `cwd` takes it over when no pid ties them; a `SessionStart` with `source` `clear`, `compact` or `resume` answers with `brief` too, the issues it has in progress, for the hook to hand the fresh context; a session orrery started with context (`started`, its launch id, from `ORRERY_STARTED`) gets that context in `brief` on every `SessionStart`, its first included. A `Stop` from a listening session that a few seconds later is still idle, with no signal waiting, while an issue it has in progress has sub-issues in backlog or todo (it just split it, say), sends it alone a focus on the most urgent of them, as the owner's, so it carries on; not again for a sub-issue that hasn't changed, and never to a session an untrusted schedule's run started. A chunk or scope it was working through stays its run. A `StopFailure` (a turn an API error cut off, with Claude Code's `error`, `rate_limit` say) puts each issue the session has in progress back in Todo with no assignee, with a comment from `claude` saying why |
+| `GET /projects/:project/context?kind=` | what orrery puts into a session's context on the project, part by part (ORR-549): `{kind, projects, parts, chars, tokens}`, each part `{id, group, title, text, chars, tokens}`: the channel's `instructions`, each of its `tools` as listed, and the `start` context a session was started with. `kind` is `work` (the default), `chat` or `untrusted`; `?session=<id>` gives a running one's, its kind and projects its own, with `sofar`: its latest 30 signals (each payload as its stream sent it) and tool answers, newest first, each `{at, kind, title, text, chars, tokens}`, `text` cut at 20,000 characters (an `egress` answer's left empty, its size kept: it's what an outside service sent back), kept in memory since orrery started. Like every read, it's open to anything that reaches orrery. Tokens are estimated as a quarter of the characters |
+| `POST /sessions/:session/calls` | `{tool, text}` → 204: the channel saying what one of its tool calls answered, for the Context page's `sofar` |
+| `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?, command?, tool?, reason?, source?, started?, error?}`: what a hook sends. `tool` (`{name, detail?}`, on `PreToolUse` and `PermissionRequest`) is the tool it's about to use or asks for, with the command, file path, address or search cut to 300 characters (nothing from an MCP tool's input); a permission prompt the session then waits at is for it (`asking`), the `PermissionRequest`'s tool over a `PreToolUse` that lands after it until the prompt is answered. A `PermissionRequest` leaves the state to the `Notification` that comes with it. A `SessionEnd` with `reason: "clear"` keeps the session, and the next `SessionStart` with `source: "clear"` in its `cwd` takes it over when no pid ties them; a `SessionStart` with `source` `clear`, `compact` or `resume` answers with `brief` too, the issues it has in progress, for the hook to hand the fresh context; a session orrery started with context (`started`, its launch id, from `ORRERY_STARTED`) gets that context in `brief` on every `SessionStart`, its first included. A `Stop` from a listening session that a few seconds later is still idle, with no signal waiting, while an issue it has in progress has sub-issues in backlog or todo (it just split it, say), sends it alone a focus on the most urgent of them, as the owner's, so it carries on; not again for a sub-issue that hasn't changed, and never to a session an untrusted schedule's run started. A chunk or scope it was working through stays its run. A `StopFailure` (a turn an API error cut off, with Claude Code's `error`, `rate_limit` say) puts each issue the session has in progress back in Todo with no assignee, with a comment from `claude` saying why |
 
 ### Starting sessions
 
@@ -610,7 +615,7 @@ handle with `PATCH /settings {handle}` (their GitHub login, say; `null` uses the
 What orrery did and what went wrong, kept in its own database and never sent anywhere, for looking into a
 problem. **Errors** are recorded always: a 5xx the server answers with (`server.error`), an error in the page
 (`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What orrery did** is
-recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → This orrery):
+recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → Advanced):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
 launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
@@ -626,8 +631,8 @@ type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.cr
 `issue.priority`…, `issue.deleted`), `comment.added`, `comment.asks`, `chunk.created`, `doc.created`, `doc.changed`,
 `doc.deleted` and `release.<what>` (`release.created`, `release.frozen`, `release.shipped`…). Its message says who did
 what (`claude moved ORR-12: todo → done`), and its details hold `by`, `owner`, `from`, `to`, `untrusted` and the
-`schedule` whose run made it. No titles, notes or comment text are kept. Advanced also shows the Events page and
-counts each new kind of error in the bell.
+`schedule` whose run made it. No titles, notes or comment text are kept. Advanced also counts each new kind of error in the
+bell. The Events page is reached from App settings → Advanced either way.
 
 Each event is `{id, level, kind, project?, subject?, message, details?, count, first_seen, last_seen, resolved_at?, resolved_by?}`,
 with `level` one of `error`, `warn`, `info`. Each is a line of its own (`count` 1, `last_seen` its `first_seen`); a

@@ -3,7 +3,8 @@ import {hold, makeProject, projectApi} from './support'
 
 // A session at a permission prompt pops up on any page (ORR-489), with a fake launcher and channel on the API where
 // Claude would be: one orrery started shows the command from its prompt, and Allow and Open tmux go to its launcher; one
-// started by hand says what it wants without them; × hides it until it asks again.
+// started by hand says what it wants without them; × hides it until it asks again. Either says the tool it asks for, as
+// its hook said (ORR-562).
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('pantry')
@@ -41,6 +42,12 @@ test('a session orrery started pops up with its prompt, and Allow and Open tmux 
         await expect(popup.getByText('rm -rf web/.output', {exact: true})).toBeVisible()
         await expect(popup).not.toContainText("I'll clear the build output")
         await expect(popup).not.toContainText('Do you want to proceed?')
+        // What Allow answers is the screen, so a hook's word for the session doesn't take its place (ORR-572).
+        await request.post('/api/sessions', {data: {id: 'e2e-p', project: 'pantry', event: 'PermissionRequest', tool: {name: 'Read', detail: 'README.md'}}})
+        await expect.poll(async () => (await (await request.get('/api/sessions')).json()).find((s: {id: string}) => s.id === 'e2e-p')?.asking?.detail).toBe('README.md')
+        await expect(popup).not.toContainText('README.md')
+        await expect(popup.locator('[data-asking]')).toHaveCount(0)
+        await expect(popup.getByText('rm -rf web/.output', {exact: true})).toBeVisible()
         await popup.getByRole('button', {name: 'Open tmux'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: watch')
         await popup.getByRole('button', {name: 'Allow'}).click()
@@ -68,4 +75,21 @@ test('one started by hand says what it wants without the buttons, and × hides i
     await ask()
     await expect(popup).toBeVisible()
     await request.post('/api/sessions', {data: {id: 'e2e-h', project: 'pantry', event: 'SessionEnd'}})
+})
+
+test('says the tool it asks for and what it would do, on the popup and its card', async ({page, request}) => {
+    const said = (data: Record<string, unknown>) => request.post('/api/sessions', {data: {id: 'e2e-t', project: 'pantry', name: 'tool user', ...data}})
+    await page.goto('/sessions')
+    await said({event: 'PreToolUse', tool: {name: 'Bash', detail: 'git push --force origin main'}})
+    await said({event: 'Notification', message: 'Claude needs your permission'})
+    const popup = page.getByRole('alertdialog', {name: 'tool user needs permission'})
+    await expect(popup.locator('[data-asking]')).toContainText('Bash')
+    await expect(popup.getByText('git push --force origin main', {exact: true})).toBeVisible()
+    await expect(page.locator('#session-e2e-t')).toContainText('for Bash')
+    // The dialog's own word wins, an MCP tool by its server and name.
+    await said({event: 'PermissionRequest', tool: {name: 'mcp__orrery__comment'}})
+    await expect(popup.locator('[data-asking]')).toHaveText('orrery · comment')
+    await said({event: 'PreToolUse', tool: {name: 'mcp__orrery__comment'}})
+    await expect(popup).toBeHidden()
+    await said({event: 'SessionEnd'})
 })

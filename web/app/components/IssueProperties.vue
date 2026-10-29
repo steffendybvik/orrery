@@ -142,7 +142,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
     </dd>
 
     <dt class="label">Project</dt>
-    <dd><NuxtLink :to="`/p/${project.id}`" class="hover:underline">{{ project.name }}</NuxtLink></dd>
+    <dd class="flex min-h-7 items-center"><NuxtLink :to="`/p/${project.id}`" class="hover:underline">{{ project.name }}</NuxtLink></dd>
 
     <dt class="label">Chunk</dt>
     <dd class="flex min-w-0 items-center gap-1">
@@ -170,10 +170,10 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
 
     <template v-if="hasSubs">
       <dt class="label">Progress</dt>
-      <dd class="flex items-center gap-3"><ProgressRing :kinds="issue.kinds" /><ColumnBar :counts="issue.counts" class="max-w-32" /></dd>
+      <dd class="flex min-h-7 items-center gap-3"><ProgressRing :kinds="issue.kinds" /><ColumnBar :counts="issue.counts" class="max-w-32" /></dd>
     </template>
     <dt class="label">Created by</dt>
-    <dd class="flex flex-wrap items-center gap-x-2 text-muted">
+    <dd class="flex min-h-7 flex-wrap items-center gap-x-2 text-muted">
       {{ who(issue.created_by, issue.session_name) }}
       <span v-if="issue.protected" class="flex items-center gap-1 text-xs text-faint" title="Only the owner can delete it">
         <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
@@ -181,9 +181,9 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
       </span>
     </dd>
     <dt class="label">Created</dt>
-    <dd class="text-muted" :title="issue.created_at">{{ ago(issue.created_at) }}</dd>
+    <dd class="flex min-h-7 items-center text-muted" :title="issue.created_at">{{ ago(issue.created_at) }}</dd>
     <dt class="label">Updated</dt>
-    <dd class="text-muted" :title="issue.updated_at">{{ ago(issue.updated_at) }}</dd>
+    <dd class="flex min-h-7 items-center text-muted" :title="issue.updated_at">{{ ago(issue.updated_at) }}</dd>
     <dd v-if="failed" class="col-span-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</dd>
   </dl>
 </template>

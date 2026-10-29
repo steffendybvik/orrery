@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {adoptable, launcherAlive, plist, readConfig, systemdUnit, withProject, withoutProject} from '../../channel/launcher-service.mjs'
+import {adoptable, inWsl, launcherAlive, plist, readConfig, serviceProblem, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 
 const greenhouse = {url: 'http://localhost:9000', project: 'greenhouse', dir: '/code/greenhouse'}
 const opts = {node: '/opt/homebrew/bin/node', script: '/code/orrery/channel/orrery-launcher.mjs', path: '/opt/homebrew/bin:/usr/bin', log: '/Users/me/Library/Logs/orrery-launcher.log'}
@@ -40,6 +40,35 @@ describe("the service's file", () => {
             expect(execFileSync('plutil', ['-lint', at], {encoding: 'utf8'})).toContain('OK')
         }
         expect(systemdUnit({...opts, path: '/my "bin"'})).toContain('ExecStart="/opt/homebrew/bin/node" "/code/orrery/channel/orrery-launcher.mjs" --service\nEnvironment="PATH=/my \\"bin\\""\nRestart=on-failure')
+        // Inside WSL, the distro it was installed from, for Watch.
+        expect(systemdUnit({...opts, distro: 'Ubuntu'})).toContain('Environment="PATH=/opt/homebrew/bin:/usr/bin"\nEnvironment="WSL_DISTRO_NAME=Ubuntu"\nRestart=on-failure')
+    })
+})
+
+describe('where the service installs (ORR-576)', () => {
+    it('knows WSL by its variables or its kernel', () => {
+        expect(inWsl({env: {WSL_DISTRO_NAME: 'Ubuntu'}, kernel: () => ''})).toBe(true)
+        expect(inWsl({env: {}, kernel: () => 'Linux version 5.15.153.1-microsoft-standard-WSL2'})).toBe(true)
+        expect(inWsl({env: {}, kernel: () => 'Linux version 6.8.0-45-generic'})).toBe(false)
+        expect(inWsl({env: {}, kernel: () => { throw new Error('no /proc') }})).toBe(false)
+    })
+
+    it('installs on macOS, and on Linux or WSL with systemd', () => {
+        expect(serviceProblem({platform: 'darwin'})).toBeNull()
+        expect(serviceProblem({platform: 'linux', wsl: false, systemd: true})).toBeNull()
+        expect(serviceProblem({platform: 'linux', wsl: true, systemd: true})).toBeNull()
+    })
+
+    it('says what to do where it can\'t', () => {
+        expect(serviceProblem({platform: 'win32'})).toMatch(/inside WSL/)
+        expect(serviceProblem({platform: 'linux', wsl: true, systemd: false})).toMatch(/systemd=true.*wsl\.conf.*wsl --shutdown/)
+        expect(serviceProblem({platform: 'linux', wsl: false, systemd: false})).toMatch(/run it in a terminal/)
+        expect(serviceProblem({platform: 'freebsd'})).toMatch(/macOS and Linux only, not freebsd/)
+    })
+
+    it("takes an address on this machine for one WSL's localhost may not reach", () => {
+        for (const url of ['http://localhost:9000', 'http://127.0.0.1', 'http://[::1]:9000/']) expect(wslLocalhost(url)).toBe(true)
+        for (const url of ['http://localhost.example.com', 'http://192.168.1.4:9000', 'https://orrery.example.com']) expect(wslLocalhost(url)).toBe(false)
     })
 })
 

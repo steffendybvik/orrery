@@ -4,7 +4,8 @@ import type {DocSummary, Project} from '#shared/roadmap'
 // A project's docs down the side of the docs pages (a row of tabs on a phone), and New doc after them. Docs with no
 // section come first, then each section (ORR-520), A–Z, folding away; the one with the open doc stays open, and what's
 // folded is kept per project in this browser. A doc goes to another section by dragging it onto one (onto Docs: none),
-// or by right-clicking it.
+// or by right-clicking it. A section is made at the foot (empty until a doc goes in), and renamed or deleted by
+// right-clicking its header (ORR-560).
 const props = defineProps<{project: Project}>()
 const route = useRoute()
 const {docUnseen} = useUnseen()
@@ -12,7 +13,7 @@ const {load} = useOwner()
 
 const loose = computed(() => props.project.docs.filter(doc => !doc.section))
 const sections = computed(() => {
-    const by = new Map<string, DocSummary[]>()
+    const by = new Map<string, DocSummary[]>(props.project.doc_sections.map(name => [name, []]))
     for (const doc of props.project.docs) if (doc.section) by.set(doc.section, [...by.get(doc.section) ?? [], doc])
     return [...by].sort(([a], [b]) => a.localeCompare(b, 'en', {sensitivity: 'base', numeric: true})).map(([name, docs]) => ({name, docs}))
 })
@@ -33,18 +34,24 @@ function fold(name: string) {
     localStorage.setItem(foldKey.value, JSON.stringify(folded.value))
 }
 
-// Filing a doc: saved as the owner; the project's patch redraws the list.
+// Filing a doc, and making, renaming and deleting sections: saved as the owner; the project's patch redraws the list.
 const failed = ref('')
+async function save(path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: object): Promise<boolean> {
+    failed.value = ''
+    try {
+        await $fetch(`/api/projects/${encodeURIComponent(props.project.id)}/${path}`, {method, headers: {'Orrery-Actor': await load()}, body})
+        return true
+    } catch (error) {
+        failed.value = errorMessage(error)
+        return false
+    }
+}
 async function move(id: string, section: string | null) {
     const doc = props.project.docs.find(d => d.id === id)
     if (!doc || (doc.section ?? null) === section) return
-    failed.value = ''
-    try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.project.id)}/docs/${encodeURIComponent(id)}`, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: {section}})
-    } catch (error) {
-        failed.value = errorMessage(error)
-    }
+    await save(`docs/${encodeURIComponent(id)}`, 'PATCH', {section})
 }
+const sectionPath = (name: string) => `doc-sections/${encodeURIComponent(name)}`
 
 // Dragging a doc onto a section's header, or onto Docs for none.
 const dragging = ref<string | null>(null)
@@ -72,6 +79,46 @@ function closeMenu() {
 function moveTo(section: string | null) {
     if (menuDoc.value) move(menuDoc.value.id, section)
     closeMenu()
+}
+
+// Right-click a section's header: Rename… and Delete, which keeps its docs.
+const sectionMenu = ref<{x: number, y: number} | null>(null)
+const menuSection = ref<string | null>(null)
+const renaming = ref(false)
+const newName = ref('')
+function openSectionMenu(event: MouseEvent, name: string) {
+    menuSection.value = name
+    renaming.value = false
+    newName.value = name
+    sectionMenu.value = {x: event.clientX, y: event.clientY}
+}
+function closeSectionMenu() {
+    sectionMenu.value = null
+}
+async function rename() {
+    const from = menuSection.value, name = newName.value.trim()
+    closeSectionMenu()
+    if (!from || !name || name === from) return
+    // A folded section stays folded under its new name.
+    if (await save(sectionPath(from), 'PATCH', {name}) && folded.value.includes(from)) {
+        fold(from)
+        fold(name)
+    }
+}
+async function removeSection() {
+    const name = menuSection.value
+    closeSectionMenu()
+    if (name) await save(sectionPath(name), 'DELETE')
+}
+
+// New section, at the foot: one with no docs in it yet.
+const making = ref(false)
+const madeName = ref('')
+async function makeSection() {
+    const name = madeName.value.trim()
+    if (name && !await save('doc-sections', 'POST', {name})) return
+    making.value = false
+    madeName.value = ''
 }
 </script>
 
@@ -105,6 +152,7 @@ function moveTo(section: string | null) {
           :aria-expanded="!isFolded(section)"
           :title="isFolded(section) ? 'Show its docs' : 'Fold its docs'"
           @click="fold(section.name)"
+          @contextmenu.prevent="openSectionMenu($event, section.name)"
           @dragover.prevent="dragging && (over = section.name)"
           @dragleave="over = undefined"
           @drop.prevent="dropOn(section.name)"
@@ -134,6 +182,27 @@ function moveTo(section: string | null) {
       <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
       New doc
     </button>
+    <button
+        v-if="!making"
+        type="button"
+        class="hidden shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:flex"
+        @click="making = true"
+    >
+      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+      New section
+    </button>
+    <form v-else class="hidden px-1 py-0.5 md:block" @submit.prevent="makeSection">
+      <input
+          v-model="madeName"
+          class="h-7 w-full rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+          placeholder="Section name"
+          aria-label="New section"
+          maxlength="60"
+          autofocus
+          @keydown.esc="making = false; madeName = ''"
+          @blur="!madeName.trim() && (making = false)"
+      >
+    </form>
     <p v-if="failed" class="px-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
 
     <UiContextMenu :at="menuDoc ? menu : null" :label="`Move ${menuDoc?.title}`" width="w-56" @close="closeMenu">
@@ -146,6 +215,19 @@ function moveTo(section: string | null) {
           <form v-else class="p-1" @submit.prevent="newSection.trim() && moveTo(newSection.trim())">
             <input v-model="newSection" class="h-7 w-full rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none" placeholder="Section name" aria-label="New section" maxlength="60" autofocus>
           </form>
+        </div>
+      </template>
+    </UiContextMenu>
+
+    <UiContextMenu :at="menuSection ? sectionMenu : null" :label="`Section ${menuSection}`" width="w-56" @close="closeSectionMenu">
+      <template v-if="menuSection">
+        <div class="truncate px-2 pt-1.5 pb-1 text-xs text-muted">{{ menuSection }}</div>
+        <div class="flex flex-col border-t border-line pt-1">
+          <UiMenuItem v-if="!renaming" @click="renaming = true">Rename…</UiMenuItem>
+          <form v-else class="p-1" @submit.prevent="rename">
+            <input v-model="newName" class="h-7 w-full rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none" placeholder="Section name" aria-label="Rename section" maxlength="60" autofocus>
+          </form>
+          <UiMenuItem danger title="Its docs stay, under no section" @click="removeSection">Delete section</UiMenuItem>
         </div>
       </template>
     </UiContextMenu>

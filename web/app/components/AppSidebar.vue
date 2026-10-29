@@ -6,12 +6,8 @@ import {nameBesideProject} from '#shared/roadmap'
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const {byProject: schedulesByProject} = useSchedules()
-const {settings: appSettings} = useAppSettings()
-const {newErrors} = useLoggedEvents()
 // Open pull requests on the projects' GitHub repos, asked every two minutes: the entry shows once a repo is there,
 // with how many need someone (ORR-491).
-const {pulls, follow: followPulls} = useOpenPulls()
-followPulls(120_000)
 /** Every project's schedules still set to run, for the Schedules entry. */
 const scheduleCount = computed(() => Object.values(schedulesByProject.value).flat().filter(s => s.enabled).length)
 const open = useState('sidebar-open', () => false)
@@ -157,18 +153,6 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       </NuxtLink>
 
       <NuxtLink
-          v-if="pulls?.repos.length"
-          to="/pulls"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
-        <span class="flex-1">Pull requests</span>
-        <span v-if="pulls.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
-        <span v-else-if="pulls.pulls.length" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.pulls.length }}</span>
-      </NuxtLink>
-
-      <NuxtLink
           to="/schedules"
           class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
           :class="route.path === '/schedules' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
@@ -176,27 +160,6 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <SectionIcon section="schedules" class="size-4 text-faint" />
         <span class="flex-1">Schedules</span>
         <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
-      </NuxtLink>
-
-      <NuxtLink
-          v-if="appSettings.advanced"
-          to="/events"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
-        <span class="flex-1">Events</span>
-        <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
-      </NuxtLink>
-
-      <NuxtLink
-          v-if="appSettings.advanced"
-          to="/context"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-          :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-      >
-        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
-        <span class="flex-1">Context</span>
       </NuxtLink>
 
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">

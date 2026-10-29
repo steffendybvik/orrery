@@ -139,7 +139,9 @@ that can open a launcher stream is a launcher, though, and gets a token like any
 
 **Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
 there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the
-cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". As with Watch and
+cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". The pop-up shows the
+prompt from that pane, not the tool the session's hook names: anything can post a session's hook, so that line shows
+only for a session with no pane to read, which has no Allow (ORR-572). As with Watch and
 Stop, though, the owner is a name, not a password: whoever can reach orrery can press Allow, so a session's
 permission prompts are only as safe as who can reach orrery ([above](#who-can-reach-it)).
 
@@ -209,6 +211,10 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
   roadmaps leave the machine for that service.
 - The session hooks send orrery each session's id, its name, its working folder, what it's doing and
   Claude Code's notification text. They go to the orrery at `ORRERY_URL`, nowhere else.
+- **Context** (Advanced → Context) shows what each running session has been given since orrery started: the signals
+  sent to it and its orrery tools' answers, kept in memory only. Like every page, it's open to whatever can reach
+  orrery, sessions included, so an `egress` answer is kept by its size alone, never what the service sent back
+  (ORR-573). Anything can add an entry to a session's list there, as it can post a session's hook.
 - **The event log** (Advanced → Events) keeps what went wrong, with error messages and stacks, for 30 days on
   this machine. Secrets' values and database passwords are taken out before it's written. Every session can read
   it. A session can mark an error resolved, but the row then says which agent did, and the bell keeps showing it

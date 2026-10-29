@@ -17,7 +17,7 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
 </script>
 
 <template>
-  <details class="group rounded-xl border border-line" :open="running !== null && !ready">
+  <details class="group rounded-xl border border-line dark:bg-panel" :open="running !== null && !ready">
     <summary class="flex list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-fg">
       <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
       How orrery starts sessions, with no terminal
@@ -41,7 +41,8 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
             <span class="font-medium text-fg">Install the launcher, once in each project's repo</span>
             <span>
               orrery runs in Docker and can't start sessions on your machine, so a small launcher does it. Installed, it runs in the
-              background (launchd on macOS, systemd on Linux), starts at login and serves every project installed this way.
+              background (launchd on macOS, systemd on Linux; on Windows, inside WSL with systemd on), starts at login and serves
+              every project installed this way.
               It finds the project in the repo's <span class="font-mono">.mcp.json</span>. If it's new to the repo,
               run <span class="font-mono">claude</span> there once to trust the folder. Its command is at the top of this section.
             </span>
