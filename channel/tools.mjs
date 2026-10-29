@@ -166,8 +166,8 @@ const CHUNK_FIELDS = {
 }
 
 /** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
- * issue's fields when they ask (never its state of work), messaging other sessions for the owner when they ask, and
- * asking them to start, stop or extend a session, change a setting, or make or change a schedule or a release. */
+ * issue's fields when they ask, and asking them to start, stop or extend a session, move or assign issues, message
+ * other sessions, change a setting, or make or change a schedule or a release. */
 export const CHAT_TOOLS = [
     {
         name: 'start_session',
@@ -199,8 +199,18 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release or parent, when the owner asks in this chat. It can't start, move, assign or finish one.",
+        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release or parent, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent'].map(f => [f, FIELDS[f]]))}},
+    },
+    {
+        name: 'move_issues',
+        description: "Asks the owner to move issues in this project to another status, or assign them, only when they asked you to in this chat: it shows them each issue's from → to with Allow and Deny, and you hear which they pressed. Nothing moves until they allow it; then it's their move, as if made on the page. status is a status's id or a kind (todo, started, done, canceled…); assignee is a name, owner, or null for nobody. Not a proposal waiting on the owner: that stays theirs to decide.",
+        inputSchema: {type: 'object', required: ['ids'], properties: {
+            ids: {type: 'array', items: {type: 'string'}, description: 'The issues, e.g. ["ORR-12", "ORR-14"]'},
+            status: {type: 'string'},
+            assignee: {type: ['string', 'null']},
+            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
+        }},
     },
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
@@ -469,6 +479,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async reply({text}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/replies`, {text}, root)
             return 'Sent.'
+        },
+        async move_issues({ids, status, assignee, why}) {
+            const {move} = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {move: {ids, ...status !== undefined ? {status} : {}, ...assignee !== undefined ? {assignee} : {}}, ...why ? {why} : {}}, root)
+            return `Asked: the owner sees ${move.changes.length === 1 ? 'the change' : `the ${move.changes.length} changes`} with Allow and Deny, and you'll hear which they pressed. Nothing moves until they allow it.`
         },
         async update_settings({setting, value, why}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {setting, value, ...why ? {why} : {}}, root)

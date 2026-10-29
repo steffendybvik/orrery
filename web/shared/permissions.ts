@@ -67,7 +67,7 @@ export const PERMISSIONS: Permission[] = [
         why: 'Only one session works an issue at a time, and a proposal is work only once the owner approves it.',
         routes: ['PATCH /api/projects/:project/issues/:issue', 'PATCH /api/projects/:project/issues'],
         session: {level: 'limited', note: 'Not an issue another session is on, nor a proposal’s status, assignee or release before it’s approved'},
-        chat: {level: 'limited', note: 'What it says and where it sits, never its state of work'},
+        chat: {level: 'limited', note: 'What it says and where it sits; its status and assignee only on your Allow, and not a proposal’s before it’s approved'},
         untrusted: refused,
     },
     {

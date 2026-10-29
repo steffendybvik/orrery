@@ -672,6 +672,8 @@ export interface ChatMessage {
     send?: ChatSendRequest
     /** The session asking to start, stop or give more time to a session, which waits on the owner's Allow (ORR-509). */
     session?: ChatSessionRequest
+    /** The session asking to move issues (their status) or assign them, which waits on the owner's Allow (ORR-511). */
+    move?: ChatMoveRequest
     /** The owner cleared the session's context here (`/clear`, ORR-497): it remembers nothing said above. */
     cleared?: boolean
     /** The session asking to make or change a release, which waits on the owner's Allow (ORR-504). */
@@ -788,6 +790,16 @@ export interface ChatSendRequest {
     states?: SessionState[]
     to: string[]
     sent?: string[]
+    state: ChatRequest['state']
+}
+
+/** Issues the chat asked to move to another status or assign (`body.status`, `body.assignee`; null unassigns): each one's
+ * from → to in `changes`, with its title. Made as the owner's, as if they'd moved them on the page, only once they allow
+ * it; `moved` names those done, so Allow again after one failed moves the rest. `expired` as a setting's request is. */
+export interface ChatMoveRequest {
+    changes: {issue: string, title: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
+    body: {ids: string[], status?: string, assignee?: string | null}
+    moved?: string[]
     state: ChatRequest['state']
 }
 

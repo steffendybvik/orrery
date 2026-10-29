@@ -1,5 +1,5 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatReleaseField, ChatReleaseRequest, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
+import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {CHUNK_FIELDS, SETTINGS_FIELDS} from '../store/schema'
@@ -16,8 +16,11 @@ import {known} from '#shared/known'
 const chatBrief = (project: string) => `This session is the owner's chat in orrery: they type to you on its page and read what you send with the reply tool.
 Answer their questions about this project: its code (read it), its roadmap and its docs (the issues, issue, chunks,
 releases, docs and doc tools). When they ask for an issue or a comment, make it (create_issue, comment) and say which
-id it got. When they ask to change an issue (its priority, labels, chunk, release, title…), change it (edit_issue). You
-don't work on anything: don't change code, and don't start, move or finish issues; other sessions do that. When the owner asks you to, in this chat, message other sessions (sessions lists them): message_sessions
+id it got. When they ask to change an issue (its priority, labels, chunk, release, title…), change it (edit_issue). When
+they ask to move issues to another status (Todo, Done, Canceled…) or assign them, ask with move_issues, for one issue or
+several: it shows them each from → to with Allow and Deny, and you hear which they pressed. Nothing moves until they
+allow it, and a proposal waiting on them stays theirs to decide. You don't work on anything: don't change code, and an
+issue you move isn't yours to work on; other sessions do that. When the owner asks you to, in this chat, message other sessions (sessions lists them): message_sessions
 asks to nudge every idle one, message_session one by its name. Either shows them the message and who it goes to with
 Send and Don't send, and you hear which they pressed: nothing is sent until they press Send. Never on your own.
 When the owner asks you to change an App setting (the team tracker, the background tint, keeping agents off
@@ -115,13 +118,14 @@ export const ASK_FOR = 30 * 60_000
 /** The chat's session asking the owner for something in its chat: a message sent to sessions (`{message, why?}`,
  * `askSend`), a schedule made or changed (`{schedule, id?, why?}`, `askSchedule`), a release made or changed
  * (`{release, version?, why?}`, `askRelease`), a session started, stopped or given more time (`{session, why?}`,
- * `askSession`), a chunk made or changed (`{chunk, id?, why?}`, `askChunk`), or else an App setting changed
- * (`askSetting`). */
+ * `askSession`), a chunk made or changed (`{chunk, id?, why?}`, `askChunk`), issues moved or assigned (`{move, why?}`,
+ * `askMove`), or else an App setting changed (`askSetting`). */
 export async function ask(id: string, body: unknown): Promise<ChatMessage> {
     if (isObject(body) && 'session' in body) return await askSession(id, body)
     if (isObject(body) && 'message' in body) return await askSend(id, body)
     if (isObject(body) && 'release' in body) return await askRelease(id, body)
     if (isObject(body) && 'chunk' in body) return await askChunk(id, body)
+    if (isObject(body) && 'move' in body) return await askMove(id, body)
     return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
 }
 
@@ -199,6 +203,56 @@ async function askSchedule(id: string, body: Record<string, unknown>): Promise<C
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${scheduleAsk(request)}`, details: {schedule: request.id ?? null, fields: Object.keys(fields)}})
     return said
 }
+
+/** The most issues one request moves. */
+const MOVE_AT_MOST = 50
+
+/** A proposal waiting on the owner (or on changes) isn't work yet: its status and assignee are theirs to decide. */
+const undecided = (proposal: unknown) => proposal === 'pending' || proposal === 'changes'
+
+/** The chat's session asking to move issues in its project to another status, or assign them (its `move_issues` tool):
+ * `move` is `{ids, status?, assignee?}`, a status's id or a kind, and `owner`, an agent's name or null for the assignee.
+ * A request in the chat showing each issue's from → to, checked as the owner's move would be, which moves nothing until
+ * they allow it. Never a proposal waiting on the owner. One it asked before for any of the same issues, still unanswered,
+ * expires. */
+async function askMove(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {move, why} = body as {move?: unknown, why?: unknown}
+    const {ids, status, assignee} = (isObject(move) ? move : {}) as {ids?: unknown, status?: unknown, assignee?: unknown}
+    if (!Array.isArray(ids) || !ids.length || ids.some(i => typeof i !== 'string' || !i.trim()) || (status === undefined && assignee === undefined)) {
+        throw badRequest('Send {move: {ids, status?, assignee?}}: the issues, and the status to move them to, who to assign them to (null for nobody), or both')
+    }
+    if (ids.length > MOVE_AT_MOST) throw badRequest(`Ask to move at most ${MOVE_AT_MOST} issues at once`)
+    if (assignee !== undefined && assignee !== null && typeof assignee !== 'string') throw badRequest('Send "assignee" as a name, "owner", or null for nobody')
+    const store = useStore()
+    const to = {
+        ...status === undefined ? {} : {status: await store.resolveStatus(status as string)},
+        ...assignee === undefined ? {} : {assignee: !assignee?.trim() ? null : assignee.trim().toLowerCase() === 'owner' ? (await store.ownerOf()).name : assignee.trim()},
+    }
+    const issues = await Promise.all([...new Set((ids as string[]).map(i => i.trim()))].map(i => store.issue(chat.project, i)))
+    const waiting = issues.filter(i => undecided(i.proposal)).map(i => i.id)
+    if (waiting.length) throw forbidden(`${waiting.join(', ')} ${waiting.length === 1 ? 'is a proposal' : 'are proposals'} waiting on the owner: ${waiting.length === 1 ? 'its' : 'their'} status and assignee are theirs to decide, on ${waiting.length === 1 ? 'its' : 'their'} page`)
+    const changes = issues.flatMap(i => [
+        ...to.status !== undefined && to.status !== i.column ? [{issue: i.id, title: i.title, field: 'status' as const, from: i.column, to: to.status}] : [],
+        ...to.assignee !== undefined && to.assignee !== (i.assignee ?? null) ? [{issue: i.id, title: i.title, field: 'assignee' as const, from: i.assignee ?? null, to: to.assignee}] : [],
+    ])
+    if (!changes.length) throw conflict(`${issues.length === 1 ? `${issues.map(i => i.id).join('')} is` : 'They are'} like that already: nothing would change`)
+    const asking = issues.map(i => i.id)
+    for (const m of chat.messages) if (m.move?.state === 'asked' && m.move.body.ids.some(i => asking.includes(i))) m.move.state = 'expired'
+    const request: ChatMoveRequest = {changes, body: {ids: [...new Set(changes.map(c => c.issue))], ...to}, state: 'asked'}
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], move: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${moveAsk(request)}`, details: {issues: request.body.ids, ...to}})
+    return said
+}
+
+/** Where a move request puts its issues, as a phrase: "in done, assigned to claude". */
+const moveTo = ({body: {status, assignee}}: ChatMoveRequest) => [
+    status !== undefined ? `in ${status}` : '',
+    assignee === undefined ? '' : assignee === null ? 'unassigned' : `assigned to ${assignee}`,
+].filter(Boolean).join(', ')
+
+/** What a move request asks, as a line: "put ORR-1, ORR-2 in done, assigned to claude". */
+const moveAsk = (request: ChatMoveRequest) => `put ${request.body.ids.join(', ')} ${moveTo(request)}`
 
 /** The chat's session asking to make a chunk in its project, or change chunk `id` there (its `create_chunk` and
  * `update_chunk` tools): `chunk` holds the fields (`CHAT_CHUNK_FIELDS`), checked as the chunk routes check them. A
@@ -302,8 +356,8 @@ const answering = new Set<string>()
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
 export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.chunk))
-    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.chunk
+    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.chunk || m.move))
+    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.chunk ?? asked?.move
     if (!asked || !request) throw notFound(`No request ${message} in this chat`)
     if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
         request.state = 'expired'
@@ -319,6 +373,7 @@ export async function answer(id: string, message: number, allow: boolean, actor:
         else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
         else if (asked.release) await answerRelease(chat, asked.release, allow, actor)
         else if (asked.chunk) await answerChunk(chat, asked.chunk, allow, actor)
+        else if (asked.move) await answerMove(chat, asked.move, allow, actor)
         else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
     } finally {
         answering.delete(key)
@@ -361,6 +416,41 @@ async function answerRelease(chat: Chat, request: ChatReleaseRequest, allow: boo
     await useStore().messageSession(chat.project, launchTarget(chat.id), allow
         ? `(I allowed your request: release ${request.version} is ${request.change ? 'changed' : 'added'}.)`
         : `(I denied your request to ${releaseAsk(request)}: nothing changed.)`, actor)
+}
+
+/** The owner allowing or denying the chat's request to move or assign issues: allowed, each is changed as theirs, through
+ * their chat, as their own move on the page would be (the session on one hears it the same way). One that became a
+ * proposal waiting on them since, or can't be moved now, fails as their move would, still asked; those moved before it
+ * stay in `moved`, so Allow again moves only the rest. */
+async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, actor: Actor) {
+    if (allow) {
+        const as: Actor = {...actor, via: 'chat'}
+        const {ids, ...to} = request.body
+        const moved = [...request.moved ?? []]
+        try {
+            for (const id of ids) {
+                if (moved.includes(id)) continue
+                if (undecided((await useStore().issue(chat.project, id)).proposal)) throw forbidden(`${id} is a proposal waiting on you now: decide it on its page`)
+                await useStore().updateIssue(chat.project, id, to, as)
+                moved.push(id)
+            }
+        } catch (error) {
+            // Still asked, with those moved already.
+            if (moved.length) {
+                request.moved = moved
+                changed(chat)
+            }
+            throw error
+        }
+        request.moved = moved
+    }
+    request.state = allow ? 'allowed' : 'denied'
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${moveAsk(request)}`,
+        details: {issues: request.body.ids, allowed: allow}})
+    await useStore().messageSession(chat.project, launchTarget(chat.id), allow
+        ? `(I allowed your request: ${request.body.ids.join(', ')} ${request.body.ids.length === 1 ? 'is' : 'are'} now ${moveTo(request)}, saved.)`
+        : `(I denied your request to ${moveAsk(request)}: nothing changed.)`, actor)
 }
 
 /** The owner allowing or denying the chat's request for a chunk: allowed, it's made or changed as theirs, through their
@@ -601,10 +691,11 @@ export function asChatIssue(body: unknown, chat?: string): unknown {
 const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent']
 
 /** An edit to an issue from the chat, as it asks for it: refused (403) when it would change anything but `CHAT_EDITS`,
- * so a chat never starts, moves, assigns or finishes work, puts up a proposal or moves an issue to another project. */
+ * so a chat never moves or assigns an issue on its own (only through a request the owner allows, `askMove`), puts up a
+ * proposal or moves an issue to another project. */
 export function asChatEdit(body: unknown): Record<string, unknown> {
     if (!isObject(body)) throw badRequest(`Send what to change: any of ${CHAT_EDITS.join(', ')}`)
     const refused = Object.keys(body).filter(key => !CHAT_EDITS.includes(key))
-    if (refused.length) throw forbidden(`The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: it doesn't start, move or finish work`)
+    if (refused.length) throw forbidden(`The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: to move or assign one, it asks the owner (move_issues)`)
     return body
 }
