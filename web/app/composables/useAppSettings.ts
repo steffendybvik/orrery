@@ -23,11 +23,34 @@ export function useAppSettings() {
         }
     }
 
+    // Saves in a row can be answered out of order, and a live update can come after the answer to a later save. Either
+    // would put older settings back on screen, undoing what was typed since (ORR-519). So only the latest save's answer
+    // is kept, and live updates wait while one of this tab's saves is on its way: its answer is the settings as they are.
+    const saving = useState('app-settings-saving', () => 0)
+    const latest = useState('app-settings-latest', () => 0)
+
     async function save(change: Partial<Settings>) {
+        const mine = ++latest.value
+        saving.value++
         settings.value = {...settings.value, ...change}
         apply()
-        settings.value = await $fetch<Settings>('/api/settings', {method: 'PATCH', headers: {'Orrery-Actor': await useOwner().load()}, body: change})
+        try {
+            const saved = await $fetch<Settings>('/api/settings', {method: 'PATCH', headers: {'Orrery-Actor': await useOwner().load()}, body: change})
+            if (mine === latest.value) {
+                settings.value = saved
+                apply()
+            }
+        } finally {
+            saving.value--
+        }
     }
 
-    return {settings, tintColor, apply, save}
+    /** The settings as a live update brings them: kept unless one of this tab's saves is on its way. */
+    function heard(next: Settings) {
+        if (saving.value) return
+        settings.value = next
+        apply()
+    }
+
+    return {settings, tintColor, apply, save, heard}
 }
