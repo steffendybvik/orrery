@@ -20,6 +20,10 @@ overview, is one list.
   and Pull requests stay out of the sidebar.
 - **The launcher follows its list while running:** it serves a project added to `~/.config/orrery/launcher.json`
   and lets a removed one go, without a restart, so `--install` in another repo no longer stops every session it runs.
+- **Issues depend on others:** set **Depends on** on an issue's page, in New issue, or with **Chain in order** on the
+  ticked issues, in its project or another. A blocked issue has a lock chip and a **Blocked** filter, and nothing
+  hands it out until each issue it waits on is Done. Then it goes to the session that did the last one, told what each
+  was. A canceled blocker keeps it blocked and asks you; a reopened one tells the session working on it.
 
 ### Changes
 
