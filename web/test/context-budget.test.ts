@@ -20,7 +20,8 @@ describe('the tool list a session carries on every turn', () => {
         // The chat's planning reads (chunks, presets, preset, schedules) are the chat's alone (ORR-544).
         const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
             'write_doc', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event']
-        expect(tools(['greenhouse']).map(t => t.name)).toEqual(work)
+        // A working session asks the owner for a schedule on its issue (ORR-458); an untrusted one goes without.
+        expect(tools(['greenhouse']).map(t => t.name)).toEqual([...work, 'create_schedule', 'update_schedule'])
         expect(tools(['greenhouse'], {untrusted: true}).map(t => t.name)).toEqual([...work, 'github_issues'])
         expect(tools(['greenhouse'], {chat: true}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue', 'comment', 'chunks', 'releases', 'docs',
             'doc', 'presets', 'preset', 'schedules', 'sessions', 'events', 'guide', 'start_session', 'stop_session', 'extend_session', 'reply',
@@ -29,8 +30,8 @@ describe('the tool list a session carries on every turn', () => {
     })
 
     it('stays within its budget, for one project and for several', () => {
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(8_600)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(9_600)
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(9_500)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(10_500)
         expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(9_200)
         expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(20_200)
         expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(21_500)

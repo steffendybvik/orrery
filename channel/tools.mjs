@@ -277,6 +277,26 @@ export const CHAT_TOOLS = [
     },
 ]
 
+/** What a working session asks the owner for on the issue it's working (ORR-458), named as the chat's tools that ask in
+ * the chat: a comment waiting on the owner's decision, with Allow and Deny. The schedule is one object, its fields as the
+ * chat's take them, to keep a working session's tool list small. An untrusted session goes without. */
+export const ASK_TOOLS = [
+    {
+        name: 'create_schedule',
+        description: "Asks the owner, on the issue you're working, to make a schedule, when they asked for one: they get it with Allow and Deny, and answer in a comment. Saved, as theirs, only on Allow.",
+        inputSchema: {type: 'object', required: ['id', 'schedule'], properties: {
+            id: {type: 'string', description: 'Your issue'},
+            schedule: {type: 'object', description: 'title, and cron ("0 9 * * 1-5"), at (ISO) or on (an event: "issue.status"); kind (issue, message, session), notes, presets, timezone…'},
+            why: {type: 'string'},
+        }},
+    },
+    {
+        name: 'update_schedule',
+        description: 'As create_schedule, to change schedule schedule_id: send only what changes (enabled false pauses it).',
+        inputSchema: {type: 'object', required: ['id', 'schedule_id', 'schedule'], properties: {id: {type: 'string'}, schedule_id: {type: 'number'}, schedule: {type: 'object'}, why: {type: 'string'}}},
+    },
+]
+
 /** What an untrusted schedule's session has besides: reading the repo's GitHub issues. It has no Bash, so gh is run
  * here, on the repo its folder's git remote names, with only these fields: it can't be pointed at another host and send
  * what the session read there (ORR-415). */
@@ -317,11 +337,11 @@ const LOGIN = /^[\w-]+$/
 const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
- * (`chat`) are its own; a work session's leave out the chat's reads, and an untrusted schedule's session (`untrusted`)
- * also reads GitHub issues. */
+ * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), and an
+ * untrusted schedule's session (`untrusted`) reads GitHub issues instead. */
 export function toolsFor(projects, {chat = false, untrusted = false} = {}) {
     const work = TOOLS.filter(t => !CHAT_READS.includes(t.name))
-    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS] : untrusted ? [...work, ...UNTRUSTED_TOOLS] : work
+    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS] : untrusted ? [...work, ...UNTRUSTED_TOOLS] : [...work, ...ASK_TOOLS]
     if (projects.length < 2) return tools
     const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}`}
     return tools.map(tool => SCOPED.includes(tool.name)
@@ -373,7 +393,12 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         return project
     }
     const issuePath = id => `/issues/${encodeURIComponent(id)}`
-    const pick = (args, keys) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]))
+    /** A working session's create_schedule or update_schedule (`schedule_id`): asked on its issue `id` (ORR-458). */
+    async function askOnIssue({id, schedule_id, schedule, why}) {
+        const asked = await call('POST', `${issuePath(id)}/schedule-requests`, {schedule, ...schedule_id === undefined ? {} : {id: schedule_id}, ...why ? {why} : {}}, at(await projectOf({id})))
+        return `Asked on ${id} (comment ${asked.id}): the owner sees the ${schedule_id === undefined ? 'schedule' : 'change'} with Allow and Deny, and their answer comes back as a comment. Nothing is saved until they allow it.`
+    }
+    const pick =(args, keys) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]))
     const line = i => `${i.id} [${[i.status, i.priority, i.assignee].filter(Boolean).join(', ')}] ${i.title}${i.proposal ? ` (proposal: ${i.proposal})` : ''}`
 
     const run = {
@@ -547,11 +572,15 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {setting, value, ...why ? {why} : {}}, root)
             return "Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async create_schedule({why, ...schedule}) {
+        async create_schedule(args) {
+            if (!chat) return await askOnIssue(args)
+            const {why, ...schedule} = args
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {schedule, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the schedule with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async update_schedule({id, why, ...schedule}) {
+        async update_schedule(args) {
+            if (!chat) return await askOnIssue(args)
+            const {id, why, ...schedule} = args
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, schedule, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
@@ -605,9 +634,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
 
     /** Runs a tool; an MCP result, an error result when orrery refuses or can't be reached. */
     return async function callTool(name, args = {}) {
-        const chatOnly = CHAT_TOOLS.some(t => t.name === name) || CHAT_READS.includes(name)
+        const asks = ASK_TOOLS.some(t => t.name === name)
+        const chatOnly = !asks && CHAT_TOOLS.some(t => t.name === name) || CHAT_READS.includes(name)
         const untrustedOnly = UNTRUSTED_TOOLS.some(t => t.name === name)
-        if (!run[name] || chatOnly && !chat || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
+        if (!run[name] || chatOnly && !chat || asks && untrusted || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
         let answer
         try {
             const result = await run[name](args)
