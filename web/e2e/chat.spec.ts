@@ -314,6 +314,45 @@ test('asks the owner to make or pause a schedule, and saves it as theirs only on
     }
 })
 
+test('asks the owner to move or assign issues, and moves them as theirs only on their Allow', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    const made: string[] = []
+    const issue = async (id: string) => (await (await request.get(`/api/projects/larder/issues/${id}`)).json()) as {column: string, assignee?: string}
+    try {
+        for (const title of ['Label the jars', 'Fix the shelf']) {
+            const created = await request.post('/api/projects/larder/issues', {data: {title, status: 'todo'}, headers: OWNER})
+            made.push((await created.json()).id)
+        }
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat-move&name=e2e-chat-move&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-move', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        // It can't move one itself, only ask.
+        expect((await request.patch(`/api/projects/larder/issues/${made[0]}`, {data: {status: 'done'}, headers: asChat})).status()).toBe(403)
+        const asked = await request.post(`/api/chats/${chat.id}/requests`, {data: {move: {ids: made, status: 'done', assignee: 'owner'}, why: 'Both are done.'}, headers: asChat})
+        expect(asked.status(), await asked.text()).toBe(201)
+
+        await page.goto('/p/larder')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const card = page.getByRole('region', {name: 'Chat'}).getByRole('group', {name: `Move ${made.join(', ')}`})
+        await expect(card).toContainText('Label the jars')
+        await expect(card).toContainText('Todo')
+        await expect(card).toContainText('Done')
+        expect((await issue(made[0]!)).column).toBe('todo')
+        await card.getByRole('button', {name: 'Allow'}).click()
+        await expect(card).toContainText('Allowed and saved')
+        for (const id of made) await expect.poll(async () => [(await issue(id)).column, (await issue(id)).assignee]).toEqual(['done', OWNER['Orrery-Actor']])
+        await expect.poll(() => session!.said.text).toContain('are now in done')
+    } finally {
+        await endChats(request)
+        for (const id of made) await request.delete(`/api/projects/larder/issues/${id}`, {headers: OWNER})
+        session?.stop()
+        launcher.stop()
+    }
+})
+
 // Where the chat's issues land (ORR-408): the owner picks Todo or Backlog beside Send, before the chat starts or
 // during it, and it's remembered for the next one. The server holds the chat to it, whatever status its session asks
 // for, and the session can't change it.

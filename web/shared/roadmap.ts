@@ -668,6 +668,8 @@ export interface ChatMessage {
     schedule?: ChatScheduleRequest
     /** The session asking to message other sessions as the owner, which waits on the owner's Send (ORR-416). */
     send?: ChatSendRequest
+    /** The session asking to move issues (their status) or assign them, which waits on the owner's Allow (ORR-511). */
+    move?: ChatMoveRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -737,6 +739,16 @@ export interface ChatSendRequest {
     states?: SessionState[]
     to: string[]
     sent?: string[]
+    state: ChatRequest['state']
+}
+
+/** Issues the chat asked to move to another status or assign (`body.status`, `body.assignee`; null unassigns): each one's
+ * from → to in `changes`, with its title. Made as the owner's, as if they'd moved them on the page, only once they allow
+ * it; `moved` names those done, so Allow again after one failed moves the rest. `expired` as a setting's request is. */
+export interface ChatMoveRequest {
+    changes: {issue: string, title: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
+    body: {ids: string[], status?: string, assignee?: string | null}
+    moved?: string[]
     state: ChatRequest['state']
 }
 

@@ -1,6 +1,8 @@
 import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Chat} from '#shared/roadmap'
+import {Store} from '../server/utils/store'
+import {testDb} from './db'
 
 // The owner's chats live in the module, with Nitro's auto-imports stubbed: its launch, and the message to its session.
 let chats: typeof import('../server/utils/chats')
@@ -336,6 +338,80 @@ describe("the owner's chat", () => {
 
     it('leaves a proposal one, for the owner to decide', () => {
         expect(chats.asChatIssue({title: 'Grow lights', proposal: 'pending', status: 'todo', assignee: 'claude'})).toEqual({title: 'Grow lights', proposal: 'pending'})
+    })
+})
+
+describe("the owner's chat moving issues", () => {
+    let store: Store
+    let notes: {kind: string, message: string}[]
+
+    beforeEach(async () => {
+        store = new Store(testDb())
+        await store.nameOwner({name: 'Skoll'})
+        const owner = {name: 'skoll', owner: true}
+        await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
+        for (const title of ['Shelf labels', 'Grow lights', 'Water timer']) await store.createIssue('greenhouse', {title, status: 'todo'}, owner)
+        await store.createIssue('greenhouse', {title: 'A greenhouse cat', proposal: 'pending'})
+        store.messageSession = async (project: string, target: string, text: string) => void messages.push({project, target, text})
+        notes = []
+        vi.stubGlobal('useStore', () => store)
+        vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string, message: string}) => notes.push(entry)}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        await chats.openChat('greenhouse')
+    })
+
+    const state = async (id: string) => {
+        const issue = await store.issue('greenhouse', id)
+        return [issue.column, issue.assignee ?? null]
+    }
+
+    it('asks with each from → to, and moves them as the owner only once they allow it', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-2'], status: 'done', assignee: 'owner'}, why: 'Both shipped in #360.'})
+        expect(asked).toMatchObject({text: 'Both shipped in #360.', move: {state: 'asked', body: {ids: ['GRE-1', 'GRE-2'], status: 'done', assignee: 'skoll'}, changes: [
+            {issue: 'GRE-1', title: 'Shelf labels', field: 'status', from: 'todo', to: 'done'},
+            {issue: 'GRE-1', title: 'Shelf labels', field: 'assignee', from: null, to: 'skoll'},
+            {issue: 'GRE-2', title: 'Grow lights', field: 'status', from: 'todo', to: 'done'},
+            {issue: 'GRE-2', title: 'Grow lights', field: 'assignee', from: null, to: 'skoll'},
+        ]}})
+        expect(await state('GRE-1')).toEqual(['todo', null])
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        expect([await state('GRE-1'), await state('GRE-2')]).toEqual([['done', 'skoll'], ['done', 'skoll']])
+        expect((await store.listActivity('greenhouse', 'GRE-1')).at(-1)).toMatchObject({created_by: 'skoll', protected: true})
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: GRE-1, GRE-2 are now in done, assigned to skoll, saved.)')
+        expect(notes.map(n => n.message)).toEqual(['The chat asked to put GRE-1, GRE-2 in done, assigned to skoll', "skoll allowed the chat's request to put GRE-1, GRE-2 in done, assigned to skoll"])
+    })
+
+    it('moves nothing when denied, and only what would change', async () => {
+        await store.updateIssue('greenhouse', 'GRE-2', {status: 'backlog'}, {name: 'skoll', owner: true})
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-2'], status: 'backlog'}})
+        expect(asked.move).toMatchObject({body: {ids: ['GRE-1'], status: 'backlog'}, changes: [{issue: 'GRE-1', from: 'todo', to: 'backlog'}]})
+        await chats.answer('c1c2c3c4c5c6', asked.id, false, {name: 'skoll', owner: true})
+        expect(await state('GRE-1')).toEqual(['todo', null])
+        expect(messages.at(-1)!.text).toBe("(I denied your request to put GRE-1 in backlog: nothing changed.)")
+        await expect(chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-2'], status: 'backlog'}})).rejects.toMatchObject({statusCode: 409})
+    })
+
+    it("never asks to move a proposal waiting on the owner, nor a status that isn't one", async () => {
+        await expect(chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-4'], status: 'todo'}})).rejects.toMatchObject({statusCode: 403, message: expect.stringMatching(/GRE-4 is a proposal/)})
+        await expect(chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'shipped'}})).rejects.toMatchObject({statusCode: 400})
+        for (const move of [{ids: [], status: 'done'}, {ids: ['GRE-1']}, {ids: ['GRE-1'], assignee: 3}])
+            await expect(chats.ask('c1c2c3c4c5c6', {move})).rejects.toMatchObject({statusCode: 400})
+        await expect(chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-9'], status: 'done'}})).rejects.toMatchObject({statusCode: 404})
+    })
+
+    it('keeps those moved when one fails on Allow, and moves only the rest when allowed again', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-3'], assignee: 'claude'}})
+        // Asking again for one of them lets the one before go.
+        const again = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-3'], assignee: 'claude'}})
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === asked.id)!.move!.state).toBe('expired')
+        await store.updateIssue('greenhouse', 'GRE-3', {proposal: 'pending'}, {name: 'skoll', owner: true})
+        await expect(chats.answer('c1c2c3c4c5c6', again.id, true, {name: 'skoll', owner: true})).rejects.toMatchObject({statusCode: 403})
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.move).toMatchObject({state: 'asked', moved: ['GRE-1']})
+        expect(await state('GRE-1')).toEqual(['todo', 'claude'])
+        await store.updateIssue('greenhouse', 'GRE-3', {proposal: null}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', again.id, true, {name: 'skoll', owner: true})
+        expect(await state('GRE-3')).toEqual(['todo', 'claude'])
     })
 })
 
