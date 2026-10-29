@@ -205,6 +205,11 @@ export async function streamFeed(stream: {push: (message: {id?: string, event: s
         const key = repeatKey(signal)
         if (key) sent.set(key, Date.now())
         if (attended) startRun(attended.id, signal)
+        // The owner's comment orrery handed this session (nobody was on its issue) makes the issue this session's, so
+        // their next comment on it comes here too and the thread keeps one voice (ORR-513).
+        if (attended && signal.kind === 'comment' && !signal.target && signal.issue) {
+            store.workedBy(project, signal.issue, attended.id).catch(error => console.error(`[orrery] tying ${signal.issue} to its session:`, error))
+        }
         feed.inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify({...await feed.told(signal), ...context()})}))
     }
     // A schedule's message again while the session hasn't finished a turn since the last copy (busy, or yet to

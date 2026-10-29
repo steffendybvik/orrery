@@ -1,4 +1,4 @@
-// A focus, a chunk's or a schedule's message aimed at no session goes to one session, not every one: the session
+// A focus, a comment, a chunk's or a schedule's message aimed at no session goes to one session, not every one: the session
 // already on its issue (made its target as it's sent), else a listening session that's idle when it comes, else the
 // next one to go idle. The project's own sessions come first: one that spans several projects (its channel hears
 // others too) takes it only while none of them is free. Aimed at `*`, it goes to every session, as all of them used to. Each such signal is taken by
@@ -8,9 +8,10 @@ import type {Signal} from '#shared/roadmap'
 /** The target that sends a signal to every session on the project. */
 export const EVERY = '*'
 
-/** Whether the signal goes to one session orrery picks. A comment has its own way: the session on its issue. */
+/** Whether the signal goes to one session orrery picks. The owner's comment does too when nobody's on its issue (it's
+ * aimed at the session on it otherwise), so one session answers it, not every one (ORR-513). */
 export function pooled(signal: Signal): boolean {
-    return !signal.target && signal.kind !== 'comment'
+    return !signal.target
 }
 
 /** Whether the signal is for every session, or for this one (by any id it has had). */

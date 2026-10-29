@@ -160,7 +160,7 @@ export abstract class IssueStore extends ReleaseStore {
 
     /** An issue the owner's write just made urgent open work (P0, and committed and not closed, which it wasn't
      * before) goes to the sessions as a focus, without their asking: to the session working it while it can hear,
-     * else to every session on the project. The write is saved by now, so a push that fails is only logged. */
+     * else to one session orrery picks (pool.ts). The write is saved by now, so a push that fails is only logged. */
     protected async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
         try {
             const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal
@@ -172,7 +172,7 @@ export abstract class IssueStore extends ReleaseStore {
         }
     }
 
-    /** The session that last worked the issue, while it's there to hear; null (every session) otherwise. */
+    /** The session that last worked the issue, while it's there to hear; null otherwise (one session orrery picks). */
     protected async listeningWorker(project: string, issue: string): Promise<string | null> {
         const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
         return worker && this.hears(project, worker) ? worker : null

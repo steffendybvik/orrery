@@ -209,7 +209,7 @@ export abstract class SignalStore extends IssueStore {
     async pooledWaiting(project: string): Promise<Signal[]> {
         const since = new Date(Date.now() - 86_400_000).toISOString()
         return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
-            AND target IS NULL AND kind != 'comment' AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
+            AND target IS NULL AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
     }
 
     /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next
