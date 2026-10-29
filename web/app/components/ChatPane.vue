@@ -14,8 +14,9 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // field it sets) or change (each from → to), and issues it asks to move or assign (each one's status or assignee, from →
 // to, its id a link). A message it asks to send other sessions shows with who it goes to, and
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
-// wide screen it shows on hover or focus).
-const {open, large, chat, session, project, failed, chats, lands, start, send, land, fresh, answer, hide, close, resize, upload, show} = useChat()
+// wide screen it shows on hover or focus). A message that's just `/clear` clears the session's context instead of going
+// to it: a divider marks the cut, and what was said above it stays, greyed. Any other slash command goes as words.
+const {open, large, chat, session, project, failed, chats, lands, start, send, clear, land, fresh, answer, hide, close, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean) {
     answering.value = message
@@ -75,16 +76,26 @@ const state = computed(() => {
     return {working: 'Thinking…', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
 })
 const thinking = computed(() => !!chat.value && !chat.value.ended && !chat.value.problem && (!session.value || session.value.state === 'working')
-    && chat.value.messages.at(-1)?.from === 'owner')
+    && chat.value.messages.at(-1)?.from === 'owner' && !chat.value.messages.at(-1)?.cleared)
 
 // The newest in sight as it comes.
 watch(() => [open.value, chat.value?.messages.length], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
 watch(open, now => now && nextTick(() => field.value?.focus()))
 
-/** Sends what's in the composer, starting the chat first when there's none yet. */
+/** Where the session's context was last cleared: the messages before it, it no longer remembers. */
+const cut = computed(() => chat.value?.messages.findLastIndex(m => m.cleared) ?? -1)
+
+/** Sends what's in the composer, starting the chat first when there's none yet. `/clear` clears the running chat's
+ * context instead; with none running there's nothing to clear. */
 async function submit() {
     const text = draft.value.trim()
     if (!text && !images.value.length || sending.value || uploading.value) return
+    if (text === '/clear' && !images.value.length) {
+        sending.value = true
+        if (!chat.value || chat.value.ended || await clear()) draft.value = ''
+        sending.value = false
+        return
+    }
     sending.value = true
     if (chat.value?.ended) fresh()
     if ((chat.value || await start()) && await send(text, images.value.map(i => i.id))) {
@@ -198,7 +209,11 @@ const {over, on: drop} = useImageDrop(attach)
     </div>
 
     <ol v-else ref="list" class="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 text-[13px]">
-      <li v-for="m in chat!.messages" :key="m.id" class="flex flex-col gap-1.5" :class="m.from === 'owner' ? 'items-end' : 'items-start'">
+      <template v-for="(m, i) in chat!.messages" :key="m.id">
+      <li v-if="m.cleared" class="flex items-center gap-3 py-1 text-xs text-faint" role="separator" aria-label="Context cleared">
+        <span class="h-px flex-1 bg-line" />Context cleared<span class="h-px flex-1 bg-line" />
+      </li>
+      <li v-else class="flex flex-col gap-1.5" :class="[m.from === 'owner' ? 'items-end' : 'items-start', i < cut && 'opacity-60']">
         <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
           <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
         </div>
@@ -271,6 +286,7 @@ v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-
           <span v-else class="text-xs" :class="m.move.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.move.state === 'asked' ? 'Not answered' : ANSWERED[m.move.state] }}</span>
         </div>
       </li>
+      </template>
       <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">
         <span v-for="i in 3" :key="i" class="size-1.5 animate-dot rounded-full bg-faint" :style="{animationDelay: `${(i - 1) * 0.15}s`}" />
       </li>

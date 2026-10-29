@@ -670,6 +670,8 @@ export interface ChatMessage {
     send?: ChatSendRequest
     /** The session asking to move issues (their status) or assign them, which waits on the owner's Allow (ORR-511). */
     move?: ChatMoveRequest
+    /** The owner cleared the session's context here (`/clear`, ORR-497): it remembers nothing said above. */
+    cleared?: boolean
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -890,6 +892,27 @@ export interface IssuePulls {
     /** Whether a GITHUB_TOKEN secret went with the request (one that may go to api.github.com, for this project). */
     token: boolean
     checked_at: string | null
+}
+
+/** Where a PR stands when it needs someone before it can merge: it conflicts, fails its checks, or is behind its base. */
+export const PULL_NEEDS: PullState[] = ['conflicting', 'failing', 'behind']
+
+/** An open pull request on one of the projects' repos, for the Pull requests page (ORR-491): the issue it names, when
+ * one of the repo's projects has it. */
+export interface OpenPull extends PullRequest {
+    /** The repo on GitHub (`you/shop`). */
+    repo: string
+    issue?: {project: string, id: string, title: string}
+}
+
+/** Every open pull request on the projects' GitHub repos: those that need someone (`PULL_NEEDS`) first, oldest first,
+ * then the rest, oldest first; `needs` counts the first. Each repo says whether a token went, and why it couldn't be
+ * read when it couldn't. Without a token only the list is read, as GitHub allows 60 requests an hour then, so every PR
+ * not a draft is `checking`. */
+export interface AllPulls {
+    pulls: OpenPull[]
+    needs: number
+    repos: {repo: string, projects: string[], token: boolean, checked_at: string | null, error?: string}[]
 }
 
 /** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */

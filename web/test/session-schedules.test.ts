@@ -29,11 +29,11 @@ beforeEach(async () => {
     await store.updateProject('greenhouse', {release_mode: 'own'})
     release = await store.createPreset(null, {name: 'Release', text: 'Cut the release.'}, me)
     review = await store.createPreset('greenhouse', {name: 'Review', text: 'Review its pull request.'}, me)
-    schedules = new Schedules(store, () => {}, () => 1, undefined, undefined, async (_project, start) => {
+    schedules = new Schedules(store, {listening: () => 1, startSession: async (_project, start) => {
         if (!room) throw Object.assign(new Error('orrery already has its 2 sessions at once'), {statusCode: 409})
         started.push(start)
         return {tmux: 'orrery-greenhouse-abc'}
-    })
+    }})
 })
 
 async function failure(call: () => unknown): Promise<{status: number, message: string}> {

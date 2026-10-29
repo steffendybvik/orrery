@@ -394,3 +394,44 @@ test('lands the issues it makes in Todo or Backlog, as picked beside Send', asyn
         launcher.stop()
     }
 })
+
+// `/clear` in the chat (ORR-497): it doesn't reach the session as words. Its launcher types `/clear` into it, and the
+// pane marks the cut, keeping what was said above it, greyed. Any other slash command goes as words.
+test("clears its session's context on /clear, marking the cut and keeping what was said", async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        await page.goto('/p/larder')
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        await pane.getByLabel('Message').fill('What is in the cellar?')
+        await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        const [chat] = await (await request.get('/api/chats')).json()
+        const after = launcher.said.text.match(/"after":(\d+)/)![1]
+        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-clear&name=e2e-clear&started=${chat.id}&chat=yes&after=${after}&format=text`)
+        await expect.poll(() => session!.said.text).toContain('What is in the cellar?')
+
+        await pane.getByLabel('Message').fill('/clear')
+        await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => launcher.said.text).toContain('event: clear')
+        expect(launcher.said.text).toContain(`"id":"${chat.id}"`)
+        await expect(pane.getByRole('separator', {name: 'Context cleared'})).toBeVisible()
+        await expect(pane.getByLabel('Message')).toHaveValue('')
+        // What was said stays, greyed; the chat runs on, and its session never heard "/clear" as words.
+        await expect(pane.getByText('What is in the cellar?')).toBeVisible()
+        await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
+        expect((await (await request.get(`/api/chats/${chat.id}`)).json()).messages.at(-1)).toMatchObject({cleared: true})
+
+        await pane.getByLabel('Message').fill('/compact')
+        await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => session!.said.text).toContain('/compact')
+        expect(session.said.text).not.toContain('/clear')
+        await request.post(`/api/chats/${chat.id}/end`, {headers: OWNER})
+    } finally {
+        session?.stop()
+        launcher.stop()
+    }
+})
