@@ -113,6 +113,7 @@ const rendered = computed(() => doc.value ? renderMarkdown(doc.value.body, doc.v
 const headings = computed(() => rendered.value?.headings ?? [])
 const scroller = ref<HTMLElement | null>(null)
 const {size} = useDocSize()
+// The text size, with the doc's id and Copy: a row of their own under the author on a phone, at the left edge (ORR-557).
 const sizes = [{value: 'sm' as const, label: 'S'}, {value: 'md' as const, label: 'M'}, {value: 'lg' as const, label: 'L'}]
 
 useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
@@ -168,7 +169,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
           <span class="text-muted">{{ who(doc.created_by) }}</span>
           <span>· updated {{ ago(doc.updated_at) }}</span>
           <span v-if="doc.protected" class="flex items-center gap-1" title="Only the owner can delete it">· protected</span>
-          <span class="ml-auto flex items-center gap-2">
+          <span class="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
             <SegmentedControl v-model="size" :options="sizes" class="[&_[role=radio]]:px-2 [&_[role=radio]]:py-0.5" title="Text size" />
             <span class="whitespace-nowrap font-mono">{{ doc.id }}</span>
             <CopyButton :text="doc.id" />
