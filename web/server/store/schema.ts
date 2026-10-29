@@ -281,6 +281,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     restrict_proposals: {type: 'boolean'},
     /** Shows the Events page and error notices in the bell, and records what orrery did as well as its errors. */
     advanced: {type: 'boolean'},
+    /** A listening session out of work is handed the issues it may start, to pick one (ORR-452); false, it waits. */
+    pick_next: {type: 'boolean'},
 }
 
 /** A preset's name and its text, both needed; its badge's icon and colour, neither. */

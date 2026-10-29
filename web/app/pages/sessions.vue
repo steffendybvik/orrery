@@ -124,6 +124,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         </header>
         <CopyBlock title="Install the launcher: in each project's repo, run" :text="install" hint="Again in another repo adds its project; --uninstall takes one off. Installing again restarts it, which stops the sessions it's running." />
         <SessionStarts />
+        <PickNextSetting />
         <StartingSessionsGuide />
       </section>
       <section id="presets" class="flex scroll-mt-14 flex-col gap-2 border-t border-line pt-6">
