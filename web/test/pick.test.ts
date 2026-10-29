@@ -13,6 +13,7 @@ let run: {project: string, chunk: string} | undefined
 let left: {id: string}[]
 let untrusted: boolean
 let chat: boolean
+let due: string[]
 let sent: {project: string, session: string, text: string, owner: boolean}[]
 
 const issue = (id: string, kind: string, more: Record<string, string> = {}) =>
@@ -29,6 +30,7 @@ beforeEach(async () => {
     left = []
     untrusted = false
     chat = false
+    due = []
     sent = []
     vi.stubGlobal('sessionNow', (id: string) => sessions.find(s => s.id === id))
     vi.stubGlobal('listSessions', () => sessions)
@@ -39,6 +41,7 @@ beforeEach(async () => {
     vi.stubGlobal('runOf', () => run)
     vi.stubGlobal('scopeOf', async () => ({open: left}))
     vi.stubGlobal('CLEAR_AFTER', 5000)
+    vi.stubGlobal('clearPending', (id: string) => due.includes(id))
     vi.stubGlobal('useStore', () => ({
         settings: async () => ({pick_next: on}),
         ownerOf: async () => ({name: 'steffen'}),
@@ -140,5 +143,15 @@ describe('a session out of work', () => {
         expect(sent.map(s => s.session)).toEqual(['w'])
         await vi.advanceTimersByTimeAsync(pick.PICK_APART)
         expect(sent.map(s => s.session)).toEqual(['w', 'x'])
+    })
+
+    it("when the board changes, leaves one orrery started that's due its clear to pick after it (ORR-527)", async () => {
+        sessions.push({id: 's', project: 'orrery', state: 'idle', listening: true, idleAt: 1, started: {launch: 'l1'}})
+        due = ['s']
+        pick.recheckIdle()
+        await vi.advanceTimersByTimeAsync(pick.RECHECK_AFTER + pick.PICK_APART + 10)
+        expect(sent.map(s => s.session)).toEqual(['w'])
+        due = []
+        expect(await pick.pickNext('orrery', 's')).toBe(true)
     })
 })

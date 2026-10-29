@@ -4,8 +4,9 @@
 // it judges best, passing over one it can't do yet with a comment saying why. With nothing on the list, nothing is
 // sent: no turn starts, and it stays idle. A session orrery started is picked for once its `/clear` is done (from the
 // SessionStart that follows it, when it has no run to resume), as clearing it after would lose what it was handed.
-// When the board changes, the idle sessions are tried again, one at a time a few seconds apart, so they don't all go
-// for the same issue; the one-session-per-issue lock (`claim` in store.ts) turns away a second start anyway.
+// When the board changes, the idle sessions are tried again (not one due its clear: it picks after the clear), one at
+// a time a few seconds apart, so they don't all go for the same issue; the one-session-per-issue lock (`claim` in
+// store.ts) turns away a second start anyway.
 import type {Issue} from '#shared/roadmap'
 import {freezeNote} from '#shared/roadmap'
 import type {IssueRecord} from '../store/schema'
@@ -116,7 +117,8 @@ export function recheckIdle() {
         rechecking = undefined
         try {
             if (!(await useStore().settings()).pick_next) return
-            for (const session of listSessions().filter(s => s.listening && s.state === 'idle')) {
+            // One orrery started that's due its clear picks after it: handed the list first, it would skip the clear.
+            for (const session of listSessions().filter(s => s.listening && s.state === 'idle' && !clearPending(s.id))) {
                 if (await pickNext(session.project, session.id)) await new Promise(resolve => setTimeout(resolve, PICK_APART))
             }
         } catch (error) {

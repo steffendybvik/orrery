@@ -92,6 +92,43 @@ describe('a session orrery started, gone idle', () => {
         await after()
         expect(sent).toEqual([])
     })
+
+    it('is due its clear until it comes back from it, by any id it has had, so picking holds off (ORR-527)', async () => {
+        // Due under the id it went idle with, back from the clear under its new one.
+        clearing.considerClear('orrery', 'w-before')
+        expect(clearing.clearPending('w')).toBe(true)
+        await after()
+        expect(clearing.clearPending('w')).toBe(true)
+        clearing.clearDone('w')
+        expect(clearing.clearPending('w')).toBe(false)
+    })
+
+    it("isn't due one once the clear isn't needed, or after a while with none", async () => {
+        working = ['ORR-1']
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(clearing.clearPending('w')).toBe(false)
+        working = []
+        clearing.considerClear('orrery', 'w')
+        await after()
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR)
+        expect(clearing.clearPending('w')).toBe(false)
+    })
+
+    it('stays due when a later idle makes it due again before the first one gives up', async () => {
+        clearing.considerClear('orrery', 'w')
+        session = {...session!, idleAt: 2}
+        await vi.advanceTimersByTimeAsync(1000)
+        clearing.considerClear('orrery', 'w')
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_AFTER - 990)
+        expect(clearing.clearPending('w')).toBe(true)
+    })
+
+    it("isn't due one when it's a chat or a session someone opened themselves", () => {
+        session = {project: 'orrery', state: 'idle', idleAt: 1}
+        clearing.considerClear('orrery', 'w')
+        expect(clearing.clearPending('w')).toBe(false)
+    })
 })
 
 describe("a session's run", () => {

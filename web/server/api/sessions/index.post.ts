@@ -42,6 +42,7 @@ export default defineEventHandler(async event => {
     // With none, it picks its next issue, when the owner lets sessions (ORR-452).
     if (source === 'clear' && session.started) {
         const project = body.project
+        clearDone(session.id)
         resumeRun(project, session.id)
             .then(resumed => resumed || pickNext(project, session.id))
             .catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
