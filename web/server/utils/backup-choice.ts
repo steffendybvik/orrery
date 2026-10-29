@@ -49,7 +49,7 @@ export function defaultBackupDir(): string {
 }
 
 /** The Postgres database orrery is given for its backups as it starts (NUXT_BACKUP_DATABASE), if any. */
-export function defaultBackupDatabase(): string {
+function defaultBackupDatabase(): string {
     const url = String(useRuntimeConfig().backupDatabase ?? '').trim()
     return isPostgres(url) ? url : ''
 }

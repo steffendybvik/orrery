@@ -110,7 +110,7 @@ export function addLauncher(project: string, dir?: string, every = false, versio
     }, {token})
 }
 /** The folders a project's launchers run in. */
-export const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
+const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
 
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) {
