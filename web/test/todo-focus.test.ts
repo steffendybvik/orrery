@@ -63,6 +63,13 @@ describe('an issue the owner moves into Todo', () => {
         expect(sent).toEqual([{issue: 'ORR-1', session: 'a', note: todo.TODO_NOTE, by: owner}])
     })
 
+    it('goes with an agent on it, in any case (ORR-531)', async () => {
+        board = [issue('ORR-1', 'todo', {assignee: 'claude'}), issue('ORR-2', 'todo', {assignee: 'Claude'})]
+        sessions.push({id: 'b', project: 'orrery', state: 'idle', listening: true})
+        await hear(moved('ORR-1'), moved('ORR-2'))
+        expect(sent.map(s => s.issue)).toEqual(['ORR-1', 'ORR-2'])
+    })
+
     it('goes when the owner makes one there too', async () => {
         await hear({event: {type: 'issue.created', project: 'orrery', subject: 'ORR-3', by: owner}})
         expect(sent.map(s => s.issue)).toEqual(['ORR-3'])
