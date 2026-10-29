@@ -78,6 +78,9 @@ export function liveChoices(choices: Choice[], picks: Picks): Choice[] {
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
 export type Priority = (typeof PRIORITIES)[number]
 
+/** Most urgent first, those with no priority last: a sort's compare. */
+export const byPriority = (a: {priority?: Priority}, b: {priority?: Priority}) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9')
+
 /** How many leaf issues sit in each column (a status id, or `proposed`). */
 export type Counts = Record<Column, number>
 /** The same leaves by what their column means. Proposed ones aren't work yet: they're left out of `total`. */
