@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {adoptable, inWsl, launcherAlive, listChanges, listIn, plist, readConfig, RELOADS, serviceProblem, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {adoptable, inWsl, launcherAlive, listChanges, listIn, plist, readConfig, RELOADS, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -22,16 +22,34 @@ describe("the launcher's list", () => {
 
     it('is empty when its file is missing or broken', () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-launcher-'))
-        expect(readConfig(join(dir, 'none.json'))).toEqual({projects: []})
+        const none = {projects: [], pickUp: false, skip: []}
+        expect(readConfig(join(dir, 'none.json'))).toEqual(none)
         writeFileSync(join(dir, 'broken.json'), '{')
-        expect(readConfig(join(dir, 'broken.json'))).toEqual({projects: []})
+        expect(readConfig(join(dir, 'broken.json'))).toEqual(none)
         writeFileSync(join(dir, 'ok.json'), JSON.stringify({projects: [greenhouse]}))
-        expect(readConfig(join(dir, 'ok.json'))).toEqual({projects: [greenhouse]})
+        expect(readConfig(join(dir, 'ok.json'))).toEqual({...none, projects: [greenhouse]})
+    })
+
+    it('keeps pick-up and the repos kept off it (ORR-598)', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-launcher-'))
+        writeFileSync(join(dir, 'on.json'), JSON.stringify({projects: [], pickUp: true, skip: ['/code/shop', 7]}))
+        expect(readConfig(join(dir, 'on.json'))).toEqual({projects: [], pickUp: true, skip: ['/code/shop']})
+        // Only a plain true turns it on: a list from before pick-up has none.
+        writeFileSync(join(dir, 'odd.json'), JSON.stringify({projects: [], pickUp: 'yes'}))
+        expect(readConfig(join(dir, 'odd.json')).pickUp).toBe(false)
+    })
+
+    it('keeps an uninstalled repo off until it is installed again (ORR-598)', () => {
+        const config = {projects: [], pickUp: true, skip: ['/code/shop']}
+        const off = skipping(config, '/code/greenhouse', true)
+        expect(off.skip).toEqual(['/code/shop', '/code/greenhouse'])
+        expect(skipping(off, '/code/greenhouse', true).skip).toEqual(['/code/shop', '/code/greenhouse'])
+        expect(skipping(off, '/code/greenhouse', false).skip).toEqual(['/code/shop'])
     })
 
     it('reads a half-written file as none, so the running service skips it (ORR-597)', () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-launcher-'))
-        expect(listIn(join(dir, 'none.json'))).toEqual({projects: []})
+        expect(listIn(join(dir, 'none.json'))).toEqual({projects: [], pickUp: false, skip: []})
         writeFileSync(join(dir, 'half.json'), '{"projects": [{"url"')
         expect(listIn(join(dir, 'half.json'))).toBeNull()
     })
