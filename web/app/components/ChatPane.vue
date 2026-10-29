@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import type {ChatIssues} from '#shared/roadmap'
 
@@ -11,7 +11,7 @@ import type {ChatIssues} from '#shared/roadmap'
 // Esc closes the pane only before a chat starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
-// field it sets) or change (each from → to), a release it asks to add or change, and a session it asks to start, stop
+// field it sets) or change (each from → to), a release it asks to add or change, a chunk it asks to make or change (ORR-510), and a session it asks to start, stop
 // or give more time (ChatSessionCard). A message it asks to send other sessions shows with who it goes to, and
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
 // wide screen it shows on hover or focus). A message that's just `/clear` clears the session's context instead of going
@@ -274,6 +274,25 @@ v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
           <span v-else class="text-xs" :class="m.release.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.release.state === 'asked' ? 'Not answered' : ANSWERED[m.release.state] }}</span>
+        </div>
+        <div
+v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
+             :aria-label="m.chunk.changes.some(c => c.from !== undefined) ? `Change chunk ${m.chunk.title}` : `Make chunk ${m.chunk.title}`">
+          <span class="text-xs text-faint">{{ m.chunk.changes.some(c => c.from !== undefined) ? `Asks to change chunk ${m.chunk.id}` : 'Asks to make a chunk' }}</span>
+          <span class="font-medium text-fg">{{ m.chunk.title }}</span>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+            <template v-for="c in m.chunk.changes.filter(c => c.field !== 'title' || c.from !== undefined)" :key="c.field">
+              <dt class="text-muted">{{ CHAT_CHUNK_FIELDS[c.field] }}</dt>
+              <dd class="min-w-0 break-words whitespace-pre-wrap text-fg">
+                <template v-if="c.from !== undefined"><span class="text-muted line-through decoration-faint">{{ settingValue(c.from) }}</span> → </template>{{ settingValue(c.to) }}
+              </dd>
+            </template>
+          </dl>
+          <div v-if="m.chunk.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.chunk.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.chunk.state === 'asked' ? 'Not answered' : ANSWERED[m.chunk.state] }}</span>
         </div>
       </li>
       </template>

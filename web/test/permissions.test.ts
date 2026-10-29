@@ -132,6 +132,7 @@ describe("a working session's column", () => {
             expect(await status(() => store.createComment('greenhouse', issue.id, {body: 'Done.', asks: 'feedback'}, agent))).toBe(200)
         },
         'docs.write': async () => expect(await status(() => store.putDoc('greenhouse', 'shelves', {title: 'Shelves', body: 'Oak.'}, agent))).toBe(200),
+        'chunks.write': async () => expect((await store.createChunk('greenhouse', {title: 'Seed trays'}, agent)).title).toBe('Seed trays'),
         'presets.write': async () => expect(await status(() => store.createPreset(null, {name: 'Review', text: 'Review the PRs.'}, agent))).toBe(403),
         'prompts.write': async () => {
             expect(await status(() => store.updateProject('greenhouse', {focus_prompt: 'Do it.'}, agent))).toBe(403)
