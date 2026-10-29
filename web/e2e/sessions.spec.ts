@@ -247,6 +247,10 @@ test("shows on an issue's page which session is on it, while it listens", async 
         await expect(rows.first()).toContainText('on this issue')
         await expect(rows.first()).toContainText('e2e-w2')
         await expect(rows.filter({hasText: 'on this issue'})).toHaveCount(1)
+        // The list marks the issue it's working, its name on the dot.
+        await page.goto('/p/kitchen')
+        await expect(page.getByRole('img', {name: 'e2e-w2 is working on it'})).toHaveCount(1)
+        await page.goBack()
         // Gone once it stops listening.
         streams[1]!.stop()
         await expect(banner).toHaveCount(0)
