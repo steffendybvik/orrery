@@ -248,7 +248,8 @@ reaches the session on the issue), and `pr.ready` (it can merge again) and `pr.a
 comments are in its own words: where to read failed checks (`gh pr checks`, `gh run view --log-failed`) and who asked
 for changes and where, never a check's output or someone else's review, as a session reads them as the owner's; a
 review by the owner's own GitHub handle (`handle`) is quoted. After a PR's checks fail a fourth time, it doesn't tell
-the session and asks the owner instead (`asks: feedback`); the next three are told again, and the eighth asks again. Each kind the [event log](#event-log)
+the session and asks the owner instead (`asks: feedback`). Later failures are only recorded until the owner answers on the
+issue or focuses a session on it; then three more are told before it asks again. Checks going green start the count afresh. Each kind the [event log](#event-log)
 records counts too (`server.error`, `page.error`, `backup.failed`, `session.started`, `launcher.gone`…), even with
 Advanced off. A repeat of an open error isn't one. `on` is a type or a pattern, `*` for any part (`release.*`,
 `*.failed`, `*`). `on_filter` says what the event must also say:

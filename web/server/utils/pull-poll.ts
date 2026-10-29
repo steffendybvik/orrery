@@ -41,7 +41,7 @@ export interface PullChange {
     pull: {number: number, title: string, url: string, branch: string, base: string, head_sha: string | null, merge_sha: string | null, closed_by: string | null, review_id: string | null}
     /** For changes requested: who asked, what they wrote, and their comments on lines (ORR-508). */
     review?: {by: string, body: string, comments: {path: string, line: number | null, body: string}[]}
-    /** For checks failed: how many times they have failed on this PR, this one counted. */
+    /** For checks failed: how many times they have failed on this PR since they last went green, this one counted. */
     failures?: number
 }
 
@@ -149,6 +149,12 @@ export function changesOf(was: Pick<KeptPull, 'state' | 'checks' | 'review' | 'm
     if (now.review === 'CHANGES_REQUESTED' && was?.review !== 'CHANGES_REQUESTED') kinds.push('changes_requested')
     if (now.review === 'APPROVED' && was && was.review !== 'APPROVED') kinds.push('approved')
     return kinds
+}
+
+/** How many times the PR's checks have failed (keys told, in order) since they last went green after failing. */
+function failuresSincePassed(told: string[], pr: string): number {
+    const since = told.findLastIndex(k => k.startsWith(`${pr} checks_passed`))
+    return told.slice(since + 1).filter(k => k.startsWith(`${pr} checks_failed`)).length
 }
 
 /** The key that keeps a change to once: the PR, the kind, and what it's on. */
@@ -274,6 +280,9 @@ export class PullPoll {
             if (!was && (pull.merged || pull.closed)) continue
             const names = issueIdsIn({body: pull.body, head: {ref: pull.branch}})
             const told = was ? JSON.parse(was.told) as string[] : []
+            // Green again after failing: the failures are counted afresh from here (ORR-529).
+            const passed = `${repo}#${pull.number} checks_passed ${pull.head_sha}`
+            if (pull.checks === 'success' && was?.checks === 'failure' && !told.includes(passed)) told.push(passed)
             if (!first) {
                 const issue = await this.pulls.issueOf(projects, names)
                 for (const kind of changesOf(was, pull)) {
@@ -283,7 +292,7 @@ export class PullPoll {
                     if (issue) changes.push({project: issue.project, issue: issue.id, repo, kind, key, pull: {number: pull.number, title: pull.title, url: pull.url, branch: pull.branch,
                         base: pull.base, head_sha: pull.head_sha, merge_sha: pull.merge_sha, closed_by: pull.closed_by, review_id: pull.review_id},
                         ...kind === 'changes_requested' ? {review: {by: pull.review_by ?? '', body: pull.review_body ?? '', comments: pull.review_comments ?? []}} : {},
-                        ...kind === 'checks_failed' ? {failures: told.filter(k => k.startsWith(`${repo}#${pull.number} checks_failed`)).length} : {}})
+                        ...kind === 'checks_failed' ? {failures: failuresSincePassed(told, `${repo}#${pull.number}`)} : {}})
                 }
             }
             // A state this poll can't tell keeps the one it had; GitHub still working it out keeps the last it knew.

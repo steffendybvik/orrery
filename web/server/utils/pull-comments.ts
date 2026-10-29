@@ -6,9 +6,10 @@
 // commit, who closed it or asked for changes, and links. Never the PR's title or branch, a check's output or a review's
 // text, which an outsider may have written, as a session reads these as the owner's: it reads those itself, on GitHub,
 // as what they are. The one exception is a review by the owner's own GitHub handle (their `handle` setting), quoted.
-// After LOOP_LIMIT failed fixes on one PR, orrery stops sending the session more and asks the owner instead; the next
-// failure after that starts a new round, so a session the owner points at it again hears it (ORR-529). Green
-// again, or approved, is an event and nothing more (`pr.ready`, `pr.approved`).
+// After LOOP_LIMIT failed fixes on one PR, orrery stops sending the session more and asks the owner instead. The
+// failures after that are events only until the owner answers on the issue or points a session at it again, which
+// starts a new round of LOOP_LIMIT told; checks going green start one too, as the poll counts failures since (ORR-529).
+// Green again, or approved, is an event and nothing more (`pr.ready`, `pr.approved`).
 import type {PullChange, PullChangeKind} from './pull-poll'
 import type {Store} from './store'
 
@@ -18,6 +19,8 @@ export const TOLD: PullChangeKind[] = ['conflicting', 'behind', 'merged', 'close
 export const QUIET: PullChangeKind[] = ['ready', 'approved']
 /** How many times a PR's checks may fail with the session told, before orrery asks the owner instead. */
 export const LOOP_LIMIT = 3
+/** Who orrery's own comments are by. */
+const ORRERY = 'orrery'
 
 /** What orrery says about the change, in Markdown; none for one it doesn't tell. `handle` is the owner's GitHub login:
  * a review of theirs is quoted. */
@@ -42,16 +45,38 @@ export function pullComment({repo, kind, pull, review}: PullChange, handle?: str
     }
 }
 
-/** Tells the change on its issue, if it's one that's told; at each LOOP_LIMIT + 1st failed check on a PR, asks the owner
- * instead, and the failures after that are told again; a quiet one is an event only. A failure is logged, not thrown:
- * the poll goes on. */
+/** What to do with a PR's failed checks: tell the session, ask the owner, or neither (an event only). `failures` counts
+ * them since the checks were last green. Up to LOOP_LIMIT are told; the next asks the owner. After an ask, nothing
+ * more is told until the owner answers on the issue or focuses a session on it; then up to LOOP_LIMIT more are told
+ * before it asks again. */
+async function failedChecks(store: Store, {project, issue, repo, pull, failures = 1}: PullChange): Promise<'tell' | 'ask' | 'quiet'> {
+    if (failures <= LOOP_LIMIT) return 'tell'
+    // The first past the limit since green asks, whatever came before: an earlier ask was about another round.
+    if (failures === LOOP_LIMIT + 1) return 'ask'
+    const pr = `[#${pull.number}](https://github.com/${repo}/pull/${pull.number})'s checks %`
+    const ask = await store.db.get<{created_at: string}>(`SELECT created_at FROM comments WHERE project = ? AND issue = ? AND created_by = ?
+        AND asks IS NOT NULL AND body LIKE ? ORDER BY id DESC LIMIT 1`, project, issue, ORRERY, pr)
+    if (!ask) return 'ask'
+    const owner = await store.db.get<{at: string | null}>(`SELECT MAX(at) AS at FROM (
+        SELECT created_at AS at FROM comments WHERE project = ? AND issue = ? AND owned = 1 AND created_at > ?
+        UNION ALL SELECT created_at AS at FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1 AND created_at > ?) acted`,
+        project, issue, ask.created_at, project, issue, ask.created_at)
+    if (!owner?.at) return 'quiet'
+    const told = await store.db.get<{n: number}>(`SELECT COUNT(*) AS n FROM comments WHERE project = ? AND issue = ? AND created_by = ?
+        AND asks IS NULL AND body LIKE ? AND created_at > ?`, project, issue, ORRERY, pr, owner.at)
+    return Number(told?.n ?? 0) < LOOP_LIMIT ? 'tell' : 'ask'
+}
+
+/** Tells the change on its issue, if it's one that's told; a PR's failed checks go by `failedChecks`, asking the owner
+ * past LOOP_LIMIT; a quiet one is an event only. A failure is logged, not thrown: the poll goes on. */
 export async function commentOnPull(store: Store, change: PullChange): Promise<void> {
     try {
         if (QUIET.includes(change.kind)) return await store.systemEvent(change.project, change.issue, `pr.${change.kind}`)
-        // In rounds of LOOP_LIMIT told and one asked: 1–3 to the session, 4 to the owner, 5–7 to the session again…
-        if (change.kind === 'checks_failed' && (change.failures ?? 0) % (LOOP_LIMIT + 1) === 0 && change.failures) {
+        if (change.kind === 'checks_failed') {
             const pr = `[#${change.pull.number}](https://github.com/${change.repo}/pull/${change.pull.number})`
-            return void await store.systemAsk(change.project, change.issue, `${pr}'s checks have failed ${change.failures} times. I've stopped sending the session on it more: have a look, and point a session at it again when it should carry on.`, 'pr.checks_failed')
+            const next = await failedChecks(store, change)
+            if (next === 'quiet') return await store.systemEvent(change.project, change.issue, 'pr.checks_failed')
+            if (next === 'ask') return void await store.systemAsk(change.project, change.issue, `${pr}'s checks have failed ${change.failures} times since they last passed. I've stopped sending the session on it more: have a look, and answer here or point a session at it again when it should carry on.`, 'pr.checks_failed')
         }
         const body = pullComment(change, (await store.settings()).handle)
         if (!body) return
