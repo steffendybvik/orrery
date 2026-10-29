@@ -332,6 +332,20 @@ describe("the channel's tools", () => {
         expect(calls[1]!.url).toBe('/issues?release=1.1.0')
     })
 
+    it('list of the shipped releases only the latest, and of the chunks none done, unless asked for all', async () => {
+        const kinds = {proposed: 0, backlog: 0, todo: 0, started: 0, done: 1, canceled: 0}
+        const release = (version: string, shipped_on?: string) => ({version, ...shipped_on ? {shipped_on} : {}, issues: 1, kinds})
+        const chunk = (id: number, kind: string) => ({id, title: `Chunk ${id}`, column: kind, kind, kinds})
+        const {call} = harness({
+            'GET /releases': {body: [release('1.1.0'), release('1.0.2', '2026-10-20'), release('1.0.1', '2026-10-10'), release('1.0.0', '2026-10-01')]},
+            'GET /chunks': {body: [chunk(1, 'done'), chunk(2, 'started'), chunk(3, 'done')]},
+        })
+        expect((await call('releases')).text).toBe('1.1.0: 1 issue, 1/1 done\n1.0.2 (shipped 2026-10-20): 1 issue, 1/1 done\n2 older shipped releases not shown: all lists them')
+        expect((await call('releases', {all: true})).text.split('\n')).toHaveLength(4)
+        expect((await call('chunks')).text).toBe('2 [started] Chunk 2: 1/1 done\n2 done chunks not shown: all lists them')
+        expect((await call('chunks', {all: true})).text.split('\n')).toHaveLength(3)
+    })
+
     it("say orrery's reason when it refuses", async () => {
         const {call} = harness({'PATCH /issues/GRE-1': {status: 400, body: {message: '"status" is "soon"'}}})
         expect(await call('update_issue', {id: 'GRE-1', status: 'soon'})).toEqual({error: true, text: 'orrery said no: "status" is "soon"'})

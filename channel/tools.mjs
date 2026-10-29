@@ -81,8 +81,12 @@ export const TOOLS = [
         description: 'Comments on an issue (Markdown). asks: "decision" or "feedback" puts it at the top of the owner’s bell, and assigns the issue to them, until they answer.',
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
     },
-    {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress.", inputSchema: {type: 'object', properties: {}}},
-    {name: 'releases', description: "Lists the project's releases, in the order they're arranged in, with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress; done ones only with all.", inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Done chunks too'}}}},
+    {
+        name: 'releases',
+        description: "Lists the project's releases, in the order they're arranged in, with their branch and how far the issues in each are; of the shipped ones, only the latest unless all.",
+        inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Every shipped release too'}}},
+    },
     {
         name: 'docs',
         description: "Lists the project's docs (decisions, how things work), each with its section and a line on what it says. Read the ones a task touches before its code.",
@@ -391,14 +395,26 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const posted = await call('POST', `${issuePath(id)}/comments`, {body, ...asks ? {asks} : {}}, at(await projectOf({id})))
             return `Commented on ${id} (comment ${posted.id})${asks ? `, asking the owner for ${asks === 'decision' ? 'a decision' : 'feedback'}` : ''}.`
         },
-        async chunks(args) {
+        // Done chunks and all but the latest shipped release only when asked (`all`), with a line counting what's left
+        // out: a session picking up work has no use for them (ORR-546).
+        async chunks({all, ...args}) {
             const chunks = await call('GET', '/chunks', undefined, at(await projectOf(args)))
-            return chunks.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done`).join('\n') || 'No chunks yet.'
+            const shown = all ? chunks : chunks.filter(c => c.kind !== 'done')
+            const hidden = chunks.length - shown.length
+            return [
+                ...shown.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done`),
+                ...hidden ? [`${hidden} done chunk${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
+            ].join('\n') || 'No chunks yet.'
         },
-        async releases(args) {
+        async releases({all, ...args}) {
             const releases = await call('GET', '/releases', undefined, at(await projectOf(args)))
-            return releases.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : r.frozen_on ? ` (feature freeze since ${r.frozen_on}: fixes, tests and docs)` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
-                || 'No releases yet.'
+            const latest = releases.filter(r => r.shipped_on).reduce((last, r) => !last || r.shipped_on > last.shipped_on ? r : last, undefined)
+            const shown = all ? releases : releases.filter(r => !r.shipped_on || r === latest)
+            const hidden = releases.length - shown.length
+            return [
+                ...shown.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : r.frozen_on ? ` (feature freeze since ${r.frozen_on}: fixes, tests and docs)` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`),
+                ...hidden ? [`${hidden} older shipped release${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
+            ].join('\n') || 'No releases yet.'
         },
         async docs(args) {
             const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''
