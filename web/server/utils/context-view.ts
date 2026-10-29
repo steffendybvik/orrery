@@ -29,11 +29,12 @@ export function contextView(kind: ContextKind, projects: string[], base: string,
     return {kind, projects, ...session ? {session} : {}, parts, chars, tokens: tokens(chars)}
 }
 
-/** The view for a running session: its kind, the projects it hears and the context it was started with. */
+/** The view for a running session: its kind, the projects it hears, the context it was started with, and what it's
+ * been given since (`contextSoFar`). */
 export function sessionContextView(id: string, base: string): ContextView | undefined {
     const session = sessionNow(id)
     if (!session) return undefined
     const kind: ContextKind = chatSession(id) ? 'chat' : untrustedSession(id) ? 'untrusted' : 'work'
     const given = session.started?.launch ? launchContext(session.project, session.started.launch) : undefined
-    return contextView(kind, [session.project, ...session.also ?? []], base, given ? contextBlock(given) : undefined, currentId(id))
+    return {...contextView(kind, [session.project, ...session.also ?? []], base, given ? contextBlock(given) : undefined, currentId(id)), sofar: contextSoFar(id)}
 }

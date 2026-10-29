@@ -38,6 +38,19 @@ describe("the channel's tools", () => {
         expect(calls[0]!.headers).not.toHaveProperty('Orrery-Untrusted')
     })
 
+    it("report each call's tool and answer, refusals too, for the Context page (ORR-549)", async () => {
+        const reported: [string, string][] = []
+        const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => JSON.stringify(issue())})
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch, report: (tool: string, text: string) => reported.push([tool, text])})
+        await call('finish_issue', {id: 'GRE-1', comment: 'Done'})
+        await call('no_such_tool')
+        expect(reported).toEqual([['finish_issue', expect.stringContaining('GRE-1')]])
+        const failing = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', report: (tool: string, text: string) => reported.push([tool, text]),
+            fetch: async () => ({ok: false, status: 409, statusText: '', text: async () => JSON.stringify({message: 'Taken'})})})
+        await failing('issue', {id: 'GRE-1'})
+        expect(reported.at(-1)).toEqual(['issue', 'orrery said no: Taken'])
+    })
+
     it('list docs with their section, and file one under a section only when asked (ORR-520)', async () => {
         const {calls, call} = harness({
             'GET /docs': {body: [{id: 'decision-ids', title: 'Decision: ids', summary: 'Ids are slugs.', section: 'Decisions'}, {id: 'readme', title: 'Readme', summary: ''}]},

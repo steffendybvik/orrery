@@ -559,7 +559,7 @@ describe("a session's stream catching up", () => {
     it('still sends what it missed when finding the unheard scheduled work fails', async () => {
         const signal = (id: number) => ({id, project: 'greenhouse', kind: 'focus'}) as unknown as Signal
         vi.stubGlobal('useStore', () => ({unheardScheduled: async () => { throw new Error('database is locked') }}))
-        for (const [name, value] of Object.entries({startRun: () => {}, sessionNow: () => undefined, idleAt: () => undefined, sessionName: () => undefined, repeatKey: () => undefined})) vi.stubGlobal(name, value)
+        for (const [name, value] of Object.entries({startRun: () => {}, sessionNow: () => undefined, idleAt: () => undefined, sessionName: () => undefined, repeatKey: () => undefined, noteContext: () => {}})) vi.stubGlobal(name, value)
         const error = vi.spyOn(console, 'error').mockImplementation(() => {})
         const {streamFeed} = await import('../server/utils/signal-feed')
         let live = false
@@ -583,8 +583,11 @@ describe("a session's stream catching up", () => {
         const signal = (id: number) => ({id, project: 'greenhouse', kind: 'focus'}) as unknown as Signal
         vi.stubGlobal('useStore', () => ({unheardScheduled: async () => []}))
         let context: {presets: string[], text: string} | undefined
+        // What the Context page keeps of each, as the stream says it (ORR-549).
+        const noted: string[][] = []
         for (const [name, value] of Object.entries({startRun: () => {}, sessionNow: () => ({started: {launch: 'l', context}}), idleAt: () => undefined, sessionName: () => undefined,
-            repeatKey: () => undefined, contextBlock: (given: {text: string}) => `More: ${given.text}`})) vi.stubGlobal(name, value)
+            repeatKey: () => undefined, contextBlock: (given: {text: string}) => `More: ${given.text}`,
+            noteContext: (session: string, kind: string, title: string, text: string) => noted.push([session, kind, title, text])})) vi.stubGlobal(name, value)
         const {streamFeed} = await import('../server/utils/signal-feed')
         let live = false
         // Its first signal comes before orrery knows its context (none yet): the next that finds it carries it.
@@ -598,5 +601,6 @@ describe("a session's stream catching up", () => {
         const told: unknown[] = []
         await streamFeed((_signal, said) => told.push(said), feed as never)
         await vi.waitFor(() => expect(told).toEqual([{id: 1}, {id: 2, context: "More: You're reviewing."}, {id: 3}]))
+        expect(noted[1]).toEqual(['a', 'signal', 'focus', JSON.stringify({id: 2, context: "More: You're reviewing."})])
     })
 })
