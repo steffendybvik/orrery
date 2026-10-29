@@ -1,7 +1,7 @@
 // The column rules: every leaf issue goes where its status puts it, and parents and chunks follow their
 // leaves. Also checks a roadmap in the `roadmap.json` format (chunks of tasks with a status and a plan),
 // which `POST /api/projects/:project/import` takes.
-import type {Asks, Board, Choice, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Picks, Place, Priority, Proposal} from '#shared/roadmap'
+import type {Board, Chunk, Column, Counts, Issue, IssueStatus, Kinds, Place, Priority} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, emptyKinds, open, total} from '#shared/roadmap'
 import {isObject} from './input'
 import {known} from '#shared/known'
@@ -168,30 +168,11 @@ export function legacyStatus(status: TaskFile['status'], plan?: TaskFile['plan']
     return plan ? 'todo' : 'backlog'
 }
 
-/** An issue as the board is built from it: as written, plus what the database knows. */
-export interface IssueInput extends Omit<TaskFile, 'tasks' | 'status' | 'plan'> {
-    /** A status's id. */
-    status: string
-    external?: string[]
-    proposal?: Proposal
-    decided_by?: string
-    decided_at?: string
-    decision_note?: string
-    choices?: Choice[]
-    picks?: Picks
-    explore?: {choice: string, option: string}
-    comments?: number
-    waiting?: Asks
-    aliases?: string[]
-    schedule?: number
-    release?: string
-    created_by?: string
-    session_name?: string
-    protected?: boolean
-    created_at?: string
-    updated_at?: string
-    tasks: IssueInput[]
-}
+/** An issue as the board is built from it: an Issue's own fields, as the database knows them, before the board places
+ * it (its column, what that means and its counts) and fills in the defaults. */
+export type IssueInput = Pick<Issue, 'id' | 'title' | 'labels' | 'status'>
+    & Partial<Omit<Issue, 'id' | 'title' | 'labels' | 'status' | 'column' | 'kind' | 'counts' | 'kinds' | 'tasks'>>
+    & {tasks: IssueInput[]}
 
 export interface BoardInput {
     chunks: (Omit<ChunkFile, 'tasks'> & {priority?: Priority, aliases?: string[], created_by?: string, protected?: boolean, tasks: IssueInput[]})[]
@@ -240,8 +221,8 @@ class Rules {
             kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
         }
         const column = this.columnOf(counts, kinds)
-        const {id, title, priority, assignee, labels, external = [], status, notes, proposal, decided_by, decided_at, decision_note, choices = [], picks, explore, comments = 0, waiting, aliases = [], schedule, release, created_by = '', session_name, protected: owned = false, created_at = '', updated_at = ''} = task
-        return {id, title, priority, assignee, labels, external, status, notes, proposal, decided_by, decided_at, decision_note, choices, picks, explore, column, kind: this.kindOf(column), counts, kinds, comments, waiting, aliases, schedule, release, created_by, ...session_name ? {session_name} : {}, protected: owned, created_at, updated_at, tasks}
+        const {tasks: _tasks, external = [], choices = [], comments = 0, aliases = [], created_by = '', protected: owned = false, created_at = '', updated_at = '', ...own} = task
+        return {...own, external, choices, comments, aliases, created_by, protected: owned, created_at, updated_at, column, kind: this.kindOf(column), counts, kinds, tasks}
     }
 
     /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.
