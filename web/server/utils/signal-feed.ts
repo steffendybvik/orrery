@@ -170,7 +170,12 @@ export async function streamFeed(say: (signal: Signal, told: Told) => unknown, f
             store.workedBy(project, signal.issue, attended.id).catch(error => console.error(`[orrery] tying ${signal.issue} to its session:`, error))
         }
         const extra = context()
-        feed.inOrder(async () => say(signal, {...await feed.told(signal), ...extra}))
+        feed.inOrder(async () => {
+            const told = {...await feed.told(signal), ...extra}
+            // Kept for the Context page as the stream says it (ORR-549).
+            if (attended) noteContext(attended.id, 'signal', [signal.kind, signal.issue ?? signal.chunk].filter(Boolean).join(' · '), JSON.stringify(told))
+            return say(signal, told)
+        })
     }
     // A schedule's message again while the session hasn't finished a turn since the last copy (busy, or yet to
     // read it) would only pile up behind it: it counts as heard. A session whose hooks never said it went idle

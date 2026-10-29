@@ -56,7 +56,11 @@ const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
     instructions: instructionsFor({base, serves, chat: !!chat, several: every || projects.length > 1}),
 })
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat})
+// Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
+// untrusted session's guards don't take it for one of their writes.
+const reportCall = (tool, text) => window.id && fetch(`${base}/api/sessions/${encodeURIComponent(window.id)}/calls`,
+    {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tool, text})}).catch(() => {})
+const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat, report: reportCall})
 server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
