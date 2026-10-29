@@ -125,6 +125,21 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse')[0]).not.toHaveProperty('asked')
     })
 
+    it("keeps waiting through a parallel tool's PreToolUse that lands just after the dialog, not one that comes later (ORR-574)", () => {
+        vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
+        const report = (event: string, more: Partial<import('../server/utils/sessions').Report> = {}) => sessions.report({id: 'a', project: 'greenhouse', event, ...more})
+        const rm = {name: 'Bash', detail: 'rm -rf web/.output'}
+        const read = {name: 'Read', detail: '/src/a.ts'}
+        report('Notification', {message: 'Claude needs your permission'})
+        report('PermissionRequest', {tool: rm})
+        vi.setSystemTime(new Date('2026-10-25T10:00:00.400Z'))
+        expect(report('PreToolUse', {tool: read})).toMatchObject({state: 'waiting', asks: 'Claude needs your permission', asking: rm})
+        // Answered by then: the next tool is the session going on.
+        vi.setSystemTime(new Date('2026-10-25T10:00:05Z'))
+        expect(report('PreToolUse', {tool: read})).toMatchObject({state: 'working'})
+        expect(sessions.listSessions('greenhouse')[0]?.asking).toBeUndefined()
+    })
+
     it('keeps the time its state began until the state changes', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
         const first = sessions.report({id: 'a', project: 'greenhouse', event: 'UserPromptSubmit'})!
