@@ -38,7 +38,9 @@ export interface ConnectPieces {
 // PreToolUse runs on every tool call, so it runs in the background (`async`): it catches the turns
 // no prompt started (a focus signal, a background task finishing). StopFailure runs instead of Stop when a turn
 // ends on an API error, which lets go of what the session had in progress.
-const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'StopFailure', 'Notification', 'SessionEnd']
+const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'Stop', 'StopFailure', 'Notification', 'SessionEnd']
+/** The ones that run in the background: Claude Code doesn't wait on them, so they never hold up a tool or answer its prompt. */
+const ASYNC_EVENTS = ['PreToolUse', 'PermissionRequest']
 
 export function connectPieces(target: ConnectTarget): ConnectPieces {
     const {origin, repoDir, id, key, isNew} = target
@@ -52,7 +54,7 @@ export function connectPieces(target: ConnectTarget): ConnectPieces {
         }}},
     }, null, 2)
     const command = `ORRERY_PROJECT=${id} ORRERY_URL=${origin} node ${repoDir}/channel/orrery-hook.mjs`
-    const hook = (event: string) => [{hooks: [{type: 'command', command, timeout: 5, ...event === 'PreToolUse' ? {async: true} : {}}]}]
+    const hook = (event: string) => [{hooks: [{type: 'command', command, timeout: 5, ...ASYNC_EVENTS.includes(event) ? {async: true} : {}}]}]
     const settingsJson = JSON.stringify({hooks: Object.fromEntries(HOOK_EVENTS.map(event => [event, hook(event)]))}, null, 2)
     const launch = `${session ? `ORRERY_SESSION=${session} ` : ''}claude --dangerously-load-development-channels server:${server}`
     const monitor = `Use the Monitor tool to watch this command, and whenever a line asks you to focus on an issue, work on that issue:

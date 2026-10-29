@@ -91,6 +91,26 @@ describe('a session', () => {
         expect(sessions.report({id: 'c', project: 'greenhouse', event: 'Notification', message: 'Claude is waiting for your input'})?.asks).toBeUndefined()
     })
 
+    it('says which tool it asks permission for, whichever of the dialog and the notification comes first (ORR-562)', () => {
+        const report = (event: string, more: Partial<import('../server/utils/sessions').Report> = {}) => sessions.report({id: 'a', project: 'greenhouse', event, ...more})
+        const rm = {name: 'Bash', detail: 'rm -rf web/.output'}
+        expect(report('PreToolUse', {tool: {name: 'Read', detail: '/src/a.ts'}})?.asking).toBeUndefined()
+        // The dialog first: it says the tool, and leaves the state be until the notification.
+        expect(report('PermissionRequest', {tool: rm})).toMatchObject({state: 'working'})
+        expect(report('Notification', {message: 'Claude needs your permission'})).toMatchObject({state: 'waiting', asks: 'Claude needs your permission', asking: rm})
+        expect(report('PreToolUse', {tool: rm})?.asking).toBeUndefined()
+        // The notification first, from the tool before it; the dialog then says it, and keeps the notification's line.
+        const edit = {name: 'Edit', detail: '/src/b.ts'}
+        report('PreToolUse', {tool: edit})
+        expect(report('Notification', {message: 'Claude needs your permission'})?.asking).toEqual(edit)
+        expect(report('PermissionRequest', {tool: {name: 'mcp__orrery__comment'}})).toMatchObject({state: 'waiting', asks: 'Claude needs your permission', asking: {name: 'mcp__orrery__comment'}})
+        // Done with the turn, a later prompt isn't put down to an old tool.
+        report('Stop')
+        expect(report('Notification', {message: 'Claude needs your permission'})).toMatchObject({state: 'waiting'})
+        expect(sessions.listSessions('greenhouse')[0]?.asking).toBeUndefined()
+        expect(sessions.listSessions('greenhouse')[0]).not.toHaveProperty('tool')
+    })
+
     it('keeps the time its state began until the state changes', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
         const first = sessions.report({id: 'a', project: 'greenhouse', event: 'UserPromptSubmit'})!

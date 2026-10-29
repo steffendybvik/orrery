@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {promptIn} from '../app/utils/permission'
+import {promptIn, toolLabel} from '../app/utils/permission'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
 import {onYes} from '../../channel/permission-prompt.mjs'
 
@@ -46,5 +46,13 @@ describe('a permission prompt on a session\'s screen', () => {
         // Answered already, and the session went on working.
         expect(onYes(`${boxed}\n● Removed.\n${'● Running the tests…\n'.repeat(10)}`)).toBe(false)
         expect(onYes('> ')).toBe(false)
+    })
+})
+
+describe('a tool, as the owner reads it (ORR-562)', () => {
+    it('names an MCP tool by its server and tool, any other as it is', () => {
+        expect(toolLabel('mcp__orrery__comment')).toBe('orrery · comment')
+        expect(toolLabel('mcp__claude-in-chrome__read_page')).toBe('claude-in-chrome · read_page')
+        expect(toolLabel('Bash')).toBe('Bash')
     })
 })

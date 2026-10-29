@@ -1,9 +1,10 @@
-// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, reason?, source?, started?, error?} →
+// `POST /api/sessions` {id?, pid?, project, name?, cwd?, event, message?, command?, tool?, reason?, source?, started?, error?} →
 // the session: a Claude session's hook saying who it is and what it's doing (see channel/orrery-hook.mjs). `event` is
 // the hook's event name; a `StopFailure` (with its `error`) lets go of the issues the session has in progress. A
 // `SessionStart` after a `/clear`, a compaction or a resume (`source`) also brings `brief`: what the session was working
 // on, for the hook to hand the fresh context so the work carries on. A session orrery started (`started`, its launch)
-// with context gets that in the brief on every `SessionStart`, its first included.
+// with context gets that in the brief on every `SessionStart`, its first included. `tool` ({name, detail?}, on
+// `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for.
 // What happened to the session, by `source`, for the brief's first line.
 const RESUMED: Record<string, string> = {
     clear: "this window's context was just cleared",
@@ -22,9 +23,13 @@ export default defineEventHandler(async event => {
     const started = text('started')
     // Read without taking the launch: its channel connecting does that, and gets what it was started as (ORR-468).
     const untrusted = !!(started && launchUntrusted(body.project, started))
+    const tool = body.tool && typeof body.tool === 'object' ? body.tool as Record<string, unknown> : undefined
     const session = report({
         id: text('id'), pid: Number(body.pid) || undefined, project: body.project, name: text('name'),
         cwd: text('cwd'), event: body.event, message: text('message'), command: untrusted ? undefined : text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
+        tool: tool && typeof tool.name === 'string' && tool.name ? {
+            name: tool.name.slice(0, 200), ...typeof tool.detail === 'string' && tool.detail ? {detail: tool.detail.slice(0, 300)} : {},
+        } : undefined,
     })
     if (session && body.event === 'Stop') {
         considerClear(session.project, session.id)

@@ -16,3 +16,9 @@ export function promptIn(screen: string): {what: string, text: string} | null {
         .filter(line => line && !/^([╭┌╰└]|[─━]{8,})/.test(line))
     return {what: kept[1] ?? kept[0] ?? '', text: kept.join('\n')}
 }
+
+/** A tool as the owner reads it: an MCP tool as "orrery · comment" (its server, then the tool), any other by its name. */
+export function toolLabel(name: string): string {
+    const mcp = /^mcp__(.+?)__(.+)$/.exec(name)
+    return mcp ? `${mcp[1]} · ${mcp[2]}` : name
+}

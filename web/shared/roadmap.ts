@@ -621,6 +621,9 @@ export interface Session {
     since: string
     /** While it's `waiting`: what it's asking permission for, as Claude Code's notification says it. */
     asks?: string
+    /** While it's `waiting`: the tool it asks to use, and what it would do with it (the command, file, address or
+     * search, cut short), as its hook said. */
+    asking?: SessionTool
     started_at: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
@@ -634,6 +637,13 @@ export interface Session {
     started?: StartedSession
     /** The version of the code its channel runs, as it says (one from before 1.0.0-rc.10 doesn't). */
     version?: string
+}
+
+/** A tool a session uses, as its hook says it: Claude Code's name for it (`Bash`, `Edit`, `mcp__orrery__comment`…),
+ * and for some what it would do. */
+export interface SessionTool {
+    name: string
+    detail?: string
 }
 
 /** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, each with
