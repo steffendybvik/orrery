@@ -3,7 +3,9 @@
 // anyone opening a terminal. Install it once, as a background service that starts at login and serves every project
 // on its list: run in a project's repo (where .mcp.json registers the channel) it adds the repo's projects, and run
 // anywhere else it installs the service with none yet (ORR-598). Either way it turns repo pick-up on in the list (--no-pick-up
-// keeps it off), for a repo's channel to add the repo as it connects (ORR-599):
+// keeps it off), for a repo's channel to add the repo as it connects (ORR-599). Connect the repo first (orrery's Connect an
+// agent page puts the channel in its .mcp.json): a project with no channel there isn't installed (ORR-604). --help lists
+// the flags:
 //   node /path/to/orrery/channel/orrery-launcher.mjs --install      (--uninstall in a repo takes its projects off and
 //                                                                    keeps them off, elsewhere removes the service;
 //                                                                    --list shows which they'd be, changing nothing)
@@ -80,8 +82,30 @@ function needsTmuxAndClaude() {
     }
 }
 
+const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, in their repos.
+
+  node orrery-launcher.mjs --install      install the service once; in a repo connected to orrery (its .mcp.json
+                                          registers orrery's channel), add the repo's projects too
+                       --no-pick-up       with --install: don't let a Claude session add its repo
+  node orrery-launcher.mjs --uninstall    in a repo, take its projects off and keep them off; elsewhere, remove the service
+  node orrery-launcher.mjs --list         which projects this repo would add, and with which channel
+  node orrery-launcher.mjs                run in this terminal for this repo's projects, until stopped
+
+Connect the repo first (orrery's Connect an agent page), so its .mcp.json has the channel.`
+const FLAGS = ['--install', '--uninstall', '--no-pick-up', '--list', '--service', '--help', '-h']
+
 const args = process.argv.slice(2)
 const script = fileURLToPath(import.meta.url)
+if (args.includes('--help') || args.includes('-h')) {
+    console.log(USAGE)
+    process.exit(0)
+}
+// An unknown flag isn't taken for running in the foreground (ORR-604).
+const unknown = args.filter(arg => !FLAGS.includes(arg))
+if (unknown.length) {
+    console.error(`[orrery launcher] doesn't know ${unknown.join(' ')}\n\n${USAGE}`)
+    process.exit(1)
+}
 if (args.includes('--list')) {
     const served = readConfig().projects
     for (const {url, project, dir} of here()) {
@@ -131,10 +155,14 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         }
         needsTmuxAndClaude()
         for (const entry of entries) {
+            // Without the channel its sessions couldn't hear orrery, and its address and project may be guesses
+            // (localhost:9000, the folder's name): connecting the repo comes first (ORR-604).
+            if (!channelFor(entry.dir, entry.url, entry.project)) throw new Error(`no .mcp.json here registers orrery's channel, so nothing was installed: connect this repo first, from orrery's Connect an agent page (or have a Claude session here read ${entry.url}/connect/${entry.project}.md), then run this again`)
+        }
+        for (const entry of entries) {
             const found = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`).then(r => r.status).catch(() => 0)
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
             if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed${inWsl() && wslLocalhost(entry.url) ? `. ${WSL_LOCALHOST}` : ''}`)
-            if (!channelFor(entry.dir, entry.url, entry.project)) log(`no .mcp.json here registers orrery-channel.mjs, so ${entry.project}'s sessions won't hear orrery: run this in the project's repo`)
         }
         const {config, logs, restarted} = install(entries, {script, dir: process.cwd(), pickUp})
         for (const {url, project, dir} of entries) {
@@ -458,6 +486,8 @@ function serve({url, project, dir, picked_at: picked}, signal) {
             }
         },
         log: (...parts) => log(`${project}:`, ...parts),
+        // A project on the list nothing answers for (an orrery gone, or a project it doesn't have): said once (ORR-604).
+        down: (since, error) => log(`${project}: nothing at ${url} for it since ${since.toLocaleString()} (${error.message}); still trying every 30s, quietly. --uninstall in ${dir} takes it off`),
         signal,
     })
 }

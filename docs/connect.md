@@ -131,7 +131,11 @@ service with no project yet, and `--uninstall` removes the service, keeping its 
 whose `.mcp.json` registers the channel puts that repo's projects on the list, by the same rules as `--install` there, and
 the session is told once. Only the channel, running in that folder on your machine, does this; orrery itself never
 names a folder for the launcher. A project orrery doesn't have, or one already served from another repo, is left
-off, and `--uninstall` in a repo keeps it off until you `--install` there again. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
+off, and `--uninstall` in a repo keeps it off until you `--install` there again. Connect the repo first (steps 1 and 2):
+with no channel in its `.mcp.json`, `--install` there with `ORRERY_PROJECT` set refuses, rather than adding a project
+whose sessions couldn't hear orrery, at an address it would have to guess. `--help` lists the flags, and an unknown one
+is refused. A project on the list nothing answers for (its orrery gone, or a project it doesn't have) is logged once,
+with the `--uninstall` that takes it off, and tried again quietly every 30 seconds. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
 channel there, each with the projects in its `ORRERY_PROJECTS` (or its `ORRERY_PROJECT`), so a monorepo with a
 channel per project gets all of them, and each project's sessions load the channel that serves it. With `*`, or to
 pick one, name it with `ORRERY_PROJECT`. `ORRERY_URL` stands in for a channel's address only where `.mcp.json` doesn't write
