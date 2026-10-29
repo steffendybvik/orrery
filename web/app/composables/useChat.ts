@@ -3,7 +3,7 @@ import type {Chat, ChatIssues, Session, Upload} from '#shared/roadmap'
 // The owner's chat (server/utils/chats.ts): a session started for it alone that they talk to here, with no terminal.
 // The pane is open or not (`open`), large or not (`large`, remembered in this browser), on a chat (`current`) or, with
 // none, ready to start one on `project` with the first message. The chats come in over the page's events (`arrived`); closing the pane ends
-// its chat (`close`), and one that ends on its own stays on screen, ended, until the pane closes. Each message says
+// its chat (`close`), minimizing it leaves the chat running (`hide`), and one that ends on its own stays on screen, ended, until the pane closes. Each message says
 // which page the owner is on, so the chat knows what "this" is. Where the issues it makes land (`lands`, Todo or Backlog)
 // is the owner's pick beside Send, remembered in this browser for the next chat, and kept by the server on the chat.
 export function useChat() {
@@ -130,6 +130,11 @@ export function useChat() {
         failed.value = ''
     }
 
+    /** Hides the pane, leaving its chat running: opened again, it's on the same conversation. */
+    function hide() {
+        open.value = false
+    }
+
     /** Closes the pane, ending its chat: open again, it's ready to start another. */
     async function close() {
         open.value = false
@@ -155,5 +160,5 @@ export function useChat() {
         return $fetch<Upload>('/api/uploads', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, open, large, current, chat, session, project, failed, ended, lands, fetchChats, arrived, show, start, send, land, fresh, answer, close, resize, upload}
+    return {chats, open, large, current, chat, session, project, failed, ended, lands, fetchChats, arrived, show, start, send, land, fresh, answer, hide, close, resize, upload}
 }
