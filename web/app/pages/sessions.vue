@@ -8,7 +8,7 @@ import type {Heading} from '~/utils/markdown'
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
 // Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default).
 // Three tabs keep them apart: Sessions, what's running; Setup (`?tab=setup`, or a link to one of its sections): first the
-// launcher's install command, always in view as each new repo needs it (ORR-473), with whether orrery may start sessions
+// launcher's install command, always in view (ORR-473; once, with repos picked up after, ORR-600), with whether orrery may start sessions
 // and how, then the presets to start one with, and what sessions hear;
 // presets and what they hear for every project or, picked in For, one project's own; and Permissions
 // (`?tab=permissions`), what each kind of session may do, read-only (ORR-459).
@@ -120,10 +120,10 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
           <h2 class="text-[15px] font-semibold text-fg">Starting sessions</h2>
           <p class="text-xs text-muted">
             orrery can start sessions itself, with no terminal: when your work finds nobody listening, or when you press
-            Start session. It does so for any project whose repo has its launcher installed.
+            Start session. It does so for any project whose repo the launcher serves.
           </p>
         </header>
-        <CopyBlock title="Install the launcher: in each project's repo, run" :text="install" hint="Again in another repo adds its project; --uninstall takes one off. Installing again restarts it, which stops the sessions it's running." />
+        <CopyBlock title="Install the launcher once: run" :text="install" hint="Anywhere, it installs the launcher; in a project's repo, it adds that project too. From then on a Claude session opened in a repo adds it (--no-pick-up turns that off), and --uninstall in a repo takes it off and keeps it off. Adding a repo leaves the running sessions alone." />
         <SessionStarts />
         <LauncherRepos />
         <PickNextSetting />
