@@ -142,9 +142,7 @@ export default defineNuxtPlugin(() => {
             useInbox().arrived(JSON.parse((event as MessageEvent).data) as Notice)
         })
         events.addEventListener('settings', event => {
-            const app = useAppSettings()
-            app.settings.value = JSON.parse((event as MessageEvent).data) as Settings
-            app.apply()
+            useAppSettings().heard(JSON.parse((event as MessageEvent).data) as Settings)
             // They come with renaming the owner, whose id this tab writes as.
             useOwner().refresh()
         })
