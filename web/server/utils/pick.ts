@@ -25,16 +25,19 @@ const handed = new Map<string, string>()
 const RANK = {P0: 0, P1: 1, P2: 2, P3: 3}
 const urgency = (issue: Pick<Issue, 'priority'>) => issue.priority ? RANK[issue.priority] : 4
 
+/** Whether an issue is free for a session to take: nobody's on it, or an agent is (`claude`). One assigned to the
+ * owner or to anyone else is theirs. Picking and the Todo hand-out (todo-focus.ts) both go by it. */
+export const forSessions = (issue: {assignee?: string | null}) => !issue.assignee || issue.assignee === 'claude'
+
 /** The issues a session hearing `projects` may start: Todo, or Backlog when there's no Todo, most urgent first (then
- * oldest), without proposals not yet approved, ones assigned to the owner, ones waiting on the owner's answer, and
- * parents (their sub-issues are the work). At most PICK_FROM. */
+ * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
+ * answer, and parents (their sub-issues are the work). At most PICK_FROM. */
 export async function pickable(projects: string[]): Promise<(IssueRecord & {project: string})[]> {
     const store = useStore()
-    const owner = (await store.ownerOf()).name
     const open: (IssueRecord & {project: string})[] = []
     for (const project of projects) {
         for (const issue of await store.listIssues(project)) {
-            if (issue.proposal || issue.waiting || issue.assignee === owner) continue
+            if (issue.proposal || issue.waiting || !forSessions(issue)) continue
             if (issue.kind !== 'todo' && issue.kind !== 'backlog') continue
             open.push({...issue, project})
         }

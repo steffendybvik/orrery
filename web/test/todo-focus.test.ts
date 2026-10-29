@@ -106,9 +106,10 @@ describe('an issue the owner moves into Todo', () => {
         board = [
             issue('ORR-1'), issue('ORR-2', 'backlog'), issue('ORR-3', 'todo', {proposal: 'pending'}), issue('ORR-4', 'todo', {assignee: 'steffen'}),
             issue('ORR-5', 'todo', {waiting: 'decision'}), issue('ORR-6'), issue('ORR-7', 'todo', {parent: 'ORR-6'}), issue('ORR-8'),
+            issue('ORR-9', 'todo', {assignee: 'ada'}),
         ]
         onItsWay = ['ORR-8']
-        await hear(moved('ORR-1', 'ready'), moved('ORR-2', 'todo'), moved('ORR-3'), moved('ORR-4'), moved('ORR-5'), moved('ORR-6'), moved('ORR-8'))
+        await hear(moved('ORR-1', 'ready'), moved('ORR-2', 'todo'), moved('ORR-3'), moved('ORR-4'), moved('ORR-5'), moved('ORR-6'), moved('ORR-8'), moved('ORR-9'))
         expect(sent).toEqual([])
     })
 })
