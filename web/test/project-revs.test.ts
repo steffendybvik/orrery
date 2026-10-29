@@ -92,3 +92,43 @@ describe('a project read whole', () => {
         expect(title(onPage(read, patch)!)).toBe('Brass hinges')
     })
 })
+
+// Reading a project again after a write (ORR-440, ORR-500): a burst reads it once more, not once per write; a project
+// that's gone is removed from the pages; any other failure leaves them as they are.
+describe('reading a project again', () => {
+    const counted = () => {
+        const seen = {project: 0, patch: 0, removed: [] as string[]}
+        events.projectEvents.on('project', () => void seen.project++)
+        events.projectEvents.on('patch', () => void seen.patch++)
+        events.projectEvents.on('removed', (id: string) => void seen.removed.push(id))
+        return seen
+    }
+
+    it('reads a burst of writes once now and once more after, not once each', async () => {
+        const seen = counted()
+        for (let i = 0; i < 3; i++) events.reread('greenhouse')
+        await vi.waitFor(() => expect(seen.project).toBe(2))
+        await new Promise(resolve => setTimeout(resolve, 20))
+        expect([seen.project, seen.patch]).toEqual([2, 2])
+    })
+
+    it('removes a project that has gone from the pages, and only that', async () => {
+        const seen = counted()
+        vi.spyOn(events.useStore(), 'project').mockRejectedValueOnce(Object.assign(new Error('No project greenhouse'), {statusCode: 404}))
+        events.reread('greenhouse')
+        await vi.waitFor(() => expect(seen.removed).toEqual(['greenhouse']))
+        expect(seen.project).toBe(0)
+    })
+
+    it('leaves the pages as they are when the read fails otherwise, and reads again next time', async () => {
+        const seen = counted()
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+        vi.spyOn(events.useStore(), 'project').mockRejectedValueOnce(new Error('database is locked'))
+        events.reread('greenhouse')
+        await vi.waitFor(() => expect(error).toHaveBeenCalledWith('[orrery] reading greenhouse again:', expect.any(Error)))
+        expect([seen.project, seen.removed]).toEqual([0, []])
+        events.reread('greenhouse')
+        await vi.waitFor(() => expect(seen.project).toBe(1))
+        error.mockRestore()
+    })
+})

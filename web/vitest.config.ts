@@ -17,8 +17,8 @@ export default defineConfig({
                 test: {name: 'components', include: ['test/components/**/*.test.ts'], environment: 'nuxt', environmentOptions: {nuxt: {domEnvironment: 'happy-dom'}}, testTimeout: 15000},
             }),
         ],
-        // `pnpm test:coverage`: the server's logic, what it shares with the page, and the page's components and
-        // composables (the routes are thin handlers over the store).
-        coverage: {provider: 'v8', include: ['server/utils/**', 'shared/**', 'app/components/**', 'app/composables/**', 'app/utils/**'], reporter: ['text', 'json-summary']},
+        // `pnpm test:coverage`: the server's logic and its store, what it shares with the page, and the page's components
+        // and composables (the routes are thin handlers over the store).
+        coverage: {provider: 'v8', include: ['server/utils/**', 'server/store/**', 'shared/**', 'app/components/**', 'app/composables/**', 'app/utils/**'], reporter: ['text', 'json-summary']},
     },
 })
