@@ -4,7 +4,8 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
-// one orrery started, Forget on one that can't hear signals, the session on an issue shown on its page, and a preset.
+// one orrery started, Forget on one that can't hear signals, the session on an issue shown on its page, the repos the
+// launcher serves, and a preset.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('kitchen')
@@ -291,6 +292,18 @@ test('a session orrery started has Stop out front, asked once more', async ({pag
         stream?.stop()
         launcher.stop()
     }
+})
+
+test('lists the repos the launcher serves on Setup, picked up or installed (ORR-605)', async ({page, baseURL}) => {
+    const picked = hold(baseURL!, `/api/projects/kitchen/launches/stream?dir=${encodeURIComponent('/code/kitchen')}&picked=${encodeURIComponent(new Date().toISOString())}`)
+    const installed = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/dairy')}`)
+    await page.goto('/sessions?tab=setup')
+    const repos = page.getByRole('list', {name: 'Repos the launcher serves'})
+    await expect(repos.getByRole('listitem').filter({hasText: '/code/kitchen'})).toContainText(/Kitchen\s*picked up/)
+    await expect(repos.getByRole('listitem').filter({hasText: '/code/dairy'})).toContainText(/Dairy\s*installed/)
+    picked.stop()
+    installed.stop()
+    await expect(repos).toHaveCount(0)
 })
 
 test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {

@@ -431,6 +431,13 @@ export interface Owner {
     named: boolean
 }
 
+/** A folder a project's launcher serves it from, and when its channel picked it up there (ORR-599), when it did rather
+ * than `--install` (ORR-605). */
+export interface LauncherRepo {
+    dir: string
+    picked_at?: string
+}
+
 /** The sessions orrery may start, the owner's one setting for every project: at most `limit` running at once on each, each running until it's stopped,
  * or for `minutes` when set. `idle_minutes` stops one that has sat idle with nothing to do for that long. Neither
  * stops a session mid-work: it waits until the session is idle with nothing in progress or waiting. `min` keeps that many

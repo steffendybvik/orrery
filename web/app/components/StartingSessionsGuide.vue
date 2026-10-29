@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // How orrery starts sessions with no terminal, step by step, each ticked once it's done: the owner's opt-in, a
-// launcher installed in a project's repo, then starting, watching and stopping them. Open while a step is left.
+// launcher installed once, then starting, watching and stopping them. Open while a step is left.
 import type {LaunchState} from '~/composables/useLaunchState'
 
 const {settings} = useAppSettings()
@@ -38,13 +38,13 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
         <StepMark :done="!!running" :n="2" />
         <div class="flex min-w-0 flex-1 flex-col gap-2">
           <div class="flex flex-col gap-0.5">
-            <span class="font-medium text-fg">Install the launcher, once in each project's repo</span>
+            <span class="font-medium text-fg">Install the launcher, once</span>
             <span>
               orrery runs in Docker and can't start sessions on your machine, so a small launcher does it. Installed, it runs in the
               background (launchd on macOS, systemd on Linux; on Windows, inside WSL with systemd on), starts at login and serves
-              every project installed this way.
-              It finds the project in the repo's <span class="font-mono">.mcp.json</span>. If it's new to the repo,
-              run <span class="font-mono">claude</span> there once to trust the folder. Its command is at the top of this section.
+              every repo on its list: one you install it in, and one a Claude session opens in afterwards (the list is under the
+              settings above). It finds the projects in the repo's <span class="font-mono">.mcp.json</span>. If it's new to the
+              repo, run <span class="font-mono">claude</span> there once to trust the folder. Its command is at the top of this section.
             </span>
           </div>
         </div>
