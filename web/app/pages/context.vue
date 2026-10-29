@@ -54,8 +54,10 @@ const groups = computed(() => {
 })
 /** Biggest first, across the groups. */
 const parts = computed(() => view.value?.parts.toSorted((a, b) => b.chars - a.chars) ?? [])
-/** What a running session has been given so far, in all. */
-const sofarChars = computed(() => view.value?.sofar?.reduce((sum, e) => sum + e.chars, 0) ?? 0)
+/** What a running session has been given so far and still holds, in all: not what came before its last clear (ORR-575). */
+const sofarChars = computed(() => view.value?.sofar?.reduce((sum, e) => e.before ? sum : sum + e.chars, 0) ?? 0)
+/** Where its entries from before the last clear or compaction start, in the list (newest first). */
+const firstBefore = computed(() => view.value?.sofar?.findIndex(e => e.before) ?? -1)
 const SOFAR: Record<ContextEntry['kind'], {label: string, bar: string}> = {signal: {label: 'Signal', bar: 'bg-emerald-500'}, tool: {label: 'Tool answer', bar: 'bg-rose-500'}}
 const time = (at: string) => new Date(at).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
 const pct = (share: number) => `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`
@@ -136,13 +138,14 @@ const n = (value: number) => value.toLocaleString('en')
         <h2 class="text-sm font-medium">So far</h2>
         <p class="text-xs text-muted">
           <template v-if="view.sofar.length">
-            Its latest {{ view.sofar.length }} signals and tool answers: <span data-testid="context-sofar-total">{{ n(sofarChars) }} characters</span>, about {{ n(Math.ceil(sofarChars / 4)) }} tokens.
-            Each stays in its context once given. Kept since orrery last started.
+            Its latest {{ view.sofar.length }} signals and tool answers. In its context now: <span data-testid="context-sofar-total">{{ n(sofarChars) }} characters</span>, about {{ n(Math.ceil(sofarChars / 4)) }} tokens.
+            Each stays in its context once given, until a /clear or a compaction. Kept since orrery last started.
           </template>
           <template v-else>Nothing yet: its signals and tool answers show here as it's given them.</template>
         </p>
         <ul v-if="view.sofar.length" class="flex flex-col divide-y divide-line rounded-lg ring-1 ring-line">
-          <li v-for="(e, i) in view.sofar" :key="`${e.at}-${i}`">
+          <li v-for="(e, i) in view.sofar" :key="`${e.at}-${i}`" :class="e.before ? 'opacity-60' : ''">
+            <p v-if="i === firstBefore" class="border-b border-line bg-well px-3 py-1.5 text-xs text-muted" data-testid="context-sofar-before">Before its last /clear or compaction: no longer in its context, and not in the total</p>
             <details class="group">
               <summary class="flex cursor-pointer list-none items-center gap-3 px-3 py-2 text-[13px] hover:bg-hover">
                 <svg class="size-3 shrink-0 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>

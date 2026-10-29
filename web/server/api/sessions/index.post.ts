@@ -36,6 +36,8 @@ export default defineEventHandler(async event => {
     }
     const source = text('source')
     if (!session || body.event !== 'SessionStart') return session
+    // What it was given before is out of its context now, so the Context page counts it no more (ORR-575).
+    if (source === 'clear' || source === 'compact') noteContextCut(session.id)
     // Back from orrery's clear with part of its run left: a focus on the rest starts its next turn.
     // With none, it picks its next issue, when the owner lets sessions (ORR-452).
     if (source === 'clear' && session.started) {

@@ -39,4 +39,28 @@ describe("a session's context so far", () => {
         log.noteContext('s0', 'tool', 'doc', 'b')
         expect(log.contextSoFar('s0').map(e => e.title).sort()).toEqual(['doc', 'docs'])
     })
+
+    it('marks what came before its last /clear or compaction as no longer in its context (ORR-575)', () => {
+        vi.useFakeTimers({now: Date.parse('2026-10-29T10:00:00Z')})
+        try {
+            log.noteContext('s1', 'tool', 'docs', 'a')
+            vi.advanceTimersByTime(1000)
+            log.noteContext('s1', 'tool', 'issue', 'b')
+            expect(log.contextSoFar('s1').filter(e => e.before)).toEqual([])
+            vi.advanceTimersByTime(1000)
+            log.noteContextCut('s1')
+            vi.advanceTimersByTime(1000)
+            log.noteContext('s1', 'tool', 'guide', 'c')
+            expect(log.contextSoFar('s1').map(e => [e.title, !!e.before])).toEqual([['guide', false], ['issue', true], ['docs', true]])
+            // A cut made under the id it had before a /clear still holds.
+            log.noteContext('old', 'tool', 'doc', 'd')
+            vi.advanceTimersByTime(1000)
+            log.noteContextCut('old')
+            vi.advanceTimersByTime(1000)
+            log.noteContext('s0', 'tool', 'docs', 'e')
+            expect(log.contextSoFar('s0').map(e => [e.title, !!e.before])).toEqual([['docs', false], ['doc', true]])
+        } finally {
+            vi.useRealTimers()
+        }
+    })
 })
