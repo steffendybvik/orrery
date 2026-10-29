@@ -38,7 +38,7 @@ import {execFileSync} from 'node:child_process'
 import {mkdirSync, unwatchFile, watchFile, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
+import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
@@ -85,7 +85,7 @@ const script = fileURLToPath(import.meta.url)
 if (args.includes('--list')) {
     const served = readConfig().projects
     for (const {url, project, dir} of here()) {
-        const elsewhere = served.find(p => p.url === url && p.project === project && p.dir !== dir)
+        const elsewhere = servedElsewhere(served, {url, project, dir})
         console.log(`${project} (${url}): sessions load ${channelFor(dir, url, project)?.name ?? 'no channel'}${elsewhere ? `; served from ${elsewhere.dir}, so --install leaves it there` : ''}`)
     }
     process.exit(0)
@@ -106,14 +106,17 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             needsTmuxAndClaude()
             const {config, logs, restarted} = install([], {script, pickUp})
             console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
-            console.log(`Run this with --install in a project's repo to put its projects on it. Its log: ${logs}`)
+            console.log(pickUp
+                ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
+                : "Pick-up is off: run this with --install in a project's repo to put its projects on it.")
+            console.log(`Its log: ${logs}`)
             process.exit(0)
         }
         // Several channels can name a project served from its own repo (a monorepo's channel to the personal
         // orrery): it's left there unless ORRERY_PROJECT names it.
         const served = readConfig().projects
         const entries = here().filter(entry => {
-            const elsewhere = served.find(p => p.url === entry.url && p.project === entry.project && p.dir !== entry.dir)
+            const elsewhere = servedElsewhere(served, entry)
             if (elsewhere && !process.env.ORRERY_PROJECT) console.log(`Left ${entry.project} (${entry.url}) as it is, served from ${elsewhere.dir}; ORRERY_PROJECT=${entry.project} acts on it from here.`)
             return !elsewhere || process.env.ORRERY_PROJECT
         })
@@ -122,8 +125,8 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         // it runs) only when its file changed, at most once.
         if (args.includes('--uninstall')) {
             const {config} = uninstall(entries, {script, dir: process.cwd()})
-            console.log(`Took ${entries.map(e => `${e.project} (${e.url})`).join(', ')} off the launcher.`)
-            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : config.pickUp ? 'It serves no project now; --uninstall outside a repo removes the service.' : 'Nothing was left on it, so the service is removed.')
+            console.log(`Took ${entries.map(e => `${e.project} (${e.url})`).join(', ')} off the launcher${config.pickUp ? ', and pick-up leaves this repo off until --install here' : ''}.`)
+            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : config.pickUp ? 'It serves no project now, and waits for pick-up to put one on; --uninstall outside a repo removes it.' : 'Nothing was left on it, so the service is removed.')
             process.exit(0)
         }
         needsTmuxAndClaude()

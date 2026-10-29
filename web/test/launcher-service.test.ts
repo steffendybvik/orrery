@@ -1,10 +1,10 @@
 import {execFileSync, spawn} from 'node:child_process'
-import {mkdtempSync, writeFileSync} from 'node:fs'
+import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {adoptable, inWsl, launcherAlive, listChanges, listIn, plist, readConfig, RELOADS, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {adoptable, inWsl, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -52,6 +52,42 @@ describe("the launcher's list", () => {
         expect(listIn(join(dir, 'none.json'))).toEqual({projects: [], pickUp: false, skip: []})
         writeFileSync(join(dir, 'half.json'), '{"projects": [{"url"')
         expect(listIn(join(dir, 'half.json'))).toBeNull()
+    })
+})
+
+describe('picking a repo up as its channel connects (ORR-599)', () => {
+    const now = new Date('2026-10-29T20:00:00Z')
+    const shop = {url: 'http://localhost:9000', project: 'shop', dir: '/code/shop'}
+    const listed = (list: object) => {
+        const file = join(mkdtempSync(join(tmpdir(), 'orrery-launcher-')), 'launcher.json')
+        writeFileSync(file, JSON.stringify(list))
+        return file
+    }
+    const projectsIn = (file: string) => JSON.parse(readFileSync(file, 'utf8')).projects
+
+    it('puts the repo on the list, marked, when pick-up is on', () => {
+        const file = listed({projects: [greenhouse], pickUp: true, skip: []})
+        expect(pickUp([shop], '/code/shop', {file, now})).toEqual([{...shop, picked_at: now.toISOString()}])
+        expect(projectsIn(file)).toEqual([greenhouse, {...shop, picked_at: now.toISOString()}])
+        // Once on, it's left as it is: the line the session gets is said once.
+        expect(pickUp([shop], '/code/shop', {file, now})).toEqual([])
+    })
+
+    it('leaves the list alone with pick-up off, without one, or for a repo kept off', () => {
+        for (const list of [{projects: []}, {projects: [], pickUp: false}, {projects: [], pickUp: true, skip: ['/code/shop']}]) {
+            const file = listed(list)
+            expect(pickUp([shop], '/code/shop', {file, now})).toEqual([])
+            expect(projectsIn(file)).toEqual([])
+        }
+        const missing = join(mkdtempSync(join(tmpdir(), 'orrery-launcher-')), 'launcher.json')
+        expect(pickUp([shop], '/code/shop', {file: missing, now})).toEqual([])
+    })
+
+    it('leaves a project served from another repo there, as --install does', () => {
+        const file = listed({projects: [{...shop, dir: '/code/monorepo'}], pickUp: true, skip: []})
+        expect(servedElsewhere([{...shop, dir: '/code/monorepo'}], shop)).toEqual({...shop, dir: '/code/monorepo'})
+        expect(pickUp([shop, {...greenhouse, dir: '/code/shop'}], '/code/shop', {file, now}).map(p => p.project)).toEqual(['greenhouse'])
+        expect(projectsIn(file).map((p: {dir: string}) => p.dir)).toEqual(['/code/monorepo', '/code/shop'])
     })
 })
 
