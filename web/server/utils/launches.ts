@@ -254,10 +254,10 @@ export async function startChat(project: string, context: SessionContext): Promi
     return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true}))
 }
 
-/** The project's starts, if it may have one more session started now: the owner lets orrery start them, a launcher is
- * there, and the sessions running and on their way, on every project, are under the limit. */
 const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
 
+/** The project's starts, if it may have one more session started now: the owner lets orrery start them, a launcher is
+ * there, and the sessions running and on their way, on every project, are under the limit. */
 async function roomFor(project: string): Promise<Starts> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`orrery doesn't start sessions; turn it on in App settings`)
@@ -266,8 +266,6 @@ async function roomFor(project: string): Promise<Starts> {
     return starts
 }
 
-/** The context a session is started with: the presets picked (by id, the orrery's or the project's own), then the
- * owner's own words; none when there's neither. */
 /** What starting a session takes (Start session's form, and the chat asking for one, ORR-509), checked: an issue to focus
  * on, or statuses and a release to work through; presets and the owner's own words; the projects it hears. */
 export interface StartInput {
@@ -304,6 +302,8 @@ export function startInput(body: unknown): StartInput {
     }
 }
 
+/** The context a session is started with: the presets picked (by id, the orrery's or the project's own), then the
+ * owner's own words; none when there's neither. */
 export async function contextFor(project: string, presets: number[] = [], instructions = ''): Promise<SessionContext | undefined> {
     const picked = await useStore().presetsFor(project, presets)
     const own = instructions.trim()
