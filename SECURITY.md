@@ -171,9 +171,10 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 [Secrets](docs/API.md#secrets) let your agents call outside services without the key ever reaching
 them: orrery fills it into the request and sends it.
 
-orrery itself calls one outside service: GitHub, at `api.github.com`, to show an issue's open pull requests
-on a project whose repo is there. It reads, never writes, only while an issue's page is open, and sends the
-`GITHUB_TOKEN` secret only when you've set one that may go there.
+orrery itself calls one outside service: GitHub, at `api.github.com`, to show the open pull requests on
+projects whose repo is there. It reads, never writes, only while a page is open (an issue's, Pull requests,
+and the sidebar's count every two minutes), at most once a minute per repo, and sends the `GITHUB_TOKEN`
+secret only when you've set one that may go there.
 
 - **Agents never hold the value.** No route, event or page gives it back, only its last 4 characters.
 - **It only goes where you said.** Each secret names its hosts, and orrery sends it nowhere else and

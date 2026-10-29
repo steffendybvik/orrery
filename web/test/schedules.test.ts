@@ -235,11 +235,11 @@ describe('an untrusted schedule', () => {
     it('starts a session of its own each run, never messaging the sessions, and fails saying why when it cannot', async () => {
         const asked: {project: string, schedule: number, text: string}[] = []
         let room = true
-        const own = new Schedules(store, () => {}, () => 3, async (project, schedule, text) => {
+        const own = new Schedules(store, {listening: () => 3, startUntrusted: async (project, schedule, text) => {
             if (!room) throw new Error('No launcher is running for greenhouse')
             asked.push({project, schedule, text})
             return {tmux: 'orrery-greenhouse-abc'}
-        })
+        }})
         const s = await own.create('greenhouse', {kind: 'message', title: 'Triage', notes: 'Review GitHub issues.', cron: '0 9 * * *', timezone: 'UTC', untrusted: true}, me)
         expect(await own.runNow('greenhouse', s.id, me)).toMatchObject({outcome: 'sent', note: 'started a locked-down session for it (orrery-greenhouse-abc)'})
         expect(asked).toEqual([{project: 'greenhouse', schedule: s.id, text: 'Review GitHub issues.'}])

@@ -81,6 +81,26 @@ describe("the owner's chat", () => {
         expect(changes).toHaveLength(3)
     })
 
+    it("clears its session's context when the owner asks, keeping the chat and what was said, with the cut marked (ORR-497)", async () => {
+        const launches: unknown[] = []
+        const notes: {kind: string}[] = []
+        ;(projectEvents as EventEmitter).on('launches', event => launches.push(event))
+        vi.stubGlobal('useEventLog', () => ({note: (note: {kind: string}) => notes.push(note)}))
+        await chats.openChat('greenhouse')
+        await chats.say('c1c2c3c4c5c6', 'What is GRE-4 about?', [], owner)
+        const cut = chats.clearChat('c1c2c3c4c5c6')
+        expect(launches).toEqual([{type: 'clear', project: 'greenhouse', id: 'c1c2c3c4c5c6'}])
+        expect(cut).toMatchObject({from: 'owner', text: '', images: [], cleared: true})
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.map(m => m.text)).toEqual(['What is GRE-4 about?', ''])
+        expect(changes.at(-1)!.messages.at(-1)).toMatchObject({cleared: true})
+        expect(notes.map(n => n.kind)).toEqual(['chat.cleared'])
+        // Nothing goes to the session as words: its launcher types /clear.
+        expect(messages).toHaveLength(1)
+        expect(stopped).toEqual([])
+        chats.endChat('c1c2c3c4c5c6')
+        expect(() => chats.clearChat('c1c2c3c4c5c6')).toThrow(/has ended/)
+    })
+
     it('ends when the owner ends it: its session is stopped and the chat goes, saying so', async () => {
         await chats.openChat('greenhouse')
         chats.endChat('c1c2c3c4c5c6')
@@ -418,6 +438,7 @@ describe("a chat session's writes", () => {
         expect(refused('PUT', '/api/secrets/GITHUB')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/comments')).toBeUndefined()
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/replies')).toBeUndefined()
+        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/clear')).toBe(403)
         expect(refused('GET', '/api/projects/greenhouse/docs')).toBeUndefined()
         expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBeUndefined()
         expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4/comments/3')).toBe(403)

@@ -3,9 +3,11 @@
 // open PRs and keeps the ones that name the issue, with where each stands: a draft, conflicting, behind its base,
 // failing checks, waiting on a review, or ready.
 //
-// Nothing is polled on its own: a page that shows an issue's PRs asks, and the answers are kept for a minute
-// (five without a token, as GitHub allows 60 requests an hour then), so many pages and issues cost one list.
-import type {IssuePulls, PullRequest, PullState} from '#shared/roadmap'
+// Nothing is polled on its own: a page that shows an issue's PRs, or the Pull requests page and the sidebar's count
+// of those needing someone (ORR-491), asks, and the answers are kept for a minute (five without a token, as GitHub
+// allows 60 requests an hour then), so many pages and issues cost one list per repo.
+import type {AllPulls, IssuePulls, OpenPull, PullRequest, PullState} from '#shared/roadmap'
+import {PULL_NEEDS} from '#shared/roadmap'
 import {notFound} from './input'
 import type {Store} from './store'
 
@@ -56,6 +58,16 @@ export function namesIssue(pull: Pick<ListedPull, 'body' | 'head'>, ids: string[
     })
 }
 
+/** The issue ids a PR names, most likely first: those its body links to (`…/issues/ORR-12`), then its branch's
+ * (`feat/orr-12-…`), as they'd be written (upper case). */
+export function issueIdsIn(pull: Pick<ListedPull, 'body' | 'head'>): string[] {
+    const ids = [
+        ...[...(pull.body ?? '').matchAll(/\/issues\/([a-z][a-z0-9]*-\d+)(?![\w-])/gi)].map(m => m[1]),
+        ...[...pull.head.ref.matchAll(/(?:^|[^a-z0-9])([a-z][a-z0-9]*-\d+)(?![0-9])/gi)].map(m => m[1]),
+    ]
+    return [...new Set(ids.filter(id => id !== undefined).map(id => id.toUpperCase()))]
+}
+
 /** Where a PR stands, from its draft flag and GitHub's `mergeable_state`. */
 export function pullState(draft: boolean | undefined, mergeable: string | null | undefined): PullState {
     if (draft) return 'draft'
@@ -99,20 +111,71 @@ export class Pulls {
             // A PR's state changes without it (its base moves on), so it's read again as often as the list.
             const state = await this.read(this.states, `${repo}#${pull.number}@${pull.updated_at}`, () => this.state(repo, project, pull))
             error ??= state.error
-            pulls.push({
-                number: pull.number,
-                title: pull.title,
-                url: pull.html_url,
-                branch: pull.head.ref,
-                base: pull.base.ref,
-                author: pull.user?.login ?? '',
-                state: state.value ?? (pull.draft ? 'draft' : 'checking'),
-                created_at: pull.created_at,
-                updated_at: pull.updated_at,
-            })
+            pulls.push(this.shown(pull, state.value ?? (pull.draft ? 'draft' : 'checking')))
         }
         this.forgetOld()
         return {repo, pulls, ...error ? {error} : {}, token: list.secret, checked_at: list.at ? new Date(list.at).toISOString() : null}
+    }
+
+    /** Every open PR on the projects' GitHub repos, each repo read once however many projects share it, with the issue
+     * it names. Their states are read only with a token: without one, GitHub's 60 requests an hour go to the lists. */
+    async all(): Promise<AllPulls> {
+        const rows = await this.store.db.all<{id: string, repo: string | null}>('SELECT id, repo FROM projects ORDER BY created_at, id')
+        const byRepo = new Map<string, string[]>()
+        for (const row of rows) {
+            const repo = githubRepo(row.repo)
+            if (repo) byRepo.set(repo, [...byRepo.get(repo) ?? [], row.id])
+        }
+        const pulls: OpenPull[] = []
+        const repos: AllPulls['repos'] = []
+        for (const [repo, projects] of byRepo) {
+            // Asked as the first project's: the token's projects are checked against it.
+            const [asker = ''] = projects
+            const list = await this.read(this.lists, repo, () => this.list(repo, asker))
+            let error = list.error
+            for (const pull of list.value ?? []) {
+                let state: PullState = pull.draft ? 'draft' : 'checking'
+                if (list.secret) {
+                    const read = await this.read(this.states, `${repo}#${pull.number}@${pull.updated_at}`, () => this.state(repo, asker, pull))
+                    error ??= read.error
+                    state = read.value ?? state
+                }
+                const issue = await this.issueOf(projects, issueIdsIn(pull))
+                pulls.push({...this.shown(pull, state), repo, ...issue ? {issue} : {}})
+            }
+            repos.push({repo, projects, token: list.secret, checked_at: list.at ? new Date(list.at).toISOString() : null, ...error ? {error} : {}})
+        }
+        this.forgetOld()
+        const needs = (pull: OpenPull) => PULL_NEEDS.includes(pull.state)
+        pulls.sort((a, b) => Number(needs(b)) - Number(needs(a)) || a.created_at.localeCompare(b.created_at))
+        return {pulls, needs: pulls.filter(needs).length, repos}
+    }
+
+    /** The first of the ids that's an issue (or one it had before) in one of the projects. */
+    private async issueOf(projects: string[], ids: string[]): Promise<OpenPull['issue']> {
+        const among = projects.map(() => '?').join(', ')
+        for (const id of ids) {
+            const found = await this.store.db.get<{project: string, id: string, title: string}>(
+                `SELECT project, id, title FROM issues WHERE project IN (${among}) AND id = ?`, ...projects, id)
+                ?? await this.store.db.get<{project: string, id: string, title: string}>(
+                    `SELECT i.project, i.id, i.title FROM issue_aliases a JOIN issues i ON i.project = a.project AND i.id = a.issue WHERE a.project IN (${among}) AND a.alias = ?`, ...projects, id)
+            if (found) return found
+        }
+        return undefined
+    }
+
+    private shown(pull: ListedPull, state: PullState): PullRequest {
+        return {
+            number: pull.number,
+            title: pull.title,
+            url: pull.html_url,
+            branch: pull.head.ref,
+            base: pull.base.ref,
+            author: pull.user?.login ?? '',
+            state,
+            created_at: pull.created_at,
+            updated_at: pull.updated_at,
+        }
     }
 
     /** The issue's id and the ids it had before; a 404 when there's no such issue. */

@@ -49,8 +49,8 @@ jobs:
           console.log(['### Coverage (server/utils, shared)', '', '| | % | covered |', '|---|---|---|',
             ...['lines', 'statements', 'functions', 'branches'].map(row)].join('\n'))
           EOF
-      # The store's tests again, on Postgres.
-      - run: pnpm --dir web exec vitest run test/store.test.ts test/schedules.test.ts test/connect.test.ts
+      # Every unit test again, on Postgres: the store's, the schema parity and upgrades, the moves and backups into it.
+      - run: pnpm --dir web exec vitest run --project unit
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
       - run: pnpm typecheck

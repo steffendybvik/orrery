@@ -195,16 +195,7 @@ export function report(input: Report): Session | null {
         // its new one; the old id stays an alias, as its channel and the issues it worked still use it.
         // An id it had before isn't a new one: its channel still reports with the id it started under, even
         // once another window has resumed under it.
-        if (input.id && !sessionIds(session.id).includes(input.id) && !sessions.has(input.id)) {
-            const {id: from, project} = session
-            sessions.delete(from)
-            for (const [old, to] of aliases) if (to === from) aliases.set(old, input.id)
-            aliases.set(from, input.id)
-            aliases.delete(input.id)
-            session.id = input.id
-            sessions.set(session.id, session)
-            useStore().renameSession(project, from, input.id).catch(error => console.error(`[orrery] moving session ${from} to ${input.id}:`, error))
-        }
+        if (input.id && !sessionIds(session.id).includes(input.id) && !sessions.has(input.id)) takeNewId(session, input.id)
         session.cleared = event === 'end' ? Date.now() : undefined
         if (input.name) session.name = input.name
         session.pid ??= input.pid
@@ -227,6 +218,18 @@ export function report(input: Report): Session | null {
         }
     }
     return publicOf(session)
+}
+
+/** The session goes by `id` from now on; the ids it had stay aliases of it, and what it worked moves to the new one. */
+function takeNewId(session: Known, id: string) {
+    const {id: from, project} = session
+    sessions.delete(from)
+    for (const [old, to] of aliases) if (to === from) aliases.set(old, id)
+    aliases.set(from, id)
+    aliases.delete(id)
+    session.id = id
+    sessions.set(id, session)
+    useStore().renameSession(project, from, id).catch(error => console.error(`[orrery] moving session ${from} to ${id}:`, error))
 }
 
 /** The issues a shell command writes to: a curl that sends a body or says PATCH, POST or PUT to an
@@ -359,9 +362,12 @@ export function startedSessions(project?: string): number {
     return listSessions(project).filter(s => s.started && !s.started.chat && s.listening && (!project || s.project === project)).length
 }
 
+/** The session on the project started for the launch. */
+const byLaunch = (project: string, launch: string) => [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
+
 /** The session orrery started for the launch, if it's still known. */
 export function sessionOfLaunch(project: string, launch: string): Session | undefined {
-    const session = [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
+    const session = byLaunch(project, launch)
     return session && publicOf(session)
 }
 
@@ -376,7 +382,7 @@ export function adoptLaunch(project: string, started: StartedSession) {
 
 /** The launch's session has ended (its launcher stopped it): it's dropped. */
 export function launchEnded(project: string, launch: string) {
-    const session = [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
+    const session = byLaunch(project, launch)
     if (!session) return
     forget(session)
     changed(project)
@@ -384,7 +390,7 @@ export function launchEnded(project: string, launch: string) {
 
 /** Moves the launch's stop time; says the session as it now is. */
 export function extendLaunch(project: string, launch: string, stops_at: string): Session | undefined {
-    const session = [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
+    const session = byLaunch(project, launch)
     if (!session?.started) return undefined
     session.started = {...session.started, stops_at}
     changed(project)
