@@ -6,6 +6,67 @@ the database schema are the public surface, and a database always migrates forwa
 From 1.0.0-rc.11 on, each version's changes are grouped under **Features**, **Changes** and **Fixes**, then
 **Docs** and **Internal** where they help, and a group with nothing in it is left out.
 
+## 1.0.0-rc.11 (2026-10-29)
+
+### Features
+
+- **Pull requests:** an issue's page shows its open pull requests and where each stands (draft, conflicts, behind,
+  checks failing, waiting, ready), matched by the issue's link in the PR's body or its id in the branch. A
+  **Pull requests** page lists every project's open PRs, the ones that need you first, with a count in the sidebar.
+  A PR that conflicts, is behind or fails its checks has **Send back**, which asks a session to fix it.
+- **PR news on the issue:** orrery polls each GitHub repo in the background (every minute with a `GITHUB_TOKEN`, every
+  ten without) and comments on the issue when its PR conflicts, falls behind, fails its checks, gets changes
+  requested, merges or closes. The session on the issue hears it. The comment says where to read a failure or a review
+  (`gh pr checks`, `gh pr view --comments`) and never quotes them, as whoever opened the PR wrote them.
+- **Permission prompts pop up:** a session at a permission prompt shows at the top right of any page, with what it
+  asks word for word from its screen. For one orrery started, **Allow** answers "Yes" once, only while that prompt
+  is still on its screen, and **Open tmux** opens a terminal on it.
+- **Sessions find their own work:** with **picks its next issue** on (Sessions → Setup, off by default), a session
+  out of work is handed the issues it may start, Todo or else Backlog, most urgent first, and picks one. An issue you
+  move into Todo, or make there, goes straight to an idle session, setting or not. A busy session is never
+  interrupted, and with nobody idle nothing is queued or started.
+- **Start several at once:** Start session takes a count, up to the room under the session limit.
+- **The chat does more, asking first:** it can ask to add or change a release, make or change a chunk, move issues to
+  another status or assign them, and start, stop or give more time to a session. Each shows with Allow and Deny,
+  and nothing happens until you allow it. `/clear` clears its context and marks the cut, keeping what was said.
+  Minimize (–, or Esc) hides the pane with the chat still running. A run of quick messages is held for a moment
+  and goes as one, so it answers the whole thought (⌘-Enter sends at once).
+- **Grouped release notes:** a release's drafted changelog is grouped under Features, Changes, Fixes, Docs and
+  Internal by the issues' labels, and the Release preset asks a session for the same layout.
+
+### Changes
+
+- **The chat button** is a quiet **Agent** button in the same corner, drawn like the app's own, with a sparkles mark
+  that pulses while a chat runs. The chat's working dots stay up until its turn ends, even after a reply.
+- **The owner's comment on an issue nobody is on** goes to one session (idle first), which then owns the thread,
+  instead of every listening session answering it at once.
+- **The permissions table is what's enforced:** the owner-only routes, and the chat's and an untrusted session's
+  guards, now check it, and a refusal names its row. A chat or untrusted session naming the owner is still refused.
+- **Smaller:** ⌘/Ctrl-Enter sends a session's message too, and App settings → Issues puts Team tracker first.
+
+### Fixes
+
+- A reconnecting session's stream whose catch-up hit a database error lost what it missed; it now sends it.
+- Using an older orrery's SQLite file now copies it before upgrading it, as starting does.
+- A second doc with a long title got an id too long for repo sync to reach.
+- A backup worker that exited without answering stalled every backup after it.
+- Stopping due sessions could raise an unhandled error when a check failed.
+
+### Docs
+
+- The using guide and the API caught up with the sessions changes, and the 1.0.0-rc.10 changelog with #355.
+
+### Internal
+
+- **Tests:** SQLite and Postgres are checked to end on the same schema, with upgrades run on real rows, and CI runs
+  every unit test on Postgres too. New unit tests cover a chunk focus's scope, what a signal tells a session,
+  reading a project again, the backup timer, an issue's release on a move, and that what a write sets off waits for
+  its commit. The store's tests are split by what they test, and the store counts in coverage. Each checkout's
+  browser tests serve on a port of their own, and a rate-limit test no longer fails across a minute boundary.
+- **Refactors, no behaviour change:** launches held one way, each kind of schedule in a function of its own, the
+  schedules' hooks by name, one lookup of a launch's session, both migration lists side by side in
+  `server/utils/migrations/`, and helpers only their own file uses no longer exported.
+
 ## 1.0.0-rc.10 (2026-10-28)
 
 - **Backups, your way:** App settings → Database turns backups on or off and, outside Docker, picks their folder in
