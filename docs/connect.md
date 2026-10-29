@@ -116,7 +116,7 @@ orrery can start a session itself when you send the project work and nobody is l
 press **Start session** on the Sessions page, or **New session on this** on an issue, so nobody has to open a terminal.
 Turn it on once, for every project, under Starting sessions on the Sessions page's **Setup** tab (how many at once, how
 many minutes each), then install the
-launcher once, in the repo:
+launcher once, from the repo or anywhere:
 
 ```bash
 node /path/to/orrery/channel/orrery-launcher.mjs --install
