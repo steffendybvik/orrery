@@ -17,8 +17,9 @@ const tools = (projects: string[], options: object = {}) => toolsFor(projects, o
 
 describe('the tool list a session carries on every turn', () => {
     it('gives each kind of session these tools, so adding one is a choice', () => {
-        const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc',
-            'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event']
+        // The chat's planning reads (chunks, presets, preset, schedules) are the chat's alone (ORR-544).
+        const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
+            'write_doc', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event']
         expect(tools(['greenhouse']).map(t => t.name)).toEqual(work)
         expect(tools(['greenhouse'], {untrusted: true}).map(t => t.name)).toEqual([...work, 'github_issues'])
         expect(tools(['greenhouse'], {chat: true}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue', 'comment', 'chunks', 'releases', 'docs',
@@ -28,13 +29,11 @@ describe('the tool list a session carries on every turn', () => {
     })
 
     it('stays within its budget, for one project and for several', () => {
-        // Raised by the arguments that ask for more of a shorter list (ORR-545's, ORR-546's), which cut far more from
-        // what those tools answer.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(11_700)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(13_200)
-        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(12_300)
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(21_700)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(23_000)
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(8_600)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(9_600)
+        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(9_200)
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(20_200)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(21_500)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {
@@ -53,8 +52,8 @@ describe("the server's instructions a session carries on every turn", () => {
     const base = 'http://localhost:9000'
 
     it('stay within their budget, for a work session and for the chat', () => {
-        expect(size(instructionsFor({base, serves: 'project "greenhouse"'}))).toBeLessThanOrEqual(2_000)
-        expect(size(instructionsFor({base, serves: 'projects "greenhouse", "pantry"', several: true}))).toBeLessThanOrEqual(2_100)
+        expect(size(instructionsFor({base, serves: 'project "greenhouse"'}))).toBeLessThanOrEqual(1_100)
+        expect(size(instructionsFor({base, serves: 'projects "greenhouse", "pantry"', several: true}))).toBeLessThanOrEqual(1_250)
         expect(size(instructionsFor({base, serves: 'project "greenhouse"', chat: true}))).toBeLessThanOrEqual(1_100)
     })
 
