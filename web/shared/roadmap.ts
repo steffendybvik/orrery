@@ -668,6 +668,8 @@ export interface ChatMessage {
     schedule?: ChatScheduleRequest
     /** The session asking to message other sessions as the owner, which waits on the owner's Send (ORR-416). */
     send?: ChatSendRequest
+    /** The owner cleared the session's context here (`/clear`, ORR-497): it remembers nothing said above. */
+    cleared?: boolean
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
