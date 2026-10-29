@@ -51,7 +51,7 @@ export async function handTodo(project: string, issues: Map<string, {from?: stri
     for (const session of listSessions().filter(s => s.listening && s.state === 'idle' && (s.project === project || s.also?.includes(project)))) {
         if (chatSession(session.id) || untrustedSession(session.id)) continue
         const ids = sessionIds(session.id)
-        if ((await store.workingOn(project, ids)).length || await store.waiting(project, ids)) continue
+        if (await store.busy(project, ids)) continue
         idle.push(session)
     }
     if (!idle.length) return 0

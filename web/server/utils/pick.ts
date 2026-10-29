@@ -77,7 +77,7 @@ export async function pickNext(project: string, id: string): Promise<boolean> {
     const session = sessionNow(id)
     if (!session?.listening || session.state !== 'idle' || untrustedSession(id) || chatSession(id) || clearPending(id)) return false
     const ids = sessionIds(id)
-    if ((await store.workingOn(project, ids)).length || await store.waiting(project, ids)) return false
+    if (await store.busy(project, ids)) return false
     const run = runOf(id)
     if (run?.chunk && (await scopeOf(store, run.project, run)).open.length) return false
     const issues = await pickable([session.project, ...session.also ?? []])

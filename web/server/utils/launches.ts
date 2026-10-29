@@ -459,8 +459,7 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         if (!timeUp && !idleTooLong) continue
         const ids = sessionIds(session.id)
         // What's waiting for every session never reaches an untrusted one, so it doesn't keep one going.
-        const waiting = () => started.untrusted ? store.waitingFor(session.project, ids) : store.waiting(session.project, ids)
-        if (!overdue && ((await store.workingOn(session.project, ids)).length || await waiting())) continue
+        if (!overdue && await store.busy(session.project, ids, !!started.untrusted)) continue
         stopping.set(started.launch, now)
         if (starts.get(session.project)?.min && !started.untrusted) {
             replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {}, ended: false})

@@ -27,6 +27,13 @@ export class Store extends ImportStore {
         return issues.map(issue => ({...issue, last: last.get(issue.id)}))
     }
 
+    /** Whether the session (any of its `ids`) has an issue in progress, or a signal of the owner's waiting for it: then
+     * it isn't cleared, stopped or handed more. `own`: only what was sent to it by name counts as waiting (an untrusted
+     * run's session, which what's for every session never reaches). */
+    async busy(project: string, ids: string[], own = false): Promise<boolean> {
+        return (await this.workingOn(project, ids)).length > 0 || (own ? await this.waitingFor(project, ids) : await this.waiting(project, ids))
+    }
+
     /** A session's new id (after a `/clear`) takes over what its old one worked and was sent, so none of it
      * hangs on the server remembering the old id. */
     async renameSession(project: string, from: string, to: string) {

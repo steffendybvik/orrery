@@ -350,6 +350,18 @@ describe('starting an issue', () => {
         expect(await store.claimed('greenhouse', shelves, undefined, loser, async () => 'written')).toBe('written')
     })
 
+    it("counts a session busy with an issue in progress, or a signal of the owner's waiting for it (ORR-501)", async () => {
+        const owner: Actor = {name: 'skoll', owner: true}
+        expect(await store.busy('greenhouse', ['s1'])).toBe(false)
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'todo'})).id
+        await store.claimed('greenhouse', shelves, 'started', 's1', () => store.updateIssue('greenhouse', shelves, {status: 'started'}))
+        expect(await store.busy('greenhouse', ['s1'])).toBe(true)
+        expect(await store.busy('greenhouse', ['s2'])).toBe(false)
+        await store.messageSession('greenhouse', 's2', 'Look at the shelves', owner)
+        expect(await store.busy('greenhouse', ['s2'], true)).toBe(true)
+        expect(await store.busy('greenhouse', ['s3'], true)).toBe(false)
+    })
+
     it('goes to one session only when many start it at once, whichever started status each asks for (ORR-328)', async () => {
         const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'todo'})).id
         const sessions = ['s1', 's2', 's3', 's4', 's5', 's6']
