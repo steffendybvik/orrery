@@ -82,8 +82,8 @@ milliseconds, and a page over its budget fails the run. `web/perf-report/report.
 step's time, the API calls behind it and their sizes, and the slowest routes. CI runs it on both databases with the
 e2e flows and keeps the report as an artifact. `PERF_NO_BUILD=1` reuses the last build when you're trying it again.
 
-The database's migrations are numbered steps in `web/server/utils/db.ts`, with Postgres's after its baseline in
-`web/server/utils/postgres.ts`: add a step to both, never edit one. `test/schema-parity.test.ts` checks that both end
+The database's migrations are numbered steps in `web/server/utils/migrations/sqlite.ts`, with Postgres's after its baseline
+beside them in `web/server/utils/migrations/postgres.ts`: add a step to both, never edit one. `test/schema-parity.test.ts` checks that both end
 on the same step with the same tables, columns, indexes and checks, and that a step changing data does the same on
 each; a step that changes data gets an upgrade test there. Before a SQLite file takes steps it's copied to
 `orrery-pre-<version>-step<n>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.
