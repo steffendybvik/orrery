@@ -41,7 +41,7 @@ export function heardTodo({event, cause}: {event: OrreryEvent, cause?: unknown})
 }
 
 /** Hands the issues the owner moved into Todo to idle sessions: those still in a todo-kind status (and not moved there
- * from one), not proposals, parents, the owner's or waiting on them, and with no focus already on its way (Focus on
+ * from one), not proposals, parents, assigned to someone (`forSessions`) or waiting on the owner, and with no focus already on its way (Focus on
  * this, a P0's push), most urgent first, each to its own idle session out of work, the project's own before one
  * spanning projects. Says how many went. */
 export async function handTodo(project: string, issues: Map<string, {from?: string, by: string}>): Promise<number> {

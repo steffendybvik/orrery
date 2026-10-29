@@ -26,9 +26,10 @@ const handed = new Map<string, string>()
 const RANK = {P0: 0, P1: 1, P2: 2, P3: 3}
 const urgency = (issue: Pick<Issue, 'priority'>) => issue.priority ? RANK[issue.priority] : 4
 
-/** Whether an issue is free for a session to take: nobody's on it, or an agent is (`claude`). One assigned to the
- * owner or to anyone else is theirs. Picking and the Todo hand-out (todo-focus.ts) both go by it. */
-export const forSessions = (issue: {assignee?: string | null}) => !issue.assignee || issue.assignee === 'claude'
+/** Whether an issue is free for a session to take: nobody's on it, or an agent is (`claude`, in any case, as the
+ * board shows it). One assigned to the owner or to anyone else is theirs. Picking and the Todo hand-out
+ * (todo-focus.ts) both go by it. */
+export const forSessions = (issue: {assignee?: string | null}) => !issue.assignee || issue.assignee.toLowerCase() === 'claude'
 
 /** The issues a session hearing `projects` may start: Todo, or Backlog when there's no Todo, most urgent first (then
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's

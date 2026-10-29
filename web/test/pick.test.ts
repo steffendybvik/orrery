@@ -78,7 +78,7 @@ describe('a session out of work', () => {
         board.orrery = [
             issue('ORR-1', 'backlog'), issue('ORR-2', 'backlog', {proposal: 'pending'}), issue('ORR-3', 'backlog', {waiting: 'decision'}),
             issue('ORR-4', 'backlog', {assignee: 'steffen'}), issue('ORR-5', 'backlog'), issue('ORR-6', 'backlog', {parent: 'ORR-5'}),
-            issue('ORR-7', 'started'), issue('ORR-8', 'backlog', {assignee: 'ada'}), issue('ORR-9', 'backlog', {assignee: 'claude'}),
+            issue('ORR-7', 'started'), issue('ORR-8', 'backlog', {assignee: 'ada'}), issue('ORR-9', 'backlog', {assignee: 'Claude'}),
         ]
         await pick.pickNext('orrery', 'w')
         // ORR-5 is a parent: its sub-issue is the work.
