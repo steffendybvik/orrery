@@ -452,9 +452,10 @@ the limits while their channel is connected.
 
 One started by hand can be given more context: presets the owner picks (any number, the orrery's and the
 project's own) and their own words. Its `context` is `{presets: [names], instructions?, text}`, `text` being the
-presets' texts and then the owner's words. Every signal to the session carries it (`context` on the stream's
-`signal`, which the channel adds after the message), and its hook's brief hands it back on every `SessionStart`,
-so it holds after a `/clear` or a compaction. orrery doesn't read anything into it: a "review agent" is a preset
+presets' texts and then the owner's words. Its hook's brief hands it to the session on every `SessionStart`, its
+first included, so it holds after a `/clear` or a compaction; the first signal on its stream carries it too
+(`context` on the stream's `signal`, which the channel adds after the message), for a session whose hook didn't get
+through. Later signals leave it out. orrery doesn't read anything into it: a "review agent" is a preset
 with review instructions in it.
 
 | | |

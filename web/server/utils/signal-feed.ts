@@ -145,10 +145,15 @@ export const sseSink = (stream: {push: (message: {id?: string, event: string, da
 export async function streamFeed(say: (signal: Signal, told: Told) => unknown, feed: Feed, name?: string) {
     const {project, attended, heard} = feed
     const store = useStore()
-    /** The context the owner started this session with, which every signal to it carries, for its channel to add. */
+    /** The context the owner started this session with, for its channel to add: once a stream, with the first signal
+     * that finds it. Its hook hands it the same on every SessionStart (its first, a `/clear`, a compaction), so this is
+     * for a session whose hook didn't get through; every signal carrying it again only filled its context (ORR-543). */
+    let contextSaid = false
     const context = () => {
-        const given = attended && sessionNow(attended.id)?.started?.context
-        return given ? {context: contextBlock(given)} : {}
+        const given = !contextSaid && attended && sessionNow(attended.id)?.started?.context
+        if (!given) return {}
+        contextSaid = true
+        return {context: contextBlock(given)}
     }
     /** When each repeatable message last went out on this stream, and every signal it sent. */
     const sent = new Map<string, number>()
@@ -164,7 +169,8 @@ export async function streamFeed(say: (signal: Signal, told: Told) => unknown, f
         if (attended && signal.kind === 'comment' && !signal.target && signal.issue) {
             store.workedBy(project, signal.issue, attended.id).catch(error => console.error(`[orrery] tying ${signal.issue} to its session:`, error))
         }
-        feed.inOrder(async () => say(signal, {...await feed.told(signal), ...context()}))
+        const extra = context()
+        feed.inOrder(async () => say(signal, {...await feed.told(signal), ...extra}))
     }
     // A schedule's message again while the session hasn't finished a turn since the last copy (busy, or yet to
     // read it) would only pile up behind it: it counts as heard. A session whose hooks never said it went idle

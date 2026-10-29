@@ -223,7 +223,7 @@ async function deliver(project, signal, query) {
             signal.note ? `Note: ${signal.note}` : '',
             `Read it with: curl ${issue}`,
         ].filter(Boolean).join('\n')
-    // What the owner gave the session as they started it goes with every signal, so it never drifts out.
+    // What the owner gave the session as they started it, with the first signal after it connects (its hook gives it too).
     if (signal.context) content = `${content}\n\n${signal.context}`
     const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : {schedule: String(signal.schedule)}
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind, ...named ? {session: named} : {}}}})
