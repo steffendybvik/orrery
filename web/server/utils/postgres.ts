@@ -379,14 +379,15 @@ export class PostgresDb implements Db {
     /** The versions the schema was brought from and to as this opened, for the event log; null when it was up to date. */
     migrated: {from: number, to: number} | null = null
 
-    /** `schema` puts the tables in a schema of their own (tests give each run one); `public` by default. */
-    constructor(url: string, schema?: string) {
+    /** `schema` puts the tables in a schema of their own (tests give each run one); `public` by default. `upTo` stops
+     * at that step, never below the baseline, as `openDb`'s does (tests, for data to upgrade). */
+    constructor(url: string, schema?: string, upTo = BASELINE + STEPS.length) {
         this.pool = new pg.Pool({connectionString: url, max: 10, allowExitOnIdle: true})
         if (schema) this.pool.on('connect', client => void client.query(`SET search_path TO "${schema}"`))
         // An idle connection dropping (Postgres restarting) is said, not thrown: unheard, it would end the server. The
         // pool opens another for the next query.
         this.pool.on('error', error => console.error('[orrery] postgres connection lost:', redact(error.message)))
-        this.ready = this.migrate(schema)
+        this.ready = this.migrate(schema, upTo)
         // A failed start shows when the first query is made; this only keeps it from going unhandled.
         this.ready.catch(() => {})
     }
@@ -456,7 +457,7 @@ export class PostgresDb implements Db {
     }
 
     /** Lays down the baseline on an empty database, then the steps after it; one server at a time. */
-    private async migrate(schema?: string) {
+    private async migrate(schema: string | undefined, upTo: number) {
         const client = await this.pool.connect()
         try {
             if (schema) await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"; SET search_path TO "${schema}"`)
@@ -479,11 +480,13 @@ export class PostgresDb implements Db {
             const from = row?.version ?? 0
             for (const [i, step] of STEPS.entries()) {
                 if (version >= BASELINE + i + 1) continue
+                if (BASELINE + i + 1 > upTo) break
                 await client.query(step)
                 await client.query('UPDATE schema_version SET version = $1', [BASELINE + i + 1])
+                version = BASELINE + i + 1
             }
             await client.query('COMMIT')
-            if (from < BASELINE + STEPS.length) this.migrated = {from, to: BASELINE + STEPS.length}
+            if (from < version) this.migrated = {from, to: version}
         } catch (error) {
             await client.query('ROLLBACK').catch(() => {})
             throw error
