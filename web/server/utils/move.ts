@@ -14,7 +14,7 @@ import {actorOf} from './actor'
 import {inDocker} from './backup-choice'
 import {SqliteDb} from './database'
 import {copyDatabase} from './copy'
-import {databaseSetting, hidePassword, movedFile, openDb, switchDatabase, useDatabase} from './db'
+import {beforeUpgrade, databaseSetting, hidePassword, movedFile, openDb, switchDatabase, useDatabase} from './db'
 import {PostgresDb, isPostgres} from './postgres'
 import {badRequest, conflict, forbidden} from './input'
 
@@ -162,7 +162,8 @@ export async function moveDatabase(setting: string, how: 'copy' | 'use', rebind:
         if (check.state === 'other') throw conflict(`${check.where} has tables of something else's: give orrery a database of its own`)
         if (how === 'copy' && check.state === 'orrery' && check.projects) throw conflict(`${check.where} is an orrery's already, with ${check.projects} project${check.projects === 1 ? '' : 's'}: run on it as it is, or copy into an empty one`)
         if (how === 'use' && check.state !== 'orrery') throw conflict(`${check.where} isn't an orrery's yet: copy this one into it`)
-        const target = isPostgres(setting) ? new PostgresDb(setting) : new SqliteDb(openDb(setting))
+        // An older orrery's file is upgraded as it opens, so it's copied first, as on start.
+        const target = isPostgres(setting) ? new PostgresDb(setting) : new SqliteDb(openDb(setting, undefined, beforeUpgrade(setting)))
         let copied: Record<string, number> | undefined
         try {
             // Its schema laid down or brought up to date, as it would be on start.

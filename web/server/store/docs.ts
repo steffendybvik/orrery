@@ -23,8 +23,9 @@ export abstract class DocStore extends ChunkStore {
         if (input.id) {
             if (await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) throw conflict(`There is already a doc "${id}" in ${project}`)
         } else {
+            // The number trims the name to fit, so the id stays one `PUT /docs/:id` takes (at most 40).
             const base = id
-            for (let n = 2; await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id); n++) id = `${base}-${n}`
+            for (let n = 2; await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id); n++) id = `${base.slice(0, 39 - String(n).length).replace(/-+$/, '')}-${n}`
         }
         const now = stamp()
         await this.db.transaction(async () => {
