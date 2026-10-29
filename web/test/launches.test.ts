@@ -21,9 +21,12 @@ let adopted: string[]
 let focused: {issue: string, session: string}[]
 let scoped: {chunk: string, body: Record<string, unknown>}[]
 let messages: {schedule: number, text: string, target?: string}[]
+/** The launches whose prompt the owner's Allow answered. */
+let answered: string[]
 
 beforeEach(async () => {
     sent = []
+    answered = []
     listeners = 0
     started = {greenhouse: 0, all: 0}
     starts = {limit: 2, minutes: 30}
@@ -40,6 +43,7 @@ beforeEach(async () => {
     vi.stubGlobal('listening', () => listeners)
     vi.stubGlobal('startedSessions', (project?: string) => project ? started.greenhouse : started.all)
     vi.stubGlobal('sessionOfLaunch', () => session)
+    vi.stubGlobal('promptAnswered', (project: string, id: string) => void answered.push(`${project}/${id}`))
     vi.stubGlobal('adoptLaunch', (_project: string, started: {launch: string}) => adopted.push(started.launch))
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stops_at: string) => ({...session, started: {...session!.started!, stops_at}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
@@ -395,6 +399,8 @@ describe('a session orrery started', () => {
         launches.addLauncher('greenhouse')
         launches.allowLaunch('greenhouse', 'abc')
         expect(sent).toEqual([{type: 'allow', project: 'greenhouse', id: 'abc'}])
+        // Answered: the tool it runs next is it going on (ORR-595).
+        expect(answered).toEqual(['greenhouse/abc'])
     })
 
     it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {

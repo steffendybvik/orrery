@@ -620,7 +620,7 @@ test('closing the pane with messages held puts them back in the box, and starts 
 
 test("follows the page's project until one is picked by hand, then stays pinned to it, saying when the page is elsewhere (ORR-588)", async ({page, request}) => {
     await endChats(request)
-    await makeProject(request, {name: 'Cellar', key: 'CEL'})
+    await makeProject(request, {name: 'Belfry', key: 'BEL'})
     await page.goto('/p/observatory')
     const corner = page.getByRole('button', {name: 'Agent', exact: true})
     const pane = page.getByRole('region', {name: 'Chat'})
@@ -629,22 +629,22 @@ test("follows the page's project until one is picked by hand, then stays pinned 
     await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
     await expect(pin).toHaveAttribute('aria-pressed', 'false')
     // Unpinned, it follows the page.
-    await page.goto('/p/cellar')
+    await page.goto('/p/belfry')
     await corner.click()
-    await expect(pane.getByRole('heading', {name: 'Ask about Cellar'})).toBeVisible()
+    await expect(pane.getByRole('heading', {name: 'Ask about Belfry'})).toBeVisible()
     await expect(pane.getByTestId('chat-away')).toHaveCount(0)
     // Picked by hand, it's pinned: another page, even after a reload, leaves it there, and says where you are.
     await pane.getByRole('button', {name: 'Project', exact: true}).click()
     await pane.getByRole('option', {name: 'Observatory'}).click()
     await expect(pane.getByRole('button', {name: /^Unpin the project/})).toHaveAttribute('aria-pressed', 'true')
-    await expect(pane.getByTestId('chat-away')).toHaveText("You're on Cellar; this chat is about Observatory")
-    await page.goto('/p/cellar/docs')
+    await expect(pane.getByTestId('chat-away')).toHaveText("You're on Belfry; this chat is about Observatory")
+    await page.goto('/p/belfry/docs')
     await corner.click()
     await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
-    await expect(pane.getByTestId('chat-away')).toHaveText("You're on Cellar; this chat is about Observatory")
+    await expect(pane.getByTestId('chat-away')).toHaveText("You're on Belfry; this chat is about Observatory")
     // Unpinned, it's back on the page's.
     await pane.getByRole('button', {name: /^Unpin the project/}).click()
-    await expect(pane.getByRole('heading', {name: 'Ask about Cellar'})).toBeVisible()
+    await expect(pane.getByRole('heading', {name: 'Ask about Belfry'})).toBeVisible()
     await expect(pane.getByTestId('chat-away')).toHaveCount(0)
     await pane.getByRole('button', {name: 'Close the chat'}).click()
 })

@@ -540,6 +540,7 @@ export function allowLaunch(project: string, id: string): Session {
     if (session.state !== 'waiting') throw conflict(`${session.name} isn't waiting at a permission prompt`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to answer it; attach by hand with tmux attach -t ${session.started.tmux}`)
     emit({type: 'allow', project, id})
+    promptAnswered(project, id)
     return session
 }
 
