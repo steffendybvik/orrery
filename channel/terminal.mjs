@@ -1,5 +1,6 @@
 // How the launcher opens a terminal window attached to one of its sessions, when the owner presses Watch: the app
-// is the orrery's setting (Terminal, iTerm2, Warp or Ghostty, on macOS); elsewhere the system's own terminal.
+// is the orrery's setting (Terminal, iTerm2, Warp or Ghostty, on macOS); inside WSL, Windows Terminal on the distro
+// (ORR-576); elsewhere the system's own terminal.
 // Each is a command to run and, for Warp, a tab config to write first, as Warp runs a command only from one.
 import {homedir} from 'node:os'
 import {join} from 'node:path'
@@ -32,10 +33,12 @@ function appleWatch(app, here, fresh) {
 
 /** What opens `app` attached to the tmux session `name`, with `tmux` the tmux to run (its full path, as an app
  * opened outside a shell may not have the launcher's PATH): `{command, args, file?}`, `file` being `{path, text}`
- * to write before running it. */
-export function openWatch({app, tmux, name, platform = process.platform, home = homedir()}) {
+ * to write before running it. `distro` is the WSL distro the launcher runs in, if it does. */
+export function openWatch({app, tmux, name, platform = process.platform, home = homedir(), distro = process.env.WSL_DISTRO_NAME}) {
     const attach = [tmux, 'attach', '-t', name]
     const line = attach.map(part => `'${part.replace(/'/g, "'\\''")}'`).join(' ')
+    // Through WSL's interop: a new Windows Terminal window running the attach in the distro.
+    if (platform === 'linux' && distro) return {command: 'wt.exe', args: ['-w', 'new', 'wsl.exe', '-d', distro, '--', ...attach]}
     if (platform !== 'darwin') return {command: 'x-terminal-emulator', args: ['-e', ...attach]}
     if (app === 'iterm') return {command: 'osascript', args: appleWatch('iTerm', `tell current session of current window to write text ${appleString(line)}`, `create window with default profile command ${appleString(line)}`)}
     if (app === 'ghostty') return {command: 'open', args: ['-na', 'Ghostty', '--args', '-e', ...attach]}

@@ -34,7 +34,7 @@ import {execFileSync} from 'node:child_process'
 import {mkdirSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {adoptable, configFile, install, readConfig, uninstall} from './launcher-service.mjs'
+import {adoptable, configFile, inWsl, install, readConfig, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {channelFor, projectsIn, servesEvery} from './repo-channels.mjs'
@@ -48,6 +48,9 @@ const tmux = (...args) => execFileSync('tmux', args, {encoding: 'utf8'}).trim()
 
 /** The repo here as the launcher serves it: for each of its projects, its orrery, the project, and its folder. */
 const here = () => projectsIn(process.cwd(), {project: process.env.ORRERY_PROJECT, url: process.env.ORRERY_URL})
+
+/** Why `localhost` inside WSL may not be Windows' own (WSL2's default network is a NAT of its own). */
+const WSL_LOCALHOST = "Inside WSL, localhost reaches an orrery on Windows when it runs in Docker Desktop (with WSL integration on), or with networkingMode=mirrored under [wsl2] in Windows' .wslconfig"
 
 /** tmux, 3.2 or newer (`new-session -e` hands each session its launch); says what's wrong when it isn't. */
 function tmuxProblem() {
@@ -74,6 +77,9 @@ if (args.includes('--list')) {
 }
 if (args.includes('--install') || args.includes('--uninstall')) {
     try {
+        // Before tmux and claude are looked for: on Windows itself, neither is the problem.
+        const unserved = serviceProblem()
+        if (unserved) throw new Error(unserved)
         // Several channels can name a project served from its own repo (a monorepo's channel to the personal
         // orrery): it's left there unless ORRERY_PROJECT names it.
         const served = readConfig().projects
@@ -100,7 +106,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         for (const entry of entries) {
             const found = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`).then(r => r.status).catch(() => 0)
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
-            if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed`)
+            if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed${inWsl() && wslLocalhost(entry.url) ? `. ${WSL_LOCALHOST}` : ''}`)
             if (!channelFor(entry.dir, entry.url, entry.project)) log(`no .mcp.json here registers orrery-channel.mjs, so ${entry.project}'s sessions won't hear orrery: run this in the project's repo`)
         }
         const {config, logs} = install(entries, {script})
@@ -110,6 +116,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.`)
         console.log(`Let orrery start sessions on its Sessions page, if it doesn't yet. Its log: ${logs}`)
         console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
+        if (inWsl()) console.log('Inside WSL it runs while the distro does: Windows starts the distro when you open it, and can stop it a while after its last window closes.')
         process.exit(0)
     } catch (error) {
         log(error.message)
