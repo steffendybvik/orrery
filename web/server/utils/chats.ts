@@ -337,6 +337,16 @@ export function reply(id: string, text: unknown): ChatMessage {
     return add(chat, {from: 'claude', text: words, images: []})
 }
 
+/** The owner clearing the chat's context (`/clear`): its launcher types `/clear` into the session, which keeps running
+ * with a fresh context. It hears its brief again, as the launch's context, on the SessionStart after, so it stays the
+ * chat. The chat marks the cut, and keeps what was said above it to read. */
+export function clearChat(id: string): ChatMessage {
+    const chat = chatOf(id)
+    projectEvents.emit('launches', {type: 'clear', project: chat.project, id: chat.id})
+    useEventLog().note({level: 'info', kind: 'chat.cleared', project: chat.project, message: "The owner cleared their chat's context"})
+    return add(chat, {from: 'owner', text: '', images: [], cleared: true})
+}
+
 /** The owner ending the chat: its session is stopped, and the chat goes. */
 export function endChat(id: string) {
     const chat = chatOf(id)
