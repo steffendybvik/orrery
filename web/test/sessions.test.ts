@@ -1,6 +1,7 @@
 import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {SESSION_NAMES} from '#shared/roadmap'
+import type {Signal} from '#shared/roadmap'
 
 // The sessions live in the module, so each test gets a fresh one; `projectEvents` is a Nitro auto-import.
 let sessions: typeof import('../server/utils/sessions')
@@ -551,5 +552,30 @@ describe("a session's channel in the event log", () => {
         })
         expect(channelEntry('connected', ['pantry'], false, {...who, name: undefined, heard: false, pid: 42}).message)
             .toBe("pid 42 connected to the feed for pantry (not started with the channel flag: it won't hear)")
+    })
+})
+
+describe("a session's stream catching up", () => {
+    it('still sends what it missed when finding the unheard scheduled work fails', async () => {
+        const signal = (id: number) => ({id, project: 'greenhouse', kind: 'focus'}) as unknown as Signal
+        vi.stubGlobal('useStore', () => ({unheardScheduled: async () => { throw new Error('database is locked') }}))
+        for (const [name, value] of Object.entries({startRun: () => {}, sessionNow: () => undefined, idleAt: () => undefined, sessionName: () => undefined, repeatKey: () => undefined})) vi.stubGlobal(name, value)
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const {streamFeed} = await import('../server/utils/signal-feed')
+        let live = false
+        const already: number[][] = []
+        const feed = {
+            project: 'greenhouse', attended: {id: 'a'}, heard: true, missed: [signal(4), signal(5)],
+            told: async (s: Signal) => ({id: s.id}), ours: () => true, wanted: () => true, mine: () => true,
+            inOrder: (work: () => Promise<unknown>) => void work(), onIdle: () => {},
+            goLive: (_send: unknown, sent: Set<number>) => { live = true; already.push([...sent]) },
+            get live() { return live },
+        }
+        const pushed: string[] = []
+        await streamFeed({push: ({id}) => pushed.push(id!)}, feed as never)
+        await vi.waitFor(() => expect(pushed).toEqual(['4', '5']))
+        expect(already).toEqual([[4, 5]])
+        expect(error).toHaveBeenCalled()
+        error.mockRestore()
     })
 })

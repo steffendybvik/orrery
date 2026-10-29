@@ -465,6 +465,16 @@ describe('stopping the sessions orrery started that are done', () => {
         expect(stopped()).toEqual(['due', 'busy', 'holding'])
     })
 
+    it("asks what's waiting only for one with nothing in progress, so a failing ask is never left unheard", async () => {
+        vi.stubGlobal('listSessions', () => [started('holding', {stops_at: minutesAgo(1)})])
+        working = {'s-holding': ['GRE-1']}
+        const asked = vi.fn(async () => { throw new Error('database is locked') })
+        const store = useStore()
+        vi.stubGlobal('useStore', () => ({...store, waiting: asked}))
+        expect(await launches.stopDue(now)).toEqual([])
+        expect(asked).not.toHaveBeenCalled()
+    })
+
     it('stops one long past its time anyway, whatever it is doing', async () => {
         starts = {limit: 2, minutes: 20}
         const sessions = [
