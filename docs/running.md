@@ -7,7 +7,9 @@ docker compose up -d --build        # http://localhost:9000
 That's the built app. On its first start it makes an empty SQLite database in the `orrery-data`
 volume, with nothing to set up. The first time you open it, it asks your name: you're its owner,
 and what you make no one else can delete. Your `Orrery-Actor` header is that name in lowercase snake
-case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → You.
+case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → You. It also asks whether
+you're a developer: a no turns **Advanced** off, so Events, Context and Pull requests stay out of the
+sidebar (App settings → Advanced turns it back on).
 
 ## Updating
 
