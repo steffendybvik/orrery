@@ -140,14 +140,20 @@ function changed(event: OrreryEvent) {
 let schedules: Schedules | null = null
 
 export function useScheduler(): Schedules {
-    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening, startUntrusted, (schedule, run, manual) => useEventLog().note({
-        level: run.outcome === 'failed' ? 'error' : 'info',
-        kind: run.outcome === 'skipped' ? 'schedule.skipped' : run.outcome === 'failed' ? 'schedule.failed' : 'schedule.ran',
-        project: schedule.project,
-        message: `${schedule.title}: ${run.outcome === 'made' ? `made ${run.issue}` : run.outcome}${run.note ? `, ${run.note}` : ''}`,
-        details: {schedule: schedule.id, ...run, ...manual ? {manual} : {}},
-    }), async (project, {presets, instructions, issue, release}, actor) =>
-        await startLaunch(project, {issue, release, context: await contextFor(project, presets, instructions), actor}))
+    schedules ??= new Schedules(useStore(), {
+        onChange: project => projectEvents.emit('schedules', project),
+        listening,
+        startUntrusted,
+        onRan: (schedule, run, manual) => useEventLog().note({
+            level: run.outcome === 'failed' ? 'error' : 'info',
+            kind: run.outcome === 'skipped' ? 'schedule.skipped' : run.outcome === 'failed' ? 'schedule.failed' : 'schedule.ran',
+            project: schedule.project,
+            message: `${schedule.title}: ${run.outcome === 'made' ? `made ${run.issue}` : run.outcome}${run.note ? `, ${run.note}` : ''}`,
+            details: {schedule: schedule.id, ...run, ...manual ? {manual} : {}},
+        }),
+        startSession: async (project, {presets, instructions, issue, release}, actor) =>
+            await startLaunch(project, {issue, release, context: await contextFor(project, presets, instructions), actor}),
+    })
     return schedules
 }
 

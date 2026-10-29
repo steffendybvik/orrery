@@ -95,6 +95,20 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
 /** How many runs a schedule shows. */
 const RUNS = 10
 
+/** What the schedules reach outside the database through. */
+export interface ScheduleHooks {
+    /** Hears a project's schedules changed or ran. */
+    onChange: (project: string) => void
+    /** How many sessions a project has listening. */
+    listening: (project: string) => number
+    /** Starts an untrusted run's session, with its message for it alone; says its tmux session. */
+    startUntrusted: (project: string, schedule: number, text: string, actor: Actor) => Promise<{tmux: string}>
+    /** Hears each run, with what came of it. */
+    onRan: (schedule: {id: number, project: string, title: string}, run: ScheduleRun, manual: boolean) => void
+    /** Starts a session schedule's session; says its tmux session. */
+    startSession: (project: string, start: SessionStart, actor: Actor) => Promise<{tmux: string}>
+}
+
 /** A run under way: the schedule, what set it off, and how it's recorded. */
 interface Run {
     row: ScheduleRow
@@ -115,19 +129,21 @@ function wordsOf({row, presets, about}: Run): string {
 }
 
 export class Schedules {
-    /** `onChange` hears a project's schedules changed or ran; `listening` says how many sessions a project has listening;
-     * `startUntrusted` starts an untrusted run's session, with its message for it alone, and says its tmux session;
-     * `onRan` hears each run, with what came of it; `startSession` starts a session schedule's session, and says its tmux session. */
-    constructor(
-        private readonly store: Store,
-        private readonly onChange: (project: string) => void = () => {},
-        private readonly listening: (project: string) => number = () => 0,
-        private readonly startUntrusted: (project: string, schedule: number, text: string, actor: Actor) => Promise<{tmux: string}> =
-            () => Promise.reject(new Error('orrery starts no sessions here')),
-        private readonly onRan: (schedule: {id: number, project: string, title: string}, run: ScheduleRun, manual: boolean) => void = () => {},
-        private readonly startSession: (project: string, start: SessionStart, actor: Actor) => Promise<{tmux: string}> =
-            () => Promise.reject(new Error('orrery starts no sessions here')),
-    ) {}
+    private readonly onChange: ScheduleHooks['onChange']
+    private readonly listening: ScheduleHooks['listening']
+    private readonly startUntrusted: ScheduleHooks['startUntrusted']
+    private readonly onRan: ScheduleHooks['onRan']
+    private readonly startSession: ScheduleHooks['startSession']
+
+    /** What it isn't given does nothing: nobody hears, nobody listens, and no session can be started. */
+    constructor(private readonly store: Store, hooks: Partial<ScheduleHooks> = {}) {
+        const none = () => Promise.reject(new Error('orrery starts no sessions here'))
+        this.onChange = hooks.onChange ?? (() => {})
+        this.listening = hooks.listening ?? (() => 0)
+        this.startUntrusted = hooks.startUntrusted ?? none
+        this.onRan = hooks.onRan ?? (() => {})
+        this.startSession = hooks.startSession ?? none
+    }
 
     private get db() {
         return this.store.db
