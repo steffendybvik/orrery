@@ -2,12 +2,13 @@
 import type {Project, ReleaseMode, Starts} from '#shared/roadmap'
 import {keyFor, slugify} from '#shared/roadmap'
 import type {Input} from '../utils/input'
-import {badRequest, checkInput, conflict, forbidden} from '../utils/input'
+import {badRequest, checkInput, conflict} from '../utils/input'
 import type {Instruction} from '#shared/prompt'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
 import type {ProjectSummary, Actor, ProjectRow} from './schema'
 import {AGENT, SLUG, PROJECT_FIELDS, PROMPT_FIELDS, releaseModeOf, nullable, stamp} from './schema'
 import {OwnerStore} from './owner'
+import {refusedFor} from '../utils/permission'
 
 export abstract class ProjectStore extends OwnerStore {
     async listProjects(): Promise<ProjectSummary[]> {
@@ -104,7 +105,7 @@ export abstract class ProjectStore extends OwnerStore {
 
     protected promptsAreTheOwners(input: Input, actor: Actor) {
         const sent = PROMPT_FIELDS.filter(key => input[key] !== undefined)
-        if (sent.length && !actor.owner) throw forbidden(`Only the owner changes what sessions are told (${sent.join(', ')}); send Orrery-Actor: <owner>`)
+        if (sent.length && !actor.owner) throw refusedFor('prompts.write', `Only the owner changes what sessions are told (${sent.join(', ')}); send Orrery-Actor: <owner>`)
     }
 
     /** The prompt fields as columns: an empty template is none (the orrery's). */

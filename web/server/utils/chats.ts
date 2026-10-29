@@ -5,6 +5,7 @@ import type {Actor} from '../store/schema'
 import {CHUNK_FIELDS, SETTINGS_FIELDS} from '../store/schema'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
+import {refusedFor} from './permission'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -231,7 +232,7 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
     }
     const issues = await Promise.all([...new Set((ids as string[]).map(i => i.trim()))].map(i => store.issue(chat.project, i)))
     const waiting = issues.filter(i => undecided(i.proposal)).map(i => i.id)
-    if (waiting.length) throw forbidden(`${waiting.join(', ')} ${waiting.length === 1 ? 'is a proposal' : 'are proposals'} waiting on the owner: ${waiting.length === 1 ? 'its' : 'their'} status and assignee are theirs to decide, on ${waiting.length === 1 ? 'its' : 'their'} page`)
+    if (waiting.length) throw refusedFor('issues.edit', `${waiting.join(', ')} ${waiting.length === 1 ? 'is a proposal' : 'are proposals'} waiting on the owner: ${waiting.length === 1 ? 'its' : 'their'} status and assignee are theirs to decide, on ${waiting.length === 1 ? 'its' : 'their'} page`)
     const changes = issues.flatMap(i => [
         ...to.status !== undefined && to.status !== i.column ? [{issue: i.id, title: i.title, field: 'status' as const, from: i.column, to: to.status}] : [],
         ...to.assignee !== undefined && to.assignee !== (i.assignee ?? null) ? [{issue: i.id, title: i.title, field: 'assignee' as const, from: i.assignee ?? null, to: to.assignee}] : [],
@@ -430,7 +431,7 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
         try {
             for (const id of ids) {
                 if (moved.includes(id)) continue
-                if (undecided((await useStore().issue(chat.project, id)).proposal)) throw forbidden(`${id} is a proposal waiting on you now: decide it on its page`)
+                if (undecided((await useStore().issue(chat.project, id)).proposal)) throw refusedFor('issues.edit', `${id} is a proposal waiting on you now: decide it on its page`)
                 await useStore().updateIssue(chat.project, id, to, as)
                 moved.push(id)
             }
@@ -696,6 +697,6 @@ const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'chunk',
 export function asChatEdit(body: unknown): Record<string, unknown> {
     if (!isObject(body)) throw badRequest(`Send what to change: any of ${CHAT_EDITS.join(', ')}`)
     const refused = Object.keys(body).filter(key => !CHAT_EDITS.includes(key))
-    if (refused.length) throw forbidden(`The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: to move or assign one, it asks the owner (move_issues)`)
+    if (refused.length) throw refusedFor('issues.edit', `The owner's chat changes an issue's ${CHAT_EDITS.join(', ')}, not its ${refused.join(', ')}: to move or assign one, it asks the owner (move_issues)`)
     return body
 }

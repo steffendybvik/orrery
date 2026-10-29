@@ -7,6 +7,7 @@ import type {PresetRow} from './schema'
 import {AGENT, PRESET_FIELDS, nullable, presetInput, stamp} from './schema'
 import {ProjectStore} from './projects'
 import {known} from '#shared/known'
+import {ownerOnly} from '../utils/permission'
 
 export abstract class PresetStore extends ProjectStore {
     /** The orrery's presets, by name; with a project, those a session on it can have: the orrery's, then its own. */
@@ -37,7 +38,7 @@ export abstract class PresetStore extends ProjectStore {
 
     /** Puts a default preset back as orrery ships it: its name, text and badge. The owner's only. */
     async resetPreset(id: number, actor = AGENT): Promise<Preset> {
-        this.ownerOnly(actor, 'presets')
+        ownerOnly(actor, 'presets.write')
         const preset = await this.preset(id)
         const shipped = DEFAULT_PRESETS.find(d => d.key === preset.default?.key)
         if (!shipped) throw conflict(`Resetting preset ${id}: ${preset.name} isn't one orrery ships, so it has no default`)
@@ -47,7 +48,7 @@ export abstract class PresetStore extends ProjectStore {
 
     /** Adds back the presets orrery ships that were removed, as it ships them; says which. The owner's only. */
     async restorePresets(actor = AGENT): Promise<Preset[]> {
-        this.ownerOnly(actor, 'presets')
+        ownerOnly(actor, 'presets.write')
         const kept = new Set((await this.all<{default_key: string}>('SELECT default_key FROM presets WHERE default_key IS NOT NULL')).map(r => r.default_key))
         const restored: Preset[] = []
         for (const d of DEFAULT_PRESETS.filter(d => !kept.has(d.key))) restored.push(await this.preset(await this.addDefault(d)))
@@ -63,7 +64,7 @@ export abstract class PresetStore extends ProjectStore {
 
     /** A new preset, the owner's to make: `{name, text, icon?, color?}`, the orrery's, or with `project` that project's own. */
     async createPreset(project: string | null, body: unknown, actor = AGENT): Promise<Preset> {
-        this.ownerOnly(actor, 'presets')
+        ownerOnly(actor, 'presets.write')
         if (project) await this.projectRow(project)
         const input = checkInput(body, PRESET_FIELDS)
         const {name, text} = presetInput(input)
@@ -75,7 +76,7 @@ export abstract class PresetStore extends ProjectStore {
 
     /** Renames a preset, or changes its text or badge (null takes the icon or colour off); whose it is stays. */
     async updatePreset(id: number, body: unknown, actor = AGENT): Promise<Preset> {
-        this.ownerOnly(actor, 'presets')
+        ownerOnly(actor, 'presets.write')
         await this.preset(id)
         const input = checkInput(body, PRESET_FIELDS, true)
         const {name, text} = presetInput(input)
@@ -84,7 +85,7 @@ export abstract class PresetStore extends ProjectStore {
     }
 
     async deletePreset(id: number, actor = AGENT) {
-        this.ownerOnly(actor, 'presets')
+        ownerOnly(actor, 'presets.write')
         await this.preset(id)
         await this.run('DELETE FROM presets WHERE id = ?', id)
     }

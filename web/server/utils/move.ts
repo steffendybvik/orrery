@@ -17,6 +17,7 @@ import {copyDatabase} from './copy'
 import {beforeUpgrade, databaseSetting, hidePassword, movedFile, openDb, switchDatabase, useDatabase} from './db'
 import {PostgresDb, isPostgres} from './postgres'
 import {badRequest, conflict, forbidden} from './input'
+import {ownerOnly} from './permission'
 
 /** The names only this machine reaches orrery by: a move hands the data to wherever it's pointed. */
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
@@ -54,7 +55,7 @@ export const notThisMachine = (what: string) => inDocker() && !LOOPBACK.test(Str
 /** Only the owner moves the database, and only on this machine. */
 export async function mayMove(event: H3Event) {
     const actor = await actorOf(event)
-    if (!actor.owner) throw forbidden('Only the owner moves the database; send Orrery-Actor: <owner>')
+    ownerOnly(actor, 'database.write')
     if (!fromThisMachine(event)) throw forbidden(notThisMachine('The database is moved'))
     if (!movedFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the database is set there: change it and restart orrery')
 }

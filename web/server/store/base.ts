@@ -2,7 +2,7 @@
 // records, the owner's protection, and writing.
 import type {ActivityField, Asks, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Notice, Picks, Project, Release, Settings, Signal, Starts} from '#shared/roadmap'
 import type {Input} from '../utils/input'
-import {badRequest, forbidden, notFound} from '../utils/input'
+import {badRequest, notFound} from '../utils/input'
 import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db, Value} from '../utils/database'
@@ -12,6 +12,7 @@ import type {IssueRecord, ChunkRecord, Actor, ProjectRow, ChunkRow, IssueRow, Co
 import {OPEN_ASK, tallyReleases, releaseOf, noReleases, nullable, stamp, summaryOf, matchOf} from './schema'
 import {known} from '#shared/known'
 import type {OrreryEvent} from '#shared/happenings'
+import {refusedFor} from '../utils/permission'
 
 export abstract class StoreBase {
     constructor(
@@ -302,7 +303,7 @@ export abstract class StoreBase {
     protected refuse(actor: Actor, action: string, owned: string[]) {
         if (actor.owner || !owned.length) return
         const shown = owned.length > 4 ? [...owned.slice(0, 3), `${owned.length - 3} more`] : owned
-        throw forbidden(`${action} is the owner's call: ${shown.join(', ')} ${owned.length === 1 ? 'was' : 'were'} made by the owner`)
+        throw refusedFor('issues.delete', `${action} is the owner's call: ${shown.join(', ')} ${owned.length === 1 ? 'was' : 'were'} made by the owner`)
     }
 
     /** What the owner made in the project, the project included. */
