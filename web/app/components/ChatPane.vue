@@ -22,6 +22,8 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
 // wide screen it shows on hover or focus). A message that's just `/clear` clears the session's context instead of going
 // to it: a divider marks the cut, and what was said above it stays, greyed. Any other slash command goes as words.
+// While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
+// of the server's error (ORR-591).
 const {open, large, chat, session, project, failed, chats, lands, start, send, clear, land, fresh, answer, hide, close, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean) {
@@ -59,6 +61,9 @@ const projectName = (id: string) => projects.value.find(p => p.id === id)?.name 
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
 /** Which project it's about: the chat's, else the one the first message will start it on. */
 const about = computed(() => chat.value && !chat.value.ended ? chat.value.project : project.value)
+const {state: launch} = useLaunchState(() => about.value ?? '')
+/** No launcher runs for its project: the hint says how to install one, and stands in for the error it brings. */
+const unlaunched = computed(() => !!about.value && !!launch.value && !launch.value.launchers)
 /** How long after the owner's last keystroke a run of held messages goes. */
 const HOLD_MS = 2000
 /** The owner's messages held to go together, shown as sent until they go. */
@@ -458,7 +463,8 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
     </ol>
 
     <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
-      <p v-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <LauncherHint v-if="unlaunched" :project="about!" chat />
+      <p v-else-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
         <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5 px-1 pt-1">
           <div v-for="(image, i) in images" :key="image.id" class="relative">
