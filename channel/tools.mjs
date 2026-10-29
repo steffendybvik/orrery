@@ -149,9 +149,18 @@ const SCHEDULE_FIELDS = {
     enabled: {type: 'boolean', description: 'false pauses it'},
 }
 
+/** A release's fields as the chat asks for them (`CHAT_RELEASE_FIELDS`, web/shared/roadmap.ts). */
+const RELEASE_FIELDS = {
+    branch: {type: ['string', 'null'], description: 'The branch its work gathers on, by convention v<version>: v1.0.0-rc.2'},
+    notes: {type: ['string', 'null'], description: "What it's about, in Markdown"},
+    position: {type: 'number', description: 'Its place among the releases, 0 at the top (where a new one goes when left out)'},
+    frozen_on: {type: ['string', 'null'], description: 'The day its features froze, YYYY-MM-DD; null thaws it'},
+    shipped_on: {type: ['string', 'null'], description: 'The day it shipped, YYYY-MM-DD; null marks it not shipped yet'},
+}
+
 /** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
  * issue's fields when they ask, and asking them to move or assign issues, message other sessions, change a setting, or
- * make or change a schedule. */
+ * make or change a schedule or a release. */
 export const CHAT_TOOLS = [
     {
         name: 'reply',
@@ -202,6 +211,16 @@ export const CHAT_TOOLS = [
         name: 'update_schedule',
         description: "Asks the owner to change one of this project's schedules (by its id; the schedules tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes; enabled false pauses it, true resumes it. Setting one of cron, at or on lets go of the others.",
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}, ...SCHEDULE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+    },
+    {
+        name: 'create_release',
+        description: "Asks the owner to add a release to this project, only when they asked you to in this chat: it shows them the release with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.",
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+    },
+    {
+        name: 'update_release',
+        description: "Asks the owner to change one of this project's releases (by its version; the releases tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes. Its version can't change.",
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
     },
     {
         name: 'message_session',
@@ -423,6 +442,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async update_schedule({id, why, ...schedule}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, schedule, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async create_release({why, ...release}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {release, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the release with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async update_release({version, why, ...release}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async message_sessions({text, projects, states, why}) {

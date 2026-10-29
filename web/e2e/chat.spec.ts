@@ -353,6 +353,55 @@ test('asks the owner to move or assign issues, and moves them as theirs only on 
     }
 })
 
+test('asks the owner to add or ship a release, and saves it only on their Allow', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    const releases = async () => (await (await request.get('/api/projects/larder/releases')).json()) as {version: string, branch?: string, shipped_on?: string}[]
+    try {
+        await request.patch('/api/projects/larder', {data: {release_mode: 'own'}, headers: OWNER})
+        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat-rel&name=e2e-chat-rel&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-rel', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const ask = async (data: object) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+        }
+
+        await page.goto('/p/larder')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        // What Releases would refuse fails as it asks; it can't make one itself.
+        expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {release: {version: 'one two'}}, headers: asChat})).status()).toBe(400)
+        expect((await request.post('/api/projects/larder/releases', {data: {version: '0.1.0'}, headers: asChat})).status()).toBe(403)
+
+        // Allowed: added.
+        await ask({release: {version: '0.1.0', branch: 'v0.1.0'}})
+        const card = pane.getByRole('group', {name: 'Add release 0.1.0'})
+        await expect(card).toContainText('v0.1.0')
+        expect(await releases()).toEqual([])
+        await card.getByRole('button', {name: 'Allow'}).click()
+        await expect(card).toContainText('Allowed and saved')
+        await expect.poll(async () => (await releases()).map(r => [r.version, r.branch])).toEqual([['0.1.0', 'v0.1.0']])
+        await expect.poll(() => session!.said.text).toContain('release 0.1.0 is added')
+
+        // Shipping it, denied: nothing changes.
+        await ask({version: '0.1.0', release: {shipped_on: '2026-10-29'}})
+        const ship = pane.getByRole('group', {name: 'Change release 0.1.0'})
+        await expect(ship).toContainText('Shipped on')
+        await ship.getByRole('button', {name: 'Deny'}).click()
+        await expect(ship).toContainText('Denied')
+        expect((await releases())[0]!.shipped_on).toBeUndefined()
+    } finally {
+        await endChats(request)
+        for (const r of await releases()) await request.delete(`/api/projects/larder/releases/${r.version}`, {headers: OWNER})
+        await request.patch('/api/projects/larder', {data: {release_mode: 'none'}, headers: OWNER})
+        session?.stop()
+        launcher.stop()
+    }
+})
+
 // Where the chat's issues land (ORR-408): the owner picks Todo or Backlog beside Send, before the chat starts or
 // during it, and it's remembered for the next one. The server holds the chat to it, whatever status its session asks
 // for, and the session can't change it.
