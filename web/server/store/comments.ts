@@ -94,15 +94,15 @@ export abstract class CommentStore extends SignalStore {
 
     /** The owner's comments in the project that no agent has answered and no session has had yet, nor waits in the pool
      * for one to take (from the last day, as `pooledWaiting`), sent to `session` (just connected) to catch up on. Says
-     * how many. */
+     * how many. orrery's own word after one (a pull request's news) answers nothing (ORR-528). */
     async carryUnanswered(project: string, session: string): Promise<number> {
         const waiting = await this.all<{issue: string, body: string, created_by: string}>(`
             SELECT c.issue, c.body, c.created_by FROM comments c
             WHERE c.project = ? AND c.owned = 1
-              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.id > c.id)
+              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.created_by != ? AND a.id > c.id)
               AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment'
                               AND s.created_at >= c.created_at AND (s.delivered_to != '[]' OR (s.target IS NULL AND s.created_at >= ?)))
-            ORDER BY c.created_at LIMIT 10`, project, new Date(Date.now() - 86_400_000).toISOString())
+            ORDER BY c.created_at LIMIT 10`, project, ORRERY.name, new Date(Date.now() - 86_400_000).toISOString())
         for (const comment of waiting) {
             const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
                 project, comment.issue, 'comment', comment.body, session, comment.created_by, 1, stamp())
