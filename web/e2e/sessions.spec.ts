@@ -67,6 +67,15 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
         await expect(card.getByText(/message: Use the oak hinges/)).toBeVisible()
+        // ⌘/Ctrl-Enter sends as well, and Shift-Enter is a new line (ORR-514).
+        const box = card.getByLabel('Message kitchen shelves')
+        await box.fill('Sand first.')
+        await box.press('Shift+Enter')
+        await box.pressSequentially('Then oil.')
+        await expect(box).toHaveValue('Sand first.\nThen oil.')
+        await box.press('ControlOrMeta+Enter')
+        await expect.poll(() => channel.said.text).toContain('Then oil.')
+        await expect(box).toHaveValue('')
     } finally {
         channel.stop()
     }
@@ -170,6 +179,12 @@ test('messages every idle session at once from the Sessions page, not the busy o
         await expect(dialog.getByRole('status')).toHaveText('Sent to e2e-b1')
         await expect.poll(() => streams[0]!.said.text).toContain('Pick a Todo issue if you are free.')
         expect(streams[1]!.said.text).not.toContain('Pick a Todo issue')
+        // ⌘/Ctrl-Enter sends it too, once.
+        await dialog.getByLabel('Message', {exact: true}).fill('Then the next one.')
+        await dialog.getByLabel('Message', {exact: true}).press('ControlOrMeta+Enter')
+        await expect.poll(() => streams[0]!.said.text).toContain('Then the next one.')
+        await page.waitForTimeout(500)
+        expect(streams[0]!.said.text.split('Then the next one.').length - 1).toBe(1)
     } finally {
         for (const stream of streams) stream.stop()
     }
