@@ -241,8 +241,8 @@ Node 24.22.1 and pnpm 10.14.0: `pnpm install && pnpm build`, then, in `web/`,
 NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs
 ```
 
-The database file is made if it isn't there (by default `../.data/orrery.db`, the repo's `.data/` when it starts in `web/`). A relative path is taken
-from the folder the server starts in, so give `NUXT_DATABASE` an absolute one. It can also be a
+The database file is made if it isn't there (by default the repo's `.data/orrery.db`, wherever the server starts). A
+relative `NUXT_DATABASE` is taken from the folder the server starts in, so give it an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): orrery lays down its tables on an empty
 database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
 `NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY` and `NUXT_PUBLIC_ENVIRONMENT`.
