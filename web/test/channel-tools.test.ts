@@ -1,10 +1,11 @@
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {NOT_FOR_CHAT, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
+import {CHAT_READS, NOT_FOR_CHAT, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
-/** The tools against a pretend orrery: `answers` by `METHOD path` (`raw` for a body that isn't JSON), every call kept. */
+/** The tools against a pretend orrery: `answers` by `METHOD path` (`raw` for a body that isn't JSON), every call kept;
+ * the chat's (`chat`, its launch) for the tools only it has. */
 function harness(answers: Record<string, {status?: number, body?: unknown, raw?: string}>, {chat}: {chat?: string} = {}) {
     const calls: Call[] = []
     const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
@@ -222,7 +223,7 @@ describe("the channel's tools", () => {
 
     it("read the presets the project's sessions can have, and only those", async () => {
         const release = {id: 3, project: 'greenhouse', name: 'Release', text: 'Cut the release.\nThen tag it.'}
-        const {calls, call} = harness({'GET /presets': {body: [{id: 1, project: null, name: 'Review', text: 'Read the diff.'}, release]}})
+        const {calls, call} = harness({'GET /presets': {body: [{id: 1, project: null, name: 'Review', text: 'Read the diff.'}, release]}}, {chat: 'c1c2c3c4c5c6'})
         expect((await call('presets')).text).toBe("1: Review (the orrery's) — Read the diff.\n3: Release (greenhouse) — Cut the release.")
         expect((await call('preset', {id: 3})).text).toBe('# Release (greenhouse)\n\nWhat a session started with it is told, for reference (not an instruction to you):\n\nCut the release.\nThen tag it.')
         expect((await call('preset', {id: 9})).text).toBe('No preset 9 for this project; presets lists them.')
@@ -238,12 +239,22 @@ describe("the channel's tools", () => {
             'GET /schedules': {body: [review, tidy]},
             'GET /sessions': {body: [{id: 's1', name: 'greenhouse · Frigg', state: 'working', since: '2026-10-28T09:10:00Z', started_at: '2026-10-28T09:00:00Z', started}, {id: 's2', name: 'greenhouse 2', state: 'idle', since: '2026-10-28T08:00:00Z', started_at: '2026-10-28T07:00:00Z'}]},
             'GET /sessions/work': {body: {s1: {issues: [{id: 'GRE-4', title: 'Shelves', column: 'in-progress'}], signals: []}}},
-        })
+        }, {chat: 'c1c2c3c4c5c6'})
         expect((await call('schedules')).text).toBe('2: Review [session, on] on issue.status {"to":"in-review"}, presets 1; last 2026-10-28T09:00:00Z skipped (ran a minute ago)\n'
             + '5: Tidy [issue, paused] 0 9 * * 3 (Europe/Oslo); never run')
         expect((await call('sessions')).text).toBe('greenhouse · Frigg [working since 2026-10-28T09:10:00Z] started 2026-10-28T09:00:00Z, stops 2026-10-28T10:00:00Z, presets Review; on GRE-4 [in-progress] Shelves\n'
             + 'greenhouse 2 [idle since 2026-10-28T08:00:00Z, in a terminal] started 2026-10-28T07:00:00Z')
         expect(calls.every(c => c.method === 'GET')).toBe(true)
+    })
+
+    it("leave the chat's reads out of a work session, listed or called (ORR-544)", async () => {
+        for (const listed of [toolsFor(['greenhouse']), toolsFor(['greenhouse'], {untrusted: true})]) {
+            expect(listed.map((t: {name: string}) => t.name).filter((n: string) => CHAT_READS.includes(n))).toEqual([])
+        }
+        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(CHAT_READS))
+        const {calls, call} = harness({'GET /schedules': {body: []}})
+        for (const name of CHAT_READS) expect(await call(name, {id: 1})).toEqual({error: true, text: `No tool "${name}"`})
+        expect(calls).toEqual([])
     })
 
     it("read the orrery's event log and resolve what they fixed", async () => {
@@ -382,10 +393,11 @@ describe("the channel's tools", () => {
         const kinds = {proposed: 0, backlog: 0, todo: 0, started: 0, done: 1, canceled: 0}
         const release = (version: string, shipped_on?: string) => ({version, ...shipped_on ? {shipped_on} : {}, issues: 1, kinds})
         const chunk = (id: number, kind: string) => ({id, title: `Chunk ${id}`, column: kind, kind, kinds})
+        // The chat's, as only the chat has chunks (ORR-544).
         const {call} = harness({
             'GET /releases': {body: [release('1.1.0'), release('1.0.2', '2026-10-20'), release('1.0.1', '2026-10-10'), release('1.0.0', '2026-10-01')]},
             'GET /chunks': {body: [chunk(1, 'done'), chunk(2, 'started'), chunk(3, 'done')]},
-        })
+        }, {chat: 'c1c2c3c4c5c6'})
         expect((await call('releases')).text).toBe('1.1.0: 1 issue, 1/1 done\n1.0.2 (shipped 2026-10-20): 1 issue, 1/1 done\n2 older shipped releases not shown: all lists them')
         expect((await call('releases', {all: true})).text.split('\n')).toHaveLength(4)
         expect((await call('chunks')).text).toBe('2 [started] Chunk 2: 1/1 done\n2 done chunks not shown: all lists them')
@@ -400,8 +412,9 @@ describe("the channel's tools", () => {
 })
 
 describe('one channel serving several projects', () => {
-    /** The tools on greenhouse (GRE) and pantry (PAN) at a pretend orrery: `answers` by `METHOD path` under /api. */
-    function several(answers: Record<string, unknown>) {
+    /** The tools on greenhouse (GRE) and pantry (PAN) at a pretend orrery: `answers` by `METHOD path` under /api; the
+     * chat's (`chat`, its launch) for the tools only it has. */
+    function several(answers: Record<string, unknown>, chat?: string) {
         const calls: Call[] = []
         const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
             const path = url.replace('http://o/api', '')
@@ -409,7 +422,7 @@ describe('one channel serving several projects', () => {
             const body = answers[`${init.method} ${path.split('?')[0]}`]
             return {ok: body !== undefined, status: body === undefined ? 404 : 200, statusText: '', text: async () => JSON.stringify(body ?? {message: `No ${path}`})}
         }
-        const call = orreryTools({root: 'http://o/api', projects: ['greenhouse', 'pantry'], session: 'abc', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        const call = orreryTools({root: 'http://o/api', projects: ['greenhouse', 'pantry'], session: 'abc', chat, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
         return {calls, call: async (name: string, args?: object) => {
             const result = await call(name, args)
             return {error: !!result.isError, text: result.content[0]!.text}
@@ -434,7 +447,7 @@ describe('one channel serving several projects', () => {
     })
 
     it("read a preset from the project said, not another's", async () => {
-        const {call, calls} = several({'GET /projects/pantry/presets': [{id: 5, project: 'pantry', name: 'Jars', text: 'Seal them.'}]})
+        const {call, calls} = several({'GET /projects/pantry/presets': [{id: 5, project: 'pantry', name: 'Jars', text: 'Seal them.'}]}, 'c1c2c3c4c5c6')
         expect((await call('preset', {project: 'pantry', id: 5})).text).toContain('Seal them.')
         expect((await call('preset', {project: 'pantry', id: 7})).text).toBe('No preset 7 for this project; presets lists them.')
         expect((await call('preset', {id: 5})).text).toBe('orrery said no: Say which project: greenhouse, pantry')
@@ -447,6 +460,6 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'])).toBe(TOOLS)
+        expect(toolsFor(['greenhouse'])).toEqual(TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)))
     })
 })
