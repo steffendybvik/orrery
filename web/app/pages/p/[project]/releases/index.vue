@@ -133,7 +133,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
         </UiButton>
       </header>
 
-      <form v-if="making" class="flex flex-col gap-3 rounded-xl border border-line p-4" @submit.prevent="make" @keydown.esc="cancel">
+      <form v-if="making" class="flex flex-col gap-3 rounded-xl border border-line p-4 dark:bg-panel" @submit.prevent="make" @keydown.esc="cancel">
         <div class="flex flex-wrap items-end gap-3">
           <label class="flex flex-col gap-1 text-xs text-muted">
             Version
@@ -172,7 +172,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
               @dragend="onDragEnd"
               @keydown.alt.up.prevent="arranges && nudge(release.version, -1, $event)"
               @keydown.alt.down.prevent="arranges && nudge(release.version, 1, $event)"
-              class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line px-4 py-3 transition-colors hover:bg-hover">
+              class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line px-4 py-3 hover:tint dark:bg-panel">
             <span class="font-mono text-[14px] font-medium text-fg">{{ release.version }}</span>
             <span
                 class="rounded-full px-2 py-px text-[11px] font-medium ring-1"

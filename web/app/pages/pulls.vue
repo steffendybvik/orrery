@@ -45,7 +45,7 @@ const noneRead = computed(() => !!unread.value && unread.value === pulls.value?.
       <p v-if="pulls && !pulls.repos.length" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         No project's repo is on GitHub. Set one's repo (<code>https://github.com/you/shop</code>) in its Settings, and its open pull requests show here.
       </p>
-      <ul v-else-if="pulls?.pulls.length" class="overflow-hidden rounded-xl border border-line" aria-label="Open pull requests">
+      <ul v-else-if="pulls?.pulls.length" class="overflow-hidden rounded-xl border border-line dark:bg-panel" aria-label="Open pull requests">
         <li v-for="pull in pulls.pulls" :key="`${pull.repo}#${pull.number}`" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0" :class="{'bg-rose-500/5': needs(pull.state)}">
           <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">
             <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}

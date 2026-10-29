@@ -295,7 +295,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
         <section v-if="issue.tasks.length" class="flex flex-col gap-2">
           <h2 class="label flex items-center gap-2">Sub-issues <span class="font-mono normal-case">{{ issue.kinds.done }}/{{ total(issue.kinds) }}</span></h2>
-          <div class="overflow-hidden rounded-xl border border-line">
+          <div class="overflow-hidden rounded-xl border border-line dark:bg-panel">
             <IssueRow v-for="sub in issue.tasks" :key="sub.id" :issue="sub" :project="project.id" nested />
           </div>
         </section>
@@ -305,7 +305,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         <p class="rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PATCH /api/projects/{{ project.id }}/issues/{{ issue.id }}</p>
       </article>
 
-      <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block">
+      <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block dark:bg-panel">
         <!-- Clear of the worker's banner, which sticks above it, on one line at this width. -->
         <div class="sticky" :class="worker && !isClosed(issue.kind) ? 'top-16' : 'top-6'">
           <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
