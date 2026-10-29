@@ -11,24 +11,23 @@ overview, is one list.
 
 ### Features
 
-- **Doc sections of their own:** **New section** at the foot of the docs list makes one, empty if you like, and
-  right-clicking a section's header renames it on all its docs at once or deletes it, keeping its docs under no
-  section.
-- **Permission prompts say what for:** the popup and a waiting session's card name the tool a session asks to use
-  and what it would do (the command, file, address or search), an MCP tool as `server · tool`, not only "Claude
-  needs your permission".
 - **What a session has been given so far:** a running session's **Context** page lists, under **So far**, its latest
   30 signals and tool answers, newest first, each with its size and its text folded under it. It's held in memory
   only, so a restart starts it afresh.
+- **Doc sections of their own:** **New section** at the foot of the docs list makes one, empty if you like, and
+  right-clicking a section's header renames it on all its docs at once or deletes it, keeping its docs under no
+  section.
 - **An Advanced tab in App settings:** Events, Context and Pull requests leave the sidebar for App settings →
-  Advanced, which holds the Advanced switch too, each with its count. Old links to them still land there.
+  Advanced, which holds the Advanced switch too, with Events' new errors and the pull requests that need someone
+  counted. Old links to them still land there.
+- **Permission prompts say what for:** the popup and a waiting session's card name the tool a session asks to use
+  and what it would do (the command, file, address or search), an MCP tool as `server · tool`, not only "Claude
+  needs your permission".
 
 ### Changes
 
 - **Dark mode lifts what floats:** the sidebar, cards, panels and an issue's properties pane sit a step above the
   page, rather than showing only by their borders. Light mode is unchanged.
-- **Sessions with no sessions** says so once, in its empty state, and hides Message sessions while there's nobody
-  to message.
 
 ### Fixes
 
@@ -36,6 +35,8 @@ overview, is one list.
   one.
 - An issue's read-only fields (Project, Progress, Created by, the dates) sat closer together than the editable ones
   above them.
+- Sessions with no sessions said so twice, and showed Message sessions with nobody to message. It says so once, in
+  its empty state, and hides Message sessions until there's someone.
 - On a phone, My issues' section labels broke onto two lines, and a doc's size toggle and id wrapped onto an
   indented line.
 
