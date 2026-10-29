@@ -1,4 +1,4 @@
-import type {Signal} from '#shared/roadmap'
+import type {Told} from '../../../../utils/signal-feed'
 
 // `GET /api/projects/:project/signals/stream` → the owner's signals to this project's sessions, as they're
 // sent: server-sent `signal` events, `name` (what orrery calls the session, and again when that changes) (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
@@ -16,21 +16,16 @@ export default defineEventHandler(async event => {
     const left = noteChannel([project], false, who, () => feed.attended?.id)
 
     if (query.format === 'text') {
-        const line = async (signal: Signal) => {
-            const s = await feed.told(signal)
+        const line = (s: Told) => {
             if (s.kind === 'message') return `${s.created_by}${s.title ? `'s schedule "${s.title}"` : ' (to you)'}: ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             if (s.kind === 'comment') return `${s.created_by} commented on ${s.issue} (${s.title}): ${(s.note ?? '').replace(/\s+/g, ' ')}\n`
             return `${'prompt' in s ? s.prompt.replace(/\s*\n+\s*/g, ' ') : s.title}\n`
         }
+        let lines!: ReadableStreamDefaultController<string>
         const stream = new ReadableStream<string>({
             start(controller) {
+                lines = controller
                 controller.enqueue(`Listening for focus signals on ${project}.\n`)
-                const said = new Set<number>()
-                const say = (signal: Signal) => !said.has(signal.id) && said.add(signal.id) && feed.inOrder(async () => controller.enqueue(await line(signal)))
-                feed.missed.filter(feed.mine).forEach(say)
-                const send = (signal: Signal) => feed.wanted(signal) && feed.mine(signal) && say(signal)
-                feed.onIdle(send)
-                feed.goLive(send, new Set(feed.missed.map(s => s.id)))
             },
             cancel() {
                 feed.close()
@@ -40,6 +35,7 @@ export default defineEventHandler(async event => {
             feed.close()
             left()
         })
+        await streamFeed((_, told) => lines.enqueue(line(told)), feed, text('name'))
         setResponseHeaders(event, {'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache'})
         return sendStream(event, stream.pipeThrough(new TextEncoderStream()))
     }
@@ -62,6 +58,6 @@ export default defineEventHandler(async event => {
     })
     stream.push({event: 'ready', data: JSON.stringify({project, listeners: listening(project)})})
     unnamed = sayName(stream, () => feed.attended?.id)
-    await streamFeed(stream, feed, text('name'))
+    await streamFeed(sseSink(stream), feed, text('name'))
     return stream.send()
 })

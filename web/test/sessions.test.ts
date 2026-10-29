@@ -572,7 +572,7 @@ describe("a session's stream catching up", () => {
             get live() { return live },
         }
         const pushed: string[] = []
-        await streamFeed({push: ({id}) => pushed.push(id!)}, feed as never)
+        await streamFeed(signal => pushed.push(String(signal.id)), feed as never)
         await vi.waitFor(() => expect(pushed).toEqual(['4', '5']))
         expect(already).toEqual([[4, 5]])
         expect(error).toHaveBeenCalled()

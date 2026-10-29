@@ -132,10 +132,17 @@ export function sayName(stream: {push: (message: {event: string, data: string}) 
     return () => projectEvents.off('sessions', say)
 }
 
-/** Sends the feed's signals on a server-sent event stream as `signal` events, each with its id: what it missed and
- * what it should hear as it connects (scheduled work nobody heard, the owner's unanswered comments), then each as
- * it's sent. Several feeds can share a stream. */
-export async function streamFeed(stream: {push: (message: {id?: string, event: string, data: string}) => unknown}, feed: Feed, name?: string) {
+/** A signal as a stream says it: what the session needs to act on it, and the context it was started with. */
+export type Told = Awaited<ReturnType<Feed['told']>> & {context?: string}
+
+/** A server-sent event stream's sink: each signal as a `signal` event with its id. */
+export const sseSink = (stream: {push: (message: {id?: string, event: string, data: string}) => unknown}) =>
+    (signal: Signal, told: Told) => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(told)})
+
+/** Hands the feed's signals to `say`, one after another: what it missed and what it should hear as it connects
+ * (scheduled work nobody heard, the owner's unanswered comments), then each as it's sent. Several feeds can share a
+ * stream; `sseSink` sends them as server-sent events. */
+export async function streamFeed(say: (signal: Signal, told: Told) => unknown, feed: Feed, name?: string) {
     const {project, attended, heard} = feed
     const store = useStore()
     /** The context the owner started this session with, which every signal to it carries, for its channel to add. */
@@ -157,7 +164,7 @@ export async function streamFeed(stream: {push: (message: {id?: string, event: s
         if (attended && signal.kind === 'comment' && !signal.target && signal.issue) {
             store.workedBy(project, signal.issue, attended.id).catch(error => console.error(`[orrery] tying ${signal.issue} to its session:`, error))
         }
-        feed.inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify({...await feed.told(signal), ...context()})}))
+        feed.inOrder(async () => say(signal, {...await feed.told(signal), ...context()}))
     }
     // A schedule's message again while the session hasn't finished a turn since the last copy (busy, or yet to
     // read it) would only pile up behind it: it counts as heard. A session whose hooks never said it went idle
