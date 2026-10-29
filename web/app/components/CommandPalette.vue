@@ -99,6 +99,11 @@ const everywhere = computed<Entry[]>(() => [
     {key: 'go:mine', group: 'Go to', label: 'My issues and urgent', hint: 'g m', run: () => router.push('/mine')},
     {key: 'go:notifications', group: 'Go to', label: 'Notifications', run: () => router.push('/notifications')},
     {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
+    {key: 'go:sessions', group: 'Go to', label: 'Sessions', run: () => router.push('/sessions')},
+    {key: 'go:schedules', group: 'Go to', label: 'Schedules', run: () => router.push('/schedules')},
+    {key: 'go:events', group: 'Go to', label: 'Events', detail: 'the event log', run: () => router.push('/events')},
+    {key: 'go:context', group: 'Go to', label: 'Context', detail: 'what a session is sent', run: () => router.push('/context')},
+    {key: 'go:pulls', group: 'Go to', label: 'Pull requests', run: () => router.push('/pulls')},
     {key: 'go:getting-started', group: 'Go to', label: 'Getting started', run: () => {
         useGettingStarted().hide(false)
         router.push('/getting-started')
