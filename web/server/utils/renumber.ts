@@ -25,18 +25,19 @@ const ISSUES = 'SELECT id, parent, chunk FROM issues WHERE project = ? ORDER BY 
 
 /** Run with foreign keys off or deferred: rows point at ids that are changing. */
 export async function renumber(db: Db, project: string) {
-    const statements = plan(project, await one<Project>(db, KEY, project), await db.all<{id: string}>(CHUNKS, project), await db.all<Issue>(ISSUES, project))
+    const statements = plan(project, await one<Project>(db, KEY, project), await db.all<{id: string}>(CHUNKS, project), await db.all<Issue>(ISSUES, project), true)
     for (const statement of statements) await db.run(...statement)
 }
 
-/** The same, on the raw connection: for the migration step that gave everything its id. */
+/** The same, on the raw connection: for the migration step that gave everything its id, from before there were
+ * dependency links. */
 export function renumberSync(db: DatabaseSync, project: string) {
     const statements = plan(project, db.prepare(KEY).get(project) as Project, db.prepare(CHUNKS).all(project) as {id: string}[], db.prepare(ISSUES).all(project) as Issue[])
     for (const [sql, ...params] of statements) db.prepare(sql).run(...params)
 }
 
 /** The writes that renumber the project, in order. */
-function plan(project: string, {key, next_number, next_chunk}: Project, chunks: {id: string}[], issues: Issue[]): Statement[] {
+function plan(project: string, {key, next_number, next_chunk}: Project, chunks: {id: string}[], issues: Issue[], links = false): Statement[] {
     const statements: Statement[] = []
     const run = (...statement: Statement) => statements.push(statement)
 
@@ -64,6 +65,10 @@ function plan(project: string, {key, next_number, next_chunk}: Project, chunks: 
         run('UPDATE issues SET parent = ? WHERE project = ? AND parent = ?', MOVING + to, project, from)
         run('UPDATE comments SET issue = ? WHERE project = ? AND issue = ?', MOVING + to, project, from)
         run('UPDATE issue_aliases SET issue = ? WHERE project = ? AND issue = ?', MOVING + to, project, from)
+        if (links) {
+            run('UPDATE issue_links SET issue = ? WHERE project = ? AND issue = ?', MOVING + to, project, from)
+            run('UPDATE issue_links SET on_issue = ? WHERE on_project = ? AND on_issue = ?', MOVING + to, project, from)
+        }
     }
     const strip = `substr(%, ${MOVING.length + 1})`
     run(`UPDATE chunks SET id = ${strip.replace('%', 'id')} WHERE project = ? AND substr(id, 1, 1) = ?`, project, MOVING)
@@ -73,6 +78,10 @@ function plan(project: string, {key, next_number, next_chunk}: Project, chunks: 
     run(`UPDATE issues SET parent = ${strip.replace('%', 'parent')} WHERE project = ? AND substr(parent, 1, 1) = ?`, project, MOVING)
     run(`UPDATE comments SET issue = ${strip.replace('%', 'issue')} WHERE project = ? AND substr(issue, 1, 1) = ?`, project, MOVING)
     run(`UPDATE issue_aliases SET issue = ${strip.replace('%', 'issue')} WHERE project = ? AND substr(issue, 1, 1) = ?`, project, MOVING)
+    if (links) {
+        run(`UPDATE issue_links SET issue = ${strip.replace('%', 'issue')} WHERE project = ? AND substr(issue, 1, 1) = ?`, project, MOVING)
+        run(`UPDATE issue_links SET on_issue = ${strip.replace('%', 'on_issue')} WHERE on_project = ? AND substr(on_issue, 1, 1) = ?`, project, MOVING)
+    }
 
     for (const [from, to] of chunkIds) if (from !== to) run(UPSERT_CHUNK_ALIAS, project, from, to)
     for (const [from, to] of issueIds) if (from !== to) run(UPSERT_ISSUE_ALIAS, project, from, to)

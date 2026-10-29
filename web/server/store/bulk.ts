@@ -198,12 +198,16 @@ export abstract class BulkStore extends CommentStore {
     /** What names an issue by id without a foreign key to it, after the issues in `names` moved from
      * `project` to `to` (under their new id) or went (null): their signals follow them, so a session
      * catching up is told about the issue where it is now, or not at all; a schedule's runs let go of
-     * one that went. So no id there comes to mean another issue. */
+     * one that went; its dependency links (ORR-601) follow it, or go with it. So no id there comes to mean another issue. */
     protected async issuesMoved(project: string, names: Map<string, string | null>, to = project) {
         for (const [old, next] of names) {
-            if (next) await this.run('UPDATE signals SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, project, old)
-            else {
+            if (next) {
+                await this.run('UPDATE signals SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, project, old)
+                await this.run('UPDATE issue_links SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, project, old)
+                await this.run('UPDATE issue_links SET on_project = ?, on_issue = ? WHERE on_project = ? AND on_issue = ?', to, next, project, old)
+            } else {
                 await this.run('DELETE FROM signals WHERE project = ? AND issue = ?', project, old)
+                await this.run('DELETE FROM issue_links WHERE (project = ? AND issue = ?) OR (on_project = ? AND on_issue = ?)', project, old, project, old)
                 await this.run('UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)', old, project)
             }
         }

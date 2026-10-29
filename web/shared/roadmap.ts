@@ -130,9 +130,27 @@ export interface Issue {
     session_name?: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
+    /** The issues it builds on (ORR-601), as `linkRef`s: work on it waits until each is closed. Only with some. */
+    depends_on?: string[]
+    /** Those of them not closed yet: while there are any it's blocked, and nothing hands it out. Only with some. */
+    blocked_by?: string[]
+    /** The issues that depend on it, read the other way. Only with some. */
+    blocks?: string[]
     created_at: string
     updated_at: string
     tasks: Issue[]
+}
+
+/** Whether an issue waits on another that isn't closed yet (ORR-601): nothing hands it out until it's free. */
+export const isBlocked = (issue: {blocked_by?: string[]}) => !!issue.blocked_by?.length
+
+/** How an issue names another it's linked to (ORR-601): its id in the same project, `project/ID` in another. */
+export const linkRef = (here: string, project: string, id: string) => project === here ? id : `${project}/${id}`
+
+/** The project and id a `linkRef` names, read from `here`. */
+export function parseLinkRef(here: string, ref: string): {project: string, id: string} {
+    const slash = ref.indexOf('/')
+    return slash < 0 ? {project: here, id: ref.trim()} : {project: ref.slice(0, slash).trim(), id: ref.slice(slash + 1).trim()}
 }
 
 /** A group of issues: a milestone. The one with an empty id holds the issues in none. */
@@ -288,7 +306,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release'
+export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */

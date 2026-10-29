@@ -67,6 +67,17 @@ export abstract class ClaimStore extends ReleaseStore {
         if (worker) throw conflict(`${issue} is already being worked on by another session (${worker}); pick another issue`)
     }
 
+    /** The session that last worked the issue, while it's listening (ORR-601: the one that closed a blocker carries
+     * on with what it unblocked). */
+    async workerOf(project: string, issue: string): Promise<string | null> {
+        return await this.listeningWorker(project, issue)
+    }
+
+    /** The issues that depend on this one (ORR-601), in any project, oldest link first. */
+    async dependentsOf(project: string, issue: string): Promise<{project: string, id: string}[]> {
+        return await this.all<{project: string, id: string}>('SELECT project, issue AS id FROM issue_links WHERE on_project = ? AND on_issue = ? ORDER BY created_at, project, issue', project, issue)
+    }
+
     /** The other session on an issue: the one that has it started, while it's there to hear, if that isn't `session`. */
     async takenFrom(project: string, issue: string, session: string | undefined): Promise<string | null> {
         const {status} = await this.issueRow(project, issue)

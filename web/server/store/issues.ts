@@ -1,6 +1,6 @@
 // Issues: listing, reading, making and changing one.
 import type {Kind, Signal} from '#shared/roadmap'
-import {CLOSED, issueRef} from '#shared/roadmap'
+import {CLOSED, issueRef, linkRef, parseLinkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
@@ -58,6 +58,7 @@ export abstract class IssueStore extends ClaimStore {
         }
         if (chunk) await this.chunkRow(project, chunk)
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
+        const depends = await this.linksFrom(project, null, input.depends_on)
 
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
@@ -71,10 +72,12 @@ export abstract class IssueStore extends ClaimStore {
                 JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
                 parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now)
             await this.record(project, id, actor, [['created', null, null]])
+            if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
             return id
         })
         this.changed(project)
+        for (const other of new Set(depends?.map(l => l.project))) if (other !== project) this.changed(other)
         if (urgent) await this.urgent(project, null, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
     }
@@ -122,6 +125,9 @@ export abstract class IssueStore extends ClaimStore {
         const labels = input.labels === undefined ? undefined : JSON.stringify(input.labels ?? [])
         const external = input.external === undefined ? undefined : JSON.stringify(tasksOf(input.external))
         const moved = input.parent !== undefined && parent !== row.parent
+        const depends = await this.linksFrom(project, id, input.depends_on)
+        // The projects whose boards show this issue's links: theirs change with its status, as its own does.
+        const linked = new Set([...depends?.map(l => l.project) ?? [], ...await this.linkedProjects(project, id)])
         await this.db.transaction(async () => {
             await this.record(project, id, actor, [
                 ['title', row.title, title],
@@ -153,11 +159,80 @@ export abstract class IssueStore extends ClaimStore {
                 ships_in: release,
                 position: input.position,
             })
+            if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
         })
         this.changed(project)
+        for (const other of linked) if (other !== project) this.changed(other)
         await this.urgent(project, row, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
+    }
+
+    /** The issues `depends_on` names, checked (ORR-601): each there (an id it had before finds it), in this project or
+     * another, not the issue itself and not one that already depends on it, however far down, which would make a
+     * loop nothing could start. `id` is null for an issue not made yet. Undefined when the write leaves them be. */
+    protected async linksFrom(project: string, id: string | null, refs: Input[string]): Promise<{project: string, id: string}[] | undefined> {
+        if (refs === undefined) return undefined
+        const links: {project: string, id: string}[] = []
+        for (const ref of (refs ?? []) as string[]) {
+            const named = parseLinkRef(project, ref)
+            if (!named.project || !named.id) throw badRequest(`"${ref}" in "depends_on" isn't an issue: use its id, or project/ID for another project's`)
+            const on = {project: named.project, id: await this.issueId(named.project, named.id)}
+            await this.issueRow(on.project, on.id)
+            if (on.project === project && on.id === id) throw badRequest(`An issue can't depend on itself`)
+            if (!links.some(l => l.project === on.project && l.id === on.id)) links.push(on)
+        }
+        if (id) {
+            for (const on of links) {
+                const path = await this.dependsPath(on, {project, id})
+                if (path) throw badRequest(`${linkRef(project, on.project, on.id)} already depends on ${id}${path.length > 2 ? ` (through ${path.slice(1, -1).map(p => linkRef(project, p.project, p.id)).join(', ')})` : ''}, so ${id} can't depend on it`)
+            }
+        }
+        return links
+    }
+
+    /** The chain from `from` to `to` along what each depends on, if there's one: both ends included. */
+    private async dependsPath(from: {project: string, id: string}, to: {project: string, id: string}): Promise<{project: string, id: string}[] | null> {
+        const key = (l: {project: string, id: string}) => `${l.project}\u0000${l.id}`
+        const came = new Map<string, {project: string, id: string} | null>([[key(from), null]])
+        const queue = [from]
+        while (queue.length) {
+            const at = queue.shift()!
+            if (at.project === to.project && at.id === to.id) {
+                const path = [at]
+                for (let back = came.get(key(at)); back; back = came.get(key(back))) path.unshift(back)
+                return path
+            }
+            for (const next of await this.all<{project: string, id: string}>('SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ?', at.project, at.id)) {
+                if (came.has(key(next))) continue
+                came.set(key(next), at)
+                queue.push(next)
+            }
+        }
+        return null
+    }
+
+    /** Makes `links` what the issue depends on, each one added or dropped once, in its activity as `depends`. */
+    protected async setLinks(project: string, id: string, links: {project: string, id: string}[], actor: Actor) {
+        const before = await this.all<{project: string, id: string}>('SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue', project, id)
+        const same = (a: {project: string, id: string}) => (b: {project: string, id: string}) => a.project === b.project && a.id === b.id
+        const now = stamp()
+        for (const gone of before.filter(b => !links.some(same(b)))) {
+            await this.run('DELETE FROM issue_links WHERE project = ? AND issue = ? AND on_project = ? AND on_issue = ?', project, id, gone.project, gone.id)
+        }
+        for (const added of links.filter(l => !before.some(same(l)))) {
+            await this.run('INSERT INTO issue_links (project, issue, on_project, on_issue, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                project, id, added.project, added.id, actor.name, Number(actor.owner), now)
+        }
+        const refs = (list: {project: string, id: string}[]) => list.length ? JSON.stringify(list.map(l => linkRef(project, l.project, l.id))) : null
+        const kept = [...before.filter(b => links.some(same(b))), ...links.filter(l => !before.some(same(l)))]
+        await this.record(project, id, actor, [['depends', refs(before), refs(kept)]])
+    }
+
+    /** The other projects an issue is linked with, either way. */
+    protected async linkedProjects(project: string, id: string): Promise<string[]> {
+        return (await this.all<{project: string}>(`SELECT on_project AS project FROM issue_links WHERE project = ? AND issue = ?
+            UNION SELECT project FROM issue_links WHERE on_project = ? AND on_issue = ?`, project, id, project, id)).map(r => r.project)
     }
 
     /** An issue the owner's write just made urgent open work (P0, and committed and not closed, which it wasn't

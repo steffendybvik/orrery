@@ -191,6 +191,8 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     chunk: {type: 'string', nullable: true},
     /** The version of a release it ships in; null takes it out of one. */
     release: {type: 'string', nullable: true},
+    /** The issues it depends on (ORR-601), all of them: ids in its project, `project/ID` in another; null or [] for none. */
+    depends_on: {type: 'strings', nullable: true},
     position: {type: 'number'},
 }
 
