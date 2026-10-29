@@ -18,6 +18,8 @@ overview, is one list.
   places to drop while you drag. `[` and `]` move the focused or ticked cards a column left or right.
 - **First open asks if you're a developer:** the name dialog asks too, and No turns Advanced off, so Events, Context
   and Pull requests stay out of the sidebar.
+- **The launcher follows its list while running:** it serves a project added to `~/.config/orrery/launcher.json`
+  and lets a removed one go, without a restart, so `--install` in another repo no longer stops every session it runs.
 
 ### Changes
 
@@ -37,7 +39,11 @@ overview, is one list.
 - **Issues assigned to `Claude` are handed out:** picking and the Todo hand-out held back an issue assigned to
   `Claude` with a capital C, though the board shows that name as the agent.
 - **The permission popup stays up:** a parallel tool's hook landing just after a permission prompt opened set the
-  session back to working, hiding the popup while the prompt was still on screen.
+  session back to working, hiding the popup while the prompt was still on screen. Your **Allow** still sends the
+  session on at once.
+- **The default database is the repo's:** started without `NUXT_DATABASE`, the server made its database relative to
+  the folder it started in, so from the repo root it landed in the folder above. It's now always the repo's own
+  `.data/orrery.db`; a relative `NUXT_DATABASE` is still taken from the working folder.
 - **Context after a `/clear`:** **So far** went on listing and counting what a session had been given before a
   `/clear` or compaction. Those entries now sit greyed under a line of their own, out of the total.
 
