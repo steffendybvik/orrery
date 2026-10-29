@@ -29,7 +29,7 @@ async function rename() {
     }
 }
 
-// Where its code is, so a release links its branch and PRs; saved like the name.
+// Where its code is, so a release links its branch and PRs and an issue shows its open ones; saved like the name.
 const repo = ref('')
 const repoFailed = ref('')
 watch(() => project.value?.repo, now => {
@@ -147,7 +147,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
       <section id="repo" class="flex flex-col gap-3 border-t border-line pt-8">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">Code</h2>
-          <p class="text-xs text-muted">Where {{ project.name }}'s code is, so a release links its branch and the PRs into it.</p>
+          <p class="text-xs text-muted">Where {{ project.name }}'s code is, so a release links its branch and the PRs into it, and an issue's page shows its open PRs (on GitHub).</p>
         </header>
         <form class="flex items-center gap-2" @submit.prevent="saveRepo">
           <input
