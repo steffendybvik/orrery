@@ -563,6 +563,11 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     await expect(pane.getByText('what about the jam', {exact: true})).toBeVisible()
     await expect(pane.getByText('Not sent')).toBeVisible({timeout: 5000})
     await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
+    // It says how to install the launcher, the command to copy, rather than the server's error line (ORR-591).
+    await expect(pane.getByText('No launcher is running for Larder.')).toBeVisible()
+    await expect(pane.getByText(/channel\/orrery-launcher\.mjs --install/)).toBeVisible()
+    await expect(pane.getByRole('button', {name: /Copy/})).toBeVisible()
+    await expect(pane.getByText('No launcher is running for larder: install one')).toHaveCount(0)
     // Tried once, not again every few seconds.
     await page.waitForTimeout(4500)
     expect(starts).toHaveLength(1)
@@ -580,6 +585,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
         await pane.getByRole('button', {name: 'Retry'}).click()
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
         await expect(pane.getByText('Not sent')).toHaveCount(0)
+        await expect(pane.getByText('No launcher is running for Larder.')).toHaveCount(0)
         await endChats(request)
     } finally {
         launcher.stop()
