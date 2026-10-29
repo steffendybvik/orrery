@@ -359,10 +359,11 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async issue({id}) {
             const base = at(await projectOf({id}))
             // Its open pull requests and where each stands (ORR-508), when its project's repo is on GitHub; none if that can't be read.
+            // Never a PR's head branch, which an outsider may have named, as sessions read this as the owner's (ORR-532).
             const [issue, comments, pulls] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base),
                 call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null)])
             const {tasks, counts, kinds, ...rest} = issue
-            const open = pulls?.pulls?.map(p => ({number: p.number, state: p.state, branch: p.branch, base: p.base, url: p.url})) ?? []
+            const open = pulls?.pulls?.map(p => ({number: p.number, state: p.state, base: p.base, url: p.url})) ?? []
             return JSON.stringify({...rest, sub_issues: tasks.map(line), ...open.length ? {pull_requests: open} : {}, comments: comments.map(c => ({by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
         },
         async create_issue(args) {
