@@ -268,6 +268,42 @@ async function roomFor(project: string): Promise<Starts> {
 
 /** The context a session is started with: the presets picked (by id, the orrery's or the project's own), then the
  * owner's own words; none when there's neither. */
+/** What starting a session takes (Start session's form, and the chat asking for one, ORR-509), checked: an issue to focus
+ * on, or statuses and a release to work through; presets and the owner's own words; the projects it hears. */
+export interface StartInput {
+    issue?: string
+    statuses?: string[]
+    release?: string
+    presets: number[]
+    instructions: string
+    hears?: string[]
+}
+
+export function startInput(body: unknown): StartInput {
+    const {issue, statuses, release, presets, instructions, hears} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+    if (issue !== undefined && issue !== null && typeof issue !== 'string') throw badRequest('Send {issue}: the id of an issue for the session to focus on, or nothing')
+    if (statuses !== undefined && statuses !== null && (!Array.isArray(statuses) || statuses.some(s => typeof s !== 'string' || !s))) {
+        throw badRequest('Send {statuses}: a list of status ids or kinds for the session to work through, e.g. ["todo", "started"]')
+    }
+    if (release !== undefined && release !== null && typeof release !== 'string') throw badRequest('Send {release}: the version of a release for the session to work through')
+    if (issue && ((statuses as string[] | null)?.length || release)) throw badRequest('Send {issue} to focus on one issue, or {statuses, release} to work through many, not both')
+    if (presets !== undefined && presets !== null && (!Array.isArray(presets) || presets.some(p => !Number.isInteger(p)))) {
+        throw badRequest('Send {presets}: a list of preset ids (GET /api/projects/:project/presets), e.g. [3, 7]')
+    }
+    if (instructions !== undefined && instructions !== null && typeof instructions !== 'string') throw badRequest('Send {instructions}: your own words for the session, as text')
+    if (hears !== undefined && hears !== null && (!Array.isArray(hears) || !hears.length || hears.some(p => typeof p !== 'string' || !p))) {
+        throw badRequest('Send {hears}: the ids of the projects the session hears, e.g. ["hub", "css"]')
+    }
+    return {
+        ...issue ? {issue: issue as string} : {},
+        ...(statuses as string[] | null)?.length ? {statuses: statuses as string[]} : {},
+        ...release ? {release: release as string} : {},
+        presets: (presets as number[] | null) ?? [],
+        instructions: (instructions as string | null) ?? '',
+        ...hears ? {hears: hears as string[]} : {},
+    }
+}
+
 export async function contextFor(project: string, presets: number[] = [], instructions = ''): Promise<SessionContext | undefined> {
     const picked = await useStore().presetsFor(project, presets)
     const own = instructions.trim()
