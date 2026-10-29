@@ -237,6 +237,40 @@ describe('the pull request poll', () => {
         expect(notes).toHaveLength(2)
     })
 
+    it('still only records on the first poll that works, after one that failed (ORR-525)', async () => {
+        await withToken()
+        refuse = true
+        await poll.tick()
+        expect(await store.db.all('SELECT * FROM pull_repos')).toEqual([])
+        refuse = false
+        open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})]
+        now += 60 * 60_000
+        await poll.tick()
+        expect(changes).toEqual([])
+        // And tells what changes after it.
+        open = [pr(1, {mergeStateStatus: 'BEHIND'}), pr(2, {commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})]
+        await minuteOn()
+        expect(changes.map(c => c.key)).toEqual(['you/shop#1 behind sha1a'])
+    })
+
+    it('only records on its first poll with a token, after polls without one (ORR-525)', async () => {
+        const listed = (number: number) => ({
+            number, title: `PR ${number}`, html_url: `https://github.com/you/shop/pull/${number}`, draft: false, body: '', user: {login: 'claude'},
+            head: {ref: `feat/sho-${number}-work`, sha: `sha${number}a`}, base: {ref: 'main'}, created_at: '2026-10-29T08:00:00Z', updated_at: '2026-10-29T09:00:00Z',
+        })
+        rest['/repos/you/shop/pulls?state=open&per_page=100'] = () => json([listed(1), listed(2)])
+        rest['/repos/you/shop/pulls?state=closed&sort=updated&direction=desc&per_page=30'] = () => json([])
+        await poll.tick()
+        // Long conflicting and failing, which polls without a token couldn't tell.
+        await withToken()
+        open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R1'}]}, commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})]
+        await minuteOn()
+        expect(changes).toEqual([])
+        open = [pr(1, {mergeStateStatus: 'CLEAN'}), pr(2, {reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R1'}]}, commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})]
+        await minuteOn()
+        expect(changes.map(c => c.key)).toEqual(['you/shop#1 ready sha1a'])
+    })
+
     it('lets go of a repo nobody points at any more', async () => {
         await withToken()
         open = [pr(1)]
