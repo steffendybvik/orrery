@@ -91,7 +91,7 @@ only as orrery starts.
 
 ### Backing up into Postgres
 
-Either database can be backed up into a Postgres database instead of a folder: App settings → Database, **Postgres**
+Either database can be backed up into a Postgres database instead of a folder: App settings → This orrery → Database, **Postgres**
 under Back up this orrery, with its URL (**Back up there** backs up into it at once), or `ORRERY_BACKUP_DATABASE` as
 orrery starts. It's copied the way a move copies, a minute after a change, and each backup takes the place of the last
 in one go, so a backup that fails leaves the one before whole; there are no daily copies. It has to be an empty database
@@ -215,7 +215,7 @@ be connected when Docker starts the container, since that's when the address is 
 `http://<this machine's IP>:9010` on the phone. It only works at home, and anyone else on that
 Wi-Fi, guests included, can use orrery too.
 
-Either way, the database is still moved only from this machine: App settings → Database refuses a
+Either way, the database is still moved only from this machine: App settings → This orrery → Database refuses a
 move from any other address.
 
 ## Where each database is
@@ -235,13 +235,13 @@ database with them; plain `down` keeps them.
 
 ## Without Docker
 
-Node 24.22.1 and pnpm 10.14.0: `pnpm install && pnpm build`, then
+Node 24.22.1 and pnpm 10.14.0: `pnpm install && pnpm build`, then, in `web/`,
 
 ```sh
 NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs
 ```
 
-The database file is made if it isn't there (by default `.data/orrery.db`). A relative path is taken
+The database file is made if it isn't there (by default `../.data/orrery.db`, the repo's `.data/` when it starts in `web/`). A relative path is taken
 from the folder the server starts in, so give `NUXT_DATABASE` an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): orrery lays down its tables on an empty
 database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
