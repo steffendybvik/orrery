@@ -53,7 +53,7 @@ function openCard(notice: Notice, event: MouseEvent) {
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div v-if="newErrors.length" class="mx-auto max-w-3xl px-3 pt-4 sm:px-4">
-      <NuxtLink to="/events?level=error" class="flex items-center gap-2 rounded-xl bg-panel px-4 py-2.5 text-[13px] ring-1 ring-rose-500/40 transition-colors hover:bg-hover">
+      <NuxtLink to="/events?level=error" class="flex items-center gap-2 rounded-xl bg-panel px-4 py-2.5 text-[13px] ring-1 ring-rose-500/40 transition-colors hover:tint">
         <span class="size-2 shrink-0 rounded-full bg-rose-500" />
         <span class="flex-1 text-fg">{{ newErrors.length }} new kind{{ newErrors.length === 1 ? '' : 's' }} of error: <span class="text-muted">{{ newErrors[0]?.message }}</span></span>
         <span class="shrink-0 text-xs text-faint">Events →</span>
@@ -63,7 +63,7 @@ function openCard(notice: Notice, event: MouseEvent) {
       <li
           v-for="notice in shown"
           :key="noticeKey(notice)"
-          class="group relative cursor-pointer rounded-xl bg-panel ring-1 transition-colors hover:bg-hover focus-visible:ring-accent-500/60 focus-visible:outline-none"
+          class="group relative cursor-pointer rounded-xl bg-panel ring-1 transition-colors hover:tint focus-visible:ring-accent-500/60 focus-visible:outline-none"
           :class="isWaiting(notice) ? 'ring-violet-500/40' : 'ring-line hover:ring-faint/50'"
           tabindex="0"
           role="link"

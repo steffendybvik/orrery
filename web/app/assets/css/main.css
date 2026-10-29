@@ -124,6 +124,12 @@
     @apply rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none;
 }
 
+/* The hover tint laid over what's there (`hover:tint`), for something with a solid background of its own: `hover:bg-hover`
+   would put the translucent tint in its place, and a button floating over the page went see-through (ORR-537). */
+@utility tint {
+    background-image: linear-gradient(var(--hover), var(--hover));
+}
+
 /* The small uppercase heading over a group (OBJECTS, PROPERTIES) */
 @utility label {
     @apply text-[11px] font-medium tracking-wide text-faint uppercase;
