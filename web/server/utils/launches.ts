@@ -254,7 +254,7 @@ export async function startChat(project: string, context: SessionContext): Promi
     return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true}))
 }
 
-const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
+const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install it once with node channel/orrery-launcher.mjs --install, then open a Claude session in its repo, or run that in the repo`)
 
 /** The project's starts, if it may have one more session started now: the owner lets orrery start them, a launcher is
  * there, and the sessions running and on their way, on every project, are under the limit. */

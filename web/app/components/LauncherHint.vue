@@ -14,10 +14,10 @@ const name = computed(() => byId(props.project)?.name ?? props.project)
   <div v-if="state && !state.launchers" class="flex flex-col gap-2 rounded-xl bg-well p-3 text-xs leading-relaxed text-muted ring-1 ring-line">
     <p>
       <span class="font-medium text-fg">No launcher is running for {{ name }}.</span>{{ ' ' }}
-      <template v-if="chat">The chat starts its session through it: install the launcher once in the repo.</template>
+      <template v-if="chat">The chat starts its session through it: install the launcher once, then open a Claude session in the repo, or run this there to add it now.</template>
       <template v-else>
         For orrery to start its sessions itself (Start session, or work sent while nobody is listening), install the launcher
-        once in the repo.
+        once, then open a Claude session in the repo, or run this there to add it now.
       </template> It needs tmux 3.2 or newer, and <span class="font-mono">claude</span> run there once first, to trust
       the folder. Installed and still not running? Its log says why: <span class="font-mono">~/Library/Logs/orrery-launcher.log</span>
       on macOS, <span class="font-mono">journalctl --user -u orrery-launcher</span> on Linux.
