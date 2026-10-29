@@ -33,7 +33,7 @@ export default defineEventHandler(async event => {
         feeds.push(feed)
         // Its name before anything it catches up on.
         unnamed ??= sayName(stream, () => feeds.find(f => f.attended)?.attended?.id)
-        await streamFeed(stream, feed, text('name'))
+        await streamFeed(sseSink(stream), feed, text('name'))
     }
     // The owner stopping this session: its channel ends it.
     const stopped = (stop: {project: string, id: string}) => feeds.some(f => f.project === stop.project && f.attended?.id === stop.id)
