@@ -385,4 +385,6 @@ export const STEPS: string[] = [`
         token integer NOT NULL DEFAULT 0,
         error text
     );
+`, `
+    ALTER TABLE docs ADD COLUMN section text;
 `]

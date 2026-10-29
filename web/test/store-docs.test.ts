@@ -54,6 +54,21 @@ describe('docs', () => {
         expect((await failure(() => store.putDoc('greenhouse', 'Bad Id', {title: 'x'}))).status).toBe(400)
     })
 
+    it('are filed under a section, kept through a PUT that leaves it out, and taken out of it with none (ORR-520)', async () => {
+        const made = await store.createDoc('greenhouse', {id: 'decision-ids', title: 'Decision: ids', section: '  Decisions '})
+        expect(made.section).toBe('Decisions')
+        expect((await store.listDocs('greenhouse'))[0]).toMatchObject({id: 'decision-ids', section: 'Decisions'})
+        // A repo's file synced in keeps its place.
+        expect((await store.putDoc('greenhouse', 'decision-ids', {title: 'Decision: ids', body: 'Synced.'})).doc.section).toBe('Decisions')
+        // Moving it isn't a change to read: it stays as seen.
+        const before = (await store.doc('greenhouse', 'decision-ids')).updated_at
+        await new Promise(resolve => setTimeout(resolve, 5))
+        expect((await store.updateDoc('greenhouse', 'decision-ids', {section: 'How it works'})).updated_at).toBe(before)
+        expect((await store.updateDoc('greenhouse', 'decision-ids', {section: ''})).section).toBeUndefined()
+        expect((await store.updateDoc('greenhouse', 'decision-ids', {section: 'Decisions'})).section).toBe('Decisions')
+        expect((await store.updateDoc('greenhouse', 'decision-ids', {section: null})).section).toBeUndefined()
+    })
+
     it('number a long title made twice within the 40 an id may be, so PUT still reaches it', async () => {
         const title = 'How the launcher starts sessions in tmux and hands them over'
         const first = await store.createDoc('greenhouse', {title})

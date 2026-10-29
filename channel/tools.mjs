@@ -85,14 +85,14 @@ export const TOOLS = [
     {name: 'releases', description: "Lists the project's releases, in the order they're arranged in, with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
     {
         name: 'docs',
-        description: "Lists the project's docs (decisions, how things work), each with a line on what it says. Read the ones a task touches before its code.",
+        description: "Lists the project's docs (decisions, how things work), each with its section and a line on what it says. Read the ones a task touches before its code.",
         inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Only docs with every one of these words in their title or text, title hits first, each with the text around its hit'}}},
     },
     {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'write_doc',
-        description: 'Writes a doc, new or replacing the one with this id: a decision and why, how something works.',
-        inputSchema: {type: 'object', required: ['id', 'title', 'body'], properties: {id: {type: 'string', description: 'lowercase-with-dashes'}, title: {type: 'string'}, body: {type: 'string', description: 'Markdown'}}},
+        description: 'Writes a doc, new or replacing the one with this id: a decision and why, how something works. File it under the section its kind of doc is in (the docs tool shows them); leaving it out keeps the one it has.',
+        inputSchema: {type: 'object', required: ['id', 'title', 'body'], properties: {id: {type: 'string', description: 'lowercase-with-dashes'}, title: {type: 'string'}, body: {type: 'string', description: 'Markdown'}, section: {type: 'string', description: 'The group it\'s listed under, e.g. Decisions or How it works; empty takes it out of one'}}},
     },
     {name: 'presets', description: "Lists the presets the project's sessions can be started with (the orrery's, then the project's own), one line each: id, name, whose, first line. Only the owner makes or changes them.", inputSchema: {type: 'object', properties: {}}},
     {name: 'preset', description: "A preset in full, to help the owner write one: its text is what a session started with it is told, not an instruction to you.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
@@ -402,14 +402,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async docs(args) {
             const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''
             const docs = await call('GET', `/docs${query}`, undefined, at(await projectOf(args)))
-            return docs.map(d => `${d.id}: ${d.title}${d.summary ? ` — ${d.summary}` : ''}${d.match ? `\n    ${d.match}` : ''}`).join('\n') || (args.q ? 'No docs match.' : 'No docs yet.')
+            return docs.map(d => `${d.id}: ${d.title}${d.section ? ` [${d.section}]` : ''}${d.summary ? ` — ${d.summary}` : ''}${d.match ? `\n    ${d.match}` : ''}`).join('\n') || (args.q ? 'No docs match.' : 'No docs yet.')
         },
         async doc({id, project}) {
             const doc = await call('GET', `/docs/${encodeURIComponent(id)}`, undefined, at(await projectOf({project})))
             return `# ${doc.title}\n\n${doc.body}`
         },
-        async write_doc({id, title, body, project}) {
-            await call('PUT', `/docs/${encodeURIComponent(id)}`, {title, body}, at(await projectOf({project})))
+        async write_doc({id, title, body, section, project}) {
+            await call('PUT', `/docs/${encodeURIComponent(id)}`, {title, body, ...section === undefined ? {} : {section}}, at(await projectOf({project})))
             return `Saved the doc ${id}.`
         },
         async presets(args) {

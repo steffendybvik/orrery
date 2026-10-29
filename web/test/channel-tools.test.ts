@@ -37,6 +37,20 @@ describe("the channel's tools", () => {
         expect(calls[0]!.headers).not.toHaveProperty('Orrery-Untrusted')
     })
 
+    it('list docs with their section, and file one under a section only when asked (ORR-520)', async () => {
+        const {calls, call} = harness({
+            'GET /docs': {body: [{id: 'decision-ids', title: 'Decision: ids', summary: 'Ids are slugs.', section: 'Decisions'}, {id: 'readme', title: 'Readme', summary: ''}]},
+            'PUT /docs/decision-ids': {body: {}},
+        })
+        expect((await call('docs')).text).toBe('decision-ids: Decision: ids [Decisions] — Ids are slugs.\nreadme: Readme')
+        await call('write_doc', {id: 'decision-ids', title: 'Decision: ids', body: 'Ids are slugs.'})
+        await call('write_doc', {id: 'decision-ids', title: 'Decision: ids', body: 'Ids are slugs.', section: 'Decisions'})
+        expect(calls.filter(c => c.method === 'PUT').map(c => c.body)).toEqual([
+            {title: 'Decision: ids', body: 'Ids are slugs.'},
+            {title: 'Decision: ids', body: 'Ids are slugs.', section: 'Decisions'},
+        ])
+    })
+
     it("say so on every call from an untrusted schedule's session", async () => {
         const calls: {headers: Record<string, string>}[] = []
         const fetch = async (_url: string, init: {headers: Record<string, string>}) => {

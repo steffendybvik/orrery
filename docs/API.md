@@ -175,11 +175,11 @@ instead of `done` when it won't ship.
 
 | | |
 |---|---|
-| `GET /projects/:project/docs` | without their text but with a `summary` (the first paragraph as plain text, about 160 characters), by title, A–Z (a `position` sent with a doc is kept but no longer orders them). `?q=` keeps those with every word of it in their title or text (any order or case), the ones with them all in the title first, each with a `match`: about 160 characters of text around its first hit |
-| `POST /projects/:project/docs` | `{title, body?, id?}`; `body` is Markdown |
+| `GET /projects/:project/docs` | without their text but with a `summary` (the first paragraph as plain text, about 160 characters), by title, A–Z (a `position` sent with a doc is kept but no longer orders them). `?q=` keeps those with every word of it in their title or text (any order or case), the ones with them all in the title first, each with a `match`: about 160 characters of text around its first hit. Each has its `section` when it's filed under one |
+| `POST /projects/:project/docs` | `{title, body?, id?, section?}`; `body` is Markdown, and `section` (up to 60 characters) is the group it's listed under, such as `Decisions` |
 | `GET /projects/:project/docs/:doc` | with its Markdown |
-| `PUT /projects/:project/docs/:doc` | `{title, body?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync |
-| `PATCH /projects/:project/docs/:doc` | `{title?, body?}` |
+| `PUT /projects/:project/docs/:doc` | `{title, body?, section?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync. A `section` left out keeps the one it has |
+| `PATCH /projects/:project/docs/:doc` | `{title?, body?, section?}`; `section` `null` or `""` takes it out of one. Moving a doc to another section doesn't count as changing it (its `updated_at` stays) |
 | `DELETE /projects/:project/docs/:doc` | |
 
 ## Comments

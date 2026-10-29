@@ -53,3 +53,38 @@ test("tints a doc an agent changed, and in it the parts that changed since the o
     await expect(page.locator('.doc .changed')).toHaveText(['Label every jar with its date.', 'Restock on Fridays.'])
     await expect(page.getByText('2 parts changed since you last read it, tinted below')).toBeVisible()
 })
+
+test('groups the docs into sections, folds one, and moves a doc by right-click and by dragging (ORR-520)', async ({page, request}) => {
+    const put = (id: string, title: string, section?: string) => request.put(`/api/projects/library/docs/${id}`, {data: {title, body: `${title}.`, ...section ? {section} : {}}, headers: AGENT})
+    await put('readme', 'Readme')
+    await put('decision-ids', 'Decision: ids', 'Decisions')
+    await put('decision-owner', 'Decision: owner', 'Decisions')
+    await put('event-flows', 'Event flows')
+    await page.goto('/p/library/docs/readme')
+    const nav = page.getByRole('navigation', {name: 'Docs'})
+    const decisions = nav.getByRole('region', {name: 'Decisions'})
+    await expect(decisions.getByRole('link')).toHaveText(['Decision: ids', 'Decision: owner'])
+
+    // Folded, it stays folded on the next visit.
+    await decisions.getByRole('button', {name: /Decisions/}).click()
+    await expect(decisions.getByRole('link', {name: 'Decision: ids'})).toBeHidden()
+    await page.reload()
+    await expect(nav.getByRole('region', {name: 'Decisions'}).getByRole('link', {name: 'Decision: ids'})).toBeHidden()
+    await nav.getByRole('region', {name: 'Decisions'}).getByRole('button', {name: /Decisions/}).click()
+
+    // Right-click: into a new section.
+    await nav.getByRole('link', {name: 'Event flows'}).click({button: 'right'})
+    const menu = page.getByRole('menu', {name: 'Move Event flows'})
+    await menu.getByRole('button', {name: '+ New section…'}).click()
+    await menu.getByLabel('New section').fill('How it works')
+    await menu.getByLabel('New section').press('Enter')
+    await expect(nav.getByRole('region', {name: 'How it works'}).getByRole('link')).toHaveText(['Event flows'])
+    expect((await (await request.get('/api/projects/library/docs/event-flows')).json()).section).toBe('How it works')
+
+    // Dragged onto Decisions; then back out onto Docs.
+    await nav.getByRole('link', {name: 'Event flows'}).dragTo(nav.getByRole('region', {name: 'Decisions'}).getByRole('button', {name: /Decisions/}))
+    await expect(nav.getByRole('region', {name: 'Decisions'}).getByRole('link')).toHaveText(['Decision: ids', 'Decision: owner', 'Event flows'])
+    await expect(nav.getByRole('region', {name: 'How it works'})).toHaveCount(0)
+    await nav.getByRole('link', {name: 'Event flows'}).dragTo(nav.getByText('Docs', {exact: true}))
+    await expect.poll(async () => (await (await request.get('/api/projects/library/docs/event-flows')).json()).section).toBeUndefined()
+})
