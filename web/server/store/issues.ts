@@ -6,6 +6,7 @@ import {badRequest, checkInput, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
 import {AGENT, ISSUE_FIELDS, tasksOf, nullable, stamp} from './schema'
 import {ClaimStore} from './claims'
+import {findIssue, issueRecords} from './reads'
 import {refusedFor} from '../utils/permission'
 
 export abstract class IssueStore extends ClaimStore {
@@ -14,7 +15,7 @@ export abstract class IssueStore extends ClaimStore {
     protected abstract moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string], actor: Actor): Promise<string>
 
     async listIssues(project: string, filter: IssueFilter = {}): Promise<IssueRecord[]> {
-        const records = this.issueRecords(project, await this.boardOf(project))
+        const records = issueRecords(project, await this.boardOf(project))
         if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: await this.chunkId(project, filter.chunk)}
         if (filter.parent && filter.parent !== 'none') filter = {...filter, parent: await this.issueId(project, filter.parent)}
         if (filter.release && filter.release !== 'none') await this.releaseRow(project, filter.release)
@@ -39,7 +40,7 @@ export abstract class IssueStore extends ClaimStore {
 
     async issue(project: string, id: string): Promise<IssueDetail> {
         id = await this.issueId(project, id)
-        const found = this.findIssue(await this.boardOf(project), id)
+        const found = findIssue(await this.boardOf(project), id)
         if (!found) throw notFound(`No issue ${id} in ${project}`)
         return {...found.issue, project, parent: found.parent, chunk: found.chunk || null, ref: issueRef(await this.handle(), id)}
     }

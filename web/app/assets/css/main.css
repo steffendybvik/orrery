@@ -248,3 +248,13 @@ body {
         background: linear-gradient(to right, var(--color-accent-500) 3px, var(--tint) 3px);
     }
 }
+
+/* The chat's corner button (ChatPane) floats over the bottom right. On a phone, where pages take the full width, each
+   page's scroller ends with room for it, so its last line scrolls clear of the button (ORR-553). */
+@media (width < 48rem) {
+    main > .overflow-y-auto::after {
+        content: "";
+        display: block;
+        height: 3.5rem;
+    }
+}
