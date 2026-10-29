@@ -18,8 +18,14 @@ test.afterAll(async ({request}) => {
 
 test("shows a work session's parts and their sizes, with the total, and the chat's own", async ({page, request}) => {
     const work = await (await request.get('/api/projects/almanac/context?kind=work')).json()
+    // Out of the sidebar (ORR-561): reached from App settings → Advanced, as is Events, and the old address opens that tab.
     await page.goto('/')
-    await page.getByRole('link', {name: 'Context', exact: true}).click()
+    await expect(page.getByRole('link', {name: 'Context', exact: true})).toHaveCount(0)
+    await expect(page.getByRole('link', {name: 'Events', exact: true})).toHaveCount(0)
+    await page.goto('/settings?tab=orrery#advanced')
+    await expect(page).toHaveURL(/tab=advanced/)
+    await expect(page.getByRole('link', {name: 'Open the event log'})).toHaveAttribute('href', '/events')
+    await page.getByRole('link', {name: 'See what a session is sent'}).click()
     await expect(page).toHaveURL(/\/context/)
     await page.goto('/context?project=almanac&kind=work')
     await expect(page.getByTestId('context-total')).toHaveText(`${work.chars.toLocaleString('en')} characters`)

@@ -10,9 +10,10 @@ useHead({title: 'App settings · orrery'})
 const {settings, tintColor, save} = useAppSettings()
 const {environment} = useRuntimeConfig().public
 const failed = ref('')
-// The settings by what they reach (ORR-285), each tab saying so: you, how issues work in every project, and this orrery as
-// a whole. A link to a section (`#tint`) opens its tab. How sessions start and what they hear is on the Sessions page.
-type Tab = 'you' | 'issues' | 'orrery'
+// The settings by what they reach (ORR-285), each tab saying so: you, how issues work in every project, this orrery as
+// a whole, and Advanced, the pages for looking into problems (ORR-561). A link to a section (`#tint`) opens its tab, even
+// one naming the tab it used to be on (`?tab=orrery#advanced`). How sessions start and what they hear is on the Sessions page.
+type Tab = 'you' | 'issues' | 'orrery' | 'advanced'
 const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = [
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
         {id: 'name', text: 'Your name', level: 2},
@@ -23,19 +24,27 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'statuses', text: 'Issue statuses', level: 2},
         {id: 'proposals', text: 'Proposals', level: 2},
     ]},
-    {value: 'orrery', label: 'This orrery', scope: 'This orrery as a whole: how it looks, the keys its agents use, where it keeps its data, and what it shows for looking into problems. How sessions start is under Sessions → Setup.', sections: [
+    {value: 'orrery', label: 'This orrery', scope: 'This orrery as a whole: how it looks, the keys its agents use and where it keeps its data. How sessions start is under Sessions → Setup.', sections: [
         {id: 'tint', text: 'Background tint', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
         {id: 'database', text: 'Database', level: 2},
+    ]},
+    {value: 'advanced', label: 'Advanced', scope: 'For looking into problems: what orrery records, its event log, and what it puts into a session\'s context.', sections: [
         {id: 'advanced', text: 'Advanced', level: 2},
+        {id: 'events', text: 'Events', level: 2},
+        {id: 'context', text: 'Context', level: 2},
     ]},
 ]
 const tabs = TABS.map(({value, label}) => ({value, label}))
 const route = useRoute()
 const router = useRouter()
 const tab = computed<Tab>({
-    get: () => TABS.find(t => t.value === route.query.tab)?.value ?? TABS.find(t => t.sections.some(h => `#${h.id}` === route.hash))?.value ?? 'you',
+    get: () => TABS.find(t => t.sections.some(h => `#${h.id}` === route.hash))?.value ?? TABS.find(t => t.value === route.query.tab)?.value ?? 'you',
     set: next => router.replace({query: {...route.query, tab: next === 'you' ? undefined : next}, hash: ''}),
+})
+// An address naming a section's old tab (`?tab=orrery#advanced`) is put right, so it reads as the tab it opens.
+onMounted(() => {
+    if (route.query.tab && route.query.tab !== tab.value) router.replace({query: {...route.query, tab: tab.value === 'you' ? undefined : tab.value}, hash: route.hash})
 })
 // The sections, listed beside them on a wide screen; each section's heading is its title here.
 const headings = computed(() => TABS.find(t => t.value === tab.value)?.sections ?? [])
@@ -125,6 +134,7 @@ async function restrictProposals(on: boolean) {
 }
 
 // Advanced: the Events page and error notices in the bell, and what orrery does recorded as well as its errors.
+const {newErrors} = useLoggedEvents()
 const advancedFailed = ref('')
 async function setAdvanced(on: boolean) {
     advancedFailed.value = ''
@@ -522,21 +532,45 @@ async function pick(tint: string | null) {
         </p>
       </section>
 
-      <section v-if="tab === 'orrery'" id="advanced" class="scroll-mt-6 flex flex-col gap-3">
+      <section v-if="tab === 'advanced'" id="advanced" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.advanced }}</h2>
           <p class="text-xs text-muted">
-            For looking into a problem. orrery always keeps a log of its errors, in the server and in this page, on this machine only.
+            orrery always keeps a log of its errors, in the server and in this page, on this machine only.
             With Advanced on, it also records what it does (sessions starting and stopping, launchers, schedule runs, backups,
-            migrations), shows it all on an <NuxtLink to="/events" class="underline underline-offset-2 hover:text-fg">Events</NuxtLink> page,
-            and puts a notice in the bell for each new kind of error.
+            migrations) and each change to the roadmap, and puts a notice in the bell for each new kind of error.
           </p>
         </header>
         <label class="flex items-center gap-2 text-[13px] text-fg">
           <input type="checkbox" class="accent-accent-500" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
-          Show the event log, and record what orrery does
+          Record what orrery does, and tell me about new errors
         </label>
         <p v-if="advancedFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ advancedFailed }}</p>
+      </section>
+
+      <section v-if="tab === 'advanced'" id="events" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.events }}</h2>
+          <p class="text-xs text-muted">
+            orrery's event log, read like a console: what went wrong and, with Advanced on, what it did and each change to the
+            roadmap, a line each.
+          </p>
+        </header>
+        <div class="flex items-center gap-2">
+          <NuxtLink to="/events" class="text-[13px] font-medium text-accent-600 hover:underline dark:text-accent-400">Open the event log</NuxtLink>
+          <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+        </div>
+      </section>
+
+      <section v-if="tab === 'advanced'" id="context" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.context }}</h2>
+          <p class="text-xs text-muted">
+            What orrery puts into a session's context, part by part with its size, to see what to cut. A running session's is
+            also on its card on the Sessions page while Advanced is on.
+          </p>
+        </header>
+        <NuxtLink to="/context" class="self-start text-[13px] font-medium text-accent-600 hover:underline dark:text-accent-400">See what a session is sent</NuxtLink>
       </section>
     </div>
     <aside class="hidden w-56 shrink-0 xl:block">
