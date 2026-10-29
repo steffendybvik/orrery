@@ -44,6 +44,13 @@ describe('a chunk focus', () => {
         expect(ids(open)).toEqual(['ORR-2', 'ORR-4', 'ORR-1', 'ORR-3'])
     })
 
+    it('holds back the issues waiting on another not done yet (ORR-601), most urgent first', async () => {
+        const board = [{id: '1', title: 'Chain', column: 'todo', tasks: [issue('ORR-1'), issue('ORR-2', {blocked_by: ['ORR-1']}), issue('ORR-3', {priority: 'P0', blocked_by: ['ORR-2']})]}]
+        const {open, held} = await scope({chunk: '1'}, board)
+        expect(ids(open)).toEqual(['ORR-1'])
+        expect(ids(held)).toEqual(['ORR-3', 'ORR-2'])
+    })
+
     it('on `all` is every chunk\'s issues together, as "every chunk"', async () => {
         const {title, open} = await scope({chunk: 'all'})
         expect(title).toBe('every chunk')

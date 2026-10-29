@@ -8,7 +8,7 @@
 // others were tried: it picks after the clear), one at a time a few seconds apart, so they don't all go for the same issue; the one-session-per-issue lock (`claim` in
 // store.ts) turns away a second start anyway.
 import type {Issue} from '#shared/roadmap'
-import {freezeNote} from '#shared/roadmap'
+import {freezeNote, isBlocked} from '#shared/roadmap'
 import type {IssueRecord} from '../store/schema'
 
 /** How many issues a session is handed at most. */
@@ -33,13 +33,13 @@ export const forSessions = (issue: {assignee?: string | null}) => !issue.assigne
 
 /** The issues a session hearing `projects` may start: Todo, or Backlog when there's no Todo, most urgent first (then
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
- * answer, and parents (their sub-issues are the work). At most PICK_FROM. */
+ * answer, ones blocked by an issue not done yet (ORR-601), and parents (their sub-issues are the work). At most PICK_FROM. */
 export async function pickable(projects: string[]): Promise<(IssueRecord & {project: string})[]> {
     const store = useStore()
     const open: (IssueRecord & {project: string})[] = []
     for (const project of projects) {
         for (const issue of await store.listIssues(project)) {
-            if (issue.proposal || issue.waiting || !forSessions(issue)) continue
+            if (issue.proposal || issue.waiting || !forSessions(issue) || isBlocked(issue)) continue
             if (issue.kind !== 'todo' && issue.kind !== 'backlog') continue
             open.push({...issue, project})
         }

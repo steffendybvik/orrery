@@ -39,6 +39,7 @@ export abstract class ImportStore extends BulkStore {
                 await this.run('DELETE FROM issues WHERE project = ?', project)
                 await this.run('DELETE FROM chunks WHERE project = ?', project)
                 await this.run('DELETE FROM issue_aliases WHERE project = ?', project)
+                await this.run('DELETE FROM issue_links WHERE project = ? OR on_project = ?', project, project)
                 await this.run('DELETE FROM chunk_aliases WHERE project = ?', project)
             }
             for (const [i, chunk] of roadmap.chunks.entries()) {

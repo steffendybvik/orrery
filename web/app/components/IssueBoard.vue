@@ -3,8 +3,8 @@ import type {Chunk, Column, Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // Issues as cards in their columns, started first and closed last. A parent stands for its
-// sub-issues. A status the filter leaves out has no column, unless a card is in it (a parent kept for a sub-issue
-// that matches). Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
+// sub-issues. One waiting on others stays in its column, with a Blocked chip (ORR-601). A status the filter leaves
+// out has no column, unless a card is in it (a parent kept for a sub-issue that matches). Closed columns start folded to a count. Right-clicking a card opens its menu (IssueMenu). An unfolded
 // column's header has a tick (GroupTick) for all its cards.
 // A card dragged to another column (a folded one too) moves there, as the menu's move does, and so do the other ticked
 // cards when it's ticked; [ and ] move the focused card (or the ticked ones) one column left or right. While
@@ -188,6 +188,7 @@ watch(columns, () => {
           <div class="flex flex-wrap items-center gap-1.5">
             <span class="grid size-5 place-items-center rounded ring-1 ring-line"><PriorityIcon :priority="issue.priority" :size="12" /></span>
             <span v-if="issue.tasks.length" class="flex h-5 items-center gap-1 rounded px-1.5 font-mono text-[10px] text-faint ring-1 ring-line"><ProgressRing :kinds="issue.kinds" bare :size="11" />{{ subs(issue) }}</span>
+            <BlockedChip v-if="issue.blocked_by?.length" :blockers="issue.blocked_by" />
             <LabelChip v-for="label in issue.labels.slice(0, 3)" :key="label" :label="label" />
             <span v-if="issue.comments" class="ml-auto flex items-center gap-1 text-[11px] text-faint">
               <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5Z" /></svg>{{ issue.comments }}

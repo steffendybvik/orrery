@@ -134,6 +134,7 @@ const confirming = ref(false)
           <span class="flex items-center gap-1.5"><StatusIcon v-for="o in statusOptions" :key="o.value" :column="o.value" /></span>
           <span class="flex items-center gap-1.5"><PriorityIcon v-for="o in PRIORITY_OPTIONS" :key="o.value" :priority="o.value || undefined" /></span>
           <LabelChip label="design" />
+          <BlockedChip :blockers="['ORR-270']" />
           <PersonAvatar name="claude" />
           <KeyHint>⌘K</KeyHint>
           <CopyButton text="ORR-271" name="the id" />

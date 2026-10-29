@@ -23,7 +23,7 @@ watch(() => [props.project.id, props.issue.id, props.issue.updated_at] as const,
 const {look} = useStatuses()
 const PROPOSAL_SAID: Record<string, string> = {pending: 'put it up as a proposal', approved: 'approved the proposal', changes: 'asked for changes to the proposal', rejected: 'rejected the proposal'}
 
-const list = (value?: string) => JSON.parse(value ?? '[]') as string[]
+const list = (value?: string) => (JSON.parse(value ?? '[]') ?? []) as string[]
 
 /** One change as words: "moved it to In progress", "assigned Claude". */
 function said(event: IssueEvent): string[] {
@@ -52,6 +52,13 @@ function said(event: IssueEvent): string[] {
         return [
             ...now.filter(t => !was.includes(t)).map(t => `linked the team task ${t}`),
             ...was.filter(t => !now.includes(t)).map(t => `unlinked the team task ${t}`),
+        ]
+    }
+    if (field === 'depends') {
+        const [was, now] = [list(before), list(after)]
+        return [
+            ...now.filter(d => !was.includes(d)).map(d => `made it depend on ${d}`),
+            ...was.filter(d => !now.includes(d)).map(d => `took off its dependency on ${d}`),
         ]
     }
     return []

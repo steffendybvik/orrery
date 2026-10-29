@@ -3,7 +3,8 @@ import type {Chunk, Column, Issue, Project, Session} from '#shared/roadmap'
 import {isFrozen, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
-// chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once.
+// chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once. The issues it
+// depends on are picked the same way (ORR-601); those that depend on it, read the other way, only show.
 /** `sub`: it's a sub-issue, in its parent's chunk. `worker`: the session working it, which an agent's assignee names. */
 const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean, worker?: Session}>()
 const {who, name: owner} = useOwner()
@@ -54,6 +55,12 @@ const tasks = computed({
 })
 const taskOptions = computed(() => [...new Set([...knownTasks.value, ...props.issue.external])].sort((a, b) => a.localeCompare(b)).map(t => ({value: t, label: t})))
 const taskLinks = computed(() => props.issue.external.map(t => ({task: t, url: taskUrl(settings.value.tracker, t)})))
+
+// The issues it depends on, the whole list sent each time (a cycle or an unknown one is refused, and says why below).
+const dependsOn = computed({
+    get: () => props.issue.depends_on ?? [],
+    set: (next: string[]) => save({depends_on: next}),
+})
 
 // The assignee: the owner, an agent, anyone already assigned in the project, or a new name.
 const people = computed(() => [...new Set([owner.value, 'claude', ...allIssues(props.project).map(({issue}) => issue.assignee)].filter((n): n is string => !!n))])
@@ -166,6 +173,18 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         </UiButton>
       </dd>
       <dd v-if="frozen" class="col-start-2 -mt-1 text-xs text-faint">Frozen: fixes, tests and docs. A new feature fits the next release.</dd>
+    </template>
+
+    <dt class="label">Depends on</dt>
+    <dd class="flex min-w-0 flex-wrap items-center gap-1">
+      <IssueRef v-for="link in issue.depends_on ?? []" :key="link" :link="link" :here="project.id" />
+      <DependsPicker v-model="dependsOn" :here="project.id" :self="issue.id" :disabled="saving" />
+    </dd>
+    <template v-if="issue.blocks?.length">
+      <dt class="label">Blocks</dt>
+      <dd class="flex min-h-7 min-w-0 flex-wrap items-center gap-1">
+        <IssueRef v-for="link in issue.blocks" :key="link" :link="link" :here="project.id" />
+      </dd>
     </template>
 
     <template v-if="hasSubs">
