@@ -1,9 +1,13 @@
 // Comments on an issue, and its activity.
 import type {Comment, IssueEvent} from '#shared/roadmap'
+import {CLOSED} from '#shared/roadmap'
 import {checkInput} from '../utils/input'
 import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
 import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, commentOf, eventOf, signalOf, nullable, stamp} from './schema'
 import {SignalStore} from './signals'
+
+/** orrery itself, speaking on an issue. */
+const ORRERY: Actor = {name: 'orrery', owner: false}
 
 export abstract class CommentStore extends SignalStore {
     async listComments(project: string, issue: string): Promise<Comment[]> {
@@ -49,6 +53,28 @@ export abstract class CommentStore extends SignalStore {
         this.tell(input.asks ? 'comment.asks' : 'comment.added', project, issue, actor, input.asks ? {to: String(input.asks)} : {})
         if (actor.owner) await this.carryComment(project, issue, String(input.body), actor)
         else this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
+        return await this.comment(project, issue, id)
+    }
+
+    /** orrery's own word on an issue (a pull request's news, ORR-507), as `orrery`: a comment, which reaches the session on
+     * the issue as the owner's do, or the project as work does when nobody's on it; not once the issue is closed, where
+     * there's no work left to wake anyone for. `type` is what happened, for the schedules (`pr.merged`). Its words are
+     * orrery's own, never another's, so they're safe for a session to read as the owner's. */
+    async systemComment(project: string, issue: string, body: string, type: string): Promise<Comment> {
+        issue = await this.issueId(project, issue)
+        const row = await this.issueRow(project, issue)
+        const now = stamp()
+        const id = await this.db.transaction(async () => {
+            const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?) RETURNING id',
+                project, issue, body, ORRERY.name, now, now)
+            await this.touchIssue(project, issue)
+            return id
+        })
+        this.changed(project)
+        this.tell('comment.added', project, issue, ORRERY)
+        this.tell(type, project, issue, ORRERY)
+        const kind = (await this.statuses()).find(s => s.id === row.status)?.kind
+        if (!kind || !CLOSED.includes(kind)) await this.carryComment(project, issue, body, ORRERY)
         return await this.comment(project, issue, id)
     }
 
