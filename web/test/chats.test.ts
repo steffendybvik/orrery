@@ -63,6 +63,14 @@ describe("the owner's chat", () => {
             await expect(chats.say('c1c2c3c4c5c6', 'Hm', [], owner, page)).rejects.toMatchObject({statusCode: 400})
     })
 
+    it('says when the page the owner is on belongs to another project than the chat (ORR-588)', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say('c1c2c3c4c5c6', 'File this', [], owner, {path: '/p/personal/issues/PER-3', title: 'PER-3'})
+        expect(messages.at(-1)!.text).toBe('File this\n\n(The owner is on /p/personal/issues/PER-3: PER-3. That page is on personal, not this chat\'s project, greenhouse.)')
+        await chats.say('c1c2c3c4c5c6', 'And here?', [], owner, {path: '/p/greenhouse?view=board'})
+        expect(messages.at(-1)!.text).toBe('And here?\n\n(The owner is on /p/greenhouse?view=board.)')
+    })
+
     it('sends a run of messages held together as one, and keeps its parts (ORR-517)', async () => {
         await chats.openChat('greenhouse')
         const said = await chats.say('c1c2c3c4c5c6', undefined, [], owner, undefined, [' what about ', '', 'the shelves in GRE-4 '])

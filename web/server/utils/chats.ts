@@ -45,7 +45,8 @@ Every answer goes back with the reply tool, in Markdown: nothing else reaches th
 to its page, \`[<id>](/p/${project}/issues/<id>)\`, so the owner can open it.
 A message ends with the page the owner had open when they wrote it, e.g. \`(The owner is on /p/${project}/schedules: Schedules.)\`.
 It's a hint for "this" and "here": before answering about it, read what's on that page with the matching tool (issue,
-doc, chunks, releases, schedules, sessions, presets, events).`
+doc, chunks, releases, schedules, sessions, presets, events). A page on another project says so: there, "this" and "here"
+aren't ${project}. Whatever you file still goes in ${project} unless the owner names the other project, and say which (ORR-588).`
 
 const chats = new Map<string, Chat>()
 let next = 1
@@ -97,6 +98,12 @@ function pageOf(page: unknown): {path: string, title?: string} | undefined {
     return {path, ...named ? {title: named} : {}}
 }
 
+/** What the page hint adds when the page is on another project than the chat's: it isn't "here" (ORR-588). */
+function elsewhere(path: string, project: string): string {
+    const other = /^\/p\/([^/?#]+)/.exec(path)?.[1]
+    return other && other !== project ? ` That page is on ${other}, not this chat's project, ${project}.` : ''
+}
+
 /** The owner writing in the chat, with the uploads they pasted (`images`, their ids) and the page they're on (`page`):
  * it goes to the chat's session alone, as a message from the owner, the page said at its end but not kept with it. A
  * run of messages held and sent together (`parts`, ORR-517) goes as one, joined by blank lines, and is kept as its parts. */
@@ -111,7 +118,7 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
     const note = [
         words,
         pasted.length ? `(${pasted.length === 1 ? 'An image' : `${pasted.length} images`} pasted with this: ${pasted.join(', ')}. Look with the image tool.)` : '',
-        on ? `(The owner is on ${on.path}${on.title ? `: ${on.title}` : ''}.)` : '',
+        on ? `(The owner is on ${on.path}${on.title ? `: ${on.title}` : ''}.${elsewhere(on.path, chat.project)})` : '',
     ].filter(Boolean).join('\n\n')
     await useStore().messageSession(chat.project, launchTarget(id), note, actor)
     return add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}})
