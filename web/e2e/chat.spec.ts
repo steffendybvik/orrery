@@ -3,8 +3,9 @@ import {OWNER, hold, makeProject} from './support'
 
 // The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the first message
 // in the pane starts one with starts turned off (a chat counts towards nothing), the owner's words reach its session
-// alone, its answer shows in the pane, it isn't listed on the Sessions page, and closing the pane ends it. It asks the
-// owner before messaging other sessions (sent as theirs, marked as through it, on their Send) or changing a setting.
+// alone, its answer shows in the pane, it isn't listed on the Sessions page, minimizing the pane leaves it running, and
+// closing the pane ends it. It asks the owner before messaging other sessions (sent as theirs, marked as through it,
+// on their Send) or changing a setting.
 let starts: unknown = null
 
 test.beforeAll(async ({request}) => {
@@ -115,6 +116,17 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await pane.getByRole('button', {name: 'Make the chat larger'}).click()
         await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(narrow)
         await pane.getByRole('button', {name: 'Make the chat smaller'}).click()
+        // Minimizing it, by its button or Esc, hides the pane and leaves the chat running, conversation and all.
+        await pane.getByRole('button', {name: 'Minimize the chat, leaving it running'}).click()
+        await expect(pane).toHaveCount(0)
+        expect(await (await request.get('/api/chats', {headers: OWNER})).json()).toHaveLength(1)
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await expect(pane).toContainText('Jars of')
+        await pane.getByLabel('Message').press('Escape')
+        await expect(pane).toHaveCount(0)
+        expect(launcher.said.text).not.toContain('event: stop')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        await expect(pane).toContainText('Jars of')
         // Closing the pane ends the chat, and it opens again ready for another.
         await pane.getByRole('button', {name: 'End the chat and close it'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
