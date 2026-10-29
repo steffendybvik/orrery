@@ -6,7 +6,8 @@
 // commit, who closed it or asked for changes, and links. Never the PR's title or branch, a check's output or a review's
 // text, which an outsider may have written, as a session reads these as the owner's: it reads those itself, on GitHub,
 // as what they are. The one exception is a review by the owner's own GitHub handle (their `handle` setting), quoted.
-// After LOOP_LIMIT failed fixes on one PR, orrery stops sending the session more and asks the owner instead. Green
+// After LOOP_LIMIT failed fixes on one PR, orrery stops sending the session more and asks the owner instead; the next
+// failure after that starts a new round, so a session the owner points at it again hears it (ORR-529). Green
 // again, or approved, is an event and nothing more (`pr.ready`, `pr.approved`).
 import type {PullChange, PullChangeKind} from './pull-poll'
 import type {Store} from './store'
@@ -41,13 +42,14 @@ export function pullComment({repo, kind, pull, review}: PullChange, handle?: str
     }
 }
 
-/** Tells the change on its issue, if it's one that's told; past LOOP_LIMIT failed checks on a PR, asks the owner instead,
- * once; a quiet one is an event only. A failure is logged, not thrown: the poll goes on. */
+/** Tells the change on its issue, if it's one that's told; at each LOOP_LIMIT + 1st failed check on a PR, asks the owner
+ * instead, and the failures after that are told again; a quiet one is an event only. A failure is logged, not thrown:
+ * the poll goes on. */
 export async function commentOnPull(store: Store, change: PullChange): Promise<void> {
     try {
         if (QUIET.includes(change.kind)) return await store.systemEvent(change.project, change.issue, `pr.${change.kind}`)
-        if (change.kind === 'checks_failed' && (change.failures ?? 0) > LOOP_LIMIT) {
-            if (change.failures !== LOOP_LIMIT + 1) return
+        // In rounds of LOOP_LIMIT told and one asked: 1–3 to the session, 4 to the owner, 5–7 to the session again…
+        if (change.kind === 'checks_failed' && (change.failures ?? 0) % (LOOP_LIMIT + 1) === 0 && change.failures) {
             const pr = `[#${change.pull.number}](https://github.com/${change.repo}/pull/${change.pull.number})`
             return void await store.systemAsk(change.project, change.issue, `${pr}'s checks have failed ${change.failures} times. I've stopped sending the session on it more: have a look, and point a session at it again when it should carry on.`, 'pr.checks_failed')
         }
