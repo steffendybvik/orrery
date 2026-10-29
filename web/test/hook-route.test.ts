@@ -55,8 +55,8 @@ describe("the hook's route", () => {
         await hook({project: 'greenhouse', event: 'UserPromptSubmit', id: 'abc', started: 'launch-trusted', command: 'Work on GRE-4'})
         await hook({project: 'greenhouse', event: 'UserPromptSubmit', id: 'def', command: 'Work on GRE-5'})
         // The same launch id on another project isn't the untrusted one.
-        await hook({project: 'larder', event: 'UserPromptSubmit', id: 'ghi', started: UNTRUSTED, command: 'Work on LAR-1'})
-        expect(reported.map(r => r.command)).toEqual(['Work on GRE-4', 'Work on GRE-5', 'Work on LAR-1'])
+        await hook({project: 'observatory', event: 'UserPromptSubmit', id: 'ghi', started: UNTRUSTED, command: 'Work on OBS-1'})
+        expect(reported.map(r => r.command)).toEqual(['Work on GRE-4', 'Work on GRE-5', 'Work on OBS-1'])
     })
 
     it("caps the command at 4,000 characters, a tool's name at 200 and its detail at 300", async () => {

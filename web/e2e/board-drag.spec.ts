@@ -5,10 +5,10 @@ import {makeProject, projectApi} from './support'
 // goes into Proposed or out of it while proposals are restricted (the default).
 test.describe.configure({mode: 'serial'})
 
-const api = projectApi('larder')
+const api = projectApi('planetarium')
 
 test.beforeAll(async ({request}) => {
-    await makeProject(request, {name: 'Larder', key: 'LAR'})
+    await makeProject(request, {name: 'Planetarium', key: 'PLN'})
 })
 
 const card = (page: Page, id: string) => page.locator(`article[data-issue="${id}"]`)
@@ -17,7 +17,7 @@ const statusOf = async (request: APIRequestContext, id: string) => (await api(re
 
 test('a card dragged to another column moves there', async ({page, request}) => {
     const jam = await api(request, 'post', '/issues', {title: 'Label the jam', status: 'todo'})
-    await page.goto('/p/larder?view=board')
+    await page.goto('/p/planetarium?view=board')
     await card(page, jam.id).dragTo(column(page, 'in-progress'))
     await expect.poll(() => statusOf(request, jam.id)).toBe('in-progress')
     await expect(column(page, 'in-progress').locator(`[data-issue="${jam.id}"]`)).toBeVisible()
@@ -25,7 +25,7 @@ test('a card dragged to another column moves there', async ({page, request}) => 
 
 test('the ticked cards move together, to a column the filter hides too', async ({page, request}) => {
     const made = [await api(request, 'post', '/issues', {title: 'Stack the tins', status: 'todo'}), await api(request, 'post', '/issues', {title: 'Sweep the floor', status: 'todo'})]
-    await page.goto('/p/larder?view=board')
+    await page.goto('/p/planetarium?view=board')
     for (const {id} of made) await page.getByRole('checkbox', {name: `Select ${id}`}).click()
     // Done is filtered out to begin with, so it's only there to drop on once a card is picked up.
     await expect(column(page, 'done')).toHaveCount(0)
@@ -39,7 +39,7 @@ test('the ticked cards move together, to a column the filter hides too', async (
 
 test('[ and ] move the focused card to the column on its left or right', async ({page, request}) => {
     const rice = await api(request, 'post', '/issues', {title: 'Weigh the rice', status: 'todo'})
-    await page.goto('/p/larder?view=board')
+    await page.goto('/p/planetarium?view=board')
     await card(page, rice.id).focus()
     // Started columns come first, so Backlog is right of Todo.
     await page.keyboard.press(']')
@@ -52,7 +52,7 @@ test('[ and ] move the focused card to the column on its left or right', async (
 test('nothing goes into Proposed or out of it while proposals are restricted', async ({page, request}) => {
     const proposal = await api(request, 'post', '/issues', {title: 'Buy a second freezer', proposal: 'pending'})
     const oats = await api(request, 'post', '/issues', {title: 'Seal the oats', status: 'todo'})
-    await page.goto('/p/larder?view=board')
+    await page.goto('/p/planetarium?view=board')
     await expect(card(page, proposal.id)).toHaveAttribute('draggable', 'false')
     await card(page, oats.id).dragTo(column(page, 'proposed'))
     await card(page, proposal.id).dragTo(column(page, 'todo'))
