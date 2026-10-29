@@ -567,7 +567,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     await expect(pane.getByText('No launcher is running for Observatory.')).toBeVisible()
     await expect(pane.getByText(/channel\/orrery-launcher\.mjs --install/)).toBeVisible()
     await expect(pane.getByRole('button', {name: /Copy/})).toBeVisible()
-    await expect(pane.getByText('No launcher is running for observatory: install one')).toHaveCount(0)
+    await expect(pane.getByText('No launcher is running for observatory: install it once')).toHaveCount(0)
     // Tried once, not again every few seconds.
     await page.waitForTimeout(4500)
     expect(starts).toHaveLength(1)

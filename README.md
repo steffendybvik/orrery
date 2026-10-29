@@ -105,8 +105,8 @@ You need:
   exposing it.
 - **Channels are a Claude Code research preview**, hence the long flag in step 5. Without it a session still
   has the tools and can read and update the roadmap, but orrery can't send it work.
-- **Starting sessions** needs tmux 3.2 or newer, and the launcher installed once per repo
-  (`node /path/to/orrery/channel/orrery-launcher.mjs --install`). On Windows it runs inside WSL
+- **Starting sessions** needs tmux 3.2 or newer, and the launcher installed once
+  (`node /path/to/orrery/channel/orrery-launcher.mjs --install`); a Claude session opened in a repo then adds it. On Windows it runs inside WSL
   ([On Windows](docs/connect.md#on-windows)).
 
 ## Documentation
