@@ -117,7 +117,10 @@ const foldersOf = (project: string): string[] => [...folders.get(project)?.keys(
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) {
         const waits = !told.has(id) ? PENDING_FOR : launch.chat ? Infinity : REFUSED_FOR
-        if (Date.now() - launch.at > waits) pending.delete(id)
+        if (Date.now() - launch.at > waits) {
+            pending.delete(id)
+            told.delete(id)
+        }
     }
     // A chat on its way takes up no room.
     return [...pending.values()].filter(l => !l.chat && (!project || l.project === project)).length
@@ -126,6 +129,34 @@ function pendingOn(project?: string): number {
 function emit(event: LaunchEvent) {
     projectEvents.emit('launches', event)
 }
+
+/** A launch waiting for a launcher to take it, and since when. */
+type Held = Launch & {at: number, claimed: boolean}
+
+/** Holds a new launch on the project from here, so the limit counts it as on its way while it's readied. */
+function hold(project: string, fields: Omit<Launch, 'id' | 'project' | 'tmux'>): Held {
+    const id = randomBytes(6).toString('hex')
+    const held: Held = {id, project, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...fields, at: Date.now(), claimed: false}
+    pending.set(id, held)
+    return held
+}
+
+/** Lets go of a held launch that won't start, saying why. */
+function release(held: Held, error: unknown): never {
+    pending.delete(held.id)
+    throw error
+}
+
+/** Offers a held launch to the project's launchers, as a run of the schedule `cause` when one started it. */
+function send(held: Held, cause?: number): Launch {
+    const {at: _at, claimed: _claimed, ...launch} = held
+    if (cause !== undefined) causes.set(held.id, cause)
+    emit({type: 'launch', launch})
+    return launch
+}
+
+/** How many more sessions the limit has room for: those running and on their way count, on every project. */
+const room = (limit: number) => limit - startedSessions() - pendingOn()
 
 /** The project's launches no launcher has taken on yet, to offer a launcher as it connects: one refused for an outdated
  * launcher is started once that launcher restarts on new code (ORR-471). */
@@ -149,21 +180,14 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     if (!signal.protected || signal.target && signal.target !== EVERY || signal.delivered_to.length) return null
     if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
     const asked = !!startAsked.getStore()
-    const id = randomBytes(6).toString('hex')
-    const held: Launch & {at: number, claimed: boolean} = {id, project, after: signal.id - 1, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), at: Date.now(), claimed: false}
-    pending.set(id, held)
-    const starts = await allowedStarts(project).catch(error => {
-        pending.delete(id)
-        throw error
-    })
+    const held = hold(project, {after: signal.id - 1})
+    const starts = await allowedStarts(project).catch(error => release(held, error))
     if (!starts || starts.on_signal === false && !asked) {
-        pending.delete(id)
+        pending.delete(held.id)
         return null
     }
     if (starts.minutes) held.minutes = starts.minutes
-    const {at: _at, claimed: _claimed, ...launch} = held
-    emit({type: 'launch', launch})
-    return launch
+    return send(held)
 }
 
 /** The session id a focus made for a launch is aimed at: its session takes it as one of its ids when it connects,
@@ -175,31 +199,24 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release, context, hears, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], actor?: Actor} = {}): Promise<Launch> {
+export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], actor?: Actor} = {}): Promise<Launch> {
     if (hears) hears = [project, ...new Set(hears.filter(p => p !== project))]
     const apart = hears?.filter(p => p !== project && !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
     if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
     const starts = await roomFor(project)
-    const id = randomBytes(6).toString('hex')
     // Held from here, so the limit counts it while its focus is made.
-    const held = {id, project, after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), ...context ? {context} : {}, ...hears ? {hears} : {}, at: Date.now(), claimed: false}
-    pending.set(id, held)
+    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}})
     try {
-        const session = launchTarget(id)
+        const session = launchTarget(held.id)
         held.after = issue
             ? (await useStore().focus(project, issue, {session}, actor)).id - 1
-            : statuses?.length || release
-                ? (await useStore().focusChunk(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: release ?? null}, actor)).id - 1
+            : statuses?.length || version
+                ? (await useStore().focusChunk(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: version ?? null}, actor)).id - 1
                 : await useStore().lastSignal(project)
     } catch (error) {
-        pending.delete(id)
-        throw error
+        release(held, error)
     }
-    const {at: _at, claimed: _claimed, ...launch} = held
-    const cause = scheduleRunning.getStore()
-    if (cause !== undefined) causes.set(id, cause)
-    emit({type: 'launch', launch})
-    return launch
+    return send(held, scheduleRunning.getStore())
 }
 
 /** What an untrusted schedule's message goes with: it brings in what others wrote. */
@@ -219,20 +236,13 @@ const UNTRUSTED_IDLE = 2
  * back to the project's sessions. */
 export async function startUntrusted(project: string, schedule: number, text: string, actor: Actor): Promise<Launch> {
     const starts = await roomFor(project)
-    const id = randomBytes(6).toString('hex')
-    const held: Launch & {at: number, claimed: boolean} = {id, project, after: 0, minutes: Math.min(starts.minutes ?? UNTRUSTED_MINUTES, UNTRUSTED_MINUTES),
-        tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), untrusted: true, at: Date.now(), claimed: false}
-    pending.set(id, held)
+    const held = hold(project, {after: 0, minutes: Math.min(starts.minutes ?? UNTRUSTED_MINUTES, UNTRUSTED_MINUTES), untrusted: true})
     try {
-        held.after = (await useStore().message(project, schedule, `${UNTRUSTED_BRIEF}\n\n${text}`, actor, launchTarget(id))).id - 1
+        held.after = (await useStore().message(project, schedule, `${UNTRUSTED_BRIEF}\n\n${text}`, actor, launchTarget(held.id))).id - 1
     } catch (error) {
-        pending.delete(id)
-        throw error
+        release(held, error)
     }
-    const {at: _at, claimed: _claimed, ...launch} = held
-    causes.set(id, schedule)
-    emit({type: 'launch', launch})
-    return launch
+    return send(held, schedule)
 }
 
 /** The owner's chat (chats.ts): a session started for it alone, which its launcher starts able only to read and to
@@ -240,23 +250,19 @@ export async function startUntrusted(project: string, schedule: number, text: st
  * sessions, and hears only what's aimed at it. It counts towards nothing: it needs only a launcher, not starts turned
  * on or room under the limit, and takes up none. */
 export async function startChat(project: string, context: SessionContext): Promise<Launch> {
-    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
-    const id = randomBytes(6).toString('hex')
-    const held: Launch & {at: number, claimed: boolean} = {id, project, after: await useStore().lastSignal(project), context,
-        tmux: `orrery-${project}-${id}`.replace(/[^\w-]/g, '-'), chat: true, at: Date.now(), claimed: false}
-    pending.set(id, held)
-    const {at: _at, claimed: _claimed, ...launch} = held
-    emit({type: 'launch', launch})
-    return launch
+    if (!launchersOf(project)) throw noLauncher(project)
+    return send(hold(project, {after: await useStore().lastSignal(project), context, chat: true}))
 }
 
 /** The project's starts, if it may have one more session started now: the owner lets orrery start them, a launcher is
  * there, and the sessions running and on their way, on every project, are under the limit. */
+const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
+
 async function roomFor(project: string): Promise<Starts> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`orrery doesn't start sessions; turn it on in App settings`)
-    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project}: install one in its repo with node channel/orrery-launcher.mjs --install`)
-    if (startedSessions() + pendingOn() >= starts.limit) throw conflict(`orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
+    if (!launchersOf(project)) throw noLauncher(project)
+    if (room(starts.limit) < 1) throw conflict(`orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     return starts
 }
 
@@ -295,7 +301,8 @@ export const SCOPE_STATUSES = ['todo', 'started']
  * limit is reached by the sessions running and on their way on every project, the one asking for it among them. */
 async function allowedStarts(project: string): Promise<Starts | null> {
     const starts = await useStore().starts(project)
-    return starts && startedSessions() + pendingOn() <= starts.limit ? starts : null
+    // Its own launch is held already, so it's among those counted.
+    return starts && room(starts.limit) >= 0 ? starts : null
 }
 
 /** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. Only
@@ -340,9 +347,9 @@ export function launched(id: string): StartedSession | undefined {
     const launch = pending.get(id)
     pending.delete(id)
     if (told.delete(id)) chatProblem(id, null)
-    if (launch) return {launch: id, tmux: launch.tmux, ...launch.minutes ? {stops_at: new Date(Date.now() + launch.minutes * 60_000).toISOString()} : {}, ...launch.context ? {context: launch.context} : {}, ...launch.hears ? {hears: launch.hears} : {}, ...launch.untrusted ? {untrusted: true} : {}, ...launch.chat ? {chat: true} : {}}
-    const known = reported.get(id)
-    return known && {launch: id, tmux: known.tmux, ...known.stops_at ? {stops_at: known.stops_at} : {}, ...known.context ? {context: known.context} : {}, ...known.untrusted ? {untrusted: true} : {}, ...known.chat ? {chat: true} : {}}
+    const known = launch ? {...launch, stops_at: launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined} : reported.get(id)
+    return known && {launch: id, tmux: known.tmux, ...known.stops_at ? {stops_at: known.stops_at} : {}, ...known.context ? {context: known.context} : {},
+        ...launch?.hears ? {hears: launch.hears} : {}, ...known.untrusted ? {untrusted: true} : {}, ...known.chat ? {chat: true} : {}}
 }
 
 /** A launcher saying which of the project's sessions it runs, as it connects: they count as started again,
@@ -376,6 +383,7 @@ export function launchGone(id: string) {
     chatEnded(id)
     causes.delete(id)
     pending.delete(id)
+    told.delete(id)
     reported.delete(id)
     stopping.delete(id)
     screens.delete(id)
