@@ -610,7 +610,7 @@ handle with `PATCH /settings {handle}` (their GitHub login, say; `null` uses the
 What orrery did and what went wrong, kept in its own database and never sent anywhere, for looking into a
 problem. **Errors** are recorded always: a 5xx the server answers with (`server.error`), an error in the page
 (`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What orrery did** is
-recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → This orrery):
+recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → Advanced):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
 launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
@@ -626,8 +626,8 @@ type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.cr
 `issue.priority`…, `issue.deleted`), `comment.added`, `comment.asks`, `chunk.created`, `doc.created`, `doc.changed`,
 `doc.deleted` and `release.<what>` (`release.created`, `release.frozen`, `release.shipped`…). Its message says who did
 what (`claude moved ORR-12: todo → done`), and its details hold `by`, `owner`, `from`, `to`, `untrusted` and the
-`schedule` whose run made it. No titles, notes or comment text are kept. Advanced also shows the Events page and
-counts each new kind of error in the bell.
+`schedule` whose run made it. No titles, notes or comment text are kept. Advanced also counts each new kind of error in the
+bell. The Events page is reached from App settings → Advanced either way.
 
 Each event is `{id, level, kind, project?, subject?, message, details?, count, first_seen, last_seen, resolved_at?, resolved_by?}`,
 with `level` one of `error`, `warn`, `info`. Each is a line of its own (`count` 1, `last_seen` its `first_seen`); a

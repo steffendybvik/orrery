@@ -4,7 +4,7 @@ import type {ContextKind, ContextPart, ContextView} from '#shared/context'
 // What orrery puts into a session's context, part by part with its size (ORR-549), to see what to cut: the channel's
 // instructions, each tool it lists and the context the session was started with, biggest first, each part's text
 // folded under it. For a kind of session on a project (`?project=&kind=`), or a running one (`?session=`, from its
-// card on the Sessions page). It's there while Advanced is on (App settings → This orrery).
+// card on the Sessions page). It's reached from App settings → Advanced (ORR-561).
 useHead({title: 'Context · orrery'})
 const route = useRoute()
 const router = useRouter()
@@ -86,8 +86,8 @@ const n = (value: number) => value.toLocaleString('en')
     <div class="mx-auto flex max-w-4xl flex-col gap-4">
       <p v-if="!settings.advanced" class="rounded-lg bg-well px-3 py-2 text-xs text-muted ring-1 ring-line">
         This is for Advanced: turn it on in
-        <NuxtLink to="/settings?tab=orrery#advanced" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>
-        to find it in the sidebar.
+        <NuxtLink to="/settings?tab=advanced" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>
+        to see a running session's from its card.
       </p>
       <p v-if="failed" class="text-sm text-rose-600 dark:text-rose-400">{{ failed }}</p>
 
