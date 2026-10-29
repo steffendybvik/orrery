@@ -25,7 +25,9 @@ function blocksOf(root: ParentNode): {element: Element, key: string}[] {
 export function renderMarkdown(source: string, title?: string, before?: string): {html: string, headings: Heading[], changed: number} {
     const [heading, text] = /^\s*#\s+(.+)\n/.exec(source) ?? []
     const body = heading && text && text.trim().toLowerCase() === title?.trim().toLowerCase() ? source.slice(heading.length) : source
-    const clean = DOMPurify.sanitize(marked.parse(body, {async: false, gfm: true}), {USE_PROFILES: {html: true}})
+    // No forms either: written by an agent or an outsider, one could ask the owner for a key and post it anywhere
+    // (ORR-589). A task list's checkboxes stay, as an input outside a form sends nothing.
+    const clean = DOMPurify.sanitize(marked.parse(body, {async: false, gfm: true}), {USE_PROFILES: {html: true}, FORBID_TAGS: ['form', 'button', 'textarea', 'select', 'option']})
 
     const page = new DOMParser().parseFromString(`<div>${clean}</div>`, 'text/html')
     const headings: Heading[] = []
