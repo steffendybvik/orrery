@@ -6,8 +6,8 @@ import type {Session, Signal} from '#shared/roadmap'
 // orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
 // New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
 // got them. The session working the issue (`worker`) comes first, marked. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
-// links to; here a row only points it at this.
-const props = defineProps<{project: string, issue?: string, chunk?: string, worker?: string}>()
+// links to; here a row only points it at this. An issue still blocked (ORR-601) says so first: a focus starts it anyway.
+const props = defineProps<{project: string, issue?: string, chunk?: string, worker?: string, blockedBy?: string[]}>()
 const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.chunk})
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
 const {sessions: all, signals: live, byId} = useRoadmaps()
@@ -120,6 +120,10 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
           @click="focus(null, true)"
       >{{ sending === 'all' ? 'Starting…' : issue ? 'Focus on this (starts a session)' : 'Work through this (starts a session)' }}</button>
     </div>
+
+    <p v-if="blockedBy?.length && (listening.length || canStart)" class="text-xs text-amber-700 dark:text-amber-400">
+      Blocked by {{ blockedBy.join(', ') }}, which {{ blockedBy.length === 1 ? "isn't" : "aren't" }} done yet. A focus starts it anyway.
+    </p>
 
     <fieldset v-if="(listening.length || canStart) && offered.length" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
       <legend class="sr-only">Standing instructions for this focus</legend>

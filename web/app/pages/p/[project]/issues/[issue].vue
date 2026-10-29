@@ -263,7 +263,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
         <ProposalPanel :project="project.id" :issue="issue" />
 
-        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" :worker="worker?.id" />
+        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" :worker="worker?.id" :blocked-by="issue.blocked_by" />
 
         <IssuePulls :project="project.id" :issue="issue.id" :updated="issue.updated_at" />
 
