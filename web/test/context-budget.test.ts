@@ -28,11 +28,13 @@ describe('the tool list a session carries on every turn', () => {
     })
 
     it('stays within its budget, for one project and for several', () => {
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(11_400)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(12_900)
-        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(12_000)
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(21_400)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(22_700)
+        // Raised by the arguments that ask for more of a shorter list (ORR-545's, ORR-546's), which cut far more from
+        // what those tools answer.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(11_700)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(13_200)
+        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(12_300)
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(21_700)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(23_000)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {

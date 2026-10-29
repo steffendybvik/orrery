@@ -1,5 +1,5 @@
 import type {Issue, Signal} from '#shared/roadmap'
-import {CLOSED} from '#shared/roadmap'
+import {CLOSED, byPriority} from '#shared/roadmap'
 import type {Store} from './store'
 import {known} from '#shared/known'
 
@@ -24,7 +24,7 @@ export async function scopeOf(store: Store, project: string, signal: Signal) {
     const fits = (t: {column: string, kind: string}) => wanted.length
         ? wanted.some(s => t.column === s || t.kind === s)
         : t.kind !== 'proposed' && !CLOSED.includes(t.kind as never)
-    const open = tasks.filter(fits).sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))
+    const open = tasks.filter(fits).sort(byPriority)
     const title = signal.release ? `${chunk.title}, release ${signal.release}` : chunk.title
     return {chunk, title, wanted, open}
 }
