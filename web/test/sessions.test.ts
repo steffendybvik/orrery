@@ -111,6 +111,20 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse')[0]).not.toHaveProperty('tool')
     })
 
+    it("keeps the dialog's tool over a parallel one's PreToolUse that lands after it, until the prompt is answered (ORR-572)", () => {
+        const report = (event: string, more: Partial<import('../server/utils/sessions').Report> = {}) => sessions.report({id: 'a', project: 'greenhouse', event, ...more})
+        const rm = {name: 'Bash', detail: 'rm -rf web/.output'}
+        const read = {name: 'Read', detail: '/src/a.ts'}
+        report('PermissionRequest', {tool: rm})
+        report('PreToolUse', {tool: read})
+        expect(report('Notification', {message: 'Claude needs your permission'})?.asking).toEqual(rm)
+        // Answered: the next tool's PreToolUse is what a later prompt is for.
+        report('PreToolUse', {tool: rm})
+        report('PreToolUse', {tool: read})
+        expect(report('Notification', {message: 'Claude needs your permission'})?.asking).toEqual(read)
+        expect(sessions.listSessions('greenhouse')[0]).not.toHaveProperty('asked')
+    })
+
     it('keeps the time its state began until the state changes', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
         const first = sessions.report({id: 'a', project: 'greenhouse', event: 'UserPromptSubmit'})!

@@ -42,6 +42,12 @@ test('a session orrery started pops up with its prompt, and Allow and Open tmux 
         await expect(popup.getByText('rm -rf web/.output', {exact: true})).toBeVisible()
         await expect(popup).not.toContainText("I'll clear the build output")
         await expect(popup).not.toContainText('Do you want to proceed?')
+        // What Allow answers is the screen, so a hook's word for the session doesn't take its place (ORR-572).
+        await request.post('/api/sessions', {data: {id: 'e2e-p', project: 'pantry', event: 'PermissionRequest', tool: {name: 'Read', detail: 'README.md'}}})
+        await expect.poll(async () => (await (await request.get('/api/sessions')).json()).find((s: {id: string}) => s.id === 'e2e-p')?.asking?.detail).toBe('README.md')
+        await expect(popup).not.toContainText('README.md')
+        await expect(popup.locator('[data-asking]')).toHaveCount(0)
+        await expect(popup.getByText('rm -rf web/.output', {exact: true})).toBeVisible()
         await popup.getByRole('button', {name: 'Open tmux'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: watch')
         await popup.getByRole('button', {name: 'Allow'}).click()

@@ -35,6 +35,9 @@ interface Known extends Session {
     chat?: boolean
     /** The tool its hook last said it's about to use or asks for: what a permission prompt after it is for. */
     tool?: SessionTool
+    /** `tool` came from a permission dialog, so a parallel tool's `PreToolUse` landing after it (both run in the
+     * background) doesn't take its place until the prompt is answered (ORR-572). */
+    asked?: boolean
 }
 
 const sessions = new Map<string, Known>()
@@ -193,6 +196,7 @@ export function report(input: Report): Session | null {
             cwd: input.cwd, state, since: now, started_at: now, listening: false, seenAt: Date.now(), hooked: input.project,
             ...state === 'waiting' && input.message ? {asks: input.message} : {},
             ...input.tool ? {tool: input.tool} : {},
+            ...input.event === 'PermissionRequest' && input.tool ? {asked: true} : {},
             ...state === 'waiting' && input.tool ? {asking: input.tool} : {},
         }
         add(session)
@@ -209,13 +213,16 @@ export function report(input: Report): Session | null {
         if (input.name) session.name = input.name
         session.pid ??= input.pid
         session.cwd ??= input.cwd
+        // Going on from a prompt answers it: the dialog's tool is done with.
+        if (session.state === 'waiting' && state === 'working' && input.event !== 'PermissionRequest') session.asked = undefined
         if (session.state !== state) session.since = now
         session.state = state
         if (input.event !== 'PermissionRequest') session.asks = state === 'waiting' ? input.message : undefined
-        if (input.tool) session.tool = input.tool
+        if (input.tool && (input.event === 'PermissionRequest' || !session.asked)) session.tool = input.tool
+        if (input.event === 'PermissionRequest' && input.tool) session.asked = true
         session.asking = state === 'waiting' ? session.tool : undefined
         // Done with its turn: the next prompt comes after a tool of its next.
-        if (state === 'idle') session.tool = undefined
+        if (state === 'idle') session.tool = session.asked = undefined
         session.seenAt = Date.now()
     }
     if (state === 'idle') session.idleAt = Date.now()
@@ -470,7 +477,7 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, stopping: _stopping, cleared: _cleared, tool: _tool, ...session}: Known): Session {
+function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, stopping: _stopping, cleared: _cleared, tool: _tool, asked: _asked, ...session}: Known): Session {
     const others = [...channels ?? []].filter(([project, c]) => c.heard && project !== session.project).map(([project]) => project)
     return {...session, reachable: !!stoppable, ...others.length ? {also: others} : {}}
 }
