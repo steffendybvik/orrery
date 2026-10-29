@@ -125,6 +125,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
         </header>
         <CopyBlock title="Install the launcher once: run" :text="install" hint="Anywhere, it installs the launcher; in a project's repo, it adds that project too. From then on a Claude session opened in a repo adds it (--no-pick-up turns that off), and --uninstall in a repo takes it off and keeps it off. Adding a repo leaves the running sessions alone." />
         <SessionStarts />
+        <LauncherRepos />
         <PickNextSetting />
         <StartingSessionsGuide />
       </section>
