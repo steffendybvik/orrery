@@ -21,6 +21,7 @@ const urgent = computed(() => ordered.value.filter(p => shows(p.id))
 const mine = computed(() => ordered.value.filter(p => shows(p.id))
     .map(project => ({project, issues: myIssues(project, owner.value).filter(({issue}) => issue.priority !== 'P0' && !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
+// Each list's hint goes beside its label, or under it on a phone so the label keeps to one line (ORR-556).
 const lists = computed(() => [
     {id: 'waiting', title: 'Waiting on you', hint: 'an agent asked for your decision or feedback: answer with a comment', groups: waiting.value},
     {id: 'urgent', title: 'Urgent', hint: 'P0 in any project, whoever has it', groups: urgent.value},
@@ -43,11 +44,11 @@ const lists = computed(() => [
     <template v-else>
       <GettingStarted v-if="!gettingStarted.finished.value && !gettingStarted.hidden.value" card class="m-3 md:m-4" />
       <div v-for="(list, i) in lists" :key="list.id" :class="i > 0 && 'mt-6'">
-        <h2 class="flex items-center gap-2 px-3 pt-4 pb-2">
+        <h2 class="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 pt-4 pb-2">
           <PriorityIcon v-if="list.id === 'urgent'" priority="P0" :size="14" />
           <span v-else-if="list.id === 'waiting'" class="size-2 rounded-full bg-violet-500" />
-          <span class="label">{{ list.title }}</span>
-          <span v-if="list.hint" class="text-[11px] text-faint">{{ list.hint }}</span>
+          <span class="label whitespace-nowrap">{{ list.title }}</span>
+          <span v-if="list.hint" class="basis-full text-[11px] text-faint sm:basis-auto">{{ list.hint }}</span>
         </h2>
         <section v-for="group in list.groups" :key="group.project.id">
           <NuxtLink :to="`/p/${group.project.id}`" class="sticky top-0 z-10 flex h-9 items-center gap-2.5 border-y border-line bg-panel/90 px-3 backdrop-blur hover:tint">
