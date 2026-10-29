@@ -6,13 +6,33 @@ const watching = {tmux: '/opt/homebrew/bin/tmux', name: 'orrery-greenhouse-a1b2c
 const line = "'/opt/homebrew/bin/tmux' 'attach' '-t' 'orrery-greenhouse-a1b2c3d4e5f6'"
 
 describe('opening a terminal on a session', () => {
-    it('has Terminal run the attach through AppleScript, the default', () => {
-        expect(openWatch({...watching, app: 'terminal'}).args).toEqual(['-e', 'tell application "Terminal"', '-e', 'activate', '-e', `do script "${line}"`, '-e', 'end tell'])
-        expect(openWatch({...watching, app: undefined}).command).toBe('osascript')
+    /** The AppleScript lines an `osascript` call runs, one per `-e`. */
+    const script = (app: string | undefined) => {
+        const {command, args} = openWatch({...watching, app})
+        expect(command).toBe('osascript')
+        return args.filter((_: string, i: number) => i % 2 === 1)
+    }
+
+    it('has Terminal run the attach through AppleScript, the default, in the window it opens when it starts (ORR-564)', () => {
+        const lines = script('terminal')
+        expect(lines[0]).toBe('set wasRunning to application "Terminal" is running')
+        // Not running: it opens a window as it starts, so the attach goes there rather than into a second, blank one.
+        expect(lines).toContain(`do script "${line}" in window 1`)
+        // Running: a new window of its own.
+        expect(lines).toContain(`do script "${line}"`)
+        expect(lines.indexOf(`do script "${line}" in window 1`)).toBeLessThan(lines.indexOf('else'))
+        expect(lines.at(-2)).toBe('activate')
+        expect(script(undefined)).toEqual(lines)
     })
 
-    it('opens iTerm2 and Ghostty with the attach as their command', () => {
-        expect(openWatch({...watching, app: 'iterm'}).args[1]).toBe(`tell application "iTerm" to create window with default profile command "${line}"`)
+    it('has iTerm2 write the attach into the window it opens when it starts, else open one with it', () => {
+        const lines = script('iterm')
+        expect(lines[0]).toBe('set wasRunning to application "iTerm" is running')
+        expect(lines).toContain(`tell current session of current window to write text "${line}"`)
+        expect(lines).toContain(`create window with default profile command "${line}"`)
+    })
+
+    it('opens Ghostty with the attach as its command', () => {
         expect(openWatch({...watching, app: 'ghostty'})).toEqual({command: 'open', args: ['-na', 'Ghostty', '--args', '-e', '/opt/homebrew/bin/tmux', 'attach', '-t', watching.name]})
     })
 
