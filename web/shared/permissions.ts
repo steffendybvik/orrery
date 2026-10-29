@@ -95,11 +95,19 @@ export const PERMISSIONS: Permission[] = [
         untrusted: {level: 'limited', note: 'Only on its own external proposals'},
     },
     {
-        id: 'docs.write', area: 'Roadmap', action: 'Write and change docs, chunks and releases',
+        id: 'docs.write', area: 'Roadmap', action: 'Write and change docs and releases',
         why: 'Docs are material, kept current by the sessions that read them.',
-        routes: ['PUT /api/projects/:project/docs/:doc', 'POST /api/projects/:project/chunks', 'POST /api/projects/:project/releases'],
+        routes: ['PUT /api/projects/:project/docs/:doc', 'POST /api/projects/:project/releases'],
         session: {level: 'free'},
         chat: refused,
+        untrusted: refused,
+    },
+    {
+        id: 'chunks.write', area: 'Roadmap', action: 'Make and change chunks',
+        why: 'A chunk groups issues: material, like the issues in it.',
+        routes: ['POST /api/projects/:project/chunks', 'PATCH /api/projects/:project/chunks/:chunk'],
+        session: {level: 'free'},
+        chat: {level: 'asks', note: 'Saved as yours on your Allow'},
         untrusted: refused,
     },
     {

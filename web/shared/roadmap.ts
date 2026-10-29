@@ -538,6 +538,8 @@ export interface Settings {
     /** Shows what's for looking into problems: the Events page, and a notice in the bell for each new kind of error.
      * Off by default; errors are recorded either way, what orrery did only while it's on. */
     advanced: boolean
+    /** A listening session out of work is handed the issues it may start, Todo then Backlog, to pick one (ORR-452). */
+    pick_next: boolean
 }
 
 /** How much an event matters: something went wrong, something looks off, or what orrery did. */
@@ -676,6 +678,8 @@ export interface ChatMessage {
     cleared?: boolean
     /** The session asking to make or change a release, which waits on the owner's Allow (ORR-504). */
     release?: ChatReleaseRequest
+    /** The session asking to make or change a chunk, which waits on the owner's Allow (ORR-510). */
+    chunk?: ChatChunkRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -753,6 +757,25 @@ export interface ChatReleaseRequest {
     change: boolean
     changes: {field: ChatReleaseField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatReleaseField, unknown>>
+    state: ChatRequest['state']
+}
+
+/** What of a chunk the owner's chat may ask to set (ORR-510), by what the chunk's page calls it. Removing one stays the
+ * owner's, on the page. */
+export const CHAT_CHUNK_FIELDS = {
+    title: 'Name',
+    summary: 'Summary',
+    priority: 'Priority',
+} as const
+export type ChatChunkField = keyof typeof CHAT_CHUNK_FIELDS
+
+/** A chunk the chat asked to make (no `id`) or change (`id`), each field it sets from → to: saved as the owner's only
+ * once they allow it, and `expired` as a setting's request is. */
+export interface ChatChunkRequest {
+    id?: string
+    title: string
+    changes: {field: ChatChunkField, from?: unknown, to: unknown}[]
+    body: Partial<Record<ChatChunkField, unknown>>
     state: ChatRequest['state']
 }
 

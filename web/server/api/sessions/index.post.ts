@@ -29,6 +29,7 @@ export default defineEventHandler(async event => {
     if (session && body.event === 'Stop') {
         considerClear(session.project, session.id)
         carryOn(session.project, session.id)
+        pickWhenIdle(session.project, session.id)
     }
     // Cut off by an API error: what it had in progress isn't being worked any more.
     if (session && body.event === 'StopFailure') {
@@ -38,7 +39,13 @@ export default defineEventHandler(async event => {
     const source = text('source')
     if (!session || body.event !== 'SessionStart') return session
     // Back from orrery's clear with part of its run left: a focus on the rest starts its next turn.
-    if (source === 'clear' && session.started) resumeRun(body.project, session.id).catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
+    // With none, it picks its next issue, when the owner lets sessions (ORR-452).
+    if (source === 'clear' && session.started) {
+        const project = body.project
+        resumeRun(project, session.id)
+            .then(resumed => resumed || pickNext(project, session.id))
+            .catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
+    }
     const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
     const happened = source && Object.hasOwn(RESUMED, source) ? RESUMED[source] : undefined
     const work = happened ? await briefFor(body.project, session.id, happened, api).catch(() => undefined) : undefined

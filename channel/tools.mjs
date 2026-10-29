@@ -158,6 +158,13 @@ const RELEASE_FIELDS = {
     shipped_on: {type: ['string', 'null'], description: 'The day it shipped, YYYY-MM-DD; null marks it not shipped yet'},
 }
 
+/** What of a chunk the chat may ask to set (CHAT_CHUNK_FIELDS in web/shared/roadmap.ts). */
+const CHUNK_FIELDS = {
+    title: {type: 'string', description: 'Its name'},
+    summary: {type: ['string', 'null']},
+    priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
+}
+
 /** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
  * issue's fields when they ask, and asking them to start, stop or extend a session, move or assign issues, message
  * other sessions, change a setting, or make or change a schedule or a release. */
@@ -244,6 +251,16 @@ export const CHAT_TOOLS = [
         name: 'update_release',
         description: "Asks the owner to change one of this project's releases (by its version; the releases tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes. Its version can't change.",
         inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+    },
+    {
+        name: 'create_chunk',
+        description: "Asks the owner to make a chunk (a group of issues) in this project, only when they asked you to in this chat: it shows them the chunk with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it; then put issues in it with edit_issue.",
+        inputSchema: {type: 'object', required: ['title'], properties: {...CHUNK_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+    },
+    {
+        name: 'update_chunk',
+        description: "Asks the owner to change one of this project's chunks (by its id; the chunks tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes. Removing a chunk stays the owner's, on its page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...CHUNK_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
     },
     {
         name: 'message_session',
@@ -485,6 +502,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async update_release({version, why, ...release}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async create_chunk({why, ...chunk}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {chunk, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the chunk with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async update_chunk({id, why, ...chunk}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, chunk, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async message_sessions({text, projects, states, why}) {

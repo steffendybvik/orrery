@@ -368,6 +368,45 @@ describe("the owner's chat", () => {
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })
 
+    it('asks to make a chunk or change one, and saves it as the owner\'s only once they allow it (ORR-510)', async () => {
+        const notes: {kind: string}[] = []
+        const made: unknown[][] = []
+        const shelves = {id: '3', title: 'Shelves', summary: 'Everything on the shelves', priority: null}
+        vi.stubGlobal('useStore', () => ({
+            chunk: async (_project: string, id: string) => {
+                if (id !== '3') throw Object.assign(new Error(`No chunk ${id}`), {statusCode: 404})
+                return shelves
+            },
+            createChunk: async (project: string, body: {title: string}, actor: unknown) => (made.push(['create', project, body, actor]), {id: '7', title: body.title}),
+            updateChunk: async (project: string, id: string, body: unknown) => (made.push(['update', project, id, body]), {...shelves, priority: 'P1'}),
+            messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
+        }))
+        vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        await chats.openChat('greenhouse')
+        const fresh = await chats.ask('c1c2c3c4c5c6', {chunk: {title: 'Seed trays', priority: 'P2'}, why: 'As you asked.'})
+        expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', chunk: {title: 'Seed trays', state: 'asked', changes: [{field: 'title', to: 'Seed trays'}, {field: 'priority', to: 'P2'}]}})
+        expect(made).toEqual([])
+        await chats.answer('c1c2c3c4c5c6', fresh.id, true, owner)
+        expect(made).toEqual([['create', 'greenhouse', {title: 'Seed trays', priority: 'P2'}, {...owner, via: 'chat'}]])
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === fresh.id)!.chunk).toMatchObject({id: '7', state: 'allowed'})
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: chunk 7 ("Seed trays") is saved.)')
+        // A change shows each field from → to; asking again for the same chunk lets the one before go.
+        const first = await chats.ask('c1c2c3c4c5c6', {id: '3', chunk: {priority: 'P2'}})
+        const second = await chats.ask('c1c2c3c4c5c6', {id: '3', chunk: {priority: 'P1'}})
+        expect(first.chunk!.state).toBe('expired')
+        expect(second.chunk).toMatchObject({id: '3', title: 'Shelves', changes: [{field: 'priority', from: null, to: 'P1'}]})
+        await chats.answer('c1c2c3c4c5c6', second.id, false, owner)
+        expect(made).toHaveLength(1)
+        expect(messages.at(-1)!.text).toMatch(/denied your request to change chunk 3 .*nothing changed/)
+        // What it may not ask for, or what the chunk routes would refuse, fails as it asks.
+        for (const [body, status] of [[{chunk: {}}, 400], [{chunk: {title: 'X', position: 2}}, 403], [{chunk: {summary: 'No name'}}, 400],
+            [{chunk: {title: 'X', priority: 'P9'}}, 400], [{id: '4', chunk: {priority: 'P1'}}, 404]] as const)
+            await expect(chats.ask('c1c2c3c4c5c6', body)).rejects.toMatchObject({statusCode: status})
+        expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
+    })
+
     it('makes what its session asks for with nobody on it, in Todo whatever status it asks for', () => {
         expect(chats.asChatIssue({title: 'Shelf labels', notes: 'From the chat', status: 'in-progress', assignee: 'claude', priority: 'P2', chunk: '3'}))
             .toEqual({title: 'Shelf labels', notes: 'From the chat', priority: 'P2', chunk: '3', status: 'todo'})
@@ -508,6 +547,9 @@ describe("a chat session's writes", () => {
         expect(refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
         expect(refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
+        // A chunk only through the owner's Allow (ORR-510), never made or changed straight.
+        expect(refused('POST', '/api/projects/greenhouse/chunks')).toBe(403)
+        expect(refused('PATCH', '/api/projects/greenhouse/chunks/3')).toBe(403)
         // It asks to change a setting or send a message; the owner's answer, and the settings themselves, aren't its.
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests')).toBeUndefined()
         expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests/4')).toBe(403)

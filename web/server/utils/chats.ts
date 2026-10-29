@@ -1,8 +1,8 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
-import {CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
+import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
-import {SETTINGS_FIELDS} from '../store/schema'
+import {CHUNK_FIELDS, SETTINGS_FIELDS} from '../store/schema'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 
@@ -32,6 +32,9 @@ same way. Never on your own, and never to delete one: that's theirs, on the Sche
 When the owner asks you to add a release or change one (its branch, notes, place in the order, freezing or shipping it),
 ask with create_release or update_release (the releases tool lists them), the same way. A release's branch is by
 convention v<version>. Never on your own, and never to remove one: that's theirs, on the Releases page.
+When the owner asks you to make a chunk or change one (its name, summary or priority), ask with create_chunk or
+update_chunk (the chunks tool lists them), the same way; once it's allowed, put issues in it with edit_issue. Never on
+your own, and never to remove one: that's theirs, on its page.
 When the owner asks you to start a session (on an issue, or working through statuses or a release, with presets and
 their words, as Start session takes them), stop one, or give one more time, ask with start_session, stop_session or
 extend_session: it shows them what would happen with Allow and Deny, the same way. Never on your own.
@@ -115,11 +118,13 @@ export const ASK_FOR = 30 * 60_000
 /** The chat's session asking the owner for something in its chat: a message sent to sessions (`{message, why?}`,
  * `askSend`), a schedule made or changed (`{schedule, id?, why?}`, `askSchedule`), a release made or changed
  * (`{release, version?, why?}`, `askRelease`), a session started, stopped or given more time (`{session, why?}`,
- * `askSession`), issues moved or assigned (`{move, why?}`, `askMove`), or else an App setting changed (`askSetting`). */
+ * `askSession`), a chunk made or changed (`{chunk, id?, why?}`, `askChunk`), issues moved or assigned (`{move, why?}`,
+ * `askMove`), or else an App setting changed (`askSetting`). */
 export async function ask(id: string, body: unknown): Promise<ChatMessage> {
     if (isObject(body) && 'session' in body) return await askSession(id, body)
     if (isObject(body) && 'message' in body) return await askSend(id, body)
     if (isObject(body) && 'release' in body) return await askRelease(id, body)
+    if (isObject(body) && 'chunk' in body) return await askChunk(id, body)
     if (isObject(body) && 'move' in body) return await askMove(id, body)
     return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
 }
@@ -249,6 +254,33 @@ const moveTo = ({body: {status, assignee}}: ChatMoveRequest) => [
 /** What a move request asks, as a line: "put ORR-1, ORR-2 in done, assigned to claude". */
 const moveAsk = (request: ChatMoveRequest) => `put ${request.body.ids.join(', ')} ${moveTo(request)}`
 
+/** The chat's session asking to make a chunk in its project, or change chunk `id` there (its `create_chunk` and
+ * `update_chunk` tools): `chunk` holds the fields (`CHAT_CHUNK_FIELDS`), checked as the chunk routes check them. A
+ * request in the chat, which saves nothing until the owner allows it. One it asked before for the same chunk, still
+ * unanswered, expires. */
+async function askChunk(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {chunk: fields, id: target, why} = body as {chunk?: unknown, id?: unknown, why?: unknown}
+    if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {chunk: {…}, id?}: the fields to set, any of ${Object.keys(CHAT_CHUNK_FIELDS).join(', ')}, and the chunk's id to change one`)
+    const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_CHUNK_FIELDS, key))
+    if (refused.length) throw forbidden(`The owner's chat sets a chunk's ${Object.keys(CHAT_CHUNK_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
+    if (target !== undefined && target !== null && typeof target !== 'string' && !Number.isInteger(target)) throw badRequest('Send "id" as the chunk to change, or leave it out to make one')
+    const current = target === undefined || target === null ? undefined : await useStore().chunk(chat.project, String(target))
+    checkInput(fields, CHUNK_FIELDS, !!current)
+    const changes = (Object.entries(fields) as [ChatChunkField, unknown][]).map(([field, to]) =>
+        current ? {field, from: current[field] ?? null, to} : {field, to})
+    for (const m of chat.messages) if (current && m.chunk?.state === 'asked' && m.chunk.id === current.id) m.chunk.state = 'expired'
+    const request: ChatChunkRequest = {...current ? {id: current.id} : {}, title: String(fields.title ?? current?.title ?? ''), changes, body: fields, state: 'asked'}
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], chunk: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${chunkAsk(request)}`, details: {chunk: request.id ?? null, fields: Object.keys(fields)}})
+    return said
+}
+
+/** What a chunk request asks, as a line: "make the chunk X", "change chunk 3 (X): Name to Y". */
+const chunkAsk = (request: ChatChunkRequest) => request.id === undefined
+    ? `make the chunk "${request.title}"`
+    : `change chunk ${request.id} ("${request.title}"): ${request.changes.map(c => `${CHAT_CHUNK_FIELDS[c.field]} to ${settingValue(c.to)}`).join(', ')}`
+
 /** The names of the presets `ids`, those that are still there. */
 async function presetNames(project: string, ids: unknown[]): Promise<Map<unknown, string>> {
     if (!ids.length) return new Map()
@@ -324,8 +356,8 @@ const answering = new Set<string>()
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
 export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.move))
-    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.move
+    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.chunk || m.move))
+    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.chunk ?? asked?.move
     if (!asked || !request) throw notFound(`No request ${message} in this chat`)
     if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
         request.state = 'expired'
@@ -340,6 +372,7 @@ export async function answer(id: string, message: number, allow: boolean, actor:
         else if (asked.send) await answerSend(chat, asked.send, allow, actor)
         else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
         else if (asked.release) await answerRelease(chat, asked.release, allow, actor)
+        else if (asked.chunk) await answerChunk(chat, asked.chunk, allow, actor)
         else if (asked.move) await answerMove(chat, asked.move, allow, actor)
         else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
     } finally {
@@ -418,6 +451,25 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
     await useStore().messageSession(chat.project, launchTarget(chat.id), allow
         ? `(I allowed your request: ${request.body.ids.join(', ')} ${request.body.ids.length === 1 ? 'is' : 'are'} now ${moveTo(request)}, saved.)`
         : `(I denied your request to ${moveAsk(request)}: nothing changed.)`, actor)
+}
+
+/** The owner allowing or denying the chat's request for a chunk: allowed, it's made or changed as theirs, through their
+ * chat. A chunk removed since fails as its page would, still asked. */
+async function answerChunk(chat: Chat, request: ChatChunkRequest, allow: boolean, actor: Actor) {
+    let made: {id: string, title: string} | undefined
+    if (allow) {
+        made = request.id === undefined
+            ? await useStore().createChunk(chat.project, request.body, {...actor, via: 'chat'})
+            : await useStore().updateChunk(chat.project, request.id, request.body)
+    }
+    request.state = allow ? 'allowed' : 'denied'
+    if (made) request.id = made.id
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${chunkAsk(request)}`,
+        details: {chunk: request.id ?? null, fields: Object.keys(request.body), allowed: allow}})
+    await useStore().messageSession(chat.project, launchTarget(chat.id), made
+        ? `(I allowed your request: chunk ${made.id} ("${made.title}") is saved.)`
+        : `(I denied your request to ${chunkAsk(request)}: nothing changed.)`, actor)
 }
 
 /** The owner sending or not sending the message the chat asked to: sent, it goes as theirs, through their chat, to the

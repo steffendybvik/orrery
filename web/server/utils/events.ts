@@ -12,6 +12,7 @@ import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
 import {GITHUB_SECRET, Pulls} from './pulls'
+import {commentOnPull} from './pull-comments'
 import {PullPoll} from './pull-poll'
 import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
@@ -100,10 +101,14 @@ export function usePulls(): Pulls {
 
 let pullPoll: PullPoll | null = null
 
-/** The background poll of the projects' pull requests: each change goes out as `pull-change` (a `PullChange`). */
+/** The background poll of the projects' pull requests: each change goes out as `pull-change` (a `PullChange`), and one
+ * that's told is said on its issue (pull-comments.ts). */
 export function usePullPoll(): PullPoll {
     pullPoll ??= new PullPoll(useStore(), usePulls(), project => useSecrets().ownsFor('https://api.github.com/graphql', GITHUB_SECRET, project),
-        change => projectEvents.emit('pull-change', change), entry => useEventLog().note(entry))
+        change => {
+            projectEvents.emit('pull-change', change)
+            void commentOnPull(useStore(), change)
+        }, entry => useEventLog().note(entry))
     return pullPoll
 }
 
