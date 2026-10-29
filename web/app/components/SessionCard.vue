@@ -81,6 +81,10 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
         </div>
         <p class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-faint">
           <span class="whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-600 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ SESSION_STATE[session.state] }} · {{ ago(session.since) }}</span>
+          <span v-if="session.state === 'waiting' && session.asking" class="flex min-w-0 items-baseline gap-1" :title="session.asking.detail">
+            · for <span class="text-muted">{{ toolLabel(session.asking.name) }}</span>
+            <span v-if="session.asking.detail" class="max-w-80 truncate font-mono text-[11px] text-muted">{{ session.asking.detail }}</span>
+          </span>
           <span v-if="left" class="whitespace-nowrap" :title="session.started?.stops_at && `orrery started it; it stops at ${new Date(session.started.stops_at).toLocaleTimeString()}, or once it's done after that`">· {{ left }}</span>
           <span v-if="folder" class="whitespace-nowrap" :title="session.cwd">· in <span class="font-mono">{{ folder }}/</span></span>
           <span v-if="session.started?.context">· with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></span>

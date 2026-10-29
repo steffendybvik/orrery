@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // orrery's Claude Code hook: tells orrery what this session is doing, so the owner can see it and
 // point work at an idle one, and which issues it writes to. Registered for SessionStart, UserPromptSubmit,
-// PreToolUse, Stop, StopFailure, Notification and SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT
+// PreToolUse, PermissionRequest, Stop, StopFailure, Notification and SessionEnd in the repo's .claude/settings.json, with ORRERY_PROJECT
 // (and ORRERY_URL) set. It never fails the hook, and prints nothing (a hook's output goes to Claude) but
 // after a `/clear`, a compaction or a resume: then orrery's brief of what the session was working on, which
 // Claude Code adds to the fresh context so the work carries on. A session orrery started with context gets that
@@ -36,6 +36,8 @@ try {
             started: process.env.ORRERY_STARTED,
             // Which issues it's about to write to: an owner's comment on one goes to this session.
             command: hook.hook_event_name === 'PreToolUse' && hook.tool_name === 'Bash' ? String(hook.tool_input?.command ?? '').slice(0, 4000) : undefined,
+            // The tool it's about to use, or asks permission for, in a line: what the owner's prompt says it wants.
+            tool: hook.tool_name ? {name: String(hook.tool_name).slice(0, 200), detail: toolDetail(hook.tool_name, hook.tool_input)} : undefined,
         }),
     })
     const {brief} = response.ok ? await response.json() ?? {} : {}
@@ -45,3 +47,14 @@ try {
     // orrery not running, or slow: the session carries on regardless.
 }
 process.exit(0)
+
+/** What a tool would do, short: the command, the file, the address or the search. Never a file's contents or
+ * anything else from its input: an MCP tool's arguments can hold anything, so it goes by its name alone. */
+function toolDetail(name, input) {
+    const field = {
+        Bash: 'command', Edit: 'file_path', MultiEdit: 'file_path', Write: 'file_path', Read: 'file_path',
+        NotebookEdit: 'notebook_path', WebFetch: 'url', WebSearch: 'query', Glob: 'pattern', Grep: 'pattern',
+    }[name]
+    const value = field ? input?.[field] : undefined
+    return typeof value === 'string' && value ? value.slice(0, 300) : undefined
+}

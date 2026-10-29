@@ -6,7 +6,7 @@
 // can run a channel for every project in its repo's `.mcp.json`, only the flagged one heard, so it
 // listens (and can be stopped) through its own project's channel only.
 import {randomInt} from 'node:crypto'
-import type {Session, SessionState, StartedSession} from '#shared/roadmap'
+import type {Session, SessionState, SessionTool, StartedSession} from '#shared/roadmap'
 import {SESSION_NAMES, madeUpName} from '#shared/roadmap'
 
 interface Known extends Session {
@@ -33,6 +33,8 @@ interface Known extends Session {
     untrusted?: boolean
     /** Its channel said it's the owner's chat: the same, for that. */
     chat?: boolean
+    /** The tool its hook last said it's about to use or asks for: what a permission prompt after it is for. */
+    tool?: SessionTool
 }
 
 const sessions = new Map<string, Known>()
@@ -73,6 +75,8 @@ export interface Report {
     reason?: string
     /** For `SessionStart`: what started it (`clear` after one). */
     source?: string
+    /** For `PreToolUse` and `PermissionRequest`: the tool, and in short what it would do. */
+    tool?: SessionTool
 }
 
 /** The id the session goes by now, for one it had before a `/clear`; any other id as it is. */
@@ -166,7 +170,10 @@ export function report(input: Report): Session | null {
     let session = find(input.id, input.pid)
     // With no pid to tie them, the session after a clear is the window's that a clear just ended.
     if (!session && input.event === 'SessionStart' && input.source === 'clear') session = clearedIn(input.project, input.cwd)
-    const event = input.event === 'Notification'
+    // A permission dialog opening says which tool it's for and leaves the state to the notification that comes with it:
+    // the two can arrive in either order.
+    const event = input.event === 'PermissionRequest' ? session?.state ?? 'working'
+        : input.event === 'Notification'
         ? (/permission|approv|allow/i.test(input.message ?? '') ? 'waiting' : 'idle')
         : STATES[input.event] ?? input.event
     // A `/clear` ends Claude Code's session but not the window: it starts again under a new id, which
@@ -185,6 +192,8 @@ export function report(input: Report): Session | null {
             id: input.id ?? `pid-${input.pid}`, pid: input.pid, project: input.project, name: input.name || nameFor(input.project),
             cwd: input.cwd, state, since: now, started_at: now, listening: false, seenAt: Date.now(), hooked: input.project,
             ...state === 'waiting' && input.message ? {asks: input.message} : {},
+            ...input.tool ? {tool: input.tool} : {},
+            ...state === 'waiting' && input.tool ? {asking: input.tool} : {},
         }
         add(session)
     } else {
@@ -202,7 +211,11 @@ export function report(input: Report): Session | null {
         session.cwd ??= input.cwd
         if (session.state !== state) session.since = now
         session.state = state
-        session.asks = state === 'waiting' ? input.message : undefined
+        if (input.event !== 'PermissionRequest') session.asks = state === 'waiting' ? input.message : undefined
+        if (input.tool) session.tool = input.tool
+        session.asking = state === 'waiting' ? session.tool : undefined
+        // Done with its turn: the next prompt comes after a tool of its next.
+        if (state === 'idle') session.tool = undefined
         session.seenAt = Date.now()
     }
     if (state === 'idle') session.idleAt = Date.now()
@@ -457,7 +470,7 @@ export function sessionName(id: string | undefined): string | undefined {
     return id ? sessions.get(currentId(id))?.name : undefined
 }
 
-function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, stopping: _stopping, cleared: _cleared, ...session}: Known): Session {
+function publicOf({pid: _pid, seenAt: _seen, idleAt: _idle, hooked: _hooked, channels, stoppable, stopping: _stopping, cleared: _cleared, tool: _tool, ...session}: Known): Session {
     const others = [...channels ?? []].filter(([project, c]) => c.heard && project !== session.project).map(([project]) => project)
     return {...session, reachable: !!stoppable, ...others.length ? {also: others} : {}}
 }
