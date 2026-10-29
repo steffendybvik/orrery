@@ -598,6 +598,20 @@ describe('releases', () => {
         expect((await failure(() => store.createRelease('greenhouse', {version: '1.0.0', shipped_on: 'today'}))).status).toBe(400)
     })
 
+    it('are checked as they would be made or changed, saving nothing (the chat asks first)', async () => {
+        await store.createRelease('greenhouse', {version: '1.0.0', branch: 'v1.0.0'})
+        expect(await store.checkRelease('greenhouse', {version: '1.1.0', branch: 'v1.1.0'})).toBeUndefined()
+        expect(await store.checkRelease('greenhouse', {shipped_on: '2026-10-29'}, '1.0.0')).toMatchObject({version: '1.0.0', branch: 'v1.0.0'})
+        expect((await store.listReleases('greenhouse')).map(r => r.version)).toEqual(['1.0.0'])
+        expect((await failure(() => store.checkRelease('greenhouse', {version: '1.0.0'}))).status).toBe(409)
+        expect((await failure(() => store.checkRelease('greenhouse', {version: 'one point one'}))).status).toBe(400)
+        expect((await failure(() => store.checkRelease('greenhouse', {shipped_on: 'today'}, '1.0.0'))).status).toBe(400)
+        expect((await failure(() => store.checkRelease('greenhouse', {version: '2.0.0'}, '1.0.0'))).status).toBe(400)
+        expect((await failure(() => store.checkRelease('greenhouse', {notes: 'X'}, '0.9.0'))).status).toBe(404)
+        await store.createProject({name: 'garden', key: 'GAR'})
+        expect((await failure(() => store.checkRelease('garden', {version: '1.0.0'}))).status).toBe(400)
+    })
+
     it('count their issues, a parent with its sub-issues; the newest on top', async () => {
         await store.createRelease('greenhouse', {version: '0.8.0', shipped_on: '2026-09-01'})
         await store.createRelease('greenhouse', {version: '0.9.0', shipped_on: '2026-10-01'})
