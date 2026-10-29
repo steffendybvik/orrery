@@ -12,6 +12,7 @@ import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
 import {GITHUB_SECRET, Pulls} from './pulls'
+import {PullPoll} from './pull-poll'
 import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
 import {Store} from './store'
@@ -93,8 +94,17 @@ let pulls: Pulls | null = null
 
 /** Issues' open pull requests, read from GitHub with the GITHUB_TOKEN secret when there's one that may go there. */
 export function usePulls(): Pulls {
-    pulls ??= new Pulls(useStore(), (url, project, headers) => useSecrets().own(url, GITHUB_SECRET, project, headers))
+    pulls ??= new Pulls(useStore(), (url, project, headers, init) => useSecrets().own(url, GITHUB_SECRET, project, headers, init))
     return pulls
+}
+
+let pullPoll: PullPoll | null = null
+
+/** The background poll of the projects' pull requests: each change goes out as `pull-change` (a `PullChange`). */
+export function usePullPoll(): PullPoll {
+    pullPoll ??= new PullPoll(useStore(), usePulls(), project => useSecrets().ownsFor('https://api.github.com/graphql', GITHUB_SECRET, project),
+        change => projectEvents.emit('pull-change', change), entry => useEventLog().note(entry))
+    return pullPoll
 }
 
 let log: EventLog | null = null
