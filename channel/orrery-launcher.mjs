@@ -38,7 +38,7 @@ import {execFileSync} from 'node:child_process'
 import {mkdirSync, unwatchFile, watchFile, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
+import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
@@ -85,7 +85,7 @@ const script = fileURLToPath(import.meta.url)
 if (args.includes('--list')) {
     const served = readConfig().projects
     for (const {url, project, dir} of here()) {
-        const elsewhere = served.find(p => p.url === url && p.project === project && p.dir !== dir)
+        const elsewhere = servedElsewhere(served, {url, project, dir})
         console.log(`${project} (${url}): sessions load ${channelFor(dir, url, project)?.name ?? 'no channel'}${elsewhere ? `; served from ${elsewhere.dir}, so --install leaves it there` : ''}`)
     }
     process.exit(0)
@@ -113,7 +113,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         // orrery): it's left there unless ORRERY_PROJECT names it.
         const served = readConfig().projects
         const entries = here().filter(entry => {
-            const elsewhere = served.find(p => p.url === entry.url && p.project === entry.project && p.dir !== entry.dir)
+            const elsewhere = servedElsewhere(served, entry)
             if (elsewhere && !process.env.ORRERY_PROJECT) console.log(`Left ${entry.project} (${entry.url}) as it is, served from ${elsewhere.dir}; ORRERY_PROJECT=${entry.project} acts on it from here.`)
             return !elsewhere || process.env.ORRERY_PROJECT
         })

@@ -70,11 +70,11 @@ export function listIn(file = configFile()) {
 }
 
 /** Writes the list whole, by a rename, so the running service following it never reads it half written. */
-function writeList(config) {
-    mkdirSync(dirname(configFile()), {recursive: true})
-    const next = `${configFile()}.${process.pid}`
+function writeList(config, file = configFile()) {
+    mkdirSync(dirname(file), {recursive: true})
+    const next = `${file}.${process.pid}`
     writeFileSync(next, `${JSON.stringify(config, null, 2)}\n`)
-    renameSync(next, configFile())
+    renameSync(next, file)
 }
 
 const same = (a, b) => a.url === b.url && a.project === b.project
@@ -87,6 +87,23 @@ export function withProject(config, entry) {
 /** The list without the project. */
 export function withoutProject(config, entry) {
     return {...config, projects: config.projects.filter(p => !same(p, entry))}
+}
+
+/** Where the project `entry` is served from another repo than its own, if it is (a monorepo's channel to the personal
+ * orrery): `--install` leaves it there unless ORRERY_PROJECT names it, and pick-up always does. */
+export const servedElsewhere = (projects, entry) => projects.find(p => same(p, entry) && p.dir !== entry.dir)
+
+/** Pick-up (ORR-599): a repo's channel, as it connects, puts the repo's projects (`entries`, each in `dir`) on the list
+ * the way `--install` there would, when pick-up is on, the repo isn't kept off (`--uninstall` there) and a project
+ * isn't on the list already, from this repo or another. It writes the list alone, which the running service follows.
+ * Each is marked with when it was picked up. Says which it put on. */
+export function pickUp(entries, dir, {file = configFile(), now = new Date()} = {}) {
+    const config = listIn(file)
+    if (!config?.pickUp || config.skip.includes(dir)) return []
+    const added = entries.filter(entry => entry.dir === dir && !config.projects.some(p => same(p, entry)))
+        .map(entry => ({...entry, picked_at: now.toISOString()}))
+    if (added.length) writeList(added.reduce(withProject, config), file)
+    return added
 }
 
 /** The list with the repo at `dir` kept off it (`--uninstall` there) or not (`--install`), for pick-up. */

@@ -126,7 +126,12 @@ It runs in the background from then on (launchd on macOS, systemd on Linux; on W
 [On Windows](#on-windows)), starts at login, and serves
 every project installed this way; run `--install` again in another repo to add its projects, and
 `--uninstall` to take them off. Run outside a repo whose `.mcp.json` registers the channel, `--install` installs the
-service with no project yet, and `--uninstall` removes the service, keeping its projects on the list for the next `--install`. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
+service with no project yet, and `--uninstall` removes the service, keeping its projects on the list for the next `--install`.
+`--install` also turns on **pick-up** (`--no-pick-up` leaves it off): from then on, a Claude session you open in a repo
+whose `.mcp.json` registers the channel puts that repo's projects on the list, by the same rules as `--install` there, and
+the session is told once. Only the channel, running in that folder on your machine, does this; orrery itself never
+names a folder for the launcher. A project orrery doesn't have, or one already served from another repo, is left
+off, and `--uninstall` in a repo keeps it off until you `--install` there again. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
 channel there, each with the projects in its `ORRERY_PROJECTS` (or its `ORRERY_PROJECT`), so a monorepo with a
 channel per project gets all of them, and each project's sessions load the channel that serves it. With `*`, or to
 pick one, name it with `ORRERY_PROJECT`. `ORRERY_URL` stands in for a channel's address only where `.mcp.json` doesn't write
