@@ -17,7 +17,6 @@
     --animate-slide-in: slide-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     --animate-flash: flash 1.2s ease-out;
     --animate-dot: dot 1.2s ease-in-out infinite;
-    --animate-drain: drain 2s linear forwards;
 
     @keyframes fade-up {
         from { opacity: 0; transform: translateY(8px); }
@@ -33,12 +32,6 @@
     @keyframes dot {
         0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
         30% { opacity: 1; transform: translateY(-2px); }
-    }
-
-    /* The chat's wait before the messages held under its box go: full, draining to nothing (its length set where it's used) */
-    @keyframes drain {
-        from { transform: scaleX(1); }
-        to { transform: scaleX(0); }
     }
 
     /* A row that just changed through the API */
