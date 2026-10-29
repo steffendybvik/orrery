@@ -50,6 +50,8 @@ overview, is one list.
   `.data/orrery.db`; a relative `NUXT_DATABASE` is still taken from the working folder.
 - **Context after a `/clear`:** **So far** went on listing and counting what a session had been given before a
   `/clear` or compaction. Those entries now sit greyed under a line of their own, out of the total.
+- **Pick several labels in a row:** on an issue's page, the Labels and Team tasks pickers shut while a pick saved, so
+  the next Esc left the page. They stay open now, show each pick at once and keep a quick second one.
 
 ### Docs
 
