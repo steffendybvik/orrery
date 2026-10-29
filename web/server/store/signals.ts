@@ -12,9 +12,6 @@ import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
 
 export abstract class SignalStore extends IssueStore {
-    /** `Store` has it, with the claims on issues. */
-    abstract workedBy(project: string, issue: string, session: string): Promise<void>
-
     /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. A PNG or
      * JPEG is kept as WebP when that's smaller (see compress.ts). */
     async createUpload(body: unknown, actor = AGENT): Promise<Upload> {
@@ -83,17 +80,9 @@ export abstract class SignalStore extends IssueStore {
             project, issue, 'focus', nullable(input.note), target, instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
-        if (signal.target && signal.target !== EVERY && !await this.heldElsewhere(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
+        if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
         return signal
-    }
-
-    /** Whether a session other than `session` has the issue started and is there to hear. */
-    private async heldElsewhere(project: string, issue: string, session: string): Promise<boolean> {
-        const worker = await this.listeningWorker(project, issue)
-        if (!worker || worker === session) return false
-        const status = (await this.issueRow(project, issue)).status
-        return (await this.statuses()).find(s => s.id === status)?.kind === 'started'
     }
 
     /** Asks the sessions (or `session`) to work through the chunk's open issues now, or (`status`) its issues of
