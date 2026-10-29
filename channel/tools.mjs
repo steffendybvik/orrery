@@ -43,7 +43,7 @@ const FIELDS = {
 export const TOOLS = [
     {
         name: 'issues',
-        description: "Lists the project's issues, sub-issues included, one line each: id, status, priority, assignee, title.",
+        description: "Lists the project's issues, sub-issues included, a line each: id, status, priority, assignee, title.",
         inputSchema: {type: 'object', properties: {
             status: STATUS,
             assignee: {type: 'string', description: 'A name, or "none"'},
@@ -52,7 +52,7 @@ export const TOOLS = [
             label: {type: 'string'},
             external: {type: 'string', description: 'A team task id'},
             q: {type: 'string', description: 'Text in the id or title'},
-            open: {type: 'boolean', description: 'Only issues still to do (default true): todo, started and in review, and backlog too in the chat; false lists every status'},
+            open: {type: 'boolean', description: 'Leave out done and canceled (default true); false lists every status'},
         }},
     },
     {name: 'issue', description: 'An issue in full, with its comments and open pull requests.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
@@ -81,7 +81,7 @@ export const TOOLS = [
         description: 'Comments on an issue (Markdown); asks waits at the top of the owner’s bell until they answer.',
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
     },
-    {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress; done ones only with all.", inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Done chunks too'}}}},
+    {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress; done ones with all.", inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Done chunks too'}}}},
     {
         name: 'releases',
         description: "Lists the project's releases with their branches and progress; of the shipped ones, only the latest unless all.",
