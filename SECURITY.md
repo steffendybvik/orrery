@@ -181,6 +181,12 @@ open may also ask, no more than that), and it sends the `GITHUB_TOKEN` secret on
 may go there. What it reads is kept in orrery's database: each PR's title, branch, state and the issue
 ids it names, not its body.
 
+When a PR changes, orrery comments on its issue, and the session on it reads that as yours. So those comments
+hold only orrery's own words: the PR's number, its base, who closed it or asked for changes, and where to read
+failed checks or a review with `gh`. A check's output, the PR's title or branch, and someone else's review can
+all be written by whoever opened the PR, so they never go in; the session reads them on GitHub, as what they
+are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-508).
+
 - **Agents never hold the value.** No route, event or page gives it back, only its last 4 characters.
 - **It only goes where you said.** Each secret names its hosts, and orrery sends it nowhere else and
   only over https. This is what stops a planted comment or fetched page talking an agent into sending

@@ -241,8 +241,13 @@ A run that started one is `sent`. A preset a schedule names that's been deleted 
 `issue.release`, `issue.proposal`… and `issue.deleted`). Comments are `comment.added` and `comment.asks`, a session
 asking the owner. Releases are `release.created`, `.frozen`, `.thawed`, `.shipped`, `.unshipped` and `.deleted`;
 chunks `chunk.created`; docs `doc.created`, `.changed` and `.deleted`. An issue's pull request, as orrery's poll finds it,
-is `pr.conflicting`, `pr.behind`, `pr.merged` and `pr.closed` (closed without merging), each once per change, with orrery
-commenting on the issue as it happens (by `orrery`, which reaches the session on the issue). Each kind the [event log](#event-log)
+is `pr.conflicting`, `pr.behind`, `pr.merged`, `pr.closed` (closed without merging), `pr.checks_failed` and
+`pr.changes_requested`, each once per change, with orrery commenting on the issue as it happens (by `orrery`, which
+reaches the session on the issue), and `pr.ready` (it can merge again) and `pr.approved`, which it only records. Its
+comments are in its own words: where to read failed checks (`gh pr checks`, `gh run view --log-failed`) and who asked
+for changes and where, never a check's output or someone else's review, as a session reads them as the owner's; a
+review by the owner's own GitHub handle (`handle`) is quoted. After a PR's checks fail a fourth time, it stops telling
+the session and asks the owner instead (`asks: feedback`), once. Each kind the [event log](#event-log)
 records counts too (`server.error`, `page.error`, `backup.failed`, `session.started`, `launcher.gone`…), even with
 Advanced off. A repeat of an open error isn't one. `on` is a type or a pattern, `*` for any part (`release.*`,
 `*.failed`, `*`). `on_filter` says what the event must also say:

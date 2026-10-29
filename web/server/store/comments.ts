@@ -56,6 +56,20 @@ export abstract class CommentStore extends SignalStore {
         return await this.comment(project, issue, id)
     }
 
+    /** orrery asking the owner on an issue (`asks: feedback`, ORR-508): to the bell, as an agent's ask, and assigned to
+     * them; not to a session. `type` is what happened, for the schedules. */
+    async systemAsk(project: string, issue: string, body: string, type: string): Promise<Comment> {
+        const comment = await this.createComment(project, issue, {body, asks: 'feedback'}, ORRERY)
+        this.tell(type, project, await this.issueId(project, issue), ORRERY)
+        return comment
+    }
+
+    /** Something orrery noticed on an issue that needs no one (a pull request green again, or approved): an event for the
+     * schedules and the log, and nothing said. */
+    async systemEvent(project: string, issue: string, type: string): Promise<void> {
+        this.tell(type, project, await this.issueId(project, issue), ORRERY)
+    }
+
     /** orrery's own word on an issue (a pull request's news, ORR-507), as `orrery`: a comment, which reaches the session on
      * the issue as the owner's do, or the project as work does when nobody's on it; not once the issue is closed, where
      * there's no work left to wake anyone for. `type` is what happened, for the schedules (`pr.merged`). Its words are

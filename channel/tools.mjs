@@ -55,7 +55,7 @@ export const TOOLS = [
             open: {type: 'boolean', description: 'Only issues not done or canceled (default true)'},
         }},
     },
-    {name: 'issue', description: 'An issue in full (description, status, sub-issues, proposal and choices) with its comments.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
+    {name: 'issue', description: 'An issue in full (description, status, sub-issues, proposal and choices) with its comments, and its open pull requests with where each stands.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'create_issue',
         description: 'Adds an issue. With proposal: true it goes to the owner as a proposal (with choices, if you send them) instead of being work.',
@@ -348,9 +348,12 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async issue({id}) {
             const base = at(await projectOf({id}))
-            const [issue, comments] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base)])
+            // Its open pull requests and where each stands (ORR-508), when its project's repo is on GitHub; none if that can't be read.
+            const [issue, comments, pulls] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base),
+                call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null)])
             const {tasks, counts, kinds, ...rest} = issue
-            return JSON.stringify({...rest, sub_issues: tasks.map(line), comments: comments.map(c => ({by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
+            const open = pulls?.pulls?.map(p => ({number: p.number, state: p.state, branch: p.branch, base: p.base, url: p.url})) ?? []
+            return JSON.stringify({...rest, sub_issues: tasks.map(line), ...open.length ? {pull_requests: open} : {}, comments: comments.map(c => ({by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
         },
         async create_issue(args) {
             const {proposal, project, ...fields} = args

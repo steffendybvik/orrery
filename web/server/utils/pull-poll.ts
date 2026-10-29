@@ -36,6 +36,10 @@ export interface PullChange {
     kind: PullChangeKind
     key: string
     pull: {number: number, title: string, url: string, branch: string, base: string, head_sha: string | null, merge_sha: string | null, closed_by: string | null, review_id: string | null}
+    /** For changes requested: who asked, what they wrote, and their comments on lines (ORR-508). */
+    review?: {by: string, body: string, comments: {path: string, line: number | null, body: string}[]}
+    /** For checks failed: how many times they have failed on this PR, this one counted. */
+    failures?: number
 }
 
 /** A PR as a poll read it. */
@@ -53,6 +57,10 @@ interface Polled {
     state: PullState | null
     review: string | null
     review_id: string | null
+    /** The latest review that asked for changes: by whom, its text and its comments on lines (with a token). */
+    review_by?: string
+    review_body?: string
+    review_comments?: {path: string, line: number | null, body: string}[]
     checks: string | null
     merged: boolean
     closed: boolean
@@ -64,7 +72,7 @@ interface Polled {
 
 const FIELDS = `number title url body isDraft headRefName baseRefName headRefOid createdAt updatedAt
     author { login } mergeStateStatus reviewDecision merged closed mergeCommit { oid }
-    reviews(last: 1, states: [CHANGES_REQUESTED]) { nodes { id } }
+    reviews(last: 1, states: [CHANGES_REQUESTED]) { nodes { id author { login } body comments(first: 20) { nodes { path line body } } } }
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
 const QUERY = `query($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
@@ -91,7 +99,7 @@ interface GraphPull {
     merged: boolean
     closed: boolean
     mergeCommit: {oid: string} | null
-    reviews?: {nodes: {id: string}[]}
+    reviews?: {nodes: {id: string, author?: {login: string} | null, body?: string | null, comments?: {nodes: {path: string, line: number | null, body: string}[]}}[]}
     commits?: {nodes: {commit: {statusCheckRollup: {state: string} | null}}[]}
     timelineItems?: {nodes: {actor?: {login: string} | null}[]}
 }
@@ -103,6 +111,7 @@ function fromGraph(pull: GraphPull): Polled {
         author: pull.author?.login ?? '', draft: pull.isDraft, head_sha: pull.headRefOid,
         state: pullState(pull.isDraft, pull.mergeStateStatus?.toLowerCase()),
         review: pull.reviewDecision, review_id: pull.reviews?.nodes[0]?.id ?? null,
+        review_by: pull.reviews?.nodes[0]?.author?.login ?? '', review_body: pull.reviews?.nodes[0]?.body ?? '', review_comments: pull.reviews?.nodes[0]?.comments?.nodes ?? [],
         // ERROR is a failure too; EXPECTED (a required check not reported yet) is waiting, as PENDING is.
         checks: checks === 'ERROR' ? 'failure' : checks === 'EXPECTED' ? 'pending' : checks?.toLowerCase() ?? null,
         merged: pull.merged, closed: pull.closed && !pull.merged, merge_sha: pull.mergeCommit?.oid ?? null,
@@ -230,7 +239,9 @@ export class PullPoll {
                     if (told.includes(key)) continue
                     told.push(key)
                     if (issue) changes.push({project: issue.project, issue: issue.id, repo, kind, key, pull: {number: pull.number, title: pull.title, url: pull.url, branch: pull.branch,
-                        base: pull.base, head_sha: pull.head_sha, merge_sha: pull.merge_sha, closed_by: pull.closed_by, review_id: pull.review_id}})
+                        base: pull.base, head_sha: pull.head_sha, merge_sha: pull.merge_sha, closed_by: pull.closed_by, review_id: pull.review_id},
+                        ...kind === 'changes_requested' ? {review: {by: pull.review_by ?? '', body: pull.review_body ?? '', comments: pull.review_comments ?? []}} : {},
+                        ...kind === 'checks_failed' ? {failures: told.filter(k => k.startsWith(`${repo}#${pull.number} checks_failed`)).length} : {}})
                 }
             }
             // A state this poll can't tell keeps the one it had; GitHub still working it out keeps the last it knew.
