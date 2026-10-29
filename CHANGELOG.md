@@ -30,8 +30,8 @@ overview, is one list.
 - **The chat does more, asking first:** it can ask to add or change a release, make or change a chunk, move issues to
   another status or assign them, and start, stop or give more time to a session. Each shows with Allow and Deny,
   and nothing happens until you allow it. `/clear` clears its context and marks the cut, keeping what was said.
-  Minimize (–, or Esc) hides the pane with the chat still running. A run of quick messages is held for a moment
-  and goes as one, so it answers the whole thought (⌘-Enter sends at once).
+  Minimize (–, or Esc) hides the pane with the chat still running. A run of quick messages shows as sent, with the
+  thinking dots, and goes as one once you stop typing, so it answers the whole thought (⌘-Enter sends at once).
 - **Grouped release notes:** a release's drafted changelog is grouped under Features, Changes, Fixes, Docs and
   Internal by the issues' labels, and the Release preset asks a session for the same layout.
 
