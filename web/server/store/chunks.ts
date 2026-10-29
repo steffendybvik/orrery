@@ -5,19 +5,20 @@ import type {ChunkRecord, ChunkRow} from './schema'
 import {AGENT, CHUNK_FIELDS, nullable, stamp} from './schema'
 import {PresetStore} from './presets'
 import {known} from '#shared/known'
+import {chunkRecord} from './reads'
 
 export abstract class ChunkStore extends PresetStore {
     async listChunks(project: string): Promise<ChunkRecord[]> {
         const {board} = await this.project(project)
         return (await this.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project))
-            .map(row => this.chunkRecord(row, known(board.chunks.find(c => c.id === row.id), `chunk ${row.id} on the board`)))
+            .map(row => chunkRecord(row, known(board.chunks.find(c => c.id === row.id), `chunk ${row.id} on the board`)))
     }
 
     async chunk(project: string, id: string): Promise<ChunkRecord & {tasks: Issue[]}> {
         id = await this.chunkId(project, id)
         const row = await this.chunkRow(project, id)
         const view = known((await this.project(project)).board.chunks.find(c => c.id === id), `chunk ${id} on the board`)
-        return {...this.chunkRecord(row, view), tasks: view.tasks}
+        return {...chunkRecord(row, view), tasks: view.tasks}
     }
 
     async createChunk(project: string, body: unknown, actor = AGENT): Promise<ChunkRecord & {tasks: Issue[]}> {
