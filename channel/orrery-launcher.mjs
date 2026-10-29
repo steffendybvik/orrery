@@ -106,7 +106,10 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             needsTmuxAndClaude()
             const {config, logs, restarted} = install([], {script, pickUp})
             console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
-            console.log(`Run this with --install in a project's repo to put its projects on it. Its log: ${logs}`)
+            console.log(pickUp
+                ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
+                : "Pick-up is off: run this with --install in a project's repo to put its projects on it.")
+            console.log(`Its log: ${logs}`)
             process.exit(0)
         }
         // Several channels can name a project served from its own repo (a monorepo's channel to the personal
@@ -122,8 +125,8 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         // it runs) only when its file changed, at most once.
         if (args.includes('--uninstall')) {
             const {config} = uninstall(entries, {script, dir: process.cwd()})
-            console.log(`Took ${entries.map(e => `${e.project} (${e.url})`).join(', ')} off the launcher.`)
-            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : config.pickUp ? 'It serves no project now; --uninstall outside a repo removes the service.' : 'Nothing was left on it, so the service is removed.')
+            console.log(`Took ${entries.map(e => `${e.project} (${e.url})`).join(', ')} off the launcher${config.pickUp ? ', and pick-up leaves this repo off until --install here' : ''}.`)
+            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : config.pickUp ? 'It serves no project now, and waits for pick-up to put one on; --uninstall outside a repo removes it.' : 'Nothing was left on it, so the service is removed.')
             process.exit(0)
         }
         needsTmuxAndClaude()
