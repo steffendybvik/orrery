@@ -192,6 +192,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
+    <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" />
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
       <article class="flex min-w-0 flex-1 flex-col gap-8 px-4 py-6 sm:px-8 sm:py-10">
         <header class="flex flex-col gap-2">
@@ -200,7 +201,6 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             <CopyButton :text="issue.id" compact />
             <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" compact />
             <a v-if="issue.waiting" href="#waiting" title="Go to the question"><WaitingChip :asks="issue.waiting" /></a>
-            <IssueWorkerChip v-if="worker && !isClosed(issue.kind)" :session="worker" />
             <button
                 v-if="madeBy"
                 type="button"
@@ -246,7 +246,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         </header>
 
         <div class="lg:hidden">
-          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" />
+          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
 
         <ProposalPanel :project="project.id" :issue="issue" />
@@ -307,7 +307,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
       <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block">
         <div class="sticky top-6">
-          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" />
+          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
       </aside>
     </div>
