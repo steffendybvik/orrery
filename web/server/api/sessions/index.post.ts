@@ -5,13 +5,6 @@
 // on, for the hook to hand the fresh context so the work carries on. A session orrery started (`started`, its launch)
 // with context gets that in the brief on every `SessionStart`, its first included. `tool` ({name, detail?}, on
 // `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for.
-// What happened to the session, by `source`, for the brief's first line.
-const RESUMED: Record<string, string> = {
-    clear: "this window's context was just cleared",
-    compact: "this window's context was just compacted",
-    resume: 'this session was just resumed',
-}
-
 export default defineEventHandler(async event => {
     const body = await readBody(event).catch(() => null) as Record<string, unknown> | null
     if (!body || typeof body.project !== 'string' || typeof body.event !== 'string' || (!body.id && !body.pid)) {
@@ -53,39 +46,7 @@ export default defineEventHandler(async event => {
             .catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
     }
     const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
-    const happened = source && Object.hasOwn(RESUMED, source) ? RESUMED[source] : undefined
-    const work = happened ? await briefFor(body.project, session.id, happened, api).catch(() => undefined) : undefined
     // Its launch as its hook says (before its channel has connected) or as orrery knows it.
-    const launch = text('started') ?? session.started?.launch
-    const context = launch ? launchContext(body.project, launch) : undefined
-    if (!work && !context) return session
-    return {...session, brief: [work, context && contextBlock(context)].filter(Boolean).join('\n\n')}
+    const brief = await sessionBrief(useStore(), {project: body.project, session: session.id, source, launch: text('started') ?? session.started?.launch, api})
+    return brief ? {...session, brief} : session
 })
-
-/** What the session has in progress, told to its fresh context, and what's left of the chunk or scope it was
- * working through; none when it has neither. */
-async function briefFor(project: string, session: string, happened: string, api: string): Promise<string | undefined> {
-    const store = useStore()
-    const issues = await store.workingOn(project, sessionIds(session))
-    const run = runOf(session)
-    const scope = run && run.project === project ? await scopeOf(store, project, run).catch(() => undefined) : undefined
-    const left = scope?.open.filter(t => !issues.some(i => i.id === t.id)) ?? []
-    if (!issues.length && !left.length) return undefined
-    const statuses = await store.statuses()
-    const said = (body: string) => body.replace(/\s+/g, ' ').trim().slice(0, 300)
-    return [
-        `orrery: ${happened}.`,
-        ...issues.length ? [
-            `It was working on these issues in project "${project}"; carry on with them:`,
-            ...issues.map(issue => [
-                issueLine(issue, statuses),
-                issue.last ? `  last comment, by ${issue.last.created_by}: ${said(issue.last.body)}` : '',
-            ].filter(Boolean).join('\n')),
-        ] : [],
-        ...scope && left.length ? [
-            `${issues.length ? 'After those, it' : 'It'} was working through ${scope.title} in project "${project}"; these are left, most urgent first. Take them one at a time (in-progress, comments, done):`,
-            ...left.map(t => issueLine({...t, priority: t.priority ?? null}, statuses)),
-        ] : [],
-        `Read each in full (the issue tool, or curl ${api}/issues/<id>) before going on.`,
-    ].join('\n')
-}
