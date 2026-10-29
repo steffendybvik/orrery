@@ -4,10 +4,12 @@
 // on this machine asks first where to keep its data (ORR-319): here, or Postgres, moved to as App settings does it, so
 // ORRERY_DATABASE isn't needed. Not when ORRERY_DATABASE names Postgres, or once it's moved. Before either, a new one
 // whose backup folder has backups asks whether to restore one (ORR-448): it never starts from one by itself.
+// With the name it asks whether they're a developer (ORR-579): a no turns Advanced off (App settings → Advanced), so the
+// sidebar leaves out Events, Context and Pull requests and orrery records only its errors.
 import type {Backups} from '#shared/roadmap'
 
 const {named, rename} = useOwner()
-const {settings} = useAppSettings()
+const {settings, save: saveSettings} = useAppSettings()
 const {ordered} = useProjectOrder()
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
 const asksData = computed(() => !!settings.value.database?.movable && !settings.value.database.moved && !ordered.value.length
@@ -25,6 +27,7 @@ const showing = computed(() => {
 /** In Docker, a new one with no backups may have had its data in a volume of another name. */
 const otherVolume = computed(() => !!backups.value?.fresh && backups.value.docker && !backups.value.snapshots.length)
 const display = ref('')
+const developer = ref(true)
 const saving = ref(false)
 const failed = ref('')
 const input = ref<HTMLInputElement | null>(null)
@@ -49,6 +52,7 @@ async function save() {
     failed.value = ''
     try {
         await rename(display.value.trim())
+        if (!developer.value && settings.value.advanced) await saveSettings({advanced: false})
     } catch (error) {
         failed.value = errorMessage(error)
     } finally {
@@ -102,6 +106,24 @@ async function save() {
         Had data here before? This orrery starts empty, and it may be in another Docker volume, from a folder with another name:
         see <code>docker volume ls</code>.
       </p>
+      <fieldset class="flex flex-col gap-1.5">
+        <legend class="mb-1.5 text-[13px] font-medium text-fg">Are you a developer?</legend>
+        <div class="flex gap-2">
+          <label
+              v-for="{value, label, note} in [{value: true, label: 'Yes', note: 'Show the pages for looking into problems'}, {value: false, label: 'No', note: 'Keep them out of the sidebar'}]"
+              :key="label"
+              class="flex flex-1 cursor-pointer items-start gap-2 rounded-lg p-2 ring-1 hover:bg-hover"
+              :class="developer === value ? 'ring-accent-500/50' : 'ring-line'"
+          >
+            <input v-model="developer" type="radio" name="developer" :value="value" class="mt-0.5 accent-accent-500">
+            <span class="flex flex-col gap-0.5">
+              <span class="text-[13px] font-medium text-fg">{{ label }}</span>
+              <span class="text-xs text-muted">{{ note }}</span>
+            </span>
+          </label>
+        </div>
+        <p class="text-xs text-faint">Those are Events, Context and Pull requests. Change it later in App settings → Advanced.</p>
+      </fieldset>
       <p class="text-xs text-faint">
         Your <span class="font-mono text-muted">Orrery-Actor</span> header will be <span class="font-mono text-muted">{{ id || 'your_name' }}</span>
       </p>
