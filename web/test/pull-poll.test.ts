@@ -271,6 +271,47 @@ describe('the pull request poll', () => {
         expect(changes.map(c => c.key)).toEqual(['you/shop#1 ready sha1a'])
     })
 
+    it("polls now when the owner asks, whenever it last did, but not past GitHub's holds (ORR-534)", async () => {
+        await withToken()
+        open = [pr(1)]
+        await poll.tick()
+        expect(asked).toHaveLength(1)
+        // Not due for a minute, but asked for.
+        now += 5_000
+        open = [pr(1, {mergeStateStatus: 'DIRTY'})]
+        expect(await poll.pollNow()).toEqual(new Map())
+        expect(asked).toHaveLength(2)
+        expect(changes.map(c => c.kind)).toEqual(['conflicting'])
+        // Two asks at once share one pass.
+        now += 5_000
+        await Promise.all([poll.pollNow(), poll.pollNow()])
+        expect(asked).toHaveLength(3)
+        // A refused token holds it, and says why.
+        refuse = true
+        now += 5_000
+        await poll.pollNow()
+        const held = await poll.pollNow()
+        expect(held.get('you/shop')).toMatch(/turned down the GITHUB_TOKEN secret/)
+        expect(asked).toHaveLength(4)
+    })
+
+    it('polls a repo without a token at most once a minute when asked, saying when it can again (ORR-534)', async () => {
+        rest['/repos/you/shop/pulls?state=open&per_page=100'] = () => json([])
+        rest['/repos/you/shop/pulls?state=closed&sort=updated&direction=desc&per_page=30'] = () => json([])
+        await poll.pollNow()
+        expect(asked).toHaveLength(2)
+        now += 30_000
+        expect((await poll.pollNow()).get('you/shop')).toBe('Read without a token a moment ago: it can be polled again at 10:01 UTC (a GITHUB_TOKEN secret lifts this)')
+        expect(asked).toHaveLength(2)
+        now += 30_000
+        await poll.pollNow()
+        expect(asked).toHaveLength(4)
+        // And the page reads what it got, rather than asking GitHub a third time.
+        asked = []
+        expect((await pulls.all()).repos).toMatchObject([{repo: 'you/shop', token: false, checked_at: '2026-10-29T10:01:00.000Z'}])
+        expect(asked).toEqual([])
+    })
+
     it('lets go of a repo nobody points at any more', async () => {
         await withToken()
         open = [pr(1)]

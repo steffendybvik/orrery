@@ -4,10 +4,11 @@ import {PULL_NEEDS} from '#shared/roadmap'
 // Every open pull request on the projects' GitHub repos (ORR-491), so one doesn't wait unseen once its issue is in
 // review or done: those that need someone (conflicts, failing checks, behind) first, oldest first, then the rest.
 // Each row has the PR, where it stands, its branch and age, and the issue it names, if a project has it. Under the
-// list, each repo read and how (with or without a token, and why it couldn't be read).
+// list, each repo read and how (with or without a token, and why it couldn't be read). Poll asks GitHub now rather
+// than waiting for the background poll's next turn; a repo it held back (GitHub's limits) says why on its line.
 useHead({title: 'Pull requests · orrery'})
 const {projects, ready, byId} = useRoadmaps()
-const {pulls, follow} = useOpenPulls()
+const {pulls, follow, poll, polling, failed} = useOpenPulls()
 follow(60_000)
 const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
 </script>
@@ -24,6 +25,13 @@ const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
       <template v-else-if="pulls.pulls.length">{{ pulls.pulls.length }} open{{ pulls.needs ? `, ${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone` : '' }}</template>
       <template v-else>None open</template>
     </span>
+    <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+    <template #end>
+      <UiButton class="shrink-0" :disabled="polling || !pulls?.repos.length" title="Ask GitHub now, rather than at the next poll" @click="poll">
+        <svg class="size-3.5" :class="{'animate-spin motion-reduce:animate-none': polling}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" /></svg>
+        {{ polling ? 'Polling…' : 'Poll' }}
+      </UiButton>
+    </template>
   </ViewToolbar>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
@@ -60,6 +68,7 @@ const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
           <template v-if="repo.error"><span class="text-rose-600 dark:text-rose-400">{{ repo.error }}</span></template>
           <template v-else-if="repo.token">read with the GITHUB_TOKEN secret{{ repo.checked_at ? `, ${ago(repo.checked_at)}` : '' }}</template>
           <template v-else>read without a token, so only the list: set a GITHUB_TOKEN secret for api.github.com to see where each stands</template>
+          <template v-if="repo.held"> · <span class="text-amber-700 dark:text-amber-400">not polled now: {{ repo.held }}</span></template>
         </li>
       </ul>
     </div>

@@ -164,13 +164,14 @@ export class Pulls {
         const pulls: OpenPull[] = []
         const repos: AllPulls['repos'] = []
         for (const [repo, projects] of await this.repos()) {
-            const kept = await this.kept(repo)
+            // Without a token this shows only the list, as the poll keeps it, so a poll without one serves too.
+            const kept = await this.kept(repo, true)
             if (kept) {
                 for (const pull of kept.pulls) {
                     const issue = await this.issueOf(projects, JSON.parse(pull.names) as string[])
                     pulls.push({...keptShown(pull), repo, ...issue ? {issue} : {}})
                 }
-                repos.push({repo, projects, token: true, checked_at: kept.checked_at, ...kept.error ? {error: kept.error} : {}})
+                repos.push({repo, projects, token: kept.token, checked_at: kept.checked_at, ...kept.error ? {error: kept.error} : {}})
                 continue
             }
             // Asked as the first project's: the token's projects are checked against it.
@@ -195,6 +196,12 @@ export class Pulls {
         return {pulls, needs: pulls.filter(needs).length, repos}
     }
 
+    /** Until when GitHub's rate limit holds the repo, while it does. */
+    limitedUntil(repo: string): number | undefined {
+        const until = this.limited.get(repo)
+        return until && this.now() < until ? until : undefined
+    }
+
     /** The projects' GitHub repos, each with the projects on it, oldest first. */
     async repos(): Promise<Map<string, string[]>> {
         const rows = await this.store.db.all<{id: string, repo: string | null}>('SELECT id, repo FROM projects ORDER BY created_at, id')
@@ -206,13 +213,13 @@ export class Pulls {
         return byRepo
     }
 
-    /** The repo's open PRs as the poll keeps them, while it read them with a token in the last few minutes; else none,
-     * and GitHub is asked. */
-    private async kept(repo: string): Promise<{pulls: KeptPull[], checked_at: string, error?: string} | null> {
+    /** The repo's open PRs as the poll keeps them, while it read them with a token in the last few minutes (or without
+     * one, `listOnly`, for a reader that shows only the list then); else none, and GitHub is asked. */
+    private async kept(repo: string, listOnly = false): Promise<{pulls: KeptPull[], checked_at: string, token: boolean, error?: string} | null> {
         const polled = await this.store.db.get<{polled_at: string, token: number, error: string | null}>('SELECT polled_at, token, error FROM pull_repos WHERE repo = ?', repo)
-        if (!polled?.token || this.now() - Date.parse(polled.polled_at) > POLL_STANDS) return null
+        if (!polled || (!polled.token && !listOnly) || this.now() - Date.parse(polled.polled_at) > POLL_STANDS) return null
         const pulls = await this.store.db.all<KeptPull>('SELECT * FROM pull_states WHERE repo = ? AND merged = 0 AND closed = 0 ORDER BY number', repo)
-        return {pulls, checked_at: polled.polled_at, ...polled.error ? {error: polled.error} : {}}
+        return {pulls, checked_at: polled.polled_at, token: !!polled.token, ...polled.error ? {error: polled.error} : {}}
     }
 
     /** The first of the ids that's an issue (or one it had before) in one of the projects. */

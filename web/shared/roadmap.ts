@@ -981,7 +981,8 @@ export interface OpenPull extends PullRequest {
 export interface AllPulls {
     pulls: OpenPull[]
     needs: number
-    repos: {repo: string, projects: string[], token: boolean, checked_at: string | null, error?: string}[]
+    /** `held`: why Poll now didn't ask GitHub for the repo (a rate limit, a refused token, or polled without one a moment ago). */
+    repos: {repo: string, projects: string[], token: boolean, checked_at: string | null, error?: string, held?: string}[]
 }
 
 /** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */
