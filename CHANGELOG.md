@@ -3,6 +3,9 @@
 What changed in each release. Versions follow [semver](https://semver.org): the API (`docs/API.md`) and
 the database schema are the public surface, and a database always migrates forward on its own.
 
+From 1.0.0-rc.11 on, each version's changes are grouped under **Features**, **Changes** and **Fixes**, then
+**Docs** and **Internal** where they help, and a group with nothing in it is left out.
+
 ## 1.0.0-rc.10 (2026-10-28)
 
 - **Backups, your way:** App settings → Database turns backups on or off and, outside Docker, picks their folder in

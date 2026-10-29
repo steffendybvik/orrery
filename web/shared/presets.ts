@@ -10,7 +10,7 @@ export const DEFAULT_PRESETS: DefaultPreset[] = [
 
 1. Check that everything meant for it has landed: its issues are done or moved out, its pull requests merged.
 2. Run the full checks (tests, typecheck, lint, the end-to-end suite). Fix what fails on a branch of its own, with a pull request.
-3. Write the version's changelog from the merged pull requests and the release's issues: what changed for the people using it, not a list of commits.
+3. Write the version's changelog from the merged pull requests and the release's issues: what changed for the people using it, not a list of commits. Group it under ### Features, ### Changes and ### Fixes (then ### Docs or ### Internal where they help), leaving out an empty group, as the release page's draft does. The same section becomes the release's notes in orrery and on GitHub.
 4. Open the release pull request into main with the changelog, and comment on the release's issues that it's ready.
 
 Don't tag, publish or ship it: that's the owner's to do.`,
