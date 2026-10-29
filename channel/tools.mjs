@@ -57,8 +57,8 @@ export const TOOLS = [
     },
     {
         name: 'issue',
-        description: 'An issue: description, status, open sub-issues (finished ones counted), proposal and choices, open PRs, and its latest comments and open questions in full (older ones by their first line).',
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, comments: {type: 'string', enum: ['all'], description: 'Every comment in full'}}},
+        description: 'An issue: its fields, open sub-issues (finished counted), open PRs, and latest comments and open questions in full (older: first lines).',
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, comments: {type: 'string', enum: ['all']}}},
     },
     {
         name: 'create_issue',
