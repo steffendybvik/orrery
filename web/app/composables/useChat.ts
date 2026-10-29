@@ -6,6 +6,8 @@ import type {Chat, ChatIssues, Session, Upload} from '#shared/roadmap'
 // its chat (`close`), minimizing it leaves the chat running (`hide`), and one that ends on its own stays on screen, ended, until the pane closes. Each message says
 // which page the owner is on, so the chat knows what "this" is. `/clear` clears its session's context instead (`clear`). Where the issues it makes land (`lands`, Todo or Backlog)
 // is the owner's pick beside Send, remembered in this browser for the next chat, and kept by the server on the chat.
+// The project a chat would start on follows the page you're on until it's pinned (`pin`, a hand pick pins it); pinned, it
+// stays put whatever page you open, remembered in this browser, until unpinned (ORR-588).
 export function useChat() {
     const chats = useState<Chat[]>('chats', () => [])
     const open = useState('chat-open', () => false)
@@ -13,6 +15,14 @@ export function useChat() {
     /** The chat that just ended, kept to read until the pane closes or starts another. */
     const ended = useState<Chat | null>('chat-ended', () => null)
     const project = useState<string | null>('chat-project', () => null)
+    /** The project the pane stays on whatever page is open, picked by hand; none while it follows the page. */
+    const pinned = useState<string | null>('chat-pinned', () => {
+        try {
+            return localStorage.getItem('orrery-chat-project')
+        } catch {
+            return null
+        }
+    })
     const failed = useState('chat-failed', () => '')
     /** Counts the changes heard live, so a fetch that was on its way meanwhile doesn't put an older chat back. */
     const heard = useState('chat-heard', () => 0)
@@ -57,9 +67,9 @@ export function useChat() {
         } else chats.value = [changed, ...others]
     }
 
-    /** Opens the pane on the running chat, or ready to start one on `on`. */
+    /** Opens the pane on the running chat, or ready to start one on `on` unless a project is pinned. */
     function show(on?: string | null) {
-        if (on) project.value = on
+        if (on && !pinned.value) project.value = on
         open.value = true
         fetchChats()
     }
@@ -159,6 +169,18 @@ export function useChat() {
         await $fetch(`/api/chats/${on.id}/end`, {method: 'POST', headers: {'Orrery-Actor': await load()}}).catch(() => {})
     }
 
+    /** Pins the pane to `on`, so it stays there whatever page is open, or unpins it (null) to follow the page again. */
+    function pin(on: string | null) {
+        pinned.value = on
+        if (on) project.value = on
+        try {
+            if (on) localStorage.setItem('orrery-chat-project', on)
+            else localStorage.removeItem('orrery-chat-project')
+        } catch {
+            // Private browsing: it stays pinned for this visit only.
+        }
+    }
+
     function resize() {
         large.value = !large.value
         try {
@@ -174,5 +196,5 @@ export function useChat() {
         return $fetch<Upload>('/api/uploads', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, open, large, current, chat, session, project, failed, ended, lands, fetchChats, arrived, show, start, send, clear, land, fresh, answer, hide, close, resize, upload}
+    return {chats, open, large, current, chat, session, project, pinned, failed, ended, lands, fetchChats, arrived, show, start, send, clear, land, fresh, answer, hide, close, pin, resize, upload}
 }
