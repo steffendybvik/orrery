@@ -247,12 +247,17 @@ test("shows on an issue's page which session is on it, while it listens", async 
         await expect(rows.first()).toContainText('on this issue')
         await expect(rows.first()).toContainText('e2e-w2')
         await expect(rows.filter({hasText: 'on this issue'})).toHaveCount(1)
-        // The list marks the issue it's working, its name on the dot.
+        // The list and the board mark the issue it's working, its name on the dot.
+        const dot = page.getByRole('img', {name: 'e2e-w2 is working on it'})
+        await page.goto('/p/kitchen?view=board')
+        await expect(dot).toHaveCount(1)
         await page.goto('/p/kitchen')
-        await expect(page.getByRole('img', {name: 'e2e-w2 is working on it'})).toHaveCount(1)
-        await page.goBack()
-        // Gone once it stops listening.
+        await expect(dot).toHaveCount(1)
+        // Gone from the list once it stops listening, and from the issue's page.
         streams[1]!.stop()
+        await expect(dot).toHaveCount(0)
+        await page.goto(`/p/kitchen/issues/${issue.id}`)
+        await expect(page.getByRole('heading', {name: 'Descale the kettle'})).toBeVisible()
         await expect(banner).toHaveCount(0)
         await expect(page.getByText('on this issue')).toHaveCount(0)
     } finally {
