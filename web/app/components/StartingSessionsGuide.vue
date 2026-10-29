@@ -41,7 +41,8 @@ const ready = computed(() => !!settings.value.starts && !!running.value)
             <span class="font-medium text-fg">Install the launcher, once in each project's repo</span>
             <span>
               orrery runs in Docker and can't start sessions on your machine, so a small launcher does it. Installed, it runs in the
-              background (launchd on macOS, systemd on Linux), starts at login and serves every project installed this way.
+              background (launchd on macOS, systemd on Linux; on Windows, inside WSL with systemd on), starts at login and serves
+              every project installed this way.
               It finds the project in the repo's <span class="font-mono">.mcp.json</span>. If it's new to the repo,
               run <span class="font-mono">claude</span> there once to trust the folder. Its command is at the top of this section.
             </span>

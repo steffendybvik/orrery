@@ -44,6 +44,12 @@ describe('opening a terminal on a session', () => {
     })
 
     it("uses the system's own terminal off macOS, whatever the setting", () => {
-        expect(openWatch({...watching, app: 'iterm', platform: 'linux'})).toEqual({command: 'x-terminal-emulator', args: ['-e', '/opt/homebrew/bin/tmux', 'attach', '-t', watching.name]})
+        expect(openWatch({...watching, app: 'iterm', platform: 'linux', distro: ''})).toEqual({command: 'x-terminal-emulator', args: ['-e', '/opt/homebrew/bin/tmux', 'attach', '-t', watching.name]})
+    })
+
+    it('opens Windows Terminal on the distro inside WSL, whatever the app setting (ORR-576)', () => {
+        expect(openWatch({...watching, app: 'iterm', platform: 'linux', distro: 'Ubuntu'})).toEqual({
+            command: 'wt.exe', args: ['-w', 'new', 'wsl.exe', '-d', 'Ubuntu', '--', '/opt/homebrew/bin/tmux', 'attach', '-t', watching.name],
+        })
     })
 })
