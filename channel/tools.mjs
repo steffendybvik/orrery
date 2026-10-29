@@ -52,7 +52,7 @@ export const TOOLS = [
             label: {type: 'string'},
             external: {type: 'string', description: "A team task's id: the issues linked to it"},
             q: {type: 'string', description: 'Text in the id or title'},
-            open: {type: 'boolean', description: 'Only issues not done or canceled (default true)'},
+            open: {type: 'boolean', description: 'Only issues still to do (default true): todo, started and in review, and backlog too in the chat; false lists every status'},
         }},
     },
     {name: 'issue', description: 'An issue in full (description, status, sub-issues, proposal and choices) with its comments, and its open pull requests with where each stands.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
@@ -354,7 +354,11 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'q']))
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
-            return issues.length ? issues.map(line).join('\n') : 'No issues match.'
+            // A work session lists only what it could take up: backlog is mostly proposals and research (ORR-545). The chat keeps it.
+            const backlog = chat || args.open === false || args.status ? 0 : issues.filter(i => i.kind === 'backlog').length
+            if (backlog) issues = issues.filter(i => i.kind !== 'backlog')
+            const hidden = backlog ? `${backlog} in backlog not shown: status: backlog lists them` : ''
+            return [issues.length ? issues.map(line).join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
         },
         async issue({id}) {
             const base = at(await projectOf({id}))
