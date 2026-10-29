@@ -1,5 +1,5 @@
 import {expect, test} from '@playwright/test'
-import {projectApi} from './support'
+import {OWNER, projectApi} from './support'
 
 // A fresh orrery opened for the first time: the owner names themselves, makes a project from the page, and My issues
 // (home, with `/now` sent there), Getting started and Connect show what they should. The other spec files run after
@@ -21,9 +21,16 @@ test('asks where to keep the data, then the owner\'s name, on first open', async
     await expect(where).toBeHidden()
     const dialog = page.getByRole('dialog', {name: 'Your name'})
     await dialog.getByLabel('Your name').fill('Ada Lovelace')
+    // Not a developer: Advanced goes off, and the pages for looking into problems leave the sidebar.
+    await expect(dialog.getByRole('radio', {name: /Yes/})).toBeChecked()
+    await dialog.getByRole('radio', {name: /No/}).check()
     await dialog.getByRole('button').last().click()
     await expect(dialog).toBeHidden()
     expect(await (await request.get('/api/owner')).json()).toMatchObject({name: 'ada_lovelace', named: true})
+    await expect.poll(async () => (await (await request.get('/api/settings')).json()).advanced).toBe(false)
+    await expect(page.getByRole('link', {name: 'Events'})).toBeHidden()
+    // The other spec files expect Advanced on, as it starts.
+    await request.patch('/api/settings', {data: {advanced: true}, headers: OWNER})
     // A new orrery opens on Getting started: the owner's step ticked, a project the one to do.
     await expect(page.getByRole('heading', {name: 'Getting started'})).toBeVisible()
     await expect(page.getByRole('progressbar', {name: 'Steps done'})).toHaveAttribute('aria-valuenow', '1')
