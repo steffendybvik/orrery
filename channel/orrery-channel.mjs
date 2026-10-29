@@ -10,14 +10,17 @@
 // name by default. ORRERY_HEAR narrows that to the ones named (the launcher sets it for a session started for some of
 // the repo's projects); one it doesn't serve is let go. ORRERY_URL is where orrery runs (http://localhost:9000 by default), and ORRERY_ID the orrery
 // it must be (its id, on its Connect page): another one at that address is refused, so a repo set up for one
-// orrery never writes to another. Only stderr is for logs: stdout is the MCP connection.
+// orrery never writes to another. Opened in a repo by hand, it puts the repo on the launcher's list when the launcher's
+// pick-up is on (ORR-599). Only stderr is for logs: stdout is the MCP connection.
 import {readdirSync, readFileSync, statSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {basename, join} from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
-import {narrowed} from './repo-channels.mjs'
+import {pickUp} from './launcher-service.mjs'
+import {channelsIn, narrowed, projectsIn} from './repo-channels.mjs'
 import {serverName} from './server-name.mjs'
 import {claudeWindow} from './session.mjs'
 import {instructionsFor} from './instructions.mjs'
@@ -147,6 +150,30 @@ const {channel, server: registeredAs} = registered()
 log(`registered as a channel: ${channel}${registeredAs ? ` (as ${registeredAs})` : ''}`)
 who.set('channel', channel)
 if (registeredAs) who.set('server', registeredAs)
+
+/** Pick-up (ORR-599): a session opened in a repo whose .mcp.json registers this channel puts the repo's projects on the
+ * launcher's list, as `--install` there would, so orrery can start sessions here too, and says so once. Only this
+ * channel, running in the folder on this machine, writes the list: orrery never names a folder for the launcher. Not
+ * for a session orrery started (it's served already), and only projects its orrery has. */
+async function pickUpRepo() {
+    const dir = process.cwd()
+    if (!channelsIn(dir).length) return
+    const known = []
+    for (const entry of projectsIn(dir, {url: process.env.ORRERY_URL})) {
+        const status = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`).then(r => r.status, () => 0)
+        if (status && status !== 404) known.push(entry)
+    }
+    const added = pickUp(known, dir)
+    if (!added.length) return
+    const names = added.map(entry => entry.project).join(', ')
+    log(`put ${names} on the launcher's list (pick-up)`)
+    const launcher = fileURLToPath(new URL('./orrery-launcher.mjs', import.meta.url))
+    await server.notification({method: 'notifications/claude/channel', params: {
+        content: `orrery's launcher now serves this repo (${names}), so orrery can start sessions in it. To take it off, run this here: node ${launcher} --uninstall`,
+        meta: {kind: 'pick-up'},
+    }})
+}
+if (!process.env.ORRERY_STARTED) await pickUpRepo().catch(error => log(`couldn't put this repo on the launcher's list: ${error.message}`))
 
 /** Tells the session about a signal on one of its projects. A chat hears only the owner's messages in it. */
 async function deliver(project, signal, query) {
