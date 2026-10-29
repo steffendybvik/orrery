@@ -154,4 +154,16 @@ describe('a session out of work', () => {
         due = []
         expect(await pick.pickNext('orrery', 's')).toBe(true)
     })
+
+    it('when the board changes, passes over one that becomes due its clear while the one before waits (ORR-527)', async () => {
+        sessions.push({id: 's', project: 'orrery', state: 'idle', listening: true, idleAt: 1, started: {launch: 'l1'}})
+        pick.recheckIdle()
+        await vi.advanceTimersByTimeAsync(pick.RECHECK_AFTER + 10)
+        expect(sent.map(s => s.session)).toEqual(['w'])
+        // A short turn of its own in those seconds, and its Stop makes it due its clear.
+        due = ['s']
+        await vi.advanceTimersByTimeAsync(pick.PICK_APART + 10)
+        expect(sent.map(s => s.session)).toEqual(['w'])
+        expect(await pick.pickNext('orrery', 's')).toBe(false)
+    })
 })

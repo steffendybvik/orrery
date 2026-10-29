@@ -9,6 +9,7 @@ import {total} from '#shared/roadmap'
 const props = defineProps<{chunks: Chunk[], project: string}>()
 const {open, isLast} = useIssueLink()
 const {issueUnseen} = useUnseen()
+const {workerOf} = useWorkedIssues()
 const {open: openMenu} = useIssueMenu()
 const {columns: order, look} = useStatuses()
 const {selected, isSelected, toggle} = useSelection()
@@ -85,6 +86,7 @@ const subs = (issue: Issue) => `${issue.kinds.done}/${total(issue.kinds)}`
             <span v-if="issueUnseen(project, issue)" class="unseen-dot" title="Changed since you last opened it" />
             <span class="font-mono">{{ issue.id }}</span>
             <span class="min-w-0 flex-1 truncate">{{ chunk.title }}</span>
+            <WorkingDot v-if="!isClosed(issue.kind) && workerOf(project, issue.id)" :session="workerOf(project, issue.id)!" />
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />
           </div>
           <div class="flex items-start gap-2">

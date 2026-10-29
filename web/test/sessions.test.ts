@@ -578,4 +578,25 @@ describe("a session's stream catching up", () => {
         expect(error).toHaveBeenCalled()
         error.mockRestore()
     })
+
+    it("carries the context the session was started with on its first signal only, as its hook gives it too", async () => {
+        const signal = (id: number) => ({id, project: 'greenhouse', kind: 'focus'}) as unknown as Signal
+        vi.stubGlobal('useStore', () => ({unheardScheduled: async () => []}))
+        let context: {presets: string[], text: string} | undefined
+        for (const [name, value] of Object.entries({startRun: () => {}, sessionNow: () => ({started: {launch: 'l', context}}), idleAt: () => undefined, sessionName: () => undefined,
+            repeatKey: () => undefined, contextBlock: (given: {text: string}) => `More: ${given.text}`})) vi.stubGlobal(name, value)
+        const {streamFeed} = await import('../server/utils/signal-feed')
+        let live = false
+        // Its first signal comes before orrery knows its context (none yet): the next that finds it carries it.
+        const feed = {
+            project: 'greenhouse', attended: {id: 'a'}, heard: true, missed: [signal(1)],
+            told: async (s: Signal) => ({id: s.id}), ours: () => true, wanted: () => true, mine: () => true,
+            inOrder: (work: () => Promise<unknown>) => void work(), onIdle: () => {},
+            goLive: (send: (s: Signal) => void) => { live = true; context = {presets: ['Review'], text: "You're reviewing."}; send(signal(2)); send(signal(3)) },
+            get live() { return live },
+        }
+        const told: unknown[] = []
+        await streamFeed((_signal, said) => told.push(said), feed as never)
+        await vi.waitFor(() => expect(told).toEqual([{id: 1}, {id: 2, context: "More: You're reviewing."}, {id: 3}]))
+    })
 })

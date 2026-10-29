@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Signal} from '#shared/roadmap'
 import type {PullChange} from '../server/utils/pull-poll'
@@ -103,15 +103,59 @@ describe("a pull request's news on its issue", () => {
         const comments = await store.listComments('shop', 'SHO-1')
         expect(comments).toHaveLength(4)
         expect(comments[3]).toMatchObject({created_by: 'orrery', asks: 'feedback'})
-        expect(comments[3]!.body).toContain('failed 4 times')
+        expect(comments[3]!.body).toContain('failed 4 times since they last passed')
         expect((await store.issue('shop', 'SHO-1')).waiting).toBe('feedback')
     })
 
-    it('tells the failures after the owner was asked again, in a new round, and asks again after three more (ORR-529)', async () => {
-        for (const failures of [1, 2, 3, 4, 5, 6, 7, 8]) await commentOnPull(store, change('checks_failed', {}, {failures}))
-        const comments = await store.listComments('shop', 'SHO-1')
-        expect(comments.map(c => c.asks ?? null)).toEqual([null, null, null, 'feedback', null, null, null, 'feedback'])
-        expect(comments[7]!.body).toContain('failed 8 times')
+    it("tells nothing more after asking until the owner answers, then three more before it asks again (ORR-529)", async () => {
+        const fail = async (failures: number) => {
+            vi.advanceTimersByTime(1000)
+            await commentOnPull(store, change('checks_failed', {}, {failures}))
+        }
+        vi.useFakeTimers({toFake: ['Date']})
+        try {
+            for (const failures of [1, 2, 3, 4, 5, 6]) await fail(failures)
+            // Asked at 4, and 5 and 6 are events only: the owner hasn't answered.
+            expect(signals).toHaveLength(3)
+            expect((await store.listComments('shop', 'SHO-1')).map(c => c.asks ?? null)).toEqual([null, null, null, 'feedback'])
+            expect(events.filter(e => e.type === 'pr.checks_failed')).toHaveLength(6)
+            vi.advanceTimersByTime(1000)
+            await store.createComment('shop', 'SHO-1', {body: 'Try the other driver.'}, me)
+            signals = []
+            for (const failures of [7, 8, 9, 10]) await fail(failures)
+            expect(signals).toHaveLength(3)
+            const comments = await store.listComments('shop', 'SHO-1')
+            expect(comments.slice(5).map(c => c.asks ?? null)).toEqual([null, null, null, 'feedback'])
+            expect(comments.at(-1)!.body).toContain('failed 10 times')
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('tells the failures again once the owner focuses a session on the issue, after asking (ORR-529)', async () => {
+        vi.useFakeTimers({toFake: ['Date']})
+        try {
+            for (const failures of [1, 2, 3, 4, 5]) {
+                vi.advanceTimersByTime(1000)
+                await commentOnPull(store, change('checks_failed', {}, {failures}))
+            }
+            expect(signals).toHaveLength(3)
+            vi.advanceTimersByTime(1000)
+            await store.focus('shop', 'SHO-1', {}, me)
+            signals = []
+            vi.advanceTimersByTime(1000)
+            await commentOnPull(store, change('checks_failed', {}, {failures: 6}))
+            expect(signals.map(s => s.kind)).toEqual(['comment'])
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('tells the first three after the checks went green again, even with an ask unanswered from before (ORR-529)', async () => {
+        for (const failures of [1, 2, 3, 4]) await commentOnPull(store, change('checks_failed', {}, {failures}))
+        signals = []
+        await commentOnPull(store, change('checks_failed', {}, {failures: 1}))
+        expect(signals).toHaveLength(1)
     })
 
     it('makes green again and approved an event only, telling nobody', async () => {

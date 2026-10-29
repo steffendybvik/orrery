@@ -13,6 +13,7 @@ let sent: unknown[]
 let left: {id: string}[]
 let focused: unknown[]
 let carried: unknown[]
+let rechecked: number
 
 beforeEach(async () => {
     vi.useFakeTimers()
@@ -26,6 +27,7 @@ beforeEach(async () => {
     sent = []
     left = []
     focused = []
+    rechecked = 0
     const events = new EventEmitter()
     events.on('launches', event => sent.push(event))
     vi.stubGlobal('projectEvents', events)
@@ -35,6 +37,7 @@ beforeEach(async () => {
     vi.stubGlobal('scopeOf', async () => ({open: left}))
     vi.stubGlobal('untrustedSession', () => untrusted)
     vi.stubGlobal('chatSession', () => chat)
+    vi.stubGlobal('recheckIdle', () => void rechecked++)
     vi.stubGlobal('useStore', () => ({
         workingOn: async () => working.map(id => ({id})), waiting: async () => waiting,
         focusChunk: async (...args: unknown[]) => void focused.push(args),
@@ -115,6 +118,19 @@ describe('a session orrery started, gone idle', () => {
         expect(clearing.clearPending('w')).toBe(false)
     })
 
+    it('has the idle sessions tried again when its clear never comes back, but not when it does (ORR-527)', async () => {
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(sent).toHaveLength(1)
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR)
+        expect(rechecked).toBe(1)
+        clearing.considerClear('orrery', 'w')
+        await after()
+        clearing.clearDone('w')
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR)
+        expect(rechecked).toBe(1)
+    })
+
     it('stays due when a later idle makes it due again before the first one gives up', async () => {
         clearing.considerClear('orrery', 'w')
         session = {...session!, idleAt: 2}
@@ -125,6 +141,9 @@ describe('a session orrery started, gone idle', () => {
     })
 
     it("isn't due one when it's a chat or a session someone opened themselves", () => {
+        session = {...session!, started: {launch: 'l1', chat: true} as {launch: string}}
+        clearing.considerClear('orrery', 'w')
+        expect(clearing.clearPending('w')).toBe(false)
         session = {project: 'orrery', state: 'idle', idleAt: 1}
         clearing.considerClear('orrery', 'w')
         expect(clearing.clearPending('w')).toBe(false)
