@@ -25,9 +25,15 @@ const signal = (id: number, more: Partial<Signal> = {}): Signal =>
     ({id, project: 'greenhouse', kind: 'focus', issue: 'GRE-1', delivered_to: [], instructions: [], created_by: 'skoll', protected: true, created_at: '', ...more})
 
 describe('a signal aimed at no session', () => {
-    it('is pooled; one aimed at a session or every session, or a comment, is not', () => {
-        expect(pool.pooled(signal(1))).toBe(true)
-        expect([pool.pooled(signal(1, {target: 'a'})), pool.pooled(signal(1, {target: '*'})), pool.pooled(signal(1, {kind: 'comment'}))]).toEqual([false, false, false])
+    it('is pooled, a comment on an issue nobody is on too (ORR-513); one aimed at a session or every session is not', () => {
+        expect([pool.pooled(signal(1)), pool.pooled(signal(1, {kind: 'comment'}))]).toEqual([true, true])
+        expect([pool.pooled(signal(1, {target: 'a'})), pool.pooled(signal(1, {target: '*'})), pool.pooled(signal(1, {kind: 'comment', target: 'a'}))]).toEqual([false, false, false])
+    })
+
+    it("hands the owner's comment on an issue nobody is on to one of two idle sessions, not both (ORR-513)", () => {
+        states = {a: 'idle', b: 'idle'}
+        const comment = signal(7, {kind: 'comment'})
+        expect([pool.take(comment, 'greenhouse', 'a'), pool.take(comment, 'greenhouse', 'b')]).toEqual([true, false])
     })
 
     it('goes to the first idle session to take it, and to it again, by any id it has had', () => {

@@ -1408,8 +1408,22 @@ describe('a session that connects', () => {
         await local.createComment('greenhouse', b, {body: 'answered'}, me)
         await local.createComment('greenhouse', b, {body: 'here you go'}, {name: 'claude', owner: false})
         sent.length = 0
+        // Still in the pool for one session to take, it isn't sent again (ORR-513)…
+        expect(await local.carryUnanswered('greenhouse', 'new-window')).toBe(0)
+        // …but once nobody took it in a day, the session that connects gets it.
+        await local.db.run("UPDATE signals SET created_at = ? WHERE kind = 'comment'", new Date(Date.now() - 2 * 86_400_000).toISOString())
         expect(await local.carryUnanswered('greenhouse', 'new-window')).toBe(1)
         expect(sent).toEqual([`${a}:new-window:answer me`])
+    })
+
+    it("aims the owner's comment on an issue nobody is on at no session, for one to take, and the pool offers it (ORR-513)", async () => {
+        const sent: (string | undefined)[] = []
+        const local = new Store(testDb(), () => {}, signal => sent.push(signal.target))
+        await local.createProject({name: 'greenhouse', key: 'GRE'})
+        const a = (await local.createIssue('greenhouse', {title: 'A'})).id
+        await local.createComment('greenhouse', a, {body: 'svg?'}, {name: 'skoll', owner: true})
+        expect(sent).toEqual([undefined])
+        expect((await local.pooledWaiting('greenhouse')).map(s => [s.kind, s.note])).toEqual([['comment', 'svg?']])
     })
 })
 
