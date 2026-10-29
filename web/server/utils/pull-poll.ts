@@ -18,6 +18,9 @@ import type {Store} from './store'
 /** How often a repo is polled: with a token, and without one. */
 export const POLL_EVERY = 60_000
 export const POLL_WITHOUT_TOKEN = 10 * 60_000
+/** How soon a repo read without a token may be polled again when the owner asks (Poll now): two of GitHub's 60 requests
+ * an hour each time. */
+export const POLL_NOW_WITHOUT_TOKEN = 60_000
 /** How long a refused token holds a repo before it's tried again. */
 const REFUSED_FOR = 60 * 60_000
 /** The most recently merged or closed PRs each poll reads: enough for a busy minute, or ten minutes without a token. */
@@ -129,6 +132,9 @@ function fromList(pull: ListedPull & {closed_at?: string | null}): Polled {
     }
 }
 
+/** A time as `HH:MM`, UTC. */
+const clock = (at: number) => new Date(at).toISOString().slice(11, 16)
+
 /** What changed from `was` (none: first seen) to `now`, in the order they're told. */
 export function changesOf(was: Pick<KeptPull, 'state' | 'checks' | 'review' | 'merged' | 'closed'> | undefined, now: Polled): PullChangeKind[] {
     if (now.merged) return was && !was.merged ? ['merged'] : []
@@ -157,7 +163,10 @@ export class PullPoll {
     /** Repos whose token GitHub turned down, until when; and those said so in the log. */
     private readonly refused = new Map<string, number>()
     private readonly told401 = new Set<string>()
-    private running = false
+    /** The pass under way, background or asked for, so another doesn't start beside it. */
+    private running: Promise<Map<string, string>> | null = null
+    /** The owner's Poll now under way: a second ask gets its result. */
+    private asked: Promise<Map<string, string>> | null = null
 
     constructor(
         private readonly store: Store,
@@ -171,31 +180,61 @@ export class PullPoll {
 
     /** Polls each repo that's due, one after another; a tick while the last is still going does nothing. */
     async tick(): Promise<void> {
-        if (this.running) return
-        this.running = true
-        try {
+        if (!this.running) await this.pass(false)
+    }
+
+    /** The owner's Poll now (ORR-534): every repo (or `only`), whenever it was last polled, once the pass under way
+     * has finished; a second ask while one runs gets its result. A repo GitHub is holding (a rate limit, a refused
+     * token), or one read without a token in the last minute, isn't asked: why, by repo. */
+    async pollNow(only?: string): Promise<Map<string, string>> {
+        this.asked ??= (async () => {
+            while (this.running) await this.running.catch(() => undefined)
+            return await this.pass(true, only)
+        })().finally(() => {
+            this.asked = null
+        })
+        return await this.asked
+    }
+
+    private async pass(force: boolean, only?: string): Promise<Map<string, string>> {
+        const run = (async () => {
+            const held = new Map<string, string>()
             const repos = await this.pulls.repos()
             for (const [repo, projects] of repos) {
+                if (only && repo !== only) continue
                 try {
-                    await this.pollIfDue(repo, projects)
+                    const why = await this.pollIfDue(repo, projects, force)
+                    if (why) held.set(repo, why)
                 } catch (error) {
                     console.error(`[orrery] polling ${repo}'s pull requests:`, error)
                 }
             }
-            await this.forget([...repos.keys()])
+            if (!only) await this.forget([...repos.keys()])
+            return held
+        })()
+        this.running = run
+        try {
+            return await run
         } finally {
-            this.running = false
+            this.running = null
         }
     }
 
-    private async pollIfDue(repo: string, projects: string[]) {
+    /** Polls the repo when it's due (`force`: whenever it was last polled); why it wasn't, when it was held. */
+    private async pollIfDue(repo: string, projects: string[], force = false): Promise<string | undefined> {
         const now = this.now()
-        if ((this.refused.get(repo) ?? 0) > now) return
+        const refused = this.refused.get(repo) ?? 0
+        if (refused > now) return `GitHub turned down the ${GITHUB_SECRET} secret: tried again at ${clock(refused)} UTC, or once it's set again`
+        const limited = this.pulls.limitedUntil(repo)
+        if (force && limited) return `GitHub's rate limit is used up until ${clock(limited)} UTC`
         // Asked as the first project's: the token's projects are checked against it.
         const [asker = ''] = projects
         const token = await this.hasToken(asker)
         const last = this.last.get(repo)
-        if (last && last.token === token && now - last.at < (token ? POLL_EVERY : POLL_WITHOUT_TOKEN)) return
+        if (!force && last && last.token === token && now - last.at < (token ? POLL_EVERY : POLL_WITHOUT_TOKEN)) return
+        if (force && !token && last && !last.token && now - last.at < POLL_NOW_WITHOUT_TOKEN) {
+            return `Read without a token a moment ago: it can be polled again at ${clock(last.at + POLL_NOW_WITHOUT_TOKEN)} UTC (a GITHUB_TOKEN secret lifts this)`
+        }
         this.last.set(repo, {at: now, token})
         await this.poll(repo, projects, asker, token)
     }

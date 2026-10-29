@@ -260,6 +260,14 @@ export const PERMISSIONS: Permission[] = [
         untrusted: refused,
     },
     {
+        id: 'pulls.poll', area: 'This orrery', action: 'Poll GitHub for pull requests now',
+        why: 'Each poll spends GitHub’s requests, which are few without a token.',
+        routes: ['POST /api/pulls/poll'],
+        session: {level: 'owner'},
+        chat: refused,
+        untrusted: refused,
+    },
+    {
         id: 'notices.clear', area: 'This orrery', action: 'Clear the bell, or forget a session',
         why: 'What waits on the owner goes when they say.',
         routes: ['POST /api/notices/clear', 'POST /api/projects/:project/sessions/:session/forget'],
