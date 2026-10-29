@@ -46,7 +46,7 @@ const writing = ref<Preset | 'new' | null>(null)
       <li v-for="p in presets" :key="p.id">
         <button
             type="button"
-            class="flex size-full min-w-0 items-center gap-3 rounded-xl border border-line p-3 text-left transition-colors hover:bg-hover"
+            class="flex size-full min-w-0 items-center gap-3 rounded-xl border border-line p-3 text-left hover:tint dark:bg-panel"
             :aria-label="`Edit ${p.name}`"
             @click="writing = p"
         >

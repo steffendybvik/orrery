@@ -72,8 +72,8 @@
 
 .dark {
     --canvas: #09090b;
-    --panel: #0e0e11;
-    --raised: #18181b;
+    --panel: #131316;
+    --raised: #1c1c20;
     --line: rgb(255 255 255 / 0.08);
     --fg: #f4f4f5;
     --muted: #a1a1aa;
@@ -94,8 +94,8 @@
 
 .dark[data-tint] {
     --canvas: color-mix(in oklab, var(--tint) 12%, #09090b);
-    --panel: color-mix(in oklab, var(--tint) 10%, #0e0e11);
-    --raised: color-mix(in oklab, var(--tint) 8%, #18181b);
+    --panel: color-mix(in oklab, var(--tint) 10%, #131316);
+    --raised: color-mix(in oklab, var(--tint) 8%, #1c1c20);
 }
 
 /* The panel for everything floating over the page (`glass`). Solid, not frosted: most of them

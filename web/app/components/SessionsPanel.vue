@@ -93,7 +93,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
 </script>
 
 <template>
-  <section class="flex flex-col gap-3 rounded-2xl bg-well/50 p-4 ring-1 ring-line">
+  <section class="flex flex-col gap-3 rounded-2xl bg-well/50 p-4 ring-1 ring-line dark:bg-panel">
     <div class="flex items-center gap-2">
       <svg class="size-4 text-accent-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
       <h2 class="text-[13px] font-medium text-fg">Sessions</h2>

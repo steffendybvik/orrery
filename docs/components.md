@@ -138,6 +138,11 @@ Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-pan
 `text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…600`. Each has a light and a dark value,
 and an orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
 
+A card or a section that should read as its own surface goes on `bg-panel`, not a border alone: in the dark a border on
+the page's black barely shows (ORR-563). To leave light mode as it is, `dark:bg-panel`. On a panel, hover with
+`hover:tint`, since `hover:bg-hover` puts a see-through colour in the panel's place. The dark-mode atlas (the orrery doc
+`dark-mode-atlas`) shows every page's surfaces.
+
 ## Shared components
 
 Already one component each; use them rather than drawing the same thing again.

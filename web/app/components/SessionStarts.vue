@@ -42,7 +42,7 @@ async function saveStarts(on = !!settings.value.starts) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 rounded-xl border border-line p-3 text-[13px]">
+  <div class="flex flex-col gap-2 rounded-xl border border-line p-3 text-[13px] dark:bg-panel">
     <label class="flex items-center gap-2 text-fg">
       <input type="checkbox" class="accent-accent-500" :checked="!!settings.starts" @change="saveStarts(($event.target as HTMLInputElement).checked)">
       Let orrery start sessions

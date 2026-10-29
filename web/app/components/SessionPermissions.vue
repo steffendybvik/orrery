@@ -29,9 +29,9 @@ const TONE: Record<PermissionLevel, string> = {
     </p>
     <section v-for="{area, rows} in areas" :id="areaId(area)" :key="area" class="flex scroll-mt-14 flex-col gap-2">
       <h2 class="text-[15px] font-semibold text-fg">{{ area }}</h2>
-      <div class="overflow-x-auto rounded-xl border border-line">
+      <div class="overflow-x-auto rounded-xl border border-line dark:bg-panel">
         <table class="w-full min-w-[40rem] table-fixed text-left text-xs">
-          <thead class="bg-panel text-[11px] text-muted">
+          <thead class="bg-panel text-[11px] text-muted dark:bg-hover">
             <tr>
               <th class="w-2/5 px-3 py-2 font-medium" />
               <th v-for="[kind, label] in kinds" :key="kind" class="w-1/5 px-3 py-2 font-medium">{{ label }}</th>
