@@ -245,7 +245,7 @@ const {over, on: drop} = useImageDrop(attach)
   <button
       v-if="!open"
       type="button"
-      class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition hover:bg-hover"
+      class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition hover:tint"
       :title="chats.length ? 'Back to your chat: it is still running' : 'Chat about a project: an agent answers and makes issues'"
       @click="show()"
   >
