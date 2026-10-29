@@ -5,11 +5,12 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
-// session's state shows in the header and the conversation below, newest at the bottom. Enter holds the message under the
-// box (Shift+Enter for a new line), and a run of them goes as one message once the owner has stopped typing for a moment
-// (`HOLD_MS`, a draining bar showing it), so the chat answers the whole thought (ORR-517); ⌘/Ctrl-Enter or Send sends at
-// once, and ✕ or Esc takes the last one back. A slash command goes at once, after what's held. Closing the pane, or the
-// chat ending, puts what's held back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
+// session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
+// line), but a run of quick messages goes as one once the owner has stopped typing for a moment (`HOLD_MS`), so the chat
+// answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking dots, as one turn (ORR-535);
+// only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
+// last one back. A slash command goes at once, after what's held. Closing the pane, or the chat ending, puts what's held
+// back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
 // dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; minimizing it
 // (–, or Esc) hides it with the chat still running, and the corner button, marked while one runs, brings it back as it was.
 // Esc closes the pane only before a chat starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
@@ -58,8 +59,19 @@ const projectName = (id: string) => projects.value.find(p => p.id === id)?.name 
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
 /** Which project it's about: the chat's, else the one the first message will start it on. */
 const about = computed(() => chat.value && !chat.value.ended ? chat.value.project : project.value)
+/** How long after the owner's last keystroke a run of held messages goes. */
+const HOLD_MS = 2000
+/** The owner's messages held to go together, shown as sent until they go. */
+const held = ref<{key: number, text: string, images: {id: string, url: string}[]}[]>([])
+let heldKey = 0
+let holdTimer: ReturnType<typeof setTimeout> | undefined
+
+/** What's held couldn't go (no launcher, or the server said no): it waits for Retry rather than trying every few
+ * seconds on its own (ORR-530). */
+const stuck = ref(false)
+
 /** Nothing said yet: the pane greets you, with some things to ask. */
-const empty = computed(() => !chat.value?.messages.length)
+const empty = computed(() => !chat.value?.messages.length && !held.value.length)
 
 /** Things to ask, one about the issue or doc you're on. */
 const examples = computed(() => {
@@ -83,6 +95,8 @@ const state = computed(() => {
 /** Whether the dots show: all the while its session works, whoever spoke last, so a reply partway through a turn doesn't
  * hide them (ORR-518); while it starts, only once the owner has said something it hasn't answered. */
 const thinking = computed(() => {
+    // From the first held message on, as if it had gone: holding, sending and the answer are one turn (ORR-535).
+    if (held.value.length && !stuck.value) return true
     if (!chat.value || chat.value.ended || chat.value.problem) return false
     if (session.value?.state === 'working') return true
     const last = chat.value.messages.at(-1)
@@ -90,35 +104,21 @@ const thinking = computed(() => {
 })
 
 // The newest in sight as it comes, the dots too.
-watch(() => [open.value, chat.value?.messages.length, thinking.value], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
+watch(() => [open.value, chat.value?.messages.length, held.value.length, thinking.value], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
 watch(open, now => now && nextTick(() => field.value?.focus()))
 
 /** Where the session's context was last cleared: the messages before it, it no longer remembers. */
 const cut = computed(() => chat.value?.messages.findLastIndex(m => m.cleared) ?? -1)
 
-/** How long after the owner's last keystroke a run of held messages goes. */
-const HOLD_MS = 2000
-/** The owner's messages held under the box, to go together. */
-const held = ref<{key: number, text: string, images: {id: string, url: string}[]}[]>([])
-let heldKey = 0
-let holdTimer: ReturnType<typeof setTimeout> | undefined
-/** Counts each restart of the wait, so the draining bar starts over. */
-const holds = ref(0)
-
-/** What's held couldn't go (no launcher, or the server said no): it waits for Send now rather than trying every few
- * seconds on its own (ORR-530). */
-const stuck = ref(false)
-
 /** Starts the wait over, from now: what's held goes once it runs out. */
 function restartHold() {
     clearTimeout(holdTimer)
     if (!held.value.length || stuck.value) return
-    holds.value++
     holdTimer = setTimeout(() => void flush(false), HOLD_MS)
 }
 
 /** Sends what's held as one message, starting the chat first when there's none yet: whether all of it went. What's held
- * stays if it can't go, and waits for Send now. `owner`: the owner asked for it, rather than the wait running out, which
+ * stays if it can't go, and waits for Retry. `owner`: the owner asked for it, rather than the wait running out, which
  * never starts a chat on a hidden pane or after one ends (ORR-523). */
 async function flush(owner = true): Promise<boolean> {
     clearTimeout(holdTimer)
@@ -208,8 +208,8 @@ function onKey(event: KeyboardEvent) {
     } else if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault()
         void submit()
-    } else if (event.key === 'Escape' && held.value.length) {
-        // Takes the last one back, rather than minimizing the pane.
+    } else if (event.key === 'Escape' && held.value.length && !draft.value.trim() && !images.value.length) {
+        // In an empty box, takes the last one back, rather than minimizing the pane.
         event.preventDefault()
         event.stopPropagation()
         const last = held.value.at(-1)
@@ -320,7 +320,7 @@ const {over, on: drop} = useImageDrop(attach)
     </div>
 
     <ol v-else ref="list" class="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 text-[13px]">
-      <template v-for="(m, i) in chat!.messages" :key="m.id">
+      <template v-for="(m, i) in chat?.messages ?? []" :key="m.id">
       <li v-if="m.cleared" class="flex items-center gap-3 py-1 text-xs text-faint" role="separator" aria-label="Context cleared">
         <span class="h-px flex-1 bg-line" />Context cleared<span class="h-px flex-1 bg-line" />
       </li>
@@ -437,10 +437,21 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
         </div>
       </li>
       </template>
+      <!-- What's held to go together, looking sent: the owner needn't watch it wait (ORR-535). -->
+      <li v-for="m in held" :key="`held-${m.key}`" class="flex flex-col items-end gap-1.5">
+        <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
+          <img v-for="image in m.images" :key="image.id" :src="image.url" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
+        </div>
+        <div v-if="m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
+      </li>
+      <li v-if="held.length && stuck" class="flex items-center justify-end gap-1 text-[11px] text-rose-600 dark:text-rose-400" aria-live="polite">
+        Not sent ·
+        <button type="button" class="hover:underline disabled:opacity-50" :disabled="sending" @click="flush()">Retry</button>
+      </li>
       <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">
         <span v-for="i in 3" :key="i" class="size-1.5 animate-dot rounded-full bg-faint" :style="{animationDelay: `${(i - 1) * 0.15}s`}" />
       </li>
-      <li v-if="chat!.ended" class="flex items-center gap-2 text-xs text-faint">
+      <li v-if="chat?.ended" class="flex items-center gap-2 text-xs text-faint">
         This chat has ended.
         <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="fresh">Start another</button>
       </li>
@@ -448,23 +459,6 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
 
     <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
       <p v-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
-      <!-- What's held to go together: each as its own bubble, and a bar that drains until they go, starting over as you type. -->
-      <div v-if="held.length" class="flex flex-col items-end gap-1.5" role="group" aria-label="Held to send together">
-        <div v-for="m in held" :key="m.key" class="group relative flex max-w-[85%] flex-col items-end gap-1">
-          <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
-            <img v-for="image in m.images" :key="image.id" :src="image.url" alt="" class="max-h-20 rounded-lg opacity-70 ring-1 ring-line">
-          </div>
-          <div v-if="m.text" class="rounded-2xl rounded-br-md border border-dashed border-accent-500/40 bg-accent-500/10 px-3 py-2 text-[13px] whitespace-pre-wrap text-muted">{{ m.text }}</div>
-          <button type="button" class="absolute -top-1.5 -left-1.5 grid size-4 place-items-center rounded-full bg-fg text-[10px] text-panel" :aria-label="`Take back: ${m.text || 'the image'}`" title="Take it back (Esc)" @click="takeBack(m.key)">×</button>
-        </div>
-        <div class="flex w-full items-center gap-2 text-[11px] text-faint" aria-live="polite">
-          <span class="relative h-0.5 flex-1 overflow-hidden rounded-full bg-line">
-            <span v-if="!sending && !stuck" :key="holds" class="absolute inset-0 animate-drain origin-right rounded-full bg-accent-500 motion-reduce:hidden" :style="{animationDuration: `${HOLD_MS}ms`}" />
-          </span>
-          <span>{{ sending ? 'Sending…' : stuck ? "Couldn't send: held until you try again" : `Sends ${HOLD_MS / 1000} s after you stop typing` }}</span>
-          <button type="button" class="text-accent-600 hover:underline disabled:opacity-50 dark:text-accent-400" :disabled="sending" @click="flush()">{{ stuck ? 'Try again' : 'Send now' }}</button>
-        </div>
-      </div>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
         <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5 px-1 pt-1">
           <div v-for="(image, i) in images" :key="image.id" class="relative">
@@ -479,7 +473,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
             rows="1"
             aria-label="Message"
             placeholder="Ask anything…"
-            title="Enter holds it to go with the next (it sends once you stop typing); ⌘-Enter sends now; Shift-Enter for a new line"
+            title="Enter sends (quick ones in a row go together); ⌘-Enter sends now; Shift-Enter for a new line"
             class="field-sizing-content max-h-40 min-h-9 resize-none bg-transparent px-2 py-1.5 text-[13px] text-fg placeholder:text-faint focus:outline-none"
             @keydown="onKey"
         />

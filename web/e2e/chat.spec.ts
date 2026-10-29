@@ -506,20 +506,22 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         await box.press('Enter')
         await box.fill('the jam')
         await box.press('Enter')
-        const held = pane.getByRole('group', {name: 'Held to send together'})
-        await expect(held).toContainText('what about')
-        await expect(held).toContainText('the jam')
-        await expect(held).toContainText('after you stop typing')
-        // Taken back before it goes, it's in the box again.
+        // Held, they show at once as sent, with the thinking dots, and nothing about the wait (ORR-535).
+        await expect(pane.getByText('what about', {exact: true})).toBeVisible()
+        await expect(pane.getByText('the jam', {exact: true})).toBeVisible()
+        await expect(pane.getByLabel('Thinking…')).toBeVisible()
+        await expect(pane.getByText(/after you stop typing|Send now/)).toHaveCount(0)
+        // Esc in the empty box takes the last one back before it goes: it's in the box again.
         await box.fill('oops')
         await box.press('Enter')
-        await held.getByRole('button', {name: 'Take back: oops'}).click()
+        await expect(pane.getByText('oops', {exact: true})).toBeVisible()
+        await box.press('Escape')
         await expect(box).toHaveValue('oops')
+        await expect(pane.getByText('oops', {exact: true})).toHaveCount(0)
         await box.fill('')
 
         // Once the owner stops typing, both go as one message, still shown as two.
         await expect.poll(() => launcher.said.text, {timeout: 8000}).toContain('"chat":true')
-        await expect(held).toHaveCount(0)
         const [chat] = await (await request.get('/api/chats')).json()
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
         session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-run&name=e2e-run&started=${chat.id}&chat=yes&after=${after}&format=text`)
@@ -543,8 +545,8 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
     }
 })
 
-// A run that can't go (ORR-530): no launcher, so the chat can't start. It's tried once, then held until the owner
-// tries again, and a slash command waits behind it rather than going first.
+// A run that can't go (ORR-530): no launcher, so the chat can't start. It's tried once, then says so (the only time
+// holding shows, ORR-535) and waits for Retry, and a slash command waits behind it rather than going first.
 test("holds a run that couldn't go until the owner tries again, and keeps a slash command behind it", async ({page, request, baseURL}) => {
     await endChats(request)
     await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(0)
@@ -558,8 +560,9 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     const box = pane.getByLabel('Message')
     await box.fill('what about the jam')
     await box.press('Enter')
-    const held = pane.getByRole('group', {name: 'Held to send together'})
-    await expect(held).toContainText("Couldn't send", {timeout: 5000})
+    await expect(pane.getByText('what about the jam', {exact: true})).toBeVisible()
+    await expect(pane.getByText('Not sent')).toBeVisible({timeout: 5000})
+    await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
     // Tried once, not again every few seconds.
     await page.waitForTimeout(4500)
     expect(starts).toHaveLength(1)
@@ -570,13 +573,13 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     expect(starts).toHaveLength(2)
     await box.fill('')
 
-    // With a launcher, Try again sends the run.
+    // With a launcher, Retry sends the run.
     const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
     try {
         await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
-        await held.getByRole('button', {name: 'Try again'}).click()
+        await pane.getByRole('button', {name: 'Retry'}).click()
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
-        await expect(held).toHaveCount(0)
+        await expect(pane.getByText('Not sent')).toHaveCount(0)
         await endChats(request)
     } finally {
         launcher.stop()
@@ -598,7 +601,7 @@ test('closing the pane with messages held puts them back in the box, and starts 
     })
     await box.fill('the pantry')
     await box.press('Enter')
-    await expect(pane.getByRole('group', {name: 'Held to send together'})).toContainText('the pantry')
+    await expect(pane.getByText('the pantry', {exact: true})).toBeVisible()
     await pane.getByRole('button', {name: 'Close the chat'}).click()
     await page.waitForTimeout(3000)
     expect(starts).toBe(0)
