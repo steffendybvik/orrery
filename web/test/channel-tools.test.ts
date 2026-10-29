@@ -5,7 +5,7 @@ import {NOT_FOR_CHAT, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mj
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
 /** The tools against a pretend orrery: `answers` by `METHOD path` (`raw` for a body that isn't JSON), every call kept. */
-function harness(answers: Record<string, {status?: number, body?: unknown, raw?: string}>) {
+function harness(answers: Record<string, {status?: number, body?: unknown, raw?: string}>, {chat}: {chat?: string} = {}) {
     const calls: Call[] = []
     const fetch = async (url: string, init: {method: string, headers: Record<string, string>, body?: string}) => {
         const path = url.replace('http://o/api/projects/greenhouse', '').replace('http://o/api', '')
@@ -14,7 +14,7 @@ function harness(answers: Record<string, {status?: number, body?: unknown, raw?:
         const status = answer.status ?? 200
         return {ok: status < 400, status, statusText: '', text: async () => answer.raw ?? JSON.stringify(answer.body)}
     }
-    const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+    const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', chat, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
     return {calls, call: async (name: string, args?: object) => {
         const result = await call(name, args)
         return {error: !!result.isError, text: result.content[0]!.text}
@@ -291,6 +291,23 @@ describe("the channel's tools", () => {
         expect(calls[1]!.url).toBe('/issues?status=done&q=old')
     })
 
+    it("leave backlog out of a work session's list, and say how much (ORR-545)", async () => {
+        const idea = issue({id: 'GRE-2', title: 'Idea', status: 'backlog', kind: 'backlog'})
+        const answers = {'GET /issues': {body: [issue(), idea, issue({id: 'GRE-3', title: 'Maybe', status: 'backlog', kind: 'backlog'}),
+            issue({id: 'GRE-4', title: 'Racks', status: 'in-review', kind: 'started'}), issue({id: 'GRE-5', title: 'Old', status: 'done', kind: 'done'})]}}
+        const {call} = harness(answers)
+        expect((await call('issues')).text).toBe('GRE-1 [todo] Shelves\nGRE-4 [in-review] Racks\n2 in backlog not shown: status: backlog lists them')
+        const asked = (await call('issues', {status: 'backlog'})).text
+        expect(asked).toContain('GRE-2 [backlog] Idea')
+        expect(asked).not.toContain('not shown')
+        const all = (await call('issues', {open: false})).text
+        expect(all).toContain('GRE-2 [backlog] Idea')
+        expect(all).toContain('GRE-5 [done] Old')
+        expect((await harness({'GET /issues': {body: [idea]}}).call('issues')).text).toBe('No issues match.\n1 in backlog not shown: status: backlog lists them')
+        // The owner's chat asks about backlog and proposals: it keeps them.
+        expect((await harness(answers, {chat: 'L1'}).call('issues')).text).toBe('GRE-1 [todo] Shelves\nGRE-2 [backlog] Idea\nGRE-3 [backlog] Maybe\nGRE-4 [in-review] Racks')
+    })
+
     it('make a proposal, and finish with the status first, then the comment', async () => {
         const {call, calls} = harness({'POST /issues': {body: issue({proposal: 'pending'})}, 'POST /issues/GRE-1/comments': {body: {id: 1}}, 'PATCH /issues/GRE-1': {body: issue({status: 'in-review'})}})
         await call('create_issue', {title: 'Shelves', proposal: true})
@@ -359,6 +376,20 @@ describe("the channel's tools", () => {
         expect((await call('releases')).text).toBe('1.1.0 (feature freeze since 2026-10-20: fixes, tests and docs) on v1.1.0: 3 issues, 2/3 done\n1.0.0 (shipped 2026-10-01): 1 issue, 1/1 done')
         await call('issues', {release: '1.1.0'})
         expect(calls[1]!.url).toBe('/issues?release=1.1.0')
+    })
+
+    it('list of the shipped releases only the latest, and of the chunks none done, unless asked for all', async () => {
+        const kinds = {proposed: 0, backlog: 0, todo: 0, started: 0, done: 1, canceled: 0}
+        const release = (version: string, shipped_on?: string) => ({version, ...shipped_on ? {shipped_on} : {}, issues: 1, kinds})
+        const chunk = (id: number, kind: string) => ({id, title: `Chunk ${id}`, column: kind, kind, kinds})
+        const {call} = harness({
+            'GET /releases': {body: [release('1.1.0'), release('1.0.2', '2026-10-20'), release('1.0.1', '2026-10-10'), release('1.0.0', '2026-10-01')]},
+            'GET /chunks': {body: [chunk(1, 'done'), chunk(2, 'started'), chunk(3, 'done')]},
+        })
+        expect((await call('releases')).text).toBe('1.1.0: 1 issue, 1/1 done\n1.0.2 (shipped 2026-10-20): 1 issue, 1/1 done\n2 older shipped releases not shown: all lists them')
+        expect((await call('releases', {all: true})).text.split('\n')).toHaveLength(4)
+        expect((await call('chunks')).text).toBe('2 [started] Chunk 2: 1/1 done\n2 done chunks not shown: all lists them')
+        expect((await call('chunks', {all: true})).text.split('\n')).toHaveLength(3)
     })
 
     it("say orrery's reason when it refuses", async () => {
