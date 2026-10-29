@@ -211,6 +211,10 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
   roadmaps leave the machine for that service.
 - The session hooks send orrery each session's id, its name, its working folder, what it's doing and
   Claude Code's notification text. They go to the orrery at `ORRERY_URL`, nowhere else.
+- **Context** (Advanced → Context) shows what each running session has been given since orrery started: the signals
+  sent to it and its orrery tools' answers, kept in memory only. Like every page, it's open to whatever can reach
+  orrery, sessions included, so an `egress` answer is kept by its size alone, never what the service sent back
+  (ORR-573). Anything can add an entry to a session's list there, as it can post a session's hook.
 - **The event log** (Advanced → Events) keeps what went wrong, with error messages and stacks, for 30 days on
   this machine. Secrets' values and database passwords are taken out before it's written. Every session can read
   it. A session can mark an error resolved, but the row then says which agent did, and the bell keeps showing it

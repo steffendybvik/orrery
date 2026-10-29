@@ -29,6 +29,11 @@ describe("a session's context so far", () => {
         expect(log.contextSoFar('s1')[0]!.text).toHaveLength(CONTEXT_TEXT_KEPT)
     })
 
+    it("keeps an egress answer by its size alone, not what the service sent back (ORR-573)", () => {
+        log.noteContext('s1', 'tool', 'egress', '{"access_token":"gho_abc"}')
+        expect(log.contextSoFar('s1')[0]).toMatchObject({title: 'egress', text: '', chars: 26})
+    })
+
     it('follows a session through a /clear, under the id it goes by now', () => {
         log.noteContext('old', 'tool', 'docs', 'a')
         log.noteContext('s0', 'tool', 'doc', 'b')

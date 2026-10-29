@@ -6,6 +6,9 @@ import {CONTEXT_KEPT, CONTEXT_TEXT_KEPT} from '#shared/context'
 
 /** Sessions whose entries are kept, the least recently given something dropped first. */
 const SESSIONS_KEPT = 50
+/** Tools whose answers are kept by their size alone: an egress answer is what an outside service sent back, which may
+ * hold a token or someone's data, and anything that reaches orrery can read this log (ORR-573). */
+const SIZE_ONLY = new Set(['egress'])
 const logs = new Map<string, ContextEntry[]>()
 
 /** Keeps that `session` was given `text`, as a signal or a tool's answer (`title`, its name). */
@@ -13,7 +16,8 @@ export function noteContext(session: string, kind: ContextEntry['kind'], title: 
     const id = currentId(session)
     const log = logs.get(id) ?? []
     logs.delete(id)
-    logs.set(id, [{at: new Date().toISOString(), kind, title, text: text.slice(0, CONTEXT_TEXT_KEPT), chars: text.length, tokens: Math.ceil(text.length / 4)},
+    const kept = kind === 'tool' && SIZE_ONLY.has(title) ? '' : text.slice(0, CONTEXT_TEXT_KEPT)
+    logs.set(id, [{at: new Date().toISOString(), kind, title, text: kept, chars: text.length, tokens: Math.ceil(text.length / 4)},
         ...log].slice(0, CONTEXT_KEPT))
     const oldest = logs.keys().next().value
     if (logs.size > SESSIONS_KEPT && oldest) logs.delete(oldest)

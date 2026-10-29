@@ -152,8 +152,8 @@ const n = (value: number) => value.toLocaleString('en')
                 <span class="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted">{{ n(e.chars) }}</span>
                 <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">~{{ n(e.tokens) }} tok</span>
               </summary>
-              <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted">{{ e.text }}<template v-if="e.text.length < e.chars">
-…(cut, {{ n(e.chars - e.text.length) }} more characters)</template></pre>
+              <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted"><template v-if="!e.text && e.chars">(not kept: it's what an outside service sent back)</template><template v-else>{{ e.text }}<template v-if="e.text.length < e.chars">
+…(cut, {{ n(e.chars - e.text.length) }} more characters)</template></template></pre>
             </details>
           </li>
         </ul>
