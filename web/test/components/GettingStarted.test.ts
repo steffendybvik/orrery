@@ -8,7 +8,7 @@ import GettingStarted from '~/components/GettingStarted.vue'
 // so it doesn't come back with the owner's work done.
 const KINDS = {proposed: 0, backlog: 0, todo: 1, started: 0, done: 0, canceled: 0}
 const project = (assignee?: string) => ({
-    id: 'greenhouse', name: 'Greenhouse', key: 'GRE', release_mode: 'none', releases: [], docs: [],
+    id: 'greenhouse', name: 'Greenhouse', key: 'GRE', release_mode: 'none', releases: [], docs: [], doc_sections: [],
     board: {kinds: KINDS, chunks: [{id: 'beds', title: 'Beds', tasks: [{id: 'GRE-1', title: 'Water the beds', aliases: [], labels: [], tasks: [], column: 'todo', kind: assignee ? 'started' : 'todo', assignee}]}]},
 }) as unknown as Project
 const session = (listening: boolean) => ({id: 's1', listening}) as unknown as Session

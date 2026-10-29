@@ -69,6 +69,35 @@ describe('docs', () => {
         expect((await store.updateDoc('greenhouse', 'decision-ids', {section: null})).section).toBeUndefined()
     })
 
+    it('have sections made empty, renamed on every doc at once and deleted keeping their docs (ORR-560)', async () => {
+        await store.createDoc('greenhouse', {id: 'decision-ids', title: 'Decision: ids', section: 'Decisions'})
+        await store.createDoc('greenhouse', {id: 'decision-docs', title: 'Decision: docs', section: 'Decisions'})
+        expect(await store.createDocSection('greenhouse', {name: ' Research '})).toBe('Research')
+        expect(await store.docSections('greenhouse')).toEqual(['Decisions', 'Research'])
+        expect((await store.project('greenhouse')).doc_sections).toEqual(['Decisions', 'Research'])
+        expect(await failure(() => store.createDocSection('greenhouse', {name: 'Decisions'}))).toMatchObject({status: 409})
+        expect(await failure(() => store.createDocSection('greenhouse', {name: '  '}))).toMatchObject({status: 400})
+
+        // Renaming isn't a change to read either.
+        const before = (await store.doc('greenhouse', 'decision-ids')).updated_at
+        await new Promise(resolve => setTimeout(resolve, 5))
+        expect(await store.renameDocSection('greenhouse', 'Decisions', {name: 'Choices'})).toBe('Choices')
+        expect((await store.listDocs('greenhouse')).map(d => d.section)).toEqual(['Choices', 'Choices'])
+        expect((await store.doc('greenhouse', 'decision-ids')).updated_at).toBe(before)
+        expect(await store.renameDocSection('greenhouse', 'Research', {name: 'Findings'})).toBe('Findings')
+        expect(await store.docSections('greenhouse')).toEqual(['Choices', 'Findings'])
+        expect(await failure(() => store.renameDocSection('greenhouse', 'Choices', {name: 'Findings'}))).toMatchObject({status: 409})
+        expect(await failure(() => store.renameDocSection('greenhouse', 'Nowhere', {name: 'Else'}))).toMatchObject({status: 404})
+
+        // An empty one stays until it's deleted; deleting one keeps its docs, under no section.
+        await store.deleteDocSection('greenhouse', 'Choices')
+        expect((await store.listDocs('greenhouse')).map(d => d.section)).toEqual([undefined, undefined])
+        expect(await store.docSections('greenhouse')).toEqual(['Findings'])
+        await store.deleteDocSection('greenhouse', 'Findings')
+        expect(await store.docSections('greenhouse')).toEqual([])
+        expect(await failure(() => store.deleteDocSection('greenhouse', 'Findings'))).toMatchObject({status: 404})
+    })
+
     it('number a long title made twice within the 40 an id may be, so PUT still reaches it', async () => {
         const title = 'How the launcher starts sessions in tmux and hands them over'
         const first = await store.createDoc('greenhouse', {title})

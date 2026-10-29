@@ -88,3 +88,34 @@ test('groups the docs into sections, folds one, and moves a doc by right-click a
     await nav.getByRole('link', {name: 'Event flows'}).dragTo(nav.getByText('Docs', {exact: true}))
     await expect.poll(async () => (await (await request.get('/api/projects/library/docs/event-flows')).json()).section).toBeUndefined()
 })
+
+test('makes an empty section, renames one on all its docs and deletes one keeping its docs (ORR-560)', async ({page, request}) => {
+    const put = (id: string, title: string, section?: string) => request.put(`/api/projects/archive/docs/${id}`, {data: {title, body: `${title}.`, ...section ? {section} : {}}, headers: AGENT})
+    await put('decision-boxes', 'Decision: boxes', 'Decisions')
+    await put('decision-labels', 'Decision: labels', 'Decisions')
+    await page.goto('/p/archive/docs/decision-boxes')
+    const nav = page.getByRole('navigation', {name: 'Docs'})
+
+    // Made at the foot, empty, and something a doc can be moved into.
+    await nav.getByRole('button', {name: 'New section', exact: true}).click()
+    await nav.getByLabel('New section').fill('Research')
+    await nav.getByLabel('New section').press('Enter')
+    await expect(nav.getByRole('region', {name: 'Research'}).getByRole('button', {name: /Research/})).toContainText('0')
+    await expect.poll(async () => (await (await request.get('/api/projects/archive/doc-sections')).json())).toEqual(['Decisions', 'Research'])
+
+    // Renamed by right-clicking its header: every doc in it moves with it.
+    await nav.getByRole('region', {name: 'Decisions'}).getByRole('button', {name: /Decisions/}).click({button: 'right'})
+    const menu = page.getByRole('menu', {name: 'Section Decisions'})
+    await menu.getByRole('button', {name: 'Rename…'}).click()
+    await menu.getByLabel('Rename section').fill('Choices')
+    await menu.getByLabel('Rename section').press('Enter')
+    await expect(nav.getByRole('region', {name: 'Choices'}).getByRole('link')).toHaveText(['Decision: boxes', 'Decision: labels'])
+    await expect(nav.getByRole('region', {name: 'Decisions'})).toHaveCount(0)
+
+    // Deleted: its docs stay, under no section.
+    await nav.getByRole('region', {name: 'Choices'}).getByRole('button', {name: /Choices/}).click({button: 'right'})
+    await page.getByRole('menu', {name: 'Section Choices'}).getByRole('button', {name: 'Delete section'}).click()
+    await expect(nav.getByRole('region', {name: 'Choices'})).toHaveCount(0)
+    await expect(nav.getByRole('link', {name: 'Decision: labels'})).toBeVisible()
+    expect((await (await request.get('/api/projects/archive/docs/decision-labels')).json()).section).toBeUndefined()
+})

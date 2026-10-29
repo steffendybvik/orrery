@@ -1,17 +1,24 @@
 // A project's docs.
 import type {Doc, DocSummary} from '#shared/roadmap'
 import {slugify} from '#shared/roadmap'
-import {badRequest, checkInput, conflict} from '../utils/input'
+import {badRequest, checkInput, conflict, isObject, notFound} from '../utils/input'
 import {AGENT, SLUG, DOC_FIELDS, docOf, stamp} from './schema'
 import type {Input} from '../utils/input'
 import {ChunkStore} from './chunks'
-import {readDocSummaries} from './reads'
+import {readDocSections, readDocSummaries} from './reads'
 
 /** A doc's section as sent: trimmed, and none for an empty one; undefined leaves it as it is. */
 function sectionOf(value: Input[string]): string | null | undefined {
     if (value === undefined) return undefined
     const section = value === null ? '' : String(value).trim().slice(0, 60)
     return section || null
+}
+
+/** A section's name as sent in `{name}`: trimmed, up to 60 characters, and not empty. */
+function sectionName(body: unknown): string {
+    const name = isObject(body) && typeof body.name === 'string' ? sectionOf(body.name) : null
+    if (!name) throw badRequest('A section needs a name: {name}, up to 60 characters')
+    return name
 }
 
 export abstract class DocStore extends ChunkStore {
@@ -73,6 +80,55 @@ export abstract class DocStore extends ChunkStore {
         this.changed(project)
         if (input.title !== undefined || input.body !== undefined) this.tell('doc.changed', project, id, actor)
         return await this.doc(project, id)
+    }
+
+    async docSections(project: string): Promise<string[]> {
+        await this.projectRow(project)
+        return await readDocSections(this.db, project)
+    }
+
+    /** Makes a section with no docs in it yet, kept until it's deleted (ORR-560). */
+    async createDocSection(project: string, body: unknown): Promise<string> {
+        await this.projectRow(project)
+        const name = sectionName(body)
+        if ((await readDocSections(this.db, project)).includes(name)) throw conflict(`There is already a section "${name}" in ${project}`)
+        await this.db.transaction(async () => {
+            await this.run('INSERT INTO doc_sections (project, name, created_at) VALUES (?, ?, ?)', project, name, stamp())
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        return name
+    }
+
+    /** Renames a section on every doc in it at once. Like moving a doc, it doesn't count as a change to them. */
+    async renameDocSection(project: string, from: string, body: unknown): Promise<string> {
+        await this.sectionThere(project, from)
+        const name = sectionName(body)
+        if (name === from) return name
+        if ((await readDocSections(this.db, project)).includes(name)) throw conflict(`There is already a section "${name}" in ${project}; move its docs there instead`)
+        await this.db.transaction(async () => {
+            await this.run('UPDATE docs SET section = ? WHERE project = ? AND section = ?', name, project, from)
+            await this.run('UPDATE doc_sections SET name = ? WHERE project = ? AND name = ?', name, project, from)
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        return name
+    }
+
+    /** Deletes a section, keeping its docs: they're filed under none. */
+    async deleteDocSection(project: string, name: string) {
+        await this.sectionThere(project, name)
+        await this.db.transaction(async () => {
+            await this.run('UPDATE docs SET section = NULL WHERE project = ? AND section = ?', project, name)
+            await this.run('DELETE FROM doc_sections WHERE project = ? AND name = ?', project, name)
+            await this.touchProject(project)
+        })
+        this.changed(project)
+    }
+
+    private async sectionThere(project: string, name: string) {
+        await this.projectRow(project)
+        if (!(await readDocSections(this.db, project)).includes(name)) throw notFound(`No section "${name}" in ${project}`)
     }
 
     async deleteDoc(project: string, id: string, actor = AGENT) {

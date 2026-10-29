@@ -243,6 +243,8 @@ export interface Project {
     updated_at: string
     board: Board
     docs: DocSummary[]
+    /** Its docs' sections, A–Z: each one a doc is filed under, and the ones made empty (`POST …/doc-sections`). */
+    doc_sections: string[]
     /** In the order they're arranged in, a new one on top. */
     releases: Release[]
 }

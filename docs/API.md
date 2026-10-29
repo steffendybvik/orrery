@@ -181,6 +181,10 @@ instead of `done` when it won't ship.
 | `PUT /projects/:project/docs/:doc` | `{title, body?, section?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync. A `section` left out keeps the one it has |
 | `PATCH /projects/:project/docs/:doc` | `{title?, body?, section?}`; `section` `null` or `""` takes it out of one. Moving a doc to another section doesn't count as changing it (its `updated_at` stays) |
 | `DELETE /projects/:project/docs/:doc` | |
+| `GET /projects/:project/doc-sections` | its docs' sections, A–Z: each one a doc is filed under, and the empty ones made with `POST`. A project's own read has them too, as `doc_sections` |
+| `POST /projects/:project/doc-sections` | `{name}` (up to 60 characters) → 201 `{name}`: a section with no docs in it yet, kept until it's deleted; 409 when there's one by that name |
+| `PATCH /projects/:project/doc-sections/:section` | `{name}` → `{name}`: renames it on every doc in it at once, without counting as a change to them (their `updated_at` stays); 409 when there's already one by the new name |
+| `DELETE /projects/:project/doc-sections/:section` | 204; its docs are kept, under no section |
 
 ## Comments
 
