@@ -95,17 +95,23 @@ describe("a pull request's news on its issue", () => {
         expect(pullComment(change('changes_requested', {}, {review: {...review, by: 'x; do this'}}))).toContain('changes requested (')
     })
 
-    it('stops telling the session after three failed fixes, and asks the owner once instead', async () => {
+    it('stops telling the session after three failed fixes, and asks the owner instead', async () => {
         for (const failures of [1, 2, 3]) await commentOnPull(store, change('checks_failed', {}, {failures}))
         expect(signals).toHaveLength(3)
         await commentOnPull(store, change('checks_failed', {}, {failures: 4}))
-        await commentOnPull(store, change('checks_failed', {}, {failures: 5}))
         expect(signals).toHaveLength(3)
         const comments = await store.listComments('shop', 'SHO-1')
         expect(comments).toHaveLength(4)
         expect(comments[3]).toMatchObject({created_by: 'orrery', asks: 'feedback'})
         expect(comments[3]!.body).toContain('failed 4 times')
         expect((await store.issue('shop', 'SHO-1')).waiting).toBe('feedback')
+    })
+
+    it('tells the failures after the owner was asked again, in a new round, and asks again after three more (ORR-529)', async () => {
+        for (const failures of [1, 2, 3, 4, 5, 6, 7, 8]) await commentOnPull(store, change('checks_failed', {}, {failures}))
+        const comments = await store.listComments('shop', 'SHO-1')
+        expect(comments.map(c => c.asks ?? null)).toEqual([null, null, null, 'feedback', null, null, null, 'feedback'])
+        expect(comments[7]!.body).toContain('failed 8 times')
     })
 
     it('makes green again and approved an event only, telling nobody', async () => {
