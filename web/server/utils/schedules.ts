@@ -24,9 +24,10 @@ import {CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
 import type {Db} from './database'
 import {one} from './database'
 import type {Field, Input} from './input'
-import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
+import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
+import {refusedFor} from './permission'
 
 interface ScheduleRow {
     id: number, project: string, kind: Schedule['kind'], title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
@@ -209,7 +210,7 @@ export class Schedules {
     /** A change to schedule `id`, checked: the columns `update` sets. */
     private async toUpdate(project: string, id: number, body: unknown, actor: Actor): Promise<[string, unknown][]> {
         const row = await this.row(project, id)
-        if (row.owned && !actor.owner) throw forbidden(`Changing schedule ${id}: it's the owner's; only they can change it`)
+        if (row.owned && !actor.owner) throw refusedFor('schedules.owners', `Changing schedule ${id}: it's the owner's; only they can change it`)
         const input = checkInput(body, SCHEDULE_FIELDS, true)
         const timing = input.cron !== undefined || input.at !== undefined || input.on !== undefined || input.timezone !== undefined
         // Setting one of cron, at and on lets go of the others.
@@ -254,7 +255,7 @@ export class Schedules {
      * read it at: one changed since is refused (409), so they never take on words they haven't seen. Theirs already,
      * it stays as it is. */
     async adopt(project: string, id: number, actor = AGENT, seen?: string): Promise<Schedule> {
-        if (!actor.owner) throw forbidden(`Making schedule ${id} yours: only the owner takes a schedule on; send Orrery-Actor: <owner>`)
+        if (!actor.owner) throw refusedFor('schedules.adopt', `Making schedule ${id} yours: only the owner takes a schedule on; send Orrery-Actor: <owner>`)
         const row = await this.row(project, id)
         if (row.owned) return await this.get(project, id)
         if (seen !== undefined && seen !== row.updated_at) throw conflict(`Schedule ${id} changed after you read it: read it again, then make it yours`)
@@ -269,7 +270,7 @@ export class Schedules {
     /** The owner's schedules are theirs: an agent can't delete them. Its issues stay. */
     async delete(project: string, id: number, actor = AGENT) {
         const row = await this.row(project, id)
-        if (row.owned && !actor.owner) throw forbidden(`Deleting schedule ${id}: it's the owner's; only they can delete it`)
+        if (row.owned && !actor.owner) throw refusedFor('schedules.owners', `Deleting schedule ${id}: it's the owner's; only they can delete it`)
         await this.db.run('DELETE FROM schedules WHERE id = ?', id)
         await this.db.run('UPDATE issues SET schedule = NULL WHERE schedule = ?', id)
         this.listeners = null
@@ -294,7 +295,7 @@ export class Schedules {
      * 09:00 run at 07:00 next runs tomorrow at 09:00, and a one-off is done. */
     async runNow(project: string, id: number, actor = AGENT, instead = false): Promise<ScheduleRun> {
         const row = await this.row(project, id)
-        if (row.owned && !actor.owner) throw forbidden(`Running schedule ${id}: it's the owner's; only they can run it`)
+        if (row.owned && !actor.owner) throw refusedFor('schedules.owners', `Running schedule ${id}: it's the owner's; only they can run it`)
         if (!instead) return await this.run(row, new Date(), true)
         if (!row.enabled || !row.next_run) throw conflict(`Running schedule ${id} instead of its next run: it has none, so run it now`)
         const skipped = new Date(row.next_run)
@@ -514,7 +515,7 @@ export class Schedules {
      * as them; only a message is untrusted. */
     private checkKind(kind: Schedule['kind'], notes: string | null, presets: string, untrusted: boolean, actor: Actor, orElse = '') {
         if (kind === 'message' && !notes?.trim() && presets === '[]') throw badRequest('A message schedule needs its message in "notes", or a preset in "presets"')
-        if (kind === 'session' && !actor.owner) throw forbidden('Only the owner makes a session schedule: it starts work as them; send Orrery-Actor: <owner>')
+        if (kind === 'session' && !actor.owner) throw refusedFor('schedules.session', 'Only the owner makes a session schedule: it starts work as them; send Orrery-Actor: <owner>')
         if (untrusted && kind !== 'message') throw badRequest(`Only a message schedule is untrusted: send "kind": "message"${orElse}`)
     }
 
