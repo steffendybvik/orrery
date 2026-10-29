@@ -1,0 +1,145 @@
+// The store's reads that need nothing but the database: a project's board, its releases with how far their issues are,
+// its docs without their text, and the board's issues as records (ORR-501). StoreBase builds a project from them.
+import type {Asks, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Picks, Release} from '#shared/roadmap'
+import type {IssueInput} from '../utils/roadmap'
+import {buildBoard} from '../utils/roadmap'
+import type {Db} from '../utils/database'
+import type {IssueRecord, ChunkRecord, ProjectRow, ChunkRow, IssueRow, DocRow, ReleaseRow} from './schema'
+import {OPEN_ASK, tallyReleases, releaseOf, summaryOf, matchOf} from './schema'
+import {known} from '#shared/known'
+
+/** The projects taking their releases from `project`, by id. */
+export async function drawingOn(db: Db, project: string): Promise<string[]> {
+    return (await db.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? ORDER BY id', project)).map(r => r.id)
+}
+
+/** The project's board: its chunks and their issues, sub-issues within, each with its comment count, open question
+ * and the ids it had before. */
+export async function readBoard(db: Db, project: string, statuses: IssueStatus[]): Promise<Board> {
+    const chunks = await db.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project)
+    const issues = await db.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
+    const comments = new Map((await db.all<{issue: string, n: number}>('SELECT issue, count(*) AS n FROM comments WHERE project = ? GROUP BY issue', project))
+        .map(r => [r.issue, r.n]))
+    // Each issue's latest question from an agent that no comment of the owner's has come after.
+    const waiting = new Map((await db.all<{issue: string, asks: Asks}>(`SELECT c.issue, c.asks FROM comments c WHERE c.project = ? AND ${OPEN_ASK} ORDER BY c.id`, project))
+        .map(r => [r.issue, r.asks]))
+    const aliases = async (table: 'issue_aliases' | 'chunk_aliases', column: 'issue' | 'chunk') => {
+        const found = new Map<string, string[]>()
+        for (const row of await db.all<{alias: string, of: string}>(`SELECT alias, ${column} AS of FROM ${table} WHERE project = ? ORDER BY alias`, project)) {
+            found.set(row.of, [...found.get(row.of) ?? [], row.alias])
+        }
+        return found
+    }
+    // An agent's proposal waiting on the owner (pending, not under another proposal, as the bell has it) waits on
+    // their decision too, when no question of its own is open.
+    const proposals = new Set(issues.filter(row => row.proposal).map(row => row.id))
+    for (const row of issues) {
+        if (row.proposal === 'pending' && !row.owned && !(row.parent && proposals.has(row.parent)) && !waiting.has(row.id)) waiting.set(row.id, 'decision')
+    }
+    const issueAliases = await aliases('issue_aliases', 'issue')
+    const chunkAliases = await aliases('chunk_aliases', 'chunk')
+    const children = new Map<string | null, IssueRow[]>()
+    for (const row of issues) children.set(row.parent, [...children.get(row.parent) ?? [], row])
+
+    const input = (row: IssueRow): IssueInput => ({
+        id: row.id,
+        title: row.title,
+        priority: row.priority ?? undefined,
+        assignee: row.assignee ?? undefined,
+        labels: JSON.parse(row.labels) as string[],
+        external: JSON.parse(row.external) as string[],
+        status: row.status,
+        notes: row.notes ?? undefined,
+        proposal: row.proposal ?? undefined,
+        decided_by: row.decided_by ?? undefined,
+        decided_at: row.decided_at ?? undefined,
+        decision_note: row.decision_note ?? undefined,
+        choices: JSON.parse(row.choices) as Choice[],
+        picks: row.picks ? JSON.parse(row.picks) as Picks : undefined,
+        explore: row.explore ? JSON.parse(row.explore) as {choice: string, option: string} : undefined,
+        comments: comments.get(row.id) ?? 0,
+        waiting: waiting.get(row.id),
+        aliases: issueAliases.get(row.id) ?? [],
+        schedule: row.schedule ?? undefined,
+        release: row.ships_in ?? undefined,
+        created_by: row.created_by,
+        ...row.session_name ? {session_name: row.session_name} : {},
+        protected: !!row.owned,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        tasks: (children.get(row.id) ?? []).map(input),
+    })
+    const top = children.get(null) ?? []
+    const grouped = chunks.map(c => ({
+        id: c.id, title: c.title, summary: c.summary ?? '', priority: c.priority ?? undefined, aliases: chunkAliases.get(c.id) ?? [], created_by: c.created_by, protected: !!c.owned,
+        tasks: top.filter(t => t.chunk === c.id).map(input),
+    }))
+    const loose = top.filter(t => !t.chunk)
+    if (loose.length) grouped.push({id: '', title: 'No chunk', summary: '', priority: undefined, aliases: [], created_by: '', protected: false, tasks: loose.map(input)})
+    return buildBoard({chunks: grouped}, statuses)
+}
+
+
+/** The project's releases (its source's, when it takes them from another), in the order they're arranged in; each with how far its issues are
+ * (see tallyReleases). A source counts the issues of every project drawing on it; one drawing on it counts its own. */
+export async function readReleases(db: Db, project: ProjectRow, board: Board, statuses: IssueStatus[]): Promise<Release[]> {
+    if (project.release_mode === 'none') return []
+    const rows = await db.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY position, created_at DESC',
+        project.releases_from ?? project.id)
+    const boards = project.releases_from ? [board] : [board, ...await Promise.all((await drawingOn(db, project.id)).map(id => readBoard(db, id, statuses)))]
+    const tally = tallyReleases(rows.map(r => r.version), boards)
+    return rows.map(row => ({...releaseOf(row), ...known(tally.get(row.version), `a tally for ${row.version}`)}))
+}
+
+/** A project's docs without their text, by title, A–Z, sorted here rather than in SQL so SQLite and Postgres agree on
+ * case and accents. With `q`, only those with every word of it in their title or text, any order and case: the ones
+ * with them all in the title first, each with `match`, the text around its first hit. */
+export async function readDocSummaries(db: Db, project: string, q = ''): Promise<DocSummary[]> {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+    const inTitle = (row: DocRow) => words.every(word => row.title.toLowerCase().includes(word))
+    return (await db.all<DocRow>('SELECT * FROM docs WHERE project = ?', project))
+        .filter(row => words.every(word => `${row.title}\n${row.body}`.toLowerCase().includes(word)))
+        .sort((a, b) => Number(inTitle(b)) - Number(inTitle(a))
+            || a.title.localeCompare(b.title, 'en', {sensitivity: 'base', numeric: true}) || a.id.localeCompare(b.id))
+        .map(row => ({
+            id: row.id, title: row.title, summary: summaryOf(row.body), ...words.length ? {match: matchOf(row.body, words)} : {},
+            ...row.section ? {section: row.section} : {},
+            created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
+        }))
+}
+
+/** The board's issues as records, each with its parent and chunk, in board order. */
+export function issueRecords(project: string, board: Board): IssueRecord[] {
+    const records: IssueRecord[] = []
+    const walk = (issues: Issue[], parent: string | null, chunk: string) => {
+        for (const {tasks, ...issue} of issues) {
+            records.push({...issue, project, parent, chunk: chunk || null, sub_issues: tasks.map(t => t.id)})
+            walk(tasks, issue.id, chunk)
+        }
+    }
+    board.chunks.forEach(c => walk(c.tasks, null, c.id))
+    return records
+}
+
+/** The issue on the board, with its parent and chunk; null when it isn't there. */
+export function findIssue(board: Board, id: string): {issue: Issue, parent: string | null, chunk: string} | null {
+    const search = (issues: Issue[], parent: string | null, chunk: string): {issue: Issue, parent: string | null, chunk: string} | null => {
+        for (const issue of issues) {
+            if (issue.id === id) return {issue, parent, chunk}
+            const found = search(issue.tasks, issue.id, chunk)
+            if (found) return found
+        }
+        return null
+    }
+    for (const chunk of board.chunks) {
+        const found = search(chunk.tasks, null, chunk.id)
+        if (found) return found
+    }
+    return null
+}
+
+/** A chunk as it's handed out: its row's place and times, and its issues by id. */
+export function chunkRecord(row: ChunkRow, view: Chunk): ChunkRecord {
+    const {tasks, ...chunk} = view
+    return {...chunk, project: row.project, position: row.position, created_at: row.created_at, updated_at: row.updated_at, issues: tasks.map(t => t.id)}
+}
