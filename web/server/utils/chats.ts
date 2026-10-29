@@ -95,10 +95,12 @@ function pageOf(page: unknown): {path: string, title?: string} | undefined {
 }
 
 /** The owner writing in the chat, with the uploads they pasted (`images`, their ids) and the page they're on (`page`):
- * it goes to the chat's session alone, as a message from the owner, the page said at its end but not kept with it. */
-export async function say(id: string, text: unknown, images: unknown, actor: {name: string, owner: boolean}, page?: unknown): Promise<ChatMessage> {
+ * it goes to the chat's session alone, as a message from the owner, the page said at its end but not kept with it. A
+ * run of messages held and sent together (`parts`, ORR-517) goes as one, joined by blank lines, and is kept as its parts. */
+export async function say(id: string, text: unknown, images: unknown, actor: {name: string, owner: boolean}, page?: unknown, parts?: unknown): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const words = typeof text === 'string' ? text.trim() : ''
+    const run = partsOf(parts)
+    const words = run ? run.join('\n\n') : typeof text === 'string' ? text.trim() : ''
     const pasted = Array.isArray(images) ? images.filter((i): i is string => typeof i === 'string' && /^[0-9a-f]{24}$/.test(i)) : []
     if (!words && !pasted.length) throw badRequest('Send {text, images?}: what to say, and the ids of any uploads pasted with it')
     if (Array.isArray(images) && pasted.length !== images.length) throw badRequest('Send images as the ids of uploads (POST /api/uploads)')
@@ -109,7 +111,15 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
         on ? `(The owner is on ${on.path}${on.title ? `: ${on.title}` : ''}.)` : '',
     ].filter(Boolean).join('\n\n')
     await useStore().messageSession(chat.project, launchTarget(id), note, actor)
-    return add(chat, {from: 'owner', text: words, images: pasted})
+    return add(chat, {from: 'owner', text: words, images: pasted, ...run && run.length > 1 ? {parts: run} : {}})
+}
+
+/** The parts of a run of messages, each trimmed, the empty ones left out; none when it isn't one. */
+function partsOf(parts: unknown): string[] | undefined {
+    if (parts === undefined || parts === null) return undefined
+    if (!Array.isArray(parts) || parts.some(p => typeof p !== 'string')) throw badRequest('Send parts as a list of strings: the messages held and sent together')
+    const run = (parts as string[]).map(p => p.trim()).filter(Boolean)
+    return run.length ? run : undefined
 }
 
 /** How long a request to change a setting waits on the owner's answer. */

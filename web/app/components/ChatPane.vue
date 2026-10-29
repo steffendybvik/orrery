@@ -5,7 +5,10 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
-// session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
+// session's state shows in the header and the conversation below, newest at the bottom. Enter holds the message under the
+// box (Shift+Enter for a new line), and a run of them goes as one message once the owner has stopped typing for a moment
+// (`HOLD_MS`, a draining bar showing it), so the chat answers the whole thought (ORR-517); ⌘/Ctrl-Enter or Send sends at
+// once, and ✕ or Esc takes the last one back. A slash command goes at once, after what's held. An image pasted or
 // dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; minimizing it
 // (–, or Esc) hides it with the chat still running, and the corner button, marked while one runs, brings it back as it was.
 // Esc closes the pane only before a chat starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
@@ -86,32 +89,99 @@ watch(open, now => now && nextTick(() => field.value?.focus()))
 /** Where the session's context was last cleared: the messages before it, it no longer remembers. */
 const cut = computed(() => chat.value?.messages.findLastIndex(m => m.cleared) ?? -1)
 
-/** Sends what's in the composer, starting the chat first when there's none yet. `/clear` clears the running chat's
- * context instead; with none running there's nothing to clear. */
-async function submit() {
+/** How long after the owner's last keystroke a run of held messages goes. */
+const HOLD_MS = 2000
+/** The owner's messages held under the box, to go together. */
+const held = ref<{key: number, text: string, images: {id: string, url: string}[]}[]>([])
+let heldKey = 0
+let holdTimer: ReturnType<typeof setTimeout> | undefined
+/** Counts each restart of the wait, so the draining bar starts over. */
+const holds = ref(0)
+
+/** Starts the wait over, from now: what's held goes once it runs out. */
+function restartHold() {
+    clearTimeout(holdTimer)
+    if (!held.value.length) return
+    holds.value++
+    holdTimer = setTimeout(() => void flush(), HOLD_MS)
+}
+
+/** Sends what's held as one message, starting the chat first when there's none yet; what's held stays if it can't go. */
+async function flush() {
+    clearTimeout(holdTimer)
+    if (!held.value.length || sending.value || uploading.value) return
+    const run = held.value
+    sending.value = true
+    if (chat.value?.ended) fresh()
+    const texts = run.map(m => m.text).filter(Boolean)
+    const ids = run.flatMap(m => m.images.map(i => i.id))
+    if ((chat.value || await start()) && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)) {
+        held.value = held.value.filter(m => !run.includes(m))
+    }
+    sending.value = false
+    // Held while that went: their wait starts now.
+    restartHold()
+}
+
+/** Takes a held message back before it goes: into the box when the box is empty. */
+function takeBack(key: number) {
+    const message = held.value.find(m => m.key === key)
+    if (!message) return
+    held.value = held.value.filter(m => m !== message)
+    if (!draft.value.trim() && !images.value.length) {
+        draft.value = message.text
+        images.value = message.images
+    }
+    restartHold()
+    field.value?.focus()
+}
+
+/** Holds what's in the composer to go with the rest (`now`: sends it all at once). A slash command goes at once, after
+ * what's held; `/clear` clears the running chat's context instead, and with none running there's nothing to clear. */
+async function submit(now = false) {
     const text = draft.value.trim()
-    if (!text && !images.value.length || sending.value || uploading.value) return
-    if (text === '/clear' && !images.value.length) {
+    if (uploading.value) return
+    if (/^\/[a-z][\w-]*(\s|$)/i.test(text) && !images.value.length) {
+        await flush()
+        if (sending.value) return
         sending.value = true
-        if (!chat.value || chat.value.ended || await clear()) draft.value = ''
+        if (text === '/clear') {
+            if (!chat.value || chat.value.ended || await clear()) draft.value = ''
+        } else {
+            if (chat.value?.ended) fresh()
+            if ((chat.value || await start()) && await send(text, [])) draft.value = ''
+        }
         sending.value = false
         return
     }
-    sending.value = true
-    if (chat.value?.ended) fresh()
-    if ((chat.value || await start()) && await send(text, images.value.map(i => i.id))) {
+    if (text || images.value.length) {
+        held.value.push({key: ++heldKey, text, images: images.value})
         draft.value = ''
         images.value = []
     }
-    sending.value = false
+    if (now) await flush()
+    else restartHold()
 }
 
 function onKey(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    if (event.isComposing) return
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
-        submit()
+        void submit(true)
+    } else if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault()
+        void submit()
+    } else if (event.key === 'Escape' && held.value.length) {
+        // Takes the last one back, rather than minimizing the pane.
+        event.preventDefault()
+        event.stopPropagation()
+        const last = held.value.at(-1)
+        if (last) takeBack(last.key)
     }
 }
+// Typing the next part puts the wait off.
+watch(draft, () => restartHold())
+onBeforeUnmount(() => clearTimeout(holdTimer))
 
 async function attach(files: File[]) {
     for (const file of files.filter(f => f.type.startsWith('image/'))) {
@@ -218,7 +288,9 @@ const {over, on: drop} = useImageDrop(attach)
         <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
           <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
         </div>
-        <div v-if="m.from === 'owner' && m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
+        <template v-if="m.from === 'owner' && m.text">
+          <div v-for="(part, p) in m.parts ?? [m.text]" :key="p" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ part }}</div>
+        </template>
         <div v-else-if="m.text" class="group flex max-w-[92%] flex-col items-start gap-1">
           <div class="rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
             <MarkdownView :source="m.text" class="text-[13px]" />
@@ -334,8 +406,25 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
       </li>
     </ol>
 
-    <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit">
+    <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
       <p v-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <!-- What's held to go together: each as its own bubble, and a bar that drains until they go, starting over as you type. -->
+      <div v-if="held.length" class="flex flex-col items-end gap-1.5" role="group" aria-label="Held to send together">
+        <div v-for="m in held" :key="m.key" class="group relative flex max-w-[85%] flex-col items-end gap-1">
+          <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
+            <img v-for="image in m.images" :key="image.id" :src="image.url" alt="" class="max-h-20 rounded-lg opacity-70 ring-1 ring-line">
+          </div>
+          <div v-if="m.text" class="rounded-2xl rounded-br-md border border-dashed border-accent-500/40 bg-accent-500/10 px-3 py-2 text-[13px] whitespace-pre-wrap text-muted">{{ m.text }}</div>
+          <button type="button" class="absolute -top-1.5 -left-1.5 grid size-4 place-items-center rounded-full bg-fg text-[10px] text-panel" :aria-label="`Take back: ${m.text || 'the image'}`" title="Take it back (Esc)" @click="takeBack(m.key)">×</button>
+        </div>
+        <div class="flex w-full items-center gap-2 text-[11px] text-faint" aria-live="polite">
+          <span class="relative h-0.5 flex-1 overflow-hidden rounded-full bg-line">
+            <span v-if="!sending" :key="holds" class="absolute inset-0 animate-drain origin-right rounded-full bg-accent-500 motion-reduce:hidden" :style="{animationDuration: `${HOLD_MS}ms`}" />
+          </span>
+          <span>{{ sending ? 'Sending…' : `Sends ${HOLD_MS / 1000} s after you stop typing` }}</span>
+          <button type="button" class="text-accent-600 hover:underline disabled:opacity-50 dark:text-accent-400" :disabled="sending" @click="flush()">Send now</button>
+        </div>
+      </div>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
         <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5 px-1 pt-1">
           <div v-for="(image, i) in images" :key="image.id" class="relative">
@@ -350,6 +439,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
             rows="1"
             aria-label="Message"
             placeholder="Ask anything…"
+            title="Enter holds it to go with the next (it sends once you stop typing); ⌘-Enter sends now; Shift-Enter for a new line"
             class="field-sizing-content max-h-40 min-h-9 resize-none bg-transparent px-2 py-1.5 text-[13px] text-fg placeholder:text-faint focus:outline-none"
             @keydown="onKey"
         />
@@ -371,7 +461,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
               </MenuItem>
             </MenuItems>
           </Menu>
-          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send (↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length">
+          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send now (⌘↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length && !held.length">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
           </UiButton>
         </div>
@@ -379,3 +469,4 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
     </form>
   </section>
 </template>
+
