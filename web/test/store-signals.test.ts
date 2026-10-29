@@ -188,6 +188,20 @@ describe('a session that connects', () => {
         expect(sent).toEqual([`${a}:new-window:answer me`])
     })
 
+    it("still gets the owner's comment when only orrery has spoken since, not an agent (ORR-528)", async () => {
+        const sent: string[] = []
+        const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))
+        await local.createProject({name: 'greenhouse', key: 'GRE'})
+        const a = (await local.createIssue('greenhouse', {title: 'A'})).id
+        await local.createComment('greenhouse', a, {body: 'rebase this'}, {name: 'skoll', owner: true})
+        await local.systemComment('greenhouse', a, '#12 conflicts with `main`.', 'pr.conflicting')
+        // Nobody took either from the pool in a day.
+        await local.db.run("UPDATE signals SET created_at = ? WHERE kind = 'comment'", new Date(Date.now() - 2 * 86_400_000).toISOString())
+        sent.length = 0
+        expect(await local.carryUnanswered('greenhouse', 'new-window')).toBe(1)
+        expect(sent).toEqual([`${a}:new-window:rebase this`])
+    })
+
     it("aims the owner's comment on an issue nobody is on at no session, for one to take, and the pool offers it (ORR-513)", async () => {
         const sent: (string | undefined)[] = []
         const local = new Store(testDb(), () => {}, signal => sent.push(signal.target))
