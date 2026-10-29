@@ -2,7 +2,7 @@ import {expect, test} from '@playwright/test'
 import {hold, makeProject, projectApi} from './support'
 
 // A session at a permission prompt pops up on any page (ORR-489), with a fake launcher and channel on the API where
-// Claude would be: one orrery started shows the prompt from its pane, and Allow and Open tmux go to its launcher; one
+// Claude would be: one orrery started shows the command from its prompt, and Allow and Open tmux go to its launcher; one
 // started by hand says what it wants without them; × hides it until it asks again.
 test.describe.configure({mode: 'serial'})
 
@@ -35,11 +35,12 @@ test('a session orrery started pops up with its prompt, and Allow and Open tmux 
         await request.post('/api/sessions', {data: {id: 'e2e-p', project: 'pantry', event: 'Notification', message: 'Claude needs your permission to use Bash'}})
         const popup = page.getByRole('alertdialog', {name: 'pantry shelf needs permission'})
         await expect(popup).toContainText('Claude needs your permission to use Bash')
-        // The popup asks for the screen; the launcher sends it, and the prompt shows word for word.
+        // The popup asks for the screen; the launcher sends it, and the command it asks to run shows, not the screen.
         await expect.poll(() => launcher.said.text).toContain('event: view')
         await expect.poll(async () => (await request.post('/api/projects/pantry/launches/e2e489e2e489/screen', {data: {screen: PANE}})).json()).toEqual({watching: true})
-        await expect(popup.locator('pre')).toContainText('rm -rf web/.output')
-        await expect(popup.locator('pre')).not.toContainText("I'll clear the build output")
+        await expect(popup.getByText('rm -rf web/.output', {exact: true})).toBeVisible()
+        await expect(popup).not.toContainText("I'll clear the build output")
+        await expect(popup).not.toContainText('Do you want to proceed?')
         await popup.getByRole('button', {name: 'Open tmux'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: watch')
         await popup.getByRole('button', {name: 'Allow'}).click()

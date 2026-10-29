@@ -1,6 +1,7 @@
-/** The permission prompt at the foot of a session's screen, as its pane shows it: from the top of the box (or a rule)
- * above "Do you want to…" through its options, word for word (ORR-489). Null when it shows none. */
-export function promptIn(screen: string): string | null {
+/** What a session at a permission prompt is asking, from the foot of its screen (ORR-489): the prompt's lines from the
+ * top of its box (or the rule above it) up to "Do you want to…", without the box, blank lines or the options, and its
+ * first line after the heading (the command, the file) as `what`. Null when it shows none. */
+export function promptIn(screen: string): {what: string, text: string} | null {
     const lines = screen.replace(/[ \t]+$/gm, '').split('\n')
     const at = (i: number) => lines[i] ?? ''
     const asks = lines.findLastIndex(line => /^[\s│┃]*Do you want to\b/i.test(line))
@@ -10,12 +11,8 @@ export function promptIn(screen: string): string | null {
     let top = asks
     while (top > 0 && asks - top < 20 && !/^\s*([╭┌]|[─━]{8,})/.test(at(top))) top--
     if (!/^\s*([╭┌]|[─━]{8,})/.test(at(top))) top = Math.max(0, asks - 8)
-    while (top < asks && !at(top).trim()) top++
-    // Its foot: the box's corner, else the last numbered option and the hint under it.
-    let foot = asks
-    while (foot + 1 < lines.length && foot - asks < 12 && at(foot + 1).trim()) {
-        foot++
-        if (/^\s*[╰└]/.test(at(foot))) break
-    }
-    return lines.slice(top, foot + 1).join('\n')
+    const kept = lines.slice(top, asks)
+        .map(line => line.replace(/^\s*[│┃]|[│┃]\s*$/g, '').trim())
+        .filter(line => line && !/^([╭┌╰└]|[─━]{8,})/.test(line))
+    return {what: kept[1] ?? kept[0] ?? '', text: kept.join('\n')}
 }

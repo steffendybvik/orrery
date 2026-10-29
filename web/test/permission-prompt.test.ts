@@ -32,9 +32,9 @@ const ruled = `● Editing the readme.
 `
 
 describe('a permission prompt on a session\'s screen', () => {
-    it('is cut from the pane word for word, box and all', () => {
-        expect(promptIn(boxed)).toBe(boxed.split('\n').slice(2, 13).map(l => l.trimEnd()).join('\n'))
-        expect(promptIn(ruled)).toBe(ruled.split('\n').slice(2, 11).map(l => l.trimEnd()).join('\n'))
+    it('is cut from the pane down to what it wants, without its box, blank lines or options', () => {
+        expect(promptIn(boxed)).toEqual({what: 'rm -rf web/.output', text: 'Bash command\nrm -rf web/.output\nRemove the build output'})
+        expect(promptIn(ruled)).toEqual({what: 'README.md', text: 'Edit file\nREADME.md'})
         expect(promptIn('● Done. The tests pass.\n\n> ')).toBeNull()
     })
 
