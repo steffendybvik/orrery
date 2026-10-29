@@ -7,6 +7,7 @@ import {CHAT_SCHEDULE_FIELDS, scheduleValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {isObject} from './input'
 import {ownerOnly} from './permission'
+import {startsNone} from './starts-none'
 
 /** The names of the presets `ids`, those that are still there. */
 async function presetNames(project: string, ids: unknown[]): Promise<Map<unknown, string>> {
@@ -76,9 +77,10 @@ export async function answerScheduleRequest(project: string, issue: string, id: 
         await store.answerScheduleRequest(project, id, allow ? 'allowed' : 'denied', made?.id, actor)
         useEventLog().note({level: 'info', kind: 'schedule.answered', project, message: `${actor.name} ${allow ? 'allowed' : 'denied'} the request on ${issue} to ${scheduleAsk(request)}`,
             details: {issue, schedule: made?.id ?? request.id ?? null, fields: Object.keys(request.body), allowed: allow}})
-        await store.createComment(project, issue, {body: made
+        // Said to the session that asked, but not work: it starts no session (ORR-606).
+        await startsNone.run(true, () => store.createComment(project, issue, {body: made
             ? `Allowed: schedule ${made.id} ("${made.title}") is saved as mine${made.enabled ? '' : ', paused'}.`
-            : `Denied: don't ${scheduleAsk(request)}. Nothing changed.`}, actor)
+            : `Denied: don't ${scheduleAsk(request)}. Nothing changed.`}, actor))
     } finally {
         answering.delete(id)
     }

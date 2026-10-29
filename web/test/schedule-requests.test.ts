@@ -10,6 +10,9 @@ const agent = {name: 'claude', owner: false, session: 'orrery · Skade'}
 let store: Store
 let schedules: Schedules
 let signals: Signal[]
+/** Whether each signal was made where it starts no session (ORR-606), by index. */
+let quiet: boolean[]
+let startsNone: typeof import('../server/utils/starts-none')['startsNone'] | undefined
 let notes: {kind: string}[]
 let requests: typeof import('../server/utils/schedule-requests')
 let owner: {name: string, owner: true}
@@ -19,8 +22,12 @@ const error = (statusCode: number) => (message: string) => Object.assign(new Err
 
 beforeEach(async () => {
     signals = []
+    quiet = []
     notes = []
-    store = new Store(testDb(), () => {}, signal => signals.push(signal))
+    store = new Store(testDb(), () => {}, signal => {
+        signals.push(signal)
+        quiet.push(!!startsNone?.getStore())
+    })
     await store.createProject({name: 'greenhouse', key: 'GRE'})
     issue = (await store.createIssue('greenhouse', {title: 'Water the plants'}, agent)).id
     schedules = new Schedules(store)
@@ -32,6 +39,7 @@ beforeEach(async () => {
     vi.stubGlobal('createError', (input: {statusCode: number, message: string}) => Object.assign(new Error(input.message), input))
     vi.resetModules()
     requests = await import('../server/utils/schedule-requests')
+    startsNone = (await import('../server/utils/starts-none')).startsNone
 })
 
 afterEach(() => vi.unstubAllGlobals())
@@ -63,8 +71,10 @@ describe("a working session's request for a schedule", () => {
         expect(answered).toMatchObject({answered: true, schedule: {id: made!.id, state: 'allowed'}})
         const comments = await store.listComments('greenhouse', issue)
         expect(comments.at(-1)).toMatchObject({created_by: owner.name, body: `Allowed: schedule ${made!.id} ("Morning check") is saved as mine.`})
-        // The owner's answer reaches the session, as their comments do.
-        expect(signals.some(s => s.kind === 'comment' && s.note?.startsWith('Allowed'))).toBe(true)
+        // The owner's answer reaches the session, as their comments do, but isn't work: it starts no session (ORR-606).
+        const said = signals.findIndex(s => s.kind === 'comment' && s.note?.startsWith('Allowed'))
+        expect(said).toBeGreaterThanOrEqual(0)
+        expect(quiet[said]).toBe(true)
         expect(await status(() => requests.answerScheduleRequest('greenhouse', issue, asked.id, false, owner))).toBe(409)
         expect(notes.map(n => n.kind)).toEqual(['schedule.asked', 'schedule.answered'])
     })
