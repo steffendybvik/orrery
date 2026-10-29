@@ -553,7 +553,7 @@ Saved pieces of context, `{id, project, name, text, icon, color}`, the owner giv
 for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's name, e.g. `shield-check`) in
 `color` (a tint's name or `#rrggbb`), or its initials without an icon. orrery ships a few of its own (Release,
 Security audit, Review, Debug an error), added once to each orrery as it starts, new or upgraded; each has `default`
-`{key, changed}`. An upgrade never changes one, and one the owner removed isn't added again. Only the owner makes, changes or removes them (an agent gets a 403); a session reads them
+`{key, changed}`. An upgrade never changes one, and one the owner removed isn't added again. Only the owner makes, changes or removes them (an agent gets a 403); the owner's chat reads them
 (the `presets` and `preset` tools) to help the owner write one.
 
 | | |
