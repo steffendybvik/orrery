@@ -18,9 +18,15 @@ test.afterAll(async ({request}) => {
 
 test("shows a work session's parts and their sizes, with the total, and the chat's own", async ({page, request}) => {
     const work = await (await request.get('/api/projects/almanac/context?kind=work')).json()
-    // Out of the sidebar (ORR-561): reached from App settings → Advanced, as are Events and Pull requests, and the old
-    // address opens that tab.
+    // In the sidebar under Schedules while Advanced is on (ORR-578), with Events and Pull requests; gone with it off,
+    // when App settings → Advanced still links all three, and the old address opens that tab (ORR-561).
     await page.goto('/')
+    await expect(page.getByRole('link', {name: 'Events', exact: true})).toHaveAttribute('href', '/events')
+    await expect(page.getByRole('link', {name: 'Context', exact: true})).toHaveAttribute('href', '/context')
+    await expect(page.getByRole('link', {name: /^Pull requests/})).toHaveAttribute('href', '/pulls')
+    const off = await request.patch('/api/settings', {data: {advanced: false}, headers: OWNER})
+    expect(off.ok(), await off.text()).toBeTruthy()
+    await page.reload()
     await expect(page.getByRole('link', {name: 'Context', exact: true})).toHaveCount(0)
     await expect(page.getByRole('link', {name: 'Events', exact: true})).toHaveCount(0)
     await expect(page.getByRole('link', {name: /^Pull requests/})).toHaveCount(0)
