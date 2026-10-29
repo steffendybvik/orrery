@@ -76,11 +76,17 @@ const state = computed(() => {
     if (!session.value) return 'Starting the session…'
     return {working: 'Thinking…', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
 })
-const thinking = computed(() => !!chat.value && !chat.value.ended && !chat.value.problem && (!session.value || session.value.state === 'working')
-    && chat.value.messages.at(-1)?.from === 'owner' && !chat.value.messages.at(-1)?.cleared)
+/** Whether the dots show: all the while its session works, whoever spoke last, so a reply partway through a turn doesn't
+ * hide them (ORR-518); while it starts, only once the owner has said something it hasn't answered. */
+const thinking = computed(() => {
+    if (!chat.value || chat.value.ended || chat.value.problem) return false
+    if (session.value?.state === 'working') return true
+    const last = chat.value.messages.at(-1)
+    return (!session.value || session.value.state === 'starting') && last?.from === 'owner' && !last.cleared
+})
 
-// The newest in sight as it comes.
-watch(() => [open.value, chat.value?.messages.length], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
+// The newest in sight as it comes, the dots too.
+watch(() => [open.value, chat.value?.messages.length, thinking.value], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
 watch(open, now => now && nextTick(() => field.value?.focus()))
 
 /** Where the session's context was last cleared: the messages before it, it no longer remembers. */

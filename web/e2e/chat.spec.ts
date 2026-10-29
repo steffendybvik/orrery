@@ -82,6 +82,11 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         })
         expect(answered.ok(), await answered.text()).toBeTruthy()
         await expect(pane.locator('strong', {hasText: 'jam'})).toBeVisible()
+        // Answered partway through its turn, it's still working: the dots stay, after the reply, until the turn ends.
+        await expect(pane.getByLabel('Thinking…')).toBeVisible()
+        expect(await pane.locator('ol > li').last().getAttribute('aria-label')).toBe('Thinking…')
+        await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'larder', event: 'Stop'}})
+        await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
         // Copy under the reply takes its Markdown as written, not the page's text.
         await page.evaluate(() => {
             const copied: string[] = (window as unknown as {copied: string[]}).copied = []
