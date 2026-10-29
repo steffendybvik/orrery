@@ -13,7 +13,7 @@ import {known} from '#shared/known'
 // (`chat` events). A chat is kept while its session runs, here only, and ends when the owner ends it.
 
 /** What the chat's session on `project` is told it is, with every message. */
-export const chatBrief = (project: string) => `This session is the owner's chat in orrery: they type to you on its page and read what you send with the reply tool.
+const chatBrief = (project: string) => `This session is the owner's chat in orrery: they type to you on its page and read what you send with the reply tool.
 Answer their questions about this project: its code (read it), its roadmap and its docs (the issues, issue, chunks,
 releases, docs and doc tools). When they ask for an issue or a comment, make it (create_issue, comment) and say which
 id it got. When they ask to change an issue (its priority, labels, chunk, release, title…), change it (edit_issue). You
@@ -165,7 +165,7 @@ async function owner(): Promise<Actor> {
  * `update_schedule` tools): `schedule` holds the fields, as Schedules takes them (`CHAT_SCHEDULE_FIELDS`; `enabled`
  * pauses or resumes one). A request in the chat, checked as Schedules would check it for the owner, which saves nothing
  * until they allow it. One it asked before for the same schedule, still unanswered, expires. */
-export async function askSchedule(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+async function askSchedule(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
     const {schedule: fields, id: target, why} = body as {schedule?: unknown, id?: unknown, why?: unknown}
     if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {schedule: {…}, id?}: the fields to set, any of ${Object.keys(CHAT_SCHEDULE_FIELDS).join(', ')}, and the schedule's id to change one`)
@@ -384,7 +384,7 @@ export function asChatIssue(body: unknown, chat?: string): unknown {
 }
 
 /** What the chat may change on an issue when the owner asks: what it says and where it sits, never its state of work. */
-export const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent']
+const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent']
 
 /** An edit to an issue from the chat, as it asks for it: refused (403) when it would change anything but `CHAT_EDITS`,
  * so a chat never starts, moves, assigns or finishes work, puts up a proposal or moves an issue to another project. */

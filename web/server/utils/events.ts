@@ -44,7 +44,7 @@ export function revLabel(): (project: Project) => Project & {rev: number} {
 }
 
 /** Reads `id` again and pushes it, as `project` and as a `patch` from the last push. Exported for its tests. */
-export function reread(id: string) {
+function reread(id: string) {
     if (reading.has(id)) {
         reading.set(id, 'again')
         return
