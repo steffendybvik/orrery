@@ -855,6 +855,17 @@ export interface PullRequest {
     updated_at: string
 }
 
+/** What a session is asked to do about a PR that can't merge as it is (Send back, ORR-492); none for one that can. */
+export function sendBackNote(pull: Pick<PullRequest, 'number' | 'url' | 'branch' | 'base' | 'state'>): string | null {
+    const which = `Its PR #${pull.number} (${pull.branch} into ${pull.base}, ${pull.url})`
+    switch (pull.state) {
+        case 'conflicting': return `${which} conflicts with ${pull.base}: merge ${pull.base} into ${pull.branch}, resolve the conflicts, run the checks and push.`
+        case 'behind': return `${which} is behind ${pull.base}: merge ${pull.base} into ${pull.branch}, run the checks and push.`
+        case 'failing': return `${which} fails its checks: read them (gh pr checks ${pull.number}), fix what fails and push.`
+        default: return null
+    }
+}
+
 /** An issue's open pull requests, as GitHub had them when orrery last asked. */
 export interface IssuePulls {
     /** The project's repo on GitHub (`you/shop`), or null when it has none there: then nothing is asked. */

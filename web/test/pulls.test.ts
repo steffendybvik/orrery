@@ -1,4 +1,5 @@
 import {beforeEach, describe, expect, it} from 'vitest'
+import {sendBackNote} from '#shared/roadmap'
 import {githubRepo, namesIssue, pullState, Pulls} from '../server/utils/pulls'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
@@ -156,5 +157,19 @@ describe('pull requests', () => {
 
     it('404 on an issue there isn\'t', async () => {
         await expect(pulls.forIssue('shop', 'SHO-99')).rejects.toMatchObject({statusCode: 404})
+    })
+})
+
+describe('sending a PR back', () => {
+    const pull = {number: 7, url: 'https://github.com/you/shop/pull/7', branch: 'feat/sho-1-cards', base: 'main'}
+
+    it('says what it needs, by where it stands', () => {
+        expect(sendBackNote({...pull, state: 'conflicting'})).toBe('Its PR #7 (feat/sho-1-cards into main, https://github.com/you/shop/pull/7) conflicts with main: merge main into feat/sho-1-cards, resolve the conflicts, run the checks and push.')
+        expect(sendBackNote({...pull, state: 'behind'})).toMatch(/is behind main: merge main into feat\/sho-1-cards/)
+        expect(sendBackNote({...pull, state: 'failing'})).toMatch(/fails its checks: read them \(gh pr checks 7\)/)
+    })
+
+    it('has nothing to send for one that can merge, or waits on someone else', () => {
+        for (const state of ['ready', 'blocked', 'draft', 'checking'] as const) expect(sendBackNote({...pull, state})).toBeNull()
     })
 })

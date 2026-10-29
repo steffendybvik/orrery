@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import type {IssuePulls, PullState} from '#shared/roadmap'
+import type {IssuePulls, PullRequest, PullState, Signal} from '#shared/roadmap'
+import {sendBackNote} from '#shared/roadmap'
 
 // On an issue's page: its open pull requests on the project's GitHub repo, and where each stands, so an issue in
 // review or done isn't taken as shipped while its PR waits (ORR-485). Asked again every minute while the page is
 // open, and when the issue changes; orrery keeps GitHub's answer a minute (five without a token), so this is cheap.
-// Nothing shows for a project without a repo on GitHub, or an issue without an open PR.
+// Nothing shows for a project without a repo on GitHub, or an issue without an open PR. A PR that conflicts, is behind
+// or fails its checks has **Send back**: a focus on the issue saying what the PR needs, to the session on it (or one
+// orrery picks, or starts when nobody's listening), as the owner's (ORR-492).
 const props = defineProps<{project: string, issue: string, updated?: string}>()
 
 const got = ref<IssuePulls>()
@@ -21,6 +24,25 @@ onMounted(() => timer = setInterval(() => {
     if (document.visibilityState === 'visible') void load()
 }, 60_000))
 onBeforeUnmount(() => clearInterval(timer))
+
+const {load: owner} = useOwner()
+/** Per PR: sending, sent, or why it couldn't. */
+const sent = ref<Record<number, {busy?: boolean, sent?: boolean, failed?: string}>>({})
+watch(key, () => sent.value = {})
+async function sendBack(pull: PullRequest) {
+    const note = sendBackNote(pull)
+    if (!note) return
+    sent.value = {...sent.value, [pull.number]: {busy: true}}
+    try {
+        await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/focus`, {
+            method: 'POST', headers: {'Orrery-Actor': await owner()}, body: {note, start: true},
+        })
+        // The sessions panel above says who it reached, or that it waits for one.
+        sent.value = {...sent.value, [pull.number]: {sent: true}}
+    } catch (error) {
+        sent.value = {...sent.value, [pull.number]: {failed: errorMessage(error, 'send')}}
+    }
+}
 
 const STATES: Record<PullState, {label: string, hint: string, tone: string}> = {
     conflicting: {label: 'Conflicts', hint: 'It conflicts with its base: it needs the conflicts resolved before it can merge', tone: 'text-rose-700 ring-rose-500/40 bg-rose-500/10 dark:text-rose-300'},
@@ -50,11 +72,22 @@ const STATES: Record<PullState, {label: string, hint: string, tone: string}> = {
             :class="STATES[pull.state].tone"
             :title="STATES[pull.state].hint"
         >{{ STATES[pull.state].label }}</span>
+        <template v-if="sendBackNote(pull)">
+          <span v-if="sent[pull.number]?.sent" class="shrink-0 text-xs text-faint">Sent</span>
+          <UiButton
+              v-else
+              size="xs"
+              :disabled="sent[pull.number]?.busy"
+              :title="`Ask a session to fix it: ${sendBackNote(pull)}`"
+              @click="sendBack(pull)"
+          >{{ sent[pull.number]?.busy ? 'Sending…' : 'Send back' }}</UiButton>
+        </template>
         <span class="w-full truncate pl-7 font-mono text-[11px] text-faint" :title="`${pull.branch} into ${pull.base}, by ${pull.author}`">
           {{ pull.branch }} → {{ pull.base }} · {{ ago(pull.created_at) }}
         </span>
       </li>
     </ul>
+    <p v-for="(state, number) in sent" v-show="state.failed" :key="number" class="text-xs text-rose-600 dark:text-rose-400">#{{ number }}: {{ state.failed }}</p>
     <p v-if="got.error" class="text-xs text-faint">{{ got.error }}</p>
   </section>
 </template>
