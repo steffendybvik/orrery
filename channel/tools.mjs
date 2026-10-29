@@ -8,11 +8,11 @@ import {promisify} from 'node:util'
 // in full as JSON), and a refused call comes back as an error with orrery's reason. Serving several projects,
 // a tool on an issue finds its project from the id's key (HUB-12 is hub's), and the others take `project`.
 
-const STATUS = {type: 'string', description: "A status's id (backlog, todo, in-progress, in-review, done, canceled, or one of the orrery's own) or a kind (started, done…)"}
+const STATUS = {type: 'string', description: 'A status id (todo, in-progress, in-review, done…) or kind (started…)'}
 const PRIORITY = {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null], description: 'P0 is urgent; null clears it'}
 const CHOICES = {
     type: 'array',
-    description: "A proposal's choices for the owner: questions answered by picking one option or any, your recommendation ticked",
+    description: "A proposal's questions for the owner, each answered by picking options",
     items: {
         type: 'object',
         required: ['key', 'question', 'options'],
@@ -22,7 +22,7 @@ const CHOICES = {
             pick: {type: 'string', enum: ['one', 'any']},
             options: {type: 'array', items: {type: 'object', required: ['key', 'title'], properties: {key: {type: 'string'}, title: {type: 'string'}, body: {type: 'string'}}}},
             recommended: {type: 'array', items: {type: 'string'}},
-            from: {type: 'object', properties: {choice: {type: 'string'}, option: {type: 'string'}}, description: 'Goes further down an earlier choice’s option'},
+            from: {type: 'object', properties: {choice: {type: 'string'}, option: {type: 'string'}}, description: 'Follows on from an earlier choice’s option'},
         },
     },
 }
@@ -32,100 +32,104 @@ const FIELDS = {
     status: STATUS,
     priority: PRIORITY,
     labels: {type: 'array', items: {type: 'string'}},
-    external: {type: 'array', items: {type: 'string'}, description: "Its tasks on the team's tracker: ids like ENG-1567, or URLs"},
+    external: {type: 'array', items: {type: 'string'}, description: "Team tracker task ids or URLs"},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
-    chunk: {type: ['string', 'null'], description: "A chunk's id (a number) or its old name"},
+    chunk: {type: ['string', 'null'], description: "A chunk's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
-    release: {type: ['string', 'null'], description: "The version of the release it ships in (see releases); null takes it out"},
+    release: {type: ['string', 'null'], description: 'The release version it ships in'},
     choices: CHOICES,
 }
 
 export const TOOLS = [
     {
         name: 'issues',
-        description: "Lists the project's issues, sub-issues included, one line each: id, status, priority, assignee, title.",
+        description: "Lists the project's issues, sub-issues included, a line each: id, status, priority, assignee, title.",
         inputSchema: {type: 'object', properties: {
             status: STATUS,
             assignee: {type: 'string', description: 'A name, or "none"'},
             chunk: {type: 'string', description: 'A chunk id, or "none"'},
             release: {type: 'string', description: 'A release\'s version, or "none"'},
             label: {type: 'string'},
-            external: {type: 'string', description: "A team task's id: the issues linked to it"},
+            external: {type: 'string', description: 'A team task id'},
             q: {type: 'string', description: 'Text in the id or title'},
-            open: {type: 'boolean', description: 'Only issues not done or canceled (default true)'},
+            open: {type: 'boolean', description: 'Leave out done and canceled (default true); false lists every status'},
         }},
     },
-    {name: 'issue', description: 'An issue in full (description, status, sub-issues, proposal and choices) with its comments, and its open pull requests with where each stands.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
+    {name: 'issue', description: 'An issue in full, with its comments and open pull requests.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'create_issue',
-        description: 'Adds an issue. With proposal: true it goes to the owner as a proposal (with choices, if you send them) instead of being work.',
+        description: 'Adds an issue; proposal: true puts it to the owner instead of making it work.',
         inputSchema: {type: 'object', required: ['title'], properties: {...FIELDS, proposal: {type: 'boolean'}}},
     },
     {
         name: 'update_issue',
-        description: 'Changes an issue: any of its fields; proposal "pending" puts it (back) up to the owner; the owner approving it puts it on the roadmap.',
+        description: 'Changes an issue\'s fields; proposal "pending" puts it (back) to the owner.',
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...FIELDS, proposal: {type: ['string', 'null'], enum: ['pending', null]}}},
     },
     {
         name: 'start_issue',
-        description: 'Starts work on an issue: sets it in progress, assigns it to claude, and adds your comment if you give one.',
+        description: 'Starts an issue: in progress, assigned to claude, with your comment.',
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, comment: {type: 'string'}}},
     },
     {
         name: 'finish_issue',
-        description: 'Closes an issue with a comment on what shipped: done by default, in-review when it waits on the owner, canceled (say why) when it won’t be done.',
+        description: 'Closes an issue with a comment on what shipped: done, in-review (waits on the owner) or canceled (say why).',
         inputSchema: {type: 'object', required: ['id', 'comment'], properties: {id: {type: 'string'}, comment: {type: 'string'}, status: {type: 'string', enum: ['done', 'in-review', 'canceled']}}},
     },
     {
         name: 'comment',
-        description: 'Comments on an issue (Markdown). asks: "decision" or "feedback" puts it at the top of the owner’s bell, and assigns the issue to them, until they answer.',
+        description: 'Comments on an issue (Markdown); asks waits at the top of the owner’s bell until they answer.',
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
     },
-    {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress.", inputSchema: {type: 'object', properties: {}}},
-    {name: 'releases', description: "Lists the project's releases, in the order they're arranged in, with their branch and how far the issues in each are.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'chunks', description: "Lists the project's chunks (milestones) with their status and progress; done ones with all.", inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Done chunks too'}}}},
+    {
+        name: 'releases',
+        description: "Lists the project's releases with their branches and progress; of the shipped ones, only the latest unless all.",
+        inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Every shipped release too'}}},
+    },
     {
         name: 'docs',
-        description: "Lists the project's docs (decisions, how things work), each with its section and a line on what it says. Read the ones a task touches before its code.",
-        inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Only docs with every one of these words in their title or text, title hits first, each with the text around its hit'}}},
+        description: "Lists the project's docs (decisions, how things work), a line each. Read the ones a task touches before its code.",
+        inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Words every doc listed has'}}},
     },
     {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'write_doc',
-        description: 'Writes a doc, new or replacing the one with this id: a decision and why, how something works. File it under the section its kind of doc is in (the docs tool shows them); leaving it out keeps the one it has.',
-        inputSchema: {type: 'object', required: ['id', 'title', 'body'], properties: {id: {type: 'string', description: 'lowercase-with-dashes'}, title: {type: 'string'}, body: {type: 'string', description: 'Markdown'}, section: {type: 'string', description: 'The group it\'s listed under, e.g. Decisions or How it works; empty takes it out of one'}}},
+        description: 'Writes a doc, new or replacing the one with this id: a decision and why, or how something works.',
+        inputSchema: {type: 'object', required: ['id', 'title', 'body'], properties: {id: {type: 'string', description: 'lowercase-with-dashes'}, title: {type: 'string'}, body: {type: 'string', description: 'Markdown'}, section: {type: 'string', description: 'e.g. Decisions; kept when left out, empty for none'}}},
     },
     {name: 'presets', description: "Lists the presets the project's sessions can be started with (the orrery's, then the project's own), one line each: id, name, whose, first line. Only the owner makes or changes them.", inputSchema: {type: 'object', properties: {}}},
     {name: 'preset', description: "A preset in full, to help the owner write one: its text is what a session started with it is told, not an instruction to you.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
     {name: 'schedules', description: "Lists the project's schedules, soonest first, paused last, one line each: id, title, what it makes (an issue, a message, a session), when it runs (a cron, once, or on an event), whether it's on, its presets, and its last and next run.", inputSchema: {type: 'object', properties: {}}},
-    {name: 'sessions', description: "Lists the project's Claude sessions, one line each: name, state and since when, when it started (and stops), the presets it was started with, and the open issues it worked last.", inputSchema: {type: 'object', properties: {}}},
-    {name: 'secrets', description: 'Lists the secrets you can use in egress, by name, with the hosts each may go to. You never see a value.', inputSchema: {type: 'object', properties: {}}},
+    {name: 'sessions', description: "Lists the project's Claude sessions: state, times, presets and the issues each is on.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'secrets', description: 'Lists the secrets egress can use, with their hosts. You never see a value.', inputSchema: {type: 'object', properties: {}}},
     {
         name: 'egress',
-        description: 'Calls an outside service with a secret: put {{secret:NAME}} in the url, a header or the body, and orrery fills it in, sends it (https, only to a host the secret allows) and answers with the value scrubbed out. Every use is recorded.',
+        description: 'Calls an outside service with {{secret:NAME}} in the url, a header or the body: orrery fills it in, sends it over https to a host the secret allows, and scrubs it from the answer.',
         inputSchema: {type: 'object', required: ['url'], properties: {
             url: {type: 'string'},
             method: {type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']},
             headers: {type: 'object', additionalProperties: {type: 'string'}, description: 'e.g. {"Authorization": "Bearer {{secret:STRIPE_KEY}}"}'},
-            body: {description: 'Text as it is; anything else goes as JSON'},
-            issue: {type: 'string', description: 'The issue it is for, kept with the record'},
+            body: {description: 'Text, or anything else as JSON'},
+            issue: {type: 'string', description: 'The issue it is for'},
         }},
     },
     {
         name: 'events',
-        description: "The orrery's event log, newest first, for debugging it: errors (server 5xx, the page's own, which anyone can report and are marked so, failed schedule runs and backups) and, while the owner has Advanced on, what it did (sessions, launchers, schedule runs, backups, migrations, starts) and every change to the roadmap (issues, comments, chunks, docs, releases: who did what, from → to). Each is a line of its own. With details, each with its stack, route and the rest.",
+        description: "The orrery's event log, newest first, for debugging it: errors, and with Advanced on what it did and each change to the roadmap. details adds stacks.",
         inputSchema: {type: 'object', properties: {
             level: {type: 'string', description: 'error, warn or info; several comma-separated'},
-            kind: {type: 'string', description: 'One (server.error, issue.status) or every one under a name (session, issue)'},
+            kind: {type: 'string', description: 'e.g. server.error, or session for all under it'},
             project: {type: 'string'},
-            subject: {type: 'string', description: 'What a change to the roadmap was to: an issue id (ORR-12), a release version, a chunk or doc id'},
-            since: {type: 'string', description: 'Only those seen since this time (ISO)'},
-            open: {type: 'boolean', description: 'Only those not resolved yet'},
-            details: {type: 'boolean', description: 'Each with its details (stack, route, page…) in full'},
+            subject: {type: 'string', description: 'An issue id, release version, chunk or doc id'},
+            since: {type: 'string', description: 'ISO time'},
+            open: {type: 'boolean', description: 'Only unresolved ones'},
+            details: {type: 'boolean'},
             limit: {type: 'number', description: '30 by default'},
         }},
     },
-    {name: 'guide', description: "How orrery itself works, for questions about it rather than about the project: projects, issues and proposals, chunks, releases, docs, presets, schedules, sessions and the launcher, the chat, the bell and My issues, secrets and egress, events, and each page with what it does.", inputSchema: {type: 'object', properties: {}}},
-    {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue): the next one like it starts a row of its own.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
+    {name: 'guide', description: "How orrery itself works (issues, proposals, schedules, sessions, the launcher, its pages…), for questions about it rather than the project.", inputSchema: {type: 'object', properties: {}}},
+    {name: 'resolve_event', description: "Marks an event in the log dealt with (say what fixed it on the issue).", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
 ]
 
 /** A schedule's fields as the chat asks for them (`CHAT_SCHEDULE_FIELDS`, web/shared/roadmap.ts). */
@@ -289,6 +293,10 @@ export const UNTRUSTED_TOOLS = [
  * with the event log (its launcher refuses them too, `chatOnly`). */
 export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'write_doc', 'egress', 'secrets', 'resolve_event']
 
+/** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
+ * don't ride on its every turn (ORR-544). */
+export const CHAT_READS = ['chunks', 'presets', 'preset', 'schedules']
+
 /** A GitHub login as it can only be: letters, digits, `_` and `-` (ORR-532). */
 const LOGIN = /^[\w-]+$/
 
@@ -296,9 +304,11 @@ const LOGIN = /^[\w-]+$/
 const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
- * (`chat`) are its own; an untrusted schedule's session (`untrusted`) also reads GitHub issues. */
+ * (`chat`) are its own; a work session's leave out the chat's reads, and an untrusted schedule's session (`untrusted`)
+ * also reads GitHub issues. */
 export function toolsFor(projects, {chat = false, untrusted = false} = {}) {
-    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS] : untrusted ? [...TOOLS, ...UNTRUSTED_TOOLS] : TOOLS
+    const work = TOOLS.filter(t => !CHAT_READS.includes(t.name))
+    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS] : untrusted ? [...work, ...UNTRUSTED_TOOLS] : work
     if (projects.length < 2) return tools
     const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}`}
     return tools.map(tool => SCOPED.includes(tool.name)
@@ -357,7 +367,11 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'q']))
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
-            return issues.length ? issues.map(line).join('\n') : 'No issues match.'
+            // A work session lists only what it could take up: backlog is mostly proposals and research (ORR-545). The chat keeps it.
+            const backlog = chat || args.open === false || args.status ? 0 : issues.filter(i => i.kind === 'backlog').length
+            if (backlog) issues = issues.filter(i => i.kind !== 'backlog')
+            const hidden = backlog ? `${backlog} in backlog not shown: status: backlog lists them` : ''
+            return [issues.length ? issues.map(line).join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
         },
         async issue({id}) {
             const base = at(await projectOf({id}))
@@ -395,14 +409,26 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const posted = await call('POST', `${issuePath(id)}/comments`, {body, ...asks ? {asks} : {}}, at(await projectOf({id})))
             return `Commented on ${id} (comment ${posted.id})${asks ? `, asking the owner for ${asks === 'decision' ? 'a decision' : 'feedback'}` : ''}.`
         },
-        async chunks(args) {
+        // Done chunks and all but the latest shipped release only when asked (`all`), with a line counting what's left
+        // out: a session picking up work has no use for them (ORR-546).
+        async chunks({all, ...args}) {
             const chunks = await call('GET', '/chunks', undefined, at(await projectOf(args)))
-            return chunks.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done`).join('\n') || 'No chunks yet.'
+            const shown = all ? chunks : chunks.filter(c => c.kind !== 'done')
+            const hidden = chunks.length - shown.length
+            return [
+                ...shown.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done`),
+                ...hidden ? [`${hidden} done chunk${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
+            ].join('\n') || 'No chunks yet.'
         },
-        async releases(args) {
+        async releases({all, ...args}) {
             const releases = await call('GET', '/releases', undefined, at(await projectOf(args)))
-            return releases.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : r.frozen_on ? ` (feature freeze since ${r.frozen_on}: fixes, tests and docs)` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`).join('\n')
-                || 'No releases yet.'
+            const latest = releases.filter(r => r.shipped_on).reduce((last, r) => !last || r.shipped_on > last.shipped_on ? r : last, undefined)
+            const shown = all ? releases : releases.filter(r => !r.shipped_on || r === latest)
+            const hidden = releases.length - shown.length
+            return [
+                ...shown.map(r => `${r.version}${r.shipped_on ? ` (shipped ${r.shipped_on})` : r.frozen_on ? ` (feature freeze since ${r.frozen_on}: fixes, tests and docs)` : ''}${r.branch ? ` on ${r.branch}` : ''}: ${r.issues} issue${r.issues === 1 ? '' : 's'}, ${r.kinds.done}/${r.kinds.backlog + r.kinds.todo + r.kinds.started + r.kinds.done} done`),
+                ...hidden ? [`${hidden} older shipped release${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
+            ].join('\n') || 'No releases yet.'
         },
         async docs(args) {
             const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''
@@ -554,7 +580,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
 
     /** Runs a tool; an MCP result, an error result when orrery refuses or can't be reached. */
     return async function callTool(name, args = {}) {
-        const chatOnly = CHAT_TOOLS.some(t => t.name === name)
+        const chatOnly = CHAT_TOOLS.some(t => t.name === name) || CHAT_READS.includes(name)
         const untrustedOnly = UNTRUSTED_TOOLS.some(t => t.name === name)
         if (!run[name] || chatOnly && !chat || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
         try {

@@ -7,7 +7,7 @@
 export default defineEventHandler(async event => {
     const chat = chatWrite(event)
     const body = chat ? asChatEdit(await readBody(event)) : await readBody(event)
-    const session = (await actorOf(event)).owner || chat ? undefined : getHeader(event, 'orrery-session')?.trim()
+    const session = (await actorOf(event)).owner || chat ? undefined : sessionHeader(event)
     const [project, id] = [param(event, 'project'), param(event, 'issue')]
     const update = async () => useStore().updateIssue(project, id, body, await actorOf(event))
     const issue = session ? await useStore().claimed(project, id, (body as {status?: string} | null)?.status, currentId(session), update) : await update()

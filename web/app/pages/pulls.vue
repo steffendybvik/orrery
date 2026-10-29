@@ -11,6 +11,9 @@ const {projects, ready, byId} = useRoadmaps()
 const {pulls, follow, poll, polling, failed} = useOpenPulls()
 follow(60_000)
 const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
+// The repos GitHub couldn't be read for: their pull requests aren't in the list, so it can't say none are open (ORR-552).
+const unread = computed(() => pulls.value?.repos.filter(r => r.error).length ?? 0)
+const noneRead = computed(() => !!unread.value && unread.value === pulls.value?.repos.length)
 </script>
 
 <template>
@@ -23,7 +26,9 @@ const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
     <span class="text-xs text-muted">
       <template v-if="!pulls">Asking GitHub…</template>
       <template v-else-if="pulls.pulls.length">{{ pulls.pulls.length }} open{{ pulls.needs ? `, ${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone` : '' }}</template>
+      <template v-else-if="noneRead">Couldn't read GitHub</template>
       <template v-else>None open</template>
+      <template v-if="unread && !noneRead">, {{ unread }} repo{{ unread === 1 ? '' : 's' }} not read</template>
     </span>
     <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
     <template #end>
@@ -59,7 +64,12 @@ const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
           </span>
         </li>
       </ul>
-      <p v-else-if="pulls" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">No open pull requests.</p>
+      <p v-else-if="pulls && noneRead" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
+        Couldn't read GitHub, so this can't tell which pull requests are open. Each repo below says why.
+      </p>
+      <p v-else-if="pulls" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-muted">
+        No open pull requests{{ unread ? ' on the repos read' : '' }}.
+      </p>
 
       <ul v-if="pulls?.repos.length" class="flex flex-col gap-1 text-xs text-faint" aria-label="Repos">
         <li v-for="repo in pulls.repos" :key="repo.repo">
