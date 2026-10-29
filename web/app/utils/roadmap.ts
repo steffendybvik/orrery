@@ -1,5 +1,5 @@
 import type {Chunk, Column, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
-import {CLOSED, PRIORITIES, TINTS, madeUpName, open, total} from '#shared/roadmap'
+import {CLOSED, PRIORITIES, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
 import {serverName} from '#shared/connect'
 
 /** A tint's name as its colour; a `#rrggbb` as itself. */
@@ -98,6 +98,22 @@ export function allIssues(project: Project): {issue: Issue, chunk: Chunk, depth:
     })
     project.board.chunks.forEach(chunk => walk(chunk.tasks, chunk, 0))
     return out
+}
+
+/** An issue another links to (ORR-601), from its `linkRef` read in `here`: where it is, and the issue when the page has it. */
+export function linkedIssue(projects: Project[], here: string, ref: string): {project: string, id: string, issue?: Issue} {
+    const {project, id} = parseLinkRef(here, ref)
+    return {project, id, issue: findIssue(projects.find(p => p.id === project), id)?.issue}
+}
+
+/** The issues one in `here` can depend on, as a picker's options by their `linkRef`: its own project's first, then the
+ * others', each with its title. Not `self`. */
+export function linkOptions(projects: Project[], here: string, self?: string): {value: string, label: string}[] {
+    const ordered = [...projects.filter(p => p.id === here), ...projects.filter(p => p.id !== here)]
+    return ordered.flatMap(p => allIssues(p).filter(({issue}) => p.id !== here || issue.id !== self).map(({issue}) => {
+        const ref = linkRef(here, p.id, issue.id)
+        return {value: ref, label: `${ref} · ${issue.title}`}
+    }))
 }
 
 /** The issues that match, kept with the parents on the way to them. */

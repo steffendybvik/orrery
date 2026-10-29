@@ -1,11 +1,12 @@
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
 import {mountSuspended} from '@nuxt/test-utils/runtime'
-import type {Project} from '#shared/roadmap'
+import type {Issue, Project} from '#shared/roadmap'
 import FilterBar from '~/components/FilterBar.vue'
 
 // The Project filter: on My issues, across projects, it narrows it to the projects ticked, a
-// project's own pages don't offer it, and Clear unticks it with the rest.
+// project's own pages don't offer it, and Clear unticks it with the rest. Blocked or Ready (ORR-601) splits the issues
+// by whether they wait on others.
 const project = (id: string) => ({id, name: id[0]!.toUpperCase() + id.slice(1), key: id.toUpperCase(), releases: [], board: {chunks: []}}) as unknown as Project
 
 const mounted: VueWrapper[] = []
@@ -37,6 +38,24 @@ describe('FilterBar', () => {
         await button('Clear')!.trigger('click')
         expect(filters.value.projects).toEqual([])
         expect(shows('greenhouse')).toBe(true)
+    })
+
+    it('keeps the blocked issues, or the ready ones, and Clear takes it off', async () => {
+        const {wrapper, menu} = await mount('/p/greenhouse')
+        const {filters, matches, changed} = useFilters()
+        const blocked = {id: 'GRE-2', title: 'Fill the jars', labels: [], column: 'todo', blocked_by: ['GRE-1']} as unknown as Issue
+        const ready = {id: 'GRE-1', title: 'Label the jars', labels: [], column: 'todo', depends_on: ['GRE-3']} as unknown as Issue
+        filters.value.columns = []
+        await menu('Blocked')!.trigger('click')
+        // The menu's button says Blocked too: the option is the one in the list.
+        await wrapper.findAll('[role=option]').find(o => o.text() === 'Blocked')!.trigger('click')
+        expect(filters.value.blocked).toEqual(['blocked'])
+        expect([matches(blocked), matches(ready)]).toEqual([true, false])
+        filters.value.blocked = ['ready']
+        expect([matches(blocked), matches(ready)]).toEqual([false, true])
+        expect(changed.value).toBe(true)
+        useFilters().clear()
+        expect(filters.value.blocked).toEqual([])
     })
 
     it("isn't offered on a project's own pages", async () => {

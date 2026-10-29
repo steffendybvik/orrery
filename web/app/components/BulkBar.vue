@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import type {Decision, Issue} from '#shared/roadmap'
-import {isFrozen} from '#shared/roadmap'
+import {isFrozen, linkRef} from '#shared/roadmap'
 
 // The issues ticked on the page (useSelection), changed at once: decided when they're all proposals waiting on the
 // owner, else set (status, priority, assignee, labels added or taken off, and chunk or release within one project),
-// or deleted. Under the buttons it says how to tick more. Each project's ticked issues go in one call, and each issue on its own: what was refused is listed.
+// or deleted, or chained in order (each waiting on the one above it). Under the buttons it says how to tick more.
+// Each project's ticked issues go in one call, and each issue on its own: what was refused is listed.
 const route = useRoute()
 const {byId} = useRoadmaps()
 const {load, who, name: owner} = useOwner()
-const {selected, byProject, clear} = useSelection()
+const {selected, key, byProject, inPageOrder, clear} = useSelection()
 const {places} = useStatuses()
 
 watch(() => route.path, () => clear())
@@ -71,6 +72,38 @@ const set = (change: Record<string, unknown>, verb = 'Changed') => run('PATCH', 
 const decide = (decision: Decision) => run('POST', '/decide', {decision, ...note.value.trim() ? {note: note.value.trim()} : {}}, {approved: 'Approved', changes: 'Asked for changes on', rejected: 'Rejected'}[decision])
 const remove = () => run('DELETE', '', {}, 'Deleted')
 
+// Chain in order (ORR-601): each ticked issue, top to bottom as the page lists them, comes to depend on the one above
+// it as well as what it did. One call each, in order; any refused (one that would close a loop, say) is listed, and
+// stays ticked with the one it was to wait on.
+async function chain() {
+    const byKey = new Map(issues.value.map(i => [key(i.project.id, i.issue.id), i]))
+    const order = inPageOrder().flatMap(k => byKey.get(k) ?? [])
+    busy.value = true
+    said.value = ''
+    failed.value = []
+    const actor = await load()
+    const refused: string[] = []
+    const why: string[] = []
+    for (const [at, {project, issue}] of order.entries()) {
+        const above = order[at - 1]
+        if (!above) continue
+        const link = linkRef(project.id, above.project.id, above.issue.id)
+        const now = issue.depends_on ?? []
+        if (now.includes(link)) continue
+        try {
+            await $fetch(`/api/projects/${encodeURIComponent(project.id)}/issues/${encodeURIComponent(issue.id)}`, {method: 'PATCH', headers: {'Orrery-Actor': actor}, body: {depends_on: [...now, link]}})
+        } catch (error) {
+            refused.push(key(above.project.id, above.issue.id), key(project.id, issue.id))
+            why.push(`${issue.id}: ${errorMessage(error)}`)
+        }
+    }
+    selected.value = [...new Set(refused)]
+    said.value = why.length ? `Chained ${order.length - 1 - why.length} of ${order.length - 1} links` : `Chained ${order.length} issues`
+    failed.value = why
+    busy.value = false
+    if (!why.length) setTimeout(() => said.value = '', 3000)
+}
+
 // Each picker sets one thing on every ticked issue; its own value is none of its options, so none shows ticked.
 const pick = (apply: (value: string) => void) => computed({get: () => '\u0000', set: apply})
 const status = pick(value => set({status: value}))
@@ -114,6 +147,7 @@ const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs 
           <PropertyPicker v-if="labelsOn.length" v-model="removeLabel" :options="labelsOn" label="Take a label off" up :disabled="busy"><span :class="button">− Label</span></PropertyPicker>
           <PropertyPicker v-if="one" v-model="chunk" :options="chunks" label="Chunk" up :disabled="busy"><span :class="button">Chunk</span></PropertyPicker>
           <PropertyPicker v-if="releaseOptions.length" v-model="release" :options="releaseOptions" label="Release" up :disabled="busy"><span :class="button">Release</span></PropertyPicker>
+          <button v-if="issues.length > 1" type="button" :class="[button, 'disabled:opacity-60']" :disabled="busy" title="Each waits on the one above it, top to bottom" @click="chain">Chain in order</button>
         </template>
         <template v-if="confirming">
           <UiButton variant="danger" :disabled="busy" @click="remove">Delete {{ selected.length }}, with their sub-issues</UiButton>
