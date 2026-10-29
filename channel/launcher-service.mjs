@@ -1,9 +1,13 @@
 // The launcher as a background service, so nobody keeps a terminal open for it: `--install`, run once in a
 // project's repo, adds the project to the launcher's list (~/.config/orrery/launcher.json) and registers one
 // service for every project on it, with launchd on macOS or systemd on Linux (on Windows, inside WSL with systemd
-// on: ORR-576). It starts at login, comes back if it dies, and starts each project's sessions in its repo. `--uninstall` takes the repo's project off the
-// list, and the service with the last one. The running service follows the list as it changes (ORR-597), so neither
-// restarts it, and the sessions it runs go on, unless its file changed.
+// on: ORR-576). It starts at login, comes back if it dies, and starts each project's sessions in its repo. Run
+// anywhere else, `--install` registers the service with nothing on the list yet (ORR-598). Either way it turns repo
+// pick-up on (`pickUp`, off with `--no-pick-up`), for a repo's channel to add the repo's projects as it connects (ORR-599).
+// `--uninstall` in a repo takes its projects off the list and keeps the repo off it (`skip`), so pick-up doesn't
+// add it back; with pick-up off it removes the service with the last project. Anywhere else it removes the service,
+// keeping the list. The running service follows the list as it changes (ORR-597), so neither restarts it, and the
+// sessions it runs go on, unless its file changed.
 import {execFileSync} from 'node:child_process'
 import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
@@ -36,10 +40,13 @@ export function serviceProblem({platform = process.platform, wsl = platform === 
     return "systemd isn't running here, so the launcher can't install as a service; run it in a terminal instead"
 }
 
-/** The launcher's list: `{projects: [{url, project, dir}]}`, empty when there's none yet. */
+/** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip}`, empty when there's none yet. `pickUp`:
+ * whether a repo's channel adds the repo as it connects; `skip`: the repos `--uninstall` took off, which it doesn't. */
 export function readConfig(file = configFile()) {
-    return listIn(file) ?? {projects: []}
+    return listIn(file) ?? empty()
 }
+
+const empty = () => ({projects: [], pickUp: false, skip: []})
 
 /** The list, empty when its file is missing, or null when the file can't be read as one (broken, or caught half
  * written), which the running service skips rather than taking every project off. */
@@ -48,11 +55,15 @@ export function listIn(file = configFile()) {
     try {
         text = readFileSync(file, 'utf8')
     } catch {
-        return {projects: []}
+        return empty()
     }
     try {
         const config = JSON.parse(text)
-        return {projects: Array.isArray(config.projects) ? config.projects : []}
+        return {
+            projects: Array.isArray(config.projects) ? config.projects : [],
+            pickUp: config.pickUp === true,
+            skip: Array.isArray(config.skip) ? config.skip.filter(dir => typeof dir === 'string') : [],
+        }
     } catch {
         return null
     }
@@ -76,6 +87,12 @@ export function withProject(config, entry) {
 /** The list without the project. */
 export function withoutProject(config, entry) {
     return {...config, projects: config.projects.filter(p => !same(p, entry))}
+}
+
+/** The list with the repo at `dir` kept off it (`--uninstall` there) or not (`--install`), for pick-up. */
+export function skipping(config, dir, skip) {
+    const others = config.skip.filter(d => d !== dir)
+    return {...config, skip: skip ? [...others, dir] : others}
 }
 
 /** What the running service has to do when its list goes from `before` to `after`: serve the projects `added`, and let
@@ -211,31 +228,39 @@ function apply(where, config, opts) {
     return true
 }
 
-/** Adds the project to the list, and starts the service with it if it isn't running on the same file. A restart stops
- * the sessions it was running. */
-export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
+/** Adds the projects of the repo at `dir` to the list (none, and no `dir`, to install the service alone), sets
+ * pick-up, and starts the service if it isn't running on the same file. A restart stops the sessions it was running. */
+export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true}) {
     const where = platform()
-    const config = entries.reduce(withProject, readConfig())
+    const listed = {...entries.reduce(withProject, readConfig()), pickUp}
+    const config = dir ? skipping(listed, dir, false) : listed
     const restarted = apply(where, config, {node, script, path})
     return {config, file: where.file, logs: where.logs, restarted}
 }
 
-/** Takes the project off the list, which the running service follows, or removes the service with the last one. */
-export function uninstall(entries, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
+/** Takes the projects of the repo at `dir` off the list and keeps the repo off it, which the running service follows.
+ * With pick-up off, the last project takes the service with it; with it on, the service stays to be handed repos. */
+export function uninstall(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir}) {
     const where = platform()
-    const config = entries.reduce(withoutProject, readConfig())
-    if (config.projects.length) {
+    const config = skipping(entries.reduce(withoutProject, readConfig()), dir, true)
+    if (config.projects.length || config.pickUp) {
         apply(where, config, {node, script, path})
     } else {
         writeList(config)
-        try {
-            where.stop()
-        } catch {
-            // It wasn't running.
-        }
-        rmSync(where.file, {force: true})
+        removeService(where)
     }
     return {config, file: where.file}
+}
+
+/** Stops the service and removes its file, whatever is on the list, which stays for the next `--install`. */
+export function removeService(where = platform()) {
+    try {
+        where.stop()
+    } catch {
+        // It wasn't running.
+    }
+    rmSync(where.file, {force: true})
+    return {file: where.file}
 }
 
 /** Whether the process `pid` is a launcher still running. Once a launcher dies the system can hand its pid to
