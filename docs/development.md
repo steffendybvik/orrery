@@ -71,13 +71,13 @@ has to say e2e (`postgres://orrery:orrery@localhost:5432/orrery_e2e`). CI runs i
 version, once on each database. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
 
 `e2e/visual.spec.ts` compares the board, the list and an issue's page to stored images. They're Linux's, so off
-Linux the spec skips; `pnpm test:e2e:visual` runs it in CI's Playwright image through Docker, and
+Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwright image through Docker, and
 `pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
 
 `pnpm test:e2e:perf` times the pages on a big orrery. `e2e/perf/seed.ts` fills a fresh `web/.data/perf.db` (or, with
 `E2E_POSTGRES_URL`, that Postgres) through the store: 20 projects, about 3,000 issues, 20,000 comments, 50,000
 history rows, plus proposals, events, docs and schedules. The `PERF_*` variables change the sizes (`PERF_ISSUES=10000`).
-Then it builds the app and runs it on port 3398, and `e2e/perf/perf.spec.ts` opens each page fresh: the first load,
+Then it builds the app and runs it on a port of the checkout's own (3400–3599), and `e2e/perf/perf.spec.ts` opens each page fresh: the first load,
 a big project's list, board and roadmap, an issue with a long thread, My issues, the bell, Notifications, Events,
 Sessions, Releases, the search, a dropped stream reconnecting, and a change arriving live. Each one has a budget in
 milliseconds, and a page over its budget fails the run. `web/perf-report/report.md` (and `report.json`) gives each
