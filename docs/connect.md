@@ -132,7 +132,10 @@ pick one, name it with `ORRERY_PROJECT`. `ORRERY_URL` stands in for a channel's 
 one out (`${ORRERY_URL:-…}`); a written address wins, so a session's own `ORRERY_URL` can't send a monorepo's projects to
 another orrery. A project no channel names goes on `ORRERY_URL`, else the first channel's orrery. A project already served from another repo (a monorepo's channel to your
 personal orrery) is left there unless `ORRERY_PROJECT` names it. `--list` shows what a repo would register, and
-with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`. Its log is
+with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`, which the
+running launcher follows: a project added there is served within a few seconds, and one taken off is let go, with its
+sessions, while every other project's sessions go on. `--install` restarts the service only the first time, or when its
+service file changes (a new `node` or `PATH`). Its log is
 `~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
 stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
 terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`. Next to the installed one, it leaves

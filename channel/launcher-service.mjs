@@ -2,9 +2,10 @@
 // project's repo, adds the project to the launcher's list (~/.config/orrery/launcher.json) and registers one
 // service for every project on it, with launchd on macOS or systemd on Linux (on Windows, inside WSL with systemd
 // on: ORR-576). It starts at login, comes back if it dies, and starts each project's sessions in its repo. `--uninstall` takes the repo's project off the
-// list, and the service with the last one.
+// list, and the service with the last one. The running service follows the list as it changes (ORR-597), so neither
+// restarts it, and the sessions it runs go on, unless its file changed.
 import {execFileSync} from 'node:child_process'
-import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {dirname, join} from 'node:path'
 
@@ -37,12 +38,32 @@ export function serviceProblem({platform = process.platform, wsl = platform === 
 
 /** The launcher's list: `{projects: [{url, project, dir}]}`, empty when there's none yet. */
 export function readConfig(file = configFile()) {
+    return listIn(file) ?? {projects: []}
+}
+
+/** The list, empty when its file is missing, or null when the file can't be read as one (broken, or caught half
+ * written), which the running service skips rather than taking every project off. */
+export function listIn(file = configFile()) {
+    let text
     try {
-        const config = JSON.parse(readFileSync(file, 'utf8'))
-        return {projects: Array.isArray(config.projects) ? config.projects : []}
+        text = readFileSync(file, 'utf8')
     } catch {
         return {projects: []}
     }
+    try {
+        const config = JSON.parse(text)
+        return {projects: Array.isArray(config.projects) ? config.projects : []}
+    } catch {
+        return null
+    }
+}
+
+/** Writes the list whole, by a rename, so the running service following it never reads it half written. */
+function writeList(config) {
+    mkdirSync(dirname(configFile()), {recursive: true})
+    const next = `${configFile()}.${process.pid}`
+    writeFileSync(next, `${JSON.stringify(config, null, 2)}\n`)
+    renameSync(next, configFile())
 }
 
 const same = (a, b) => a.url === b.url && a.project === b.project
@@ -56,6 +77,18 @@ export function withProject(config, entry) {
 export function withoutProject(config, entry) {
     return {...config, projects: config.projects.filter(p => !same(p, entry))}
 }
+
+/** What the running service has to do when its list goes from `before` to `after`: serve the projects `added`, and let
+ * go of those `removed`. A project that moved to another repo is both, so it's served from the new one. */
+export function listChanges(before, after) {
+    const kept = (entry, list) => list.some(p => same(p, entry) && p.dir === entry.dir)
+    return {added: after.filter(p => !kept(p, before)), removed: before.filter(p => !kept(p, after))}
+}
+
+/** Set in the service's environment by a launcher that follows its list while running (ORR-597). A service file
+ * without it ran one that read the list only at start, so installing over it restarts it once, onto the code that
+ * follows. */
+export const RELOADS = 'ORRERY_LAUNCHER_RELOADS'
 
 const xml = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -71,7 +104,7 @@ export function plist({node, script, path, log}) {
   <key>ProgramArguments</key>
   <array><string>${xml(node)}</string><string>${xml(script)}</string><string>--service</string></array>
   <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>${xml(path)}</string></dict>
+  <dict><key>PATH</key><string>${xml(path)}</string><key>${RELOADS}</key><string>1</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>StandardOutPath</key><string>${xml(log)}</string>
@@ -90,6 +123,7 @@ Description=orrery launcher: starts Claude sessions for orrery
 
 [Service]
 ExecStart=${quote(node)} ${quote(script)} --service
+Environment=${quote(`${RELOADS}=1`)}
 Environment=${quote(`PATH=${path}`)}
 ${distro ? `Environment=${quote(`WSL_DISTRO_NAME=${distro}`)}\n` : ''}Restart=on-failure
 RestartSec=10
@@ -129,6 +163,14 @@ function platform() {
                 }
             },
             stop: () => run('launchctl', 'bootout', `gui/${uid}/${LABEL}`),
+            running: () => {
+                try {
+                    // Loaded isn't enough: one that exited on its own stays loaded, and wouldn't pick the list up.
+                    return /^\s*state = running$/m.test(run('launchctl', 'print', `gui/${uid}/${LABEL}`))
+                } catch {
+                    return false
+                }
+            },
         }
     }
     // Linux, WSL's included: systemd.
@@ -141,31 +183,51 @@ function platform() {
             run('systemctl', '--user', 'restart', 'orrery-launcher')
         },
         stop: () => run('systemctl', '--user', 'disable', '--now', 'orrery-launcher'),
+        running: () => {
+            try {
+                return run('systemctl', '--user', 'is-active', 'orrery-launcher') === 'active'
+            } catch {
+                return false
+            }
+        },
     }
 }
 
-/** Adds the project to the list and (re)starts the service with it. Restarting stops the sessions it was running. */
+/** Writes the list, then the service's file, (re)starting the service only when that file changed or it isn't
+ * running: a running one picks the new list up itself. Says whether it restarted. */
+function apply(where, config, opts) {
+    writeList(config)
+    const text = where.render(opts)
+    let was = ''
+    try {
+        was = readFileSync(where.file, 'utf8')
+    } catch {
+        // Not installed yet.
+    }
+    if (was === text && where.running()) return false
+    mkdirSync(dirname(where.file), {recursive: true})
+    writeFileSync(where.file, text)
+    where.start()
+    return true
+}
+
+/** Adds the project to the list, and starts the service with it if it isn't running on the same file. A restart stops
+ * the sessions it was running. */
 export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
     const where = platform()
     const config = entries.reduce(withProject, readConfig())
-    mkdirSync(dirname(configFile()), {recursive: true})
-    writeFileSync(configFile(), `${JSON.stringify(config, null, 2)}\n`)
-    mkdirSync(dirname(where.file), {recursive: true})
-    writeFileSync(where.file, where.render({node, script, path}))
-    where.start()
-    return {config, file: where.file, logs: where.logs}
+    const restarted = apply(where, config, {node, script, path})
+    return {config, file: where.file, logs: where.logs, restarted}
 }
 
-/** Takes the project off the list, restarting the service without it, or removing it with the last one. */
+/** Takes the project off the list, which the running service follows, or removes the service with the last one. */
 export function uninstall(entries, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
     const where = platform()
     const config = entries.reduce(withoutProject, readConfig())
-    mkdirSync(dirname(configFile()), {recursive: true})
-    writeFileSync(configFile(), `${JSON.stringify(config, null, 2)}\n`)
     if (config.projects.length) {
-        writeFileSync(where.file, where.render({node, script, path}))
-        where.start()
+        apply(where, config, {node, script, path})
     } else {
+        writeList(config)
         try {
             where.stop()
         } catch {
