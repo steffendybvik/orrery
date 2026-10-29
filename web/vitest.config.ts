@@ -17,8 +17,15 @@ export default defineConfig({
                 test: {name: 'components', include: ['test/components/**/*.test.ts'], environment: 'nuxt', environmentOptions: {nuxt: {domEnvironment: 'happy-dom'}}, testTimeout: 15000},
             }),
         ],
-        // `pnpm test:coverage`: the server's logic and its store, what it shares with the page, and the page's components
-        // and composables (the routes are thin handlers over the store).
-        coverage: {provider: 'v8', include: ['server/utils/**', 'server/store/**', 'shared/**', 'app/components/**', 'app/composables/**', 'app/utils/**'], reporter: ['text', 'json-summary']},
+        // `pnpm test:coverage`: the server's logic, its store, its routes and middleware, what it shares with the page, the
+        // page's components and composables, and the channel, hook and launcher (`../channel`, outside this folder, hence
+        // `allowExternal`). The routes count too, so the headline number doesn't hide the ones no test runs (ORR-584); CI's
+        // summary splits it by area.
+        coverage: {
+            provider: 'v8',
+            include: ['server/utils/**', 'server/store/**', 'server/api/**', 'server/middleware/**', 'shared/**', 'app/components/**', 'app/composables/**', 'app/utils/**', '../channel/**/*.mjs'],
+            allowExternal: true,
+            reporter: ['text', 'json-summary'],
+        },
     },
 })
