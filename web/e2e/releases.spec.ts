@@ -31,7 +31,8 @@ test('makes a release, sets an issue for it from its page, and drafts its change
     // Exact: the changelog draft, folded away but in the page once the release counts the issue, has its title too.
     await expect(page.getByText('Label the jars', {exact: true})).toBeVisible()
     await page.getByText('Changelog draft').click()
-    await expect(page.locator('pre', {hasText: `## 1.0.0 (unreleased)`})).toContainText(`- Label the jars (${issue.id})`)
+    // Under Changes, as it has no label that puts it in another group (ORR-516).
+    await expect(page.locator('pre', {hasText: `## 1.0.0 (unreleased)`})).toContainText(`### Changes\n\n- Label the jars (${issue.id})`)
     await page.getByRole('button', {name: 'Mark shipped today'}).click()
     await expect(page.getByText(/^Shipped \d{4}-\d{2}-\d{2}$/)).toBeVisible()
 })

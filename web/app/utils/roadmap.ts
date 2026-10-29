@@ -152,16 +152,43 @@ export function releaseChunks(project: Project, version: string): Chunk[] {
     return project.board.chunks.map(c => ({...c, tasks: pick(c.tasks)})).filter(c => c.tasks.length)
 }
 
-/** A changelog for the release, in Markdown, from its issues' titles: what's done, then what isn't yet. */
+/** The changelog's groups, in the order it lists them, and the labels that put an issue in each (ORR-516). An issue
+ * goes in the first group one of its labels names, checked in this order (a `bug` labelled `docs` is a fix), and in
+ * Changes when none does. */
+export const CHANGELOG_GROUPS = [
+    {title: 'Features', labels: ['feature', 'feature request', 'feat', 'enhancement']},
+    {title: 'Changes', labels: ['improvement', 'perf', 'performance', 'refactor', 'design']},
+    {title: 'Fixes', labels: ['bug', 'fix', 'regression']},
+    {title: 'Docs', labels: ['docs', 'documentation']},
+    {title: 'Internal', labels: ['test', 'tests', 'ci', 'chore', 'maintenance', 'cleanup']},
+] as const
+const CHECKED = ['Fixes', 'Features', 'Docs', 'Internal', 'Changes'] as const
+
+/** The changelog group an issue goes in, by its labels (any case). */
+export function changelogGroup(issue: Pick<Issue, 'labels'>): (typeof CHANGELOG_GROUPS)[number]['title'] {
+    const labels = issue.labels.map(l => l.toLowerCase())
+    for (const title of CHECKED) {
+        if (CHANGELOG_GROUPS.find(g => g.title === title)?.labels.some(l => labels.includes(l))) return title
+    }
+    return 'Changes'
+}
+
+/** A changelog for the release, in Markdown, from its issues' titles: what's done, under Features, Changes, Fixes,
+ * Docs and Internal (the empty ones left out), each most urgent first, then by id; then what isn't done yet. */
 export function changelogOf(release: Release, chunks: Chunk[], date = release.shipped_on ?? 'unreleased'): string {
     const issues = chunks.flatMap(c => c.tasks)
     const line = (issue: Issue) => `- ${issue.title} (${issue.id})`
+    const rank = (issue: Issue) => issue.priority ? PRIORITIES.indexOf(issue.priority) : PRIORITIES.length
+    const byUrgency = (a: Issue, b: Issue) => rank(a) - rank(b) || a.id.localeCompare(b.id, undefined, {numeric: true})
     const done = issues.filter(i => i.kind === 'done')
     const open = issues.filter(i => !isClosed(i.kind) && i.kind !== 'proposed')
+    const groups = CHANGELOG_GROUPS.flatMap(({title}) => {
+        const mine = done.filter(i => changelogGroup(i) === title).sort(byUrgency)
+        return mine.length ? ['', `### ${title}`, '', ...mine.map(line)] : []
+    })
     return [
         `## ${release.version} (${date})`,
-        '',
-        ...done.length ? done.map(line) : ['- Nothing done yet'],
+        ...done.length ? groups : ['', '- Nothing done yet'],
         ...open.length ? ['', '<!-- Not done yet -->', ...open.map(line)] : [],
     ].join('\n')
 }
