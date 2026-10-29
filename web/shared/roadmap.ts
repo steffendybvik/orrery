@@ -941,11 +941,12 @@ export interface PullRequest {
 }
 
 /** What a session is asked to do about a PR that can't merge as it is (Send back, ORR-492); none for one that can. */
-export function sendBackNote(pull: Pick<PullRequest, 'number' | 'url' | 'branch' | 'base' | 'state'>): string | null {
-    const which = `Its PR #${pull.number} (${pull.branch} into ${pull.base}, ${pull.url})`
+export function sendBackNote(pull: Pick<PullRequest, 'number' | 'url' | 'base' | 'state'>): string | null {
+    // Never its head branch, which an outsider may have named: this goes to the session as the owner's words (ORR-532).
+    const which = `Its PR #${pull.number} (into ${pull.base}, ${pull.url})`
     switch (pull.state) {
-        case 'conflicting': return `${which} conflicts with ${pull.base}: merge ${pull.base} into ${pull.branch}, resolve the conflicts, run the checks and push.`
-        case 'behind': return `${which} is behind ${pull.base}: merge ${pull.base} into ${pull.branch}, run the checks and push.`
+        case 'conflicting': return `${which} conflicts with ${pull.base}: check it out (gh pr checkout ${pull.number}), merge ${pull.base} into it, resolve the conflicts, run the checks and push.`
+        case 'behind': return `${which} is behind ${pull.base}: check it out (gh pr checkout ${pull.number}), merge ${pull.base} into it, run the checks and push.`
         case 'failing': return `${which} fails its checks: read them (gh pr checks ${pull.number}), fix what fails and push.`
         default: return null
     }

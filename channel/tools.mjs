@@ -289,6 +289,9 @@ export const UNTRUSTED_TOOLS = [
  * with the event log (its launcher refuses them too, `chatOnly`). */
 export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'write_doc', 'egress', 'secrets', 'resolve_event']
 
+/** A GitHub login as it can only be: letters, digits, `_` and `-` (ORR-532). */
+const LOGIN = /^[\w-]+$/
+
 /** The tools that work on one project, which take `project` when the server serves several. */
 const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
 
@@ -359,11 +362,12 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async issue({id}) {
             const base = at(await projectOf({id}))
             // Its open pull requests and where each stands (ORR-508), when its project's repo is on GitHub; none if that can't be read.
-            // Never a PR's head branch, which an outsider may have named, as sessions read this as the owner's (ORR-532).
+            // Never a PR's head branch or title, which an outsider may have written, as sessions read this as the owner's; its
+            // author only when it's a plain login, so a session can tell its own PR from an outsider's (ORR-532).
             const [issue, comments, pulls] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base),
                 call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null)])
             const {tasks, counts, kinds, ...rest} = issue
-            const open = pulls?.pulls?.map(p => ({number: p.number, state: p.state, base: p.base, url: p.url})) ?? []
+            const open = pulls?.pulls?.map(p => ({number: p.number, state: p.state, base: p.base, url: p.url, ...LOGIN.test(p.author ?? '') ? {author: p.author} : {}})) ?? []
             return JSON.stringify({...rest, sub_issues: tasks.map(line), ...open.length ? {pull_requests: open} : {}, comments: comments.map(c => ({by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
         },
         async create_issue(args) {
