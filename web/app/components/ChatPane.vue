@@ -265,9 +265,9 @@ v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-
         <div v-if="m.move" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Move ${m.move.body.ids.join(', ')}`">
           <span class="text-xs text-faint">Asks to move {{ m.move.body.ids.length === 1 ? 'an issue' : `${m.move.body.ids.length} issues` }}, as you</span>
           <ul class="flex flex-col gap-1.5 text-[13px]">
-            <li v-for="i in movedIssues(m.move.changes)" :key="i.issue" class="flex min-w-0 flex-col">
-              <span class="min-w-0 truncate"><NuxtLink :to="`/p/${chat!.project}/issues/${i.issue}`" class="font-medium text-accent-600 hover:underline dark:text-accent-400">{{ i.issue }}</NuxtLink> <span class="text-fg">{{ i.title }}</span></span>
-              <span v-for="c in i.changes" :key="c.field" class="flex flex-wrap items-center gap-1 text-muted">
+            <li v-for="one in movedIssues(m.move.changes)" :key="one.issue" class="flex min-w-0 flex-col">
+              <span class="min-w-0 truncate"><NuxtLink :to="`/p/${chat!.project}/issues/${one.issue}`" class="font-medium text-accent-600 hover:underline dark:text-accent-400">{{ one.issue }}</NuxtLink> <span class="text-fg">{{ one.title }}</span></span>
+              <span v-for="c in one.changes" :key="c.field" class="flex flex-wrap items-center gap-1 text-muted">
                 <template v-if="c.field === 'status'">
                   <StatusIcon v-if="c.from" :column="c.from" :size="12" /><span class="line-through decoration-faint">{{ statusName(c.from) }}</span> →
                   <StatusIcon v-if="c.to" :column="c.to" :size="12" /><span class="text-fg">{{ statusName(c.to) }}</span>
