@@ -701,9 +701,14 @@ let db: DatabaseSync | null = null
 function useDb(path: string): DatabaseSync {
     if (db) return db
     // A new database doesn't start from a backup by itself (ORR-448): its first page asks, see server/utils/restore.ts.
-    // Before an upgrade's steps, a copy as it was: in the backup folder, or beside the file when backups are off.
-    db = openDb(path, MIGRATIONS.length, join(backupDir() || dirname(path), `orrery-pre-${useRuntimeConfig().public?.version ?? 'upgrade'}.db`))
+    db = openDb(path, MIGRATIONS.length, beforeUpgrade(path))
     return db
+}
+
+/** Where the copy of a SQLite file goes before an upgrade's steps, as it was: in the backup folder, or beside the file
+ * when backups are off. */
+export function beforeUpgrade(path: string): string {
+    return join(backupDir() || dirname(path), `orrery-pre-${useRuntimeConfig().public?.version ?? 'upgrade'}.db`)
 }
 
 /** Where a move from App settings is kept: beside the SQLite file NUXT_DATABASE names (`orrery.db.moved.json`); none

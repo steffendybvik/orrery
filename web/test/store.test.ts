@@ -1609,6 +1609,16 @@ describe('docs', () => {
         expect((await failure(() => store.putDoc('greenhouse', 'Bad Id', {title: 'x'}))).status).toBe(400)
     })
 
+    it('number a long title made twice within the 40 an id may be, so PUT still reaches it', async () => {
+        const title = 'How the launcher starts sessions in tmux and hands them over'
+        const first = await store.createDoc('greenhouse', {title})
+        const second = await store.createDoc('greenhouse', {title})
+        expect(first.id).toHaveLength(40)
+        expect(second.id).toBe(`${first.id.slice(0, 38).replace(/-+$/, '')}-2`)
+        expect(second.id.length).toBeLessThanOrEqual(40)
+        expect((await store.putDoc('greenhouse', second.id, {title, body: 'synced'})).created).toBe(false)
+    })
+
     it("are the owner's to delete when the owner wrote them", async () => {
         await store.createDoc('greenhouse', {id: 'mine', title: 'Mine'}, {name: 'skoll', owner: true})
         expect((await failure(() => store.deleteDoc('greenhouse', 'mine'))).status).toBe(403)

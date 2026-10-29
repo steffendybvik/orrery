@@ -184,6 +184,7 @@ export function report(input: Report): Session | null {
         session = {
             id: input.id ?? `pid-${input.pid}`, pid: input.pid, project: input.project, name: input.name || nameFor(input.project),
             cwd: input.cwd, state, since: now, started_at: now, listening: false, seenAt: Date.now(), hooked: input.project,
+            ...state === 'waiting' && input.message ? {asks: input.message} : {},
         }
         add(session)
     } else {
@@ -210,6 +211,7 @@ export function report(input: Report): Session | null {
         session.cwd ??= input.cwd
         if (session.state !== state) session.since = now
         session.state = state
+        session.asks = state === 'waiting' ? input.message : undefined
         session.seenAt = Date.now()
     }
     if (state === 'idle') session.idleAt = Date.now()

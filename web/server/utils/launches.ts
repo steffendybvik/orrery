@@ -33,7 +33,8 @@ export interface Launch {
 }
 
 /** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer,
- * clear (`/clear`, a fresh context between pieces of work), open a terminal on, or send its screen for a while. */
+ * clear (`/clear`, a fresh context between pieces of work), open a terminal on, send its screen for a while, or
+ * answer "Yes" once at its permission prompt. */
 export type LaunchEvent =
     | {type: 'launch', launch: Launch}
     | {type: 'stop', project: string, id: string, chat?: boolean}
@@ -41,6 +42,7 @@ export type LaunchEvent =
     | {type: 'clear', project: string, id: string}
     | {type: 'watch', project: string, id: string, terminal: TerminalApp}
     | {type: 'view', project: string, id: string}
+    | {type: 'allow', project: string, id: string}
 
 /** The schedule whose run started each launch, while it runs: what its session does as it stops is that run's doing,
  * so a session schedule on `session.stopped` can't start itself again without end (ORR-422). */
@@ -413,8 +415,8 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         if (!timeUp && !idleTooLong) continue
         const ids = sessionIds(session.id)
         // What's waiting for every session never reaches an untrusted one, so it doesn't keep one going.
-        const waiting = started.untrusted ? store.waitingFor(session.project, ids) : store.waiting(session.project, ids)
-        if (!overdue && ((await store.workingOn(session.project, ids)).length || await waiting)) continue
+        const waiting = () => started.untrusted ? store.waitingFor(session.project, ids) : store.waiting(session.project, ids)
+        if (!overdue && ((await store.workingOn(session.project, ids)).length || await waiting())) continue
         stopping.set(started.launch, now)
         if (starts.get(session.project)?.min && !started.untrusted) {
             replacing.set(started.launch, {project: session.project, ...started.context ? {context: started.context} : {}, ...started.hears ? {hears: started.hears} : {}, ended: false})
@@ -484,6 +486,17 @@ export function watchLaunch(project: string, id: string, terminal: TerminalApp):
     if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to open a terminal; attach by hand with tmux attach -t ${session.started.tmux}`)
     emit({type: 'watch', project, id, terminal})
+    return session
+}
+
+/** The owner pressing Allow on a session orrery started that's at a permission prompt: its launcher answers "Yes" once,
+ * if its pane still shows the prompt with the cursor there (ORR-489). Needs a launcher there to do it. */
+export function allowLaunch(project: string, id: string): Session {
+    const session = sessionOfLaunch(project, id)
+    if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (session.state !== 'waiting') throw conflict(`${session.name} isn't waiting at a permission prompt`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to answer it; attach by hand with tmux attach -t ${session.started.tmux}`)
+    emit({type: 'allow', project, id})
     return session
 }
 

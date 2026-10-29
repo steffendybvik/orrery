@@ -85,6 +85,18 @@ describe('moving the database', () => {
         await db.closeDb()
     })
 
+    it('copies an older orrery\'s file before running on it brings it up to date', async () => {
+        const {dir, db, move} = await setUp()
+        const older = join(dir, 'older.db')
+        const steps = 40
+        db.openDb(older, steps).close()
+        await move.moveDatabase(older, 'use', rebind)
+        const copy = join(dir, `orrery-pre-upgrade-step${steps}.db`)
+        expect(existsSync(copy)).toBe(true)
+        expect((new DatabaseSync(copy, {readOnly: true}).prepare('PRAGMA user_version').get() as {user_version: number}).user_version).toBe(steps)
+        await db.closeDb()
+    })
+
     it('stays whole on the one before when it can\'t save where it went', async () => {
         const {dir, db, move, store} = await setUp()
         const before = db.useDatabase()

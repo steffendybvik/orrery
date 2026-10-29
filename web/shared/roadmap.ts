@@ -612,6 +612,8 @@ export interface Session {
     state: SessionState
     /** When it got into that state. */
     since: string
+    /** While it's `waiting`: what it's asking permission for, as Claude Code's notification says it. */
+    asks?: string
     started_at: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean

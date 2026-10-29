@@ -151,6 +151,14 @@ export const PERMISSIONS: Permission[] = [
         untrusted: refused,
     },
     {
+        id: 'sessions.allow', area: 'Sessions', action: 'Allow what a session asks permission for',
+        why: 'A permission prompt is there for a person to answer, not another session.',
+        routes: ['POST /api/projects/:project/launches/:launch/allow'],
+        session: {level: 'owner'},
+        chat: refused,
+        untrusted: refused,
+    },
+    {
         id: 'schedules.issue', area: 'Schedules', action: 'Make a schedule that makes issues',
         why: 'An issue is material, so a schedule making them is too.',
         routes: ['POST /api/projects/:project/schedules'],

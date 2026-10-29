@@ -26,7 +26,7 @@ test.afterAll(async ({request}) => {
 
 test('takes an image dropped anywhere on the pane, showing where it can go, and goes back to the message', async ({page}) => {
     await page.goto('/p/larder')
-    await page.getByRole('button', {name: 'Chat', exact: true}).click()
+    await page.getByRole('button', {name: 'Agent', exact: true}).click()
     const pane = page.getByRole('region', {name: 'Chat'})
     const drag = await page.evaluateHandle(() => {
         const transfer = new DataTransfer()
@@ -52,7 +52,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
     try {
         await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
         await page.goto('/p/larder')
-        await page.getByRole('button', {name: 'Chat', exact: true}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // It opens ready to type into, on the project you're on, with things to ask.
         await expect(pane.getByRole('heading', {name: 'Ask about Larder'})).toBeVisible()
@@ -108,7 +108,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         expect((await (await request.get('/api/projects/larder/launches')).json()).total).toBe(0)
 
         // With a chat running, the button says so.
-        await page.getByRole('button', {name: 'Chat A chat is running'}).click()
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         await expect(pane).toContainText('Jars of')
         // It can be made larger, and back.
         const narrow = (await pane.boundingBox())!.width
@@ -119,7 +119,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await pane.getByRole('button', {name: 'End the chat and close it'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
         await expect.poll(async () => (await request.get('/api/chats', {headers: OWNER})).json()).toEqual([])
-        await page.getByRole('button', {name: 'Chat', exact: true}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane.getByRole('heading', {name: /^Ask about/})).toBeVisible()
     } finally {
         session?.stop()
@@ -162,7 +162,7 @@ test("asks before messaging other sessions, and sends only on the owner's Send, 
         expect((await request.post('/api/sessions/message', {data: {text: 'Hi'}, headers: {...asChat, 'Orrery-Actor': OWNER['Orrery-Actor']}})).status()).toBe(403)
 
         await page.goto('/p/larder')
-        await page.getByRole('button', {name: 'Chat A chat is running'}).click()
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // Idle ones by default: shown with who it goes to, and sent only on Send.
         expect((await ask({text: 'Pick up Todo.', projects: ['larder']})).to).toEqual(['e2e-idle'])
@@ -218,7 +218,7 @@ test('asks the owner to change a setting, and saves it only on their Allow', asy
         }
 
         await page.goto('/p/larder')
-        await page.getByRole('button', {name: 'Chat A chat is running'}).click()
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // Denied: nothing saved, and its session hears so.
         await ask(url)
@@ -268,7 +268,7 @@ test('asks the owner to make or pause a schedule, and saves it as theirs only on
         }
 
         await page.goto('/p/larder')
-        await page.getByRole('button', {name: 'Chat A chat is running'}).click()
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // What Schedules would refuse, or the chat may not set, fails as it asks; it can't make one itself.
         expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {schedule: {title: 'Bad', cron: 'often'}}, headers: asChat})).status()).toBe(400)
@@ -312,13 +312,13 @@ test('lands the issues it makes in Todo or Backlog, as picked beside Send', asyn
     try {
         await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
         await page.goto('/p/larder')
-        await page.getByRole('button', {name: 'Chat', exact: true}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // Todo by default; Backlog picked before the first message, and kept through a reload.
         await pane.getByRole('button', {name: 'New issues → Todo'}).click()
         await page.getByRole('menuitem', {name: 'New issues → Backlog'}).click()
         await page.reload()
-        await page.getByRole('button', {name: 'Chat', exact: true}).click()
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
         await expect(pane.getByRole('button', {name: 'New issues → Backlog'})).toBeVisible()
 
         await pane.getByLabel('Message').fill('File one for the jam jars')
