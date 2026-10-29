@@ -38,6 +38,9 @@ const list = ref<HTMLElement | null>(null)
 const copied = ref('')
 
 const project = computed(() => byId(route.params.project as string | undefined))
+/** The project ⌘K's chat opens on: the chat pane's pinned one, else this page's (ORR-588). */
+const chatPinned = useChat().pinned
+const chatAbout = computed(() => byId(chatPinned.value ?? undefined) ?? project.value)
 const issue = computed(() => route.name === 'p-project-issues-issue' && project.value ? findIssue(project.value, route.params.issue as string) : null)
 
 async function copy(text: string, what: string) {
@@ -109,7 +112,7 @@ const everywhere = computed<Entry[]>(() => [
         router.push('/getting-started')
     }},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
-    {key: 'chat', group: 'Chat', label: project.value ? `Chat about ${project.value.name}` : 'Chat', detail: 'answers and makes issues', run: () => useChat().show(project.value?.id)},
+    {key: 'chat', group: 'Chat', label: chatAbout.value ? `Chat about ${chatAbout.value.name}` : 'Chat', detail: 'answers and makes issues', run: () => useChat().show(project.value?.id)},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Reset the filters to the open issues', run: clear}] : []),
     ...[...PRIORITIES, 'none'].map(p => ({
