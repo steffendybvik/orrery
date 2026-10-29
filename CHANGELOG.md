@@ -7,6 +7,54 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.13 (2026-10-29)
+
+### Features
+
+- **Events, Context and Pull requests back in the sidebar:** they sit under Schedules while Advanced is on, and
+  Advanced now starts on. App settings → Advanced still links all three when it's off.
+- **Drag cards on the board:** drag a card to another column to move it, as the menu does; a ticked card takes every
+  ticked one with it. The column it would land in lights up, one it can't go to dims, and Done and Canceled show as
+  places to drop while you drag. `[` and `]` move the focused or ticked cards a column left or right.
+- **First open asks if you're a developer:** the name dialog asks too, and No turns Advanced off, so Events, Context
+  and Pull requests stay out of the sidebar.
+
+### Changes
+
+- **Sessions ask you for a schedule:** a working session asked to set up or change a schedule asks on its issue, with
+  the schedule (or each field, from → to) and **Allow** and **Deny**, as the chat does. Allowed, it's saved as yours
+  and runs; before, the session made it as an agent's, so a message schedule never ran.
+- **Pin the chat's project:** picking the chat pane's project pins it, remembered in this browser, so it stays put as
+  you browse and ⌘K doesn't move it; the pin beside it lets go. A line under the header says when the page is another
+  project's, and the chat files in its own.
+- **The chat shows how to install the launcher:** with no launcher running for its project, the pane shows the
+  install command to copy, in place of a red error line, and it goes once a launcher connects.
+
+### Fixes
+
+- **Security, no forms in rendered Markdown:** a comment or description could draw a form on the issue page that
+  posts anywhere ("paste your token again"). Forms and their controls are dropped now; task-list checkboxes stay.
+- **Issues assigned to `Claude` are handed out:** picking and the Todo hand-out held back an issue assigned to
+  `Claude` with a capital C, though the board shows that name as the agent.
+- **The permission popup stays up:** a parallel tool's hook landing just after a permission prompt opened set the
+  session back to working, hiding the popup while the prompt was still on screen.
+- **Context after a `/clear`:** **So far** went on listing and counting what a session had been given before a
+  `/clear` or compaction. Those entries now sit greyed under a line of their own, out of the total.
+
+### Docs
+
+- The README's screenshots are retaken on this release, and the docs caught up where they had drifted: where App
+  settings keeps the database and proposals, which tools are the chat's, running without Docker, and `tint` in the API.
+
+### Internal
+
+- **CI:** the browser tests run only on pull requests into `main`, the release's, so a release branch's pull requests
+  run the unit tests, typecheck and lint alone.
+- **Tests:** every page, sidebar entry and palette go-to is walked in the browser tests. New unit tests cover the hook
+  route's untrusted guard and caps, how a feed's signals reach a session's stream, how `events.ts` wires the store,
+  and the chat, bell, keys and unseen composables. Coverage counts the routes, middleware and channel, and the
+  Postgres run's with SQLite's.
+
 ## 1.0.0-rc.12 (2026-10-29)
 
 ### Features
