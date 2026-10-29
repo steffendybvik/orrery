@@ -580,6 +580,8 @@ untrusted session (`untrusted`), each `{level, note?}`. A level is `free`, `limi
 owner's Allow or Send does it), `owned` (saved, but runs only once it's the owner's), `owner` (the owner's alone: a 403,
 or for a focus, no session hears it) or `refused`. Read it before something that might be the owner's, and ask in a
 comment instead of trying. The Sessions page's Permissions tab shows the same table, and a test holds it to the code.
+The owner-only routes check it as they run, so a 403 from one says which thing refused it: its message names the row,
+and its `data` is `{permission: "<id>"}`, kept in the event log's `request.refused`.
 
 An issue id is only unique within its orrery, and an orrery is one person's board. So when a commit body
 or PR description names an issue, write its `ref` (`orrery-ada: DOC-132`) as a trailer on a

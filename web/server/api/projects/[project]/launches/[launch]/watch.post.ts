@@ -2,7 +2,7 @@
 // launcher opens a terminal on its machine attached to it, in the app the settings name (`terminal`); 409 when no
 // launcher is running for the project.
 export default defineEventHandler(async event => {
-    if (!(await actorOf(event)).owner) throw forbidden('Only the owner watches a session orrery started; send Orrery-Actor: <owner>')
+    await authorize(event, 'sessions.watch')
     const {terminal} = await useStore().settings()
     return watchLaunch(param(event, 'project'), param(event, 'launch'), terminal)
 })
