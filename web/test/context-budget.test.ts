@@ -30,11 +30,12 @@ describe('the tool list a session carries on every turn', () => {
     })
 
     it('stays within its budget, for one project and for several', () => {
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(9_500)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(10_500)
-        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(9_200)
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(20_200)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(21_500)
+        // Each grew by about 250 with issue dependencies (ORR-601): `depends_on` on the issue tools, `blocked` on issues.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(9_800)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(10_800)
+        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(9_500)
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(20_500)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(21_800)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {

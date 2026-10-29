@@ -130,9 +130,9 @@ export interface Issue {
     session_name?: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
-    /** The issues it builds on (ORR-601), as `linkRef`s: work on it waits until each is closed. Only with some. */
+    /** The issues it builds on (ORR-601), as `linkRef`s: work on it waits until each is done. Only with some. */
     depends_on?: string[]
-    /** Those of them not closed yet: while there are any it's blocked, and nothing hands it out. Only with some. */
+    /** Those of them not done yet (a canceled one too, until the owner decides): while there are any it's blocked, and nothing hands it out. Only with some. */
     blocked_by?: string[]
     /** The issues that depend on it, read the other way. Only with some. */
     blocks?: string[]
@@ -141,7 +141,7 @@ export interface Issue {
     tasks: Issue[]
 }
 
-/** Whether an issue waits on another that isn't closed yet (ORR-601): nothing hands it out until it's free. */
+/** Whether an issue waits on another that isn't done yet (ORR-601): nothing hands it out until it's free. */
 export const isBlocked = (issue: {blocked_by?: string[]}) => !!issue.blocked_by?.length
 
 /** How an issue names another it's linked to (ORR-601): its id in the same project, `project/ID` in another. */

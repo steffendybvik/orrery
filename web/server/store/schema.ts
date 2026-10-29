@@ -93,6 +93,8 @@ export interface IssueFilter {
     proposal?: string
     /** Text in the id or title. */
     q?: string
+    /** `true` for issues waiting on one not done yet (ORR-601), `false` for those free to start. */
+    blocked?: string
 }
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }

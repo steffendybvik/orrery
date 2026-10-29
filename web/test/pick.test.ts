@@ -16,7 +16,7 @@ let chat: boolean
 let due: string[]
 let sent: {project: string, session: string, text: string, owner: boolean}[]
 
-const issue = (id: string, kind: string, more: Record<string, string> = {}) =>
+const issue = (id: string, kind: string, more: Record<string, unknown> = {}) =>
     ({id, title: `Do ${id}`, kind, column: kind === 'todo' ? 'Todo' : 'Backlog', created_at: `2026-10-29T0${id.slice(-1)}:00:00Z`, ...more})
 
 beforeEach(async () => {
@@ -83,6 +83,12 @@ describe('a session out of work', () => {
         await pick.pickNext('orrery', 'w')
         // ORR-5 is a parent: its sub-issue is the work.
         expect(ids(sent[0]!.text)).toEqual(['ORR-1', 'ORR-6', 'ORR-9'])
+    })
+
+    it("isn't handed an issue still waiting on another (ORR-601)", async () => {
+        board.orrery = [issue('ORR-1', 'todo', {blocked_by: ['ORR-2']}), issue('ORR-2', 'todo'), issue('ORR-3', 'todo', {depends_on: ['ORR-4']})]
+        await pick.pickNext('orrery', 'w')
+        expect(ids(sent[0]!.text)).toEqual(['ORR-2', 'ORR-3'])
     })
 
     it('gets the issues of every project it hears, and a frozen release says so', async () => {

@@ -1,6 +1,6 @@
 // Issues: listing, reading, making and changing one.
 import type {Kind, Signal} from '#shared/roadmap'
-import {CLOSED, issueRef, linkRef, parseLinkRef} from '#shared/roadmap'
+import {CLOSED, isBlocked, issueRef, linkRef, parseLinkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
@@ -8,6 +8,9 @@ import {AGENT, ISSUE_FIELDS, tasksOf, nullable, stamp} from './schema'
 import {ClaimStore} from './claims'
 import {findIssue, issueRecords} from './reads'
 import {refusedFor} from '../utils/permission'
+
+/** How many issues one can depend on, at most (ORR-601): keeps the loop check and what a session hears small. */
+const MAX_DEPENDS = 50
 
 export abstract class IssueStore extends ClaimStore {
     // Further down the chain: a focus is a signal, and moving an issue takes its sub-issues along.
@@ -35,6 +38,7 @@ export abstract class IssueStore extends ClaimStore {
             && (!filter.release || (filter.release === 'none' ? !r.release : r.release === filter.release))
             && (!filter.parent || (filter.parent === 'none' ? !r.parent : r.parent === filter.parent))
             && (!filter.proposal || (filter.proposal === 'none' ? r.column !== 'proposed' : r.proposal === filter.proposal))
+            && (!filter.blocked || isBlocked(r) === (filter.blocked === 'true'))
             && (!q || r.id.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)))
     }
 
@@ -59,6 +63,7 @@ export abstract class IssueStore extends ClaimStore {
         if (chunk) await this.chunkRow(project, chunk)
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const depends = await this.linksFrom(project, null, input.depends_on)
+        if (parent && depends?.some(l => l.project === project && l.id === parent)) throw badRequest(`${parent} is this issue's parent, so it can't depend on it`)
 
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
@@ -182,7 +187,15 @@ export abstract class IssueStore extends ClaimStore {
             if (on.project === project && on.id === id) throw badRequest(`An issue can't depend on itself`)
             if (!links.some(l => l.project === on.project && l.id === on.id)) links.push(on)
         }
+        if (links.length > MAX_DEPENDS) throw badRequest(`An issue can depend on ${MAX_DEPENDS} issues at most`)
         if (id) {
+            // A sub-issue and its parent already go together: one waiting on the other could never start.
+            const row = await this.issueRow(project, id)
+            for (const on of links.filter(l => l.project === project)) {
+                if (on.id === row.parent || (await this.issueRow(project, on.id)).parent === id) {
+                    throw badRequest(`${on.id} and ${id} are a parent and its sub-issue, so one can't depend on the other`)
+                }
+            }
             for (const on of links) {
                 const path = await this.dependsPath(on, {project, id})
                 if (path) throw badRequest(`${linkRef(project, on.project, on.id)} already depends on ${id}${path.length > 2 ? ` (through ${path.slice(1, -1).map(p => linkRef(project, p.project, p.id)).join(', ')})` : ''}, so ${id} can't depend on it`)
@@ -196,8 +209,7 @@ export abstract class IssueStore extends ClaimStore {
         const key = (l: {project: string, id: string}) => `${l.project}\u0000${l.id}`
         const came = new Map<string, {project: string, id: string} | null>([[key(from), null]])
         const queue = [from]
-        while (queue.length) {
-            const at = queue.shift()!
+        for (let at = queue.shift(); at; at = queue.shift()) {
             if (at.project === to.project && at.id === to.id) {
                 const path = [at]
                 for (let back = came.get(key(at)); back; back = came.get(key(back))) path.unshift(back)
@@ -235,7 +247,7 @@ export abstract class IssueStore extends ClaimStore {
             UNION SELECT project FROM issue_links WHERE on_project = ? AND on_issue = ?`, project, id, project, id)).map(r => r.project)
     }
 
-    /** An issue the owner's write just made urgent open work (P0, and committed and not closed, which it wasn't
+    /** An issue the owner's write just made urgent open work (P0, and committed, not closed and not blocked, which it wasn't
      * before) goes to the sessions as a focus, without their asking: to the session working it while it can hear,
      * else to one session orrery picks (pool.ts). The write is saved by now, so a push that fails is only logged. */
     protected async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
@@ -243,6 +255,8 @@ export abstract class IssueStore extends ClaimStore {
             const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal
                 && !CLOSED.includes((await this.statuses()).find(s => s.id === row.status)?.kind as Kind)
             if (!actor.owner || !await urgentWork(after) || (before && await urgentWork(before))) return
+            // One blocked (ORR-601) waits for what it depends on, urgent or not: it's handed out once that's done.
+            if ((await this.blockers(project, after.id)).length) return
             await this.sendFocus(project, after.id, {note: 'It was just made urgent (P0).', session: await this.listeningWorker(project, after.id)}, actor)
         } catch (error) {
             console.error(`[orrery] pushing urgent ${after.id} in ${project}:`, error)

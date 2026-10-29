@@ -1,12 +1,13 @@
 // Many issues at once, and what moves or deletes an issue with its sub-issues.
 import type {Choice, Decision, Picks} from '#shared/roadmap'
+import {linkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput} from '../utils/input'
 import {describePicks, resolvePicks} from '../utils/choices'
 import {UPSERT_ISSUE_ALIAS} from '../utils/renumber'
 import type {BulkResult, IssueDetail, Actor} from './schema'
 import {BULK_FIELDS, AGENT, DECISION_FIELDS, DECIDED, stamp} from './schema'
-import {CommentStore} from './comments'
+import {CommentStore, ORRERY} from './comments'
 import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
 
@@ -85,6 +86,17 @@ export abstract class BulkStore extends CommentStore {
             await this.deleteIssue(project, id, actor)
             subtree.forEach(i => gone.add(i))
         })
+    }
+
+    /** The issues depending on `id`, which is going (with the others in `going`), each without it in its activity as a
+     * `depends` change (ORR-601): the dispatch reads that, and hands one out that it freed. Run by `deleteIssue`. */
+    private async dropBlocker(project: string, id: string, going: Set<string>) {
+        for (const dependent of await this.all<{project: string, issue: string}>('SELECT project, issue FROM issue_links WHERE on_project = ? AND on_issue = ?', project, id)) {
+            if (dependent.project === project && going.has(dependent.issue)) continue
+            const before = await this.all<{project: string, id: string}>('SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue', dependent.project, dependent.issue)
+            const refs = (list: {project: string, id: string}[]) => list.length ? JSON.stringify(list.map(l => linkRef(dependent.project, l.project, l.id))) : null
+            await this.record(dependent.project, dependent.issue, ORRERY, [['depends', refs(before), refs(before.filter(l => l.project !== project || l.id !== id))]])
+        }
     }
 
     /** Deletes its sub-issues and comments too. */
@@ -207,6 +219,7 @@ export abstract class BulkStore extends CommentStore {
                 await this.run('UPDATE issue_links SET on_project = ?, on_issue = ? WHERE on_project = ? AND on_issue = ?', to, next, project, old)
             } else {
                 await this.run('DELETE FROM signals WHERE project = ? AND issue = ?', project, old)
+                await this.dropBlocker(project, old, new Set([...names.keys()].filter(k => !names.get(k))))
                 await this.run('DELETE FROM issue_links WHERE (project = ? AND issue = ?) OR (on_project = ? AND on_issue = ?)', project, old, project, old)
                 await this.run('UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)', old, project)
             }

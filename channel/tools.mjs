@@ -37,6 +37,7 @@ const FIELDS = {
     chunk: {type: ['string', 'null'], description: "A chunk's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
     release: {type: ['string', 'null'], description: 'The release version it ships in'},
+    depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
     choices: CHOICES,
 }
 
@@ -52,6 +53,7 @@ export const TOOLS = [
             label: {type: 'string'},
             external: {type: 'string', description: 'A team task id'},
             q: {type: 'string', description: 'Text in the id or title'},
+            blocked: {type: 'boolean'},
             open: {type: 'boolean', description: 'Leave out done and canceled (default true); false lists every status'},
         }},
     },
@@ -207,8 +209,8 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release or parent, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent'].map(f => [f, FIELDS[f]]))}},
+        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
         name: 'move_issues',
@@ -399,11 +401,11 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         return `Asked on ${id} (comment ${asked.id}): the owner sees the ${schedule_id === undefined ? 'schedule' : 'change'} with Allow and Deny, and their answer comes back as a comment. Nothing is saved until they allow it.`
     }
     const pick =(args, keys) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]))
-    const line = i => `${i.id} [${[i.status, i.priority, i.assignee].filter(Boolean).join(', ')}] ${i.title}${i.proposal ? ` (proposal: ${i.proposal})` : ''}`
+    const line = i => `${i.id} [${[i.status, i.priority, i.assignee].filter(Boolean).join(', ')}] ${i.title}${i.proposal ? ` (proposal: ${i.proposal})` : ''}${i.blocked_by?.length ? ` (blocked by ${i.blocked_by.join(', ')})` : ''}`
 
     const run = {
         async issues(args) {
-            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'q']))
+            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'blocked', 'q']))
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             // A work session lists only what it could take up: backlog is mostly proposals and research (ORR-545). The chat keeps it.

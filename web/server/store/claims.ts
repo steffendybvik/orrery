@@ -1,11 +1,12 @@
 // Which session is on which issue: the one that last worked it (`issue_sessions`), and the claim that keeps a second
 // session off an issue another has started. Below IssueStore, which pushes an urgent issue to its worker, and
 // SignalStore, which ties a focused session to its issue.
-import {CLOSED} from '#shared/roadmap'
+import {CLOSED, linkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {conflict} from '../utils/input'
 import {stamp} from './schema'
 import {ReleaseStore} from './releases'
+import {doneIssues} from './reads'
 
 export abstract class ClaimStore extends ReleaseStore {
     /** The session that last worked the issue, while it's there to hear; null otherwise (one session orrery picks). */
@@ -62,9 +63,30 @@ export abstract class ClaimStore extends ReleaseStore {
             const to = await this.resolveStatus(status)
             const kind = (await this.statuses()).find(s => s.id === to)?.kind
             if (kind && CLOSED.includes(kind)) return
+            if (kind === 'started') {
+                const blockers = await this.blockers(project, issue)
+                if (blockers.length && !await this.focusedOn(project, issue)) {
+                    throw conflict(`${issue} is blocked by ${blockers.join(', ')}, which ${blockers.length === 1 ? "isn't" : "aren't"} done yet; pick another issue`)
+                }
+            }
         }
         const worker = await this.takenFrom(project, issue, session)
         if (worker) throw conflict(`${issue} is already being worked on by another session (${worker}); pick another issue`)
+    }
+
+    /** What still holds the issue back (ORR-601): the issues it depends on that aren't done, as `linkRef`s. */
+    async blockers(project: string, issue: string): Promise<string[]> {
+        const statuses = await this.statuses()
+        const links = await this.all<{on_project: string, on_issue: string}>('SELECT on_project, on_issue FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue', project, issue)
+        const done = new Map<string, Set<string>>()
+        for (const other of new Set(links.map(l => l.on_project))) done.set(other, await doneIssues(this.db, other, statuses))
+        return links.filter(l => !done.get(l.on_project)?.has(l.on_issue)).map(l => linkRef(project, l.on_project, l.on_issue))
+    }
+
+    /** Whether the owner pointed a session at this issue in the last day: their explicit focus starts it, blocked or not. */
+    private async focusedOn(project: string, issue: string): Promise<boolean> {
+        const since = new Date(Date.now() - 86_400_000).toISOString()
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1 AND created_at >= ? LIMIT 1`, project, issue, since)
     }
 
     /** The session that last worked the issue, while it's listening (ORR-601: the one that closed a blocker carries

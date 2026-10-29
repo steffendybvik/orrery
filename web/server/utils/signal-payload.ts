@@ -80,8 +80,8 @@ async function buildsOn(store: Store, project: string, refs: string[], name: (co
             const blocker = await store.issue(on.project, on.id)
             const last = (await store.listComments(on.project, on.id)).at(-1)
             const said = last?.body.replace(/\s+/g, ' ').trim()
-            lines.push(`- ${ref}: ${blocker.title} [${name(blocker.column)}${blocker.kind === 'canceled' ? ': canceled, so judge whether this still makes sense' : ''}]`
-                + (said ? `\n  last comment, by ${last!.created_by}: ${said.length > SAID ? `${said.slice(0, SAID)}…` : said}` : ''))
+            lines.push(`- ${ref}: ${blocker.title} [${name(blocker.column)}${blocker.kind === 'canceled' ? ': canceled: the owner was asked whether to go ahead' : ''}]`
+                + (last && said ? `\n  last comment, by ${last.created_by}: ${said.length > SAID ? `${said.slice(0, SAID)}…` : said}` : ''))
         } catch {
             // Gone since: nothing to build on.
         }

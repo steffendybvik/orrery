@@ -7,7 +7,7 @@ import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, commentOf, eventOf, signalOf,
 import {SignalStore} from './signals'
 
 /** orrery itself, speaking on an issue. */
-const ORRERY: Actor = {name: 'orrery', owner: false}
+export const ORRERY: Actor = {name: 'orrery', owner: false}
 
 interface ScheduleRequestRow {
     comment: number
@@ -109,10 +109,10 @@ export abstract class CommentStore extends SignalStore {
         return await this.comment(project, issue, id)
     }
 
-    /** orrery asking the owner on an issue (`asks: feedback`, ORR-508): to the bell, as an agent's ask, and assigned to
-     * them; not to a session. `type` is what happened, for the schedules. */
-    async systemAsk(project: string, issue: string, body: string, type: string): Promise<Comment> {
-        const comment = await this.createComment(project, issue, {body, asks: 'feedback'}, ORRERY)
+    /** orrery asking the owner on an issue (`asks: feedback`, ORR-508, or a `decision`): to the bell, as an agent's ask,
+     * and assigned to them; not to a session. `type` is what happened, for the schedules. */
+    async systemAsk(project: string, issue: string, body: string, type: string, asks: 'feedback' | 'decision' = 'feedback'): Promise<Comment> {
+        const comment = await this.createComment(project, issue, {body, asks}, ORRERY)
         this.tell(type, project, await this.issueId(project, issue), ORRERY)
         return comment
     }
