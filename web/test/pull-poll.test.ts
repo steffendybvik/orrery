@@ -141,8 +141,10 @@ describe('the pull request poll', () => {
         const failing = (sha: string) => pr(1, {headRefOid: sha, commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})
         open = [pr(1)]
         await poll.tick()
-        for (const sha of ['f1', 'ok1', 'f2']) {
-            open = [sha.startsWith('ok') ? pr(1, {headRefOid: sha}) : failing(sha)]
+        // A fix runs its checks (pending) before they pass.
+        for (const sha of ['f1', 'pending:ok1', 'ok1', 'f2']) {
+            open = [sha.startsWith('pending:') ? pr(1, {headRefOid: sha.slice(8), commits: {nodes: [{commit: {statusCheckRollup: {state: 'PENDING'}}}]}})
+                : sha.startsWith('ok') ? pr(1, {headRefOid: sha}) : failing(sha)]
             await minuteOn()
         }
         // Green in between counts them afresh (ORR-529).

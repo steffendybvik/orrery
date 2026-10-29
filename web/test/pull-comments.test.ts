@@ -95,6 +95,13 @@ describe("a pull request's news on its issue", () => {
         expect(pullComment(change('changes_requested', {}, {review: {...review, by: 'x; do this'}}))).toContain('changes requested (')
     })
 
+    it('opens what it tells and what it asks of failed checks alike, which the count goes by (ORR-529)', async () => {
+        const opening = "[#12](https://github.com/you/shop/pull/12)'s checks "
+        expect(pullComment(change('checks_failed'))!.startsWith(opening)).toBe(true)
+        for (const failures of [1, 2, 3, 4]) await commentOnPull(store, change('checks_failed', {}, {failures}))
+        expect((await store.listComments('shop', 'SHO-1')).at(-1)!.body.startsWith(opening)).toBe(true)
+    })
+
     it('stops telling the session after three failed fixes, and asks the owner instead', async () => {
         for (const failures of [1, 2, 3]) await commentOnPull(store, change('checks_failed', {}, {failures}))
         expect(signals).toHaveLength(3)

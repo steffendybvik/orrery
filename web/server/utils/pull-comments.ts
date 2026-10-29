@@ -51,6 +51,7 @@ async function failedChecks(store: Store, {project, issue, repo, pull, failures 
     if (failures <= LOOP_LIMIT) return 'tell'
     // The first past the limit since green asks, whatever came before: an earlier ask was about another round.
     if (failures === LOOP_LIMIT + 1) return 'ask'
+    // Both what's told and the ask open with this, and the count goes by it: keep it so in their words.
     const pr = `[#${pull.number}](https://github.com/${repo}/pull/${pull.number})'s checks %`
     const ask = await store.db.get<{created_at: string}>(`SELECT created_at FROM comments WHERE project = ? AND issue = ? AND created_by = ?
         AND asks IS NOT NULL AND body LIKE ? ORDER BY id DESC LIMIT 1`, project, issue, ORRERY, pr)

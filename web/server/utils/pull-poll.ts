@@ -297,9 +297,10 @@ export class PullPoll {
             if (!was && (pull.merged || pull.closed)) continue
             const names = issueIdsIn({body: pull.body, head: {ref: pull.branch}})
             const told = was ? JSON.parse(was.told) as string[] : []
-            // Green again after failing: the failures are counted afresh from here (ORR-529).
+            // Green again after failing (pending between, most often, while CI runs): the failures are counted afresh
+            // from here (ORR-529).
             const passed = `${repo}#${pull.number} checks_passed ${pull.head_sha}`
-            if (pull.checks === 'success' && was?.checks === 'failure' && !told.includes(passed)) told.push(passed)
+            if (pull.checks === 'success' && failuresSincePassed(told, `${repo}#${pull.number}`) && !told.includes(passed)) told.push(passed)
             if (!first) {
                 const issue = await this.pulls.issueOf(projects, names)
                 for (const kind of changesOf(was, pull)) {
