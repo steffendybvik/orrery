@@ -44,6 +44,32 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
 | `ORRERY_ENVIRONMENT` | this orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
+## A GitHub token
+
+An issue's page lists its open pull requests, and where each one stands, when its project's repo is on
+GitHub (set under the project's **Settings**, *Code*). A public repo needs nothing more. A token lets
+orrery read a private repo, and lets it ask GitHub every minute instead of every five (60 requests an hour
+without one, 5,000 with).
+
+1. **Make the token** on GitHub, under *Settings → Developer settings → Fine-grained tokens*
+   (<https://github.com/settings/personal-access-tokens/new>). Give it the repos your projects use, and
+   under *Repository permissions* only **Pull requests: Read-only** (*Metadata: Read-only* comes with it).
+   That covers where a PR stands, its checks included. orrery only reads, so give it nothing to write with. Pick an
+   expiry you'll remember. A classic token with the `repo` scope works too, but it can write everywhere.
+2. **Set `ORRERY_SECRET_KEY`** (see [Settings](#settings)) if you haven't. Secrets are encrypted with it.
+3. **Add it as a secret:** **App settings → This orrery → Secrets → + Add a secret**. Name it
+   `GITHUB_TOKEN`, paste the token as its value, and give it the host `api.github.com`. Keep it to some
+   projects if you like: the others then read GitHub without it.
+
+That's all: the next time an issue's page asks, orrery sends the token. orrery never shows the value
+again, only its last 4 characters. The secret's uses list each request as `orrery`'s, with GitHub's
+answer (the latest 100), and none of them reach the event log. When the token expires or is revoked, the
+issue's page says GitHub turned it down: make a new one and **Replace** the secret's value. To stop
+using it, delete the secret.
+
+Agents can use the same secret through [egress](API.md#secrets) (`Authorization: Bearer
+{{secret:GITHUB_TOKEN}}`) without seeing it, for whatever its permissions allow.
+
 ## Backups
 
 A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks (both can be changed, below). The live file never goes in the backup folder: a synced SQLite

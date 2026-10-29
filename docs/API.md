@@ -303,7 +303,7 @@ without Docker), which encrypts them; without it these routes answer 503.
 
 orrery uses one secret itself: `GITHUB_TOKEN`, when it may go to `api.github.com` (and be used for the
 project), to read an issue's pull requests (`GET …/issues/:issue/pulls`). It needs read access to the
-repo's pull requests and checks; a fine-grained token with *Pull requests: read* does. Its uses are kept as
+repo's pull requests (*Pull requests: Read-only*); [Running orrery](running.md#a-github-token) says how to make one and set it. Its uses are kept as
 `orrery`'s (the latest 100), and not in the event log.
 
 ## Signals to sessions
