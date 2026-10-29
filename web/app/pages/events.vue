@@ -7,8 +7,8 @@ import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 // launchers, schedule runs, backups, migrations, starts) and each change to the roadmap (issues, comments, chunks, docs,
 // releases). Levels can be switched off (ORR-379), per browser; it keeps to a project (`?project=`) and a kind or a
 // family of them (`?kind=`, ORR-401), in the URL so the view can be linked. A line is only ever a line, as in a console
-// (ORR-472): the issue ids in it, and its project, link to them (ORR-403). It's there while Advanced is on (App settings
-// → This orrery); opening it marks the new errors seen.
+// (ORR-472): the issue ids in it, and its project, link to them (ORR-403). It's reached from App settings → Advanced
+// (ORR-561); opening it marks the new errors seen.
 useHead({title: 'Events · orrery'})
 const route = useRoute()
 const router = useRouter()
@@ -150,7 +150,7 @@ function messageParts(event: LoggedEvent): {text: string, to?: string}[] {
   <div v-if="!settings.advanced" class="px-4 pt-3">
     <p class="rounded-lg bg-well px-3 py-2 text-xs text-muted ring-1 ring-line">
       Advanced is off, so only errors are recorded. Turn it on in
-      <NuxtLink to="/settings?tab=orrery#advanced" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>
+      <NuxtLink to="/settings?tab=advanced" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>
       to record what orrery does and each change to the roadmap as well.
     </p>
   </div>
