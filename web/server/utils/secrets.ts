@@ -237,38 +237,48 @@ export class Secrets {
         }
     }
 
-    /** orrery's own GET to `url` for `project`, with the secret `name` as a bearer token when there's one that may go
-     * to its host and be used for the project, else without. Kept in the secret's uses as orrery's (the latest
-     * `OWN_USES`), and not logged: it runs every minute or two while a page shows what it reads. */
-    async own(url: string, name: string, project: string, headers: Record<string, string> = {}): Promise<{response: Response, secret: boolean}> {
+    /** orrery's own request to `url` for `project` (a GET, or `init`'s method and body), with the secret `name` as a
+     * bearer token when there's one that may go to its host and be used for the project, else without. Kept in the
+     * secret's uses as orrery's (the latest `OWN_USES`), and not logged: it runs every minute or two. */
+    async own(url: string, name: string, project: string, headers: Record<string, string> = {}, init: {method?: 'GET' | 'POST', body?: string} = {}): Promise<{response: Response, secret: boolean}> {
         const target = new URL(url)
-        const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
-        let value: string | null = null
-        if (row && target.protocol === 'https:' && (JSON.parse(row.hosts) as string[]).includes(target.host)
-            && (!row.projects || (JSON.parse(row.projects) as string[]).includes(project))) {
-            try {
-                value = this.open(row)
-            } catch {
-                // No key, or not the one it was set with: asked without it, the way it would be with no secret.
-            }
-        }
+        const value = await this.ownValue(target, name, project)
+        const method = init.method ?? 'GET'
         const sent = value ? {...headers, Authorization: `Bearer ${value}`} : headers
         const record = async (status: number | null, error: string | null) => {
             if (!value) return
             await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                name, 'GET', target.host, target.pathname, project, null, status, error, ORRERY, new Date().toISOString())
+                name, method, target.host, target.pathname, project, null, status, error, ORRERY, new Date().toISOString())
             await this.db.run(`DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND id NOT IN
                 (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? ORDER BY id DESC LIMIT ${OWN_USES}) AS latest)`, name, ORRERY, name, ORRERY)
             await this.changed()
         }
         try {
-            const response = await this.send(target, {headers: sent, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT)})
+            const response = await this.send(target, {method, headers: sent, ...init.body === undefined ? {} : {body: init.body}, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT)})
             await record(response.status, null)
             return {response, secret: !!value}
         } catch (error) {
             const reason = value ? (error as Error).message.replaceAll(value, '…') : (error as Error).message
             await record(null, reason)
             throw new Error(`The request to ${target.host} failed: ${reason}`, {cause: error})
+        }
+    }
+
+    /** Whether `own` would send the secret `name` to `url` for `project`, asking nothing. */
+    async ownsFor(url: string, name: string, project: string): Promise<boolean> {
+        return !!await this.ownValue(new URL(url), name, project)
+    }
+
+    /** The secret `name`'s value, when there's one that may go to `target`'s host and be used for `project`. */
+    private async ownValue(target: URL, name: string, project: string): Promise<string | null> {
+        const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        if (!row || target.protocol !== 'https:' || !(JSON.parse(row.hosts) as string[]).includes(target.host)
+            || (row.projects && !(JSON.parse(row.projects) as string[]).includes(project))) return null
+        try {
+            return this.open(row)
+        } catch {
+            // No key, or not the one it was set with: asked without it, the way it would be with no secret.
+            return null
         }
     }
 

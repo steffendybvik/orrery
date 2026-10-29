@@ -146,11 +146,14 @@ permission prompts are only as safe as who can reach orrery ([above](#who-can-re
 ### The owner's chat
 
 The chat on the page writes as `claude`, like any agent, under the same rules: it makes and changes issues and
-comments, and it can't touch presets, prompts or settings. Three things go further, since you asked for them there,
+comments, and it can't touch presets, prompts or settings. Four things go further, since you asked for them there,
 and each is only ever asked:
 
 - **Changing an App setting, or making or changing a schedule:** you see it from → to, and nothing is saved until you
   press **Allow** in the page. An allowed schedule is yours, so read what it sends.
+- **Starting, stopping or extending a session:** you see what would start (its project, focus, presets and words) or
+  which session, and nothing happens until you press **Allow**. A session started this way is yours, with the context
+  shown, so read it. The launch routes refuse the chat itself, and watching one (a window on your machine) stays yours.
 - **Messaging your other sessions:** you see the text and who it goes to, and nothing is sent until you press
   **Send**. Then it goes as you, marked as sent through the chat. The message routes refuse the chat itself, so a
   chat talked into it by something it read can't reach your sessions without you reading it first (ORR-416).
@@ -172,9 +175,11 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 them: orrery fills it into the request and sends it.
 
 orrery itself calls one outside service: GitHub, at `api.github.com`, to show the open pull requests on
-projects whose repo is there. It reads, never writes, only while a page is open (an issue's, Pull requests,
-and the sidebar's count every two minutes), at most once a minute per repo, and sends the `GITHUB_TOKEN`
-secret only when you've set one that may go there.
+projects whose repo is there and to notice when one conflicts, merges or closes. It reads, never writes:
+each repo is polled in the background, once a minute with a token and every ten minutes without (a page
+open may also ask, no more than that), and it sends the `GITHUB_TOKEN` secret only when you've set one that
+may go there. What it reads is kept in orrery's database: each PR's title, branch, state and the issue
+ids it names, not its body.
 
 - **Agents never hold the value.** No route, event or page gives it back, only its last 4 characters.
 - **It only goes where you said.** Each secret names its hosts, and orrery sends it nowhere else and
