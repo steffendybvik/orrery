@@ -668,10 +668,12 @@ export interface ChatMessage {
     schedule?: ChatScheduleRequest
     /** The session asking to message other sessions as the owner, which waits on the owner's Send (ORR-416). */
     send?: ChatSendRequest
-    /** The session asking to make or change a chunk, which waits on the owner's Allow (ORR-510). */
-    chunk?: ChatChunkRequest
     /** The owner cleared the session's context here (`/clear`, ORR-497): it remembers nothing said above. */
     cleared?: boolean
+    /** The session asking to make or change a release, which waits on the owner's Allow (ORR-504). */
+    release?: ChatReleaseRequest
+    /** The session asking to make or change a chunk, which waits on the owner's Allow (ORR-510). */
+    chunk?: ChatChunkRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -727,6 +729,28 @@ export interface ChatScheduleRequest {
     title: string
     changes: {field: ChatScheduleField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatScheduleField, unknown>>
+    state: ChatRequest['state']
+}
+
+/** What of a release the owner's chat may ask to set (ORR-504), by what Releases calls it. `position` is its place among
+ * the project's releases, 0 at the top. Removing one stays the owner's, on Releases. */
+export const CHAT_RELEASE_FIELDS = {
+    version: 'Version',
+    branch: 'Branch',
+    notes: 'Notes',
+    position: 'Place',
+    frozen_on: 'Frozen on',
+    shipped_on: 'Shipped on',
+} as const
+export type ChatReleaseField = keyof typeof CHAT_RELEASE_FIELDS
+
+/** A release the chat asked to make, or change (`change`), each field it sets from → to (a place as "2nd from the top"),
+ * `body` as it's sent to Releases: saved only once the owner allows it, and `expired` as a setting's request is. */
+export interface ChatReleaseRequest {
+    version: string
+    change: boolean
+    changes: {field: ChatReleaseField, from?: unknown, to: unknown}[]
+    body: Partial<Record<ChatReleaseField, unknown>>
     state: ChatRequest['state']
 }
 

@@ -1,6 +1,6 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSetting, Schedule, SessionState} from '#shared/roadmap'
-import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
+import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatReleaseField, ChatReleaseRequest, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSetting, Release, Schedule, SessionState} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {CHUNK_FIELDS, SETTINGS_FIELDS} from '../store/schema'
 import {checkInput, isObject} from './input'
@@ -26,6 +26,9 @@ Allow and Deny, and you hear which they pressed. Nothing is saved until they all
 When the owner asks you to set up a schedule or change one (pause, resume, its time, its message…), ask with
 create_schedule or update_schedule (the schedules tool lists them): it shows them the schedule with Allow and Deny, the
 same way. Never on your own, and never to delete one: that's theirs, on the Schedules page.
+When the owner asks you to add a release or change one (its branch, notes, place in the order, freezing or shipping it),
+ask with create_release or update_release (the releases tool lists them), the same way. A release's branch is by
+convention v<version>. Never on your own, and never to remove one: that's theirs, on the Releases page.
 When the owner asks you to make a chunk or change one (its name, summary or priority), ask with create_chunk or
 update_chunk (the chunks tool lists them), the same way; once it's allowed, put issues in it with edit_issue. Never on
 your own, and never to remove one: that's theirs, on its page.
@@ -107,11 +110,12 @@ export async function say(id: string, text: unknown, images: unknown, actor: {na
 export const ASK_FOR = 30 * 60_000
 
 /** The chat's session asking the owner for something in its chat: a message sent to sessions (`{message, why?}`,
- * `askSend`), a schedule made or changed (`{schedule, id?, why?}`, `askSchedule`), a chunk made or changed (`{chunk, id?,
- * why?}`, `askChunk`), or else an App setting changed
- * (`askSetting`). */
+ * `askSend`), a schedule made or changed (`{schedule, id?, why?}`, `askSchedule`), a release made or changed
+ * (`{release, version?, why?}`, `askRelease`), a chunk made or changed (`{chunk, id?, why?}`, `askChunk`), or else an
+ * App setting changed (`askSetting`). */
 export async function ask(id: string, body: unknown): Promise<ChatMessage> {
     if (isObject(body) && 'message' in body) return await askSend(id, body)
+    if (isObject(body) && 'release' in body) return await askRelease(id, body)
     if (isObject(body) && 'chunk' in body) return await askChunk(id, body)
     return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
 }
@@ -229,6 +233,44 @@ const scheduleAsk = (request: ChatScheduleRequest) => request.id === undefined
     ? `make the schedule "${request.title}"`
     : `change schedule ${request.id} ("${request.title}"): ${request.changes.map(c => `${CHAT_SCHEDULE_FIELDS[c.field]} to ${scheduleValue(c.to)}`).join(', ')}`
 
+/** The chat's session asking to make a release in its project, or change release `version` there (its `create_release`
+ * and `update_release` tools): `release` holds the fields, as Releases takes them (`CHAT_RELEASE_FIELDS`). A request in
+ * the chat, checked as Releases would check it, which saves nothing until the owner allows it. One it asked before for
+ * the same release, still unanswered, expires. */
+async function askRelease(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {release: fields, version, why} = body as {release?: unknown, version?: unknown, why?: unknown}
+    if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {release: {…}, version?}: the fields to set, any of ${Object.keys(CHAT_RELEASE_FIELDS).join(', ')}, and the version of the release to change one`)
+    const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_RELEASE_FIELDS, key))
+    if (refused.length) throw forbidden(`The owner's chat sets a release's ${Object.keys(CHAT_RELEASE_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
+    if (version !== undefined && version !== null && typeof version !== 'string') throw badRequest('Send "version" as the version of the release to change, or leave it out to make one')
+    const current = await useStore().checkRelease(chat.project, fields, typeof version === 'string' ? version : undefined)
+    const shown = (field: ChatReleaseField, value: unknown) => field === 'position' && typeof value === 'number' ? place(value) : value
+    const releases = current ? await useStore().listReleases(chat.project) : []
+    const was = (field: ChatReleaseField) => field === 'position' ? releases.findIndex(r => r.version === current?.version) : current?.[field as keyof Release] ?? null
+    const changes = (Object.entries(fields) as [ChatReleaseField, unknown][]).map(([field, to]) =>
+        current ? {field, from: shown(field, was(field)), to: shown(field, to)} : {field, to: shown(field, to)})
+    const named = current?.version ?? String(fields.version)
+    for (const m of chat.messages) if (m.release?.state === 'asked' && m.release.version === named) m.release.state = 'expired'
+    const request: ChatReleaseRequest = {version: named, change: !!current, changes, body: fields, state: 'asked'}
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], release: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${releaseAsk(request)}`, details: {release: named, fields: Object.keys(fields)}})
+    return said
+}
+
+/** A place among the releases, as a chat's request shows it: "the top", "2nd from the top". */
+function place(index: number) {
+    if (index <= 0) return 'the top'
+    const n = Math.trunc(index) + 1
+    const suffix = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({1: 'st', 2: 'nd', 3: 'rd'} as Record<number, string>)[n % 10] ?? 'th'
+    return `${n}${suffix} from the top`
+}
+
+/** What a release request asks, as a line: "add the release 1.0.0", "change release 1.0.0: Branch to v1". */
+const releaseAsk = (request: ChatReleaseRequest) => request.change
+    ? `change release ${request.version}: ${request.changes.map(c => `${CHAT_RELEASE_FIELDS[c.field]} to ${scheduleValue(c.to)}`).join(', ')}`
+    : `add the release ${request.version}`
+
 /** The chat's session asking to change one App setting (its `update_settings` tool), `{setting, value, why?}`: a request
  * in the chat, checked as the settings would check it, which saves nothing until the owner allows it. One it asked
  * before for the same setting, still unanswered, expires. */
@@ -255,8 +297,8 @@ const answering = new Set<string>()
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
 export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.chunk))
-    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.chunk
+    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.chunk))
+    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.chunk
     if (!asked || !request) throw notFound(`No request ${message} in this chat`)
     if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
         request.state = 'expired'
@@ -269,6 +311,7 @@ export async function answer(id: string, message: number, allow: boolean, actor:
     try {
         if (asked.send) await answerSend(chat, asked.send, allow, actor)
         else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
+        else if (asked.release) await answerRelease(chat, asked.release, allow, actor)
         else if (asked.chunk) await answerChunk(chat, asked.chunk, allow, actor)
         else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
     } finally {
@@ -295,6 +338,23 @@ async function answerSchedule(chat: Chat, request: ChatScheduleRequest, allow: b
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I allowed your request: schedule ${made.id} ("${made.title}") is saved${made.enabled ? '' : ', paused'}.)`
         : `(I denied your request to ${scheduleAsk(request)}: nothing changed.)`, actor)
+}
+
+/** The owner allowing or denying the chat's request for a release: allowed, it's made or changed as theirs, through
+ * their chat. A request that no longer holds (the release made or removed since) fails as Releases would, still asked. */
+async function answerRelease(chat: Chat, request: ChatReleaseRequest, allow: boolean, actor: Actor) {
+    if (allow) {
+        const as: Actor = {...actor, via: 'chat'}
+        if (request.change) await useStore().updateRelease(chat.project, request.version, request.body, as)
+        else await useStore().createRelease(chat.project, request.body, as)
+    }
+    request.state = allow ? 'allowed' : 'denied'
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${releaseAsk(request)}`,
+        details: {release: request.version, fields: Object.keys(request.body), allowed: allow}})
+    await useStore().messageSession(chat.project, launchTarget(chat.id), allow
+        ? `(I allowed your request: release ${request.version} is ${request.change ? 'changed' : 'added'}.)`
+        : `(I denied your request to ${releaseAsk(request)}: nothing changed.)`, actor)
 }
 
 /** The owner allowing or denying the chat's request for a chunk: allowed, it's made or changed as theirs, through their

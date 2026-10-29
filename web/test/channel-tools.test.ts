@@ -155,6 +155,25 @@ describe("the channel's tools", () => {
         expect((await other('create_schedule', {title: 'X'})).isError).toBe(true)
     })
 
+    it("in the owner's chat, ask them to add or change a release, which no other session can", async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 7})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('create_release', {version: '1.1.0', branch: 'v1.1.0', why: 'As asked'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect((await call('update_release', {version: '1.0.0', shipped_on: '2026-10-29'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect(calls).toEqual([
+            {url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {release: {version: '1.1.0', branch: 'v1.1.0'}, why: 'As asked'}},
+            {url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {version: '1.0.0', release: {shipped_on: '2026-10-29'}}},
+        ])
+        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('create_release')
+        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['create_release', 'update_release']))
+        const other = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
+        expect((await other('update_release', {version: '1.0.0', notes: 'X'})).isError).toBe(true)
+    })
+
     it("in the owner's chat, change an issue's fields with nothing about its state of work", async () => {
         const calls: {url: string, method: string, body?: unknown}[] = []
         const fetch = async (url: string, init: {method: string, body?: string}) => {

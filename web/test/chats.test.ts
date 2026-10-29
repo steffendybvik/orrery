@@ -322,6 +322,50 @@ describe("the owner's chat", () => {
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })
 
+    it("asks to add a release or change one, checked as Releases would, and saves it as the owner's only once they allow it", async () => {
+        const notes: {kind: string}[] = []
+        const saved: {how: string, project: string, version?: string, body: unknown, actor: unknown}[] = []
+        const releases = [{version: '1.1.0', branch: 'v1.1.0'}, {version: '1.0.0', branch: 'v1.0.0', frozen_on: '2026-10-20'}]
+        vi.stubGlobal('useStore', () => ({
+            checkRelease: async (_project: string, body: {version?: string, branch?: string}, version?: string) => {
+                if (body.version === '1.1.0' && version === undefined) throw Object.assign(new Error('There is already a release 1.1.0'), {statusCode: 409})
+                if (version === undefined) return undefined
+                const found = releases.find(r => r.version === version)
+                if (!found) throw Object.assign(new Error(`No release ${version}`), {statusCode: 404})
+                return found
+            },
+            listReleases: async () => releases,
+            createRelease: async (project: string, body: unknown, actor: unknown) => void saved.push({how: 'create', project, body, actor}),
+            updateRelease: async (project: string, version: string, body: unknown, actor: unknown) => void saved.push({how: 'update', project, version, body, actor}),
+            messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
+        }))
+        vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string}) => notes.push(entry)}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        await chats.openChat('greenhouse')
+        const fresh = await chats.ask('c1c2c3c4c5c6', {release: {version: '1.2.0', branch: 'v1.2.0', position: 1}, why: 'As you asked.'})
+        expect(fresh).toMatchObject({from: 'claude', text: 'As you asked.', release: {version: '1.2.0', change: false, state: 'asked', changes: [
+            {field: 'version', to: '1.2.0'}, {field: 'branch', to: 'v1.2.0'}, {field: 'position', to: '2nd from the top'},
+        ]}})
+        expect(saved).toEqual([])
+        await chats.answer('c1c2c3c4c5c6', fresh.id, true, owner)
+        expect(saved).toEqual([{how: 'create', project: 'greenhouse', body: {version: '1.2.0', branch: 'v1.2.0', position: 1}, actor: {...owner, via: 'chat'}}])
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: release 1.2.0 is added.)')
+        // A change shows each field from → to, its place too; asking again for the same release lets the one before go.
+        const freeze = await chats.ask('c1c2c3c4c5c6', {version: '1.0.0', release: {frozen_on: null}})
+        const ship = await chats.ask('c1c2c3c4c5c6', {version: '1.0.0', release: {shipped_on: '2026-10-29', position: 0}})
+        expect(freeze.release!.state).toBe('expired')
+        expect(ship.release).toMatchObject({version: '1.0.0', change: true, changes: [{field: 'shipped_on', from: null, to: '2026-10-29'}, {field: 'position', from: '2nd from the top', to: 'the top'}]})
+        await chats.answer('c1c2c3c4c5c6', ship.id, false, owner)
+        expect(saved).toHaveLength(1)
+        expect(messages.at(-1)!.text).toMatch(/denied your request to change release 1.0.0: Shipped on to 2026-10-29, Place to the top: nothing changed/)
+        // What it may not ask for, or what Releases would refuse, fails as it asks.
+        for (const [body, status] of [[{release: {}}, 400], [{release: {version: '1.1.0'}}, 409], [{version: '0.9.0', release: {notes: 'X'}}, 404],
+            [{version: '1.0.0', release: {issues: 3}}, 403], [{version: 1, release: {notes: 'X'}}, 400]] as const)
+            await expect(chats.ask('c1c2c3c4c5c6', body)).rejects.toMatchObject({statusCode: status})
+        expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
+    })
+
     it('asks to make a chunk or change one, and saves it as the owner\'s only once they allow it (ORR-510)', async () => {
         const notes: {kind: string}[] = []
         const made: unknown[][] = []
