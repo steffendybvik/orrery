@@ -98,6 +98,10 @@ export function considerClear(project: string, id: string) {
             const store = useStore()
             if ((await store.workingOn(now.project, ids)).length || await store.waiting(now.project, ids)) return notDue()
             projectEvents.emit('launches', {type: 'clear', project: now.project, id: now.started.launch})
+            // A clear that never comes back (its launcher gone) lets it pick again once the mark runs out.
+            setTimeout(() => {
+                if (notDue()) recheckIdle()
+            }, CLEAR_DUE_FOR)
         } catch (error) {
             notDue()
             console.error(`[orrery] clearing ${id}:`, error)
