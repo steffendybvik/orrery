@@ -11,6 +11,7 @@ import type {LoggedEvent, Project} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
+import {GITHUB_SECRET, Pulls} from './pulls'
 import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
 import {Store} from './store'
@@ -86,6 +87,14 @@ export function useSecrets(): Secrets {
     secrets ??= new Secrets(useStore(), () => String(useRuntimeConfig().secretKey ?? ''), list => projectEvents.emit('secrets', list), undefined,
         entry => useEventLog().note(entry))
     return secrets
+}
+
+let pulls: Pulls | null = null
+
+/** Issues' open pull requests, read from GitHub with the GITHUB_TOKEN secret when there's one that may go there. */
+export function usePulls(): Pulls {
+    pulls ??= new Pulls(useStore(), (url, project, headers) => useSecrets().own(url, GITHUB_SECRET, project, headers))
+    return pulls
 }
 
 let log: EventLog | null = null

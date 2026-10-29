@@ -225,7 +225,7 @@ export interface Project {
     /** Whether orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
      * within what: the orrery's setting (`Settings.starts`), the same for every project; none while the owner hasn't let it. */
     starts?: Starts
-    /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
+    /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs, and read an issue's open PRs off GitHub. */
     repo?: string
     /** Whether it has releases: `none` (not everything ships), its `own`, or `shared`, another project's. */
     release_mode: ReleaseMode
@@ -836,6 +836,35 @@ export interface SecretUse {
     error: string | null
     created_by: string
     created_at: string
+}
+
+/** Where an open pull request stands: what it waits on before it can merge (ORR-485). */
+export type PullState = 'draft' | 'conflicting' | 'behind' | 'failing' | 'blocked' | 'ready' | 'checking'
+
+/** An open pull request on the project's repo that names the issue: in its body (a link to the issue's page), or in its branch. */
+export interface PullRequest {
+    number: number
+    title: string
+    url: string
+    /** Its branch, and the one it merges into. */
+    branch: string
+    base: string
+    author: string
+    state: PullState
+    created_at: string
+    updated_at: string
+}
+
+/** An issue's open pull requests, as GitHub had them when orrery last asked. */
+export interface IssuePulls {
+    /** The project's repo on GitHub (`you/shop`), or null when it has none there: then nothing is asked. */
+    repo: string | null
+    pulls: PullRequest[]
+    /** Why GitHub couldn't be read (its rate limit, a private repo without a token…); `pulls` is then the last it gave, if any. */
+    error?: string
+    /** Whether a GITHUB_TOKEN secret went with the request (one that may go to api.github.com, for this project). */
+    token: boolean
+    checked_at: string | null
 }
 
 /** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */

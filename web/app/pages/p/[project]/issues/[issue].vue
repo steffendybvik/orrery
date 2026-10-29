@@ -2,7 +2,7 @@
 import type {Issue} from '#shared/roadmap'
 import {issueRef, total} from '#shared/roadmap'
 
-// An issue's own page: its title and full description, sub-issues and activity, with its
+// An issue's own page: its title and full description, its open pull requests, sub-issues and activity, with its
 // properties beside them. The title and description edit in place, as the owner. j/k go to the next
 // and previous issue in the project, Esc goes back.
 const route = useRoute()
@@ -252,6 +252,8 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         <ProposalPanel :project="project.id" :issue="issue" />
 
         <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" :worker="worker?.id" />
+
+        <IssuePulls :project="project.id" :issue="issue.id" :updated="issue.updated_at" />
 
         <section
             v-if="editingNotes"

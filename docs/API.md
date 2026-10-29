@@ -189,6 +189,7 @@ instead of `done` when it won't ship.
 | `GET /projects/:project/issues/:issue/comments` | oldest first |
 | `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked. Until then the issue reads `waiting: "decision"` or `"feedback"` (its latest open ask), and the app marks it on its row, card and page. An agent's proposal waiting on the owner (pending, not under another proposal) reads `waiting: "decision"` too, with no ask of its own open, until they decide it |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
+| `GET /projects/:project/issues/:issue/pulls` | its open pull requests on the project's `repo`, when that's on GitHub: `{repo, pulls, error?, token, checked_at}`. A PR is the issue's when its body links the issue's page (`…/issues/ORR-12`) or its branch names the issue (`feat/orr-12-…`), by its id or one it had before. Each is `{number, title, url, branch, base, author, state, created_at, updated_at}`, `state` being `draft`, `conflicting`, `behind` (its base moved on), `failing` (checks), `blocked` (a review or required check), `ready` or `checking` (GitHub hasn't worked it out yet). orrery asks GitHub at most once a minute per repo with a `GITHUB_TOKEN` [secret](#secrets) that may go to `api.github.com` (`token: true`), every five without one (public repos only, and GitHub's 60 an hour); in between, and when GitHub can't be read (`error` says why: its rate limit, a private repo without a token), it's what GitHub said last. `repo: null` for a project with no repo on GitHub, and nothing is asked |
 | `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, session_name?, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release` or `project` (moved in from `before`) |
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell), led by agents' proposals waiting on the owner: `{id: 0, issue, title, body: <its notes>, asks: "decision", answered: false, proposal: {choices: <how many>}}`, there until the owner decides or clears it (clearing leaves it pending; put up again, it's back). `?list=waiting` is every one still waiting, proposals among them; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`, the cleared proposals still pending on its first page) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
 | `POST /notices/clear` | `{ids, proposals}` or `{before}` → `{cleared}`: the owner takes them out of the bell: the comments by `ids`, agents' proposals by `proposals: [{project, issue}]`, or every comment made at or before `before` that isn't waiting on them. Comments stay on their issues, proposals stay pending |
@@ -299,6 +300,11 @@ without Docker), which encrypts them; without it these routes answer 503.
   goes as JSON. 30 seconds at most. An answer that breaks off is a 502, recorded like any use.
 - **Every use is recorded:** the secret, method, host, path (placeholders and all), project, issue,
   who sent it, and the status or why it failed. Never the value.
+
+orrery uses one secret itself: `GITHUB_TOKEN`, when it may go to `api.github.com` (and be used for the
+project), to read an issue's pull requests (`GET …/issues/:issue/pulls`). It needs read access to the
+repo's pull requests and checks; a fine-grained token with *Pull requests: read* does. Its uses are kept as
+`orrery`'s (the latest 100), and not in the event log.
 
 ## Signals to sessions
 

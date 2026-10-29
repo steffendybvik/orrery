@@ -52,6 +52,9 @@ const MAX_BODY = 1_000_000
 const TIMEOUT = 30_000
 /** How many uses a secret shows. */
 const USES = 20
+/** Who orrery's own requests are kept as, and how many of them a secret keeps. */
+const ORRERY = 'orrery'
+const OWN_USES = 100
 
 export interface EgressResult {
     status: number
@@ -231,6 +234,41 @@ export class Secrets {
             body: truncated ? cut(whole.slice(0, MAX_BODY)) : whole,
             ...truncated ? {truncated: true} : {},
             secrets: names,
+        }
+    }
+
+    /** orrery's own GET to `url` for `project`, with the secret `name` as a bearer token when there's one that may go
+     * to its host and be used for the project, else without. Kept in the secret's uses as orrery's (the latest
+     * `OWN_USES`), and not logged: it runs every minute or two while a page shows what it reads. */
+    async own(url: string, name: string, project: string, headers: Record<string, string> = {}): Promise<{response: Response, secret: boolean}> {
+        const target = new URL(url)
+        const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        let value: string | null = null
+        if (row && target.protocol === 'https:' && (JSON.parse(row.hosts) as string[]).includes(target.host)
+            && (!row.projects || (JSON.parse(row.projects) as string[]).includes(project))) {
+            try {
+                value = this.open(row)
+            } catch {
+                // No key, or not the one it was set with: asked without it, the way it would be with no secret.
+            }
+        }
+        const sent = value ? {...headers, Authorization: `Bearer ${value}`} : headers
+        const record = async (status: number | null, error: string | null) => {
+            if (!value) return
+            await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                name, 'GET', target.host, target.pathname, project, null, status, error, ORRERY, new Date().toISOString())
+            await this.db.run(`DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND id NOT IN
+                (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? ORDER BY id DESC LIMIT ${OWN_USES}) AS latest)`, name, ORRERY, name, ORRERY)
+            await this.changed()
+        }
+        try {
+            const response = await this.send(target, {headers: sent, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT)})
+            await record(response.status, null)
+            return {response, secret: !!value}
+        } catch (error) {
+            const reason = value ? (error as Error).message.replaceAll(value, '…') : (error as Error).message
+            await record(null, reason)
+            throw new Error(`The request to ${target.host} failed: ${reason}`, {cause: error})
         }
     }
 
