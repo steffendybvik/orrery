@@ -1,5 +1,5 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatIssues, ChatMessage, ChatReleaseField, ChatReleaseRequest, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSetting, Release, Schedule, SessionState} from '#shared/roadmap'
+import type {Chat, ChatIssues, ChatMessage, ChatReleaseField, ChatReleaseRequest, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {SETTINGS_FIELDS} from '../store/schema'
@@ -29,6 +29,9 @@ same way. Never on your own, and never to delete one: that's theirs, on the Sche
 When the owner asks you to add a release or change one (its branch, notes, place in the order, freezing or shipping it),
 ask with create_release or update_release (the releases tool lists them), the same way. A release's branch is by
 convention v<version>. Never on your own, and never to remove one: that's theirs, on the Releases page.
+When the owner asks you to start a session (on an issue, or working through statuses or a release, with presets and
+their words, as Start session takes them), stop one, or give one more time, ask with start_session, stop_session or
+extend_session: it shows them what would happen with Allow and Deny, the same way. Never on your own.
 Every answer goes back with the reply tool, in Markdown: nothing else reaches the owner. Write an issue as a link
 to its page, \`[<id>](/p/${project}/issues/<id>)\`, so the owner can open it.
 A message ends with the page the owner had open when they wrote it, e.g. \`(The owner is on /p/${project}/schedules: Schedules.)\`.
@@ -108,8 +111,10 @@ export const ASK_FOR = 30 * 60_000
 
 /** The chat's session asking the owner for something in its chat: a message sent to sessions (`{message, why?}`,
  * `askSend`), a schedule made or changed (`{schedule, id?, why?}`, `askSchedule`), a release made or changed
- * (`{release, version?, why?}`, `askRelease`), or else an App setting changed (`askSetting`). */
+ * (`{release, version?, why?}`, `askRelease`), a session started, stopped or given more time (`{session, why?}`,
+ * `askSession`), or else an App setting changed (`askSetting`). */
 export async function ask(id: string, body: unknown): Promise<ChatMessage> {
+    if (isObject(body) && 'session' in body) return await askSession(id, body)
     if (isObject(body) && 'message' in body) return await askSend(id, body)
     if (isObject(body) && 'release' in body) return await askRelease(id, body)
     return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
@@ -265,8 +270,8 @@ const answering = new Set<string>()
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
 export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release))
-    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release
+    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session))
+    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session
     if (!asked || !request) throw notFound(`No request ${message} in this chat`)
     if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
         request.state = 'expired'
@@ -277,7 +282,8 @@ export async function answer(id: string, message: number, allow: boolean, actor:
     if (answering.has(key)) throw conflict('That request is being answered already')
     answering.add(key)
     try {
-        if (asked.send) await answerSend(chat, asked.send, allow, actor)
+        if (asked.session) await answerSession(chat, asked.session, allow, actor)
+        else if (asked.send) await answerSend(chat, asked.send, allow, actor)
         else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
         else if (asked.release) await answerRelease(chat, asked.release, allow, actor)
         else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
@@ -377,6 +383,92 @@ async function answerSetting(chat: Chat, request: NonNullable<ChatMessage['reque
     await useStore().messageSession(chat.project, launchTarget(chat.id), allow
         ? `(I allowed your request: ${label} is now ${settingValue(request.to)}, saved.)`
         : `(I denied your request to set ${label} to ${settingValue(request.to)}: nothing changed.)`, actor)
+}
+
+/** Any session listed, by its name or id (any case), that the chat may ask about: never a chat. */
+function anySessionNamed(name: string): Session {
+    const wanted = currentId(name.trim()).toLowerCase()
+    const session = listSessions().find(s => (s.id.toLowerCase() === wanted || s.name.toLowerCase() === wanted) && !chatSession(s.id))
+    if (!session) throw notFound(`No session ${name}: the sessions tool lists them`)
+    return session
+}
+
+/** The chat's session asking to start a session, stop one, or give one more time (its `start_session`, `stop_session`
+ * and `extend_session` tools, ORR-509): `session` is `{action: 'start', project?, issue?, statuses?, release?, presets?,
+ * instructions?, hears?}`, as Start session takes them (on the chat's project unless it names another), or `{action:
+ * 'stop' | 'extend', name, minutes?}` for a session by its name or id. A request in the chat, checked as the page would
+ * check it, which does nothing until the owner allows it. One it asked before about the same session, still
+ * unanswered, expires. */
+async function askSession(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {session: wanted, why} = body as {session?: unknown, why?: unknown}
+    const action = isObject(wanted) ? wanted.action : undefined
+    if (!isObject(wanted) || (action !== 'start' && action !== 'stop' && action !== 'extend')) {
+        throw badRequest('Send {session: {action: "start", project?, issue?, statuses?, release?, presets?, instructions?, hears?}}, or {session: {action: "stop" or "extend", name, minutes?}}')
+    }
+    let request: ChatSessionRequest
+    if (action === 'start') {
+        const {action: _action, project: on, ...rest} = wanted
+        const project = on === undefined || on === null ? chat.project : await useStore().projectId(String(on))
+        const start = startInput(rest)
+        const context = await contextFor(project, start.presets, start.instructions)
+        request = {action, project, start, ...context?.presets.length ? {presets: context.presets} : {}, state: 'asked'}
+    } else {
+        const {name, minutes} = wanted
+        if (typeof name !== 'string' || !name.trim()) throw badRequest('Send the session\'s "name" (or id): the sessions tool lists them')
+        const session = anySessionNamed(name)
+        if (action === 'stop' && !session.started && !session.reachable) throw conflict(`${session.name} has no orrery channel that can stop it: it's closed in its terminal`)
+        if (action === 'extend' && !session.started) throw conflict(`${session.name} wasn't started by orrery, so it has no time to extend`)
+        if (action === 'extend' && !session.started?.stops_at) throw conflict(`${session.name} runs until it's stopped: it has no time to extend`)
+        const more = minutes === undefined || minutes === null ? 30 : minutes
+        if (action === 'extend' && (!Number.isInteger(more) || Number(more) < 1 || Number(more) > 24 * 60)) throw badRequest(`"minutes" should be a whole number from 1 to 1440, not ${String(more)}`)
+        for (const m of chat.messages) if (m.session?.state === 'asked' && m.session.session === session.id) m.session.state = 'expired'
+        request = {action, project: session.project, session: session.id, name: session.name, ...action === 'extend' ? {minutes: Number(more)} : {}, state: 'asked'}
+    }
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], session: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${sessionAsk(request)}`, details: {action, project: request.project, ...request.name ? {session: request.name} : {}}})
+    return said
+}
+
+/** What a session request asks, as a line: "start a session on hub, on HUB-12", "stop hub · Saga". */
+function sessionAsk(request: ChatSessionRequest): string {
+    if (request.action === 'stop') return `stop ${request.name}`
+    if (request.action === 'extend') return `give ${request.name} ${request.minutes} more minutes`
+    const start = request.start
+    const on = start?.issue ? `, on ${start.issue}`
+        : start?.statuses || start?.release ? `, working through ${start.statuses?.join(', ') ?? 'Todo and In progress'}${start.release ? ` in ${start.release}` : ''}` : ''
+    return `start a session on ${request.project}${on}`
+}
+
+/** The owner allowing or denying the chat's request about a session: allowed, it's started, stopped or given more time
+ * as theirs, through their chat, as the Sessions page would (the same limits, the same launcher). One that no longer
+ * holds (no launcher now, the limit reached, the session gone) fails as the page would, still asked. */
+async function answerSession(chat: Chat, request: ChatSessionRequest, allow: boolean, actor: Actor) {
+    let done = ''
+    if (allow) {
+        const as: Actor = {...actor, via: 'chat'}
+        if (request.action === 'start' && request.start) {
+            const {presets, instructions, ...focus} = request.start
+            const launch = await startLaunch(request.project, {...focus, context: await contextFor(request.project, presets, instructions), actor: as})
+            request.launch = launch.id
+            done = `a session is starting on ${request.project}`
+        } else if (request.action === 'stop' && request.session) {
+            stopSession(request.project, request.session)
+            done = `${request.name} is stopping`
+        } else if (request.action === 'extend' && request.session) {
+            const launch = anySessionNamed(request.session).started?.launch
+            if (!launch) throw conflict(`${request.name} wasn't started by orrery, so it has no time to extend`)
+            extendLaunchBy(request.project, launch, request.minutes ?? 30)
+            done = `${request.name} runs ${request.minutes} minutes longer`
+        }
+    }
+    request.state = allow ? 'allowed' : 'denied'
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${sessionAsk(request)}`,
+        details: {action: request.action, project: request.project, ...request.name ? {session: request.name} : {}, ...request.launch ? {launch: request.launch} : {}, allowed: allow}})
+    await useStore().messageSession(chat.project, launchTarget(chat.id), allow
+        ? `(I allowed your request: ${done}.)`
+        : `(I denied your request to ${sessionAsk(request)}: nothing happened.)`, actor)
 }
 
 /** The owner choosing where the chat's issues land from now on. */
