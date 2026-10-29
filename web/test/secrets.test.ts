@@ -14,6 +14,8 @@ let key: string
 let sent: {url: string, init: RequestInit}[]
 let answer: (url: string, init: RequestInit) => Response
 let lists: Secret[][]
+/** For each list heard, whether it was for a use (true) or a change (false). */
+let used: boolean[]
 let noted: EventEntry[]
 
 beforeEach(async () => {
@@ -23,13 +25,14 @@ beforeEach(async () => {
     key = 'a long random test key'
     sent = []
     lists = []
+    used = []
     noted = []
     answer = () => new Response('{"ok":true}', {status: 200, headers: {'content-type': 'application/json'}})
     const send = async (url: string | URL | Request, init?: RequestInit) => {
         sent.push({url: String(url), init: init!})
         return answer(String(url), init!)
     }
-    secrets = new Secrets(store, () => key, list => lists.push(list), send as typeof fetch, entry => noted.push(entry))
+    secrets = new Secrets(store, () => key, (list, use) => (lists.push(list), used.push(use)), send as typeof fetch, entry => noted.push(entry))
 })
 
 afterEach(() => {
@@ -176,6 +179,19 @@ describe('egress', () => {
         expect(last_used).toEqual(uses[0])
         expect(JSON.stringify(uses)).not.toContain(VALUE)
         expect(lists.at(-1)![0]!.last_used!.id).toBe(uses[0]!.id)
+    })
+
+    it('say a use apart from a change, so using one sets off no backup (ORR-526)', async () => {
+        // STRIPE_KEY is set before each of these.
+        await secrets.set('GITHUB_TOKEN', {value: 'ghp_a long test token', hosts: ['api.github.com']}, me)
+        expect(used).toEqual([false, false])
+        await secrets.egress({url: 'https://api.stripe.com/v1/customers/{{secret:STRIPE_KEY}}'}, agent)
+        await secrets.own('https://api.github.com/repos/o/r/pulls', 'GITHUB_TOKEN', 'greenhouse')
+        expect(used).toEqual([false, false, true, true])
+        // The list it hears with a use still has the use on it.
+        expect(lists.at(-1)!.find(s => s.name === 'GITHUB_TOKEN')!.last_used).toMatchObject({host: 'api.github.com', created_by: 'orrery'})
+        await secrets.delete('STRIPE_KEY', me)
+        expect(used.at(-1)).toBe(false)
     })
 
     it('tell the event log who set, narrowed, sent and deleted which, never a value or a path', async () => {

@@ -67,12 +67,13 @@ export interface EgressResult {
 }
 
 export class Secrets {
-    /** `key` is ORRERY_SECRET_KEY (empty when it isn't set); `onChange` hears the list changed or a secret was used;
+    /** `key` is ORRERY_SECRET_KEY (empty when it isn't set); `onChange` hears the list changed, or a secret was used
+     * (`used`: the list's own uses moved on, and nothing in the secrets changed, so it's nothing to back up, ORR-526);
      * `note` is the event log, told who set, narrowed, deleted or sent which secret where, never a value. */
     constructor(
         private readonly store: Store,
         private readonly key: () => string,
-        private readonly onChange: (secrets: Secret[]) => void = () => {},
+        private readonly onChange: (secrets: Secret[], used: boolean) => void = () => {},
         private readonly send: typeof fetch = globalThis.fetch,
         private readonly note: (entry: EventEntry) => void = () => {},
     ) {}
@@ -201,7 +202,7 @@ export class Secrets {
                 await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     name, method, host, scrub(url.pathname), project, issue, status, error, actor.name, new Date().toISOString())
             }
-            await this.changed()
+            await this.changed(true)
             // Not its path: what the secret is used on is the secret's own record, not the log's.
             this.note({level: 'info', kind: 'egress.called', ...project ? {project} : {},
                 message: `${actor.name} sent ${names.join(', ')} to ${method} ${host}: ${status ?? error}`,
@@ -252,7 +253,7 @@ export class Secrets {
                 name, method, target.host, target.pathname, project, null, status, error, ORRERY, new Date().toISOString())
             await this.db.run(`DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND id NOT IN
                 (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? ORDER BY id DESC LIMIT ${OWN_USES}) AS latest)`, name, ORRERY, name, ORRERY)
-            await this.changed()
+            await this.changed(true)
         }
         try {
             const response = await this.send(target, {method, headers: sent, ...init.body === undefined ? {} : {body: init.body}, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT)})
@@ -296,8 +297,8 @@ export class Secrets {
         return [...new Set(ids)].sort()
     }
 
-    private async changed() {
-        this.onChange(await this.list())
+    private async changed(used = false) {
+        this.onChange(await this.list(), used)
     }
 
     private cipherKey(): Buffer {
