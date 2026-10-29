@@ -1397,6 +1397,19 @@ describe('removing', () => {
 })
 
 describe('a session that connects', () => {
+    it("knows an owner's focus on an issue is on its way until a session hears it (ORR-515)", async () => {
+        const local = new Store(testDb())
+        await local.createProject({name: 'greenhouse', key: 'GRE'})
+        const a = (await local.createIssue('greenhouse', {title: 'A'})).id
+        expect(await local.focusOnItsWay('greenhouse', a)).toBe(false)
+        await local.focus('greenhouse', a, {}, {name: 'claude', owner: false})
+        expect(await local.focusOnItsWay('greenhouse', a)).toBe(false)
+        const focus = await local.focus('greenhouse', a, {}, {name: 'skoll', owner: true})
+        expect(await local.focusOnItsWay('greenhouse', a)).toBe(true)
+        await local.delivered('greenhouse', focus.id, 'Ny')
+        expect(await local.focusOnItsWay('greenhouse', a)).toBe(false)
+    })
+
     it("gets the owner's comments that no agent has answered", async () => {
         const sent: string[] = []
         const local = new Store(testDb(), () => {}, signal => sent.push(`${signal.issue}:${signal.target}:${signal.note}`))

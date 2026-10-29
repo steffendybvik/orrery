@@ -334,6 +334,15 @@ without their pressing anything: to the session working it, else to one session 
 issue becomes open work, so also when a `P0` proposal is committed or a closed `P0` issue reopened; not for
 an agent's P0. A schedule that asks the sessions sends its one focus, saying the issue is urgent.
 
+An issue the owner moves into a Todo status, or makes there, goes to an idle session at once (ORR-515): a
+`focus` saying `It just landed in Todo.`, aimed at a listening session that's idle with nothing in progress
+and nothing queued, a different one for each issue, the project's own before one hearing several. A burst of
+moves (a bulk move) is handed out once, about a second and a half after it, the most urgent first, one per idle
+session; the rest wait in Todo. With nobody idle nothing is sent or queued and no session is started. Not for a
+proposal, a parent, an issue assigned to the owner or waiting on them, one moved within Todo, or one with a
+focus already on its way (Focus on this, a `P0`'s push); not for an agent's move, a schedule's or an untrusted
+session's.
+
 | | |
 |---|---|
 | `POST /projects/:project/issues/:issue/focus` | `{note?, instructions?, start?}` → `{signal, listeners}`: sends it, and says how many sessions heard; `start: true` (the owner's) starts a session for it when nobody's listening, even with `on_signal` off (see [Starting sessions](#starting-sessions)) |
