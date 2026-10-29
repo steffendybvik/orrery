@@ -880,6 +880,27 @@ export interface IssuePulls {
     checked_at: string | null
 }
 
+/** Where a PR stands when it needs someone before it can merge: it conflicts, fails its checks, or is behind its base. */
+export const PULL_NEEDS: PullState[] = ['conflicting', 'failing', 'behind']
+
+/** An open pull request on one of the projects' repos, for the Pull requests page (ORR-491): the issue it names, when
+ * one of the repo's projects has it. */
+export interface OpenPull extends PullRequest {
+    /** The repo on GitHub (`you/shop`). */
+    repo: string
+    issue?: {project: string, id: string, title: string}
+}
+
+/** Every open pull request on the projects' GitHub repos: those that need someone (`PULL_NEEDS`) first, oldest first,
+ * then the rest, oldest first; `needs` counts the first. Each repo says whether a token went, and why it couldn't be
+ * read when it couldn't. Without a token only the list is read, as GitHub allows 60 requests an hour then, so every PR
+ * not a draft is `checking`. */
+export interface AllPulls {
+    pulls: OpenPull[]
+    needs: number
+    repos: {repo: string, projects: string[], token: boolean, checked_at: string | null, error?: string}[]
+}
+
 /** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */
 export function slugify(text: string): string {
     return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
