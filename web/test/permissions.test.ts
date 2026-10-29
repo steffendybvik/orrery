@@ -1,7 +1,8 @@
-import {existsSync, readFileSync} from 'node:fs'
+import {existsSync, readFileSync, readdirSync} from 'node:fs'
+import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {PERMISSIONS} from '#shared/permissions'
-import type {PermissionCell} from '#shared/permissions'
+import type {Permission, PermissionCell} from '#shared/permissions'
 import {Schedules} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -173,35 +174,70 @@ describe("a working session's column", () => {
         },
     }
 
-    // A rule a route holds rather than the store, read where it's held.
+    // A rule a route or a util holds rather than the store, read where it's held.
     const HELD_IN: Record<string, [string, string][]> = {
-        'sessions.start': [
-            ['server/api/projects/[project]/launches/index.post.ts', 'Only the owner starts a session'],
-            ['server/api/projects/[project]/launches/[launch]/stop.post.ts', 'Only the owner stops'],
-            ['server/api/projects/[project]/launches/[launch]/extend.post.ts', 'Only the owner gives'],
-        ],
-        'sessions.watch': [['server/api/projects/[project]/launches/[launch]/watch.post.ts', 'Only the owner watches']],
-        'sessions.allow': [['server/api/projects/[project]/launches/[launch]/allow.post.ts', 'Only the owner allows']],
         'secrets.write': [['server/utils/secrets.ts', 'Only the owner sets secrets']],
         'secrets.egress': [['server/utils/secrets.ts', 'may only go to']],
         'database.write': [
-            ['server/api/backups.post.ts', 'Only the owner backs'],
             ['server/utils/backup-choice.ts', 'Only the owner sets the backups'],
             ['server/utils/move.ts', 'Only the owner moves the database'],
         ],
-        'notices.clear': [
-            ['server/api/notices/clear.post.ts', 'Only the owner clears'],
-            ['server/api/projects/[project]/sessions/[session]/forget.post.ts', 'Only the owner forgets'],
-        ],
     }
+
+    /** Whether every route of the row asks `authorize` for it (ORR-512). */
+    const authorized = (p: Permission) => p.routes.every(route => readFileSync(routeFile(route)!, 'utf8').includes(`authorize(event, '${p.id}')`))
 
     it('holds for every row', async () => {
         for (const p of PERMISSIONS) {
             const probe = PROBES[p.id]
             const held = HELD_IN[p.id]
-            expect(probe || held, `${p.id} has nothing that checks it`).toBeTruthy()
+            expect(probe || held || authorized(p), `${p.id} has nothing that checks it`).toBeTruthy()
             if (probe) await probe()
             for (const [file, said] of held ?? []) expect(readFileSync(file, 'utf8'), `${p.id}: ${file}`).toContain(said)
+        }
+    })
+})
+
+describe('authorize', () => {
+    type Event = {headers: Record<string, string>}
+    let authorize: (event: Event, id: string) => Promise<{name: string}>
+
+    beforeEach(async () => {
+        vi.stubGlobal('actorOf', async (event: Event) => ({name: event.headers['orrery-actor'] ?? 'agent', owner: event.headers['orrery-actor'] === 'skoll'}))
+        vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')
+        vi.stubGlobal('untrustedWrite', (event: Event) => event.headers['orrery-untrusted'] === 'yes')
+        vi.stubGlobal('createError', (input: {statusCode: number, message: string, data: unknown}) => Object.assign(new Error(input.message), input))
+        vi.resetModules()
+        authorize = (await import('../server/utils/authorize')).authorize as unknown as typeof authorize
+    })
+
+    afterEach(() => vi.unstubAllGlobals())
+
+    const as = {
+        owner: {'orrery-actor': 'skoll'},
+        session: {'orrery-actor': 'claude'},
+        // A chat or an untrusted session is what it is whatever name it gives.
+        chat: {'orrery-actor': 'skoll', 'orrery-chat': 'yes'},
+        untrusted: {'orrery-actor': 'skoll', 'orrery-untrusted': 'yes'},
+    }
+
+    it('lets through what each row lets each kind do, and refuses the rest with the row named', async () => {
+        for (const p of PERMISSIONS) {
+            expect(await authorize({headers: as.owner}, p.id)).toMatchObject({name: 'skoll'})
+            for (const kind of ['session', 'chat', 'untrusted'] as const) {
+                const passes = ['free', 'limited', 'owned'].includes(p[kind].level)
+                const result = await authorize({headers: as[kind]}, p.id).then(() => 'passed', (error: {statusCode: number, data: {permission: string}}) => error)
+                if (passes) expect(result, `${p.id}, ${kind}`).toBe('passed')
+                else expect(result, `${p.id}, ${kind}`).toMatchObject({statusCode: 403, data: {permission: p.id}})
+            }
+        }
+    })
+
+    it('is asked only for rows the table has', () => {
+        const files = (dir: string): string[] => readdirSync(dir, {withFileTypes: true}).flatMap(e => e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)])
+        const ids = new Set(PERMISSIONS.map(p => p.id))
+        for (const file of files('server/api')) {
+            for (const [, id] of readFileSync(file, 'utf8').matchAll(/authorize\(event, '([^']+)'\)/g)) expect(ids.has(id!), `${file}: ${id}`).toBe(true)
         }
     })
 })

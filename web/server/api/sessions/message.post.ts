@@ -6,8 +6,7 @@ import {SESSION_STATES, type SessionState} from '#shared/roadmap'
 // them. A session hearing several projects gets it once. Nobody listening is an empty `sent`, not a launch. The owner's
 // chat can't send here: it asks the owner in the chat, and their Send sends it (`askSend`, ORR-416).
 export default defineEventHandler(async event => {
-    const actor = await actorOf(event)
-    if (!actor.owner) throw forbidden('Only the owner messages sessions; send Orrery-Actor: <owner>')
+    const actor = await authorize(event, 'sessions.message')
     const body = await readBody(event).catch(() => null) as {text?: unknown, projects?: unknown, states?: unknown} | null
     const text = typeof body?.text === 'string' ? body.text.trim() : ''
     if (!text) throw badRequest('Send the message as {"text": "…"}')

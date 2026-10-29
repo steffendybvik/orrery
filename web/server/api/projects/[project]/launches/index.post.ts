@@ -8,8 +8,7 @@
 // the repo's channel says. 409 when the project doesn't let orrery start sessions, no launcher is running, the limit
 // is reached, or a project in `hears` has no launcher in this project's folder.
 export default defineEventHandler(async event => {
-    const actor = await actorOf(event)
-    if (!actor.owner) throw forbidden('Only the owner starts a session; send Orrery-Actor: <owner>')
+    const actor = await authorize(event, 'sessions.start')
     const {issue, statuses, release, presets, instructions, hears} = startInput((await readBody(event).catch(() => null)) ?? {})
     const project = param(event, 'project')
     const context = await contextFor(project, presets, instructions)

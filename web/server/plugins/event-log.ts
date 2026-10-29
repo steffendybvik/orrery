@@ -8,7 +8,7 @@ export default defineNitroPlugin(nitro => {
     nitro.hooks.hook('error', (error, {event}) => {
         const status = (error as {statusCode?: number}).statusCode ?? 500
         if (status < 500) {
-            const refused = event && refusal(status, event.method, event.path, error.message, getHeader(event, 'orrery-actor')?.trim().slice(0, 60))
+            const refused = event && refusal(status, event.method, event.path, error.message, getHeader(event, 'orrery-actor')?.trim().slice(0, 60), (error as {data?: {permission?: string}}).data?.permission)
             // An untrusted schedule's session refused sets off no schedule: what it tried was steered by what it read.
             if (refused) log.note(untrustedWrite(event) ? {...refused, untrusted: true} : refused)
             return
