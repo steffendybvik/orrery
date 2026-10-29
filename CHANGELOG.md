@@ -23,6 +23,9 @@ overview, is one list.
 - **Permission prompts say what for:** the popup and a waiting session's card name the tool a session asks to use
   and what it would do (the command, file, address or search), an MCP tool as `server · tool`, not only "Claude
   needs your permission".
+- **The launcher on Windows:** it installs and runs inside WSL2 with systemd on. `--install` says what to do on
+  Windows itself or in a distro without systemd, and when it can't reach a `localhost` orrery from WSL; **Watch**
+  opens Windows Terminal on the session.
 
 ### Changes
 
@@ -31,6 +34,13 @@ overview, is one list.
 
 ### Fixes
 
+- **Security, the permission popup shows the screen's prompt:** with rc.12's tool line, it showed what a session's
+  hook said it asked for over the prompt on its screen, which another session could fake and a late parallel tool
+  could overwrite. The prompt on screen, what **Allow** answers, comes first again; a hook's tool only shows for a
+  session with no screen, which has no Allow.
+- **Security, egress answers stay out of Context:** **So far** kept the text of what an `egress` call brought back,
+  which any caller can read there. It keeps only its size now, and `SECURITY.md` says what the Context page holds and
+  who can read it.
 - Watch opened two terminal windows, one of them blank, when Terminal or iTerm2 wasn't already running. It opens
   one.
 - An issue's read-only fields (Project, Progress, Created by, the dates) sat closer together than the editable ones
