@@ -2,7 +2,7 @@ import {execFileSync, spawn} from 'node:child_process'
 import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
 import {adoptable, inWsl, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
@@ -118,6 +118,27 @@ describe('the running service following its list (ORR-597)', () => {
         abort.abort()
         await expect(following).resolves.toBeUndefined()
         expect(logs.length).toBeLessThanOrEqual(1)
+    })
+
+    it('says once that nothing answers, then retries quietly (ORR-604)', async () => {
+        vi.useFakeTimers()
+        vi.stubGlobal('fetch', () => Promise.reject(new Error('connection refused')))
+        try {
+            const abort = new AbortController()
+            const logs: string[] = []
+            const downs: string[] = []
+            const following = follow({url: () => 'http://localhost:9000/x', onEvent: () => {}, log: (line: string) => logs.push(line), down: (since: Date, error: Error) => downs.push(error.message), signal: abort.signal})
+            // 1 + 2 + 4 + 8 + 16 seconds of growing waits, then 30s waits for ten minutes.
+            await vi.advanceTimersByTimeAsync((1 + 2 + 4 + 8 + 16) * 1000 + 20 * 30_000)
+            expect(logs).toHaveLength(5)
+            expect(logs[4]).toContain('trying again in 16s')
+            expect(downs).toEqual(['connection refused'])
+            abort.abort()
+            await following
+        } finally {
+            vi.unstubAllGlobals()
+            vi.useRealTimers()
+        }
     })
 })
 
