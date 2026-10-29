@@ -5,10 +5,10 @@ import type {Input} from '../utils/input'
 import {badRequest, checkInput, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
 import {AGENT, ISSUE_FIELDS, tasksOf, nullable, stamp} from './schema'
-import {ReleaseStore} from './releases'
+import {ClaimStore} from './claims'
 import {refusedFor} from '../utils/permission'
 
-export abstract class IssueStore extends ReleaseStore {
+export abstract class IssueStore extends ClaimStore {
     // Further down the chain: a focus is a signal, and moving an issue takes its sub-issues along.
     protected abstract sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal>
     protected abstract moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string], actor: Actor): Promise<string>
@@ -171,11 +171,5 @@ export abstract class IssueStore extends ReleaseStore {
         } catch (error) {
             console.error(`[orrery] pushing urgent ${after.id} in ${project}:`, error)
         }
-    }
-
-    /** The session that last worked the issue, while it's there to hear; null otherwise (one session orrery picks). */
-    protected async listeningWorker(project: string, issue: string): Promise<string | null> {
-        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
-        return worker && this.hears(project, worker) ? worker : null
     }
 }
