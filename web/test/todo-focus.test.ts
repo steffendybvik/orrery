@@ -36,6 +36,9 @@ beforeEach(async () => {
         listIssues: async () => board,
         workingOn: async (_project: string, ids: string[]) => ids.filter(id => busy.includes(id)).map(id => ({id})),
         waiting: async (_project: string, ids: string[]) => ids.some(id => queued.includes(id)),
+        async busy(project: string, ids: string[]) {
+            return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
+        },
         focusOnItsWay: async (_project: string, id: string) => onItsWay.includes(id),
         focus: async (_project: string, issue: string, body: {session: string, note: string}, by: {name: string, owner: boolean}) => void sent.push({issue, session: body.session, note: body.note, by}),
     }))

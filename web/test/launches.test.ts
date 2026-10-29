@@ -74,6 +74,9 @@ beforeEach(async () => {
         workingOn: async (_project: string, ids: string[]) => ids.flatMap(id => working[id] ?? []),
         waiting: async (_project: string, ids: string[]) => waitingForAll || ids.some(id => waiting.includes(id)),
         waitingFor: async (_project: string, ids: string[]) => ids.some(id => waiting.includes(id)),
+        async busy(project: string, ids: string[], own = false) {
+            return (await this.workingOn(project, ids)).length > 0 || await (own ? this.waitingFor(project, ids) : this.waiting(project, ids))
+        },
     }))
     vi.stubGlobal('sessionIds', (id: string) => [id])
     vi.resetModules()

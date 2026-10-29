@@ -39,7 +39,10 @@ beforeEach(async () => {
     vi.stubGlobal('chatSession', () => chat)
     vi.stubGlobal('recheckIdle', () => void rechecked++)
     vi.stubGlobal('useStore', () => ({
-        workingOn: async () => working.map(id => ({id})), waiting: async () => waiting,
+        workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})), waiting: async (_project: string, _ids: string[]) => waiting,
+        async busy(project: string, ids: string[]) {
+            return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
+        },
         focusChunk: async (...args: unknown[]) => void focused.push(args),
         listIssues: async () => issues,
         focus: async (...args: unknown[]) => void carried.push(args),

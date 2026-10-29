@@ -46,8 +46,11 @@ beforeEach(async () => {
         settings: async () => ({pick_next: on}),
         ownerOf: async () => ({name: 'steffen'}),
         listIssues: async (project: string) => board[project] ?? [],
-        workingOn: async () => working.map(id => ({id})),
-        waiting: async () => waiting,
+        workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})),
+        waiting: async (_project: string, _ids: string[]) => waiting,
+        async busy(project: string, ids: string[]) {
+            return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
+        },
         project: async () => ({releases: [{version: '1.0.0', frozen_on: '2026-10-28'}]}),
         messageSession: async (project: string, session: string, text: string, actor: {owner: boolean}) => void sent.push({project, session, text, owner: actor.owner}),
     }))
