@@ -107,6 +107,7 @@ describe('StartSessionDialog', () => {
         await wrapper.find('textarea').setValue('  Run the e2e suite  ')
         // Greenhouse and Pantry are in repos of their own, so there's no starting one session for both.
         expect(wrapper.text()).not.toContain('One session for all')
+        expect(wrapper.find('button[type=submit]').text()).toContain('Start 2 sessions')
         await wrapper.find('form').trigger('submit')
         await started(2)
         expect(sent.map(s => [s.project, s.body])).toEqual([

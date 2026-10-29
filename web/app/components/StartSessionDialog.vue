@@ -317,7 +317,7 @@ async function start() {
         <template v-if="launches > 1">each, {{ count * launches }} in all</template>
       </label>
       <UiButton type="submit" variant="primary" size="md" :class="most > 1 ? '' : 'ml-auto'" :disabled="!ready">
-        {{ busy ? 'Starting…' : count > 1 ? `Start ${count} sessions` : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+        {{ busy ? 'Starting…' : count * launches > 1 ? `Start ${count * launches} sessions` : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>
