@@ -8,6 +8,10 @@ const route = useRoute()
 const {byProject: schedulesByProject} = useSchedules()
 const {settings: appSettings} = useAppSettings()
 const {newErrors} = useLoggedEvents()
+// Open pull requests on the projects' GitHub repos, asked every two minutes: the entry shows once a repo is there,
+// with how many need someone (ORR-491).
+const {pulls, follow: followPulls} = useOpenPulls()
+followPulls(120_000)
 /** Every project's schedules still set to run, for the Schedules entry. */
 const scheduleCount = computed(() => Object.values(schedulesByProject.value).flat().filter(s => s.enabled).length)
 const open = useState('sidebar-open', () => false)
@@ -150,6 +154,18 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <SectionIcon section="sessions" class="size-4 text-faint" />
         <span class="flex-1">Sessions</span>
         <span v-if="allSessions.length" class="font-mono text-[11px] text-faint tabular-nums">{{ allSessions.length }}</span>
+      </NuxtLink>
+
+      <NuxtLink
+          v-if="pulls?.repos.length"
+          to="/pulls"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
+        <span class="flex-1">Pull requests</span>
+        <span v-if="pulls.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
+        <span v-else-if="pulls.pulls.length" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.pulls.length }}</span>
       </NuxtLink>
 
       <NuxtLink

@@ -164,6 +164,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `ProjectIcon` | a project's Heroicon in its colour |
 | `SectionIcon` | the icon of a project's page (issues, roadmap, docs…) |
 | `SessionDot` | a Claude session's state as a dot |
+| `PullStateChip` | where an open pull request stands (Conflicts, Behind, Ready to merge…), red to green |
 | `KeyHint` | a key, as `<KeyHint>⌘↵</KeyHint>` |
 | `StepMark` | a step's number in a guide, ticked when done |
 | `MarkdownView` | Markdown as a page (descriptions, comments, docs); with `before`, what changed is tinted |
