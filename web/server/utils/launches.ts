@@ -8,7 +8,7 @@
 // way is replaced by one like it once it has ended, so the count doesn't fall to nothing when no new work comes in.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {randomBytes} from 'node:crypto'
-import type {Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
+import type {LauncherRepo, Session, SessionContext, Signal, StartedSession, Starts, TerminalApp} from '#shared/roadmap'
 import type {Actor} from './store'
 import {EVERY} from './pool'
 import {scheduleRunning} from './schedules'
@@ -70,6 +70,9 @@ export const launchersOf = launchers.count
 /** The folders each project's launchers run in, as they say (`?dir=`), counted: projects with a folder in common
  * are served by one repo, so one session there can hear them all. */
 const folders = new Map<string, Map<string, number>>()
+/** When a project's folder was picked up by its channel rather than installed by hand (ORR-599), as its launcher
+ * says (`?picked=`), for Sessions → Setup (ORR-605). */
+const picked = new Map<string, Map<string, string>>()
 /** How many of each project's launchers run where its channel serves every project (`*`, `?every=1`), so a session
  * started there hearing no one project hears them all. */
 const everywhere = counter('everywhere')
@@ -81,7 +84,7 @@ const versions = new Map<string, string[]>()
 const tokens = new Map<string, string>()
 /** Counts a project's launcher in, in its folder when it says, and as serving every project when it does, and the
  * version of its code, until `done` is called. `done.token` is the one its claims are to send. */
-export function addLauncher(project: string, dir?: string, every = false, version = ''): (() => void) & {token: string} {
+export function addLauncher(project: string, dir?: string, every = false, version = '', pickedAt?: string): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
     tokens.set(token, project)
     const gone = launchers.add(project)
@@ -101,18 +104,27 @@ export function addLauncher(project: string, dir?: string, every = false, versio
     if (!dir) return Object.assign(done, {token})
     const counts = folders.get(project) ?? new Map<string, number>()
     folders.set(project, counts.set(dir, (counts.get(dir) ?? 0) + 1))
+    if (pickedAt) picked.set(project, (picked.get(project) ?? new Map<string, string>()).set(dir, pickedAt))
     let counted = true
     return Object.assign(() => {
         if (!counted) return
         counted = false
         const left = (counts.get(dir) ?? 1) - 1
         if (left > 0) counts.set(dir, left)
-        else counts.delete(dir)
+        else {
+            counts.delete(dir)
+            picked.get(project)?.delete(dir)
+        }
         done()
     }, {token})
 }
 /** The folders a project's launchers run in. */
 const foldersOf = (project: string): string[] => [...folders.get(project)?.keys() ?? []]
+/** The folders its launchers run in, each with when its channel picked it up, if it did. */
+const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => {
+    const at = picked.get(project)?.get(dir)
+    return at ? {dir, picked_at: at} : {dir}
+})
 
 function pendingOn(project?: string): number {
     for (const [id, launch] of pending) {
@@ -612,6 +624,6 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
 
 /** For the project's settings: its launchers and the versions they run, the sessions it has started and on their way,
  * and those on every project, which the limit counts. */
-export function launchState(project: string): {launchers: number, versions: string[], folders: string[], every: boolean, started: number, starting: number, total: number} {
-    return {launchers: launchersOf(project), versions: [...versions.get(project) ?? []], folders: foldersOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
+export function launchState(project: string): {launchers: number, versions: string[], folders: string[], repos: LauncherRepo[], every: boolean, started: number, starting: number, total: number} {
+    return {launchers: launchersOf(project), versions: [...versions.get(project) ?? []], folders: foldersOf(project), repos: reposOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
 }
