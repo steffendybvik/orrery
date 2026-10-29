@@ -55,7 +55,11 @@ export const TOOLS = [
             open: {type: 'boolean', description: 'Only issues not done or canceled (default true)'},
         }},
     },
-    {name: 'issue', description: 'An issue in full (description, status, sub-issues, proposal and choices) with its comments, and its open pull requests with where each stands.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
+    {
+        name: 'issue',
+        description: 'An issue: description, status, open sub-issues (finished ones counted), proposal and choices, open PRs, and its latest comments and open questions in full (older ones by their first line).',
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, comments: {type: 'string', enum: ['all'], description: 'Every comment in full'}}},
+    },
     {
         name: 'create_issue',
         description: 'Adds an issue. With proposal: true it goes to the owner as a proposal (with choices, if you send them) instead of being work.',
@@ -289,6 +293,15 @@ export const UNTRUSTED_TOOLS = [
  * with the event log (its launcher refuses them too, `chatOnly`). */
 export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'write_doc', 'egress', 'secrets', 'resolve_event']
 
+/** How many of an issue's latest comments the `issue` tool gives in full (ORR-547). */
+const LATEST_COMMENTS = 5
+
+/** A comment's first line that says something, cut to a line's length. */
+function firstLine(body) {
+    const first = body.split('\n').map(l => l.trim()).find(Boolean) ?? ''
+    return first.length > 140 ? `${first.slice(0, 139)}…` : first
+}
+
 /** A GitHub login as it can only be: letters, digits, `_` and `-` (ORR-532). */
 const LOGIN = /^[\w-]+$/
 
@@ -359,16 +372,27 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             return issues.length ? issues.map(line).join('\n') : 'No issues match.'
         },
-        async issue({id}) {
+        async issue({id, comments: which}) {
             const base = at(await projectOf({id}))
             // Its open pull requests and where each stands (ORR-508), when its project's repo is on GitHub; none if that can't be read.
             // Never a PR's head branch or title, which an outsider may have written, as sessions read this as the owner's; its
             // author only when it's a plain login, so a session can tell its own PR from an outsider's (ORR-532).
+            // Only the latest comments and unanswered questions in full, and finished sub-issues counted: a long issue
+            // stays small in a session's context, which keeps it for the rest of the session (ORR-547).
             const [issue, comments, pulls] = await Promise.all([call('GET', issuePath(id), undefined, base), call('GET', `${issuePath(id)}/comments`, undefined, base),
                 call('GET', `${issuePath(id)}/pulls`, undefined, base).catch(() => null)])
             const {tasks, counts, kinds, ...rest} = issue
             const open = pulls?.pulls?.map(p => ({number: p.number, state: p.state, base: p.base, url: p.url, ...LOGIN.test(p.author ?? '') ? {author: p.author} : {}})) ?? []
-            return JSON.stringify({...rest, sub_issues: tasks.map(line), ...open.length ? {pull_requests: open} : {}, comments: comments.map(c => ({by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}))}, null, 1)
+            const finished = tasks.filter(t => ['done', 'canceled'].includes(t.kind))
+            const counted = Object.entries(Object.groupBy(finished, t => t.status)).map(([status, of]) => `${of.length} ${status}`).join(', ')
+            const subIssues = {sub_issues: tasks.filter(t => !finished.includes(t)).map(line), ...counted ? {finished_sub_issues: counted} : {}}
+            const all = which === 'all'
+            const said = comments.map((c, i) => all || i >= comments.length - LATEST_COMMENTS || (c.asks && !c.answered)
+                ? {by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}
+                : {by: c.created_by, at: c.created_at, first_line: firstLine(c.body)})
+            const older = said.filter(c => 'first_line' in c).length
+            return JSON.stringify({...rest, ...subIssues, ...open.length ? {pull_requests: open} : {}, comments: said,
+                ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {}})
         },
         async create_issue(args) {
             const {proposal, project, ...fields} = args
