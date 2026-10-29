@@ -97,14 +97,25 @@ test('an error an agent resolved stays on the bell, and says who resolved it', a
     await expect(page.getByRole('log').locator('div').filter({hasText: message})).toContainText('(resolved by Agent)')
 })
 
-test("takes only a few of the page's reports of a kind a minute", async ({request}) => {
+/** The log counts reports by the clock's minute and starts again on the next (ORR-503): begins a run of them where it
+ * fits in one minute, and a retry in a minute of its own, as the try before used up some of this one's. */
+async function inOneMinute(retry: number) {
+    const left = 60_000 - Date.now() % 60_000
+    if (!retry && left > 10_000) return
+    test.setTimeout(test.info().timeout + left)
+    await new Promise(resolve => setTimeout(resolve, left + 250))
+}
+
+test("takes only a few of the page's reports of a kind a minute", async ({request}, {retry}) => {
+    await inOneMinute(retry)
     const kind = `page.flood${Date.now()}`
     const sent = []
     for (let i = 0; i < 6; i++) sent.push((await request.post('/api/events/log', {data: {message: `flood ${i}`, kind}})).status())
     expect(sent).toEqual([201, 201, 201, 201, 201, 429])
 })
 
-test("counts each sender's reports apart, so a script can't use up the page's (ORR-457)", async ({request}) => {
+test("counts each sender's reports apart, so a script can't use up the page's (ORR-457)", async ({request}, {retry}) => {
+    await inOneMinute(retry)
     const script = {'Orrery-Actor': `script${Date.now()}`}
     const sent = []
     for (let i = 0; i < 21; i++) sent.push((await request.post('/api/events/log', {headers: script, data: {message: `noise ${i}`, kind: `page.noise${i}`}})).status())
