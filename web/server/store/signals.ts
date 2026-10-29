@@ -2,13 +2,14 @@
 import {randomBytes} from 'node:crypto'
 import type {Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
-import {badRequest, checkInput, conflict, forbidden, notFound} from '../utils/input'
+import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Actor, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
 import {EVERY} from '../utils/pool'
 import {compressImage} from '../utils/compress'
 import {known} from '#shared/known'
+import {ownerOnly} from '../utils/permission'
 
 export abstract class SignalStore extends IssueStore {
     /** `Store` has it, with the claims on issues. */
@@ -178,7 +179,7 @@ export abstract class SignalStore extends IssueStore {
      * (an id its sessions can have), they're that preset's text as the owner sent it, tweaked or not, and the
      * message is labelled by its name. */
     async messageSession(project: string, session: string, text: unknown, actor = AGENT, preset?: unknown): Promise<Signal> {
-        if (!actor.owner) throw forbidden('Only the owner messages a session; send Orrery-Actor: <owner>')
+        ownerOnly(actor, 'sessions.message')
         await this.projectRow(project)
         const note = typeof text === 'string' ? text.trim() : ''
         if (!note) throw badRequest('Send the message as {"text": "…"}')

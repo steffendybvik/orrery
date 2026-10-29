@@ -12,8 +12,9 @@ import type {Secret, SecretUse} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
 import type {Field} from './input'
 import {badRequest, checkInput, forbidden, isObject, notFound} from './input'
-import type {Actor, Store} from './store'
+import type {Store} from './store'
 import {AGENT} from './store'
+import {ownerOnly, refusedFor} from './permission'
 
 interface SecretRow { name: string, value: string, last4: string, hosts: string, projects: string | null, created_by: string, owned: number, created_at: string, updated_at: string }
 interface UseRow { id: number, secret: string, method: string, host: string, path: string, project: string | null, issue: string | null, status: number | null, error: string | null, created_by: string, created_at: string }
@@ -96,7 +97,7 @@ export class Secrets {
 
     /** Sets a secret, new or replacing the one with this name: `{value, hosts, projects?}`. */
     async set(name: string, body: unknown, actor = AGENT): Promise<{secret: Secret, created: boolean}> {
-        this.ownerOnly(actor)
+        ownerOnly(actor, 'secrets.write')
         if (!SECRET_NAME.test(name)) throw badRequest(`"${name}" isn't a secret's name; use capitals, digits and _, e.g. STRIPE_KEY`)
         const input = checkInput(body, SECRET_FIELDS)
         const value = String(input.value).trim()
@@ -117,7 +118,7 @@ export class Secrets {
 
     /** Narrows where a secret may go, `{hosts?, projects?}`, without its value; widening takes `set`. */
     async narrow(name: string, body: unknown, actor = AGENT): Promise<Secret> {
-        this.ownerOnly(actor)
+        ownerOnly(actor, 'secrets.write')
         const row = await this.row(name)
         const input = checkInput(body, NARROW_FIELDS, true)
         const was = {hosts: JSON.parse(row.hosts) as string[], projects: row.projects ? JSON.parse(row.projects) as string[] : null}
@@ -137,7 +138,7 @@ export class Secrets {
     }
 
     async delete(name: string, actor = AGENT) {
-        this.ownerOnly(actor)
+        ownerOnly(actor, 'secrets.write')
         await this.row(name)
         await this.db.run('DELETE FROM secrets WHERE name = ?', name)
         await this.db.run('DELETE FROM secret_uses WHERE secret = ?', name)
@@ -164,7 +165,7 @@ export class Secrets {
             const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
             if (!row) throw notFound(`No secret ${name}; GET /api/secrets lists them`)
             const projects = row.projects ? JSON.parse(row.projects) as string[] : null
-            if (projects && (!project || !projects.includes(project))) throw forbidden(`${name} is only for ${projects.join(', ')}; send the "project" it's for`)
+            if (projects && (!project || !projects.includes(project))) throw refusedFor('secrets.egress', `${name} is only for ${projects.join(', ')}; send the "project" it's for`)
             secrets.set(name, {row, hosts: JSON.parse(row.hosts), value: this.open(row)})
         }
         const {scrub, cut} = scrubber(secrets)
@@ -184,7 +185,7 @@ export class Secrets {
         if (url.protocol !== 'https:') throw badRequest('Secrets only go over https')
         const host = scrub(url.host)
         for (const [name, {hosts}] of secrets) {
-            if (!hosts.includes(url.host)) throw forbidden(`${name} may only go to ${hosts.join(', ')}, not ${host}`)
+            if (!hosts.includes(url.host)) throw refusedFor('secrets.egress', `${name} may only go to ${hosts.join(', ')}, not ${host}`)
         }
 
         const sent = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, fill(v)]))
@@ -293,10 +294,6 @@ export class Secrets {
         if (!sent?.length) return null
         const ids = await Promise.all(sent.map(p => this.store.projectId(p)))
         return [...new Set(ids)].sort()
-    }
-
-    private ownerOnly(actor: Actor) {
-        if (!actor.owner) throw forbidden('Only the owner sets secrets; send Orrery-Actor: <owner>')
     }
 
     private async changed() {
