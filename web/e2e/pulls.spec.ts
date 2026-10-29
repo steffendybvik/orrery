@@ -21,6 +21,13 @@ test('polls now on Poll, and holds a repo without a token for five minutes', asy
     await pollButton.click()
     expect(granary(await (await again).json() as Polled)?.held).toMatch(/^Read without a token a moment ago/)
     await expect(page.getByRole('list', {name: 'Repos'})).toContainText('not polled now: Read without a token a moment ago')
+    // A repo GitHub couldn't be read for isn't counted as having none open (ORR-552): made up, these all fail.
+    const {repos} = await (await request.get('/api/pulls')).json() as {repos: {error?: string}[]}
+    if (repos.every(r => r.error)) {
+        await expect(page.getByText("Couldn't read GitHub", {exact: true})).toBeVisible()
+        await expect(page.getByText("Couldn't read GitHub, so this can't tell which pull requests are open.")).toBeVisible()
+    }
+    await expect(page.getByText('None open', {exact: true})).toHaveCount(repos.some(r => r.error) ? 0 : 1)
     // A repo no project is on isn't polled.
     expect((await request.post('/api/pulls/poll?repo=orrery-e2e/nowhere', {headers: OWNER})).status()).toBe(404)
     // Only the owner polls.
