@@ -5,6 +5,7 @@ import {badRequest, checkInput, conflict} from '../utils/input'
 import {AGENT, SLUG, DOC_FIELDS, docOf, stamp} from './schema'
 import type {Input} from '../utils/input'
 import {ChunkStore} from './chunks'
+import {readDocSummaries} from './reads'
 
 /** A doc's section as sent: trimmed, and none for an empty one; undefined leaves it as it is. */
 function sectionOf(value: Input[string]): string | null | undefined {
@@ -16,7 +17,7 @@ function sectionOf(value: Input[string]): string | null | undefined {
 export abstract class DocStore extends ChunkStore {
     async listDocs(project: string, {q}: {q?: string} = {}): Promise<DocSummary[]> {
         await this.projectRow(project)
-        return await this.docSummaries(project, q)
+        return await readDocSummaries(this.db, project, q)
     }
 
     async doc(project: string, id: string): Promise<Doc> {
