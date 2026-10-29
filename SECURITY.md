@@ -172,9 +172,11 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 them: orrery fills it into the request and sends it.
 
 orrery itself calls one outside service: GitHub, at `api.github.com`, to show the open pull requests on
-projects whose repo is there. It reads, never writes, only while a page is open (an issue's, Pull requests,
-and the sidebar's count every two minutes), at most once a minute per repo, and sends the `GITHUB_TOKEN`
-secret only when you've set one that may go there.
+projects whose repo is there and to notice when one conflicts, merges or closes. It reads, never writes:
+each repo is polled in the background, once a minute with a token and every ten minutes without (a page
+open may also ask, no more than that), and it sends the `GITHUB_TOKEN` secret only when you've set one that
+may go there. What it reads is kept in orrery's database: each PR's title, branch, state and the issue
+ids it names, not its body.
 
 - **Agents never hold the value.** No route, event or page gives it back, only its last 4 characters.
 - **It only goes where you said.** Each secret names its hosts, and orrery sends it nowhere else and
