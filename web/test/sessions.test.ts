@@ -630,12 +630,14 @@ describe("a session's stream catching up", () => {
 
     it("carries the context the session was started with on its first signal only, as its hook gives it too", async () => {
         const signal = (id: number) => ({id, project: 'greenhouse', kind: 'focus'}) as unknown as Signal
-        vi.stubGlobal('useStore', () => ({unheardScheduled: async () => []}))
+        vi.stubGlobal('useStore', () => ({unheardScheduled: async () => [], carryUnanswered: async () => {}}))
+        // The catch-up goes through, not the fallback a failed one takes, which sends what it missed just the same.
+        const failed = vi.spyOn(console, 'error').mockImplementation(() => {})
         let context: {presets: string[], text: string} | undefined
         // What the Context page keeps of each, as the stream says it (ORR-549).
         const noted: string[][] = []
         for (const [name, value] of Object.entries({startRun: () => {}, sessionNow: () => ({started: {launch: 'l', context}}), idleAt: () => undefined, sessionName: () => undefined,
-            repeatKey: () => undefined, contextBlock: (given: {text: string}) => `More: ${given.text}`,
+            repeatKey: () => undefined, foldRepeats: (all: Signal[]) => ({kept: all, repeats: []}), contextBlock: (given: {text: string}) => `More: ${given.text}`,
             noteContext: (session: string, kind: string, title: string, text: string) => noted.push([session, kind, title, text])})) vi.stubGlobal(name, value)
         const {streamFeed} = await import('../server/utils/signal-feed')
         let live = false
@@ -651,5 +653,7 @@ describe("a session's stream catching up", () => {
         await streamFeed((_signal, said) => told.push(said), feed as never)
         await vi.waitFor(() => expect(told).toEqual([{id: 1}, {id: 2, context: "More: You're reviewing."}, {id: 3}]))
         expect(noted[1]).toEqual(['a', 'signal', 'focus', JSON.stringify({id: 2, context: "More: You're reviewing."})])
+        expect(failed).not.toHaveBeenCalled()
+        failed.mockRestore()
     })
 })
