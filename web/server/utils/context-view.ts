@@ -3,8 +3,8 @@
 // `toolsFor`, so it's what's sent), and the context the session was started with, as its first signal and its brief
 // after a `/clear` carry it. For a kind of session (a work session, the owner's chat, an untrusted schedule's run),
 // or for one that's running. Sizes are characters, and tokens estimated as a quarter of them.
-import {instructionsFor} from '../../../channel/instructions.mjs'
-import {toolsFor} from '../../../channel/tools.mjs'
+import {instructionsFor} from '#channel/instructions.mjs'
+import {toolsFor} from '#channel/tools.mjs'
 import type {ContextKind, ContextPart, ContextView} from '#shared/context'
 
 const tokens = (chars: number) => Math.ceil(chars / 4)

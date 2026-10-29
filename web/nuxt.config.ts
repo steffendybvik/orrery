@@ -54,9 +54,14 @@ export default defineNuxtConfig({
         },
     },
 
+    // The channel's own code (`#channel`), bundled into the server, so the context view (ORR-549) shows what the channel
+    // sends from the same code.
+    alias: {'#channel': fileURLToPath(new URL('../channel', import.meta.url))},
+
     // docs/API.md is served to agents (/api/guide, /llms-full.txt).
     nitro: {
         serverAssets: [{baseName: 'docs', dir: fileURLToPath(new URL('../docs', import.meta.url))}],
+        externals: {inline: [fileURLToPath(new URL('../channel', import.meta.url))]},
     },
 
     app: {
