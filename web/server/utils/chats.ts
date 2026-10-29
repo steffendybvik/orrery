@@ -1,12 +1,13 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleField, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
-import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
+import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {Actor} from '../store/schema'
 import {CHUNK_FIELDS, SETTINGS_FIELDS} from '../store/schema'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {sessionHeader} from './actor'
+import {scheduleAsk, scheduleRequest} from './schedule-requests'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -205,21 +206,10 @@ async function owner(): Promise<Actor> {
 async function askSchedule(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
     const chat = chatOf(id)
     const {schedule: fields, id: target, why} = body as {schedule?: unknown, id?: unknown, why?: unknown}
-    if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {schedule: {…}, id?}: the fields to set, any of ${Object.keys(CHAT_SCHEDULE_FIELDS).join(', ')}, and the schedule's id to change one`)
-    const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_SCHEDULE_FIELDS, key))
-    if (refused.length) throw forbidden(`The owner's chat sets a schedule's ${Object.keys(CHAT_SCHEDULE_FIELDS).join(', ')}, not its ${refused.join(', ')}: the rest are the owner's to set on Schedules`)
-    if (target !== undefined && target !== null && !Number.isInteger(target)) throw badRequest('Send "id" as the number of the schedule to change, or leave it out to make one')
-    const scheduler = useScheduler()
-    const current = Number.isInteger(target) ? await scheduler.get(chat.project, target as number) : undefined
-    await scheduler.check(chat.project, fields, await owner(), current?.id)
-    const presets = await presetNames(chat.project, [...(fields.presets as number[] | undefined) ?? [], ...current?.presets ?? []])
-    const shown = (field: ChatScheduleField, value: unknown) => field === 'presets' && Array.isArray(value) ? value.map(p => presets.get(p) ?? p) : value
-    const changes = (Object.entries(fields) as [ChatScheduleField, unknown][]).map(([field, to]) =>
-        current ? {field, from: shown(field, current[field as keyof Schedule] ?? null), to: shown(field, to)} : {field, to: shown(field, to)})
-    for (const m of chat.messages) if (current && m.schedule?.state === 'asked' && m.schedule.id === current.id) m.schedule.state = 'expired'
-    const request: ChatScheduleRequest = {...current ? {id: current.id} : {}, title: String(fields.title ?? current?.title ?? ''), changes, body: fields, state: 'asked'}
+    const request = await scheduleRequest(chat.project, fields, target, await owner(), "The owner's chat")
+    for (const m of chat.messages) if (request.id !== undefined && m.schedule?.state === 'asked' && m.schedule.id === request.id) m.schedule.state = 'expired'
     const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], schedule: request})
-    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${scheduleAsk(request)}`, details: {schedule: request.id ?? null, fields: Object.keys(fields)}})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${scheduleAsk(request)}`, details: {schedule: request.id ?? null, fields: Object.keys(request.body)}})
     return said
 }
 
@@ -299,17 +289,6 @@ async function askChunk(id: string, body: Record<string, unknown>): Promise<Chat
 const chunkAsk = (request: ChatChunkRequest) => request.id === undefined
     ? `make the chunk "${request.title}"`
     : `change chunk ${request.id} ("${request.title}"): ${request.changes.map(c => `${CHAT_CHUNK_FIELDS[c.field]} to ${settingValue(c.to)}`).join(', ')}`
-
-/** The names of the presets `ids`, those that are still there. */
-async function presetNames(project: string, ids: unknown[]): Promise<Map<unknown, string>> {
-    if (!ids.length) return new Map()
-    return new Map((await useStore().presets(project)).filter(p => ids.includes(p.id)).map(p => [p.id, p.name]))
-}
-
-/** What a schedule request asks, as a line: "make the schedule X", "change schedule 3 (X)". */
-const scheduleAsk = (request: ChatScheduleRequest) => request.id === undefined
-    ? `make the schedule "${request.title}"`
-    : `change schedule ${request.id} ("${request.title}"): ${request.changes.map(c => `${CHAT_SCHEDULE_FIELDS[c.field]} to ${scheduleValue(c.to)}`).join(', ')}`
 
 /** The chat's session asking to make a release in its project, or change release `version` there (its `create_release`
  * and `update_release` tools): `release` holds the fields, as Releases takes them (`CHAT_RELEASE_FIELDS`). A request in
