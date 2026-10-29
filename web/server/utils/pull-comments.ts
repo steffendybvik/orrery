@@ -12,8 +12,6 @@
 import type {PullChange, PullChangeKind} from './pull-poll'
 import type {Store} from './store'
 
-/** The changes that are told on the issue. */
-export const TOLD: PullChangeKind[] = ['conflicting', 'behind', 'merged', 'closed', 'checks_failed', 'changes_requested']
 /** The changes that are only an event: nobody needs to act. */
 export const QUIET: PullChangeKind[] = ['ready', 'approved']
 /** How many times a PR's checks may fail with the session told, before orrery asks the owner instead. */
