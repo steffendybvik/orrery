@@ -12,8 +12,9 @@ import type {Secret, SecretUse} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
 import type {Field} from './input'
 import {badRequest, checkInput, forbidden, isObject, notFound} from './input'
-import type {Actor, Store} from './store'
+import type {Store} from './store'
 import {AGENT} from './store'
+import {ownerOnly, refusedFor} from './permission'
 
 interface SecretRow { name: string, value: string, last4: string, hosts: string, projects: string | null, created_by: string, owned: number, created_at: string, updated_at: string }
 interface UseRow { id: number, secret: string, method: string, host: string, path: string, project: string | null, issue: string | null, status: number | null, error: string | null, created_by: string, created_at: string }
@@ -52,6 +53,9 @@ const MAX_BODY = 1_000_000
 const TIMEOUT = 30_000
 /** How many uses a secret shows. */
 const USES = 20
+/** Who orrery's own requests are kept as, and how many of them a secret keeps. */
+const ORRERY = 'orrery'
+const OWN_USES = 100
 
 export interface EgressResult {
     status: number
@@ -63,12 +67,13 @@ export interface EgressResult {
 }
 
 export class Secrets {
-    /** `key` is ORRERY_SECRET_KEY (empty when it isn't set); `onChange` hears the list changed or a secret was used;
+    /** `key` is ORRERY_SECRET_KEY (empty when it isn't set); `onChange` hears the list changed, or a secret was used
+     * (`used`: the list's own uses moved on, and nothing in the secrets changed, so it's nothing to back up, ORR-526);
      * `note` is the event log, told who set, narrowed, deleted or sent which secret where, never a value. */
     constructor(
         private readonly store: Store,
         private readonly key: () => string,
-        private readonly onChange: (secrets: Secret[]) => void = () => {},
+        private readonly onChange: (secrets: Secret[], used: boolean) => void = () => {},
         private readonly send: typeof fetch = globalThis.fetch,
         private readonly note: (entry: EventEntry) => void = () => {},
     ) {}
@@ -93,7 +98,7 @@ export class Secrets {
 
     /** Sets a secret, new or replacing the one with this name: `{value, hosts, projects?}`. */
     async set(name: string, body: unknown, actor = AGENT): Promise<{secret: Secret, created: boolean}> {
-        this.ownerOnly(actor)
+        ownerOnly(actor, 'secrets.write')
         if (!SECRET_NAME.test(name)) throw badRequest(`"${name}" isn't a secret's name; use capitals, digits and _, e.g. STRIPE_KEY`)
         const input = checkInput(body, SECRET_FIELDS)
         const value = String(input.value).trim()
@@ -114,7 +119,7 @@ export class Secrets {
 
     /** Narrows where a secret may go, `{hosts?, projects?}`, without its value; widening takes `set`. */
     async narrow(name: string, body: unknown, actor = AGENT): Promise<Secret> {
-        this.ownerOnly(actor)
+        ownerOnly(actor, 'secrets.write')
         const row = await this.row(name)
         const input = checkInput(body, NARROW_FIELDS, true)
         const was = {hosts: JSON.parse(row.hosts) as string[], projects: row.projects ? JSON.parse(row.projects) as string[] : null}
@@ -134,7 +139,7 @@ export class Secrets {
     }
 
     async delete(name: string, actor = AGENT) {
-        this.ownerOnly(actor)
+        ownerOnly(actor, 'secrets.write')
         await this.row(name)
         await this.db.run('DELETE FROM secrets WHERE name = ?', name)
         await this.db.run('DELETE FROM secret_uses WHERE secret = ?', name)
@@ -161,7 +166,7 @@ export class Secrets {
             const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
             if (!row) throw notFound(`No secret ${name}; GET /api/secrets lists them`)
             const projects = row.projects ? JSON.parse(row.projects) as string[] : null
-            if (projects && (!project || !projects.includes(project))) throw forbidden(`${name} is only for ${projects.join(', ')}; send the "project" it's for`)
+            if (projects && (!project || !projects.includes(project))) throw refusedFor('secrets.egress', `${name} is only for ${projects.join(', ')}; send the "project" it's for`)
             secrets.set(name, {row, hosts: JSON.parse(row.hosts), value: this.open(row)})
         }
         const {scrub, cut} = scrubber(secrets)
@@ -181,7 +186,7 @@ export class Secrets {
         if (url.protocol !== 'https:') throw badRequest('Secrets only go over https')
         const host = scrub(url.host)
         for (const [name, {hosts}] of secrets) {
-            if (!hosts.includes(url.host)) throw forbidden(`${name} may only go to ${hosts.join(', ')}, not ${host}`)
+            if (!hosts.includes(url.host)) throw refusedFor('secrets.egress', `${name} may only go to ${hosts.join(', ')}, not ${host}`)
         }
 
         const sent = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, fill(v)]))
@@ -197,7 +202,7 @@ export class Secrets {
                 await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     name, method, host, scrub(url.pathname), project, issue, status, error, actor.name, new Date().toISOString())
             }
-            await this.changed()
+            await this.changed(true)
             // Not its path: what the secret is used on is the secret's own record, not the log's.
             this.note({level: 'info', kind: 'egress.called', ...project ? {project} : {},
                 message: `${actor.name} sent ${names.join(', ')} to ${method} ${host}: ${status ?? error}`,
@@ -234,6 +239,51 @@ export class Secrets {
         }
     }
 
+    /** orrery's own request to `url` for `project` (a GET, or `init`'s method and body), with the secret `name` as a
+     * bearer token when there's one that may go to its host and be used for the project, else without. Kept in the
+     * secret's uses as orrery's (the latest `OWN_USES`), and not logged: it runs every minute or two. */
+    async own(url: string, name: string, project: string, headers: Record<string, string> = {}, init: {method?: 'GET' | 'POST', body?: string} = {}): Promise<{response: Response, secret: boolean}> {
+        const target = new URL(url)
+        const value = await this.ownValue(target, name, project)
+        const method = init.method ?? 'GET'
+        const sent = value ? {...headers, Authorization: `Bearer ${value}`} : headers
+        const record = async (status: number | null, error: string | null) => {
+            if (!value) return
+            await this.db.run('INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                name, method, target.host, target.pathname, project, null, status, error, ORRERY, new Date().toISOString())
+            await this.db.run(`DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND id NOT IN
+                (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? ORDER BY id DESC LIMIT ${OWN_USES}) AS latest)`, name, ORRERY, name, ORRERY)
+            await this.changed(true)
+        }
+        try {
+            const response = await this.send(target, {method, headers: sent, ...init.body === undefined ? {} : {body: init.body}, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT)})
+            await record(response.status, null)
+            return {response, secret: !!value}
+        } catch (error) {
+            const reason = value ? (error as Error).message.replaceAll(value, '…') : (error as Error).message
+            await record(null, reason)
+            throw new Error(`The request to ${target.host} failed: ${reason}`, {cause: error})
+        }
+    }
+
+    /** Whether `own` would send the secret `name` to `url` for `project`, asking nothing. */
+    async ownsFor(url: string, name: string, project: string): Promise<boolean> {
+        return !!await this.ownValue(new URL(url), name, project)
+    }
+
+    /** The secret `name`'s value, when there's one that may go to `target`'s host and be used for `project`. */
+    private async ownValue(target: URL, name: string, project: string): Promise<string | null> {
+        const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        if (!row || target.protocol !== 'https:' || !(JSON.parse(row.hosts) as string[]).includes(target.host)
+            || (row.projects && !(JSON.parse(row.projects) as string[]).includes(project))) return null
+        try {
+            return this.open(row)
+        } catch {
+            // No key, or not the one it was set with: asked without it, the way it would be with no secret.
+            return null
+        }
+    }
+
     private async row(name: string): Promise<SecretRow> {
         const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
         if (!row) throw notFound(`No secret ${name}`)
@@ -247,12 +297,8 @@ export class Secrets {
         return [...new Set(ids)].sort()
     }
 
-    private ownerOnly(actor: Actor) {
-        if (!actor.owner) throw forbidden('Only the owner sets secrets; send Orrery-Actor: <owner>')
-    }
-
-    private async changed() {
-        this.onChange(await this.list())
+    private async changed(used = false) {
+        this.onChange(await this.list(), used)
     }
 
     private cipherKey(): Buffer {

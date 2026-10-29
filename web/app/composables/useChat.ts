@@ -3,8 +3,8 @@ import type {Chat, ChatIssues, Session, Upload} from '#shared/roadmap'
 // The owner's chat (server/utils/chats.ts): a session started for it alone that they talk to here, with no terminal.
 // The pane is open or not (`open`), large or not (`large`, remembered in this browser), on a chat (`current`) or, with
 // none, ready to start one on `project` with the first message. The chats come in over the page's events (`arrived`); closing the pane ends
-// its chat (`close`), and one that ends on its own stays on screen, ended, until the pane closes. Each message says
-// which page the owner is on, so the chat knows what "this" is. Where the issues it makes land (`lands`, Todo or Backlog)
+// its chat (`close`), minimizing it leaves the chat running (`hide`), and one that ends on its own stays on screen, ended, until the pane closes. Each message says
+// which page the owner is on, so the chat knows what "this" is. `/clear` clears its session's context instead (`clear`). Where the issues it makes land (`lands`, Todo or Backlog)
 // is the owner's pick beside Send, remembered in this browser for the next chat, and kept by the server on the chat.
 export function useChat() {
     const chats = useState<Chat[]>('chats', () => [])
@@ -80,16 +80,30 @@ export function useChat() {
         }
     }
 
-    async function send(text: string, images: string[]) {
+    /** Sends the owner's message, or a run of them held and sent together (`text` as their parts), as one. */
+    async function send(text: string | string[], images: string[]) {
         if (!chat.value || chat.value.ended) return false
         failed.value = ''
         try {
             // The page's tab title, without the app's name it ends in.
             const title = document.title.replace(/\s*·\s*orrery$/, '')
-            await $fetch(`/api/chats/${chat.value.id}/messages`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {text, images, page: {path: location.pathname + location.search, title}}})
+            await $fetch(`/api/chats/${chat.value.id}/messages`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {...Array.isArray(text) ? {parts: text} : {text}, images, page: {path: location.pathname + location.search, title}}})
             return true
         } catch (error) {
             failed.value = errorMessage(error, 'send')
+            return false
+        }
+    }
+
+    /** Clears the chat session's context (`/clear`): it carries on fresh, and the chat marks the cut. */
+    async function clear() {
+        if (!chat.value || chat.value.ended) return false
+        failed.value = ''
+        try {
+            await $fetch(`/api/chats/${chat.value.id}/clear`, {method: 'POST', headers: {'Orrery-Actor': await load()}})
+            return true
+        } catch (error) {
+            failed.value = errorMessage(error, 'clear')
             return false
         }
     }
@@ -130,6 +144,11 @@ export function useChat() {
         failed.value = ''
     }
 
+    /** Hides the pane, leaving its chat running: opened again, it's on the same conversation. */
+    function hide() {
+        open.value = false
+    }
+
     /** Closes the pane, ending its chat: open again, it's ready to start another. */
     async function close() {
         open.value = false
@@ -155,5 +174,5 @@ export function useChat() {
         return $fetch<Upload>('/api/uploads', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
-    return {chats, open, large, current, chat, session, project, failed, ended, lands, fetchChats, arrived, show, start, send, land, fresh, answer, close, resize, upload}
+    return {chats, open, large, current, chat, session, project, failed, ended, lands, fetchChats, arrived, show, start, send, clear, land, fresh, answer, hide, close, resize, upload}
 }

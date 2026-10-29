@@ -55,11 +55,15 @@ lists them and when to use which: reach for one before writing the markup again.
 `pnpm test` (the column rules, the store, schedules, and the components in a Nuxt environment) · `pnpm typecheck` ·
 `pnpm lint` (eslint; a non-null assertion is an error)
 
+With `TEST_POSTGRES_URL` set (`postgres://orrery:orrery@localhost:5432/orrery`), the unit tests run on that Postgres,
+each test in a schema of its own, and the ones that only make sense there run too. CI runs every unit test both ways.
+
 `pnpm test:e2e` runs the flows in a real browser with Playwright, a file per area in `web/e2e/` (issues, proposals,
 roadmap, releases, sessions, schedules, the keys, the phone layout…). `first-run.spec.ts` (naming the owner, the first
 project) runs first as a project the others depend on; each other file makes a project of its own, with the helpers in
-`e2e/support.ts`, so it can run alone. It starts `nuxt dev` on port 3199 with a fresh `web/.data/e2e.db`, so your own database isn't
-touched. The first time, and after `@playwright/test` is bumped, get its browser with `pnpm exec playwright install
+`e2e/support.ts`, so it can run alone. It starts `nuxt dev` with a fresh `web/.data/e2e.db`, so your own database isn't
+touched, on a port of the checkout's own (3100–3299, from its path, `web/e2e-port.ts`; `E2E_PORT` picks one), so
+sessions running it from their own worktrees at once don't share a server. The first time, and after `@playwright/test` is bumped, get its browser with `pnpm exec playwright install
 chromium`. With `E2E_POSTGRES_URL` set it runs on that Postgres instead, emptied first, so its database's name
 has to say e2e (`postgres://orrery:orrery@localhost:5432/orrery_e2e`). CI runs it in Playwright's own image of that
 version, once on each database. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
@@ -78,6 +82,8 @@ milliseconds, and a page over its budget fails the run. `web/perf-report/report.
 step's time, the API calls behind it and their sizes, and the slowest routes. CI runs it on both databases with the
 e2e flows and keeps the report as an artifact. `PERF_NO_BUILD=1` reuses the last build when you're trying it again.
 
-The database's migrations are numbered steps in `web/server/utils/db.ts`, with Postgres's after its baseline in
-`web/server/utils/postgres.ts`: add a step to both, never edit one. Before a SQLite file takes steps it's copied to
+The database's migrations are numbered steps in `web/server/utils/migrations/sqlite.ts`, with Postgres's after its baseline
+beside them in `web/server/utils/migrations/postgres.ts`: add a step to both, never edit one. `test/schema-parity.test.ts` checks that both end
+on the same step with the same tables, columns, indexes and checks, and that a step changing data does the same on
+each; a step that changes data gets an upgrade test there. Before a SQLite file takes steps it's copied to
 `orrery-pre-<version>-step<n>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.

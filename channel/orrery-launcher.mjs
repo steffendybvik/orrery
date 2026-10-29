@@ -14,7 +14,8 @@
 // on the Sessions page): when the owner's signal finds nobody listening, or the owner presses Start session, within
 // the project's limit.
 // Each session runs in a detached tmux session (`tmux attach -t <name>` to watch it, or Watch in orrery, which has
-// this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open), with the channel, in
+// this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open; the owner's
+// Allow on a permission prompt has it press Enter on "Yes"), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt; an untrusted schedule's session
 // locked down instead, see `lockedDown`, and the owner's chat able only to read and answer, see `chatOnly`), and runs
 // until orrery asks
@@ -35,6 +36,7 @@ import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {adoptable, configFile, install, readConfig, uninstall} from './launcher-service.mjs'
 import {chatOnly, lockedDown} from './locked-down.mjs'
+import {onYes} from './permission-prompt.mjs'
 import {channelFor, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
@@ -204,6 +206,20 @@ async function view(id) {
         }
     } finally {
         viewing.delete(id)
+    }
+}
+
+/** Answers "Yes" once to the permission prompt a session it started is waiting at, as the owner pressing Allow asks
+ * (ORR-489): only while its pane still shows one with the cursor on "Yes", so a late Allow can't answer another. */
+function allow(id) {
+    const session = running.get(id)
+    if (!session) return
+    try {
+        if (!onYes(tmux('capture-pane', '-p', '-t', session.tmux))) return log(`${session.tmux} isn't at a permission prompt on "Yes" any more: left as it is`)
+        tmux('send-keys', '-t', session.tmux, 'Enter')
+        log(`allowed what ${session.tmux} asked, as the owner said`)
+    } catch {
+        // It has ended.
     }
 }
 
@@ -395,6 +411,8 @@ function serve({url, project, dir}) {
             } else if (event === 'watch') {
                 const {id, terminal} = JSON.parse(data)
                 watch(id, terminal)
+            } else if (event === 'allow') {
+                allow(JSON.parse(data).id)
             } else if (event === 'view') {
                 // Not awaited: it sends for as long as the owner views it, and the stream goes on meanwhile.
                 view(JSON.parse(data).id).catch(error => log(`couldn't send a screen: ${error.message}`))

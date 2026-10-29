@@ -111,7 +111,7 @@ export interface IssueRow extends Made {
 }
 export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
-export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number }
+export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number, section: string | null }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
 export interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
@@ -210,6 +210,7 @@ export const DOC_FIELDS: Record<string, Field> = {
     title: {type: 'string', required: true},
     body: {type: 'string'},
     position: {type: 'number'},
+    section: {type: 'string', nullable: true},
 }
 
 export const DECISION_FIELDS: Record<string, Field> = {
@@ -281,6 +282,8 @@ export const SETTINGS_FIELDS: Record<string, Field> = {
     restrict_proposals: {type: 'boolean'},
     /** Shows the Events page and error notices in the bell, and records what orrery did as well as its errors. */
     advanced: {type: 'boolean'},
+    /** A listening session out of work is handed the issues it may start, to pick one (ORR-452); false, it waits. */
+    pick_next: {type: 'boolean'},
 }
 
 /** A preset's name and its text, both needed; its badge's icon and colour, neither. */
@@ -441,7 +444,7 @@ export function matchOf(body: string, words: string[]): string {
 
 export function docOf(row: DocRow): Doc {
     return {
-        id: row.id, project: row.project, title: row.title, summary: summaryOf(row.body), body: row.body,
+        id: row.id, project: row.project, title: row.title, summary: summaryOf(row.body), body: row.body, ...row.section ? {section: row.section} : {},
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
 }

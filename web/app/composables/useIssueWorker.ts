@@ -1,7 +1,7 @@
 import type {Session, SessionWork} from '#shared/roadmap'
 
 // The session working an issue, for its page: the last one that wrote to it or was asked to focus on it (each
-// session's open issues, `GET …/sessions/work`), while it's listening; none otherwise. Asked again as the project's
+// session's open issues, `GET …/sessions/work`), while it's listening, and when it took it; none otherwise. Asked again as the project's
 // sessions come, go or change state, as the issue changes, and as signals go out, so it shows up and goes live.
 export function useIssueWorker(project: MaybeRefOrGetter<string>, issue: MaybeRefOrGetter<string | undefined>, changed?: MaybeRefOrGetter<string | undefined>) {
     const {sessions, signals} = useRoadmaps()
@@ -21,5 +21,7 @@ export function useIssueWorker(project: MaybeRefOrGetter<string>, issue: MaybeRe
         const id = toValue(issue)
         return id ? listening.value.find(s => work.value[s.id]?.issues.some(i => i.id === id)) : undefined
     })
-    return {worker}
+    /** When the worker took the issue (none from before orrery kept it). */
+    const since = computed(() => worker.value && work.value[worker.value.id]?.issues.find(i => i.id === toValue(issue))?.since)
+    return {worker, since}
 }

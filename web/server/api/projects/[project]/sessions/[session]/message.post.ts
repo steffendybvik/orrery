@@ -3,8 +3,7 @@
 // The owner's chat can't send here: it asks the owner in the chat, and their Send sends it (`askSend`, ORR-416).
 export default defineEventHandler(async event => {
     const [project, id] = [param(event, 'project'), param(event, 'session')]
-    const actor = await actorOf(event)
-    if (!actor.owner) throw forbidden('Only the owner messages a session; send Orrery-Actor: <owner>')
+    const actor = await authorize(event, 'sessions.message')
     const session = listSessions(project).find(s => s.id === currentId(id))
     if (!session) throw notFound(`No session ${id} in ${project}`)
     if (!hearing(project, session.id)) throw conflict(`${session.name} isn't listening, so a message can't reach it`)

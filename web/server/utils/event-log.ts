@@ -257,8 +257,8 @@ function clean(value: unknown, scrub: (text: string) => string, depth = 0): unkn
 
 /** A request the server refused (403: not theirs to do, e.g. an untrusted session's write, a proposal's move or the
  * owner's own; 409: not now, e.g. an issue another session is on) as a warning: who asked, the route without its
- * query, and why. Null for what isn't one, and for a start the launches route logs itself (`session.refused`). */
-export function refusal(status: number, method: string, path: string, message: string, actor?: string): EventEntry | null {
+ * query, and why, with the permissions table's row that refused it when `authorize` did (ORR-512). Null for what isn't one, and for a start the launches route logs itself (`session.refused`). */
+export function refusal(status: number, method: string, path: string, message: string, actor?: string, permission?: string): EventEntry | null {
     if (status !== 403 && status !== 409) return null
     const route = path.split('?')[0] ?? path
     if (status === 409 && method === 'POST' && /^\/api\/projects\/[^/]+\/launches\/?$/.test(route)) return null
@@ -266,7 +266,7 @@ export function refusal(status: number, method: string, path: string, message: s
     return {
         level: 'warn', kind: 'request.refused', ...project ? {project: decodeURIComponent(project)} : {},
         message: `Refused ${actor || 'agent'} ${method} ${route}: ${message}`,
-        details: {route: `${method} ${route}`, status, by: actor || 'agent'},
+        details: {route: `${method} ${route}`, status, by: actor || 'agent', ...permission ? {permission} : {}},
     }
 }
 

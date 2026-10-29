@@ -24,9 +24,10 @@ import {CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
 import type {Db} from './database'
 import {one} from './database'
 import type {Field, Input} from './input'
-import {badRequest, checkInput, conflict, forbidden, notFound} from './input'
+import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
+import {refusedFor} from './permission'
 
 interface ScheduleRow {
     id: number, project: string, kind: Schedule['kind'], title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
@@ -95,20 +96,55 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
 /** How many runs a schedule shows. */
 const RUNS = 10
 
+/** What the schedules reach outside the database through. */
+export interface ScheduleHooks {
+    /** Hears a project's schedules changed or ran. */
+    onChange: (project: string) => void
+    /** How many sessions a project has listening. */
+    listening: (project: string) => number
+    /** Starts an untrusted run's session, with its message for it alone; says its tmux session. */
+    startUntrusted: (project: string, schedule: number, text: string, actor: Actor) => Promise<{tmux: string}>
+    /** Hears each run, with what came of it. */
+    onRan: (schedule: {id: number, project: string, title: string}, run: ScheduleRun, manual: boolean) => void
+    /** Starts a session schedule's session; says its tmux session. */
+    startSession: (project: string, start: SessionStart, actor: Actor) => Promise<{tmux: string}>
+}
+
+/** A run under way: the schedule, what set it off, and how it's recorded. */
+interface Run {
+    row: ScheduleRow
+    now: Date
+    manual: boolean
+    event?: OrreryEvent
+    actor: Actor
+    /** What it ran on, said by ids. */
+    about: string | null
+    presets: Preset[]
+    record: (outcome: ScheduleRun['outcome'], issue: string | null, said: string | null) => Promise<ScheduleRun>
+}
+
+/** What a message or an issue run says: its presets' text, its notes (a message with neither says its title), and what it
+ * ran on. */
+function wordsOf({row, presets, about}: Run): string {
+    return [...presets.map(p => p.text), row.notes ?? (row.kind === 'message' && !presets.length ? row.title : null), about].filter(Boolean).join('\n\n')
+}
+
 export class Schedules {
-    /** `onChange` hears a project's schedules changed or ran; `listening` says how many sessions a project has listening;
-     * `startUntrusted` starts an untrusted run's session, with its message for it alone, and says its tmux session;
-     * `onRan` hears each run, with what came of it; `startSession` starts a session schedule's session, and says its tmux session. */
-    constructor(
-        private readonly store: Store,
-        private readonly onChange: (project: string) => void = () => {},
-        private readonly listening: (project: string) => number = () => 0,
-        private readonly startUntrusted: (project: string, schedule: number, text: string, actor: Actor) => Promise<{tmux: string}> =
-            () => Promise.reject(new Error('orrery starts no sessions here')),
-        private readonly onRan: (schedule: {id: number, project: string, title: string}, run: ScheduleRun, manual: boolean) => void = () => {},
-        private readonly startSession: (project: string, start: SessionStart, actor: Actor) => Promise<{tmux: string}> =
-            () => Promise.reject(new Error('orrery starts no sessions here')),
-    ) {}
+    private readonly onChange: ScheduleHooks['onChange']
+    private readonly listening: ScheduleHooks['listening']
+    private readonly startUntrusted: ScheduleHooks['startUntrusted']
+    private readonly onRan: ScheduleHooks['onRan']
+    private readonly startSession: ScheduleHooks['startSession']
+
+    /** What it isn't given does nothing: nobody hears, nobody listens, and no session can be started. */
+    constructor(private readonly store: Store, hooks: Partial<ScheduleHooks> = {}) {
+        const none = () => Promise.reject(new Error('orrery starts no sessions here'))
+        this.onChange = hooks.onChange ?? (() => {})
+        this.listening = hooks.listening ?? (() => 0)
+        this.startUntrusted = hooks.startUntrusted ?? none
+        this.onRan = hooks.onRan ?? (() => {})
+        this.startSession = hooks.startSession ?? none
+    }
 
     private get db() {
         return this.store.db
@@ -174,7 +210,7 @@ export class Schedules {
     /** A change to schedule `id`, checked: the columns `update` sets. */
     private async toUpdate(project: string, id: number, body: unknown, actor: Actor): Promise<[string, unknown][]> {
         const row = await this.row(project, id)
-        if (row.owned && !actor.owner) throw forbidden(`Changing schedule ${id}: it's the owner's; only they can change it`)
+        if (row.owned && !actor.owner) throw refusedFor('schedules.owners', `Changing schedule ${id}: it's the owner's; only they can change it`)
         const input = checkInput(body, SCHEDULE_FIELDS, true)
         const timing = input.cron !== undefined || input.at !== undefined || input.on !== undefined || input.timezone !== undefined
         // Setting one of cron, at and on lets go of the others.
@@ -219,7 +255,7 @@ export class Schedules {
      * read it at: one changed since is refused (409), so they never take on words they haven't seen. Theirs already,
      * it stays as it is. */
     async adopt(project: string, id: number, actor = AGENT, seen?: string): Promise<Schedule> {
-        if (!actor.owner) throw forbidden(`Making schedule ${id} yours: only the owner takes a schedule on; send Orrery-Actor: <owner>`)
+        if (!actor.owner) throw refusedFor('schedules.adopt', `Making schedule ${id} yours: only the owner takes a schedule on; send Orrery-Actor: <owner>`)
         const row = await this.row(project, id)
         if (row.owned) return await this.get(project, id)
         if (seen !== undefined && seen !== row.updated_at) throw conflict(`Schedule ${id} changed after you read it: read it again, then make it yours`)
@@ -234,7 +270,7 @@ export class Schedules {
     /** The owner's schedules are theirs: an agent can't delete them. Its issues stay. */
     async delete(project: string, id: number, actor = AGENT) {
         const row = await this.row(project, id)
-        if (row.owned && !actor.owner) throw forbidden(`Deleting schedule ${id}: it's the owner's; only they can delete it`)
+        if (row.owned && !actor.owner) throw refusedFor('schedules.owners', `Deleting schedule ${id}: it's the owner's; only they can delete it`)
         await this.db.run('DELETE FROM schedules WHERE id = ?', id)
         await this.db.run('UPDATE issues SET schedule = NULL WHERE schedule = ?', id)
         this.listeners = null
@@ -247,9 +283,7 @@ export class Schedules {
         let ran = 0
         for (const row of due) {
             // Claimed by moving its next run on: if another server got there first, nothing changes here.
-            const next = row.at ? null : nextRun(row, now)
-            const claimed = (await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
-            if (!claimed) continue
+            if (!await this.claimNext(row, now)) continue
             await this.run(row, now, false)
             ran++
         }
@@ -261,14 +295,19 @@ export class Schedules {
      * 09:00 run at 07:00 next runs tomorrow at 09:00, and a one-off is done. */
     async runNow(project: string, id: number, actor = AGENT, instead = false): Promise<ScheduleRun> {
         const row = await this.row(project, id)
-        if (row.owned && !actor.owner) throw forbidden(`Running schedule ${id}: it's the owner's; only they can run it`)
+        if (row.owned && !actor.owner) throw refusedFor('schedules.owners', `Running schedule ${id}: it's the owner's; only they can run it`)
         if (!instead) return await this.run(row, new Date(), true)
         if (!row.enabled || !row.next_run) throw conflict(`Running schedule ${id} instead of its next run: it has none, so run it now`)
         const skipped = new Date(row.next_run)
-        const next = row.at ? null : nextRun(row, skipped)
-        const claimed = (await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
-        if (!claimed) throw conflict(`Running schedule ${id} instead of its next run: that run has just started`)
+        if (!await this.claimNext(row, skipped)) throw conflict(`Running schedule ${id} instead of its next run: that run has just started`)
         return await this.run(row, new Date(), true, undefined, `instead of ${day(skipped, row.timezone)} ${time(skipped, row.timezone)}`)
+    }
+
+    /** Takes its next run, moving it on to the one after `from` (a one-off is done): false when another server, or
+     * another call, took it first. */
+    private async claimNext(row: ScheduleRow, from: Date): Promise<boolean> {
+        const next = row.at ? null : nextRun(row, from)
+        return !!(await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
     }
 
     /** What `hear` is on: events are heard one at a time, so a burst of them can't each pass a schedule's checks
@@ -370,45 +409,58 @@ export class Schedules {
         } catch (error) {
             return await record('failed', null, error instanceof Error ? error.message : String(error))
         }
-        if (row.kind === 'session') {
-            if (!actor.owner) return await record('skipped', null, 'made by an agent, so it starts no session')
-            const subject = event?.subject && event.type !== 'issue.deleted' && event.type !== 'release.deleted' ? event.subject : undefined
+        const run: Run = {row, now, manual, event, actor, about, presets, record}
+        return row.kind === 'session' ? await this.runSession(run) : row.kind === 'message' ? await this.runMessage(run) : await this.runIssue(run)
+    }
+
+    /** A session schedule's run: starts a session with its presets and notes, on the issue or release it ran on. */
+    private async runSession({row, event, actor, about, presets, record}: Run): Promise<ScheduleRun> {
+        if (!actor.owner) return await record('skipped', null, 'made by an agent, so it starts no session')
+        const subject = event?.subject && event.type !== 'issue.deleted' && event.type !== 'release.deleted' ? event.subject : undefined
+        try {
+            const {tmux} = await this.startSession(row.project, {
+                presets: presets.map(p => p.id),
+                instructions: [row.notes, about].filter(Boolean).join('\n\n'),
+                ...subject && event?.type.startsWith('issue.') ? {issue: subject} : {},
+                ...subject && event?.type.startsWith('release.') ? {release: subject} : {},
+            }, actor)
+            return await record('sent', null, `started a session (${tmux})`)
+        } catch (error) {
+            // No room, no launcher or no opt-in is a run that waits for another time, not a fault.
+            const why = error instanceof Error ? error.message : String(error)
+            return await record((error as {statusCode?: number}).statusCode === 409 ? 'skipped' : 'failed', null, why)
+        }
+    }
+
+    /** A message schedule's run: its words to the project's listening sessions, or to a locked-down one of its own. */
+    private async runMessage(run: Run): Promise<ScheduleRun> {
+        const {row, manual, event, actor, presets, record} = run
+        // Only the owner's signals reach sessions, as with every signal.
+        if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
+        if (row.only_if_changed && !manual && !event && !await this.changedSinceSent(row)) return await record('skipped', null, 'nothing changed')
+        const words = wordsOf(run)
+        if (row.untrusted) {
+            // Never to the project's sessions: to one started for it, or nowhere.
             try {
-                const {tmux} = await this.startSession(row.project, {
-                    presets: presets.map(p => p.id),
-                    instructions: [row.notes, about].filter(Boolean).join('\n\n'),
-                    ...subject && event?.type.startsWith('issue.') ? {issue: subject} : {},
-                    ...subject && event?.type.startsWith('release.') ? {release: subject} : {},
-                }, actor)
-                return await record('sent', null, `started a session (${tmux})`)
+                const {tmux} = await this.startUntrusted(row.project, row.id, words, actor)
+                return await record('sent', null, `started a locked-down session for it (${tmux})`)
             } catch (error) {
-                // No room, no launcher or no opt-in is a run that waits for another time, not a fault.
-                const why = error instanceof Error ? error.message : String(error)
-                return await record((error as {statusCode?: number}).statusCode === 409 ? 'skipped' : 'failed', null, why)
+                return await record('failed', null, `untrusted, so it needs a session of its own: ${error instanceof Error ? error.message : String(error)}`)
             }
         }
-        const words = [...presets.map(p => p.text), row.notes ?? (row.kind === 'message' && !presets.length ? row.title : null), about].filter(Boolean).join('\n\n')
-        if (row.kind === 'message') {
-            // Only the owner's signals reach sessions, as with every signal.
-            if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
-            if (row.only_if_changed && !manual && !event && !await this.changedSinceSent(row)) return await record('skipped', null, 'nothing changed')
-            if (row.untrusted) {
-                // Never to the project's sessions: to one started for it, or nowhere.
-                try {
-                    const {tmux} = await this.startUntrusted(row.project, row.id, words, actor)
-                    return await record('sent', null, `started a locked-down session for it (${tmux})`)
-                } catch (error) {
-                    return await record('failed', null, `untrusted, so it needs a session of its own: ${error instanceof Error ? error.message : String(error)}`)
-                }
-            }
-            await this.store.message(row.project, row.id, words, actor, undefined, presets.map(p => p.name).join(', ') || undefined)
-            const heard = this.listening(row.project)
-            return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
-        }
+        await this.store.message(row.project, row.id, words, actor, undefined, presets.map(p => p.name).join(', ') || undefined)
+        const heard = this.listening(row.project)
+        return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
+    }
+
+    /** An issue schedule's run: makes its issue, and asks the sessions to take it when it says to. */
+    private async runIssue(run: Run): Promise<ScheduleRun> {
+        const {row, now, manual, event, actor, record} = run
         if (row.skip_open && !manual) {
             const open = await this.lastOpenIssue(row)
             if (open) return await record('skipped', null, `${open} from the last run isn't done yet`)
         }
+        const words = wordsOf(run)
         try {
             const issue = await this.store.createIssue(row.project, {
                 title: `${row.title} · ${event ? event.subject ?? event.type : day(now, row.timezone)}`,
@@ -463,7 +515,7 @@ export class Schedules {
      * as them; only a message is untrusted. */
     private checkKind(kind: Schedule['kind'], notes: string | null, presets: string, untrusted: boolean, actor: Actor, orElse = '') {
         if (kind === 'message' && !notes?.trim() && presets === '[]') throw badRequest('A message schedule needs its message in "notes", or a preset in "presets"')
-        if (kind === 'session' && !actor.owner) throw forbidden('Only the owner makes a session schedule: it starts work as them; send Orrery-Actor: <owner>')
+        if (kind === 'session' && !actor.owner) throw refusedFor('schedules.session', 'Only the owner makes a session schedule: it starts work as them; send Orrery-Actor: <owner>')
         if (untrusted && kind !== 'message') throw badRequest(`Only a message schedule is untrusted: send "kind": "message"${orElse}`)
     }
 

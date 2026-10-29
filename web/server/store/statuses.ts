@@ -3,12 +3,12 @@ import {randomBytes} from 'node:crypto'
 import type {IssueStatus, Kind, Settings, Starts, TerminalApp} from '#shared/roadmap'
 import {KINDS, slugify} from '#shared/roadmap'
 import type {Input} from '../utils/input'
-import {badRequest, checkInput, conflict, forbidden, notFound} from '../utils/input'
+import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Instruction} from '#shared/prompt'
-import type {Actor} from './schema'
 import {AGENT, SLUG, STATUS_FIELDS, LEGACY_KINDS, SETTINGS_FIELDS, nullable} from './schema'
 import {StoreBase} from './base'
 import {known} from '#shared/known'
+import {ownerOnly} from '../utils/permission'
 
 export abstract class StatusStore extends StoreBase {
     /** This orrery's own settings. */
@@ -36,6 +36,7 @@ export abstract class StatusStore extends StoreBase {
             terminal: (value('terminal') as TerminalApp | undefined) ?? 'terminal',
             restrict_proposals: (value('restrict_proposals') as boolean | undefined) ?? true,
             advanced: (value('advanced') as boolean | undefined) ?? false,
+            pick_next: (value('pick_next') as boolean | undefined) ?? false,
         }
     }
 
@@ -47,7 +48,7 @@ export abstract class StatusStore extends StoreBase {
 
     /** A new status, the owner's to add: `{name, kind, color?, id?, position?}`. */
     async createStatus(body: unknown, actor = AGENT): Promise<IssueStatus> {
-        this.ownerOnly(actor, 'statuses')
+        ownerOnly(actor, 'settings.write')
         const input = checkInput(body, {...STATUS_FIELDS, color: {...STATUS_FIELDS.color, required: false}})
         const name = String(input.name).trim()
         const id = input.id ? String(input.id) : slugify(name)
@@ -62,7 +63,7 @@ export abstract class StatusStore extends StoreBase {
 
     /** Renames, recolours or moves a status, or gives it another kind (not the last of its kind). */
     async updateStatus(id: string, body: unknown, actor = AGENT): Promise<IssueStatus> {
-        this.ownerOnly(actor, 'statuses')
+        ownerOnly(actor, 'settings.write')
         const before = await this.status(id)
         const input = checkInput(body, STATUS_FIELDS, true)
         if (input.id !== undefined && input.id !== id) throw badRequest("A status's id can't change; rename it with \"name\"")
@@ -75,7 +76,7 @@ export abstract class StatusStore extends StoreBase {
 
     /** Removes a status; its issues and schedules move to `into` (another status), which it needs when it has any. */
     async deleteStatus(id: string, into: string | undefined, actor = AGENT) {
-        this.ownerOnly(actor, 'statuses')
+        ownerOnly(actor, 'settings.write')
         const status = await this.status(id)
         await this.keepOneOf(status)
         const used = (await this.one<{n: number}>('SELECT (SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ?) AS n', id, id)).n
@@ -129,10 +130,6 @@ export abstract class StatusStore extends StoreBase {
         if ((await this.statuses()).filter(s => s.kind === status.kind).length === 1) throw conflict(`${status.name} is the only ${status.kind} status; add another before it goes`)
     }
 
-    protected ownerOnly(actor: Actor, what: string) {
-        if (!actor.owner) throw forbidden(`Only the owner changes the ${what}; send Orrery-Actor: <owner>`)
-    }
-
     /** Every board is drawn again with them, and the page gets the new list with the settings. */
     protected async statusesChanged() {
         this.onSettings(await this.settings())
@@ -141,7 +138,7 @@ export abstract class StatusStore extends StoreBase {
 
     /** The owner's to change: they're how the orrery looks to them. */
     async updateSettings(body: unknown, actor = AGENT): Promise<Settings> {
-        if (!actor.owner) throw forbidden("Only the owner changes the orrery's settings; send Orrery-Actor: <owner>")
+        ownerOnly(actor, 'settings.write')
         const input = checkInput(body, SETTINGS_FIELDS, true)
         await this.db.transaction(async () => {
             for (const [key, sent] of Object.entries(input)) {

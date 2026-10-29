@@ -67,6 +67,15 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
         await expect(card.getByText(/message: Use the oak hinges/)).toBeVisible()
+        // ⌘/Ctrl-Enter sends as well, and Shift-Enter is a new line (ORR-514).
+        const box = card.getByLabel('Message kitchen shelves')
+        await box.fill('Sand first.')
+        await box.press('Shift+Enter')
+        await box.pressSequentially('Then oil.')
+        await expect(box).toHaveValue('Sand first.\nThen oil.')
+        await box.press('ControlOrMeta+Enter')
+        await expect.poll(() => channel.said.text).toContain('Then oil.')
+        await expect(box).toHaveValue('')
     } finally {
         channel.stop()
     }
@@ -170,6 +179,12 @@ test('messages every idle session at once from the Sessions page, not the busy o
         await expect(dialog.getByRole('status')).toHaveText('Sent to e2e-b1')
         await expect.poll(() => streams[0]!.said.text).toContain('Pick a Todo issue if you are free.')
         expect(streams[1]!.said.text).not.toContain('Pick a Todo issue')
+        // ⌘/Ctrl-Enter sends it too, once.
+        await dialog.getByLabel('Message', {exact: true}).fill('Then the next one.')
+        await dialog.getByLabel('Message', {exact: true}).press('ControlOrMeta+Enter')
+        await expect.poll(() => streams[0]!.said.text).toContain('Then the next one.')
+        await page.waitForTimeout(500)
+        expect(streams[0]!.said.text.split('Then the next one.').length - 1).toBe(1)
     } finally {
         for (const stream of streams) stream.stop()
     }
@@ -210,25 +225,40 @@ test('with a session listening, New session on this starts another on the issue'
 })
 
 test("shows on an issue's page which session is on it, while it listens", async ({page, request, baseURL}) => {
-    const issue = await api(request, 'post', '/issues', {title: 'Descale the kettle', status: 'todo'})
+    // Long enough to scroll.
+    const notes = Array.from({length: 80}, (_, i) => `Step ${i + 1}: rinse and repeat.`).join('\n\n')
+    const issue = await api(request, 'post', '/issues', {title: 'Descale the kettle', status: 'todo', notes})
     const ids = ['e2e-w1', 'e2e-w2']
     for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'SessionStart', name: id}})
     const streams = ids.map(id => hold(baseURL!, `/api/projects/kitchen/signals/stream?session=${id}&name=${id}&format=text`))
     try {
         await expect.poll(async () => (await api(request, 'get', '/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
         await page.goto(`/p/kitchen/issues/${issue.id}`)
-        const chip = page.getByRole('link', {name: /^e2e-w2 ·/})
-        await expect(chip).toHaveCount(0)
-        // Asked to focus on it, the second one is on it: in the header, and first in the panel, marked.
+        const banner = page.getByTestId('issue-worker')
+        await expect(banner).toHaveCount(0)
+        // Asked to focus on it, the second one is on it: in the banner on top, and first in the panel, marked.
         await api(request, 'post', `/issues/${issue.id}/focus`, {session: 'e2e-w2'}, OWNER)
-        await expect(chip).toBeVisible()
+        await expect(banner).toContainText('e2e-w2 is working on this')
+        await expect(banner.getByRole('link', {name: 'e2e-w2'})).toHaveAttribute('href', '/sessions#session-e2e-w2')
+        // It stays in sight as the page scrolls (ORR-536).
+        await page.getByText('Step 80: rinse and repeat.').scrollIntoViewIfNeeded()
+        await expect(banner).toBeInViewport()
         const rows = page.getByRole('listitem').filter({hasText: /^e2e-w/})
         await expect(rows.first()).toContainText('on this issue')
         await expect(rows.first()).toContainText('e2e-w2')
         await expect(rows.filter({hasText: 'on this issue'})).toHaveCount(1)
-        // Gone from the header once it stops listening.
+        // The list and the board mark the issue it's working, its name on the dot.
+        const dot = page.getByRole('img', {name: 'e2e-w2 is working on it'})
+        await page.goto('/p/kitchen?view=board')
+        await expect(dot).toHaveCount(1)
+        await page.goto('/p/kitchen')
+        await expect(dot).toHaveCount(1)
+        // Gone from the list once it stops listening, and from the issue's page.
         streams[1]!.stop()
-        await expect(chip).toHaveCount(0)
+        await expect(dot).toHaveCount(0)
+        await page.goto(`/p/kitchen/issues/${issue.id}`)
+        await expect(page.getByRole('heading', {name: 'Descale the kettle'})).toBeVisible()
+        await expect(banner).toHaveCount(0)
         await expect(page.getByText('on this issue')).toHaveCount(0)
     } finally {
         for (const stream of streams) stream.stop()

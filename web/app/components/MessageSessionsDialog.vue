@@ -46,6 +46,14 @@ function toggle(state: SessionState) {
     states.value = states.value.includes(state) ? states.value.filter(s => s !== state) : [...states.value, state]
 }
 
+/** Enter sends (⌘ or Ctrl-Enter too, through the dialog); Shift-Enter is a new line, and nothing sends while an input
+ * method is still composing. */
+function onEnter(event: KeyboardEvent) {
+    if (event.isComposing) return
+    event.preventDefault()
+    send()
+}
+
 async function send() {
     const message = text.value.trim()
     if (!message || !states.value.length || busy.value) return
@@ -79,7 +87,7 @@ async function send() {
         aria-label="Message"
         placeholder="e.g. If you're free, pick the most urgent Todo issue on your project"
         class="w-full field py-2 leading-5"
-        @keydown.enter.exact.prevent="send"
+        @keydown.enter.exact="onEnter"
     />
 
     <div class="flex flex-col gap-1.5">

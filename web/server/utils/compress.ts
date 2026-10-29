@@ -6,12 +6,12 @@
 // little to save), GIFs, WebP and animated PNGs, so nothing moving stops.
 import sharp from 'sharp'
 
-export const MAX_WIDTH = 2560
+const MAX_WIDTH = 2560
 /** The tallest a WebP can be. A full-page screenshot keeps its width, and so stays readable, rather than being
  * scaled to fit a smaller box; one taller than this is scaled to fit. */
 export const MAX_HEIGHT = 16383
 /** Smaller than this, an image is kept as it came. */
-export const MIN_SIZE = 16 * 1024
+const MIN_SIZE = 16 * 1024
 /** A screenshot's text stays crisp at 90; a photo looks the same at 82, and is much smaller. */
 const QUALITY = {'image/png': 90, 'image/jpeg': 82} as const
 

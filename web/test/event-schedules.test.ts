@@ -190,10 +190,10 @@ describe('a schedule on an event', () => {
         const log = new EventLog(store.db)
         log.happened = event => heard.push({event, cause: scheduleRunning.getStore()})
         // As the server notes each run (useScheduler); a session schedule fails here, with no launcher to start one.
-        schedules = new Schedules(store, () => {}, () => 0, undefined, (schedule, run) => void log.record({
+        schedules = new Schedules(store, {onRan: (schedule, run) => void log.record({
             level: run.outcome === 'failed' ? 'error' : 'info', kind: `schedule.${run.outcome === 'failed' ? 'failed' : 'ran'}`,
             project: schedule.project, message: `${schedule.title}: ${run.outcome}`,
-        }))
+        })})
         const nightly = await schedules.create('greenhouse', {title: 'Nightly', kind: 'session', notes: 'Tidy up', cron: '0 3 * * *'}, me)
         const alert = await schedules.create('greenhouse', {title: 'Alert', kind: 'session', notes: 'See what failed', on: '*.failed'}, me)
         expect(await schedules.runNow('greenhouse', nightly.id, me)).toMatchObject({outcome: 'failed'})

@@ -5,7 +5,7 @@
 const ISSUE = /^\/api\/projects\/([^/?]+)\/issues\/([^/?]+)/
 
 export default defineEventHandler(event => {
-    const session = getHeader(event, 'orrery-session')?.trim()
+    const session = sessionHeader(event)
     const match = ISSUE.exec(event.path)
     if (!session || !match?.[1] || !match[2] || !['POST', 'PUT', 'PATCH'].includes(event.method)) return
     const [project, issue] = [decoded(match[1]), decoded(match[2])]

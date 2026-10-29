@@ -11,7 +11,7 @@ test('splits App settings into tabs by what they reach, and a link opens the rig
     await page.getByRole('radio', {name: 'Issues'}).click()
     await expect(page).toHaveURL(/tab=issues/)
     await expect(page.getByText('How issues work in every project on this orrery')).toBeVisible()
-    for (const name of ['Issue statuses', 'Proposals', 'Team tracker']) await expect(page.getByRole('heading', {name})).toBeVisible()
+    for (const name of ['Team tracker', 'Issue statuses', 'Proposals']) await expect(page.getByRole('heading', {name})).toBeVisible()
     await expect(page.getByRole('heading', {name: 'Your name'})).toHaveCount(0)
 
     await page.goto('/settings#tint')

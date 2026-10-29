@@ -36,6 +36,8 @@ export default defineEventHandler(async event => {
     projectEvents.on('schedules', onSchedules)
     projectEvents.on('settings', onSettings)
     projectEvents.on('secrets', onSecrets)
+    // A use moves the list's uses on: the page shows them, the same as a change.
+    projectEvents.on('secret-used', onSecrets)
     projectEvents.on('logged', onLogged)
     projectEvents.on('chat', onChat)
     // Keeps proxies and the browser from dropping a quiet connection.
@@ -57,6 +59,7 @@ export default defineEventHandler(async event => {
         projectEvents.off('schedules', onSchedules)
         projectEvents.off('settings', onSettings)
         projectEvents.off('secrets', onSecrets)
+        projectEvents.off('secret-used', onSecrets)
         projectEvents.off('logged', onLogged)
         projectEvents.off('chat', onChat)
         await stream.close()

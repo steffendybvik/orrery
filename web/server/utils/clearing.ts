@@ -8,6 +8,7 @@
 // by an API error (the network, a rate limit) lets go of what it had in progress (`letGo`), so none of it sits there
 // in progress with nobody on it.
 import type {Signal} from '#shared/roadmap'
+import {byPriority} from '#shared/roadmap'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
  * another turn in that time, and then it isn't cleared. */
@@ -18,6 +19,13 @@ const runs = new Map<string, Signal>()
 
 /** What was left of each run when it was last resumed: its open issues, each with its status and last change. */
 const resumed = new WeakMap<Signal, string>()
+
+/** Sessions orrery started that went idle and are due a clear, by their id then, with when: picking hands them
+ * nothing until it's done or not needed, as a turn started first skips the clear (ORR-527). */
+const clearDue = new Map<string, number>()
+
+/** How long a due clear holds a session back from picking at most, so a launcher that never clears it doesn't. */
+export const CLEAR_DUE_FOR = 60_000
 
 /** The sub-issue each session was last sent on to, by its id now, with its status and last change. */
 const carried = new Map<string, string>()
@@ -60,21 +68,43 @@ export function runOf(session: string): Signal | undefined {
     return sessionIds(session).map(id => runs.get(id)).find(Boolean)
 }
 
+/** Whether the session is waiting on a clear `considerClear` has coming, by any id it has gone by. */
+export function clearPending(id: string): boolean {
+    return sessionIds(id).some(known => Date.now() - (clearDue.get(known) ?? -Infinity) < CLEAR_DUE_FOR)
+}
+
+/** The session is back from its clear: nothing holds it back from picking now. */
+export function clearDone(id: string) {
+    for (const known of sessionIds(id)) clearDue.delete(known)
+}
+
 /** The session went idle: if orrery started it, and after a moment it's still idle, with no issue in progress
- * and no signal waiting for it, its launcher clears it. */
+ * and no signal waiting for it, its launcher clears it. Until then it's due one (`clearPending`). */
 export function considerClear(project: string, id: string) {
     const before = sessionNow(id)
     // A chat keeps its conversation.
     if (!before?.started || before.started.chat || before.state !== 'idle') return
+    for (const [known, at] of clearDue) {
+        if (Date.now() - at >= CLEAR_DUE_FOR) clearDue.delete(known)
+    }
+    const due = Date.now()
+    clearDue.set(id, due)
+    // Not cleared after all: picking may hand it work, unless a later idle has made it due again.
+    const notDue = () => clearDue.get(id) === due && clearDue.delete(id)
     setTimeout(async () => {
         try {
             const now = sessionNow(id)
-            if (!now?.started || now.state !== 'idle' || now.idleAt !== before.idleAt) return
+            if (!now?.started || now.state !== 'idle' || now.idleAt !== before.idleAt) return notDue()
             const ids = sessionIds(id)
             const store = useStore()
-            if ((await store.workingOn(now.project, ids)).length || await store.waiting(now.project, ids)) return
+            if (await store.busy(now.project, ids)) return notDue()
             projectEvents.emit('launches', {type: 'clear', project: now.project, id: now.started.launch})
+            // A clear that never comes back (its launcher gone) lets it pick again once the mark runs out.
+            setTimeout(() => {
+                if (notDue()) recheckIdle()
+            }, CLEAR_DUE_FOR)
         } catch (error) {
+            notDue()
             console.error(`[orrery] clearing ${id}:`, error)
         }
     }, CLEAR_AFTER)
@@ -99,7 +129,7 @@ export function carryOn(project: string, id: string) {
             if (!parents.size) return
             const next = (await store.listIssues(now.project))
                 .filter(i => i.parent && parents.has(i.parent) && (i.kind === 'backlog' || i.kind === 'todo'))
-                .sort((a, b) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9'))[0]
+                .sort(byPriority)[0]
             if (!next) return
             for (const session of carried.keys()) {
                 if (!sessionNow(session)) carried.delete(session)

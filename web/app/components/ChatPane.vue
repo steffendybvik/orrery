@@ -1,19 +1,28 @@
 <script setup lang="ts">
-import {CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
-import type {ChatIssues} from '#shared/roadmap'
+import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 
 // The owner's chat (useChat): a button in the corner of every page, and the pane it opens there, ready to type into.
 // The first message starts a chat on the project in the header (the one you're on, or picked); once started, its
-// session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new line), and an image pasted or
-// dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; Esc closes it only before
-// one starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
+// session's state shows in the header and the conversation below, newest at the bottom. Enter sends (Shift+Enter for a new
+// line), but a run of quick messages goes as one once the owner has stopped typing for a moment (`HOLD_MS`), so the chat
+// answers the whole thought (ORR-517). What's held shows at once as sent, with the thinking dots, as one turn (ORR-535);
+// only what couldn't go says so (Not sent, Retry). ⌘/Ctrl-Enter or Send sends at once, and Esc in an empty box takes the
+// last one back. A slash command goes at once, after what's held. Closing the pane, or the chat ending, puts what's held
+// back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
+// dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; minimizing it
+// (–, or Esc) hides it with the chat still running, and the corner button, marked while one runs, brings it back as it was.
+// Esc closes the pane only before a chat starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
-// field it sets) or change (each from → to). A message it asks to send other sessions shows with who it goes to, and
+// field it sets) or change (each from → to), a release it asks to add or change, a chunk it asks to make or change (ORR-510),
+// a session it asks to start, stop or give more time (ChatSessionCard), and issues it asks to move or assign (each
+// one's status or assignee, from → to, its id a link). A message it asks to send other sessions shows with who it goes to, and
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
-// wide screen it shows on hover or focus).
-const {open, large, chat, session, project, failed, chats, lands, start, send, land, fresh, answer, close, resize, upload, show} = useChat()
+// wide screen it shows on hover or focus). A message that's just `/clear` clears the session's context instead of going
+// to it: a divider marks the cut, and what was said above it stays, greyed. Any other slash command goes as words.
+const {open, large, chat, session, project, failed, chats, lands, start, send, clear, land, fresh, answer, hide, close, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean) {
     answering.value = message
@@ -24,6 +33,11 @@ const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed
 const SENT = {allowed: (to: string[]) => to.length ? `Sent to ${to.join(', ')}` : 'Sent, but no session fit any more', denied: () => 'Not sent', expired: () => 'Expired: not answered in time'}
 const {projects} = useRoadmaps()
 const route = useRoute()
+const {look} = useStatuses()
+const statusName = (id: string | null) => id === null ? '(none)' : look(id).label
+/** The issues a move request changes, each with its changes, in the order asked. */
+const movedIssues = (changes: NonNullable<ChatMessage['move']>['changes']) =>
+    [...new Set(changes.map(c => c.issue))].map(issue => ({issue, title: changes.find(c => c.issue === issue)?.title ?? '', changes: changes.filter(c => c.issue === issue)}))
 
 const draft = ref('')
 const images = ref<{id: string, url: string}[]>([])
@@ -45,8 +59,19 @@ const projectName = (id: string) => projects.value.find(p => p.id === id)?.name 
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
 /** Which project it's about: the chat's, else the one the first message will start it on. */
 const about = computed(() => chat.value && !chat.value.ended ? chat.value.project : project.value)
+/** How long after the owner's last keystroke a run of held messages goes. */
+const HOLD_MS = 2000
+/** The owner's messages held to go together, shown as sent until they go. */
+const held = ref<{key: number, text: string, images: {id: string, url: string}[]}[]>([])
+let heldKey = 0
+let holdTimer: ReturnType<typeof setTimeout> | undefined
+
+/** What's held couldn't go (no launcher, or the server said no): it waits for Retry rather than trying every few
+ * seconds on its own (ORR-530). */
+const stuck = ref(false)
+
 /** Nothing said yet: the pane greets you, with some things to ask. */
-const empty = computed(() => !chat.value?.messages.length)
+const empty = computed(() => !chat.value?.messages.length && !held.value.length)
 
 /** Things to ask, one about the issue or doc you're on. */
 const examples = computed(() => {
@@ -67,32 +92,136 @@ const state = computed(() => {
     if (!session.value) return 'Starting the session…'
     return {working: 'Thinking…', waiting: 'Waiting on a prompt in its terminal', idle: 'Ready', starting: 'Starting the session…'}[session.value.state]
 })
-const thinking = computed(() => !!chat.value && !chat.value.ended && !chat.value.problem && (!session.value || session.value.state === 'working')
-    && chat.value.messages.at(-1)?.from === 'owner')
+/** Whether the dots show: all the while its session works, whoever spoke last, so a reply partway through a turn doesn't
+ * hide them (ORR-518); while it starts, only once the owner has said something it hasn't answered. */
+const thinking = computed(() => {
+    // From the first held message on, as if it had gone: holding, sending and the answer are one turn (ORR-535).
+    if (held.value.length && !stuck.value) return true
+    if (!chat.value || chat.value.ended || chat.value.problem) return false
+    if (session.value?.state === 'working') return true
+    const last = chat.value.messages.at(-1)
+    return (!session.value || session.value.state === 'starting') && last?.from === 'owner' && !last.cleared
+})
 
-// The newest in sight as it comes.
-watch(() => [open.value, chat.value?.messages.length], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
+// The newest in sight as it comes, the dots too.
+watch(() => [open.value, chat.value?.messages.length, held.value.length, thinking.value], () => nextTick(() => list.value?.scrollTo({top: list.value.scrollHeight})))
 watch(open, now => now && nextTick(() => field.value?.focus()))
 
-/** Sends what's in the composer, starting the chat first when there's none yet. */
-async function submit() {
-    const text = draft.value.trim()
-    if (!text && !images.value.length || sending.value || uploading.value) return
+/** Where the session's context was last cleared: the messages before it, it no longer remembers. */
+const cut = computed(() => chat.value?.messages.findLastIndex(m => m.cleared) ?? -1)
+
+/** Starts the wait over, from now: what's held goes once it runs out. */
+function restartHold() {
+    clearTimeout(holdTimer)
+    if (!held.value.length || stuck.value) return
+    holdTimer = setTimeout(() => void flush(false), HOLD_MS)
+}
+
+/** Sends what's held as one message, starting the chat first when there's none yet: whether all of it went. What's held
+ * stays if it can't go, and waits for Retry. `owner`: the owner asked for it, rather than the wait running out, which
+ * never starts a chat on a hidden pane or after one ends (ORR-523). */
+async function flush(owner = true): Promise<boolean> {
+    clearTimeout(holdTimer)
+    if (!held.value.length) return true
+    // Busy with an image or another send: the wait starts over, and it goes once that's done.
+    if (sending.value || uploading.value) {
+        restartHold()
+        return false
+    }
+    if (!owner && (chat.value ? chat.value.ended : !open.value)) return false
+    const run = held.value
     sending.value = true
     if (chat.value?.ended) fresh()
-    if ((chat.value || await start()) && await send(text, images.value.map(i => i.id))) {
+    const texts = run.map(m => m.text).filter(Boolean)
+    const ids = run.flatMap(m => m.images.map(i => i.id))
+    const went = !!(chat.value || await start()) && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)
+    if (went) held.value = held.value.filter(m => !run.includes(m))
+    stuck.value = !went
+    sending.value = false
+    // Held while that went: their wait starts now.
+    restartHold()
+    return went && !held.value.length
+}
+
+/** Puts what's held back in the box, unsent, for a chat that's ending: nothing goes after it on its own (ORR-523). */
+function unhold() {
+    clearTimeout(holdTimer)
+    stuck.value = false
+    if (!held.value.length) return
+    draft.value = [...held.value.map(m => m.text), draft.value].filter(t => t.trim()).join('\n\n')
+    images.value = [...held.value.flatMap(m => m.images), ...images.value]
+    held.value = []
+}
+
+/** Closes the pane (× or Esc), ending its chat: what's held goes back in the box rather than starting another. */
+function end() {
+    unhold()
+    void close()
+}
+
+/** Takes a held message back before it goes: into the box when the box is empty. */
+function takeBack(key: number) {
+    const message = held.value.find(m => m.key === key)
+    if (!message) return
+    held.value = held.value.filter(m => m !== message)
+    if (!held.value.length) stuck.value = false
+    if (!draft.value.trim() && !images.value.length) {
+        draft.value = message.text
+        images.value = message.images
+    }
+    restartHold()
+    field.value?.focus()
+}
+
+/** Holds what's in the composer to go with the rest (`now`: sends it all at once). A slash command goes at once, after
+ * what's held, and waits in the box while that can't go; `/clear` clears the running chat's context instead, and with
+ * none running there's nothing to clear. */
+async function submit(now = false) {
+    const text = draft.value.trim()
+    if (uploading.value) return
+    if (/^\/[a-z][\w-]*(\s|$)/i.test(text) && !images.value.length) {
+        if (!await flush()) return
+        sending.value = true
+        if (text === '/clear') {
+            if (!chat.value || chat.value.ended || await clear()) draft.value = ''
+        } else {
+            if (chat.value?.ended) fresh()
+            if ((chat.value || await start()) && await send(text, [])) draft.value = ''
+        }
+        sending.value = false
+        return
+    }
+    if (text || images.value.length) {
+        held.value.push({key: ++heldKey, text, images: images.value})
         draft.value = ''
         images.value = []
     }
-    sending.value = false
+    if (now) await flush()
+    else restartHold()
 }
 
 function onKey(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    if (event.isComposing) return
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
-        submit()
+        void submit(true)
+    } else if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault()
+        void submit()
+    } else if (event.key === 'Escape' && held.value.length && !draft.value.trim() && !images.value.length) {
+        // In an empty box, takes the last one back, rather than minimizing the pane.
+        event.preventDefault()
+        event.stopPropagation()
+        const last = held.value.at(-1)
+        if (last) takeBack(last.key)
     }
 }
+// Typing the next part puts the wait off.
+watch(draft, () => restartHold())
+// Opened again, what was held while it was hidden gets its wait.
+watch(open, shown => shown && restartHold())
+watch(() => chat.value?.ended, over => over && unhold())
+onBeforeUnmount(() => clearTimeout(holdTimer))
 
 async function attach(files: File[]) {
     for (const file of files.filter(f => f.type.startsWith('image/'))) {
@@ -116,13 +245,23 @@ const {over, on: drop} = useImageDrop(attach)
   <button
       v-if="!open"
       type="button"
-      class="fixed right-4 bottom-4 z-40 flex h-11 items-center gap-2 rounded-full bg-accent-500 pr-4 pl-3.5 text-sm font-medium text-white shadow-lg shadow-accent-600/30 transition hover:opacity-90"
+      class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition hover:tint"
       :title="chats.length ? 'Back to your chat: it is still running' : 'Chat about a project: an agent answers and makes issues'"
       @click="show()"
   >
-    <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
-    Chat
-    <span v-if="chats.length" class="size-2 rounded-full bg-white" aria-label="A chat is running" />
+    <svg
+        class="size-4 text-accent-500"
+        :class="{'animate-pulse motion-reduce:animate-none': chats.length}"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+    ><path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>
+    Agent
+    <span v-if="chats.length" class="sr-only">(a chat is running)</span>
   </button>
 
   <section
@@ -131,7 +270,7 @@ const {over, on: drop} = useImageDrop(attach)
       :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : 'h-[min(40rem,calc(100dvh-2rem))] sm:w-[min(28rem,calc(100vw-2rem))]'"
       aria-label="Chat"
       v-on="drop"
-      @keydown.esc="!chat || chat.ended ? close() : undefined"
+      @keydown.esc="!chat || chat.ended ? end() : hide()"
   >
     <ImageDropOverlay v-if="over" />
     <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-4">
@@ -154,7 +293,10 @@ const {over, on: drop} = useImageDrop(attach)
         <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
         <svg v-else class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
       </UiButton>
-      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'End the chat and close it' : 'Close the chat'" :title="chat && !chat.ended ? 'End chat' : 'Close'" @click="close">
+      <UiButton v-if="chat && !chat.ended" variant="ghost" size="xs" square aria-label="Minimize the chat, leaving it running" title="Minimize" @click="hide">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14" /></svg>
+      </UiButton>
+      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'End the chat and close it' : 'Close the chat'" :title="chat && !chat.ended ? 'End chat' : 'Close'" @click="end">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
       </UiButton>
     </header>
@@ -178,17 +320,24 @@ const {over, on: drop} = useImageDrop(attach)
     </div>
 
     <ol v-else ref="list" class="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 text-[13px]">
-      <li v-for="m in chat!.messages" :key="m.id" class="flex flex-col gap-1.5" :class="m.from === 'owner' ? 'items-end' : 'items-start'">
+      <template v-for="(m, i) in chat?.messages ?? []" :key="m.id">
+      <li v-if="m.cleared" class="flex items-center gap-3 py-1 text-xs text-faint" role="separator" aria-label="Context cleared">
+        <span class="h-px flex-1 bg-line" />Context cleared<span class="h-px flex-1 bg-line" />
+      </li>
+      <li v-else class="flex flex-col gap-1.5" :class="[m.from === 'owner' ? 'items-end' : 'items-start', i < cut && 'opacity-60']">
         <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
           <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
         </div>
-        <div v-if="m.from === 'owner' && m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
+        <template v-if="m.from === 'owner' && m.text">
+          <div v-for="(part, p) in m.parts ?? [m.text]" :key="p" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ part }}</div>
+        </template>
         <div v-else-if="m.text" class="group flex max-w-[92%] flex-col items-start gap-1">
           <div class="rounded-2xl rounded-bl-md bg-well px-3.5 py-2.5 ring-1 ring-line/60">
             <MarkdownView :source="m.text" class="text-[13px]" />
           </div>
           <CopyButton :text="m.text" name="this reply" class="transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" />
         </div>
+        <ChatSessionCard v-if="m.session" :request="m.session" :busy="answering === m.id" :ended="!!chat!.ended" @decide="allow => decide(m.id, allow)" />
         <div v-if="m.request" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Change ${CHAT_SETTINGS[m.request.setting]}`">
           <span class="text-xs text-faint">Asks to change a setting</span>
           <span class="text-fg"><span class="font-medium">{{ CHAT_SETTINGS[m.request.setting] }}</span>:
@@ -227,17 +376,88 @@ v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-
           </div>
           <span v-else class="text-xs" :class="m.schedule.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.schedule.state === 'asked' ? 'Not answered' : ANSWERED[m.schedule.state] }}</span>
         </div>
+        <div v-if="m.release" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="m.release.change ? `Change release ${m.release.version}` : `Add release ${m.release.version}`">
+          <span class="text-xs text-faint">{{ m.release.change ? 'Asks to change a release' : 'Asks to add a release' }}</span>
+          <span class="font-medium text-fg">{{ m.release.version }}</span>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+            <template v-for="c in m.release.changes.filter(c => c.field !== 'version')" :key="c.field">
+              <dt class="text-muted">{{ CHAT_RELEASE_FIELDS[c.field] }}</dt>
+              <dd class="min-w-0 break-words whitespace-pre-wrap text-fg">
+                <template v-if="c.from !== undefined"><span class="text-muted line-through decoration-faint">{{ scheduleValue(c.from) }}</span> → </template>{{ scheduleValue(c.to) }}
+              </dd>
+            </template>
+          </dl>
+          <div v-if="m.release.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.release.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.release.state === 'asked' ? 'Not answered' : ANSWERED[m.release.state] }}</span>
+        </div>
+        <div
+v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
+             :aria-label="m.chunk.changes.some(c => c.from !== undefined) ? `Change chunk ${m.chunk.title}` : `Make chunk ${m.chunk.title}`">
+          <span class="text-xs text-faint">{{ m.chunk.changes.some(c => c.from !== undefined) ? `Asks to change chunk ${m.chunk.id}` : 'Asks to make a chunk' }}</span>
+          <span class="font-medium text-fg">{{ m.chunk.title }}</span>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+            <template v-for="c in m.chunk.changes.filter(c => c.field !== 'title' || c.from !== undefined)" :key="c.field">
+              <dt class="text-muted">{{ CHAT_CHUNK_FIELDS[c.field] }}</dt>
+              <dd class="min-w-0 break-words whitespace-pre-wrap text-fg">
+                <template v-if="c.from !== undefined"><span class="text-muted line-through decoration-faint">{{ settingValue(c.from) }}</span> → </template>{{ settingValue(c.to) }}
+              </dd>
+            </template>
+          </dl>
+          <div v-if="m.chunk.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.chunk.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.chunk.state === 'asked' ? 'Not answered' : ANSWERED[m.chunk.state] }}</span>
+        </div>
+        <div v-if="m.move" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Move ${m.move.body.ids.join(', ')}`">
+          <span class="text-xs text-faint">Asks to move {{ m.move.body.ids.length === 1 ? 'an issue' : `${m.move.body.ids.length} issues` }}, as you</span>
+          <ul class="flex flex-col gap-1.5 text-[13px]">
+            <li v-for="one in movedIssues(m.move.changes)" :key="one.issue" class="flex min-w-0 flex-col">
+              <span class="min-w-0 truncate"><NuxtLink :to="`/p/${chat!.project}/issues/${one.issue}`" class="font-medium text-accent-600 hover:underline dark:text-accent-400">{{ one.issue }}</NuxtLink> <span class="text-fg">{{ one.title }}</span></span>
+              <span v-for="c in one.changes" :key="c.field" class="flex flex-wrap items-center gap-1 text-muted">
+                <template v-if="c.field === 'status'">
+                  <StatusIcon v-if="c.from" :column="c.from" :size="12" /><span class="line-through decoration-faint">{{ statusName(c.from) }}</span> →
+                  <StatusIcon v-if="c.to" :column="c.to" :size="12" /><span class="text-fg">{{ statusName(c.to) }}</span>
+                </template>
+                <template v-else>
+                  Assignee <span class="line-through decoration-faint">{{ c.from ?? '(nobody)' }}</span> → <span class="text-fg">{{ c.to ?? '(nobody)' }}</span>
+                </template>
+              </span>
+            </li>
+          </ul>
+          <span v-if="m.move.state === 'asked' && m.move.moved?.length" class="text-xs text-faint">Moved so far: {{ m.move.moved.join(', ') }}</span>
+          <div v-if="m.move.state === 'asked' && !chat!.ended" class="flex gap-2">
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
+          </div>
+          <span v-else class="text-xs" :class="m.move.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.move.state === 'asked' ? 'Not answered' : ANSWERED[m.move.state] }}</span>
+        </div>
+      </li>
+      </template>
+      <!-- What's held to go together, looking sent: the owner needn't watch it wait (ORR-535). -->
+      <li v-for="m in held" :key="`held-${m.key}`" class="flex flex-col items-end gap-1.5">
+        <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
+          <img v-for="image in m.images" :key="image.id" :src="image.url" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
+        </div>
+        <div v-if="m.text" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ m.text }}</div>
+      </li>
+      <li v-if="held.length && stuck" class="flex items-center justify-end gap-1 text-[11px] text-rose-600 dark:text-rose-400" aria-live="polite">
+        Not sent ·
+        <button type="button" class="hover:underline disabled:opacity-50" :disabled="sending" @click="flush()">Retry</button>
       </li>
       <li v-if="thinking" class="flex items-center gap-1 px-1 py-2" aria-live="polite" aria-label="Thinking…">
         <span v-for="i in 3" :key="i" class="size-1.5 animate-dot rounded-full bg-faint" :style="{animationDelay: `${(i - 1) * 0.15}s`}" />
       </li>
-      <li v-if="chat!.ended" class="flex items-center gap-2 text-xs text-faint">
+      <li v-if="chat?.ended" class="flex items-center gap-2 text-xs text-faint">
         This chat has ended.
         <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="fresh">Start another</button>
       </li>
     </ol>
 
-    <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit">
+    <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
       <p v-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
         <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5 px-1 pt-1">
@@ -253,6 +473,7 @@ v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-
             rows="1"
             aria-label="Message"
             placeholder="Ask anything…"
+            title="Enter sends (quick ones in a row go together); ⌘-Enter sends now; Shift-Enter for a new line"
             class="field-sizing-content max-h-40 min-h-9 resize-none bg-transparent px-2 py-1.5 text-[13px] text-fg placeholder:text-faint focus:outline-none"
             @keydown="onKey"
         />
@@ -274,7 +495,7 @@ v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-
               </MenuItem>
             </MenuItems>
           </Menu>
-          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send (↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length">
+          <UiButton type="submit" variant="primary" size="xs" square class="rounded-full" aria-label="Send" title="Send now (⌘↵)" :disabled="sending || !!uploading || !about || !draft.trim() && !images.length && !held.length">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
           </UiButton>
         </div>
@@ -282,3 +503,4 @@ v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-
     </form>
   </section>
 </template>
+

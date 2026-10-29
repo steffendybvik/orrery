@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type {Chunk, Column, Issue, Project} from '#shared/roadmap'
+import type {Chunk, Column, Issue, Project, Session} from '#shared/roadmap'
 import {isFrozen, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once.
-/** `sub`: it's a sub-issue, in its parent's chunk. */
-const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean}>()
+/** `sub`: it's a sub-issue, in its parent's chunk. `worker`: the session working it, which an agent's assignee names. */
+const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean, worker?: Session}>()
 const {who, name: owner} = useOwner()
 const {save, saving, failed} = useIssueSave(() => props.project.id, () => props.issue.id)
 
@@ -94,8 +94,14 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
     <dt class="label">Assignee</dt>
     <dd class="flex min-w-0">
       <PropertyPicker v-model="assignee" :options="assigneeOptions" label="Assignee" placeholder="Find or assign someone…" creatable create-verb="Assign" :disabled="saving">
-        <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
-        <span class="truncate" :class="!issue.assignee && 'text-faint'" :title="issue.assignee ? who(issue.assignee) : undefined">{{ issue.assignee ? who(issue.assignee) : 'Unassigned' }}</span>
+        <template v-if="worker && issue.assignee === 'claude'">
+          <SessionDot :session="worker" />
+          <span class="truncate" :title="`claude: ${worker.name} is working on it`">{{ worker.name }}</span>
+        </template>
+        <template v-else>
+          <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
+          <span class="truncate" :class="!issue.assignee && 'text-faint'" :title="issue.assignee ? who(issue.assignee) : undefined">{{ issue.assignee ? who(issue.assignee) : 'Unassigned' }}</span>
+        </template>
         <template #option="{option}">
           <PersonAvatar v-if="option.value" :name="option.value" />
           <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/60" />

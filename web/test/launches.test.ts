@@ -11,7 +11,7 @@ let sent: {type: string, project?: string, id?: string, after?: number, minutes?
 let listeners: number
 let started: {greenhouse: number, all: number}
 let starts: Starts | undefined
-let session: {name?: string, started?: {launch: string, tmux: string, stops_at?: string, context?: {presets: string[], text: string}, untrusted?: boolean}} | undefined
+let session: {name?: string, state?: string, started?: {launch: string, tmux: string, stops_at?: string, context?: {presets: string[], text: string}, untrusted?: boolean}} | undefined
 /** What the sessions are on, for stopping those that are done: issues in progress, and signals waiting, by session. */
 let working: Record<string, string[]>
 let waiting: string[]
@@ -74,6 +74,9 @@ beforeEach(async () => {
         workingOn: async (_project: string, ids: string[]) => ids.flatMap(id => working[id] ?? []),
         waiting: async (_project: string, ids: string[]) => waitingForAll || ids.some(id => waiting.includes(id)),
         waitingFor: async (_project: string, ids: string[]) => ids.some(id => waiting.includes(id)),
+        async busy(project: string, ids: string[], own = false) {
+            return (await this.workingOn(project, ids)).length > 0 || await (own ? this.waitingFor(project, ids) : this.waiting(project, ids))
+        },
     }))
     vi.stubGlobal('sessionIds', (id: string) => [id])
     vi.resetModules()
@@ -383,6 +386,17 @@ describe('a session orrery started', () => {
         expect(sent).toEqual([{type: 'watch', project: 'greenhouse', id: 'abc', terminal: 'warp'}])
     })
 
+    it('has its permission prompt answered by its launcher when the owner allows it, only while it waits at one', () => {
+        expect(() => launches.allowLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
+        session = {name: 'greenhouse · Gna', state: 'working', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        expect(() => launches.allowLaunch('greenhouse', 'abc')).toThrow("greenhouse · Gna isn't waiting at a permission prompt")
+        session = {...session, state: 'waiting'}
+        expect(() => launches.allowLaunch('greenhouse', 'abc')).toThrow('attach by hand with tmux attach -t orrery-greenhouse-abc')
+        launches.addLauncher('greenhouse')
+        launches.allowLaunch('greenhouse', 'abc')
+        expect(sent).toEqual([{type: 'allow', project: 'greenhouse', id: 'abc'}])
+    })
+
     it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {
         expect(() => launches.viewLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
@@ -452,6 +466,16 @@ describe('stopping the sessions orrery started that are done', () => {
         sessions[1]!.state = 'idle'
         expect(await launches.stopDue(now + 30_000)).toEqual(['busy', 'holding'])
         expect(stopped()).toEqual(['due', 'busy', 'holding'])
+    })
+
+    it("asks what's waiting only for one with nothing in progress, so a failing ask is never left unheard", async () => {
+        vi.stubGlobal('listSessions', () => [started('holding', {stops_at: minutesAgo(1)})])
+        working = {'s-holding': ['GRE-1']}
+        const asked = vi.fn(async () => { throw new Error('database is locked') })
+        const store = useStore()
+        vi.stubGlobal('useStore', () => ({...store, waiting: asked}))
+        expect(await launches.stopDue(now)).toEqual([])
+        expect(asked).not.toHaveBeenCalled()
     })
 
     it('stops one long past its time anyway, whatever it is doing', async () => {

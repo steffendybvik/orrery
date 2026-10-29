@@ -14,9 +14,10 @@ import {actorOf} from './actor'
 import {inDocker} from './backup-choice'
 import {SqliteDb} from './database'
 import {copyDatabase} from './copy'
-import {databaseSetting, hidePassword, movedFile, openDb, switchDatabase, useDatabase} from './db'
+import {beforeUpgrade, databaseSetting, hidePassword, movedFile, openDb, switchDatabase, useDatabase} from './db'
 import {PostgresDb, isPostgres} from './postgres'
 import {badRequest, conflict, forbidden} from './input'
+import {ownerOnly} from './permission'
 
 /** The names only this machine reaches orrery by: a move hands the data to wherever it's pointed. */
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
@@ -54,7 +55,7 @@ export const notThisMachine = (what: string) => inDocker() && !LOOPBACK.test(Str
 /** Only the owner moves the database, and only on this machine. */
 export async function mayMove(event: H3Event) {
     const actor = await actorOf(event)
-    if (!actor.owner) throw forbidden('Only the owner moves the database; send Orrery-Actor: <owner>')
+    ownerOnly(actor, 'database.write')
     if (!fromThisMachine(event)) throw forbidden(notThisMachine('The database is moved'))
     if (!movedFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the database is set there: change it and restart orrery')
 }
@@ -162,7 +163,8 @@ export async function moveDatabase(setting: string, how: 'copy' | 'use', rebind:
         if (check.state === 'other') throw conflict(`${check.where} has tables of something else's: give orrery a database of its own`)
         if (how === 'copy' && check.state === 'orrery' && check.projects) throw conflict(`${check.where} is an orrery's already, with ${check.projects} project${check.projects === 1 ? '' : 's'}: run on it as it is, or copy into an empty one`)
         if (how === 'use' && check.state !== 'orrery') throw conflict(`${check.where} isn't an orrery's yet: copy this one into it`)
-        const target = isPostgres(setting) ? new PostgresDb(setting) : new SqliteDb(openDb(setting))
+        // An older orrery's file is upgraded as it opens, so it's copied first, as on start.
+        const target = isPostgres(setting) ? new PostgresDb(setting) : new SqliteDb(openDb(setting, undefined, beforeUpgrade(setting)))
         let copied: Record<string, number> | undefined
         try {
             // Its schema laid down or brought up to date, as it would be on start.

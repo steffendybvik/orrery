@@ -2,18 +2,20 @@
 import type {Kind, Signal} from '#shared/roadmap'
 import {CLOSED, issueRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
-import {badRequest, checkInput, forbidden, notFound} from '../utils/input'
+import {badRequest, checkInput, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
 import {AGENT, ISSUE_FIELDS, tasksOf, nullable, stamp} from './schema'
-import {ReleaseStore} from './releases'
+import {ClaimStore} from './claims'
+import {findIssue, issueRecords} from './reads'
+import {refusedFor} from '../utils/permission'
 
-export abstract class IssueStore extends ReleaseStore {
+export abstract class IssueStore extends ClaimStore {
     // Further down the chain: a focus is a signal, and moving an issue takes its sub-issues along.
     protected abstract sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal>
     protected abstract moveIssue(from: string, id: string, to: string, parent: Input[string], chunk: Input[string], actor: Actor): Promise<string>
 
     async listIssues(project: string, filter: IssueFilter = {}): Promise<IssueRecord[]> {
-        const records = this.issueRecords(await this.project(project))
+        const records = issueRecords(project, await this.boardOf(project))
         if (filter.chunk && filter.chunk !== 'none') filter = {...filter, chunk: await this.chunkId(project, filter.chunk)}
         if (filter.parent && filter.parent !== 'none') filter = {...filter, parent: await this.issueId(project, filter.parent)}
         if (filter.release && filter.release !== 'none') await this.releaseRow(project, filter.release)
@@ -38,7 +40,7 @@ export abstract class IssueStore extends ReleaseStore {
 
     async issue(project: string, id: string): Promise<IssueDetail> {
         id = await this.issueId(project, id)
-        const found = this.findIssue(await this.project(project), id)
+        const found = findIssue(await this.boardOf(project), id)
         if (!found) throw notFound(`No issue ${id} in ${project}`)
         return {...found.issue, project, parent: found.parent, chunk: found.chunk || null, ref: issueRef(await this.handle(), id)}
     }
@@ -91,12 +93,12 @@ export abstract class IssueStore extends ReleaseStore {
         }
         const row = await this.issueRow(project, id)
         if (input.proposal === null && row.proposal && !actor.owner) {
-            throw forbidden(`Committing ${id} is the owner's call until they approve it: it's ${row.proposal === 'pending' ? 'waiting on them' : row.proposal === 'changes' ? 'waiting on changes' : 'rejected'}`)
+            throw refusedFor('issues.edit', `Committing ${id} is the owner's call until they approve it: it's ${row.proposal === 'pending' ? 'waiting on them' : row.proposal === 'changes' ? 'waiting on changes' : 'rejected'}`)
         }
         // While it waits on the owner, it isn't work yet: an agent can still comment, edit it and put it up again.
         const moves = (['status', 'plan', 'assignee', 'release'] as const).filter(field => input[field] !== undefined && !(field === 'assignee' && input.proposal === 'pending'))
         if (moves.length && !actor.owner && (row.proposal === 'pending' || row.proposal === 'changes') && (await this.settings()).restrict_proposals) {
-            throw forbidden(`${id} is a proposal waiting on the owner, so its ${moves.length === 1 ? moves[0] : `${moves.slice(0, -1).join(', ')} and ${moves.at(-1)}`} ${moves.length === 1 ? "isn't" : "aren't"} yours to change until they approve it`)
+            throw refusedFor('issues.edit', `${id} is a proposal waiting on the owner, so its ${moves.length === 1 ? moves[0] : `${moves.slice(0, -1).join(', ')} and ${moves.at(-1)}`} ${moves.length === 1 ? "isn't" : "aren't"} yours to change until they approve it`)
         }
 
         const parent = input.parent === undefined ? row.parent : input.parent === null ? null : await this.issueId(project, String(input.parent))
@@ -160,7 +162,7 @@ export abstract class IssueStore extends ReleaseStore {
 
     /** An issue the owner's write just made urgent open work (P0, and committed and not closed, which it wasn't
      * before) goes to the sessions as a focus, without their asking: to the session working it while it can hear,
-     * else to every session on the project. The write is saved by now, so a push that fails is only logged. */
+     * else to one session orrery picks (pool.ts). The write is saved by now, so a push that fails is only logged. */
     protected async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
         try {
             const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal
@@ -170,11 +172,5 @@ export abstract class IssueStore extends ReleaseStore {
         } catch (error) {
             console.error(`[orrery] pushing urgent ${after.id} in ${project}:`, error)
         }
-    }
-
-    /** The session that last worked the issue, while it's there to hear; null (every session) otherwise. */
-    protected async listeningWorker(project: string, issue: string): Promise<string | null> {
-        const worker = (await this.get<{session: string}>('SELECT session FROM issue_sessions WHERE project = ? AND issue = ?', project, issue))?.session
-        return worker && this.hears(project, worker) ? worker : null
     }
 }

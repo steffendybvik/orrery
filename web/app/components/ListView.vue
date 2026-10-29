@@ -41,7 +41,7 @@ function toggle(group: Group) {
           tabindex="0"
           role="button"
           :aria-expanded="isOpen(g)"
-          class="group sticky top-0 z-10 flex h-9 items-center gap-2.5 border-b border-line bg-panel/90 px-3 outline-none backdrop-blur hover:bg-hover focus-visible:bg-active"
+          class="group sticky top-0 z-10 flex h-9 items-center gap-2.5 border-b border-line bg-panel/90 px-3 outline-none backdrop-blur hover:tint focus-visible:bg-active"
           @click="toggle(g)"
       >
         <span class="hidden size-[14px] shrink-0 sm:flex">

@@ -4,8 +4,9 @@
 // PERF_* variables (see seed.ts); PERF_NO_BUILD=1 runs the build already in .output, for trying again quickly.
 import {fileURLToPath} from 'node:url'
 import {defineConfig, devices} from '@playwright/test'
+import {e2ePort} from './e2e-port'
 
-const port = 3398
+const port = e2ePort(3400)
 const postgres = process.env.E2E_POSTGRES_URL
 const database = postgres || '.data/perf.db'
 const shared = fileURLToPath(new URL('./shared', import.meta.url))

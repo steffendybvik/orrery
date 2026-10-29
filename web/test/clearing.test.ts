@@ -13,6 +13,7 @@ let sent: unknown[]
 let left: {id: string}[]
 let focused: unknown[]
 let carried: unknown[]
+let rechecked: number
 
 beforeEach(async () => {
     vi.useFakeTimers()
@@ -26,6 +27,7 @@ beforeEach(async () => {
     sent = []
     left = []
     focused = []
+    rechecked = 0
     const events = new EventEmitter()
     events.on('launches', event => sent.push(event))
     vi.stubGlobal('projectEvents', events)
@@ -35,8 +37,12 @@ beforeEach(async () => {
     vi.stubGlobal('scopeOf', async () => ({open: left}))
     vi.stubGlobal('untrustedSession', () => untrusted)
     vi.stubGlobal('chatSession', () => chat)
+    vi.stubGlobal('recheckIdle', () => void rechecked++)
     vi.stubGlobal('useStore', () => ({
-        workingOn: async () => working.map(id => ({id})), waiting: async () => waiting,
+        workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})), waiting: async (_project: string, _ids: string[]) => waiting,
+        async busy(project: string, ids: string[]) {
+            return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
+        },
         focusChunk: async (...args: unknown[]) => void focused.push(args),
         listIssues: async () => issues,
         focus: async (...args: unknown[]) => void carried.push(args),
@@ -91,6 +97,59 @@ describe('a session orrery started, gone idle', () => {
         clearing.considerClear('orrery', 'w')
         await after()
         expect(sent).toEqual([])
+    })
+
+    it('is due its clear until it comes back from it, by any id it has had, so picking holds off (ORR-527)', async () => {
+        // Due under the id it went idle with, back from the clear under its new one.
+        clearing.considerClear('orrery', 'w-before')
+        expect(clearing.clearPending('w')).toBe(true)
+        await after()
+        expect(clearing.clearPending('w')).toBe(true)
+        clearing.clearDone('w')
+        expect(clearing.clearPending('w')).toBe(false)
+    })
+
+    it("isn't due one once the clear isn't needed, or after a while with none", async () => {
+        working = ['ORR-1']
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(clearing.clearPending('w')).toBe(false)
+        working = []
+        clearing.considerClear('orrery', 'w')
+        await after()
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR)
+        expect(clearing.clearPending('w')).toBe(false)
+    })
+
+    it('has the idle sessions tried again when its clear never comes back, but not when it does (ORR-527)', async () => {
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(sent).toHaveLength(1)
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR)
+        expect(rechecked).toBe(1)
+        clearing.considerClear('orrery', 'w')
+        await after()
+        clearing.clearDone('w')
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_DUE_FOR)
+        expect(rechecked).toBe(1)
+    })
+
+    it('stays due when a later idle makes it due again before the first one gives up', async () => {
+        clearing.considerClear('orrery', 'w')
+        session = {...session!, idleAt: 2}
+        await vi.advanceTimersByTimeAsync(1000)
+        clearing.considerClear('orrery', 'w')
+        await vi.advanceTimersByTimeAsync(clearing.CLEAR_AFTER - 990)
+        expect(clearing.clearPending('w')).toBe(true)
+    })
+
+    it("isn't due one when it's a chat or a session someone opened themselves", () => {
+        session = {...session!, started: {launch: 'l1', chat: true} as {launch: string}}
+        clearing.considerClear('orrery', 'w')
+        expect(clearing.clearPending('w')).toBe(false)
+        session = {project: 'orrery', state: 'idle', idleAt: 1}
+        clearing.considerClear('orrery', 'w')
+        expect(clearing.clearPending('w')).toBe(false)
     })
 })
 

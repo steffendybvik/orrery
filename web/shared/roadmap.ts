@@ -78,6 +78,9 @@ export function liveChoices(choices: Choice[], picks: Picks): Choice[] {
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
 export type Priority = (typeof PRIORITIES)[number]
 
+/** Most urgent first, those with no priority last: a sort's compare. */
+export const byPriority = (a: {priority?: Priority}, b: {priority?: Priority}) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9')
+
 /** How many leaf issues sit in each column (a status id, or `proposed`). */
 export type Counts = Record<Column, number>
 /** The same leaves by what their column means. Proposed ones aren't work yet: they're left out of `total`. */
@@ -193,6 +196,8 @@ export interface DocSummary {
     summary: string
     /** With a search (`?q=`): the text around its first hit, empty when only the title has it. */
     match?: string
+    /** The group it's listed under (Decisions, How it works); none lists it first, on its own. */
+    section?: string
     created_by: string
     protected: boolean
     created_at: string
@@ -225,7 +230,7 @@ export interface Project {
     /** Whether orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
      * within what: the orrery's setting (`Settings.starts`), the same for every project; none while the owner hasn't let it. */
     starts?: Starts
-    /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs. */
+    /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs, and read an issue's open PRs off GitHub. */
     repo?: string
     /** Whether it has releases: `none` (not everything ships), its `own`, or `shared`, another project's. */
     release_mode: ReleaseMode
@@ -538,6 +543,8 @@ export interface Settings {
     /** Shows what's for looking into problems: the Events page, and a notice in the bell for each new kind of error.
      * Off by default; errors are recorded either way, what orrery did only while it's on. */
     advanced: boolean
+    /** A listening session out of work is handed the issues it may start, Todo then Backlog, to pick one (ORR-452). */
+    pick_next: boolean
 }
 
 /** How much an event matters: something went wrong, something looks off, or what orrery did. */
@@ -612,6 +619,8 @@ export interface Session {
     state: SessionState
     /** When it got into that state. */
     since: string
+    /** While it's `waiting`: what it's asking permission for, as Claude Code's notification says it. */
+    asks?: string
     started_at: string
     /** Its channel is connected, so a signal reaches it. */
     listening: boolean
@@ -627,10 +636,10 @@ export interface Session {
     version?: string
 }
 
-/** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, and
- * the last signals that went to it. */
+/** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, each with
+ * when it took it (`since`, none on one from before 1.0.0-rc.11), and the last signals that went to it. */
 export interface SessionWork {
-    issues: Pick<Issue, 'id' | 'title' | 'column' | 'kind' | 'priority'>[]
+    issues: (Pick<Issue, 'id' | 'title' | 'column' | 'kind' | 'priority'> & {since?: string})[]
     signals: Signal[]
 }
 
@@ -660,12 +669,24 @@ export interface ChatMessage {
     text: string
     images: string[]
     at: string
+    /** The owner's run of messages sent together (ORR-517), each as they wrote it; `text` is them joined by blank lines. */
+    parts?: string[]
     /** The session asking to change an App setting, which waits on the owner's Allow. */
     request?: ChatRequest
     /** The session asking to make or change a schedule, which waits on the owner's Allow too. */
     schedule?: ChatScheduleRequest
     /** The session asking to message other sessions as the owner, which waits on the owner's Send (ORR-416). */
     send?: ChatSendRequest
+    /** The session asking to start, stop or give more time to a session, which waits on the owner's Allow (ORR-509). */
+    session?: ChatSessionRequest
+    /** The session asking to move issues (their status) or assign them, which waits on the owner's Allow (ORR-511). */
+    move?: ChatMoveRequest
+    /** The owner cleared the session's context here (`/clear`, ORR-497): it remembers nothing said above. */
+    cleared?: boolean
+    /** The session asking to make or change a release, which waits on the owner's Allow (ORR-504). */
+    release?: ChatReleaseRequest
+    /** The session asking to make or change a chunk, which waits on the owner's Allow (ORR-510). */
+    chunk?: ChatChunkRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -724,6 +745,47 @@ export interface ChatScheduleRequest {
     state: ChatRequest['state']
 }
 
+/** What of a release the owner's chat may ask to set (ORR-504), by what Releases calls it. `position` is its place among
+ * the project's releases, 0 at the top. Removing one stays the owner's, on Releases. */
+export const CHAT_RELEASE_FIELDS = {
+    version: 'Version',
+    branch: 'Branch',
+    notes: 'Notes',
+    position: 'Place',
+    frozen_on: 'Frozen on',
+    shipped_on: 'Shipped on',
+} as const
+export type ChatReleaseField = keyof typeof CHAT_RELEASE_FIELDS
+
+/** A release the chat asked to make, or change (`change`), each field it sets from → to (a place as "2nd from the top"),
+ * `body` as it's sent to Releases: saved only once the owner allows it, and `expired` as a setting's request is. */
+export interface ChatReleaseRequest {
+    version: string
+    change: boolean
+    changes: {field: ChatReleaseField, from?: unknown, to: unknown}[]
+    body: Partial<Record<ChatReleaseField, unknown>>
+    state: ChatRequest['state']
+}
+
+/** What of a chunk the owner's chat may ask to set (ORR-510), by what the chunk's page calls it. Removing one stays the
+ * owner's, on the page. */
+export const CHAT_CHUNK_FIELDS = {
+    title: 'Name',
+    summary: 'Summary',
+    priority: 'Priority',
+} as const
+export type ChatChunkField = keyof typeof CHAT_CHUNK_FIELDS
+
+/** A chunk the chat asked to make (no `id`) or change (`id`), each field it sets from → to: saved as the owner's only
+ * once they allow it, and `expired` as a setting's request is. */
+export interface ChatChunkRequest {
+    id?: string
+    title: string
+    changes: {field: ChatChunkField, from?: unknown, to: unknown}[]
+    body: Partial<Record<ChatChunkField, unknown>>
+    state: ChatRequest['state']
+}
+
 /** A message the chat asked to send other sessions as the owner's: to one session (`session`, on `project`), or to
  * every listening one that fits `projects` and `states` as the owner sends it. `to` names who it would reach when
  * asked, `sent` who it reached. Sent only once the owner presses Send, and `expired` as a setting's request is. */
@@ -735,6 +797,32 @@ export interface ChatSendRequest {
     states?: SessionState[]
     to: string[]
     sent?: string[]
+    state: ChatRequest['state']
+}
+
+/** Issues the chat asked to move to another status or assign (`body.status`, `body.assignee`; null unassigns): each one's
+ * from → to in `changes`, with its title. Made as the owner's, as if they'd moved them on the page, only once they allow
+ * it; `moved` names those done, so Allow again after one failed moves the rest. `expired` as a setting's request is. */
+export interface ChatMoveRequest {
+    changes: {issue: string, title: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
+    body: {ids: string[], status?: string, assignee?: string | null}
+    moved?: string[]
+    state: ChatRequest['state']
+}
+
+/** A session the chat asked to start (as Start session would, on `project`), to stop, or to give `minutes` more (one
+ * orrery started, `session` by its id and `name`): nothing happens until the owner allows it, then it's done as theirs,
+ * and `launch` is the session it started. `expired` as a setting's request is. */
+export interface ChatSessionRequest {
+    action: 'start' | 'stop' | 'extend'
+    project: string
+    start?: {issue?: string, statuses?: string[], release?: string, presets: number[], instructions: string, hears?: string[]}
+    /** The presets it starts with, by name, to show. */
+    presets?: string[]
+    session?: string
+    name?: string
+    minutes?: number
+    launch?: string
     state: ChatRequest['state']
 }
 
@@ -836,6 +924,69 @@ export interface SecretUse {
     error: string | null
     created_by: string
     created_at: string
+}
+
+/** Where an open pull request stands: what it waits on before it can merge (ORR-485). */
+export type PullState = 'draft' | 'conflicting' | 'behind' | 'failing' | 'blocked' | 'ready' | 'checking'
+
+/** An open pull request on the project's repo that names the issue: in its body (a link to the issue's page), or in its branch. */
+export interface PullRequest {
+    number: number
+    title: string
+    url: string
+    /** Its branch, and the one it merges into. */
+    branch: string
+    base: string
+    author: string
+    state: PullState
+    created_at: string
+    updated_at: string
+}
+
+/** What a session is asked to do about a PR that can't merge as it is (Send back, ORR-492); none for one that can. */
+export function sendBackNote(pull: Pick<PullRequest, 'number' | 'url' | 'base' | 'state'>): string | null {
+    // Never its head branch, which an outsider may have named: this goes to the session as the owner's words (ORR-532).
+    const which = `Its PR #${pull.number} (into ${pull.base}, ${pull.url})`
+    switch (pull.state) {
+        case 'conflicting': return `${which} conflicts with ${pull.base}: check it out (gh pr checkout ${pull.number}), merge ${pull.base} into it, resolve the conflicts, run the checks and push.`
+        case 'behind': return `${which} is behind ${pull.base}: check it out (gh pr checkout ${pull.number}), merge ${pull.base} into it, run the checks and push.`
+        case 'failing': return `${which} fails its checks: read them (gh pr checks ${pull.number}), fix what fails and push.`
+        default: return null
+    }
+}
+
+/** An issue's open pull requests, as GitHub had them when orrery last asked. */
+export interface IssuePulls {
+    /** The project's repo on GitHub (`you/shop`), or null when it has none there: then nothing is asked. */
+    repo: string | null
+    pulls: PullRequest[]
+    /** Why GitHub couldn't be read (its rate limit, a private repo without a token…); `pulls` is then the last it gave, if any. */
+    error?: string
+    /** Whether a GITHUB_TOKEN secret went with the request (one that may go to api.github.com, for this project). */
+    token: boolean
+    checked_at: string | null
+}
+
+/** Where a PR stands when it needs someone before it can merge: it conflicts, fails its checks, or is behind its base. */
+export const PULL_NEEDS: PullState[] = ['conflicting', 'failing', 'behind']
+
+/** An open pull request on one of the projects' repos, for the Pull requests page (ORR-491): the issue it names, when
+ * one of the repo's projects has it. */
+export interface OpenPull extends PullRequest {
+    /** The repo on GitHub (`you/shop`). */
+    repo: string
+    issue?: {project: string, id: string, title: string}
+}
+
+/** Every open pull request on the projects' GitHub repos: those that need someone (`PULL_NEEDS`) first, oldest first,
+ * then the rest, oldest first; `needs` counts the first. Each repo says whether a token went, and why it couldn't be
+ * read when it couldn't. Without a token only the list is read, as GitHub allows 60 requests an hour then, so every PR
+ * not a draft is `checking`. */
+export interface AllPulls {
+    pulls: OpenPull[]
+    needs: number
+    /** `held`: why Poll now didn't ask GitHub for the repo (a rate limit, a refused token, or polled without one a moment ago). */
+    repos: {repo: string, projects: string[], token: boolean, checked_at: string | null, error?: string, held?: string}[]
 }
 
 /** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */

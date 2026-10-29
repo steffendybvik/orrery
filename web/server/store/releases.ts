@@ -78,6 +78,20 @@ export abstract class ReleaseStore extends DocStore {
         return await this.release(project, version)
     }
 
+    /** Checks a release as making it (no `version`) or changing release `version` would, saving nothing: the release as
+     * it is, when it's a change. The owner's chat asks before it makes or changes one (ORR-504). */
+    async checkRelease(project: string, body: unknown, version?: string): Promise<Release | undefined> {
+        await this.ownReleases(project, version === undefined ? 'make them' : 'change them')
+        const input = checkInput(body, RELEASE_FIELDS, version !== undefined)
+        if (version === undefined) {
+            if (await this.get('SELECT 1 FROM releases WHERE project = ? AND version = ?', project, String(input.version))) throw conflict(`There is already a release ${String(input.version)} in ${project}`)
+            return undefined
+        }
+        await this.releaseRow(project, version)
+        if (input.version !== undefined && input.version !== version) throw badRequest("A release's version can't change: make one with the new version and move its issues to it")
+        return (await this.listReleases(project)).find(r => r.version === version)
+    }
+
     /** Puts the release at `index` among the project's releases (0 the top, past the end the bottom), numbering
      * them all again from 0. */
     protected async placeRelease(project: string, version: string, index: number) {

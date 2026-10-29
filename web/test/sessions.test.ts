@@ -1,6 +1,7 @@
 import {EventEmitter} from 'node:events'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {SESSION_NAMES} from '#shared/roadmap'
+import type {Signal} from '#shared/roadmap'
 
 // The sessions live in the module, so each test gets a fresh one; `projectEvents` is a Nitro auto-import.
 let sessions: typeof import('../server/utils/sessions')
@@ -80,6 +81,14 @@ describe('a session', () => {
         expect(state('starting')).toBe('starting')
         expect(state('SessionEnd')).toBeUndefined()
         expect(sessions.listSessions('greenhouse')).toEqual([])
+    })
+
+    it('says what it asks permission for while it waits, and forgets it once it goes on', () => {
+        const report = (event: string, message?: string) => sessions.report({id: 'a', project: 'greenhouse', event, message})
+        expect(report('Notification', 'Claude needs your permission to use Bash')?.asks).toBe('Claude needs your permission to use Bash')
+        expect(report('PreToolUse')?.asks).toBeUndefined()
+        expect(sessions.report({id: 'b', project: 'greenhouse', event: 'Notification', message: 'Claude needs your permission to use Edit'})?.asks).toBe('Claude needs your permission to use Edit')
+        expect(sessions.report({id: 'c', project: 'greenhouse', event: 'Notification', message: 'Claude is waiting for your input'})?.asks).toBeUndefined()
     })
 
     it('keeps the time its state began until the state changes', () => {
@@ -543,5 +552,51 @@ describe("a session's channel in the event log", () => {
         })
         expect(channelEntry('connected', ['pantry'], false, {...who, name: undefined, heard: false, pid: 42}).message)
             .toBe("pid 42 connected to the feed for pantry (not started with the channel flag: it won't hear)")
+    })
+})
+
+describe("a session's stream catching up", () => {
+    it('still sends what it missed when finding the unheard scheduled work fails', async () => {
+        const signal = (id: number) => ({id, project: 'greenhouse', kind: 'focus'}) as unknown as Signal
+        vi.stubGlobal('useStore', () => ({unheardScheduled: async () => { throw new Error('database is locked') }}))
+        for (const [name, value] of Object.entries({startRun: () => {}, sessionNow: () => undefined, idleAt: () => undefined, sessionName: () => undefined, repeatKey: () => undefined})) vi.stubGlobal(name, value)
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const {streamFeed} = await import('../server/utils/signal-feed')
+        let live = false
+        const already: number[][] = []
+        const feed = {
+            project: 'greenhouse', attended: {id: 'a'}, heard: true, missed: [signal(4), signal(5)],
+            told: async (s: Signal) => ({id: s.id}), ours: () => true, wanted: () => true, mine: () => true,
+            inOrder: (work: () => Promise<unknown>) => void work(), onIdle: () => {},
+            goLive: (_send: unknown, sent: Set<number>) => { live = true; already.push([...sent]) },
+            get live() { return live },
+        }
+        const pushed: string[] = []
+        await streamFeed(signal => pushed.push(String(signal.id)), feed as never)
+        await vi.waitFor(() => expect(pushed).toEqual(['4', '5']))
+        expect(already).toEqual([[4, 5]])
+        expect(error).toHaveBeenCalled()
+        error.mockRestore()
+    })
+
+    it("carries the context the session was started with on its first signal only, as its hook gives it too", async () => {
+        const signal = (id: number) => ({id, project: 'greenhouse', kind: 'focus'}) as unknown as Signal
+        vi.stubGlobal('useStore', () => ({unheardScheduled: async () => []}))
+        let context: {presets: string[], text: string} | undefined
+        for (const [name, value] of Object.entries({startRun: () => {}, sessionNow: () => ({started: {launch: 'l', context}}), idleAt: () => undefined, sessionName: () => undefined,
+            repeatKey: () => undefined, contextBlock: (given: {text: string}) => `More: ${given.text}`})) vi.stubGlobal(name, value)
+        const {streamFeed} = await import('../server/utils/signal-feed')
+        let live = false
+        // Its first signal comes before orrery knows its context (none yet): the next that finds it carries it.
+        const feed = {
+            project: 'greenhouse', attended: {id: 'a'}, heard: true, missed: [signal(1)],
+            told: async (s: Signal) => ({id: s.id}), ours: () => true, wanted: () => true, mine: () => true,
+            inOrder: (work: () => Promise<unknown>) => void work(), onIdle: () => {},
+            goLive: (send: (s: Signal) => void) => { live = true; context = {presets: ['Review'], text: "You're reviewing."}; send(signal(2)); send(signal(3)) },
+            get live() { return live },
+        }
+        const told: unknown[] = []
+        await streamFeed((_signal, said) => told.push(said), feed as never)
+        await vi.waitFor(() => expect(told).toEqual([{id: 1}, {id: 2, context: "More: You're reviewing."}, {id: 3}]))
     })
 })

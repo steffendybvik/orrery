@@ -1,9 +1,13 @@
 // Comments on an issue, and its activity.
 import type {Comment, IssueEvent} from '#shared/roadmap'
+import {CLOSED} from '#shared/roadmap'
 import {checkInput} from '../utils/input'
 import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
 import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, commentOf, eventOf, signalOf, nullable, stamp} from './schema'
 import {SignalStore} from './signals'
+
+/** orrery itself, speaking on an issue. */
+const ORRERY: Actor = {name: 'orrery', owner: false}
 
 export abstract class CommentStore extends SignalStore {
     async listComments(project: string, issue: string): Promise<Comment[]> {
@@ -52,16 +56,53 @@ export abstract class CommentStore extends SignalStore {
         return await this.comment(project, issue, id)
     }
 
-    /** The owner's comments in the project that no agent has answered and no session has had yet,
-     * sent to `session` (just connected) to catch up on. Says how many. */
+    /** orrery asking the owner on an issue (`asks: feedback`, ORR-508): to the bell, as an agent's ask, and assigned to
+     * them; not to a session. `type` is what happened, for the schedules. */
+    async systemAsk(project: string, issue: string, body: string, type: string): Promise<Comment> {
+        const comment = await this.createComment(project, issue, {body, asks: 'feedback'}, ORRERY)
+        this.tell(type, project, await this.issueId(project, issue), ORRERY)
+        return comment
+    }
+
+    /** Something orrery noticed on an issue that needs no one (a pull request green again, or approved): an event for the
+     * schedules and the log, and nothing said. */
+    async systemEvent(project: string, issue: string, type: string): Promise<void> {
+        this.tell(type, project, await this.issueId(project, issue), ORRERY)
+    }
+
+    /** orrery's own word on an issue (a pull request's news, ORR-507), as `orrery`: a comment, which reaches the session on
+     * the issue as the owner's do, or the project as work does when nobody's on it; not once the issue is closed, where
+     * there's no work left to wake anyone for. `type` is what happened, for the schedules (`pr.merged`). Its words are
+     * orrery's own, never another's, so they're safe for a session to read as the owner's. */
+    async systemComment(project: string, issue: string, body: string, type: string): Promise<Comment> {
+        issue = await this.issueId(project, issue)
+        const row = await this.issueRow(project, issue)
+        const now = stamp()
+        const id = await this.db.transaction(async () => {
+            const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?) RETURNING id',
+                project, issue, body, ORRERY.name, now, now)
+            await this.touchIssue(project, issue)
+            return id
+        })
+        this.changed(project)
+        this.tell('comment.added', project, issue, ORRERY)
+        this.tell(type, project, issue, ORRERY)
+        const kind = (await this.statuses()).find(s => s.id === row.status)?.kind
+        if (!kind || !CLOSED.includes(kind)) await this.carryComment(project, issue, body, ORRERY)
+        return await this.comment(project, issue, id)
+    }
+
+    /** The owner's comments in the project that no agent has answered and no session has had yet, nor waits in the pool
+     * for one to take (from the last day, as `pooledWaiting`), sent to `session` (just connected) to catch up on. Says
+     * how many. orrery's own word after one (a pull request's news) answers nothing (ORR-528). */
     async carryUnanswered(project: string, session: string): Promise<number> {
         const waiting = await this.all<{issue: string, body: string, created_by: string}>(`
             SELECT c.issue, c.body, c.created_by FROM comments c
             WHERE c.project = ? AND c.owned = 1
-              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.id > c.id)
+              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.created_by != ? AND a.id > c.id)
               AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment'
-                              AND s.created_at >= c.created_at AND s.delivered_to != '[]')
-            ORDER BY c.created_at LIMIT 10`, project)
+                              AND s.created_at >= c.created_at AND (s.delivered_to != '[]' OR (s.target IS NULL AND s.created_at >= ?)))
+            ORDER BY c.created_at LIMIT 10`, project, ORRERY.name, new Date(Date.now() - 86_400_000).toISOString())
         for (const comment of waiting) {
             const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
                 project, comment.issue, 'comment', comment.body, session, comment.created_by, 1, stamp())
@@ -70,8 +111,8 @@ export abstract class CommentStore extends SignalStore {
         return waiting.length
     }
 
-    /** The owner's comment goes to the session that last worked the issue, so one session answers it; to every
-     * session on the project when none has, or that one isn't there to hear it. */
+    /** The owner's comment goes to the session that last worked the issue, so one session answers it; when none has,
+     * or that one isn't there to hear it, to one session orrery picks (pool.ts), which becomes the issue's (ORR-513). */
     protected async carryComment(project: string, issue: string, body: string, actor: Actor) {
         const target = await this.listeningWorker(project, issue)
         const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',

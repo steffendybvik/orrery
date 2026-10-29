@@ -49,6 +49,14 @@ const failed = ref('')
 let timer: ReturnType<typeof setTimeout> | undefined
 onBeforeUnmount(() => clearTimeout(timer))
 
+/** Enter sends, with ⌘ or Ctrl too as everywhere else (ORR-514); Shift-Enter is a new line, and nothing sends while an
+ * input method is still composing. */
+function onKey(event: KeyboardEvent) {
+    if (event.shiftKey || event.altKey || event.isComposing) return
+    event.preventDefault()
+    send()
+}
+
 async function send() {
     const message = text.value.trim()
     if (!message || busy.value) return
@@ -98,9 +106,9 @@ async function send() {
           rows="1"
           :aria-label="`Message ${session.name}`"
           :placeholder="`Message ${session.name}…`"
-          title="Only it hears this. Enter sends; Shift-Enter for a new line"
+          title="Only it hears this. Enter or ⌘-Enter sends; Shift-Enter for a new line"
           class="field-sizing-content max-h-40 min-h-7 flex-1 resize-none rounded-lg bg-well px-3 py-1 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
-          @keydown.enter.exact.prevent="send"
+          @keydown.enter="onKey"
       />
       <button
           v-if="text.trim() || busy || sent"

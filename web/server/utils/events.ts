@@ -11,6 +11,9 @@ import type {LoggedEvent, Project} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
+import {GITHUB_SECRET, Pulls} from './pulls'
+import {commentOnPull} from './pull-comments'
+import {PullPoll} from './pull-poll'
 import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
 import {Store} from './store'
@@ -81,11 +84,38 @@ export function useStore(): Store {
 
 let secrets: Secrets | null = null
 
-/** The secrets, sealed with ORRERY_SECRET_KEY (NUXT_SECRET_KEY); `secrets` (the list) goes out when they change or one is used. */
+/** The secrets, sealed with ORRERY_SECRET_KEY (NUXT_SECRET_KEY); `secrets` (the list) goes out when they change, and
+ * `secret-used` when one is used, which changes nothing a backup or the event log keeps (ORR-526). */
 export function useSecrets(): Secrets {
-    secrets ??= new Secrets(useStore(), () => String(useRuntimeConfig().secretKey ?? ''), list => projectEvents.emit('secrets', list), undefined,
+    secrets ??= new Secrets(useStore(), () => String(useRuntimeConfig().secretKey ?? ''), (list, used) => projectEvents.emit(used ? 'secret-used' : 'secrets', list), undefined,
         entry => useEventLog().note(entry))
     return secrets
+}
+
+let pulls: Pulls | null = null
+
+/** Issues' open pull requests, read from GitHub with the GITHUB_TOKEN secret when there's one that may go there. */
+export function usePulls(): Pulls {
+    pulls ??= new Pulls(useStore(), (url, project, headers, init) => useSecrets().own(url, GITHUB_SECRET, project, headers, init))
+    return pulls
+}
+
+let pullPoll: PullPoll | null = null
+
+/** The background poll of the projects' pull requests: each change goes out as `pull-change` (a `PullChange`), and one
+ * that's told is said on its issue (pull-comments.ts). */
+export function usePullPoll(): PullPoll {
+    if (!pullPoll) {
+        const made = new PullPoll(useStore(), usePulls(), project => useSecrets().ownsFor('https://api.github.com/graphql', GITHUB_SECRET, project),
+            change => {
+                projectEvents.emit('pull-change', change)
+                void commentOnPull(useStore(), change)
+            }, entry => useEventLog().note(entry))
+        // A token set again is tried at the next poll, not an hour after GitHub turned the last one down.
+        projectEvents.on('secrets', () => made.secretsChanged())
+        pullPoll = made
+    }
+    return pullPoll
 }
 
 let log: EventLog | null = null
@@ -131,14 +161,20 @@ function changed(event: OrreryEvent) {
 let schedules: Schedules | null = null
 
 export function useScheduler(): Schedules {
-    schedules ??= new Schedules(useStore(), project => projectEvents.emit('schedules', project), listening, startUntrusted, (schedule, run, manual) => useEventLog().note({
-        level: run.outcome === 'failed' ? 'error' : 'info',
-        kind: run.outcome === 'skipped' ? 'schedule.skipped' : run.outcome === 'failed' ? 'schedule.failed' : 'schedule.ran',
-        project: schedule.project,
-        message: `${schedule.title}: ${run.outcome === 'made' ? `made ${run.issue}` : run.outcome}${run.note ? `, ${run.note}` : ''}`,
-        details: {schedule: schedule.id, ...run, ...manual ? {manual} : {}},
-    }), async (project, {presets, instructions, issue, release}, actor) =>
-        await startLaunch(project, {issue, release, context: await contextFor(project, presets, instructions), actor}))
+    schedules ??= new Schedules(useStore(), {
+        onChange: project => projectEvents.emit('schedules', project),
+        listening,
+        startUntrusted,
+        onRan: (schedule, run, manual) => useEventLog().note({
+            level: run.outcome === 'failed' ? 'error' : 'info',
+            kind: run.outcome === 'skipped' ? 'schedule.skipped' : run.outcome === 'failed' ? 'schedule.failed' : 'schedule.ran',
+            project: schedule.project,
+            message: `${schedule.title}: ${run.outcome === 'made' ? `made ${run.issue}` : run.outcome}${run.note ? `, ${run.note}` : ''}`,
+            details: {schedule: schedule.id, ...run, ...manual ? {manual} : {}},
+        }),
+        startSession: async (project, {presets, instructions, issue, release}, actor) =>
+            await startLaunch(project, {issue, release, context: await contextFor(project, presets, instructions), actor}),
+    })
     return schedules
 }
 

@@ -30,6 +30,8 @@ const isParent = computed(() => props.issue.tasks.length > 0)
 const flash = computed(() => Date.now() - (changed.value[`${props.project}/${props.issue.id}`] ?? 0) < 1500)
 const {issueUnseen} = useUnseen()
 const unseen = computed(() => issueUnseen(props.project, props.issue))
+const {workerOf} = useWorkedIssues()
+const worker = computed(() => isClosed(props.issue.kind) ? undefined : workerOf(props.project, props.issue.id))
 const {look} = useStatuses()
 // The status in words once: the issue's own, or for a parent the column its sub-issues put it in.
 const shown = computed(() => isParent.value ? props.issue.column : props.issue.status)
@@ -63,6 +65,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
     <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
     <span class="flex min-w-0 flex-1 items-center gap-2">
       <span v-if="unseen" class="unseen-dot" title="Changed since you last opened it" />
+      <WorkingDot v-if="worker" :session="worker" />
       <span class="min-w-0 truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-semibold' : '']"><InlineText :text="issue.title" /></span>
       <template v-if="issue.waiting">
         <WaitingChip :asks="issue.waiting" :proposal="pendingProposal(issue)" class="max-sm:hidden" />

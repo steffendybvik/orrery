@@ -2,18 +2,16 @@
 import {randomBytes} from 'node:crypto'
 import type {Kind, SessionWork, Signal, Upload} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
-import {badRequest, checkInput, conflict, forbidden, notFound} from '../utils/input'
+import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Actor, SignalRow} from './schema'
 import {AGENT, SIGNAL_FIELDS, CHUNK_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, signalOf, nullable, stamp} from './schema'
 import {IssueStore} from './issues'
 import {EVERY} from '../utils/pool'
 import {compressImage} from '../utils/compress'
 import {known} from '#shared/known'
+import {ownerOnly} from '../utils/permission'
 
 export abstract class SignalStore extends IssueStore {
-    /** `Store` has it, with the claims on issues. */
-    abstract workedBy(project: string, issue: string, session: string): Promise<void>
-
     /** Keeps an image for Markdown to show: `{data, name?}` → where it's served and the Markdown that shows it. A PNG or
      * JPEG is kept as WebP when that's smaller (see compress.ts). */
     async createUpload(body: unknown, actor = AGENT): Promise<Upload> {
@@ -82,17 +80,9 @@ export abstract class SignalStore extends IssueStore {
             project, issue, 'focus', nullable(input.note), target, instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
-        if (signal.target && signal.target !== EVERY && !await this.heldElsewhere(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
+        if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
         return signal
-    }
-
-    /** Whether a session other than `session` has the issue started and is there to hear. */
-    private async heldElsewhere(project: string, issue: string, session: string): Promise<boolean> {
-        const worker = await this.listeningWorker(project, issue)
-        if (!worker || worker === session) return false
-        const status = (await this.issueRow(project, issue)).status
-        return (await this.statuses()).find(s => s.id === status)?.kind === 'started'
     }
 
     /** Asks the sessions (or `session`) to work through the chunk's open issues now, or (`status`) its issues of
@@ -146,18 +136,21 @@ export abstract class SignalStore extends IssueStore {
     }
 
     /** What each of the project's sessions is on, for its Sessions page: the open issues it worked last (newest
-     * first), and the last `signals` signals that went to it, by its id or, sent to every session, by its name.
+     * first, each with when it took it), and the last `signals` signals that went to it, by its id or, sent to every session, by its name.
      * `ids` are every id a session has gone by (it gets a new one on a `/clear`), its own when left out. */
     async sessionWork(project: string, sessions: {id: string, name: string, ids?: string[]}[], signals = 5): Promise<Record<string, SessionWork>> {
         await this.projectRow(project)
         const open = new Map((await this.listIssues(project)).filter(i => i.kind !== 'proposed' && !CLOSED.includes(i.kind as Kind)).map(i => [i.id, i]))
-        const worked = await this.all<{issue: string, session: string}>('SELECT issue, session FROM issue_sessions WHERE project = ? ORDER BY at DESC', project)
+        const worked = await this.all<{issue: string, session: string, since: string | null}>('SELECT issue, session, since FROM issue_sessions WHERE project = ? ORDER BY at DESC', project)
         const recent = (await this.all<SignalRow>('SELECT * FROM signals WHERE project = ? ORDER BY id DESC LIMIT 200', project)).map(signalOf)
         return Object.fromEntries(sessions.map(session => {
             const ids = session.ids ?? [session.id]
-            const issues = new Set(worked.filter(w => ids.includes(w.session) && open.has(w.issue)).map(w => w.issue))
+            const mine = worked.filter(w => ids.includes(w.session) && open.has(w.issue))
             return [session.id, {
-                issues: [...issues].flatMap(issue => open.get(issue) ?? []).map(({id, title, column, kind, priority}) => ({id, title, column, kind, priority})),
+                issues: mine.flatMap(({issue, since}) => {
+                    const found = open.get(issue)
+                    return found ? [{id: found.id, title: found.title, column: found.column, kind: found.kind, priority: found.priority, ...since ? {since} : {}}] : []
+                }),
                 signals: recent.filter(s => ids.includes(s.target ?? '') || ((!s.target || s.target === EVERY) && s.delivered_to.includes(session.name))).slice(0, signals),
             }]
         }))
@@ -178,7 +171,7 @@ export abstract class SignalStore extends IssueStore {
      * (an id its sessions can have), they're that preset's text as the owner sent it, tweaked or not, and the
      * message is labelled by its name. */
     async messageSession(project: string, session: string, text: unknown, actor = AGENT, preset?: unknown): Promise<Signal> {
-        if (!actor.owner) throw forbidden('Only the owner messages a session; send Orrery-Actor: <owner>')
+        ownerOnly(actor, 'sessions.message')
         await this.projectRow(project)
         const note = typeof text === 'string' ? text.trim() : ''
         if (!note) throw badRequest('Send the message as {"text": "…"}')
@@ -204,12 +197,20 @@ export abstract class SignalStore extends IssueStore {
             AND (target IS NULL OR target = ? OR target IN (${ids.map(() => '?').join(', ')})) LIMIT 1`, project, EVERY, ...ids)
     }
 
+    /** Whether an owner's focus on the issue from the last ten minutes hasn't been heard yet (Focus on this, a P0's push):
+     * it's on its way, so another isn't sent (ORR-515). */
+    async focusOnItsWay(project: string, issue: string): Promise<boolean> {
+        const since = new Date(Date.now() - 600_000).toISOString()
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1
+            AND delivered_to = '[]' AND created_at >= ? LIMIT 1`, project, issue, since)
+    }
+
     /** The owner's signals from the last day for one session orrery picks (pool.ts) that none has heard yet: the next
      * session to go idle takes them. */
     async pooledWaiting(project: string): Promise<Signal[]> {
         const since = new Date(Date.now() - 86_400_000).toISOString()
         return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
-            AND target IS NULL AND kind != 'comment' AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
+            AND target IS NULL AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
     }
 
     /** The owner's scheduled asks and messages from the last day that no session has heard yet: the next

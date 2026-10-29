@@ -215,6 +215,8 @@ function readAside(files: {path: string, check?: boolean}[]): Promise<{found?: s
             }))`, {eval: true, workerData: files})
         worker.once('message', resolve)
         worker.once('error', reject)
+        // One that ends without a word would otherwise leave every backup after it waiting.
+        worker.once('exit', code => reject(new Error(`The worker reading the backups stopped (exit code ${code}) without an answer`)))
     })
 }
 

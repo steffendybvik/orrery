@@ -13,6 +13,7 @@ import {databaseSetting, hidePassword, useDatabase} from './db'
 import {badRequest, conflict, forbidden} from './input'
 import {fromThisMachine, notThisMachine} from './move'
 import {isPostgres} from './postgres'
+import {ownerOnly} from './permission'
 
 /** `on` false: no backups. `folder`: where they go instead of NUXT_BACKUP_DIR; `postgres`: the URL of a Postgres
  * database they go into instead. `every`: how often, when not a few seconds after each change. `keep`: how many daily
@@ -49,7 +50,7 @@ export function defaultBackupDir(): string {
 }
 
 /** The Postgres database orrery is given for its backups as it starts (NUXT_BACKUP_DATABASE), if any. */
-export function defaultBackupDatabase(): string {
+function defaultBackupDatabase(): string {
     const url = String(useRuntimeConfig().backupDatabase ?? '').trim()
     return isPostgres(url) ? url : ''
 }
@@ -109,7 +110,7 @@ export function saveBackupChoice(choice: BackupChoice) {
 /** Only the owner sets the backups, and only on this machine: a folder chosen is where the data goes. */
 export async function maySetBackups(event: H3Event) {
     const actor = await actorOf(event)
-    if (!actor.owner) throw forbidden('Only the owner sets the backups; send Orrery-Actor: <owner>')
+    ownerOnly(actor, 'database.write')
     if (!fromThisMachine(event)) throw forbidden(notThisMachine('The backups are set'))
     if (!backupChoiceFile()) throw conflict('ORRERY_DATABASE (NUXT_DATABASE) names Postgres, so the backups are set as orrery starts: ORRERY_BACKUP (NUXT_BACKUP_DIR)')
 }

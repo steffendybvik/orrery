@@ -192,6 +192,8 @@ describe('the event log', () => {
         expect(refusal(409, 'POST', '/api/projects/orrery/launches', 'At the limit')).toBeNull()
         expect(refusal(403, 'POST', '/api/projects/orrery/launches', 'Only the owner')).not.toBeNull()
         expect(refusal(404, 'GET', '/api/projects/nope', 'No project nope')).toBeNull()
+        // One the permissions table refused names its row (ORR-512).
+        expect(refusal(403, 'POST', '/api/notices/clear', 'Clear the bell', 'claude', 'notices.clear')?.details).toMatchObject({permission: 'notices.clear'})
     })
 
     it("tells the schedules an untrusted session's refusal is its, so none runs on it", async () => {

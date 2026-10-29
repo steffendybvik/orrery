@@ -117,6 +117,12 @@
     @apply rounded-lg bg-well px-2.5 text-[13px] text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none;
 }
 
+/* The hover tint laid over what's there (`hover:tint`), for something with a solid background of its own: `hover:bg-hover`
+   would put the translucent tint in its place, and a button floating over the page went see-through (ORR-537). */
+@utility tint {
+    background-image: linear-gradient(var(--hover), var(--hover));
+}
+
 /* The small uppercase heading over a group (OBJECTS, PROPERTIES) */
 @utility label {
     @apply text-[11px] font-medium tracking-wide text-faint uppercase;
@@ -240,5 +246,15 @@ body {
         content: '';
         @apply pointer-events-none absolute inset-y-0 -left-3 w-3 rounded-l-sm;
         background: linear-gradient(to right, var(--color-accent-500) 3px, var(--tint) 3px);
+    }
+}
+
+/* The chat's corner button (ChatPane) floats over the bottom right. On a phone, where pages take the full width, each
+   page's scroller ends with room for it, so its last line scrolls clear of the button (ORR-553). */
+@media (width < 48rem) {
+    main > .overflow-y-auto::after {
+        content: "";
+        display: block;
+        height: 3.5rem;
     }
 }

@@ -1,7 +1,6 @@
 import type {Signal, StartedSession} from '#shared/roadmap'
-import {renderPrompt} from '#shared/prompt'
-import {freezeNote} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
+import {signalPayload} from './signal-payload'
 
 // One project's signals for a session, as its stream sends them: the owner's, for every session, for one orrery picks
 // (pool.ts) or for this one; what it missed, and what it should hear as it connects. A session's channel follows its
@@ -51,60 +50,8 @@ export async function openFeed(project: string, who: Listener, from: number | un
 
     const api = `${origin}/api/projects/${encodeURIComponent(project)}`
 
-    /** The signal with what a session needs to act on it: for a chunk, its open issues (or those of its
-     * `status`), most urgent first. Columns go by their statuses' names. A focus comes with its `prompt`:
-     * the project's (or the orrery's) template filled in, with the standing instructions picked for it. */
-    const told = async (signal: Signal) => {
-        const statuses = await store.statuses()
-        // A release in feature freeze says so, after the standing instructions.
-        const withFreeze = async (version: string | undefined) => {
-            const note = version ? freezeNote((await store.project(project)).releases.find(r => r.version === version)) : null
-            return note ? [...signal.instructions, note] : signal.instructions
-        }
-        const templates = await store.prompts(project)
-        const where = (...parts: (string | null | undefined)[]) => parts.filter(Boolean).join(', ')
-        const name = (column: string) => columnName(column, statuses)
-        if (signal.kind === 'message') {
-            // One the owner's chat sent for them says so, to whatever channel hears it.
-            const note = signal.via === 'chat' ? `${signal.note}\n\n(Sent by the owner through their chat.)` : signal.note
-            if (signal.schedule === undefined) return {...signal, note, title: null, column: null, priority: null, chunk: null}
-            let title = 'a schedule'
-            try {
-                title = (await useScheduler().get(project, signal.schedule)).title
-            } catch {
-                // The schedule is gone since; its message still stands.
-            }
-            return {...signal, title, column: null, priority: null, chunk: null}
-        }
-        if (!signal.issue) {
-            const {chunk, title, wanted, open: matching} = await scopeOf(store, project, signal)
-            const open = matching.map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
-            // Another session's, while it's there: refused to this one (Store.claim), so it's marked to skip.
-            const me = who.session ? currentId(who.session) : undefined
-            const taken = new Set(me ? (await Promise.all(open.map(async i => await store.takenFrom(project, i.id, me) ? i.id : null))).filter(Boolean) : [])
-            const status = wanted.length ? wanted.map(s => statuses.find(st => st.id === s)?.name ?? s).join(' or ') : undefined
-            const query = new URLSearchParams({...!signal.chunk || signal.chunk === 'all' ? {} : {chunk: signal.chunk}, ...signal.status ? {status: signal.status} : {}, ...signal.release ? {release: signal.release} : {}})
-            const prompt = renderPrompt(templates.chunk, {
-                actor: signal.created_by, chunk: signal.chunk, title, status: status ?? 'open', priority: chunk.priority,
-                where: where(name(chunk.column), chunk.priority), note: signal.note,
-                issues: open.map(i => issueLine(i, statuses) + (taken.has(i.id) ? ' (another session is on it: skip it)' : '')).join('\n') || '- none left',
-                url: !signal.chunk || signal.chunk === 'none' || signal.chunk === 'all' || signal.release || signal.status?.includes(',')
-                    ? `'${api}/issues?${query}'` : `${api}/chunks/${encodeURIComponent(signal.chunk)}`,
-            }, await withFreeze(signal.release)).replace(' []', '')
-            return {...signal, status, title, column: name(chunk.column), priority: chunk.priority ?? null, chunk: title, issues: open.map(i => ({...i, column: name(i.column)})), prompt}
-        }
-        const issue = await store.issue(project, signal.issue)
-        const chunk = (await store.project(project)).board.chunks.find(c => c.id === (issue.chunk ?? ''))
-        if (signal.kind !== 'focus') return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null}
-        // A sub-issue set for no release goes out with its parent's.
-        let version = issue.release
-        for (let parent = issue.parent; !version && parent;) ({release: version, parent} = await store.issue(project, parent))
-        const prompt = renderPrompt(templates.focus, {
-            actor: signal.created_by, issue: issue.id, title: issue.title, status: name(issue.column), priority: issue.priority, chunk: chunk?.title,
-            where: where(name(issue.column), issue.priority, chunk?.title), note: signal.note, url: `${api}/issues/${encodeURIComponent(issue.id)}`,
-        }, await withFreeze(version))
-        return {...signal, title: issue.title, column: name(issue.column), priority: issue.priority ?? null, chunk: chunk?.title ?? null, prompt}
-    }
+    /** The signal with what the session needs to act on it (signal-payload.ts). */
+    const told = (signal: Signal) => signalPayload(store, project, signal, {api, me: who.session ? currentId(who.session) : undefined})
     // The owner's signals for every session, for one orrery picks, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
     const ours = (signal: Signal) => aimedAt(signal, attended?.id)
     const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.delivered_to.length && ours(signal)
@@ -170,9 +117,6 @@ export async function openFeed(project: string, who: Listener, from: number | un
     }
 }
 
-/** Sends the feed's signals on a server-sent event stream as `signal` events, each with its id: what it missed and
- * what it should hear as it connects (scheduled work nobody heard, the owner's unanswered comments), then each as
- * it's sent. Several feeds can share a stream. */
 /** Tells the session on a stream its name as a `name` event `{name}`: once it's known, and again whenever it changes
  * (a move to another project, a name its hooks give). Says how to stop. */
 export function sayName(stream: {push: (message: {event: string, data: string}) => unknown}, session: () => string | undefined): () => void {
@@ -188,13 +132,28 @@ export function sayName(stream: {push: (message: {event: string, data: string}) 
     return () => projectEvents.off('sessions', say)
 }
 
-export async function streamFeed(stream: {push: (message: {id?: string, event: string, data: string}) => unknown}, feed: Feed, name?: string) {
+/** A signal as a stream says it: what the session needs to act on it, and the context it was started with. */
+export type Told = Awaited<ReturnType<Feed['told']>> & {context?: string}
+
+/** A server-sent event stream's sink: each signal as a `signal` event with its id. */
+export const sseSink = (stream: {push: (message: {id?: string, event: string, data: string}) => unknown}) =>
+    (signal: Signal, told: Told) => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify(told)})
+
+/** Hands the feed's signals to `say`, one after another: what it missed and what it should hear as it connects
+ * (scheduled work nobody heard, the owner's unanswered comments), then each as it's sent. Several feeds can share a
+ * stream; `sseSink` sends them as server-sent events. */
+export async function streamFeed(say: (signal: Signal, told: Told) => unknown, feed: Feed, name?: string) {
     const {project, attended, heard} = feed
     const store = useStore()
-    /** The context the owner started this session with, which every signal to it carries, for its channel to add. */
+    /** The context the owner started this session with, for its channel to add: once a stream, with the first signal
+     * that finds it. Its hook hands it the same on every SessionStart (its first, a `/clear`, a compaction), so this is
+     * for a session whose hook didn't get through; every signal carrying it again only filled its context (ORR-543). */
+    let contextSaid = false
     const context = () => {
-        const given = attended && sessionNow(attended.id)?.started?.context
-        return given ? {context: contextBlock(given)} : {}
+        const given = !contextSaid && attended && sessionNow(attended.id)?.started?.context
+        if (!given) return {}
+        contextSaid = true
+        return {context: contextBlock(given)}
     }
     /** When each repeatable message last went out on this stream, and every signal it sent. */
     const sent = new Map<string, number>()
@@ -205,7 +164,13 @@ export async function streamFeed(stream: {push: (message: {id?: string, event: s
         const key = repeatKey(signal)
         if (key) sent.set(key, Date.now())
         if (attended) startRun(attended.id, signal)
-        feed.inOrder(async () => stream.push({id: String(signal.id), event: 'signal', data: JSON.stringify({...await feed.told(signal), ...context()})}))
+        // The owner's comment orrery handed this session (nobody was on its issue) makes the issue this session's, so
+        // their next comment on it comes here too and the thread keeps one voice (ORR-513).
+        if (attended && signal.kind === 'comment' && !signal.target && signal.issue) {
+            store.workedBy(project, signal.issue, attended.id).catch(error => console.error(`[orrery] tying ${signal.issue} to its session:`, error))
+        }
+        const extra = context()
+        feed.inOrder(async () => say(signal, {...await feed.told(signal), ...extra}))
     }
     // A schedule's message again while the session hasn't finished a turn since the last copy (busy, or yet to
     // read it) would only pile up behind it: it counts as heard. A session whose hooks never said it went idle
@@ -239,7 +204,11 @@ export async function streamFeed(stream: {push: (message: {id?: string, event: s
         }
     } catch (error) {
         console.error(`[orrery] catching ${project}'s stream up:`, error)
-        if (!feed.live) feed.goLive(send, new Set(feed.missed.map(s => s.id)))
+        // What it missed still goes, before the live feed: going live counts those as sent, so they'd be lost.
+        if (!feed.live) {
+            feed.missed.filter(feed.mine).forEach(push)
+            feed.goLive(send, new Set(feed.missed.map(s => s.id)))
+        }
     }
 }
 
