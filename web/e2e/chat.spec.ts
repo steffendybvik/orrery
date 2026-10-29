@@ -542,3 +542,54 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         launcher.stop()
     }
 })
+
+// What's held never goes on its own after the chat is closed, never tries again by itself once it fails, and a slash
+// command never goes ahead of it (ORR-523).
+test('closing the pane puts what is held back, a failed send waits for Send now, and a command waits its turn', async ({page, request}) => {
+    await endChats(request)
+    await page.goto('/p/larder')
+    const corner = page.getByRole('button', {name: 'Agent', exact: true})
+    await corner.click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const box = pane.getByLabel('Message')
+    const held = pane.getByRole('group', {name: 'Held to send together'})
+    let starts = 0
+    await page.route('**/api/chats', route => {
+        if (route.request().method() !== 'POST') return route.fallback()
+        starts++
+        return route.fulfill({status: 500, json: {statusMessage: 'down'}})
+    })
+
+    // Closed while held: no chat starts once the wait runs out, and the words are back in the box.
+    await box.fill('the pantry')
+    await box.press('Enter')
+    await expect(held).toContainText('the pantry')
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+    await page.waitForTimeout(3000)
+    expect(starts).toBe(0)
+    await corner.click()
+    await expect(box).toHaveValue('the pantry')
+    await expect(held).toHaveCount(0)
+
+    // A failed send tries once, then waits for Send now.
+    await box.press('Enter')
+    await expect.poll(() => starts, {timeout: 5000}).toBe(1)
+    await expect(held).toContainText('Not sent')
+    await page.waitForTimeout(3000)
+    expect(starts).toBe(1)
+
+    // A slash command doesn't go ahead of what's held: it stays in the box.
+    await box.fill('/compact')
+    await box.press('Enter')
+    await expect.poll(() => starts).toBe(2)
+    await expect(box).toHaveValue('/compact')
+    await expect(held).toContainText('the pantry')
+
+    // Send now tries again.
+    await held.getByRole('button', {name: 'Send now'}).click()
+    await expect.poll(() => starts).toBe(3)
+    await page.unroute('**/api/chats')
+    await box.fill('')
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+    expect((await (await request.get('/api/chats')).json()).length).toBe(0)
+})

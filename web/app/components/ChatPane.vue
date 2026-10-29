@@ -8,7 +8,8 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // session's state shows in the header and the conversation below, newest at the bottom. Enter holds the message under the
 // box (Shift+Enter for a new line), and a run of them goes as one message once the owner has stopped typing for a moment
 // (`HOLD_MS`, a draining bar showing it), so the chat answers the whole thought (ORR-517); ⌘/Ctrl-Enter or Send sends at
-// once, and ✕ or Esc takes the last one back. A slash command goes at once, after what's held. An image pasted or
+// once, and ✕ or Esc takes the last one back. A slash command goes at once, after what's held, and never ahead of it. What
+// couldn't go waits for Send now, and closing the pane, or the chat ending, puts what's held back in the box. An image pasted or
 // dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; minimizing it
 // (–, or Esc) hides it with the chat still running, and the corner button, marked while one runs, brings it back as it was.
 // Esc closes the pane only before a chat starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
@@ -103,30 +104,58 @@ let heldKey = 0
 let holdTimer: ReturnType<typeof setTimeout> | undefined
 /** Counts each restart of the wait, so the draining bar starts over. */
 const holds = ref(0)
+/** What's held couldn't go: it waits for the owner (Send now, or Enter) rather than trying again by itself. */
+const stalled = ref(false)
 
 /** Starts the wait over, from now: what's held goes once it runs out. */
 function restartHold() {
     clearTimeout(holdTimer)
-    if (!held.value.length) return
+    if (!held.value.length || stalled.value) return
     holds.value++
-    holdTimer = setTimeout(() => void flush(), HOLD_MS)
+    holdTimer = setTimeout(() => void flush(false), HOLD_MS)
 }
 
-/** Sends what's held as one message, starting the chat first when there's none yet; what's held stays if it can't go. */
-async function flush() {
+/** Sends what's held as one message, starting the chat first when there's none yet; what's held stays if it can't go.
+ * `owner`: the owner asked for it, rather than the wait running out, which never starts a chat on a hidden pane or after
+ * one ends (ORR-523). True when nothing's left held. */
+async function flush(owner = true) {
     clearTimeout(holdTimer)
-    if (!held.value.length || sending.value || uploading.value) return
+    if (!held.value.length) return true
+    if (owner) stalled.value = false
+    // Busy with an image or another send: the wait starts over, and it goes once that's done.
+    if (sending.value || uploading.value) {
+        restartHold()
+        return false
+    }
+    if (!owner && (chat.value ? chat.value.ended : !open.value)) return false
     const run = held.value
     sending.value = true
     if (chat.value?.ended) fresh()
     const texts = run.map(m => m.text).filter(Boolean)
     const ids = run.flatMap(m => m.images.map(i => i.id))
-    if ((chat.value || await start()) && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)) {
-        held.value = held.value.filter(m => !run.includes(m))
-    }
+    const sent = (!!chat.value || await start()) && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)
+    if (sent) held.value = held.value.filter(m => !run.includes(m))
+    else stalled.value = true
     sending.value = false
     // Held while that went: their wait starts now.
     restartHold()
+    return !held.value.length
+}
+
+/** Puts what's held back in the box, unsent, for a chat that's ending: nothing goes after it on its own (ORR-523). */
+function unhold() {
+    clearTimeout(holdTimer)
+    stalled.value = false
+    if (!held.value.length) return
+    draft.value = [...held.value.map(m => m.text), draft.value].filter(t => t.trim()).join('\n\n')
+    images.value = [...held.value.flatMap(m => m.images), ...images.value]
+    held.value = []
+}
+
+/** Closes the pane (× or Esc), ending its chat: what's held goes back in the box rather than starting another. */
+function end() {
+    unhold()
+    void close()
 }
 
 /** Takes a held message back before it goes: into the box when the box is empty. */
@@ -148,8 +177,8 @@ async function submit(now = false) {
     const text = draft.value.trim()
     if (uploading.value) return
     if (/^\/[a-z][\w-]*(\s|$)/i.test(text) && !images.value.length) {
-        await flush()
-        if (sending.value) return
+        // Never ahead of what's held: while that can't go, the command waits in the box.
+        if (!await flush() || sending.value) return
         sending.value = true
         if (text === '/clear') {
             if (!chat.value || chat.value.ended || await clear()) draft.value = ''
@@ -161,6 +190,7 @@ async function submit(now = false) {
         return
     }
     if (text || images.value.length) {
+        stalled.value = false
         held.value.push({key: ++heldKey, text, images: images.value})
         draft.value = ''
         images.value = []
@@ -187,6 +217,9 @@ function onKey(event: KeyboardEvent) {
 }
 // Typing the next part puts the wait off.
 watch(draft, () => restartHold())
+// Opened again, what was held while it was hidden gets its wait.
+watch(open, shown => shown && restartHold())
+watch(() => chat.value?.ended, over => over && unhold())
 onBeforeUnmount(() => clearTimeout(holdTimer))
 
 async function attach(files: File[]) {
@@ -236,7 +269,7 @@ const {over, on: drop} = useImageDrop(attach)
       :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : 'h-[min(40rem,calc(100dvh-2rem))] sm:w-[min(28rem,calc(100vw-2rem))]'"
       aria-label="Chat"
       v-on="drop"
-      @keydown.esc="!chat || chat.ended ? close() : hide()"
+      @keydown.esc="!chat || chat.ended ? end() : hide()"
   >
     <ImageDropOverlay v-if="over" />
     <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-4">
@@ -262,7 +295,7 @@ const {over, on: drop} = useImageDrop(attach)
       <UiButton v-if="chat && !chat.ended" variant="ghost" size="xs" square aria-label="Minimize the chat, leaving it running" title="Minimize" @click="hide">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14" /></svg>
       </UiButton>
-      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'End the chat and close it' : 'Close the chat'" :title="chat && !chat.ended ? 'End chat' : 'Close'" @click="close">
+      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'End the chat and close it' : 'Close the chat'" :title="chat && !chat.ended ? 'End chat' : 'Close'" @click="end">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
       </UiButton>
     </header>
@@ -425,9 +458,9 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
         </div>
         <div class="flex w-full items-center gap-2 text-[11px] text-faint" aria-live="polite">
           <span class="relative h-0.5 flex-1 overflow-hidden rounded-full bg-line">
-            <span v-if="!sending" :key="holds" class="absolute inset-0 animate-drain origin-right rounded-full bg-accent-500 motion-reduce:hidden" :style="{animationDuration: `${HOLD_MS}ms`}" />
+            <span v-if="!sending && !stalled" :key="holds" class="absolute inset-0 animate-drain origin-right rounded-full bg-accent-500 motion-reduce:hidden" :style="{animationDuration: `${HOLD_MS}ms`}" />
           </span>
-          <span>{{ sending ? 'Sending…' : `Sends ${HOLD_MS / 1000} s after you stop typing` }}</span>
+          <span>{{ sending ? 'Sending…' : stalled ? 'Not sent' : `Sends ${HOLD_MS / 1000} s after you stop typing` }}</span>
           <button type="button" class="text-accent-600 hover:underline disabled:opacity-50 dark:text-accent-400" :disabled="sending" @click="flush()">Send now</button>
         </div>
       </div>
