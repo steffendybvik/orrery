@@ -105,11 +105,16 @@ let pullPoll: PullPoll | null = null
 /** The background poll of the projects' pull requests: each change goes out as `pull-change` (a `PullChange`), and one
  * that's told is said on its issue (pull-comments.ts). */
 export function usePullPoll(): PullPoll {
-    pullPoll ??= new PullPoll(useStore(), usePulls(), project => useSecrets().ownsFor('https://api.github.com/graphql', GITHUB_SECRET, project),
-        change => {
-            projectEvents.emit('pull-change', change)
-            void commentOnPull(useStore(), change)
-        }, entry => useEventLog().note(entry))
+    if (!pullPoll) {
+        const made = new PullPoll(useStore(), usePulls(), project => useSecrets().ownsFor('https://api.github.com/graphql', GITHUB_SECRET, project),
+            change => {
+                projectEvents.emit('pull-change', change)
+                void commentOnPull(useStore(), change)
+            }, entry => useEventLog().note(entry))
+        // A token set again is tried at the next poll, not an hour after GitHub turned the last one down.
+        projectEvents.on('secrets', () => made.secretsChanged())
+        pullPoll = made
+    }
     return pullPoll
 }
 
