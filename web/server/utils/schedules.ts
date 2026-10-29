@@ -95,6 +95,25 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
 /** How many runs a schedule shows. */
 const RUNS = 10
 
+/** A run under way: the schedule, what set it off, and how it's recorded. */
+interface Run {
+    row: ScheduleRow
+    now: Date
+    manual: boolean
+    event?: OrreryEvent
+    actor: Actor
+    /** What it ran on, said by ids. */
+    about: string | null
+    presets: Preset[]
+    record: (outcome: ScheduleRun['outcome'], issue: string | null, said: string | null) => Promise<ScheduleRun>
+}
+
+/** What a message or an issue run says: its presets' text, its notes (a message with neither says its title), and what it
+ * ran on. */
+function wordsOf({row, presets, about}: Run): string {
+    return [...presets.map(p => p.text), row.notes ?? (row.kind === 'message' && !presets.length ? row.title : null), about].filter(Boolean).join('\n\n')
+}
+
 export class Schedules {
     /** `onChange` hears a project's schedules changed or ran; `listening` says how many sessions a project has listening;
      * `startUntrusted` starts an untrusted run's session, with its message for it alone, and says its tmux session;
@@ -247,9 +266,7 @@ export class Schedules {
         let ran = 0
         for (const row of due) {
             // Claimed by moving its next run on: if another server got there first, nothing changes here.
-            const next = row.at ? null : nextRun(row, now)
-            const claimed = (await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
-            if (!claimed) continue
+            if (!await this.claimNext(row, now)) continue
             await this.run(row, now, false)
             ran++
         }
@@ -265,10 +282,15 @@ export class Schedules {
         if (!instead) return await this.run(row, new Date(), true)
         if (!row.enabled || !row.next_run) throw conflict(`Running schedule ${id} instead of its next run: it has none, so run it now`)
         const skipped = new Date(row.next_run)
-        const next = row.at ? null : nextRun(row, skipped)
-        const claimed = (await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
-        if (!claimed) throw conflict(`Running schedule ${id} instead of its next run: that run has just started`)
+        if (!await this.claimNext(row, skipped)) throw conflict(`Running schedule ${id} instead of its next run: that run has just started`)
         return await this.run(row, new Date(), true, undefined, `instead of ${day(skipped, row.timezone)} ${time(skipped, row.timezone)}`)
+    }
+
+    /** Takes its next run, moving it on to the one after `from` (a one-off is done): false when another server, or
+     * another call, took it first. */
+    private async claimNext(row: ScheduleRow, from: Date): Promise<boolean> {
+        const next = row.at ? null : nextRun(row, from)
+        return !!(await this.db.run('UPDATE schedules SET next_run = ?, enabled = ? WHERE id = ? AND next_run = ?', next, row.at ? 0 : 1, row.id, row.next_run)).changes
     }
 
     /** What `hear` is on: events are heard one at a time, so a burst of them can't each pass a schedule's checks
@@ -370,45 +392,58 @@ export class Schedules {
         } catch (error) {
             return await record('failed', null, error instanceof Error ? error.message : String(error))
         }
-        if (row.kind === 'session') {
-            if (!actor.owner) return await record('skipped', null, 'made by an agent, so it starts no session')
-            const subject = event?.subject && event.type !== 'issue.deleted' && event.type !== 'release.deleted' ? event.subject : undefined
+        const run: Run = {row, now, manual, event, actor, about, presets, record}
+        return row.kind === 'session' ? await this.runSession(run) : row.kind === 'message' ? await this.runMessage(run) : await this.runIssue(run)
+    }
+
+    /** A session schedule's run: starts a session with its presets and notes, on the issue or release it ran on. */
+    private async runSession({row, event, actor, about, presets, record}: Run): Promise<ScheduleRun> {
+        if (!actor.owner) return await record('skipped', null, 'made by an agent, so it starts no session')
+        const subject = event?.subject && event.type !== 'issue.deleted' && event.type !== 'release.deleted' ? event.subject : undefined
+        try {
+            const {tmux} = await this.startSession(row.project, {
+                presets: presets.map(p => p.id),
+                instructions: [row.notes, about].filter(Boolean).join('\n\n'),
+                ...subject && event?.type.startsWith('issue.') ? {issue: subject} : {},
+                ...subject && event?.type.startsWith('release.') ? {release: subject} : {},
+            }, actor)
+            return await record('sent', null, `started a session (${tmux})`)
+        } catch (error) {
+            // No room, no launcher or no opt-in is a run that waits for another time, not a fault.
+            const why = error instanceof Error ? error.message : String(error)
+            return await record((error as {statusCode?: number}).statusCode === 409 ? 'skipped' : 'failed', null, why)
+        }
+    }
+
+    /** A message schedule's run: its words to the project's listening sessions, or to a locked-down one of its own. */
+    private async runMessage(run: Run): Promise<ScheduleRun> {
+        const {row, manual, event, actor, presets, record} = run
+        // Only the owner's signals reach sessions, as with every signal.
+        if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
+        if (row.only_if_changed && !manual && !event && !await this.changedSinceSent(row)) return await record('skipped', null, 'nothing changed')
+        const words = wordsOf(run)
+        if (row.untrusted) {
+            // Never to the project's sessions: to one started for it, or nowhere.
             try {
-                const {tmux} = await this.startSession(row.project, {
-                    presets: presets.map(p => p.id),
-                    instructions: [row.notes, about].filter(Boolean).join('\n\n'),
-                    ...subject && event?.type.startsWith('issue.') ? {issue: subject} : {},
-                    ...subject && event?.type.startsWith('release.') ? {release: subject} : {},
-                }, actor)
-                return await record('sent', null, `started a session (${tmux})`)
+                const {tmux} = await this.startUntrusted(row.project, row.id, words, actor)
+                return await record('sent', null, `started a locked-down session for it (${tmux})`)
             } catch (error) {
-                // No room, no launcher or no opt-in is a run that waits for another time, not a fault.
-                const why = error instanceof Error ? error.message : String(error)
-                return await record((error as {statusCode?: number}).statusCode === 409 ? 'skipped' : 'failed', null, why)
+                return await record('failed', null, `untrusted, so it needs a session of its own: ${error instanceof Error ? error.message : String(error)}`)
             }
         }
-        const words = [...presets.map(p => p.text), row.notes ?? (row.kind === 'message' && !presets.length ? row.title : null), about].filter(Boolean).join('\n\n')
-        if (row.kind === 'message') {
-            // Only the owner's signals reach sessions, as with every signal.
-            if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
-            if (row.only_if_changed && !manual && !event && !await this.changedSinceSent(row)) return await record('skipped', null, 'nothing changed')
-            if (row.untrusted) {
-                // Never to the project's sessions: to one started for it, or nowhere.
-                try {
-                    const {tmux} = await this.startUntrusted(row.project, row.id, words, actor)
-                    return await record('sent', null, `started a locked-down session for it (${tmux})`)
-                } catch (error) {
-                    return await record('failed', null, `untrusted, so it needs a session of its own: ${error instanceof Error ? error.message : String(error)}`)
-                }
-            }
-            await this.store.message(row.project, row.id, words, actor, undefined, presets.map(p => p.name).join(', ') || undefined)
-            const heard = this.listening(row.project)
-            return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
-        }
+        await this.store.message(row.project, row.id, words, actor, undefined, presets.map(p => p.name).join(', ') || undefined)
+        const heard = this.listening(row.project)
+        return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
+    }
+
+    /** An issue schedule's run: makes its issue, and asks the sessions to take it when it says to. */
+    private async runIssue(run: Run): Promise<ScheduleRun> {
+        const {row, now, manual, event, actor, record} = run
         if (row.skip_open && !manual) {
             const open = await this.lastOpenIssue(row)
             if (open) return await record('skipped', null, `${open} from the last run isn't done yet`)
         }
+        const words = wordsOf(run)
         try {
             const issue = await this.store.createIssue(row.project, {
                 title: `${row.title} · ${event ? event.subject ?? event.type : day(now, row.timezone)}`,
