@@ -1,11 +1,7 @@
-// What the channel tells Claude about orrery as it connects (the MCP server's instructions): how to work with the
-// roadmap, or, for the owner's chat, how to answer in it. Its own file so orrery shows the same words, with their size,
-// in its context view (ORR-549).
-
-/** The instructions for a server on `base` hearing `projects` (`every` for every project on it); `chat` for the owner's
- * chat. */
-export function instructionsFor({base, projects, every = false, chat = false}) {
-    const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
+/** The orrery server's instructions to the session it runs in, which Claude carries on every turn: for the owner's
+ * chat (`chat`) or for a work session, on `base`, serving what `serves` says (several projects: `several`). Kept short,
+ * as the context budget tests check (ORR-548). */
+export function instructionsFor({base, serves, chat = false, several = false}) {
     return chat ? [
         `orrery (${base}) keeps this repo's roadmap as ${serves}. This session is the owner's chat: their messages arrive as <channel ...> blocks,`,
         'and your answers reach them only through the reply tool, in Markdown. Answer questions about the project from its code and its roadmap',
@@ -17,7 +13,7 @@ export function instructionsFor({base, projects, every = false, chat = false}) {
     ].join(' ') : [
         `orrery (${base}) keeps this repo's roadmap as ${serves}, and this server's tools read and write it`,
         '(issues, issue, start_issue, comment, finish_issue, create_issue, update_issue, chunks, releases, docs, doc, write_doc): use them instead of curl.',
-        ...every || projects.length > 1 ? ['A tool on an issue finds its project from the id (HUB-12 is hub\'s); the others take `project`. Each <channel> block says its project.'] : [],
+        ...several ? ['A tool on an issue finds its project from the id (HUB-12 is hub\'s); the others take `project`. Each <channel> block says its project.'] : [],
         'Its messages arrive as <channel ...> blocks and come from the owner through orrery.',
         'When one asks you to focus on an issue: read it (issue), start it (start_issue), read the docs it touches (docs lists them with a line each, doc reads one) before the code, comment as the work moves (comment), and finish it when it ships (finish_issue).',
         'Docs are where decisions and how things work live: when one turns out wrong or out of date, fix it (write_doc) as part of the work.',

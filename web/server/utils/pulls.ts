@@ -169,7 +169,9 @@ export class Pulls {
             if (kept) {
                 for (const pull of kept.pulls) {
                     const issue = await this.issueOf(projects, JSON.parse(pull.names) as string[])
-                    pulls.push({...keptShown(pull), repo, ...issue ? {issue} : {}})
+                    // Read without a token, the state kept is the last one a token told: maybe long gone.
+                    const shown = kept.token ? keptShown(pull) : {...keptShown(pull), state: pull.draft ? 'draft' as const : 'checking' as const}
+                    pulls.push({...shown, repo, ...issue ? {issue} : {}})
                 }
                 repos.push({repo, projects, token: kept.token, checked_at: kept.checked_at, ...kept.error ? {error: kept.error} : {}})
                 continue
@@ -200,6 +202,12 @@ export class Pulls {
     limitedUntil(repo: string): number | undefined {
         const until = this.limited.get(repo)
         return until && this.now() < until ? until : undefined
+    }
+
+    /** The poll couldn't read the repo: its list says why for a minute, keeping what it had, rather than asking again. */
+    failed(repo: string, error: string) {
+        const kept = this.lists.get(repo)
+        this.lists.set(repo, {...kept ?? {secret: false}, at: this.now(), fresh: FRESH, error})
     }
 
     /** The projects' GitHub repos, each with the projects on it, oldest first. */

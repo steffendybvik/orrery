@@ -8,6 +8,8 @@ import {toolsFor} from '../../../channel/tools.mjs'
 import type {ContextKind, ContextPart, ContextView} from '#shared/context'
 
 const tokens = (chars: number) => Math.ceil(chars / 4)
+/** What the channel says it serves, as orrery-channel.mjs words it. */
+const servesLine = (projects: string[]) => projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
 const part = (id: string, group: ContextPart['group'], title: string, text: string): ContextPart =>
     ({id, group, title, text, chars: text.length, tokens: tokens(text.length)})
 
@@ -19,7 +21,7 @@ export function contextView(kind: ContextKind, projects: string[], base: string,
         .map(tool => part(`tool:${tool.name}`, 'tools', tool.name, JSON.stringify(tool, null, 2)))
         .sort((a, b) => b.chars - a.chars)
     const parts = [
-        part('instructions', 'instructions', 'Server instructions', instructionsFor({base, projects, chat}) as string),
+        part('instructions', 'instructions', 'Server instructions', instructionsFor({base, serves: servesLine(projects), chat, several: projects.length > 1})),
         ...tools,
         ...start ? [part('start', 'start', 'Start context', start)] : [],
     ]

@@ -1,6 +1,6 @@
 // Signals: what sessions are told, who hears it, and what each session is on. The store, against a fresh database with
 // the project `greenhouse` (store-setup.ts).
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT} from '#shared/prompt'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -153,6 +153,25 @@ describe("what a project's sessions are on", () => {
         const cleared = await store.sessionWork('greenhouse', [{id: 'b2', name: 'pantry', ids: ['b2', 'b']}])
         expect(cleared.b2!.issues.map(i => i.id)).toEqual([shelves])
         expect(cleared.b2!.signals.map(s => s.issue)).toEqual([jars, shelves])
+    })
+
+    it('says when each took its issue, kept while it works it again (ORR-536)', async () => {
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-progress'})).id
+        const since = async (session: string) => (await store.sessionWork('greenhouse', [{id: session, name: session}]))[session]!.issues[0]?.since
+        vi.useFakeTimers({toFake: ['Date']})
+        try {
+            vi.setSystemTime(new Date('2026-10-29T09:00:00Z'))
+            await store.workedBy('greenhouse', shelves, 'a')
+            vi.setSystemTime(new Date('2026-10-29T09:20:00Z'))
+            await store.workedBy('greenhouse', shelves, 'a')
+            expect(await since('a')).toBe('2026-10-29T09:00:00.000Z')
+            // Another session taking it starts the clock again.
+            vi.setSystemTime(new Date('2026-10-29T09:30:00Z'))
+            await store.workedBy('greenhouse', shelves, 'b')
+            expect(await since('b')).toBe('2026-10-29T09:30:00.000Z')
+        } finally {
+            vi.useRealTimers()
+        }
     })
 })
 describe('a session that connects', () => {

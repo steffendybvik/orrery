@@ -26,7 +26,7 @@ watch(found, f => {
 }, {immediate: true})
 const issue = computed(() => found.value?.issue)
 /** The session on it, while it's listening. */
-const {worker} = useIssueWorker(() => project.value?.id ?? '', () => issue.value?.id, () => issue.value?.updated_at)
+const {worker, since: workerSince} = useIssueWorker(() => project.value?.id ?? '', () => issue.value?.id, () => issue.value?.updated_at)
 // One it doesn't have yet (just made, and its update still on its way or lost offline) is asked for once
 // before the page says there's no such issue.
 const looking = ref(false)
@@ -192,7 +192,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" />
+    <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
       <article class="flex min-w-0 flex-1 flex-col gap-8 px-4 py-6 sm:px-8 sm:py-10">
         <header class="flex flex-col gap-2">
@@ -306,7 +306,8 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
       </article>
 
       <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block">
-        <div class="sticky top-6">
+        <!-- Clear of the worker's banner, which sticks above it, on one line at this width. -->
+        <div class="sticky" :class="worker && !isClosed(issue.kind) ? 'top-16' : 'top-6'">
           <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
       </aside>

@@ -30,7 +30,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('the context view', () => {
     it("shows a work session the channel's own instructions and tools, each with its size, biggest tool first", () => {
         const work = view.contextView('work', ['orrery'], 'http://o')
-        expect(work.parts[0]).toMatchObject({id: 'instructions', text: instructionsFor({base: 'http://o', projects: ['orrery']})})
+        expect(work.parts[0]).toMatchObject({id: 'instructions', text: instructionsFor({base: 'http://o', serves: 'project "orrery"'})})
         const tools = work.parts.filter(p => p.group === 'tools')
         expect(tools.map(t => t.title).sort()).toEqual(toolsFor(['orrery']).map((t: {name: string}) => t.name).sort())
         expect(tools.map(t => t.chars)).toEqual(tools.map(t => t.chars).toSorted((a, b) => b - a))

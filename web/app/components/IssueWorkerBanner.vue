@@ -5,8 +5,9 @@ import {TERMINALS} from '#shared/roadmap'
 // Says which session is working the issue, at the top of its page (`useIssueWorker`): its dot, pulsing while it works,
 // its name linking to it on the Sessions page, its state (rose while it needs a permission) and since when, and Watch
 // when orrery started it. It sticks to the top of the page as it scrolls, so who's on it stays in sight; being in the
-// flow, it covers nothing and doesn't jump.
-const props = defineProps<{session: Session}>()
+// flow, it covers nothing and doesn't jump. `since` is when the session took the issue; without it (an issue it
+// took before orrery kept that), since when it's been in its state.
+const props = defineProps<{session: Session, since?: string}>()
 const {load} = useOwner()
 const {settings} = useAppSettings()
 const opening = ref(false)
@@ -46,7 +47,7 @@ async function watchIt() {
           <span class="text-muted"> is working on this</span>
         </span>
         <span class="text-xs" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-muted'">
-          {{ SESSION_STATE[session.state] }}<span class="text-faint"> · since {{ ago(session.since) }}</span>
+          {{ SESSION_STATE[session.state] }}<span class="text-faint" :title="since ? 'When it took this issue' : 'When it got into this state'"> · {{ since ? 'took it' : 'since' }} {{ ago(since ?? session.since) }}</span>
         </span>
         <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
         <UiButton
