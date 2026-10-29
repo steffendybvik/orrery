@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import type {ContextKind, ContextPart, ContextView} from '#shared/context'
+import type {ContextEntry, ContextKind, ContextPart, ContextView} from '#shared/context'
 
 // What orrery puts into a session's context, part by part with its size (ORR-549), to see what to cut: the channel's
 // instructions, each tool it lists and the context the session was started with, biggest first, each part's text
 // folded under it. For a kind of session on a project (`?project=&kind=`), or a running one (`?session=`, from its
-// card on the Sessions page). It's reached from App settings → Advanced (ORR-561).
+// card on the Sessions page), which also lists what it's been given so far: each signal and tool answer, newest first.
+// It's reached from App settings → Advanced (ORR-561).
 useHead({title: 'Context · orrery'})
 const route = useRoute()
 const router = useRouter()
@@ -53,6 +54,10 @@ const groups = computed(() => {
 })
 /** Biggest first, across the groups. */
 const parts = computed(() => view.value?.parts.toSorted((a, b) => b.chars - a.chars) ?? [])
+/** What a running session has been given so far, in all. */
+const sofarChars = computed(() => view.value?.sofar?.reduce((sum, e) => sum + e.chars, 0) ?? 0)
+const SOFAR: Record<ContextEntry['kind'], {label: string, bar: string}> = {signal: {label: 'Signal', bar: 'bg-emerald-500'}, tool: {label: 'Tool answer', bar: 'bg-rose-500'}}
+const time = (at: string) => new Date(at).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
 const pct = (share: number) => `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`
 const n = (value: number) => value.toLocaleString('en')
 </script>
@@ -107,7 +112,7 @@ const n = (value: number) => value.toLocaleString('en')
           </li>
         </ul>
         <p class="text-xs text-faint">
-          Tokens are estimated as a quarter of the characters. Signals and what its tool calls return come on top, as the session works.
+          Tokens are estimated as a quarter of the characters. Signals and what its tool calls return come on top, as the session works: a running session's are under So far.
         </p>
       </section>
 
@@ -126,6 +131,33 @@ const n = (value: number) => value.toLocaleString('en')
           </details>
         </li>
       </ul>
+
+      <section v-if="view?.sofar" aria-label="So far" class="flex flex-col gap-2">
+        <h2 class="text-sm font-medium">So far</h2>
+        <p class="text-xs text-muted">
+          <template v-if="view.sofar.length">
+            Its latest {{ view.sofar.length }} signals and tool answers: <span data-testid="context-sofar-total">{{ n(sofarChars) }} characters</span>, about {{ n(Math.ceil(sofarChars / 4)) }} tokens.
+            Each stays in its context once given. Kept since orrery last started.
+          </template>
+          <template v-else>Nothing yet: its signals and tool answers show here as it's given them.</template>
+        </p>
+        <ul v-if="view.sofar.length" class="flex flex-col divide-y divide-line rounded-lg ring-1 ring-line">
+          <li v-for="(e, i) in view.sofar" :key="`${e.at}-${i}`">
+            <details class="group">
+              <summary class="flex cursor-pointer list-none items-center gap-3 px-3 py-2 text-[13px] hover:bg-hover">
+                <svg class="size-3 shrink-0 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>
+                <span class="size-2 shrink-0 rounded-full" :class="SOFAR[e.kind].bar" :title="SOFAR[e.kind].label" />
+                <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ e.title }}</span>
+                <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">{{ time(e.at) }}</span>
+                <span class="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted">{{ n(e.chars) }}</span>
+                <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">~{{ n(e.tokens) }} tok</span>
+              </summary>
+              <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted">{{ e.text }}<template v-if="e.text.length < e.chars">
+…(cut, {{ n(e.chars - e.text.length) }} more characters)</template></pre>
+            </details>
+          </li>
+        </ul>
+      </section>
     </div>
   </div>
 </template>
