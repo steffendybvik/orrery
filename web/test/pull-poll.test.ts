@@ -136,6 +136,21 @@ describe('the pull request poll', () => {
         ])
     })
 
+    it('counts each failure of a PR\'s checks, and hands on who asked for changes, what they wrote and where', async () => {
+        await withToken()
+        const failing = (sha: string) => pr(1, {headRefOid: sha, commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})
+        open = [pr(1)]
+        await poll.tick()
+        for (const sha of ['f1', 'ok1', 'f2']) {
+            open = [sha.startsWith('ok') ? pr(1, {headRefOid: sha}) : failing(sha)]
+            await minuteOn()
+        }
+        expect(changes.filter(c => c.kind === 'checks_failed').map(c => c.failures)).toEqual([1, 2])
+        open = [pr(1, {headRefOid: 'f2', reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R1', author: {login: 'skoll'}, body: 'Split it.', comments: {nodes: [{path: 'a.ts', line: 3, body: 'Rename.'}]}}]}})]
+        await minuteOn()
+        expect(changes.at(-1)).toMatchObject({kind: 'changes_requested', review: {by: 'skoll', body: 'Split it.', comments: [{path: 'a.ts', line: 3, body: 'Rename.'}]}})
+    })
+
     it('tells a merge, with its commit, and a close without one, with who closed it; not a PR it never kept', async () => {
         await withToken()
         open = [pr(1), pr(2)]
