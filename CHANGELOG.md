@@ -14,39 +14,63 @@ overview, is one list.
 - **Pull requests:** an issue's page shows its open pull requests and where each stands (draft, conflicts, behind,
   checks failing, waiting, ready), matched by the issue's link in the PR's body or its id in the branch. A
   **Pull requests** page lists every project's open PRs, the ones that need you first, with a count in the sidebar.
-  A PR that conflicts, is behind or fails its checks has **Send back**, which asks a session to fix it.
+  **Poll** asks GitHub there and then, and a repo GitHub holds back (a rate limit, a refused token) says why. When
+  it couldn't read GitHub the page says so, rather than *None open*. A PR that conflicts, is behind or fails its
+  checks has **Send back**, which asks a session to fix it.
 - **PR news on the issue:** orrery polls each GitHub repo in the background (every minute with a `GITHUB_TOKEN`, every
   ten without) and comments on the issue when its PR conflicts, falls behind, fails its checks, gets changes
   requested, merges or closes. The session on the issue hears it. The comment says where to read a failure or a review
-  (`gh pr checks`, `gh pr view --comments`) and never quotes them, as whoever opened the PR wrote them.
+  (`gh pr checks`, `gh pr view --comments`) and never quotes them, as whoever opened the PR wrote them; nor does a
+  session see a PR's branch name. After three failed runs in a row, the fourth asks the owner and the session hears no
+  more until the owner answers or focuses one on it; checks passing start the count afresh. A repo's first poll
+  only records, so adding a token doesn't comment on every open PR at once.
+- **Who's on an issue:** a banner on top of an issue's page, staying as it scrolls, names the session working it, its
+  state and how long it's been on it, with **Watch** for one orrery started. Its dot shows on the issue's row in
+  lists and on its board card too.
 - **Permission prompts pop up:** a session at a permission prompt shows at the top right of any page, with what it
   asks word for word from its screen. For one orrery started, **Allow** answers "Yes" once, only while that prompt
   is still on its screen, and **Open tmux** opens a terminal on it.
 - **Sessions find their own work:** with **picks its next issue** on (Sessions → Setup, off by default), a session
   out of work is handed the issues it may start, Todo or else Backlog, most urgent first, and picks one. An issue you
-  move into Todo, or make there, goes straight to an idle session, setting or not. A busy session is never
-  interrupted, and with nobody idle nothing is queued or started.
+  move into Todo, or make there, goes straight to an idle session, setting or not. An issue assigned to anyone but
+  `claude` stays put, a busy session is never interrupted, and with nobody idle nothing is queued or started.
 - **Start several at once:** Start session takes a count, up to the room under the session limit.
 - **The chat does more, asking first:** it can ask to add or change a release, make or change a chunk, move issues to
   another status or assign them, and start, stop or give more time to a session. Each shows with Allow and Deny,
   and nothing happens until you allow it. `/clear` clears its context and marks the cut, keeping what was said.
   Minimize (–, or Esc) hides the pane with the chat still running. A run of quick messages shows as sent, with the
   thinking dots, and goes as one once you stop typing, so it answers the whole thought (⌘-Enter sends at once).
+  Closing the chat puts what's still held back in the box, and a run that couldn't go waits for **Retry**.
+- **Docs in sections:** the docs list groups into sections, each folding away. Drag a doc onto one, or right-click →
+  Move to section, which can make a new one; `write_doc` takes a `section` too.
+- **What a session is given:** a **Context** page (Advanced) lists what orrery puts into a session's context as it
+  connects (the server's instructions, each tool, the start context), each with its size and share, biggest first.
+  A session's card opens it for that session.
 - **Grouped release notes:** a release's drafted changelog is grouped under Features, Changes, Fixes, Docs and
   Internal by the issues' labels, and the Release preset asks a session for the same layout.
 
 ### Changes
 
+- **Sessions carry less of orrery:** a work session gets only the tools it uses, with shorter descriptions and
+  instructions (over a quarter less each turn), and its start context comes once a stream, not with every signal.
+  `issues` leaves backlog out for a work session, `releases` and `chunks` leave out shipped releases and done chunks,
+  and `issue` lists open sub-issues and the latest comments in full, each saying what it left out and how to get it.
 - **The chat button** is a quiet **Agent** button in the same corner, drawn like the app's own, with a sparkles mark
   that pulses while a chat runs. The chat's working dots stay up until its turn ends, even after a reply.
 - **The owner's comment on an issue nobody is on** goes to one session (idle first), which then owns the thread,
   instead of every listening session answering it at once.
-- **The permissions table is what's enforced:** the owner-only routes, and the chat's and an untrusted session's
-  guards, now check it, and a refusal names its row. A chat or untrusted session naming the owner is still refused.
+- **The permissions table is what's enforced:** the owner-only routes, the store's owner checks, and the chat's and
+  an untrusted session's guards now check it, and a refusal names its row. A chat or untrusted session naming the
+  owner is still refused.
 - **Smaller:** ⌘/Ctrl-Enter sends a session's message too, and App settings → Issues puts Team tracker first.
 
 ### Fixes
 
+- Every use of a secret, orrery's own PR poll with a `GITHUB_TOKEN` included, set off a backup; with a token that was
+  one a minute, rotating the real history out. Only a change to the secrets does now.
+- Two quick edits to App settings could undo each other when an older save's answer landed late.
+- The owner's comment on an issue nobody was on was never handed to a session once orrery had commented after it.
+- On a phone, the Agent button covered the end of every page.
 - A reconnecting session's stream whose catch-up hit a database error lost what it missed; it now sends it.
 - Using an older orrery's SQLite file now copies it before upgrading it, as starting does.
 - A second doc with a long title got an id too long for repo sync to reach.
@@ -56,17 +80,21 @@ overview, is one list.
 ### Docs
 
 - The using guide and the API caught up with the sessions changes, and the 1.0.0-rc.10 changelog with #355.
+- Every earlier version in this changelog is grouped under Features, Changes and Fixes too.
 
 ### Internal
 
 - **Tests:** SQLite and Postgres are checked to end on the same schema, with upgrades run on real rows, and CI runs
   every unit test on Postgres too. New unit tests cover a chunk focus's scope, what a signal tells a session,
   reading a project again, the backup timer, an issue's release on a move, and that what a write sets off waits for
-  its commit. The store's tests are split by what they test, and the store counts in coverage. Each checkout's
-  browser tests serve on a port of their own, and a rate-limit test no longer fails across a minute boundary.
+  its commit. Budget tests fail when what orrery puts into a session's context grows. The store's tests are split by
+  what they test, and the store counts in coverage. Each checkout's browser tests serve on a port of their own, and
+  a rate-limit test no longer fails across a minute boundary.
 - **Refactors, no behaviour change:** launches held one way, each kind of schedule in a function of its own, the
-  schedules' hooks by name, one lookup of a launch's session, both migration lists side by side in
-  `server/utils/migrations/`, and helpers only their own file uses no longer exported.
+  schedules' hooks by name, one lookup of a launch's session, the session claims in a store of their own, the
+  database-only reads out of the store's base, one check of whether a session is busy, the text signal stream
+  through the same feed as the other, both migration lists side by side in `server/utils/migrations/`, and helpers
+  only their own file uses no longer exported. Listing or reading issues reads only the board.
 
 ## 1.0.0-rc.10 (2026-10-28)
 
