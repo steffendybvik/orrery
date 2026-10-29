@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {IssuePulls, PullRequest, PullState, Signal} from '#shared/roadmap'
+import type {IssuePulls, PullRequest, Signal} from '#shared/roadmap'
 import {sendBackNote} from '#shared/roadmap'
 
 // On an issue's page: its open pull requests on the project's GitHub repo, and where each stands, so an issue in
@@ -44,15 +44,6 @@ async function sendBack(pull: PullRequest) {
     }
 }
 
-const STATES: Record<PullState, {label: string, hint: string, tone: string}> = {
-    conflicting: {label: 'Conflicts', hint: 'It conflicts with its base: it needs the conflicts resolved before it can merge', tone: 'text-rose-700 ring-rose-500/40 bg-rose-500/10 dark:text-rose-300'},
-    failing: {label: 'Checks failing', hint: 'Some of its checks fail', tone: 'text-rose-700 ring-rose-500/40 bg-rose-500/10 dark:text-rose-300'},
-    behind: {label: 'Behind', hint: 'Its base has moved on: it needs updating before it can merge', tone: 'text-amber-700 ring-amber-500/40 bg-amber-500/10 dark:text-amber-300'},
-    blocked: {label: 'Waiting', hint: 'It waits on a review or a required check before it can merge', tone: 'text-amber-700 ring-amber-500/40 bg-amber-500/10 dark:text-amber-300'},
-    draft: {label: 'Draft', hint: 'Still a draft', tone: 'text-muted ring-line'},
-    ready: {label: 'Ready to merge', hint: 'Nothing stands in its way', tone: 'text-emerald-700 ring-emerald-500/40 bg-emerald-500/10 dark:text-emerald-300'},
-    checking: {label: 'Checking', hint: 'GitHub is still working out whether it can merge', tone: 'text-faint ring-line'},
-}
 </script>
 
 <template>
@@ -67,11 +58,7 @@ const STATES: Record<PullState, {label: string, hint: string, tone: string}> = {
         <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">
           <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
         </a>
-        <span
-            class="flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1"
-            :class="STATES[pull.state].tone"
-            :title="STATES[pull.state].hint"
-        >{{ STATES[pull.state].label }}</span>
+        <PullStateChip :state="pull.state" />
         <template v-if="sendBackNote(pull)">
           <span v-if="sent[pull.number]?.sent" class="shrink-0 text-xs text-faint">Sent</span>
           <UiButton

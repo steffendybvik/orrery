@@ -2,8 +2,7 @@
 import type {PullState} from '#shared/roadmap'
 
 // Where an open pull request stands, as a chip: what it waits on before it can merge (ORR-485), red when it needs
-// someone, amber while it waits, green when ready. IssuePulls keeps its own copy of these until #370 (ORR-492), which
-// changes it, has landed, then takes this instead.
+// someone, amber while it waits, green when ready. On an issue's page and the Pull requests page.
 defineProps<{state: PullState}>()
 
 const STATES: Record<PullState, {label: string, hint: string, tone: string}> = {
