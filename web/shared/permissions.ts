@@ -1,7 +1,8 @@
 // What a session may do in orrery, said once (ORR-459): the Sessions page's Permissions tab shows it, `GET
-// /api/permissions` gives it to agents so they ask rather than try and be refused, and test/permissions.test.ts holds
-// each row to what the server enforces (the store's checks, the owner-only routes, and the chat's and an untrusted
-// session's guards), so the table can't drift from the code. A change to a rule changes its row here too.
+// /api/permissions` gives it to agents so they ask rather than try and be refused, and the server enforces it (ORR-512):
+// the owner-only routes ask `authorize()` for their row, and the chat's and an untrusted session's guards are built from
+// their columns (`guard()`). test/permissions.test.ts holds the rest of each row (the store's checks) to the code, so the
+// table can't drift from it. A change to a rule changes its row here too.
 
 /** How far a kind of session gets with something: `free` does it; `limited` does it within the row's note; `asks`
  * asks the owner, and it's done only on their Allow or Send; `owned` is saved but runs only once the owner makes it
@@ -12,6 +13,10 @@ export interface PermissionCell {
     level: PermissionLevel
     /** What the limit is, or what happens instead. */
     note?: string
+    /** The row's routes this kind may call, when it's only some of them (the chat edits one issue, never many at once). */
+    routes?: string[]
+    /** A limit held where the request comes in (server/utils/guard.ts `LIMITS`), by name. */
+    check?: 'externalProposal'
 }
 
 /** The kinds of session, as the table's columns: one working in a repo, the owner's chat, and an untrusted schedule's. */
@@ -67,7 +72,7 @@ export const PERMISSIONS: Permission[] = [
         why: 'Only one session works an issue at a time, and a proposal is work only once the owner approves it.',
         routes: ['PATCH /api/projects/:project/issues/:issue', 'PATCH /api/projects/:project/issues'],
         session: {level: 'limited', note: 'Not an issue another session is on, nor a proposal’s status, assignee or release before it’s approved'},
-        chat: {level: 'limited', note: 'What it says and where it sits; its status and assignee only on your Allow, and not a proposal’s before it’s approved'},
+        chat: {level: 'limited', note: 'What it says and where it sits; its status and assignee only on your Allow, and not a proposal’s before it’s approved', routes: ['PATCH /api/projects/:project/issues/:issue']},
         untrusted: refused,
     },
     {
@@ -92,7 +97,7 @@ export const PERMISSIONS: Permission[] = [
         routes: ['POST /api/projects/:project/issues/:issue/comments'],
         session: {level: 'limited', note: 'Not editing or deleting the owner’s comments'},
         chat: {level: 'free'},
-        untrusted: {level: 'limited', note: 'Only on its own external proposals'},
+        untrusted: {level: 'limited', note: 'Only on its own external proposals', check: 'externalProposal'},
     },
     {
         id: 'docs.write', area: 'Roadmap', action: 'Write and change docs and releases',
@@ -172,6 +177,14 @@ export const PERMISSIONS: Permission[] = [
         routes: ['POST /api/projects/:project/launches/:launch/allow'],
         session: {level: 'owner'},
         chat: refused,
+        untrusted: refused,
+    },
+    {
+        id: 'chats.reply', area: 'Sessions', action: 'Answer in a chat, and ask the owner there',
+        why: 'A chat is between the owner and its own session.',
+        routes: ['POST /api/chats/:chat/replies', 'POST /api/chats/:chat/requests'],
+        session: refused,
+        chat: {level: 'limited', note: 'Only in its own chat'},
         untrusted: refused,
     },
     {

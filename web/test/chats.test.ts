@@ -520,7 +520,7 @@ describe("the owner's chat moving issues", () => {
 
 describe("a chat session's writes", () => {
     type Event = {method: string, path: string, headers: Record<string, string>}
-    let guard: (event: Event) => void
+    let guard: (event: Event) => Promise<void>
 
     beforeEach(async () => {
         vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
@@ -532,42 +532,42 @@ describe("a chat session's writes", () => {
         guard = (await import('../server/middleware/chat')).default as unknown as typeof guard
     })
 
-    const refused = (method: string, path: string, chat = true) => {
+    const refused = async (method: string, path: string, chat = true) => {
         try {
-            guard({method, path, headers: chat ? {'orrery-chat': 'yes'} : {}})
+            await guard({method, path, headers: chat ? {'orrery-chat': 'yes'} : {}})
         } catch (error) {
             return (error as {statusCode: number}).statusCode
         }
     }
 
-    it('make issues, comment, answer in the chat, ask the owner for things, and read anything; nothing else', () => {
-        expect(refused('POST', '/api/projects/greenhouse/issues')).toBeUndefined()
+    it('make issues, comment, answer in the chat, ask the owner for things, and read anything; nothing else', async () => {
+        expect(await refused('POST', '/api/projects/greenhouse/issues')).toBeUndefined()
         // It asks to message sessions (a request); only the owner's Send sends it (ORR-416).
-        expect(refused('POST', '/api/sessions/message')).toBe(403)
-        expect(refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBe(403)
-        expect(refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
-        expect(refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
+        expect(await refused('POST', '/api/sessions/message')).toBe(403)
+        expect(await refused('POST', '/api/projects/greenhouse/sessions/abc/message')).toBe(403)
+        expect(await refused('POST', '/api/projects/greenhouse/sessions/abc/stop')).toBe(403)
+        expect(await refused('POST', '/api/projects/greenhouse/launches')).toBe(403)
         // A chunk only through the owner's Allow (ORR-510), never made or changed straight.
-        expect(refused('POST', '/api/projects/greenhouse/chunks')).toBe(403)
-        expect(refused('PATCH', '/api/projects/greenhouse/chunks/3')).toBe(403)
+        expect(await refused('POST', '/api/projects/greenhouse/chunks')).toBe(403)
+        expect(await refused('PATCH', '/api/projects/greenhouse/chunks/3')).toBe(403)
         // It asks to change a setting or send a message; the owner's answer, and the settings themselves, aren't its.
-        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests')).toBeUndefined()
-        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/requests/4')).toBe(403)
-        expect(refused('PATCH', '/api/settings')).toBe(403)
-        expect(refused('POST', '/api/database/move')).toBe(403)
-        expect(refused('PUT', '/api/secrets/GITHUB')).toBe(403)
-        expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/comments')).toBeUndefined()
-        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/replies')).toBeUndefined()
-        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/clear')).toBe(403)
-        expect(refused('GET', '/api/projects/greenhouse/docs')).toBeUndefined()
-        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBeUndefined()
-        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4/comments/3')).toBe(403)
-        expect(refused('POST', '/api/projects/greenhouse/issues/GRE-4/focus')).toBe(403)
-        expect(refused('PUT', '/api/projects/greenhouse/docs/shelving')).toBe(403)
-        expect(refused('POST', '/api/egress')).toBe(403)
-        expect(refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)
-        expect(refused('PATCH', '/api/chats/c1c2c3c4c5c6')).toBe(403)
+        expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/requests')).toBeUndefined()
+        expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/requests/4')).toBe(403)
+        expect(await refused('PATCH', '/api/settings')).toBe(403)
+        expect(await refused('POST', '/api/database/move')).toBe(403)
+        expect(await refused('PUT', '/api/secrets/GITHUB')).toBe(403)
+        expect(await refused('POST', '/api/projects/greenhouse/issues/GRE-4/comments')).toBeUndefined()
+        expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/replies')).toBeUndefined()
+        expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/clear')).toBe(403)
+        expect(await refused('GET', '/api/projects/greenhouse/docs')).toBeUndefined()
+        expect(await refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBeUndefined()
+        expect(await refused('PATCH', '/api/projects/greenhouse/issues/GRE-4/comments/3')).toBe(403)
+        expect(await refused('POST', '/api/projects/greenhouse/issues/GRE-4/focus')).toBe(403)
+        expect(await refused('PUT', '/api/projects/greenhouse/docs/shelving')).toBe(403)
+        expect(await refused('POST', '/api/egress')).toBe(403)
+        expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)
+        expect(await refused('PATCH', '/api/chats/c1c2c3c4c5c6')).toBe(403)
         // Anyone else's go on to their own checks.
-        expect(refused('PATCH', '/api/projects/greenhouse/issues/GRE-4', false)).toBeUndefined()
+        expect(await refused('PATCH', '/api/projects/greenhouse/issues/GRE-4', false)).toBeUndefined()
     })
 })

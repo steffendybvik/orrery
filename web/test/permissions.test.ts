@@ -48,6 +48,7 @@ describe('the guards', () => {
     beforeEach(async () => {
         vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
         vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        vi.stubGlobal('createError', (input: {statusCode: number, message: string}) => Object.assign(new Error(input.message), input))
         vi.stubGlobal('decoded', (part: string) => part)
         vi.stubGlobal('untrustedWrite', (event: Event) => event.headers['orrery-untrusted'] === 'yes')
         vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')
@@ -85,6 +86,22 @@ describe('the guards', () => {
             expect(passed.some(Boolean), p.id).toBe(allowed(p.chat))
         }
         expect(await through(chat, 'POST /api/chats/:chat/requests', {'orrery-chat': 'yes'})).toBe(true)
+    })
+
+    it("hold each to its cell's own routes and check, and refuse a route the table doesn't name", async () => {
+        const asChat = {'orrery-chat': 'yes'}
+        // One issue at a time from the chat, never a bulk edit.
+        expect(await through(chat, 'PATCH /api/projects/:project/issues/:issue', asChat)).toBe(true)
+        expect(await through(chat, 'PATCH /api/projects/:project/issues', asChat)).toBe(false)
+        expect(await through(chat, 'POST /api/somewhere/else', asChat)).toBe(false)
+        // A refusal on a row's route names the row.
+        await expect(chat({...concrete('POST /api/projects/:project/launches'), headers: asChat})).rejects.toMatchObject({statusCode: 403, data: {permission: 'sessions.start'}})
+        // An untrusted session comments on its own external proposals only.
+        vi.stubGlobal('useStore', () => ({issue: async () => ({proposal: null, labels: []})}))
+        expect(await through(untrusted, 'POST /api/projects/:project/issues/:issue/comments', {'orrery-untrusted': 'yes'})).toBe(false)
+        // Reads and other sessions' writes aren't its business.
+        expect(await through(chat, 'GET /api/projects/:project/launches', asChat)).toBe(true)
+        expect(await through(chat, 'POST /api/projects/:project/launches', {})).toBe(true)
     })
 })
 
