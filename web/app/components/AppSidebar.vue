@@ -6,6 +6,21 @@ import {nameBesideProject} from '#shared/roadmap'
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const {byProject: schedulesByProject} = useSchedules()
+const {settings: appSettings} = useAppSettings()
+const {newErrors} = useLoggedEvents()
+// Events, Context and Pull requests sit under Schedules while Advanced is on (ORR-578), each also linked from App settings →
+// Advanced. Pull requests counts those that need someone, asked every two minutes while Advanced is on.
+const {pulls, load: loadPulls} = useOpenPulls()
+let pullsTimer: ReturnType<typeof setInterval> | undefined
+watch(() => appSettings.value.advanced, on => {
+    clearInterval(pullsTimer)
+    if (!on || import.meta.server) return
+    void loadPulls()
+    pullsTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') void loadPulls()
+    }, 120_000)
+}, {immediate: true})
+onBeforeUnmount(() => clearInterval(pullsTimer))
 // Open pull requests on the projects' GitHub repos, asked every two minutes: the entry shows once a repo is there,
 // with how many need someone (ORR-491).
 /** Every project's schedules still set to run, for the Schedules entry. */
@@ -161,6 +176,38 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span class="flex-1">Schedules</span>
         <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
       </NuxtLink>
+
+      <template v-if="appSettings.advanced">
+        <NuxtLink
+            to="/events"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
+          <span class="flex-1">Events</span>
+          <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+        </NuxtLink>
+
+        <NuxtLink
+            to="/context"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
+          <span class="flex-1">Context</span>
+        </NuxtLink>
+
+        <NuxtLink
+            to="/pulls"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
+          <span class="flex-1">Pull requests</span>
+          <span v-if="pulls?.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
+          <span v-else-if="pulls?.pulls.length" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.pulls.length }}</span>
+        </NuxtLink>
+      </template>
 
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>

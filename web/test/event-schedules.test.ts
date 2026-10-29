@@ -66,8 +66,8 @@ describe('event types', () => {
     })
 
     it('come out of the event log: each new one, and every one it doesn\'t keep, never with its message', async () => {
-        const db = testDb()
-        const log = new EventLog(db)
+        await store.updateSettings({advanced: false}, me)
+        const log = new EventLog(store.db)
         const said: OrreryEvent[] = []
         log.happened = event => said.push(event)
         await log.record({level: 'error', kind: 'server.error', message: 'Bearer secret broke it'})

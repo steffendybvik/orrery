@@ -541,13 +541,15 @@ async function pick(tint: string | null) {
           <h2 class="text-[15px] font-semibold text-fg">{{ title.advanced }}</h2>
           <p class="text-xs text-muted">
             orrery always keeps a log of its errors, in the server and in this page, on this machine only.
-            With Advanced on, it also records what it does (sessions starting and stopping, launchers, schedule runs, backups,
-            migrations) and each change to the roadmap, and puts a notice in the bell for each new kind of error.
+            With Advanced on, which it is unless you turn it off, it also records what it does (sessions starting and stopping,
+            launchers, schedule runs, backups, migrations) and each change to the roadmap, puts a notice in the bell for each new
+            kind of error, and shows Events, Context and Pull requests in the sidebar under Schedules. They stay linked below
+            either way.
           </p>
         </header>
         <label class="flex items-center gap-2 text-[13px] text-fg">
           <input type="checkbox" class="accent-accent-500" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
-          Record what orrery does, and tell me about new errors
+          Record what orrery does, tell me about new errors, and show Events, Context and Pull requests in the sidebar
         </label>
         <p v-if="advancedFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ advancedFailed }}</p>
       </section>

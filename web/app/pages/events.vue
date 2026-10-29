@@ -7,8 +7,8 @@ import type {EventLevel, LoggedEvent} from '#shared/roadmap'
 // launchers, schedule runs, backups, migrations, starts) and each change to the roadmap (issues, comments, chunks, docs,
 // releases). Levels can be switched off (ORR-379), per browser; it keeps to a project (`?project=`) and a kind or a
 // family of them (`?kind=`, ORR-401), in the URL so the view can be linked. A line is only ever a line, as in a console
-// (ORR-472): the issue ids in it, and its project, link to them (ORR-403). It's reached from App settings → Advanced
-// (ORR-561); opening it marks the new errors seen.
+// (ORR-472): the issue ids in it, and its project, link to them (ORR-403). It's in the sidebar while Advanced is on
+// (ORR-578), and on App settings → Advanced (ORR-561); opening it marks the new errors seen.
 useHead({title: 'Events · orrery'})
 const route = useRoute()
 const router = useRouter()

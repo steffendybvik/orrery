@@ -23,6 +23,7 @@ const later = (ms: number) => {
 
 describe('the event log', () => {
     it('records errors always, what orrery did only while Advanced is on', async () => {
+        await store.updateSettings({advanced: false}, owner)
         expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toBeNull()
         expect(await log.record({level: 'warn', kind: 'session.refused', message: 'At the limit'})).toBeNull()
         expect(await log.record({level: 'error', kind: 'server.error', message: 'boom'})).toMatchObject({level: 'error', kind: 'server.error', count: 1})
@@ -32,6 +33,11 @@ describe('the event log', () => {
         expect((await store.settings()).advanced).toBe(true)
         expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toMatchObject({project: 'hub', count: 1})
         expect((await log.list()).map(e => e.kind)).toEqual(['session.started', 'server.error'])
+    })
+
+    it('has Advanced on in an orrery that never set it (ORR-578)', async () => {
+        expect((await store.settings()).advanced).toBe(true)
+        expect(await log.record({level: 'info', kind: 'session.started', project: 'hub', message: 'Started a session'})).toMatchObject({kind: 'session.started'})
     })
 
     it('writes a repeat as a line of its own, but as no news until it is resolved', async () => {
@@ -90,6 +96,7 @@ describe('the event log', () => {
             made++
             return text => text
         })
+        await store.updateSettings({advanced: false}, owner)
         await counted.record({level: 'error', kind: 'server.error', message: 'one'})
         await counted.record({level: 'error', kind: 'server.error', message: 'two'})
         expect(made).toBe(1)
@@ -132,6 +139,8 @@ describe('the event log', () => {
 
     it('records each change to the roadmap as a row of its own, while Advanced is on', async () => {
         const moved = {type: 'issue.status', project: 'hub', subject: 'HUB-1', by: {name: 'claude', owner: false}, from: 'todo', to: 'done'}
+        await store.updateSettings({advanced: false}, owner)
+        log.forget()
         expect(await log.activity(moved)).toBeNull()
 
         await store.updateSettings({advanced: true}, owner)

@@ -5,7 +5,7 @@ import type {ContextEntry, ContextKind, ContextPart, ContextView} from '#shared/
 // instructions, each tool it lists and the context the session was started with, biggest first, each part's text
 // folded under it. For a kind of session on a project (`?project=&kind=`), or a running one (`?session=`, from its
 // card on the Sessions page), which also lists what it's been given so far: each signal and tool answer, newest first.
-// It's reached from App settings → Advanced (ORR-561).
+// It's in the sidebar while Advanced is on (ORR-578), and on App settings → Advanced (ORR-561).
 useHead({title: 'Context · orrery'})
 const route = useRoute()
 const router = useRouter()
