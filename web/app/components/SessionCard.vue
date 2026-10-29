@@ -12,6 +12,7 @@ import {olderVersion} from '#shared/version'
 // hears as a chip, or All projects. `lit` marks the one a link pointed at.
 const props = defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean, spans?: boolean}>()
 const {who} = useOwner()
+const {settings: appSettings} = useAppSettings()
 const {projects} = useRoadmaps()
 /** The other projects it hears, beside the one it's listed under, by name. */
 const elsewhere = computed(() => [props.session.project, ...props.session.also ?? []]
@@ -83,6 +84,7 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           <span v-if="left" class="whitespace-nowrap" :title="session.started?.stops_at && `orrery started it; it stops at ${new Date(session.started.stops_at).toLocaleTimeString()}, or once it's done after that`">· {{ left }}</span>
           <span v-if="folder" class="whitespace-nowrap" :title="session.cwd">· in <span class="font-mono">{{ folder }}/</span></span>
           <span v-if="session.started?.context">· with <span class="text-muted" :title="session.started.context.text">{{ contextLabel(session.started.context) }}</span></span>
+          <NuxtLink v-if="appSettings.advanced" :to="{path: '/context', query: {project, session: session.id}}" class="whitespace-nowrap underline-offset-2 hover:text-fg hover:underline" title="What orrery puts into its context, part by part, with sizes">· Context</NuxtLink>
           <span v-if="session.listening && !spans && elsewhere.length" :title="`One session: it hears ${elsewhere.join(', ')} too`">· also on {{ elsewhere.join(', ') }}</span>
           <span v-if="behind" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-400" :title="`Its channel runs ${session.version ?? 'code from before 1.0.0-rc.10'}, and this orrery ${version}: it picks up the new code as it restarts`">
             · started on {{ session.version ?? 'an older version' }}: {{ session.started ? 'stop it and start another' : 'restart it' }}
