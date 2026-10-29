@@ -271,6 +271,9 @@ export interface Comment {
     /** It waits on the owner for this, until they comment on the issue after it (`answered`). */
     asks?: Asks
     answered?: boolean
+    /** A working session asking on its issue to make or change a schedule (ORR-458): shown with Allow and Deny, and saved
+     * as the owner's only once they allow it. */
+    schedule?: ChatScheduleRequest
     created_by: string
     /** The name of the session that wrote it, as it was then (ORR-466); none for the owner's, older ones and API writes. */
     session_name?: string

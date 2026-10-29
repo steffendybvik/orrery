@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 
@@ -385,25 +385,7 @@ const {over, on: drop} = useImageDrop(attach)
           </div>
           <span v-else class="text-xs" :class="m.send.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.send.state === 'asked' ? 'Not answered' : SENT[m.send.state](m.send.sent ?? []) }}</span>
         </div>
-        <div
-v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
-             :aria-label="m.schedule.changes.some(c => c.from !== undefined) ? `Change schedule ${m.schedule.title}` : `Make schedule ${m.schedule.title}`">
-          <span class="text-xs text-faint">{{ m.schedule.changes.some(c => c.from !== undefined) ? `Asks to change schedule ${m.schedule.id}` : 'Asks to make a schedule' }}</span>
-          <span class="font-medium text-fg">{{ m.schedule.title }}</span>
-          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
-            <template v-for="c in m.schedule.changes.filter(c => c.field !== 'title' || c.from !== undefined)" :key="c.field">
-              <dt class="text-muted">{{ CHAT_SCHEDULE_FIELDS[c.field] }}</dt>
-              <dd class="min-w-0 break-words whitespace-pre-wrap text-fg">
-                <template v-if="c.from !== undefined"><span class="text-muted line-through decoration-faint">{{ scheduleValue(c.from) }}</span> → </template>{{ scheduleValue(c.to) }}
-              </dd>
-            </template>
-          </dl>
-          <div v-if="m.schedule.state === 'asked' && !chat!.ended" class="flex gap-2">
-            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
-            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
-          </div>
-          <span v-else class="text-xs" :class="m.schedule.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.schedule.state === 'asked' ? 'Not answered' : ANSWERED[m.schedule.state] }}</span>
-        </div>
+        <ScheduleRequestCard v-if="m.schedule" :request="m.schedule" :answerable="!chat!.ended" :busy="answering === m.id" @answer="allow => decide(m.id, allow)" />
         <div v-if="m.release" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="m.release.change ? `Change release ${m.release.version}` : `Add release ${m.release.version}`">
           <span class="text-xs text-faint">{{ m.release.change ? 'Asks to change a release' : 'Asks to add a release' }}</span>
           <span class="font-medium text-fg">{{ m.release.version }}</span>
