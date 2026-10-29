@@ -7,6 +7,44 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.12 (2026-10-29)
+
+### Features
+
+- **Doc sections of their own:** **New section** at the foot of the docs list makes one, empty if you like, and
+  right-clicking a section's header renames it on all its docs at once or deletes it, keeping its docs under no
+  section.
+- **Permission prompts say what for:** the popup and a waiting session's card name the tool a session asks to use
+  and what it would do (the command, file, address or search), an MCP tool as `server · tool`, not only "Claude
+  needs your permission".
+- **What a session has been given so far:** a running session's **Context** page lists, under **So far**, its latest
+  30 signals and tool answers, newest first, each with its size and its text folded under it. It's held in memory
+  only, so a restart starts it afresh.
+- **An Advanced tab in App settings:** Events, Context and Pull requests leave the sidebar for App settings →
+  Advanced, which holds the Advanced switch too, each with its count. Old links to them still land there.
+
+### Changes
+
+- **Dark mode lifts what floats:** the sidebar, cards, panels and an issue's properties pane sit a step above the
+  page, rather than showing only by their borders. Light mode is unchanged.
+- **Sessions with no sessions** says so once, in its empty state, and hides Message sessions while there's nobody
+  to message.
+
+### Fixes
+
+- Watch opened two terminal windows, one of them blank, when Terminal or iTerm2 wasn't already running. It opens
+  one.
+- An issue's read-only fields (Project, Progress, Created by, the dates) sat closer together than the editable ones
+  above them.
+- On a phone, My issues' section labels broke onto two lines, and a doc's size toggle and id wrapped onto an
+  indented line.
+
+### Internal
+
+- **Tests:** the pull requests e2e test passes when CI's unauthenticated GitHub rate limit is used up.
+- **Refactors, no behaviour change:** an issue's fields are listed once, on `Issue`, and a session's brief is built
+  in a server util rather than its route.
+
 ## 1.0.0-rc.11 (2026-10-29)
 
 ### Features
