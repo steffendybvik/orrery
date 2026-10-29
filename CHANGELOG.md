@@ -7,6 +7,55 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.12 (2026-10-29)
+
+### Features
+
+- **What a session has been given so far:** a running session's **Context** page lists, under **So far**, its latest
+  30 signals and tool answers, newest first, each with its size and its text folded under it. It's held in memory
+  only, so a restart starts it afresh.
+- **Doc sections of their own:** **New section** at the foot of the docs list makes one, empty if you like, and
+  right-clicking a section's header renames it on all its docs at once or deletes it, keeping its docs under no
+  section.
+- **An Advanced tab in App settings:** Events, Context and Pull requests leave the sidebar for App settings →
+  Advanced, which holds the Advanced switch too, with Events' new errors and the pull requests that need someone
+  counted. Old links to them still land there.
+- **Permission prompts say what for:** the popup and a waiting session's card name the tool a session asks to use
+  and what it would do (the command, file, address or search), an MCP tool as `server · tool`, not only "Claude
+  needs your permission".
+- **The launcher on Windows:** it installs and runs inside WSL2 with systemd on. `--install` says what to do on
+  Windows itself or in a distro without systemd, and when it can't reach a `localhost` orrery from WSL; **Watch**
+  opens Windows Terminal on the session.
+
+### Changes
+
+- **Dark mode lifts what floats:** the sidebar, cards, panels and an issue's properties pane sit a step above the
+  page, rather than showing only by their borders. Light mode is unchanged.
+
+### Fixes
+
+- **Security, the permission popup shows the screen's prompt:** with rc.12's tool line, it showed what a session's
+  hook said it asked for over the prompt on its screen, which another session could fake and a late parallel tool
+  could overwrite. The prompt on screen, what **Allow** answers, comes first again; a hook's tool only shows for a
+  session with no screen, which has no Allow.
+- **Security, egress answers stay out of Context:** **So far** kept the text of what an `egress` call brought back,
+  which any caller can read there. It keeps only its size now, and `SECURITY.md` says what the Context page holds and
+  who can read it.
+- Watch opened two terminal windows, one of them blank, when Terminal or iTerm2 wasn't already running. It opens
+  one.
+- An issue's read-only fields (Project, Progress, Created by, the dates) sat closer together than the editable ones
+  above them.
+- Sessions with no sessions said so twice, and showed Message sessions with nobody to message. It says so once, in
+  its empty state, and hides Message sessions until there's someone.
+- On a phone, My issues' section labels broke onto two lines, and a doc's size toggle and id wrapped onto an
+  indented line.
+
+### Internal
+
+- **Tests:** the pull requests e2e test passes when CI's unauthenticated GitHub rate limit is used up.
+- **Refactors, no behaviour change:** an issue's fields are listed once, on `Issue`, and a session's brief is built
+  in a server util rather than its route.
+
 ## 1.0.0-rc.11 (2026-10-29)
 
 ### Features
