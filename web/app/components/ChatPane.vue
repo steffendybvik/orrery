@@ -8,7 +8,8 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // session's state shows in the header and the conversation below, newest at the bottom. Enter holds the message under the
 // box (Shift+Enter for a new line), and a run of them goes as one message once the owner has stopped typing for a moment
 // (`HOLD_MS`, a draining bar showing it), so the chat answers the whole thought (ORR-517); ⌘/Ctrl-Enter or Send sends at
-// once, and ✕ or Esc takes the last one back. A slash command goes at once, after what's held. An image pasted or
+// once, and ✕ or Esc takes the last one back. A slash command goes at once, after what's held. Closing the pane, or the
+// chat ending, puts what's held back in the box, so nothing starts a chat on its own after it (ORR-523). An image pasted or
 // dropped anywhere on the pane goes with the message. Closing the pane (×) ends the chat and stops its session; minimizing it
 // (–, or Esc) hides it with the chat still running, and the corner button, marked while one runs, brings it back as it was.
 // Esc closes the pane only before a chat starts, so a stray key doesn't end it. The pane can be made large (a phone's fills the screen either way). Beside
@@ -113,15 +114,21 @@ function restartHold() {
     clearTimeout(holdTimer)
     if (!held.value.length || stuck.value) return
     holds.value++
-    holdTimer = setTimeout(() => void flush(), HOLD_MS)
+    holdTimer = setTimeout(() => void flush(false), HOLD_MS)
 }
 
 /** Sends what's held as one message, starting the chat first when there's none yet: whether all of it went. What's held
- * stays if it can't go, and waits for Send now. */
-async function flush(): Promise<boolean> {
+ * stays if it can't go, and waits for Send now. `owner`: the owner asked for it, rather than the wait running out, which
+ * never starts a chat on a hidden pane or after one ends (ORR-523). */
+async function flush(owner = true): Promise<boolean> {
     clearTimeout(holdTimer)
     if (!held.value.length) return true
-    if (sending.value || uploading.value) return false
+    // Busy with an image or another send: the wait starts over, and it goes once that's done.
+    if (sending.value || uploading.value) {
+        restartHold()
+        return false
+    }
+    if (!owner && (chat.value ? chat.value.ended : !open.value)) return false
     const run = held.value
     sending.value = true
     if (chat.value?.ended) fresh()
@@ -134,6 +141,22 @@ async function flush(): Promise<boolean> {
     // Held while that went: their wait starts now.
     restartHold()
     return went && !held.value.length
+}
+
+/** Puts what's held back in the box, unsent, for a chat that's ending: nothing goes after it on its own (ORR-523). */
+function unhold() {
+    clearTimeout(holdTimer)
+    stuck.value = false
+    if (!held.value.length) return
+    draft.value = [...held.value.map(m => m.text), draft.value].filter(t => t.trim()).join('\n\n')
+    images.value = [...held.value.flatMap(m => m.images), ...images.value]
+    held.value = []
+}
+
+/** Closes the pane (× or Esc), ending its chat: what's held goes back in the box rather than starting another. */
+function end() {
+    unhold()
+    void close()
 }
 
 /** Takes a held message back before it goes: into the box when the box is empty. */
@@ -195,6 +218,9 @@ function onKey(event: KeyboardEvent) {
 }
 // Typing the next part puts the wait off.
 watch(draft, () => restartHold())
+// Opened again, what was held while it was hidden gets its wait.
+watch(open, shown => shown && restartHold())
+watch(() => chat.value?.ended, over => over && unhold())
 onBeforeUnmount(() => clearTimeout(holdTimer))
 
 async function attach(files: File[]) {
@@ -244,7 +270,7 @@ const {over, on: drop} = useImageDrop(attach)
       :class="large ? 'h-[calc(100dvh-2rem)] sm:w-[min(56rem,calc(100vw-2rem))]' : 'h-[min(40rem,calc(100dvh-2rem))] sm:w-[min(28rem,calc(100vw-2rem))]'"
       aria-label="Chat"
       v-on="drop"
-      @keydown.esc="!chat || chat.ended ? close() : hide()"
+      @keydown.esc="!chat || chat.ended ? end() : hide()"
   >
     <ImageDropOverlay v-if="over" />
     <header class="flex items-center gap-1 border-b border-line py-2.5 pr-2.5 pl-4">
@@ -270,7 +296,7 @@ const {over, on: drop} = useImageDrop(attach)
       <UiButton v-if="chat && !chat.ended" variant="ghost" size="xs" square aria-label="Minimize the chat, leaving it running" title="Minimize" @click="hide">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14" /></svg>
       </UiButton>
-      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'End the chat and close it' : 'Close the chat'" :title="chat && !chat.ended ? 'End chat' : 'Close'" @click="close">
+      <UiButton variant="ghost" size="xs" square :aria-label="chat && !chat.ended ? 'End the chat and close it' : 'Close the chat'" :title="chat && !chat.ended ? 'End chat' : 'Close'" @click="end">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 18 18 6M6 6l12 12" /></svg>
       </UiButton>
     </header>

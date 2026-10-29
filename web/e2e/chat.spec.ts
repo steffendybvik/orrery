@@ -582,3 +582,29 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
         launcher.stop()
     }
 })
+
+// What's held never goes on its own once the pane is closed: it's back in the box, and no chat starts (ORR-523).
+test('closing the pane with messages held puts them back in the box, and starts no chat', async ({page, request}) => {
+    await endChats(request)
+    await page.goto('/p/larder')
+    const corner = page.getByRole('button', {name: 'Agent', exact: true})
+    await corner.click()
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const box = pane.getByLabel('Message')
+    let starts = 0
+    await page.route('**/api/chats', route => {
+        if (route.request().method() === 'POST') starts++
+        return route.fallback()
+    })
+    await box.fill('the pantry')
+    await box.press('Enter')
+    await expect(pane.getByRole('group', {name: 'Held to send together'})).toContainText('the pantry')
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+    await page.waitForTimeout(3000)
+    expect(starts).toBe(0)
+    await corner.click()
+    await expect(box).toHaveValue('the pantry')
+    await box.fill('')
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
+    expect((await (await request.get('/api/chats')).json()).length).toBe(0)
+})
