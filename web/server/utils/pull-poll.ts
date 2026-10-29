@@ -7,7 +7,7 @@
 // closed. Without one GitHub allows 60 requests an hour, so it's two REST lists every ten minutes, which say nothing of
 // a PR's state but do say it merged or closed. A repo's first poll only records, as does its first with a token after
 // polls without one: turning it on, or adding a token, tells nothing of the PRs already open. A rate limit holds the repo until GitHub's reset (shared with the pages); a refused token holds it an
-// hour, said once in the event log until a poll works again.
+// hour, or until the secrets change, said once in the event log until a poll works again.
 import type {PullState} from '#shared/roadmap'
 import {PULL_NEEDS} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
@@ -18,9 +18,11 @@ import type {Store} from './store'
 /** How often a repo is polled: with a token, and without one. */
 export const POLL_EVERY = 60_000
 export const POLL_WITHOUT_TOKEN = 10 * 60_000
-/** How soon a repo read without a token may be polled again when the owner asks (Poll now): two of GitHub's 60 requests
- * an hour each time. */
-export const POLL_NOW_WITHOUT_TOKEN = 60_000
+/** Without a token, how soon the owner's Poll now may poll a repo again after the last one they asked for, and after any
+ * read: two of GitHub's 60 requests an hour each time, so pressing it as often as it allows, with the background poll,
+ * costs at most 36 an hour a repo. */
+export const POLL_NOW_WITHOUT_TOKEN = 5 * 60_000
+const READ_AGAIN_WITHOUT_TOKEN = 60_000
 /** How long a refused token holds a repo before it's tried again. */
 const REFUSED_FOR = 60 * 60_000
 /** The most recently merged or closed PRs each poll reads: enough for a busy minute, or ten minutes without a token. */
@@ -160,13 +162,15 @@ function keyOf(repo: string, pull: Polled, kind: PullChangeKind): string {
 export class PullPoll {
     /** When each repo was last polled (or tried), and with a token or not, in this process. */
     private readonly last = new Map<string, {at: number, token: boolean}>()
+    /** When the owner's Poll now last polled each repo without a token. */
+    private readonly pressed = new Map<string, number>()
     /** Repos whose token GitHub turned down, until when; and those said so in the log. */
     private readonly refused = new Map<string, number>()
     private readonly told401 = new Set<string>()
     /** The pass under way, background or asked for, so another doesn't start beside it. */
     private running: Promise<Map<string, string>> | null = null
-    /** The owner's Poll now under way: a second ask gets its result. */
-    private asked: Promise<Map<string, string>> | null = null
+    /** The owner's Poll now under way, by the repo it's for ('' for every one): a second ask for the same gets its result. */
+    private readonly asked = new Map<string, Promise<Map<string, string>>>()
 
     constructor(
         private readonly store: Store,
@@ -184,16 +188,25 @@ export class PullPoll {
     }
 
     /** The owner's Poll now (ORR-534): every repo (or `only`), whenever it was last polled, once the pass under way
-     * has finished; a second ask while one runs gets its result. A repo GitHub is holding (a rate limit, a refused
-     * token), or one read without a token in the last minute, isn't asked: why, by repo. */
+     * has finished; a second ask for the same while one runs gets its result. A repo GitHub is holding (a rate limit, a
+     * refused token), or without a token one polled now in the last five minutes or read in the last minute, isn't asked: why, by repo. */
     async pollNow(only?: string): Promise<Map<string, string>> {
-        this.asked ??= (async () => {
-            while (this.running) await this.running.catch(() => undefined)
-            return await this.pass(true, only)
-        })().finally(() => {
-            this.asked = null
-        })
-        return await this.asked
+        const key = only ?? ''
+        let asked = this.asked.get(key)
+        if (!asked) {
+            asked = (async () => {
+                while (this.running) await this.running.catch(() => undefined)
+                return await this.pass(true, only)
+            })().finally(() => this.asked.delete(key))
+            this.asked.set(key, asked)
+        }
+        return await asked
+    }
+
+    /** The secrets changed: a token GitHub turned down may have been set again, so its repos are asked at the next poll. */
+    secretsChanged() {
+        this.refused.clear()
+        this.told401.clear()
     }
 
     private async pass(force: boolean, only?: string): Promise<Map<string, string>> {
@@ -232,8 +245,10 @@ export class PullPoll {
         const token = await this.hasToken(asker)
         const last = this.last.get(repo)
         if (!force && last && last.token === token && now - last.at < (token ? POLL_EVERY : POLL_WITHOUT_TOKEN)) return
-        if (force && !token && last && !last.token && now - last.at < POLL_NOW_WITHOUT_TOKEN) {
-            return `Read without a token a moment ago: it can be polled again at ${clock(last.at + POLL_NOW_WITHOUT_TOKEN)} UTC (a GITHUB_TOKEN secret lifts this)`
+        if (force && !token) {
+            const after = Math.max(last && !last.token ? last.at + READ_AGAIN_WITHOUT_TOKEN : 0, (this.pressed.get(repo) ?? 0) + POLL_NOW_WITHOUT_TOKEN)
+            if (now < after) return `Read without a token a moment ago: it can be polled again at ${clock(after)} UTC (a GITHUB_TOKEN secret lifts this)`
+            this.pressed.set(repo, now)
         }
         this.last.set(repo, {at: now, token})
         await this.poll(repo, projects, asker, token)
@@ -255,6 +270,8 @@ export class PullPoll {
             }
             // Said on a repo it has read before; one it never has stays unread, so its first good poll still only records (ORR-525).
             await this.store.db.run('UPDATE pull_repos SET error = ? WHERE repo = ?', message, repo)
+            // And the pages say it too, rather than asking GitHub again straight after.
+            this.pulls.failed(repo, message)
             return
         }
         this.told401.delete(repo)
@@ -332,6 +349,7 @@ export class PullPoll {
             await this.store.db.run('DELETE FROM pull_states WHERE repo = ?', repo)
             await this.store.db.run('DELETE FROM pull_repos WHERE repo = ?', repo)
             this.last.delete(repo)
+            this.pressed.delete(repo)
         }
     }
 }

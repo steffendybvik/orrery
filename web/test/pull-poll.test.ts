@@ -295,21 +295,110 @@ describe('the pull request poll', () => {
         expect(asked).toHaveLength(4)
     })
 
-    it('polls a repo without a token at most once a minute when asked, saying when it can again (ORR-534)', async () => {
+    it('polls a repo without a token at most every five minutes when asked, saying when it can again (ORR-534)', async () => {
         rest['/repos/you/shop/pulls?state=open&per_page=100'] = () => json([])
         rest['/repos/you/shop/pulls?state=closed&sort=updated&direction=desc&per_page=30'] = () => json([])
         await poll.pollNow()
         expect(asked).toHaveLength(2)
-        now += 30_000
-        expect((await poll.pollNow()).get('you/shop')).toBe('Read without a token a moment ago: it can be polled again at 10:01 UTC (a GITHUB_TOKEN secret lifts this)')
+        now += 4 * 60_000
+        expect((await poll.pollNow()).get('you/shop')).toBe('Read without a token a moment ago: it can be polled again at 10:05 UTC (a GITHUB_TOKEN secret lifts this)')
         expect(asked).toHaveLength(2)
-        now += 30_000
+        now += 60_000
         await poll.pollNow()
         expect(asked).toHaveLength(4)
         // And the page reads what it got, rather than asking GitHub a third time.
         asked = []
-        expect((await pulls.all()).repos).toMatchObject([{repo: 'you/shop', token: false, checked_at: '2026-10-29T10:01:00.000Z'}])
+        expect((await pulls.all()).repos).toMatchObject([{repo: 'you/shop', token: false, checked_at: '2026-10-29T10:05:00.000Z'}])
         expect(asked).toEqual([])
+        // The background poll's read holds it only a minute.
+        now += POLL_WITHOUT_TOKEN
+        await poll.tick()
+        expect(asked).toHaveLength(2)
+        now += 30_000
+        expect((await poll.pollNow()).get('you/shop')).toMatch(/polled again at 10:16 UTC/)
+        now += 30_000
+        await poll.pollNow()
+        expect(asked).toHaveLength(4)
+    })
+
+    it("doesn't show a state a token told once it's gone, nor count it as needing someone (ORR-534)", async () => {
+        await withToken()
+        open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {isDraft: true, mergeStateStatus: 'DRAFT'})]
+        await poll.tick()
+        expect((await pulls.all()).needs).toBe(1)
+        await secrets.delete('GITHUB_TOKEN', me)
+        const listed = (number: number, draft: boolean) => ({
+            number, title: `PR ${number}`, html_url: `https://github.com/you/shop/pull/${number}`, draft, body: '', user: {login: 'claude'},
+            head: {ref: `feat/sho-${number}-work`, sha: `sha${number}a`}, base: {ref: 'main'}, created_at: '2026-10-29T08:00:00Z', updated_at: '2026-10-29T09:00:00Z',
+        })
+        rest['/repos/you/shop/pulls?state=open&per_page=100'] = () => json([listed(1, false), listed(2, true)])
+        rest['/repos/you/shop/pulls?state=closed&sort=updated&direction=desc&per_page=30'] = () => json([])
+        await minuteOn()
+        const all = await pulls.all()
+        expect(all.pulls.map(p => [p.number, p.state])).toEqual([[1, 'checking'], [2, 'draft']])
+        expect(all.needs).toBe(0)
+    })
+
+    it("doesn't ask GitHub again for the page after a poll of a repo it never read failed (ORR-534)", async () => {
+        await poll.pollNow()
+        expect(asked).toHaveLength(1)
+        const all = await pulls.all()
+        expect(all.repos).toMatchObject([{repo: 'you/shop', error: expect.stringMatching(/GitHub has no public you\/shop/)}])
+        expect(asked).toHaveLength(1)
+    })
+
+    it("polls now past the due check, but not past GitHub's rate limit (ORR-534)", async () => {
+        await withToken()
+        open = [pr(1)]
+        await poll.tick()
+        const reset = Math.floor(now / 1000) + 30 * 60
+        rest = {}
+        const send = async () => new Response('{}', {status: 403, headers: {'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset)}})
+        const limited = new Pulls(store, (url, project, headers, init) => new Secrets(store, () => 'a long random test key', () => {}, send as typeof fetch)
+            .own(url, 'GITHUB_TOKEN', project, headers, init), () => now)
+        const held = new PullPoll(store, limited, async () => true, () => {}, () => {}, () => now)
+        await held.pollNow()
+        expect(limited.limitedUntil('you/shop')).toBe(reset * 1000)
+        now += 5_000
+        expect((await held.pollNow()).get('you/shop')).toBe("GitHub's rate limit is used up until 10:30 UTC")
+    })
+
+    it('waits for a background pass under way, then polls (ORR-534)', async () => {
+        await withToken()
+        open = [pr(1)]
+        await poll.tick()
+        now += 60_000
+        const background = poll.tick()
+        const asking = poll.pollNow()
+        await Promise.all([background, asking])
+        // The tick's pass, then the owner's: one after the other, not side by side.
+        expect(asked).toHaveLength(3)
+    })
+
+    it('keeps an ask for one repo apart from one for every repo (ORR-534)', async () => {
+        await withToken()
+        await store.createProject({name: 'till', key: 'TIL', repo: 'https://github.com/you/till'})
+        await poll.tick()
+        expect(asked).toHaveLength(2)
+        now += 5_000
+        await Promise.all([poll.pollNow(), poll.pollNow('you/till')])
+        // Every repo, then you/till on its own.
+        expect(asked).toHaveLength(5)
+    })
+
+    it('tries a refused token again once the secrets change, not an hour on (ORR-534)', async () => {
+        await withToken()
+        refuse = true
+        await poll.tick()
+        expect(notes).toHaveLength(1)
+        now += 5_000
+        expect((await poll.pollNow()).get('you/shop')).toMatch(/turned down the GITHUB_TOKEN secret/)
+        expect(asked).toHaveLength(1)
+        refuse = false
+        await withToken()
+        poll.secretsChanged()
+        expect(await poll.pollNow()).toEqual(new Map())
+        expect(asked).toHaveLength(2)
     })
 
     it('lets go of a repo nobody points at any more', async () => {
