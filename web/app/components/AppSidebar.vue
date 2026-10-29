@@ -189,6 +189,16 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
       </NuxtLink>
 
+      <NuxtLink
+          v-if="appSettings.advanced"
+          to="/context"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
+        <span class="flex-1">Context</span>
+      </NuxtLink>
+
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
