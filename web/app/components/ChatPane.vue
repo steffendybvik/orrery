@@ -122,7 +122,7 @@ const {over, on: drop} = useImageDrop(attach)
   >
     <svg
         class="size-4 text-accent-500"
-        :class="chats.length && 'animate-pulse motion-reduce:animate-none'"
+        :class="{'animate-pulse motion-reduce:animate-none': chats.length}"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
