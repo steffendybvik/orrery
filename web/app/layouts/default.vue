@@ -45,6 +45,7 @@ const projectDialog = openedOnce(() => newProject.value)
     <ScheduleMenu />
     <OwnerDialog />
     <BackupHint />
+    <PermissionPrompts />
     <ImageView />
     <BulkBar />
     <ChatPane />

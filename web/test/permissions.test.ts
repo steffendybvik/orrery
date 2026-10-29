@@ -180,6 +180,7 @@ describe("a working session's column", () => {
             ['server/api/projects/[project]/launches/[launch]/extend.post.ts', 'Only the owner gives'],
             ['server/api/projects/[project]/launches/[launch]/watch.post.ts', 'Only the owner watches'],
         ],
+        'sessions.allow': [['server/api/projects/[project]/launches/[launch]/allow.post.ts', 'Only the owner allows']],
         'secrets.write': [['server/utils/secrets.ts', 'Only the owner sets secrets']],
         'secrets.egress': [['server/utils/secrets.ts', 'may only go to']],
         'database.write': [

@@ -11,7 +11,7 @@ let sent: {type: string, project?: string, id?: string, after?: number, minutes?
 let listeners: number
 let started: {greenhouse: number, all: number}
 let starts: Starts | undefined
-let session: {name?: string, started?: {launch: string, tmux: string, stops_at?: string, context?: {presets: string[], text: string}, untrusted?: boolean}} | undefined
+let session: {name?: string, state?: string, started?: {launch: string, tmux: string, stops_at?: string, context?: {presets: string[], text: string}, untrusted?: boolean}} | undefined
 /** What the sessions are on, for stopping those that are done: issues in progress, and signals waiting, by session. */
 let working: Record<string, string[]>
 let waiting: string[]
@@ -381,6 +381,17 @@ describe('a session orrery started', () => {
         launches.addLauncher('greenhouse')
         launches.watchLaunch('greenhouse', 'abc', 'warp')
         expect(sent).toEqual([{type: 'watch', project: 'greenhouse', id: 'abc', terminal: 'warp'}])
+    })
+
+    it('has its permission prompt answered by its launcher when the owner allows it, only while it waits at one', () => {
+        expect(() => launches.allowLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
+        session = {name: 'greenhouse · Gna', state: 'working', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        expect(() => launches.allowLaunch('greenhouse', 'abc')).toThrow("greenhouse · Gna isn't waiting at a permission prompt")
+        session = {...session, state: 'waiting'}
+        expect(() => launches.allowLaunch('greenhouse', 'abc')).toThrow('attach by hand with tmux attach -t orrery-greenhouse-abc')
+        launches.addLauncher('greenhouse')
+        launches.allowLaunch('greenhouse', 'abc')
+        expect(sent).toEqual([{type: 'allow', project: 'greenhouse', id: 'abc'}])
     })
 
     it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {
