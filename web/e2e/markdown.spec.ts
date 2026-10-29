@@ -1,5 +1,5 @@
 import {expect, test} from '@playwright/test'
-import {makeProject, projectApi} from './support'
+import {OWNER, makeProject, projectApi} from './support'
 
 // What an agent or an outside contributor writes in an issue's notes or a comment is drawn as Markdown, cleaned
 // (app/utils/markdown.ts, ORR-582). Tried in the browser, as happy-dom's DOM lets DOMPurify hand a script back as it
@@ -23,6 +23,12 @@ const HOSTILE = [
 
 test.beforeAll(async ({request}) => {
     await makeProject(request, {name: 'Pantry notes', key: 'PAN'})
+})
+
+// Its comments hold images that don't exist, which the bell and the notifications would draw on the specs after it.
+test.afterAll(async ({request}) => {
+    const gone = await request.delete('/api/projects/pantry-notes', {headers: OWNER})
+    expect(gone.ok(), await gone.text()).toBeTruthy()
 })
 
 test("draws an agent's notes and comment with nothing in them that runs", async ({page, request}) => {

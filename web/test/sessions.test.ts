@@ -140,6 +140,17 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse')[0]?.asking).toBeUndefined()
     })
 
+    it("goes on at the next tool, however soon, once the owner's Allow answered the prompt (ORR-595)", () => {
+        vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
+        sessions.attend('greenhouse', 'a', undefined, undefined, true, {launch: 'abc', tmux: 'orrery-greenhouse-abc', stops_at: '2999-01-01T00:00:00.000Z'})
+        const report = (event: string, more: Partial<import('../server/utils/sessions').Report> = {}) => sessions.report({id: 'a', project: 'greenhouse', event, ...more})
+        report('Notification', {message: 'Claude needs your permission'})
+        report('PermissionRequest', {tool: {name: 'Bash', detail: 'rm -rf web/.output'}})
+        sessions.promptAnswered('greenhouse', 'abc')
+        vi.setSystemTime(new Date('2026-10-25T10:00:00.300Z'))
+        expect(report('PreToolUse', {tool: {name: 'Read', detail: '/src/a.ts'}})).toMatchObject({state: 'working'})
+    })
+
     it('keeps the time its state began until the state changes', () => {
         vi.useFakeTimers({now: new Date('2026-10-25T10:00:00Z')})
         const first = sessions.report({id: 'a', project: 'greenhouse', event: 'UserPromptSubmit'})!

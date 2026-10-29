@@ -398,6 +398,13 @@ export function sessionOfLaunch(project: string, launch: string): Session | unde
     return session && publicOf(session)
 }
 
+/** The owner answered the permission prompt of the session orrery started for the launch (Allow, sent to its launcher):
+ * the tool it runs next is its going on, however soon, not a parallel call's late hook (ORR-595). */
+export function promptAnswered(project: string, launch: string) {
+    const session = byLaunch(project, launch)
+    if (session) session.asked = undefined
+}
+
 /** A launch its launcher says it runs: the session started for it counts as started again, with its stop time,
  * if its channel connected before orrery heard of the launch (orrery restarted). */
 export function adoptLaunch(project: string, started: StartedSession) {
