@@ -139,7 +139,9 @@ that can open a launcher stream is a launcher, though, and gets a token like any
 
 **Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
 there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the
-cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". As with Watch and
+cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". The pop-up shows the
+prompt from that pane, not the tool the session's hook names: anything can post a session's hook, so that line shows
+only for a session with no pane to read, which has no Allow (ORR-572). As with Watch and
 Stop, though, the owner is a name, not a password: whoever can reach orrery can press Allow, so a session's
 permission prompts are only as safe as who can reach orrery ([above](#who-can-reach-it)).
 
