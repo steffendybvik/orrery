@@ -633,10 +633,10 @@ export interface Session {
     version?: string
 }
 
-/** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, and
- * the last signals that went to it. */
+/** What a session is on, for its project's Sessions page: the open issues it worked last, newest first, each with
+ * when it took it (`since`, none on one from before 1.0.0-rc.11), and the last signals that went to it. */
 export interface SessionWork {
-    issues: Pick<Issue, 'id' | 'title' | 'column' | 'kind' | 'priority'>[]
+    issues: (Pick<Issue, 'id' | 'title' | 'column' | 'kind' | 'priority'> & {since?: string})[]
     signals: Signal[]
 }
 

@@ -722,4 +722,9 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
 `, `
     ALTER TABLE docs ADD COLUMN section TEXT;
+`, `
+    -- When the session on an issue took it, for the issue page's banner: kept while the same session works it
+    -- again, unlike \`at\`, which moves on every write (ORR-536).
+    ALTER TABLE issue_sessions ADD COLUMN since TEXT;
+    UPDATE issue_sessions SET since = at;
 `]
