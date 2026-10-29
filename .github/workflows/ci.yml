@@ -42,13 +42,23 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:coverage
+      # The total, then each area on its own, so one no test runs (the routes, say) shows rather than hiding in the total (ORR-584).
       - name: Coverage summary
         run: |
           node >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          const {total} = require('./web/coverage/coverage-summary.json')
-          const row = k => `| ${k} | ${total[k].pct}% | ${total[k].covered} / ${total[k].total} |`
-          console.log(['### Coverage (server/utils, shared)', '', '| | % | covered |', '|---|---|---|',
-            ...['lines', 'statements', 'functions', 'branches'].map(row)].join('\n'))
+          const summary = require('./web/coverage/coverage-summary.json')
+          const AREAS = [['server/api', /\/web\/server\/api\//], ['server/middleware', /\/web\/server\/middleware\//], ['server/utils', /\/web\/server\/utils\//],
+            ['server/store', /\/web\/server\/store\//], ['shared', /\/web\/shared\//], ['app', /\/web\/app\//], ['channel', /\/channel\/[^/]+\.mjs$/]]
+          const files = Object.entries(summary).filter(([file]) => file !== 'total').map(([file, f]) => ({...f, area: AREAS.find(([, path]) => path.test(file))?.[0]}))
+          const pct = ([covered, total]) => total ? `${(100 * covered / total).toFixed(1)}%` : '–'
+          const rows = AREAS.map(([area]) => {
+            const ours = files.filter(f => f.area === area)
+            const sum = k => ours.reduce(([c, t], f) => [c + f[k].covered, t + f[k].total], [0, 0])
+            return `| ${area} | ${ours.length} | ${ours.filter(f => f.lines.total && !f.lines.covered).length} | ${pct(sum('lines'))} | ${pct(sum('branches'))} |`
+          })
+          const {total} = summary
+          console.log(['### Coverage', '', `Lines ${total.lines.pct}%, branches ${total.branches.pct}%, functions ${total.functions.pct}%.`, '',
+            '| Area | Files | Run by no test | Lines | Branches |', '|---|---|---|---|---|', ...rows].join('\n'))
           EOF
       # Every unit test again, on Postgres: the store's, the schema parity and upgrades, the moves and backups into it.
       - run: pnpm --dir web exec vitest run --project unit
