@@ -720,4 +720,6 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         token INTEGER NOT NULL DEFAULT 0,
         error TEXT
     );
+`, `
+    ALTER TABLE docs ADD COLUMN section TEXT;
 `]

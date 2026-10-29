@@ -193,6 +193,8 @@ export interface DocSummary {
     summary: string
     /** With a search (`?q=`): the text around its first hit, empty when only the title has it. */
     match?: string
+    /** The group it's listed under (Decisions, How it works); none lists it first, on its own. */
+    section?: string
     created_by: string
     protected: boolean
     created_at: string

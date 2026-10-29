@@ -121,6 +121,7 @@ export abstract class StoreBase {
                 || a.title.localeCompare(b.title, 'en', {sensitivity: 'base', numeric: true}) || a.id.localeCompare(b.id))
             .map(row => ({
                 id: row.id, title: row.title, summary: summaryOf(row.body), ...words.length ? {match: matchOf(row.body, words)} : {},
+                ...row.section ? {section: row.section} : {},
                 created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
             }))
     }
