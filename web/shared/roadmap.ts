@@ -668,6 +668,8 @@ export interface ChatMessage {
     schedule?: ChatScheduleRequest
     /** The session asking to message other sessions as the owner, which waits on the owner's Send (ORR-416). */
     send?: ChatSendRequest
+    /** The session asking to start, stop or give more time to a session, which waits on the owner's Allow (ORR-509). */
+    session?: ChatSessionRequest
     /** The session asking to move issues (their status) or assign them, which waits on the owner's Allow (ORR-511). */
     move?: ChatMoveRequest
     /** The owner cleared the session's context here (`/clear`, ORR-497): it remembers nothing said above. */
@@ -775,6 +777,22 @@ export interface ChatMoveRequest {
     changes: {issue: string, title: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
     body: {ids: string[], status?: string, assignee?: string | null}
     moved?: string[]
+    state: ChatRequest['state']
+}
+
+/** A session the chat asked to start (as Start session would, on `project`), to stop, or to give `minutes` more (one
+ * orrery started, `session` by its id and `name`): nothing happens until the owner allows it, then it's done as theirs,
+ * and `launch` is the session it started. `expired` as a setting's request is. */
+export interface ChatSessionRequest {
+    action: 'start' | 'stop' | 'extend'
+    project: string
+    start?: {issue?: string, statuses?: string[], release?: string, presets: number[], instructions: string, hears?: string[]}
+    /** The presets it starts with, by name, to show. */
+    presets?: string[]
+    session?: string
+    name?: string
+    minutes?: number
+    launch?: string
     state: ChatRequest['state']
 }
 

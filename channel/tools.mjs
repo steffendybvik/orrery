@@ -159,9 +159,32 @@ const RELEASE_FIELDS = {
 }
 
 /** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
- * issue's fields when they ask, and asking them to move or assign issues, message other sessions, change a setting, or
- * make or change a schedule or a release. */
+ * issue's fields when they ask, and asking them to start, stop or extend a session, move or assign issues, message
+ * other sessions, change a setting, or make or change a schedule or a release. */
 export const CHAT_TOOLS = [
+    {
+        name: 'start_session',
+        description: "Asks the owner to start a Claude session, as Start session on the Sessions page does, only when they asked you to in this chat: it shows them what would start with Allow and Deny, and you hear which they pressed. Nothing starts until they allow it; then it's theirs, under the project's limits. On this project unless you name another; focused on an issue, or working through statuses and a release, or neither; with preset ids (the presets tool) and their own words.",
+        inputSchema: {type: 'object', properties: {
+            project: {type: 'string'},
+            issue: {type: 'string'},
+            statuses: {type: 'array', items: {type: 'string'}, description: 'Status ids or kinds to work through, e.g. ["todo"]'},
+            release: {type: 'string', description: 'A release version to work through'},
+            presets: {type: 'array', items: {type: 'number'}},
+            instructions: {type: 'string', description: "The owner's own words for the session"},
+            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
+        }},
+    },
+    {
+        name: 'stop_session',
+        description: "Asks the owner to stop a session (by its name or id; the sessions tool lists them), only when they asked you to in this chat: it shows them which with Allow and Deny, and you hear which they pressed. Nothing stops until they allow it.",
+        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+    },
+    {
+        name: 'extend_session',
+        description: "Asks the owner to give a session orrery started more time (by its name or id; 30 minutes unless you say), only when they asked you to in this chat: it shows them with Allow and Deny, and you hear which they pressed.",
+        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}, minutes: {type: 'integer', minimum: 1, maximum: 1440}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+    },
     {
         name: 'reply',
         description: "Answers the owner in the chat, in Markdown: the only way what you say reaches them. Say an issue you made by its id.",
@@ -423,6 +446,18 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async edit_issue({id, ...fields}) {
             return `Now ${line(await call('PATCH', issuePath(id), fields, at(await projectOf({id}))))}`
+        },
+        async start_session({why, ...start}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {session: {action: 'start', ...start}, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees what would start with Allow and Deny, and you'll hear which they pressed. Nothing starts until they allow it."
+        },
+        async stop_session({name, why}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {session: {action: 'stop', name}, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing stops until they allow it."
+        },
+        async extend_session({name, minutes, why}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {session: {action: 'extend', name, ...minutes ? {minutes} : {}}, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed."
         },
         async reply({text}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/replies`, {text}, root)

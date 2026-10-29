@@ -146,11 +146,14 @@ permission prompts are only as safe as who can reach orrery ([above](#who-can-re
 ### The owner's chat
 
 The chat on the page writes as `claude`, like any agent, under the same rules: it makes and changes issues and
-comments, and it can't touch presets, prompts or settings. Three things go further, since you asked for them there,
+comments, and it can't touch presets, prompts or settings. Four things go further, since you asked for them there,
 and each is only ever asked:
 
 - **Changing an App setting, or making or changing a schedule:** you see it from → to, and nothing is saved until you
   press **Allow** in the page. An allowed schedule is yours, so read what it sends.
+- **Starting, stopping or extending a session:** you see what would start (its project, focus, presets and words) or
+  which session, and nothing happens until you press **Allow**. A session started this way is yours, with the context
+  shown, so read it. The launch routes refuse the chat itself, and watching one (a window on your machine) stays yours.
 - **Messaging your other sessions:** you see the text and who it goes to, and nothing is sent until you press
   **Send**. Then it goes as you, marked as sent through the chat. The message routes refuse the chat itself, so a
   chat talked into it by something it read can't reach your sessions without you reading it first (ORR-416).
