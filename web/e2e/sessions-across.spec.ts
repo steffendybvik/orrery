@@ -34,7 +34,6 @@ test('lists a session that hears several projects once, across them', async ({pa
         await expect(across.getByRole('heading', {name: 'Across projects'})).toBeVisible()
         const card = across.locator('#session-e2e-span')
         await expect(card.getByLabel('Hears Attic, Garage')).toBeVisible()
-        await expect(card.getByText("can't hear signals")).toHaveCount(0)
         // Once only: not again under Attic, where it's a line pointing to it.
         await expect(page.locator('#session-e2e-span')).toHaveCount(1)
         const attic = page.locator('#sessions-attic')

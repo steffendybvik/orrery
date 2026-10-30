@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
-import {nameBesideProject, cutOffLabel} from '#shared/roadmap'
+import {nameBesideProject, cutOffLabel, listable} from '#shared/roadmap'
 
 // Every project with its progress and how many issues are started; My issues on top.
 const {projects, ready, live} = useRoadmaps()
@@ -88,7 +88,7 @@ const canStart = computed(() => ordered.value.some(p => p.starts))
 const {issuesOf} = useWorkedIssues()
 const onIssue = (session: Session) => session.state === 'working' || session.state === 'waiting' ? issuesOf(session.id) : []
 const allSessions = computed(() => ordered.value
-    .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id).map(session => ({session, project})))
+    .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id && listable(s)).map(session => ({session, project})))
     .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))
 
 /** The other projects a session hears, by name. */
