@@ -213,6 +213,12 @@ describe('taking over a running session', () => {
         } finally {
             launcher.kill()
         }
+        const served = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10000)', '/home/ada/.orrery/bootstrap.mjs', 'launcher', '--service'])
+        try {
+            expect(launcherAlive(served.pid)).toBe(true)
+        } finally {
+            served.kill()
+        }
         expect(launcherAlive(process.pid)).toBe(false)
     })
 })
