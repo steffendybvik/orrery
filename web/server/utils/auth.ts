@@ -49,6 +49,15 @@ export function noteOtherPerson(event: H3Event, who: Who) {
     useEventLog().note({level: 'warn', kind: 'auth.person_mismatch', message: `A session with ${who.person}'s agent key says it's for "${named.slice(0, 100)}", so that's ignored`, details: {person: who.person, session: session.slice(0, 200) || null}})
 }
 
+/** A session is the person's whose agent key it first reported with, and a write naming it with another's is refused
+ * (ORR-705). `session` is the id a request names, by `Orrery-Session` or in a hook's report. */
+export async function holdSession(event: H3Event, session: string | undefined) {
+    const who = event.context.who as Who | undefined
+    if (who?.via !== 'agent' || !session) return
+    const holder = await useStore().fixSessionPerson(session, who.person)
+    if (holder !== who.person) throw conflict(`This session is ${holder}'s, and this is ${who.person}'s agent key, so it can't write as that session`)
+}
+
 /** `off`, as orrery has always been; `on`, asking for a credential; `closed` when told off on a server others can reach,
  * which refuses rather than opens. A database that can't say counts as on. */
 export async function authMode(event: H3Event): Promise<'off' | 'on' | 'closed'> {

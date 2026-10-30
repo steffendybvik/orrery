@@ -80,6 +80,12 @@ export abstract class PeopleStore extends OwnerStore {
         return here.find(person => person.id === id)?.id
     }
 
+    /** The person a session is fixed to: `person`, if it's the first to say (ORR-705). */
+    async fixSessionPerson(session: string, person: string): Promise<string> {
+        await this.run('INSERT INTO session_people (session, person, at) VALUES (?, ?, ?) ON CONFLICT (session) DO NOTHING', session, person, stamp())
+        return (await this.get<{person: string}>('SELECT person FROM session_people WHERE session = ?', session))?.person ?? person
+    }
+
     /** Whether `person` may write on the board: with one person, anyone; else the owner, and those on it. */
     async onBoard(project: string, person: string): Promise<boolean> {
         if (!await this.shared() || person === (await this.ownerOf()).name) return true

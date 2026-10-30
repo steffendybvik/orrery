@@ -49,6 +49,7 @@ export const NOT_EXPORTED = {
     events: "the server's log",
     signals: 'live state',
     issue_sessions: 'live state',
+    session_people: 'live state',
     schedule_held: 'live state',
     notice_clears: "each person's bell on this server",
     proposal_clears: "the owner's bell on this server",

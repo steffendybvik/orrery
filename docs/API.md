@@ -44,7 +44,7 @@ moved to another project has a new full id, and its old one gets a 404. A new pr
 On one person's own machine there's no login, and everything below works by name. Otherwise ([when](../SECURITY.md#login-and-keys)) every route under `/api` needs a
 credential, reads included: `Authorization: Bearer <agent key>` for sessions and scripts, or a login's cookie on the page. Without one it's a 401, or a 503 while nobody
 could log in (the message says what to run), and with one, `Orrery-Actor` and `Orrery-Person` no longer decide who you are: a logged-in person is that person, and an agent key is an agent of its
-person, with a label that's a person's name counting as `agent`. A logged-in write has to carry an `Origin`. The channel, hooks and launcher send the key from `ORRERY_KEY` or `~/.config/orrery/keys.json`.
+person, with a label that's a person's name counting as `agent`. A session stays with the person whose key it first reported with, and a write naming it with another person's key is a 409. A logged-in write has to carry an `Origin`. The channel, hooks and launcher send the key from `ORRERY_KEY` or `~/.config/orrery/keys.json`.
 
 | | |
 |---|---|

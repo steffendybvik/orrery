@@ -3,7 +3,7 @@
 // Runs first. What stays open is what can't hold data: the login's own routes, and outside /api the page's files, the
 // channel's, and /llms* and /connect, which leave out what's on this orrery unless `mayRead` says otherwise (ORR-689).
 // Off, as on one person's own machine, this does nothing.
-import {authMode, canGetIn, credential, noteOtherPerson} from '../utils/auth'
+import {authMode, canGetIn, credential, holdSession, noteOtherPerson} from '../utils/auth'
 
 const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/oidc/start', '/api/auth/oidc/callback'])
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
@@ -37,4 +37,5 @@ export default defineEventHandler(async event => {
     if (who.via === 'browser' && WRITES.has(event.method) && !getHeader(event, 'origin')) throw createError({statusCode: 403, statusMessage: 'Forbidden', message: "A logged-in write comes from orrery's own page"})
     event.context.who = who
     noteOtherPerson(event, who)
+    if (WRITES.has(event.method)) await holdSession(event, getHeader(event, 'orrery-session'))
 })
