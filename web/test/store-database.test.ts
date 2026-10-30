@@ -88,7 +88,7 @@ describe('the database', () => {
 
     it('keeps a schedule\'s presets, runs and what it holds through the rebuild for action schedules', async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
-        const old = openDb(path, MIGRATIONS.length - 1)
+        const old = openDb(path, MIGRATIONS.length - 2)
         const row = (sql: string) => old.prepare(sql).run()
         row("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'agent', 'x', 'x')")
         row(`INSERT INTO schedules (id, project, kind, title, on_event, presets, timezone, created_by, owned, created_at, updated_at)
