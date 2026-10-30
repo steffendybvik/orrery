@@ -5,7 +5,8 @@ import {PULL_NEEDS} from '#shared/roadmap'
 // review or done. Each repo is its own card (ORR-603): repos with a PR that needs someone first, then the rest by name.
 // Its header names the repo, its projects, how many are open and how it was read (with or without a token, and why it
 // couldn't be read). Inside, those that need someone (conflicts, failing checks, behind) first, oldest first, then the
-// rest. Each row has the PR, where it stands, its branch and age, and the issue it names, if a project has it. Poll
+// rest. Each row has the PR, where it stands, its branch and age, and the issue it names, if a project has it, with
+// Focus on this to send a session to it (ORR-607); the header's copy button copies the repo's name. Poll
 // asks GitHub now rather than waiting for the background poll's next turn; a repo it held back (GitHub's limits) says
 // why in its header.
 useHead({title: 'Pull requests · orrery'})
@@ -53,9 +54,11 @@ const cards = computed(() => (pulls.value?.repos ?? []).map(repo => {
         No project's repo is on GitHub. Set one's repo (<code>https://github.com/you/shop</code>) in its Settings, and its open pull requests show here.
       </p>
       <ul v-else-if="pulls" class="flex flex-col gap-4" aria-label="Repos">
-        <li v-for="card in cards" :key="card.repo" class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+        <!-- Not overflow-hidden, so Focus on this's popover can reach past the card; a tinted last row rounds its own corners. -->
+        <li v-for="card in cards" :key="card.repo" class="rounded-xl border border-line dark:bg-panel">
           <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2" :class="{'border-b border-line': card.pulls.length || card.error}">
             <a :href="`https://github.com/${card.repo}/pulls`" target="_blank" rel="noopener" class="font-mono text-[13px] text-fg hover:underline">{{ card.repo }}</a>
+            <CopyButton class="self-center" :text="card.repo" :name="`the repo name ${card.repo}`" compact />
             <span class="text-xs text-muted">{{ card.projects.map(p => byId(p)?.name ?? p).join(', ') }}</span>
             <span v-if="!card.error" class="ml-auto text-xs" :class="card.needs ? 'text-rose-600 dark:text-rose-400' : 'text-muted'">
               <template v-if="card.pulls.length">{{ card.pulls.length }} open{{ card.needs ? `, ${card.needs} need${card.needs === 1 ? 's' : ''} someone` : '' }}</template>
@@ -70,11 +73,12 @@ const cards = computed(() => (pulls.value?.repos ?? []).map(repo => {
           </div>
           <p v-if="card.error" class="px-3 py-2 text-xs text-rose-600 dark:text-rose-400">{{ card.error }}</p>
           <ul v-else-if="card.pulls.length" :aria-label="`Open pull requests on ${card.repo}`">
-            <li v-for="pull in card.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0" :class="{'bg-rose-500/5': needs(pull.state)}">
+            <li v-for="pull in card.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:rounded-b-xl last:border-b-0" :class="{'bg-rose-500/5': needs(pull.state)}">
               <a :href="pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate text-fg hover:underline">
                 <span class="font-mono text-xs text-faint">#{{ pull.number }}</span> {{ pull.title }}
               </a>
               <PullStateChip :state="pull.state" />
+              <PullFocus v-if="pull.issue" :pull="pull" :issue="pull.issue" />
               <span class="flex w-full min-w-0 items-center gap-2 text-[11px] text-faint">
                 <NuxtLink
                     v-if="pull.issue"
