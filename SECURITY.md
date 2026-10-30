@@ -184,6 +184,24 @@ and each is only ever asked:
 As with everything that hangs on the owner's name (above), this keeps honest agents from overstepping.
 It doesn't stop a program that sends the owner's id.
 
+## The code orrery serves your machine
+
+The channel, hooks and launcher run on your machine, outside Docker, and orrery serves them: `~/.orrery/bootstrap.mjs`
+fetches them from `/channel` and runs them, as you. So **whoever answers at a repo's `ORRERY_URL` runs code on your
+machine**, as anything in a repo's `.mcp.json` would. The bootstrap holds to this:
+
+- **Only this machine, or https.** It fetches from `localhost`, `127.x.x.x`, `[::1]` or an `https://` address, and follows
+  no redirect. Anything else, such as `http://` to a machine on your network, runs the last copy it has, or refuses and
+  says why. That stops someone on the network swapping the code; it doesn't stop a server you've pointed a repo at.
+- **The right orrery.** With `ORRERY_ID` set, as Connect sets it, it runs nothing from an orrery with another id. An id isn't
+  a secret, so this catches a repo pointed at the wrong orrery by mistake, not one pretending.
+- **Whole files.** A file has to match the sha256 orrery lists before it replaces the copy in `~/.orrery`, so a download
+  cut short never runs. The hash comes from the same server, so it proves nothing about who wrote the file.
+- **No approval step.** Upgrading orrery changes what your machine runs without asking. Check the image you pull, as it
+  decides that code.
+
+A repo connected the older way runs a checkout's scripts, and fetches nothing.
+
 ## The browser can't be used against it
 
 A website open in your browser can't write to orrery: a write from another site's page (its `Origin`)

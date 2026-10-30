@@ -1,7 +1,6 @@
 # Running orrery
 
-In your clone of this repo (the connected repos run the channel from it, and Connect points them at the folder orrery
-starts in):
+In a folder of its own:
 
 ```sh
 curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.14/compose.yml
@@ -24,14 +23,16 @@ sidebar (App settings → Advanced turns it back on).
    as it was first, `orrery-pre-<version>-step<n>.db` (`<n>` the schema step it was at, so each step taken under one version gets its own), in the backup folder (beside the database when backups are off).
    An older version won't open a database a newer one has moved on: it stops and says so. To go back, restore that
    copy.
-3. **The channel and the launcher** run from this folder on your machine, not in the container, so they're as new as
-   what it has checked out: keep it on the version you run (`git pull`). Sessions pick up the channel as they start.
-   The launcher only when it restarts, which stops the sessions it started, so do it when nothing's mid-work:
-   `launchctl kickstart -k gui/$(id -u)/orrery.launcher` on a Mac, `systemctl --user restart orrery-launcher` on Linux
-   (`--install` again restarts it only when its service file changed, such as a new `node` or `PATH`). A launcher older than the server says so in the event log (`launcher.outdated`) when it's refused a launch.
-   Since 1.0.0-rc.10 the Sessions page marks a session whose channel is older than the server, and a launcher on older
-   code. The launcher service restarts itself on the new code once this folder is pulled (a new version, or a change
-   within one) and it has no session running.
+3. **Everything else follows.** Each connected repo's channel and hooks, and the launcher, run on your machine through
+   `~/.orrery/bootstrap.mjs`, which fetches what orrery serves (`/channel`) and keeps it in `~/.orrery`. A session gets the
+   new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code once it has no
+   session running, which the Sessions page shows until it has. A session already open keeps its channel until it
+   restarts, and the Sessions page marks it. It fetches only from this machine or over https: see
+   [what running served code means](../SECURITY.md#the-code-orrery-serves-your-machine).
+
+   **A repo connected before 1.0.0-rc.14** runs them from a checkout (`/path/to/orrery/channel/…`), which keeps working
+   and stays as new as that checkout (`git pull`). To switch it, paste the line from **Connect an agent** into a session in
+   that repo, and run the launcher's install line from the Sessions page's **Setup** tab once.
 
 ## Building from source
 
@@ -61,7 +62,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | made on first start, kept in `orrery.key` beside the database (`/data` in Docker; none outside Docker on Postgres, so set it there) |
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
 | `ORRERY_UPDATE_CHECK` | `false` stops orrery asking GitHub for its own releases (at start, then every 12 hours), which it does to show a notice above the version in the sidebar when a newer one is out. A pre-release is offered only to an orrery running one | on |
-| `ORRERY_REPO_DIR` | where your clone of this repo is, for what Connect writes into a repo's `.mcp.json`, when `compose.yml` runs from another folder | the folder orrery starts in |
+| `ORRERY_REPO_DIR` | the folder a relative `ORRERY_DATA` or `ORRERY_BACKUP` is under, as App settings shows it, when `compose.yml` runs from another one | the folder orrery starts in |
 | `ORRERY_ENVIRONMENT` | this orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
 ## A GitHub token

@@ -1,11 +1,18 @@
 import {readFileSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
+import {bundleChannel} from './scripts/bundle-channel'
 
 // The version a release sets in package.json, shown at the foot of the sidebar.
 const {version} = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {version: string}
 
+const channelBundle = fileURLToPath(new URL('./.channel-bundle', import.meta.url))
+
 export default defineNuxtConfig({
+    hooks: {
+        'build:before': () => bundleChannel(channelBundle, version),
+    },
+
     compatibilityDate: '2026-10-01',
     devtools: {enabled: false},
     // A local, single-user board: the page is drawn in the browser and fed by /api.
@@ -47,7 +54,7 @@ export default defineNuxtConfig({
         // (ORR-608). Override with NUXT_UPDATE_CHECK=false (ORRERY_UPDATE_CHECK in compose).
         updateCheck: true,
         public: {
-            // Where this repo is on the machine, for the channel setup the Connect page hands out.
+            // Where this repo is on the machine, for a default database in it.
             // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).
             repoDir: '',
             // Which orrery this is, each its own server and database (`personal`, `work`, …): a chip by
@@ -63,7 +70,11 @@ export default defineNuxtConfig({
 
     // docs/API.md is served to agents (/api/guide, /llms-full.txt).
     nitro: {
-        serverAssets: [{baseName: 'docs', dir: fileURLToPath(new URL('../docs', import.meta.url))}],
+        // And the bundled channel, hook and launcher are served to the machines that run them (/channel, ORR-435).
+        serverAssets: [
+            {baseName: 'docs', dir: fileURLToPath(new URL('../docs', import.meta.url))},
+            {baseName: 'channel', dir: channelBundle},
+        ],
         externals: {inline: [fileURLToPath(new URL('../channel', import.meta.url))]},
     },
 

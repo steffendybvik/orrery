@@ -1,3 +1,4 @@
+import {launcherInstall} from '#shared/connect'
 import type {LauncherRepo} from '#shared/roadmap'
 
 // Whether a project's launcher is there and how many sessions it has started or has on their way, and every
@@ -23,7 +24,7 @@ const asking = new Map<string, Promise<void>>()
 export function useLaunchState(project: MaybeRefOrGetter<string>) {
     const all = useState<Record<string, LaunchState | null>>('launch-state', () => ({}))
     const {launchers, sessions} = useRoadmaps()
-    const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
+    const install = launcherInstall(useRequestURL().origin)
 
     function refresh(): Promise<void> {
         const id = toValue(project)

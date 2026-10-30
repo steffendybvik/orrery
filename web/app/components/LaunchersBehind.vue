@@ -1,14 +1,15 @@
 <script setup lang="ts">
 // The launchers running code older than this orrery, on the Sessions page (ORR-434). One that says its version restarts
-// itself on the new code once the checkout it runs from is updated and it has no session running, so this says to
-// update the checkout; one too old to say needs restarting by hand, which installing it again does.
+// itself on the new code once it has no session running, as soon as orrery serves that code or, from a checkout, once
+// that's updated; one too old to say needs restarting by hand, which installing it again does.
+import {launcherInstall} from '#shared/connect'
 import {olderVersion} from '#shared/version'
 import type {LaunchState} from '~/composables/useLaunchState'
 
 const {launchers} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {version, repoDir} = useRuntimeConfig().public
-const install = `node ${String(repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
+const {version} = useRuntimeConfig().public
+const install = launcherInstall(useRequestURL().origin)
 /** Each project with a launcher behind, and the versions they run (`''` for one too old to say). */
 const behind = ref<{id: string, name: string, versions: string[]}[]>([])
 async function ask() {
@@ -29,8 +30,8 @@ const unsaid = computed(() => behind.value.some(b => b.versions.includes('')))
       older than this orrery ({{ version }}).
     </p>
     <p>
-      Update the checkout it runs from (<span class="font-mono">git pull</span>). It restarts itself on the new code once it has no
-      session running.<template v-if="unsaid"> One from before 1.0.0-rc.10 can't: install it again once, which restarts it and stops the sessions it's running.</template>
+      It restarts itself on the new code once it has no session running. One running from a checkout needs that updated first
+      (<span class="font-mono">git pull</span>).<template v-if="unsaid"> One from before 1.0.0-rc.10 can't: install it again once, which restarts it and stops the sessions it's running.</template>
     </p>
     <CopyBlock v-if="unsaid" title="In the repo, run" :text="install" />
   </div>

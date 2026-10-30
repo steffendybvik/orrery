@@ -6,7 +6,8 @@
 // keeps it off), for a repo's channel to add the repo as it connects (ORR-599). Connect the repo first (orrery's Connect an
 // agent page puts the channel in its .mcp.json): a project with no channel there isn't installed (ORR-604). --help lists
 // the flags:
-//   node /path/to/orrery/channel/orrery-launcher.mjs --install      (--uninstall in a repo takes its projects off and
+//   node ~/.orrery/bootstrap.mjs launcher --install      (what orrery serves, ORR-435; or a checkout's orrery-launcher.mjs)
+//                                                                    (--uninstall in a repo takes its projects off and
 //                                                                    keeps them off, elsewhere removes the service;
 //                                                                    --list shows which they'd be, changing nothing)
 // or run it in a terminal for the repo's project alone, for as long as the terminal stays open:
@@ -46,7 +47,7 @@ import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
-import {CODE, VERSION, codeOnDisk, launcherMove, versionOnDisk} from './version.mjs'
+import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, servedOtherCode, versionOnDisk} from './version.mjs'
 
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
 const log = (...parts) => console.error('[orrery launcher]', ...parts)
@@ -95,7 +96,8 @@ Connect the repo first (orrery's Connect an agent page), so its .mcp.json has th
 const FLAGS = ['--install', '--uninstall', '--no-pick-up', '--list', '--service', '--help', '-h']
 
 const args = process.argv.slice(2)
-const script = fileURLToPath(import.meta.url)
+// What the service runs: the bootstrap, when it's that that ran this.
+const script = BOOTSTRAP ? [BOOTSTRAP, 'launcher'] : fileURLToPath(import.meta.url)
 if (args.includes('--help') || args.includes('-h')) {
     console.log(USAGE)
     process.exit(0)
@@ -207,6 +209,14 @@ async function stop(id, why) {
 /** The version each orrery it serves runs, as its stream said on connecting. */
 const orreryVersions = new Map()
 let toldBehind = ''
+/** The code an orrery serves that the bootstrap would run if this restarted (ORR-435), once one does. */
+let servedCode
+/** Asks the orrery at `url` what it serves, for a launcher the bootstrap ran; a checkout's goes by its folder. */
+async function checkServed(url) {
+    if (!BOOTSTRAP) return
+    const served = await fetch(`${url}/channel/manifest.json`, {redirect: 'error', signal: AbortSignal.timeout(5000)}).then(r => r.ok ? r.json() : null, () => null)
+    if (servedOtherCode({served, url, from: (process.env.ORRERY_FROM ?? '').replace(/\/+$/, ''), mine: VERSION, code: CODE})) servedCode = served.code
+}
 /** Its checkout moving on (ORR-434, ORR-470): as the service, with no session of its own running, it exits once the
  * checkout it runs from holds other code, a new version or a change within one, and launchd or systemd starts it again
  * on that code (it comes back when it exits with a failure). While an orrery it serves runs another version and the
@@ -214,13 +224,13 @@ let toldBehind = ''
 function restartIfBehind() {
     const theirs = [...orreryVersions.values()]
     const disk = versionOnDisk()
-    const move = launcherMove({theirs, mine: VERSION, code: CODE, now: codeOnDisk(), running: running.size, service: args.includes('--service')})
+    const move = launcherMove({theirs, mine: VERSION, code: CODE, now: BOOTSTRAP ? servedCode ?? CODE : codeOnDisk(), running: running.size, service: args.includes('--service')})
     const other = theirs.find(v => v !== VERSION)
     if (move === 'tell' && toldBehind !== other) {
         toldBehind = other
-        log(`orrery runs ${other} and this launcher ${VERSION}: update the checkout it runs from (git pull), and it restarts itself`)
+        log(`orrery runs ${other} and this launcher ${VERSION}: ${BOOTSTRAP ? "it can't get that orrery's code from there, so it stays on this" : 'update the checkout it runs from (git pull), and it restarts itself'}`)
     } else if (move === 'restart') {
-        log(`restarting on ${disk === VERSION ? `${disk}'s newer code` : disk}, the code now in its checkout`)
+        log(BOOTSTRAP ? "restarting on the code its orrery serves now" : `restarting on ${disk === VERSION ? `${disk}'s newer code` : disk}, the code now in its checkout`)
         process.exit(75)
     }
 }
@@ -461,6 +471,7 @@ function serve({url, project, dir, picked_at: picked}, signal) {
                 token = given ?? ''
                 await report(api)
                 if (version) orreryVersions.set(url, version)
+                await checkServed(url)
                 restartIfBehind()
                 log(starts
                     ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`

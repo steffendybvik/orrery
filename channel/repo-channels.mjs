@@ -10,12 +10,16 @@ const DEFAULT_URL = 'http://localhost:9000'
 const plain = value => typeof value === 'string' && value && !value.includes('${') ? value : undefined
 const trim = url => url.replace(/\/+$/, '')
 
-/** Every server in the repo's .mcp.json that runs orrery-channel.mjs, in order: its name and env. */
+/** Every server in the repo's .mcp.json that runs orrery's channel, from a checkout or through the bootstrap, in order: its
+ * name and env. */
 export function channelsIn(dir) {
     try {
         const servers = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8')).mcpServers ?? {}
         return Object.entries(servers)
-            .filter(([, s]) => (s.args ?? []).some(a => String(a).includes('orrery-channel.mjs')))
+            .filter(([, s]) => {
+                const args = (s.args ?? []).map(String)
+                return args.some(a => a.includes('orrery-channel.mjs')) || (args.some(a => a.endsWith('bootstrap.mjs')) && args.includes('channel'))
+            })
             .map(([name, s]) => ({name, env: s.env ?? {}}))
     } catch {
         return []

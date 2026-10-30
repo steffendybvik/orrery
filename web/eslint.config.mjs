@@ -3,7 +3,7 @@
 import {createConfigForNuxt} from '@nuxt/eslint-config/flat'
 
 export default createConfigForNuxt({features: {stylistic: false}}, {
-    ignores: ['.nuxt', '.output', 'coverage', 'test-results', 'playwright-report'],
+    ignores: ['.nuxt', '.output', '.channel-bundle', 'coverage', 'test-results', 'playwright-report'],
 }).append({
     rules: {
         '@typescript-eslint/no-non-null-assertion': 'error',

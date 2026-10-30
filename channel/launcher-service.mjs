@@ -136,7 +136,7 @@ export function plist({node, script, path, log}) {
 <dict>
   <key>Label</key><string>${LABEL}</string>
   <key>ProgramArguments</key>
-  <array><string>${xml(node)}</string><string>${xml(script)}</string><string>--service</string></array>
+  <array><string>${xml(node)}</string>${[script].flat().map(part => `<string>${xml(part)}</string>`).join('')}<string>--service</string></array>
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>${xml(path)}</string><key>${RELOADS}</key><string>1</string></dict>
   <key>RunAtLoad</key><true/>
@@ -156,7 +156,7 @@ export function systemdUnit({node, script, path, distro}) {
 Description=orrery launcher: starts Claude sessions for orrery
 
 [Service]
-ExecStart=${quote(node)} ${quote(script)} --service
+ExecStart=${quote(node)} ${[script].flat().map(quote).join(' ')} --service
 Environment=${quote(`${RELOADS}=1`)}
 Environment=${quote(`PATH=${path}`)}
 ${distro ? `Environment=${quote(`WSL_DISTRO_NAME=${distro}`)}\n` : ''}Restart=on-failure

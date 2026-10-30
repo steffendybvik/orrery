@@ -26,7 +26,7 @@ import {claudeWindow} from './session.mjs'
 import {instructionsFor} from './instructions.mjs'
 import {follow} from './sse.mjs'
 import {orreryTools, toolsFor} from './tools.mjs'
-import {VERSION} from './version.mjs'
+import {BOOTSTRAP, VERSION} from './version.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
 const listed = (process.env.ORRERY_PROJECTS || process.env.ORRERY_PROJECT || basename(process.cwd())).split(',').map(p => p.trim()).filter(Boolean)
@@ -161,7 +161,7 @@ if (registeredAs) who.set('server', registeredAs)
  * orrery can start sessions here too, and says so once. */
 async function pickUpHere() {
     const added = await pickUpRepo(process.cwd())
-    const content = pickedUpMessage(added, fileURLToPath(new URL('./orrery-launcher.mjs', import.meta.url)))
+    const content = pickedUpMessage(added, BOOTSTRAP ? `${BOOTSTRAP} launcher` : fileURLToPath(new URL('./orrery-launcher.mjs', import.meta.url)))
     if (!content) return
     log(`put ${added.map(entry => entry.project).join(', ')} on the launcher's list (pick-up)`)
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {kind: 'pick-up'}}})

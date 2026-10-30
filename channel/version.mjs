@@ -4,9 +4,16 @@
 // (ORR-470).
 import {createHash} from 'node:crypto'
 import {readdirSync, readFileSync} from 'node:fs'
+import {newer, servable} from './bootstrap.mjs'
+
+/** Its version when it's the bundle the orrery serves (ORR-435), which has no checkout around it. */
+const BUNDLED = typeof __ORRERY_VERSION__ === 'string' ? __ORRERY_VERSION__ : undefined
+/** The bootstrap that ran this bundle, to name where a command runs it; none from a checkout. */
+export const BOOTSTRAP = BUNDLED ? process.env.ORRERY_BOOTSTRAP : undefined
 
 /** The version in the checkout now; none when it can't be read. */
 export function versionOnDisk() {
+    if (BUNDLED) return BUNDLED
     try {
         return JSON.parse(readFileSync(new URL('../web/package.json', import.meta.url), 'utf8')).version
     } catch {
@@ -16,6 +23,7 @@ export function versionOnDisk() {
 
 /** The code in the checkout now, as one hash of its version and every channel/*.mjs; none when it can't be read. */
 export function codeOnDisk() {
+    if (BUNDLED) return process.env.ORRERY_CODE
     try {
         const folder = new URL('./', import.meta.url)
         const hash = createHash('sha256').update(versionOnDisk() ?? '')
@@ -42,4 +50,13 @@ export function launcherMove({theirs, mine, code, now, running, service}) {
     if (!service) return null
     if (!now || !code || now === code) return theirs.some(v => v !== mine) ? 'tell' : null
     return running ? 'wait' : 'restart'
+}
+
+/** Whether a launcher the bootstrap ran gets other code by restarting, for what the orrery at `url` serves (`served`, its
+ * manifest): a newer version, as the bootstrap takes the newest on the list; or other code from the orrery this copy
+ * came from (`from`), even an older version. Other code at another orrery of the same version stays where it is, or two
+ * such would restart it for ever. So does an orrery the bootstrap wouldn't fetch from. */
+export function servedOtherCode({served, url, from, mine, code}) {
+    if (!servable(url) || !served?.code || served.code === code) return false
+    return newer(served.version, mine) || url === from
 }
