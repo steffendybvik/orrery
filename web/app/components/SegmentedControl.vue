@@ -18,7 +18,7 @@ const model = defineModel<T>({required: true})
     >
       <div
           class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/50"
-          :class="checked ? 'bg-panel text-fg shadow-sm ring-1 ring-line dark:bg-white/12 dark:ring-0' : 'text-muted hover:text-fg'"
+          :class="checked ? 'bg-accent-500 text-white shadow-sm focus-visible:ring-offset-1 focus-visible:ring-offset-well' : 'text-muted hover:text-fg'"
           :title="option.hint ? `${option.label} (${option.hint})` : option.label"
       >
         <slot name="icon" :value="option.value" />
