@@ -7,6 +7,7 @@
 // Claude Code adds to the fresh context so the work carries on. A session orrery started with context gets that
 // in the brief too, as it starts and after each of those.
 import {basename} from 'node:path'
+import {authHeaders} from './credentials.mjs'
 import {claudeWindow} from './session.mjs'
 
 const base = (process.env.ORRERY_URL ?? 'http://localhost:9000').replace(/\/+$/, '')
@@ -18,7 +19,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, {
         method: 'POST',
         // Whose this session is, from the user's environment.
-        headers: {'Content-Type': 'application/json', ...process.env.ORRERY_PERSON?.trim() ? {'Orrery-Person': process.env.ORRERY_PERSON.trim()} : {}},
+        headers: {'Content-Type': 'application/json', ...process.env.ORRERY_PERSON?.trim() ? {'Orrery-Person': process.env.ORRERY_PERSON.trim()} : {}, ...authHeaders(base)},
         signal: AbortSignal.timeout(1500),
         body: JSON.stringify({
             id: hook.session_id ?? window.id,

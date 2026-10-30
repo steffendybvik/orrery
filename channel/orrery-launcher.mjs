@@ -41,6 +41,7 @@ import {execFileSync} from 'node:child_process'
 import {mkdirSync, unwatchFile, watchFile, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
+import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
@@ -162,7 +163,8 @@ if (args.includes('--install') || args.includes('--uninstall')) {
             if (!channelFor(entry.dir, entry.url, entry.project)) throw new Error(`no .mcp.json here registers orrery's channel, so nothing was installed: connect this repo first, from orrery's Connect an agent page (or have a Claude session here read ${entry.url}/connect/${entry.project}.md), then run this again`)
         }
         for (const entry of entries) {
-            const found = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`).then(r => r.status).catch(() => 0)
+            const found = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`, {headers: authHeaders(entry.url)}).then(r => r.status).catch(() => 0)
+            if ([401, 403, 503].includes(found)) throw new Error(`${entry.url} asks for a credential: make an agent key on its page, and set ORRERY_KEY (or add it to ${keysFile()})`)
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
             if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed${inWsl() && wslLocalhost(entry.url) ? `. ${WSL_LOCALHOST}` : ''}`)
         }
@@ -202,7 +204,7 @@ async function stop(id, why) {
     } catch {
         // It had ended on its own.
     }
-    await fetch(`${session.api}/launches/${id}/ended`, {method: 'POST'}).catch(() => {})
+    await fetch(`${session.api}/launches/${id}/ended`, {method: 'POST', headers: authHeaders(session.api)}).catch(() => {})
     restartIfBehind()
 }
 
@@ -271,7 +273,7 @@ async function view(id) {
             } catch {
                 return // It has ended.
             }
-            const {watching} = await fetch(`${session.api}/launches/${id}/screen`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({screen})})
+            const {watching} = await fetch(`${session.api}/launches/${id}/screen`, {method: 'POST', headers: {'Content-Type': 'application/json', ...authHeaders(session.api)}, body: JSON.stringify({screen})})
                 .then(response => response.ok ? response.json() : {watching: false}).catch(() => ({watching: false}))
             if (!watching) return
             await new Promise(resolve => setTimeout(resolve, 1000))
@@ -406,7 +408,7 @@ function adopt(project, api) {
 async function report(api) {
     const launches = [...running.entries()].filter(([, s]) => s.api === api)
         .map(([id, s]) => ({id, tmux: s.tmux, ...s.stops_at ? {stops_at: s.stops_at} : {}, ...s.context ? {context: s.context} : {}, ...s.untrusted ? {untrusted: true} : {}, ...s.chat ? {chat: true} : {}}))
-    await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({launches})})
+    await fetch(`${api}/launches/running`, {method: 'POST', headers: {'Content-Type': 'application/json', ...authHeaders(api)}, body: JSON.stringify({launches})})
         .catch(() => {})
 }
 
@@ -442,11 +444,11 @@ function serve({url, project, dir, picked_at: picked}, signal) {
     async function start(launch) {
         // It says it locks an untrusted launch down with no Bash, and starts a chat able only to read and answer: orrery
         // gives either only to a launcher that does.
-        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST', headers: {'Orrery-Launcher': token}}).then(r => r.json()).catch(() => ({claimed: false}))
+        const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return
         // An untrusted one's channel says so on everything it sends, so orrery holds it to that even when it has
         // restarted and doesn't know the launch yet.
-        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}}
+        const env = {ORRERY_URL: url, ORRERY_PROJECT: project, ORRERY_STARTED: launch.id, ORRERY_AFTER: String(launch.after), ...launch.hears?.length ? {ORRERY_HEAR: launch.hears.join(',')} : {}, ...launch.untrusted ? {ORRERY_UNTRUSTED: 'yes'} : {}, ...launch.chat ? {ORRERY_CHAT: 'yes'} : {}, ...launch.person ? {ORRERY_PERSON: launch.person} : {}, ...keyFor(url) ? {ORRERY_KEY: keyFor(url)} : {}}
         const server = channelFor(dir, url, project)?.name ?? project
         tmux('new-session', '-d', '-s', launch.tmux, '-c', dir, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
             'claude', '--dangerously-load-development-channels', `server:${server}`, ...launch.untrusted ? lockedDown(dir, server) : launch.chat ? chatOnly(dir, server) : ['--permission-mode', mode])
@@ -461,6 +463,7 @@ function serve({url, project, dir, picked_at: picked}, signal) {
     }
 
     return follow({
+        headers: authHeaders(url),
         // The folder it serves from, so orrery knows which projects share one and can share a session, and whether its
         // channel serves every project, so a session started here hearing no one project hears them all.
         // And when its channel picked the repo up (ORR-605), for Sessions → Setup.

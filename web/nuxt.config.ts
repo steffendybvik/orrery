@@ -50,6 +50,13 @@ export default defineNuxtConfig({
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',
+        // Login and keys (ORR-664): `on` always asks for them; `off` never, for trying people out, and only on loopback.
+        // Unset, they're on when the server is reachable from other machines or has a second person. Override with
+        // NUXT_AUTH (ORRERY_AUTH in compose).
+        auth: '',
+        // Any standard OIDC provider, for logging in with no passwords in orrery. Override with NUXT_OIDC_ISSUER,
+        // NUXT_OIDC_CLIENT_ID and NUXT_OIDC_CLIENT_SECRET (ORRERY_OIDC_… in compose).
+        oidc: {issuer: '', clientId: '', clientSecret: ''},
         // Asks GitHub for orrery's releases at start and every 12 hours, for the sidebar's notice of a newer one
         // (ORR-608). Override with NUXT_UPDATE_CHECK=false (ORRERY_UPDATE_CHECK in compose).
         updateCheck: true,

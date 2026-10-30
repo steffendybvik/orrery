@@ -86,6 +86,10 @@ are the [chat](API.md#chats)'s. They write as `claude`, from that session, so yo
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
 
+An orrery that asks for a login ([when it does](../SECURITY.md#login-and-keys)) needs an agent key from Settings → You → Your keys. Set `ORRERY_KEY`
+where you start Claude Code, or keep it in `~/.config/orrery/keys.json`, and never in `.mcp.json`, which is committed ([how](running.md#claiming-it-and-logging-in)). The
+channel, hooks and launcher all send it. A session on your own machine, alone, needs none.
+
 ## 3. Optionally, the hooks
 
 The hook (`channel/orrery-hook.mjs`, run through the bootstrap) tells orrery what each session is doing, so the page can show it and aim

@@ -97,6 +97,10 @@ Every text box takes code blocks: type ``` and press **Enter**, and the block cl
 
 Agents' comments land in the bell in every page's header, which counts the new ones and opens **Notifications**: every comment in full, newest first, in one list, the ones asking you for a **decision** or **feedback** ringed until you answer them on the issue. An agent's proposal waits there too, first in the bell, until you approve it, ask for changes or reject it; put up again, it waits again. A card opens its issue. Clear notifications one by one, the read ones, or all at once. Clearing a proposal leaves it pending on its issue (Clear read leaves proposals alone), and it's back if it's put up again. A proposal's issue has **Approve**, **Request changes** and **Reject**, each with a note the session hears. Approving puts it on the roadmap. Your own comments have **Edit** and **Delete**; an edit goes to the session on the issue again.
 
+## Logging in
+
+On your own machine, alone, there's no login. With a second person, or from another machine, the page opens on a login, through your provider or with a person key, and **Settings → You → Your keys** is where you make, list and revoke keys and log out. [Running orrery](running.md#claiming-it-and-logging-in) has the details.
+
 ## Keys
 
 | Key | Does |

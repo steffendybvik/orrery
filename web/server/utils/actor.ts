@@ -1,5 +1,6 @@
 import type {H3Event} from 'h3'
 import type {Actor} from './store'
+import type {Who} from './auth'
 
 // Who's asking, by the `Orrery-Actor` header (`agent` without one). There's no auth: it's what
 // keeps an agent from deleting what the owner (their id, from the name they gave) made, as long as
@@ -10,7 +11,19 @@ export function sessionHeader(event: H3Event): string | undefined {
     return getHeader(event, 'orrery-session')?.trim() || undefined
 }
 
+/** Who a credential says this request is, once the auth middleware has checked it (`Who`); nothing with auth off. */
+const verified = (event: H3Event): Who | undefined => event.context?.who
+
 export async function actorOf(event: H3Event): Promise<Actor> {
+    // With auth on (ORR-664) the credential decides: a person logged in is that person, and an agent key is an agent
+    // whatever name it sends, with a label that's a person's name counting for nothing.
+    const who = verified(event)
+    if (who?.via === 'browser') return {name: who.person, owner: who.owner, asked: true, named: who.person}
+    if (who) {
+        const label = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
+        const session = sessionName(sessionHeader(event))
+        return {name: await useStore().isPerson(label) ? 'agent' : label, owner: false, asked: true, named: who.person, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}, ...chatWrite(event) ? {chat: true} : {}}
+    }
     const name = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
     const owner = name.toLowerCase() === (await useStore().ownerOf()).name
     const session = owner ? undefined : sessionName(sessionHeader(event))
@@ -23,6 +36,8 @@ export async function actorOf(event: H3Event): Promise<Actor> {
  * nobody's. Worked out each time from what it sends, so a restart or a `/clear` changes nothing. */
 export async function personOf(event: H3Event): Promise<string | undefined> {
     if (untrustedWrite(event)) return undefined
+    const who = verified(event)
+    if (who) return who.person
     const {owner, name} = await actorOf(event)
     if (owner) return name.toLowerCase()
     return chatWrite(event) ? (await useStore().ownerOf()).name : await useStore().personFor(personHeader(event) ?? name)

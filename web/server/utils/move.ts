@@ -22,7 +22,7 @@ import {ownerOnly} from './permission'
 /** The names only this machine reaches orrery by: a move hands the data to wherever it's pointed. */
 const THIS_MACHINE = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i
 /** A loopback address, as a connection comes from (`::ffff:127.0.0.1` over IPv6) or as orrery is published on. */
-const LOOPBACK = /^(127(\.\d{1,3}){3}|::1|\[::1\]|::ffff:127(\.\d{1,3}){3}|localhost)$/i
+export const LOOPBACK = /^(127(\.\d{1,3}){3}|::1|\[::1\]|::ffff:127(\.\d{1,3}){3}|localhost)$/i
 
 /** Whether the request came from the machine orrery runs on. The name it was reached by has to be this machine's, but
  * that's the `Host` header, which the caller chooses (ORR-421), so the connection has to say so too: outside Docker, it
@@ -30,12 +30,16 @@ const LOOPBACK = /^(127(\.\d{1,3}){3}|::1|\[::1\]|::ffff:127(\.\d{1,3}){3}|local
  * loopback alone (`ORRERY_HOST`, 127.0.0.1 by default, which compose passes in as NUXT_LISTEN_HOST). */
 export function fromThisMachine(event: H3Event): boolean {
     if (!THIS_MACHINE.test(getRequestHost(event).replace(/:\d+$/, ''))) return false
-    // A reverse proxy on this machine makes every request come from it, whoever sent it: one it passes on says so in
-    // these headers, so it isn't taken as local (ORR-457). `nuxt dev` adds its own, to a request with no socket address.
-    const {headers} = event.node.req
-    if (event.node.req.socket?.remoteAddress && ['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip'].some(name => headers[name] !== undefined)) return false
+    if (proxied(event)) return false
     if (inDocker()) return LOOPBACK.test(String(useRuntimeConfig().listenHost ?? ''))
     return LOOPBACK.test(clientAddress(event))
+}
+
+/** A reverse proxy on this machine makes every request come from it, whoever sent it: one it passes on says so in these
+ * headers, so it isn't taken as local (ORR-457). `nuxt dev` adds its own, to a request with no socket address. */
+export function proxied(event: H3Event): boolean {
+    const {headers} = event.node.req
+    return !!event.node.req.socket?.remoteAddress && ['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip'].some(name => headers[name] !== undefined)
 }
 
 /** Where the connection comes from. `nuxt dev` hands each request to its server over a local socket, which has no

@@ -3,10 +3,14 @@
 export default defineNuxtPlugin(() => {
     const {wroteTo} = useUnseen()
     const write = $fetch.create({
+        // A login that's run out or been ended (ORR-664) goes back to the door, rather than leaving a page that can't load.
+        onResponseError({response}) {
+            if (response.status === 401 && location.pathname !== '/login') location.assign('/login')
+        },
         onRequest({request, options}) {
             if ((options.method ?? 'GET').toUpperCase() !== 'GET') wroteTo(typeof request === 'string' ? request : request.url)
         },
     })
     globalThis.$fetch = write as typeof $fetch
-    useOwner().load().catch(() => {})
+    if (!useAuth().loggedOut.value) useOwner().load().catch(() => {})
 })

@@ -39,9 +39,30 @@ Every route takes either form, and an alias's full form too. Issues, chunks and 
 moved to another project has a new full id, and its old one gets a 404. A new project can't take the `key` `DOC`, `CHK`,
 `PST` or `SCH`, which read as the start of a full id; one that has it already keeps it.
 
+## Logging in
+
+On one person's own machine there's no login, and everything below works by name. Otherwise ([when](../SECURITY.md#login-and-keys)) every route under `/api` needs a
+credential, reads included: `Authorization: Bearer <agent key>` for sessions and scripts, or a login's cookie on the page. Without one it's a 401, or a 503 while nobody
+could log in (the message says what to run), and with one, `Orrery-Actor` and `Orrery-Person` no longer decide who you are: a logged-in person is that person, and an agent key is an agent of its
+person, with a label that's a person's name counting as `agent`. A logged-in write has to carry an `Origin`. The channel, hooks and launcher send the key from `ORRERY_KEY` or `~/.config/orrery/keys.json`.
+
+| | |
+|---|---|
+| `GET /auth/status` | open: `{mode, person?, via?, can_get_in, oidc, warn_http}`, `mode` `off`, `on` or `closed` (told off on a server others can reach, so refusing) |
+| `POST /auth/login` | open: `{key}`, a person key → `{person}` and the login's cookie; 401 for anything else, an agent key included |
+| `POST /auth/logout` | open: 204, ending this browser's login |
+| `GET /auth/oidc/start?invite=` | open: a redirect to the login provider; 404 with none set up |
+| `GET /auth/oidc/callback` | open: the way back from it, a redirect to the board, logged in. 403 for an account with no invite |
+| `GET /keys` | your keys, or everyone's for the owner: `{id, person, kind, name, created_at, last_used_at?, revoked_at?}`, never the key |
+| `POST /keys` | `{kind, name, person?}` → 201 the key, with `key` this once only. `kind` is `agent` or `person`; `person` is the owner's to give. Only a person, never a session, whatever key it has |
+| `DELETE /keys/:key` | 204: revokes it at once. Your own, or anyone's for the owner |
+| `POST /invites` | `{person}` → 201 `{url, expires_at}`: the owner's only, a link good once and for a week, whose first login attaches that account to the person. 409 with no login provider |
+
+`GET /healthz`, outside `/api`, answers `{ok: true}` with no credential, for a container's health check.
+
 ## Who can delete what
 
-There's no auth. The owner is whoever gave their name when the orrery was first opened (`GET /api/owner`
+With no login, the owner is whoever gave their name when the orrery was first opened (`GET /api/owner`
 → `{name, display, named}`; `PUT /api/owner {name}` gives it, anyone the first time, then the owner only; not `agent` or `claude`, which agents send).
 Their `Orrery-Actor` is that name in lowercase snake case: `Sköll Fenrisson` is `skoll_fenrisson`
 (`owner` until a name is given; renaming moves what was theirs to the new id). Don't guess it from
@@ -57,11 +78,11 @@ The owner can add others to an orrery, and each of them has their own sessions (
 | | |
 |---|---|
 | `GET /people` | everyone: `{id, name, role, created_at, removed_at?}`, the owner first, `role` `owner` or `member`. The owner is listed once they've given their name |
-| `POST /people` | `{name}` → 201 the person, a member: the owner's only. Their `id` is the name in lowercase snake case, and never changes. 400 for `owner`, `agent`, `claude` and `orrery`, or before the owner has a name; 409 for an id someone has, or a removed person had |
+| `POST /people` | `{name}` → 201 the person, a member: the owner's only. Their `id` is the name in lowercase snake case, and never changes. 400 for `owner`, `agent`, `claude` and `orrery`, or before the owner has a name; 409 for an id someone has, or a removed person had, or while nobody could log in, as a second person turns login on (`orrery:claim` first, or `ORRERY_AUTH=off` to only try people out) |
 | `PATCH /people/:person` | `{name}` → the person: the owner's only. The id stays, so what they hold stays theirs. The owner's own name goes through `PUT /owner` |
 | `DELETE /people/:person` | 204: the owner's only. Their name stays on history, their open issues go back to unassigned, each with an activity line, and their sessions can no longer change an issue. The owner can't be removed |
 
-A session says whose it is with `Orrery-Person: <id>` on its requests: the channel and the hook send `ORRERY_PERSON` from the environment Claude Code starts in, and a session the owner starts through a launcher gets theirs. It's worked out from each request, so it holds across a restart and a `/clear`. The owner and their chat are the owner's, whatever they send, and an untrusted session is nobody's. With more than one person, a session that names nobody, or somebody who isn't here, can read and comment, but changing an issue (`PATCH …/issues/:issue`, or in bulk) is a 409 saying how to set it. This is a name rather than a password, as `Orrery-Actor` is.
+A session says whose it is with `Orrery-Person: <id>` on its requests: the channel and the hook send `ORRERY_PERSON` from the environment Claude Code starts in, and a session the owner starts through a launcher gets theirs. It's worked out from each request, so it holds across a restart and a `/clear`. The owner and their chat are the owner's, whatever they send, and an untrusted session is nobody's. With more than one person, a session that names nobody, or somebody who isn't here, can read and comment, but changing an issue (`PATCH …/issues/:issue`, or in bulk) is a 409 saying how to set it. With no login this is a name rather than a password, as `Orrery-Actor` is; with one, the credential decides.
 
 Each board has one person holding it, and members. Existing boards are the owner's, and a new one is held by whoever made it, for them and their sessions alone until they add someone. The owner is on every board without being listed.
 

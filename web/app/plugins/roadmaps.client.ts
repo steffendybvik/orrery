@@ -7,6 +7,8 @@ import {applyPatch} from '#shared/patch'
 // the project (ORR-440), which replaces it in place, without a reload (and the owner's chats, as they change). After a dropped connection it loads them all again, and the secrets; one
 // the browser gave up on (refused while the server restarted) it opens again itself.
 export default defineNuxtPlugin(() => {
+    // On the login page there's nothing yet it may read.
+    if (useAuth().loggedOut.value) return
     const {projects, ready, live, changed, listeners, launchers, sessions, chatSessions, signals, partial, whole} = useRoadmaps()
     const router = useRouter()
     /** The project the page is on, read whole once the projects are in, and those it shares releases with, whose

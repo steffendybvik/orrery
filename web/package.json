@@ -16,6 +16,7 @@
     "test:e2e": "playwright test",
     "test:e2e:visual": "scripts/e2e-visual.sh",
     "test:e2e:perf": "playwright test --config playwright.perf.config.ts",
+    "orrery:claim": "node scripts/claim.mjs",
     "orrery:copy": "jiti scripts/copy.ts"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "croner": "11.0.0",
     "dompurify": "3.4.17",
     "h3": "1.15.11",
+    "jose": "^6.2.14",
     "marked": "18.1.2",
     "nuxt": "4.6.3",
     "pg": "8.23.1",

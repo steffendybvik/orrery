@@ -19,6 +19,7 @@ import {fileURLToPath} from 'node:url'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
+import {authHeaders} from './credentials.mjs'
 import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
 import {narrowed} from './repo-channels.mjs'
 import {serverName} from './server-name.mjs'
@@ -64,7 +65,8 @@ const server = new Server({name: 'orrery', version: VERSION}, {
 /** Whose this session is, from the user's environment (or the launcher's, for one it started): sent on every request, so
  * it holds across an orrery restart and a `/clear`. */
 const person = process.env.ORRERY_PERSON?.trim() || undefined
-const personHeaders = person ? {'Orrery-Person': person} : {}
+// With auth on, its agent key decides who it is, and a person key here stops it starting (ORR-664).
+const personHeaders = {...person ? {'Orrery-Person': person} : {}, ...authHeaders(base)}
 const reportCall = (tool, text) => window.id && fetch(`${base}/api/sessions/${encodeURIComponent(window.id)}/calls`,
     {method: 'POST', headers: {'Content-Type': 'application/json', ...personHeaders}, body: JSON.stringify({tool, text})}).catch(() => {})
 // The groups of tools this session asked for with more_tools (ORR-625): listed from then on.
@@ -73,7 +75,7 @@ const loadTools = async group => {
     loaded.add(group)
     await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
 }
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, person, untrusted, chat, report: reportCall, load: loadTools})
+const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, person, auth: authHeaders(base), untrusted, chat, report: reportCall, load: loadTools})
 server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted, loaded: [...loaded]})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
