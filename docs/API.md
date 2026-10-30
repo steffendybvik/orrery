@@ -91,7 +91,7 @@ until the release ships.
 
 | | |
 |---|---|
-| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?github_issue= ?chunk= ?release= ?parent= ?proposal= ?blocked= ?q=` (`none` for unset; `?blocked=true` is what waits on an issue not done yet, `false` what doesn't; `status` and `column` take a status's id or a kind, or several comma-separated; `?proposal=none` is committed work only) |
+| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?github_issue= ?chunk= ?release= ?parent= ?proposal= ?blocked= ?q=` (`q` is text in the id or title; with `&in=all`, words in the id and title, the description or one comment, any order or case, orrery's own comments aside: those with them in the id and title first, then the rest with `match_in`, `description` or `comment`, and `match`, the text around the hit, left out for an issue labelled `external`; `none` for unset; `?blocked=true` is what waits on an issue not done yet, `false` what doesn't; `status` and `column` take a status's id or a kind, or several comma-separated; `?proposal=none` is committed work only) |
 | `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, github_issues?, notes?, proposal?, choices?, parent?, chunk?, release?, depends_on?, position?}`; gets the next `KEY-n` |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and chunk |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |

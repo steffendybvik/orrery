@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
 import {instructionsFor} from '../../channel/instructions.mjs'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {toolsFor} from '../../channel/tools.mjs'
+import {orreryTools, toolsFor} from '../../channel/tools.mjs'
 import {chatBrief} from '../server/utils/chats'
 import {signalPayload} from '../server/utils/signal-payload'
 import {Store} from '../server/utils/store'
@@ -80,6 +80,17 @@ describe("the server's instructions a session carries on every turn", () => {
     it('tell several projects apart only when there are several', () => {
         expect(instructionsFor({base, serves: 'project "greenhouse"'})).not.toContain('HUB-12')
         expect(instructionsFor({base, serves: 'projects "greenhouse", "pantry"', several: true})).toContain('HUB-12')
+    })
+})
+
+describe('what a search brings', () => {
+    it('quotes the first few hits in the text, at about 170 characters each, and only says where for the rest (ORR-641)', async () => {
+        const hit = (n: number) => ({id: `GRE-${n}`, title: 'Shelves', status: 'todo', kind: 'todo', match_in: 'comment', match: `…${'word '.repeat(32)}…`})
+        const fetch = async () => new Response(JSON.stringify(Array.from({length: 200}, (_, i) => hit(i))))
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', fetch}) as (name: string, args: object) => Promise<{content: {text: string}[]}>
+        const {content} = await call('issues', {q: 'word'})
+        expect(content[0]!.text.match(/: …word/g)).toHaveLength(15)
+        expect(size(content[0]!.text)).toBeLessThanOrEqual(11_000)
     })
 })
 
