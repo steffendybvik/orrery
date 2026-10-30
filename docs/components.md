@@ -215,9 +215,9 @@ Already one component each; use them rather than drawing the same thing again.
 
 The layout (`layouts/default.vue`) mounts the dialogs any page can open, each as `Lazy…` behind `openedOnce`: it
 loads the first time it opens, in its own chunk, and then stays. A dialog is opened through the state its composable
-shares (`useNewIssue`, `useNewChunk`, `useNewDoc`, `useStartSession`, `useSchedules`, and `useState('new-project')`),
+shares (`useNewIssue`, `useNewChunk`, `useNewDoc`, `useStartSession`, `useMessageSessions`, `useSchedules`, and `useState('new-project')`),
 so any page or ⌘K can open it without holding it. `OwnerDialog` is mounted from the start; a dialog that belongs to
-one page (`PresetDialog`, `MessageSessionsDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
+one page (`PresetDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
 mounted from the start, as they listen for keys or show on a right-click.
 
 ## Shared behaviour (`composables/`, `utils/`)
@@ -233,6 +233,7 @@ Auto-imported, like the components. Reach for these before writing the listener 
 | `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`), then back to typing in it; pasting and dropping work on the whole area around it (`useImageDrop`, with `ImageDropOverlay` while an image is dragged over) |
 | `useUnseen` | what's changed since the owner last looked (`unseen-row`, `unseen-dot`) |
 | `useTheme` | light, dark or the system's, remembered in this browser |
+| `apiFetch`, `apiUrl` | every call to the API, by its path under `/api`; a write goes as the owner unless it gives its own `headers` (`test/api-client.test.ts` holds it) |
 | `copyText` | copies text, with a fallback where the clipboard API refuses (`CopyButton` uses it) |
 | `errorMessage(error, verb)` | what a failed request says to show: the server's message, or that orrery didn't answer |
 | `isTyping(target)` | whether a key went to a field, where single-letter shortcuts mustn't fire |

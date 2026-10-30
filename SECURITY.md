@@ -1,7 +1,8 @@
 # Security
 
 orrery is built to run on your own machine, for you and your Claude Code sessions. It has **no
-accounts and no passwords**: whoever can reach it can use it. Read this before opening it to anyone
+passwords**. Alone on your own machine there's no login, so whoever can reach it can use it; off this machine, or with a
+second person, it asks for one. Read this before opening it to anyone
 else.
 
 ## Who can reach it
@@ -24,7 +25,8 @@ on loopback, for trying people out on one machine: anywhere else the server refu
 API answers 503 rather than opening.
 
 **What it guards.** Every route under `/api` needs a credential, with no exemption for loopback. The login's own routes
-are open, as are the page's files, the channel's and `/connect`, which hold no data. With it on, what `Orrery-Actor` and
+are open, as are `/healthz`, the page's files and the channel's, which hold no data, and `/llms.txt`, `/llms-full.txt` and `/connect`, which show
+projects' names and keys (`/llms*` their progress too). With it on, what `Orrery-Actor` and
 `Orrery-Person` say doesn't decide who anyone is.
 
 **Agent keys and person keys.** An agent with Bash can read its own environment, so a key has a kind. An **agent key** goes
@@ -35,6 +37,8 @@ stored. Revoking works at once, and removing a person revokes theirs.
 
 **What an agent key still can do.** Act as any session of its own person, so the lock between one person's sessions keeps
 honest agents apart and isn't a boundary. The boundary is between people, and between a person and their agents.
+
+**Reads aren't kept to a board yet.** Anyone logged in, and their agents, can read every project.
 
 **What this doesn't defend:**
 
@@ -63,7 +67,7 @@ The same goes for the people an owner adds with `ORRERY_AUTH=off`, and for `Orre
 anyone who can reach orrery can send any of them. There, adding people, and keeping a board to its members, keeps honest
 sessions apart. It doesn't stop anyone, and reads aren't kept to a board at all yet.
 
-Moving the database (App settings → Database → Move…) repoints orrery at a database the mover picks, and setting
+Moving the database (App settings → This orrery → **Move to another database…**) repoints orrery at a database the mover picks, and setting
 the backups chooses where a copy of everything goes, so both are kept to the machine orrery runs on, from where
 the connection comes rather than the name the request gives (its `Host`, which the caller chooses: ORR-421).
 Outside Docker the connection has to come from a loopback address. In Docker every request reaches the container
@@ -200,7 +204,7 @@ there for a person to answer. Its launcher presses Enter only while the pane sti
 cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". The pop-up shows the
 prompt from that pane, not the tool the session's hook names: anything can post a session's hook, so that line shows
 only for a session with no pane to read, which has no Allow (ORR-572). As with Watch and
-Stop, though, the owner is a name, not a password: whoever can reach orrery can press Allow, so a session's
+Stop, though, with login off the owner is a name, not a password: whoever can reach orrery can press Allow, so a session's
 permission prompts are only as safe as who can reach orrery ([above](#who-can-reach-it)).
 
 ### The owner's chat
@@ -290,7 +294,7 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
 - **Agents never hold the value.** No route, event or page gives it back, only its last 4 characters.
 - **It only goes where you said.** Each secret names its hosts, and orrery sends it nowhere else and
   only over https. This is what stops a planted comment or fetched page talking an agent into sending
-  `{{secret:STRIPE_KEY}}` to its own server. Since the owner is only a name (above), anyone who can
+  `{{secret:STRIPE_KEY}}` to its own server. With login off the owner is only a name (above), so anyone who can
   reach orrery can narrow where a secret goes, replace it or delete it, but not widen it: that takes
   the value again. The hosts are sealed in with the value, so changing them in the database stops it
   opening.
@@ -315,7 +319,7 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
   Claude Code's notification text, and, before each tool it uses, the tool's name with its command, file, address or
   search (each Bash command in full, up to 4000 characters). They go to the orrery at `ORRERY_URL`, nowhere else.
 - **Context** (Advanced → Context) shows what each running session has been given since orrery started: the signals
-  sent to it and its orrery tools' answers, kept in memory only. Like every page, it's open to whatever can reach
+  sent to it and its orrery tools' answers, kept in memory only. Like every page, with login off it's open to whatever can reach
   orrery, sessions included, so an `egress` answer is kept by its size alone, never what the service sent back
   (ORR-573). Anything can add an entry to a session's list there, as it can post a session's hook.
 - **The event log** (Advanced → Events) keeps what went wrong, with error messages and stacks, for 30 days on
