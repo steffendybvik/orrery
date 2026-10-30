@@ -276,7 +276,7 @@ Advanced off. A repeat of an open error isn't one. `on` is a type or a pattern, 
 - `level`: the event log's.
 
 Such a schedule runs once per subject (an issue bounced in and out of a status runs it once; a run that was skipped or
-failed doesn't count), not within a minute of its last run (events heard together count as one), and never on what a schedule's run did (a session it started stopping included, so a session schedule on `session.stopped` can't start itself again), nor on what an untrusted schedule's session wrote. Its issue's title ends with the subject (`Review · ORR-12`),
+failed doesn't count), not within a minute of its last run (a subject that minute holds back waits its turn, one a minute, and runs if it still fits: an issue that's left the status asked for doesn't; events with no subject heard together count as one), and never on what a schedule's run did (a session it started stopping included, so a session schedule on `session.stopped` can't start itself again), nor on what an untrusted schedule's session wrote. Its issue's title ends with the subject (`Review · ORR-12`),
 and its description or message ends with what happened by ids, never another's words:
 `On issue.status: ORR-12 (in-progress → in-review), by claude.` The change is given only where it's ids or fixed
 words (status, priority, chunk, release, parent, proposal); a label or an assignee isn't, nor an agent's name that isn't
@@ -296,7 +296,7 @@ so an alert on `*.failed` hears a schedule fail, except when the run was itself 
 | `POST /projects/:project/issues/:issue/schedule-requests` | `{schedule, id?, why?}` → 201 the comment asking: a working session asking the owner, on the issue it's working, to make a schedule or change schedule `id`. `schedule` holds the fields as above, less `untrusted`, checked as they'd be for the owner. The comment waits on their decision (`asks: "decision"`) and carries the request as `schedule` `{id?, title, changes, body, state}`; nothing is saved until they allow it. Asking again for the same schedule expires the earlier request. Not the chat (it asks in its chat) nor an untrusted session (403) |
 | `POST /projects/:project/issues/:issue/schedule-requests/:comment` | `{allow}` → the comment asking, answered: the owner's Allow saves the schedule as theirs, and it runs; Deny saves nothing. Either way their answer is a comment of theirs, which reaches the session. 403 for an agent; 409 once answered or expired |
 
-Each schedule carries `next_run` (none for one on an event), its `presets` and its latest `runs`: `made` (with the issue), `sent` (a message, or a session started), `skipped` or `failed` (with why), and an event run's `subject`.
+Each schedule carries `next_run` (none for one on an event), its `presets`, `held` when its minute is holding subjects back (how many), and its latest `runs`: `made` (with the issue), `sent` (a message, or a session started), `skipped` or `failed` (with why), and an event run's `subject`.
 
 ## Secrets
 

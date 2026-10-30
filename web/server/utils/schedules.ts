@@ -288,7 +288,60 @@ export class Schedules {
             await this.run(row, now, false)
             ran++
         }
+        return ran + await this.catchUp(now)
+    }
+
+    /** Runs what an event schedule's minute held back (ORR-357): for each schedule whose minute is up, its oldest held
+     * subject that still fits, so a burst goes through at one a minute and none is lost. Says how many ran. */
+    private async catchUp(now: Date): Promise<number> {
+        const held = await this.db.all<{schedule: number, subject: string, event: string}>('SELECT schedule, subject, event FROM schedule_held ORDER BY at, subject')
+        let ran = 0
+        const done = new Set<number>()
+        for (const {schedule, subject, event: sent} of held) {
+            if (done.has(schedule)) continue
+            const row = await this.db.get<ScheduleRow>('SELECT * FROM schedules WHERE id = ?', schedule)
+            // Switched off, what it held back goes: switched on again, it starts from what happens then.
+            if (!row?.enabled || !row.on_event) {
+                await this.db.run('DELETE FROM schedule_held WHERE schedule = ?', schedule)
+                done.add(schedule)
+                continue
+            }
+            if (await this.inCooldown(schedule, now)) {
+                done.add(schedule)
+                continue
+            }
+            // Claimed by taking it out: if another server got there first, nothing changes here.
+            if (!(await this.db.run('DELETE FROM schedule_held WHERE schedule = ? AND subject = ?', schedule, subject)).changes) continue
+            const event = await this.stillFits(row, JSON.parse(sent) as OrreryEvent)
+            if (!event || await this.ranFor(schedule, subject)) continue
+            done.add(schedule)
+            await this.run(row, now, false, event)
+            ran++
+        }
         return ran
+    }
+
+    /** The held event as it stands now, when it still does what the schedule asks: an issue's status is read again, so
+     * one that's left In review isn't reviewed, and an issue since deleted or moved away is dropped. */
+    private async stillFits(row: ScheduleRow, event: OrreryEvent): Promise<OrreryEvent | null> {
+        let current = event
+        if (event.type.startsWith('issue.') && event.subject) {
+            const issue = await this.store.issue(row.project, event.subject).catch(() => null)
+            if (!issue) return null
+            if (event.type === 'issue.status') current = {...event, to: issue.status}
+        }
+        return await this.fits(row, current) ? current : null
+    }
+
+    /** Whether it ran in the last minute: events in that time wait their turn, or count as one when they have no subject. */
+    private async inCooldown(schedule: number, now: Date): Promise<boolean> {
+        const last = await this.db.get<{at: string}>('SELECT at FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT 1', schedule)
+        return !!last && now.getTime() - new Date(last.at).getTime() < COOLDOWN
+    }
+
+    /** Whether a run did it for the subject. A run that was skipped or failed didn't, so a later event can. */
+    private async ranFor(schedule: number, subject: string): Promise<boolean> {
+        return !!await this.db.get("SELECT 1 FROM schedule_runs WHERE schedule = ? AND subject = ? AND outcome IN ('made', 'sent')", schedule, subject)
     }
 
     /** Runs it now, whatever its time, and even while the last run's issue is open; the owner's, only by them.
@@ -349,10 +402,15 @@ export class Schedules {
         let ran = 0
         for (const row of rows) {
             if (!matchesType(row.on_event ?? '', event.type) || !await this.fits(row, event)) continue
-            // A run that was skipped or failed didn't do it for its subject, so a later event can.
-            if (event.subject && await this.db.get("SELECT 1 FROM schedule_runs WHERE schedule = ? AND subject = ? AND outcome IN ('made', 'sent')", row.id, event.subject)) continue
-            const last = await this.db.get<{at: string}>('SELECT at FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT 1', row.id)
-            if (last && now.getTime() - new Date(last.at).getTime() < COOLDOWN) continue
+            if (event.subject && await this.ranFor(row.id, event.subject)) continue
+            if (await this.inCooldown(row.id, now)) {
+                // Its turn comes once the minute is up (`catchUp`); with no subject, it counts as the run just made.
+                if (event.subject) {
+                    await this.db.run(`INSERT INTO schedule_held (schedule, subject, event, at) VALUES (?, ?, ?, ?)
+                        ON CONFLICT (schedule, subject) DO UPDATE SET event = excluded.event`, row.id, event.subject, JSON.stringify(event), now.toISOString())
+                }
+                continue
+            }
             await this.run(row, now, false, event)
             ran++
         }
@@ -575,6 +633,7 @@ export class Schedules {
 
     private async scheduleOf(row: ScheduleRow): Promise<Schedule> {
         const runs = (await this.db.all<RunRow>('SELECT * FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT ?', row.id, RUNS))
+        const held = Number((await this.db.get<{n: number}>('SELECT count(*) AS n FROM schedule_held WHERE schedule = ?', row.id))?.n ?? 0)
         return {
             id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
             cron: row.cron ?? undefined, at: row.at ?? undefined, on: row.on_event ?? undefined,
@@ -582,6 +641,7 @@ export class Schedules {
             column: row.place, chunk: row.chunk ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
             ask: !!row.ask, skip_open: !!row.skip_open, only_if_changed: !!row.only_if_changed, untrusted: !!row.untrusted, enabled: !!row.enabled, next_run: row.next_run ?? undefined,
             runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined, ...r.subject ? {subject: r.subject} : {}})),
+            ...held ? {held} : {},
             created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
         }
     }
