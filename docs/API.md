@@ -115,7 +115,9 @@ until the release ships.
   a 400 (`ORR-3 already depends on ORR-1 (through ORR-2), so ORR-1 can't depend on it`). Read back with `blocked_by`
   (those not Done yet: while there are any it's blocked, and nothing hands it out) and `blocks` (what depends on it),
   each only when there are some. A session starting a blocked issue is a 409 naming its blockers, unless the owner
-  focused a session on it in the last day
+  focused a session on it in the last day. So is a session starting a sub-issue while another session that's there has
+  started an issue above it (ORR-611): a follow-up filed under that issue is that session's, until it stops or the
+  issue is done or canceled
 - `notes` may use inline `` `code` `` and `**bold**`
 - `external`: its tasks on the team's tracker, a list of ids (`ENG-1567`) or full URLs; the orrery's
   `tracker` (`PATCH /settings {tracker}`, a task's web address with `{id}` where its id goes) links an id;
@@ -569,7 +571,9 @@ Saved pieces of context, `{id, project, name, text, icon, color}`, the owner giv
 for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's name, e.g. `shield-check`) in
 `color` (a tint's name or `#rrggbb`), or its initials without an icon. orrery ships a few of its own (Release,
 Security audit, Review, Debug an error), added once to each orrery as it starts, new or upgraded; each has `default`
-`{key, changed}`. An upgrade never changes one, and one the owner removed isn't added again. Only the owner makes, changes or removes them (an agent gets a 403); the owner's chat reads them
+`{key, changed}`. An upgrade changes one only while its text is still one orrery shipped before, word for word,
+taking the new text; one the owner changed stays theirs (Reset to default takes the new text), and one the owner
+removed isn't added again. Only the owner makes, changes or removes them (an agent gets a 403); the owner's chat reads them
 (the `presets` and `preset` tools) to help the owner write one.
 
 | | |

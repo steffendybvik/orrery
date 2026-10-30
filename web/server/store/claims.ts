@@ -68,6 +68,12 @@ export abstract class ClaimStore extends ReleaseStore {
                 if (blockers.length && !await this.focusedOn(project, issue)) {
                     throw conflict(`${issue} is blocked by ${blockers.join(', ')}, which ${blockers.length === 1 ? "isn't" : "aren't"} done yet; pick another issue`)
                 }
+                // A follow-up filed under an issue another session has started is that session's too (ORR-611): a new
+                // id would otherwise be a lock of its own, and two sessions fix the same thing.
+                for (let parent = (await this.issueRow(project, issue)).parent; parent; parent = (await this.issueRow(project, parent)).parent) {
+                    const holder = await this.takenFrom(project, parent, session)
+                    if (holder) throw conflict(`${issue} is a sub-issue of ${parent}, which another session (${holder}) is working on; it's that session's to start; pick another issue`)
+                }
             }
         }
         const worker = await this.takenFrom(project, issue, session)

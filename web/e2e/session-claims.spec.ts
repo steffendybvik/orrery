@@ -46,6 +46,13 @@ test("keeps an issue to the session on it: another's comment and edit are refuse
         await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Racked the reds'}, as('e2e-c1'))
         await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Whites next'}, OWNER)
 
+        // A follow-up filed under it is its session's to start too (ORR-611), though it has an id of its own.
+        const followUp = (await api(request, 'post', '/projects/cellar/issues', {title: 'Label the racks', status: 'todo', parent: id}, OWNER)).id
+        const taken = await request.patch(`/api/projects/cellar/issues/${followUp}`, {data: {status: 'in-progress'}, headers: as('e2e-c2')})
+        expect(taken.status()).toBe(409)
+        expect(await taken.text()).toContain(`is a sub-issue of ${id}, which another session (e2e-c1) is working on`)
+        await api(request, 'patch', `/projects/cellar/issues/${followUp}`, {status: 'in-progress'}, as('e2e-c1'))
+
         // A chunk's list marks it for the other session only.
         await api(request, 'post', '/projects/cellar/chunks/all/focus', {session: '*'}, OWNER)
         await expect.poll(() => streams.map(s => s.said.text.includes('Rack the wine'))).toEqual([true, true])

@@ -33,6 +33,23 @@ describe('the presets orrery ships', () => {
         expect(presets.find(p => p.name === 'Review')).toMatchObject({icon: 'eye', color: 'teal', default: {key: 'review', changed: false}})
     })
 
+    it('take a new text on the next start while still as they shipped, and keep the owner\'s own (ORR-611)', async () => {
+        const review = DEFAULT_PRESETS.find(d => d.key === 'review')!
+        expect(review.text).toMatch(/You only review\. Never start an issue, write the fix or push to its branch/)
+        expect(review.text).toMatch(/sub-issue of the reviewed issue/)
+        await store.seedPresets()
+        const saved = (await store.presets()).find(p => p.default?.key === 'review')!
+        const own = await store.createPreset(null, {name: 'Old review', text: review.was![0]!}, me)
+        await store.updatePreset(saved.id, {text: review.was![0]!}, me)
+        await store.seedPresets()
+        expect((await store.preset(saved.id))).toMatchObject({text: review.text, default: {changed: false}})
+        // One the owner made with the same words isn't one orrery shipped, so it stays theirs.
+        expect((await store.preset(own.id)).text).toBe(review.was![0])
+        await store.updatePreset(saved.id, {text: 'My way.'}, me)
+        await store.seedPresets()
+        expect((await store.preset(saved.id)).text).toBe('My way.')
+    })
+
     it('are seeded into an orrery that has presets of its own, leaving those be', async () => {
         await store.createPreset(null, {name: 'Review', text: 'My own way of reviewing.'}, me)
         await store.seedPresets()
