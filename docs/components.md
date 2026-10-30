@@ -200,6 +200,9 @@ Already one component each; use them rather than drawing the same thing again.
 | `ViewToolbar` | a page's own controls under its header: how it's shown on the left, filters on the right (`#end`) |
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
+| `DocDiff` | what changed between two versions of a doc's text, line by line |
+| `DocHistory` | a doc's revisions, each one's diff, and a restore; a removed doc's, to bring it back |
+| `DeletedDocs` | a project's removed docs, folded, each linking to its page |
 | `EmptyProjects` | what a page shows before there are any projects: Getting started |
 | `GettingStarted` | a new orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
 | `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step, and in the chat), gone once one connects |

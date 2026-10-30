@@ -70,6 +70,17 @@ describe("the channel's tools", () => {
         expect(reported.at(-1)).toEqual(['issue', 'orrery said no: Taken'])
     })
 
+    it("read a doc as it is, and its past only when asked (ORR-675)", async () => {
+        const {call} = harness({
+            'GET /docs/joints': {body: {title: 'Joints', body: 'now'}},
+            'GET /docs/joints/revisions': {body: [{id: 9, title: 'Joints', deleted: true, created_by: 'skoll', created_at: 't2'}, {id: 4, title: 'Hinges', deleted: false, created_by: 'claude', session_name: 'orrery · Høne', created_at: 't1'}]},
+            'GET /docs/joints/revisions/4': {body: {title: 'Hinges', body: 'then'}},
+        })
+        expect((await call('doc', {id: 'joints'})).text).toBe('# Joints\n\nnow')
+        expect((await call('doc', {id: 'joints', revision: 4})).text).toBe('# Hinges\n\nthen')
+        expect((await call('doc', {id: 'joints', history: true})).text).toBe('9: removed (skoll, t2)\n4: Hinges (claude, orrery · Høne, t1)')
+    })
+
     it('list docs with their section, and file one under a section only when asked (ORR-520)', async () => {
         const {calls, call} = harness({
             'GET /docs': {body: [{id: 'decision-ids', title: 'Decision: ids', summary: 'Ids are slugs.', section: 'Decisions'}, {id: 'readme', title: 'Readme', summary: ''}]},
