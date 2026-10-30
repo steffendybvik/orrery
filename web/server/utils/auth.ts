@@ -1,6 +1,7 @@
 // Who a request is, when auth is on (ORR-664): the one step that turns a credential into rights. Everything after it reads
 // `event.context.who` (`actorOf`, `personOf`), so if a provider or a key's grants give rights later, only this changes.
 import type {H3Event} from 'h3'
+import {actorId} from '../store/schema'
 import {inDocker} from './backup-choice'
 import {LOOPBACK, proxied} from './move'
 import {oidcOn} from './oidc'
@@ -32,6 +33,20 @@ const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH 
 export async function needsWayInForPeople() {
     if (toldOff() || await canGetIn()) return
     throw conflict('A second person turns login on, and nobody could log in yet: run `pnpm orrery:claim` on this machine first (or `docker compose exec orrery node /app/server/claim.mjs`). To only try people out on this machine, start orrery with ORRERY_AUTH=off')
+}
+
+const otherPersonNoted = new Set<string>()
+
+/** An agent key decides whose a session is, and an `Orrery-Person` that says otherwise is ignored. It's a machine set up
+ * wrong or an agent trying something, so the event log gets a line, once per session (ORR-707). */
+export function noteOtherPerson(event: H3Event, who: Who) {
+    const named = getHeader(event, 'orrery-person')?.trim()
+    if (who.via !== 'agent' || !named || actorId(named) === who.person) return
+    const session = getHeader(event, 'orrery-session') ?? ''
+    if (otherPersonNoted.has(`${who.person}:${session}`)) return
+    if (otherPersonNoted.size >= 1000) otherPersonNoted.clear()
+    otherPersonNoted.add(`${who.person}:${session}`)
+    useEventLog().note({level: 'warn', kind: 'auth.person_mismatch', message: `A session with ${who.person}'s agent key says it's for "${named.slice(0, 100)}", so that's ignored`, details: {person: who.person, session: session.slice(0, 200) || null}})
 }
 
 /** `off`, as orrery has always been; `on`, asking for a credential; `closed` when told off on a server others can reach,

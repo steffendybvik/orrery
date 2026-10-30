@@ -9,6 +9,7 @@ import {failure, storeSetup} from './store-setup'
 type Event = {path: string, method: string, headers: Record<string, string>, context: Record<string, unknown>, node: {req: unknown}}
 let store: StoreType
 let config: Record<string, unknown>
+let noted: {kind: string, message: string}[]
 let gate: (event: Event) => Promise<void>
 let actorOf: typeof import('../server/utils/actor').actorOf
 let personOf: typeof import('../server/utils/actor').personOf
@@ -34,6 +35,8 @@ beforeEach(async () => {
     vi.stubGlobal('untrustedWrite', (event: Event) => event.headers['orrery-untrusted'] === 'yes')
     vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')
     vi.stubGlobal('conflict', fail(409))
+    noted = []
+    vi.stubGlobal('useEventLog', () => ({note: (entry: {kind: string, message: string}) => noted.push(entry)}))
     vi.resetModules()
     gate = (await import('../server/middleware/auth')).default as unknown as typeof gate
     ;({actorOf, personOf} = await import('../server/utils/actor'))
@@ -97,6 +100,20 @@ describe('with auth on', () => {
         const actor = await actorOf(event as never)
         expect(actor).toMatchObject({asked: true, named: 'hati', owner: false})
         expect((await failure(() => store.updateIssue('greenhouse', issue.id, {status: 'done'}, actor))).status).toBe(409)
+    })
+
+    it('logs a session whose Orrery-Person disagrees with its key, once per session', async () => {
+        const say = (headers: Record<string, string>) => gate(asking('/api/projects', {headers: bearer(agent, headers)}))
+        await say({'orrery-person': 'hati', 'orrery-session': 'a'})
+        await say({'orrery-session': 'a'})
+        expect(noted).toEqual([])
+        await say({'orrery-person': 'skoll', 'orrery-session': 'a'})
+        await say({'orrery-person': 'skoll', 'orrery-session': 'a'})
+        expect(noted).toHaveLength(1)
+        expect(noted[0]).toMatchObject({kind: 'auth.person_mismatch'})
+        expect(noted[0]?.message).toContain('"skoll"')
+        await say({'orrery-person': 'skoll', 'orrery-session': 'b'})
+        expect(noted).toHaveLength(2)
     })
 
     it("an owner's agent key is still not the owner", async () => {
