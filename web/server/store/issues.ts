@@ -2,7 +2,7 @@
 import type {Kind, Signal} from '#shared/roadmap'
 import {CLOSED, fullId, githubIssueOf, githubRepo, isBlocked, issueRef, linkRef, parseLinkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
-import {badRequest, checkInput, notFound} from '../utils/input'
+import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
 import {AGENT, ISSUE_FIELDS, ORRERY, matchOf, tasksOf, nullable, stamp} from './schema'
 import {ClaimStore} from './claims'
@@ -85,18 +85,39 @@ export abstract class IssueStore extends ClaimStore {
         const github = await this.githubIssuesOf(project, input.github_issues)
         const depends = await this.linksFrom(project, null, input.depends_on)
         if (parent && depends?.some(l => l.project === project && l.id === parent)) throw badRequest(`${parent} is this issue's parent, so it can't depend on it`)
+        const status = await this.resolveStatus(input.status, input.plan)
+        const proposed = input.proposal === 'pending'
+        let assigned = proposed ? await this.ownerId() : nullable(await this.assigneeOf(input.assignee))
+        const rails = await this.railsFor(actor)
+        const person = rails?.person
+        const kind = (await this.statuses()).find(s => s.id === status)?.kind
+        if (rails && !actor.untrusted) {
+            // A follow-up under its person's issue is theirs too. A new issue with no parent is anyone's on the board to
+            // make, but stays nobody's, so it can't be made already taken up.
+            if (parent) {
+                await this.mustHold(rails, parent, (await this.issueRow(project, parent)).assignee, 'file a sub-issue under it')
+                assigned = person ?? null
+            } else {
+                if (!person) await this.mustHold(rails, 'a new issue', null, 'make one')
+                if (!proposed) {
+                    if (await this.railedAssignee(rails, 'a new issue', assigned) === undefined && assigned) throw conflict('Only people assign: a new issue stays unassigned until one does')
+                    if (kind && (kind === 'started' || CLOSED.includes(kind))) throw conflict(`A new issue is assigned to nobody, so this session can't make it ${status}; leave it in Todo or Backlog for a person to assign`)
+                }
+            }
+        }
 
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
             await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, chunk, ships_in,
-                                          position, created_by, session_name, owned, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                project, id, String(input.title).trim(), await this.resolveStatus(input.status, input.plan), nullable(input.priority),
+                                          position, created_by, session_name, owned, created_at, updated_at, created_person, claimed_by, claimed_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                project, id, String(input.title).trim(), status, nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
-                input.proposal === 'pending' ? (await this.ownerId()) : nullable(await this.assigneeOf(input.assignee)),
+                assigned,
                 JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), JSON.stringify(github ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
-                parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now)
+                parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now,
+                person ?? null, parent && person && kind === 'started' ? person : null, parent && person && kind === 'started' ? now : null)
             await this.record(project, id, actor, [['created', null, null]])
             if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
@@ -147,7 +168,18 @@ export abstract class IssueStore extends ClaimStore {
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
         const status = input.status === undefined && input.plan === undefined ? undefined : await this.resolveStatus(input.status, input.plan)
-        const assignee = input.proposal === 'pending' ? (await this.ownerId()) : await this.assigneeOf(input.assignee)
+        let assignee = input.proposal === 'pending' ? (await this.ownerId()) : await this.assigneeOf(input.assignee)
+        const rails = await this.railsFor(actor)
+        // An agent's own proposal is its to edit and put up again, though it waits on the owner.
+        const ownProposal = rails?.person && row.proposal && row.created_person === rails.person
+        if (rails && !ownProposal) await this.mustHold(rails, id, row.assignee, 'change it')
+        if (rails && parent && parent !== row.parent) await this.mustHold(rails, parent, (await this.issueRow(project, parent)).assignee, 'move an issue under it')
+        if (rails && input.proposal !== 'pending') assignee = await this.railedAssignee(rails, id, assignee)
+        // A claim ends with the issue closed or reassigned; reopening it doesn't bring it back.
+        const kinds = await this.statuses()
+        const toKind = status === undefined ? undefined : kinds.find(s => s.id === status)?.kind
+        const reassigned = assignee !== undefined && (assignee ?? '').toLowerCase() !== (row.assignee ?? '').toLowerCase()
+        const ended = reassigned || !!toKind && CLOSED.includes(toKind)
         const labels = input.labels === undefined ? undefined : JSON.stringify(input.labels ?? [])
         const external = input.external === undefined ? undefined : JSON.stringify(tasksOf(input.external))
         const githubIssues = input.github_issues === undefined ? undefined : JSON.stringify(await this.githubIssuesOf(project, input.github_issues) ?? [])
@@ -156,6 +188,7 @@ export abstract class IssueStore extends ClaimStore {
         // The projects whose boards show this issue's links: theirs change with its status, as its own does.
         const linked = new Set([...depends?.map(l => l.project) ?? [], ...await this.linkedProjects(project, id)])
         await this.db.transaction(async () => {
+            if (rails?.person && toKind === 'started' && !ended) await this.claimFor(project, id, rails.person, row.assignee)
             await this.record(project, id, actor, [
                 ['title', row.title, title],
                 ['status', row.status, status],
@@ -187,6 +220,7 @@ export abstract class IssueStore extends ClaimStore {
                 chunk,
                 ships_in: release,
                 position: input.position,
+                ...ended ? {claimed_by: null, claimed_at: null, claimed_session: null} : {},
             })
             if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)

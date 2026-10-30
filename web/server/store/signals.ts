@@ -66,8 +66,24 @@ export abstract class SignalStore extends IssueStore {
     /** Asks the sessions on the project to focus on the issue (`{note?}` says what for). */
     async focus(project: string, issue: string, body: unknown, actor = AGENT): Promise<Signal> {
         issue = await this.issueId(project, issue)
-        await this.issueRow(project, issue)
+        await this.pointAt(project, issue, await this.issueRow(project, issue), actor)
         return await this.sendFocus(project, issue, body, actor)
+    }
+
+    /** With people, pointing a session at an issue says whose it is (ORR-655): a person's own stays theirs, and an
+     * unassigned one becomes theirs. Someone else's is refused, unless it's the owner taking it over, which shows in the
+     * activity. An agent can't assign itself in this way. */
+    private async pointAt(project: string, issue: string, row: {assignee: string | null}, actor: Actor) {
+        if (!actor.asked || actor.chat || !await this.isShared()) return
+        const holder = await this.holderOf(row.assignee)
+        const rails = await this.railsFor(actor)
+        if (rails && (!rails.person || rails.person !== actor.name.toLowerCase())) return await this.mustHold(rails, issue, row.assignee, 'focus a session on it')
+        const person = rails?.person ?? await this.ownerId()
+        if (holder === person) return
+        if (holder && rails) await this.mustHold(rails, issue, row.assignee, 'focus a session on it')
+        await this.update('issues', 'project = ? AND id = ?', [project, issue], {assignee: person, claimed_by: null, claimed_at: null, claimed_session: null})
+        await this.record(project, issue, actor, [['assignee', row.assignee, person]])
+        this.changed(project)
     }
 
     /** `focus` for an issue id already resolved and checked. Aimed at no session, it goes to the one already on the

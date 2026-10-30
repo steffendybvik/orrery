@@ -12,6 +12,7 @@ export abstract class ImportStore extends BulkStore {
      * Everything gets the project's ids (chunks 1, 2, …, issues KEY-1, …), the file's ids becoming aliases. */
     async importRoadmap(project: string, roadmap: RoadmapFile, replace = false, actor = AGENT): Promise<Project> {
         await this.projectRow(project)
+        if (await this.railsFor(actor)) throw conflict(`With more than one person on this orrery, only a person imports a roadmap`)
         if (replace) this.refuse(actor, `Replacing ${project}'s roadmap`, (await this.ownedIn(project)).filter(what => !what.startsWith('project ') && !what.startsWith('doc ')))
         const has = await this.get('SELECT 1 FROM issues WHERE project = ? UNION SELECT 1 FROM chunks WHERE project = ?', project, project)
         if (has && !replace) throw conflict(`${project} already has chunks or issues; import with ?replace=true to replace them`)
