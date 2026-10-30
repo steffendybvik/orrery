@@ -203,7 +203,7 @@ describe("the channel's tools", () => {
             {url: 'http://o/api/projects/greenhouse/issues/GRE-1/schedule-requests', method: 'POST', body: {schedule: {title: 'Weekly review', cron: '0 9 * * 1'}, why: 'As asked'}},
             {url: 'http://o/api/projects/greenhouse/issues/GRE-1/schedule-requests', method: 'POST', body: {id: 3, schedule: {enabled: false}}},
         ])
-        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['create_schedule', 'update_schedule']))
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules']}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['create_schedule', 'update_schedule']))
         expect(toolsFor(['greenhouse'], {untrusted: true}).map((t: {name: string}) => t.name)).not.toContain('create_schedule')
         const untrusted = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'u', untrusted: true, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
         expect((await untrusted('create_schedule', {id: 'GRE-1', schedule: {title: 'X'}})).isError).toBe(true)
@@ -487,6 +487,36 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'])).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+    })
+})
+
+// A work session's rarer tools wait behind more_tools (ORR-625); an untrusted run goes without what orrery refuses it.
+describe('tools loaded on demand', () => {
+    const tools = (options: object = {}) => (toolsFor(['greenhouse'], options) as {name: string}[]).map(t => t.name)
+
+    it('adds a group to the list once a work session asks for it, and works by name before that', async () => {
+        const loaded: string[] = []
+        const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => JSON.stringify([{id: 1, name: 'STRIPE_KEY', hosts: ['api.stripe.com']}])})
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch, load: (group: string) => { loaded.push(group) }}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect(tools()).not.toContain('egress')
+        expect((await call('more_tools', {group: 'secrets'})).content[0]!.text).toBe('Added secrets, egress to your tools.')
+        expect(loaded).toEqual(['secrets'])
+        expect(tools({loaded})).toEqual(expect.arrayContaining(['secrets', 'egress']))
+        expect(tools({loaded})).not.toContain('events')
+        expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
+        // Not listed yet, it still answers when called by its name.
+        expect(await call('secrets')).not.toMatchObject({isError: true})
+        expect(tools({loaded: ['schedules', 'secrets', 'debug']})).not.toContain('more_tools')
+    })
+
+    it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {
+        expect(tools({chat: true})).not.toContain('more_tools')
+        expect(tools({untrusted: true})).not.toContain('more_tools')
+        const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => '[]'})
+        const untrusted = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', untrusted: true, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        for (const name of ['more_tools', 'update_issue', 'finish_issue', 'write_doc', 'egress', 'events']) {
+            expect(await untrusted(name, {id: 'GRE-1'}), name).toMatchObject({isError: true, content: [{text: `No tool "${name}"`}]})
+        }
     })
 })

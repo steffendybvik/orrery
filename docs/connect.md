@@ -63,11 +63,12 @@ Then `source ~/.zshrc` and start the session with `shop`.
 The same server gives the session **tools** for its projects' roadmaps, so it works without curl:
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
 `create_issue` (a proposal too, with choices), `update_issue`, `releases`, `docs`, `doc` and
-`write_doc`; `sessions`, to read who's working on what; `create_schedule` and `update_schedule`, to ask you on its
-issue for a schedule (saved only once you allow it); `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
-never sees; `events` and `resolve_event`, to debug orrery from its [event log](API.md#event-log); and `guide`, how orrery
-itself works ([Using orrery](using.md), from the orrery it's connected to), so a session in any repo can answer "how do
-schedules work?". `chunks`, `presets`, `preset` and `schedules`, which read the project's chunks, presets and schedules,
+`write_doc`; `sessions`, to read who's working on what; and `guide`, how orrery itself works ([Using orrery](using.md),
+from the orrery it's connected to), so a session in any repo can answer "how do schedules work?". Those it needs less
+often wait behind `more_tools`, so they don't take up its context until it asks for them: `create_schedule` and
+`update_schedule`, to ask you on its issue for a schedule (saved only once you allow it); `secrets` and `egress`, to
+call an outside service with a [secret](API.md#secrets) it never sees; and `events` and `resolve_event`, to debug
+orrery from its [event log](API.md#event-log). `chunks`, `presets`, `preset` and `schedules`, which read the project's chunks, presets and schedules,
 are the [chat](API.md#chats)'s. They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.

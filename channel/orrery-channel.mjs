@@ -57,14 +57,20 @@ let refused = ''
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
 const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
-    instructions: instructionsFor({base, serves, chat: !!chat, several: every || projects.length > 1}),
+    instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1}),
 })
 // Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
 // untrusted session's guards don't take it for one of their writes.
 const reportCall = (tool, text) => window.id && fetch(`${base}/api/sessions/${encodeURIComponent(window.id)}/calls`,
     {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tool, text})}).catch(() => {})
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat, report: reportCall})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted})}))
+// The groups of tools this session asked for with more_tools (ORR-625): listed from then on.
+const loaded = new Set()
+const loadTools = async group => {
+    loaded.add(group)
+    await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
+}
+const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat, report: reportCall, load: loadTools})
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted, loaded: [...loaded]})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}

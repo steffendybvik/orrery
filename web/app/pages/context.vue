@@ -129,7 +129,7 @@ const n = (value: number) => value.toLocaleString('en')
               <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">~{{ n(p.tokens) }} tok</span>
               <span class="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-faint">{{ pct(view.chars ? p.chars / view.chars : 0) }}</span>
             </summary>
-            <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted">{{ p.text }}</pre>
+            <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted">{{ p.group === 'tools' ? JSON.stringify(JSON.parse(p.text), null, 2) : p.text }}</pre>
           </details>
         </li>
       </ul>
