@@ -12,6 +12,7 @@ export default defineEventHandler(async event => {
         throw badRequest('Send {project, event} and the session as id or pid')
     }
     await needsBoard(event, body.project)
+    if (typeof body.id === 'string') await holdSession(event, body.id)
     const text = (key: string) => typeof body[key] === 'string' && body[key] ? String(body[key]) : undefined
     // An untrusted schedule's session (by its launch, before its channel has said so) works no issue: what it runs is
     // no claim on one, whatever its text names.
