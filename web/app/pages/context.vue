@@ -121,13 +121,13 @@ const n = (value: number) => value.toLocaleString('en')
       <ul v-if="view" aria-label="Parts" class="flex flex-col divide-y divide-line rounded-lg ring-1 ring-line">
         <li v-for="p in parts" :key="p.id">
           <details class="group">
-            <summary class="flex cursor-pointer list-none items-center gap-3 px-3 py-2 text-[13px] hover:bg-hover">
+            <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[13px] hover:bg-hover sm:gap-3">
               <svg class="size-3 shrink-0 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>
               <span class="size-2 shrink-0 rounded-full" :class="GROUPS[p.group].bar" :title="GROUPS[p.group].label" />
               <span class="min-w-0 flex-1 truncate" :class="p.group === 'tools' && 'font-mono text-xs'">{{ p.title }}</span>
-              <span class="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted">{{ n(p.chars) }}</span>
-              <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">~{{ n(p.tokens) }} tok</span>
-              <span class="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-faint">{{ pct(view.chars ? p.chars / view.chars : 0) }}</span>
+              <span class="hidden w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted sm:block">{{ n(p.chars) }}</span>
+              <span class="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-faint sm:w-20">~{{ n(p.tokens) }} tok</span>
+              <span class="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-faint sm:w-14">{{ pct(view.chars ? p.chars / view.chars : 0) }}</span>
             </summary>
             <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted">{{ p.text }}</pre>
           </details>
@@ -147,13 +147,13 @@ const n = (value: number) => value.toLocaleString('en')
           <li v-for="(e, i) in view.sofar" :key="`${e.at}-${i}`" :class="e.before ? 'opacity-60' : ''">
             <p v-if="i === firstBefore" class="border-b border-line bg-well px-3 py-1.5 text-xs text-muted" data-testid="context-sofar-before">Before its last /clear or compaction: no longer in its context, and not in the total</p>
             <details class="group">
-              <summary class="flex cursor-pointer list-none items-center gap-3 px-3 py-2 text-[13px] hover:bg-hover">
+              <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[13px] hover:bg-hover sm:gap-3">
                 <svg class="size-3 shrink-0 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>
                 <span class="size-2 shrink-0 rounded-full" :class="SOFAR[e.kind].bar" :title="SOFAR[e.kind].label" />
                 <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ e.title }}</span>
-                <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">{{ time(e.at) }}</span>
-                <span class="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted">{{ n(e.chars) }}</span>
-                <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">~{{ n(e.tokens) }} tok</span>
+                <span class="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-faint sm:w-20">{{ time(e.at) }}</span>
+                <span class="hidden w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted sm:block">{{ n(e.chars) }}</span>
+                <span class="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-faint sm:w-20">~{{ n(e.tokens) }} tok</span>
               </summary>
               <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted"><template v-if="!e.text && e.chars">(not kept: it's what an outside service sent back)</template><template v-else>{{ e.text }}<template v-if="e.text.length < e.chars">
 …(cut, {{ n(e.chars - e.text.length) }} more characters)</template></template></pre>
