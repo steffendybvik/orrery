@@ -4,7 +4,7 @@ import type {KeyRecord} from '#shared/roadmap'
 // Your keys on Settings (ORR-664): an agent key for each machine's sessions, and a person key to sign in to the page where
 // there's no provider. A key shows once, as it's made; only a hash is kept. Revoking works at once.
 const {load} = useOwner()
-const {status, logOut} = useAuth()
+const {logOut} = useAuth()
 const keys = ref<KeyRecord[]>([])
 const kind = ref<'agent' | 'person'>('agent')
 const name = ref('')
@@ -61,7 +61,7 @@ const revoke = (id: string) => act(async () => $fetch(`/api/keys/${id}`, {method
       <code class="select-all break-all rounded-md bg-hover px-2 py-1 font-mono text-fg">{{ made }}</code>
     </div>
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
-    <div v-if="status?.mode === 'on'">
+    <div>
       <UiButton @click="logOut">Log out</UiButton>
     </div>
   </div>

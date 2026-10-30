@@ -18,7 +18,8 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
         {id: 'name', text: 'Your name', level: 2},
         {id: 'handle', text: 'Your handle', level: 2},
-        {id: 'keys', text: 'Your keys', level: 2},
+        // Only when this orrery asks for a login (ORR-664): alone on your own machine, none of it shows.
+        ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2}] : [],
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
         {id: 'proposals', text: 'Proposals', level: 2},
@@ -304,12 +305,11 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
-      <section v-if="tab === 'you'" id="keys" class="scroll-mt-6 flex flex-col gap-3">
+      <section v-if="tab === 'you' && useAuth().status.value?.mode === 'on'" id="keys" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.keys }}</h2>
           <p class="text-xs text-muted">
-            What your sessions and browsers show to prove who they are, when this orrery asks for a login: with a second person,
-            or once it's reachable from other machines. On your own machine, alone, nothing asks for one.
+            What your sessions and browsers show to prove who they are, now this orrery asks for a login.
           </p>
         </header>
         <KeySettings />
