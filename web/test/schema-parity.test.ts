@@ -125,6 +125,28 @@ async function expectPeopleUpgraded(store: Store) {
 }
 
 describe.runIf(url)('upgrading Postgres with data in it', () => {
+    // It keeps no copy before upgrading, as SQLite does, so these are what it relies on instead (ORR-733).
+    it('leaves it as it was when a step fails, with its rows, at its step', async () => {
+        const schema = schemaName()
+        const old = postgres(schema, BEFORE_PEOPLE_STEP)
+        await old.exec(`${BEFORE_PEOPLE} DROP TABLE docs CASCADE;`)
+        await expect(postgres(schema).get('SELECT 1')).rejects.toThrow(/docs/)
+        const after = postgres(schema, BEFORE_PEOPLE_STEP)
+        expect(await after.get('SELECT version FROM schema_version')).toEqual({version: BEFORE_PEOPLE_STEP})
+        expect(await after.get('SELECT count(*)::int AS n FROM issues')).toEqual({n: 3})
+    })
+
+    it("refuses one a newer orrery has moved on, and leaves it as it is", async () => {
+        const schema = schemaName()
+        const newest = postgres(schema)
+        await newest.exec(PROJECT)
+        await newest.exec('UPDATE schema_version SET version = version + 1')
+        const {version} = (await newest.get<{version: number}>('SELECT version FROM schema_version'))!
+        await expect(postgres(schema).get('SELECT 1')).rejects.toThrow(/newer orrery/)
+        expect(await newest.get('SELECT version FROM schema_version')).toEqual({version})
+        expect(await newest.get('SELECT count(*)::int AS n FROM projects')).toEqual({n: 1})
+    })
+
     it('gives every project to the owner, and every issue keeps its assignee (ORR-659)', async () => {
         await expectPeopleUpgraded(await upgraded(BEFORE_PEOPLE_STEP, BEFORE_PEOPLE))
     })
