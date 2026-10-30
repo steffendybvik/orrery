@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {adoptable, inWsl, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {adoptable, inWsl, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -162,6 +162,20 @@ describe("the service's file", () => {
         expect(systemdUnit({...opts, path: '/my "bin"'})).toContain(`ExecStart="/opt/homebrew/bin/node" "/code/orrery/channel/orrery-launcher.mjs" --service\nEnvironment="${RELOADS}=1"\nEnvironment="PATH=/my \\"bin\\""\nRestart=on-failure`)
         // Inside WSL, the distro it was installed from, for Watch.
         expect(systemdUnit({...opts, distro: 'Ubuntu'})).toContain('Environment="PATH=/opt/homebrew/bin:/usr/bin"\nEnvironment="WSL_DISTRO_NAME=Ubuntu"\nRestart=on-failure')
+    })
+})
+
+describe('its sessions when the service restarts itself (ORR-686)', () => {
+    const opts = {node: '/opt/homebrew/bin/node', script: '/code/orrery/channel/orrery-launcher.mjs', path: '/usr/bin'}
+
+    it("has systemd leave them, as it would kill the tmux server they run in", () => {
+        expect(systemdUnit(opts)).toContain('[Service]\nKillMode=process\nExecStart=')
+    })
+
+    it('brings an older unit up to what installing would write, so that restarts nothing', () => {
+        const unit = systemdUnit(opts)
+        expect(keepingSessions(unit.replace('KillMode=process\n', ''))).toBe(unit)
+        expect(keepingSessions(unit)).toBe(unit)
     })
 })
 

@@ -5,22 +5,22 @@ import {CODE, codeOnDisk, launcherMove, servedOtherCode, VERSION} from '../../ch
 const behind = {theirs: ['1.0.0-rc.11'], mine: '1.0.0-rc.10', code: 'a', service: true}
 
 describe("a launcher on other code than its orrery's", () => {
-    it('restarts once its checkout holds new code and no session of its own is running', () => {
-        expect(launcherMove({...behind, now: 'b', running: 0})).toBe('restart')
+    it('restarts once its checkout holds new code', () => {
+        expect(launcherMove({...behind, now: 'b', busy: 0})).toBe('restart')
     })
 
-    it('waits while it runs a session', () => {
-        expect(launcherMove({...behind, now: 'b', running: 1})).toBe('wait')
+    it('waits while a restart would cut something off', () => {
+        expect(launcherMove({...behind, now: 'b', busy: 1})).toBe('wait')
     })
 
     it('says to update the checkout while that still holds the code it runs, rather than restarting on it again', () => {
-        expect(launcherMove({...behind, now: 'a', running: 0})).toBe('tell')
-        expect(launcherMove({...behind, now: undefined, running: 0})).toBe('tell')
+        expect(launcherMove({...behind, now: 'a', busy: 0})).toBe('tell')
+        expect(launcherMove({...behind, now: undefined, busy: 0})).toBe('tell')
     })
 
     it('does nothing in a terminal, or when every orrery it serves runs its code and its checkout holds it', () => {
-        expect(launcherMove({...behind, now: 'b', running: 0, service: false})).toBeNull()
-        expect(launcherMove({...behind, theirs: ['1.0.0-rc.10', '1.0.0-rc.10'], now: 'a', running: 0})).toBeNull()
+        expect(launcherMove({...behind, now: 'b', busy: 0, service: false})).toBeNull()
+        expect(launcherMove({...behind, theirs: ['1.0.0-rc.10', '1.0.0-rc.10'], now: 'a', busy: 0})).toBeNull()
     })
 
     it("knows its own version, from the checkout's web/package.json", async () => {
@@ -32,13 +32,13 @@ describe("a launcher on other code than its orrery's", () => {
 describe('a launcher whose checkout moves on within a version (ORR-470)', () => {
     const same = {theirs: ['1.0.0-rc.10'], mine: '1.0.0-rc.10', code: 'a', service: true}
 
-    it('restarts on the new code once no session of its own is running, though the versions match', () => {
-        expect(launcherMove({...same, now: 'b', running: 0})).toBe('restart')
-        expect(launcherMove({...same, now: 'b', running: 2})).toBe('wait')
+    it('restarts on the new code though the versions match', () => {
+        expect(launcherMove({...same, now: 'b', busy: 0})).toBe('restart')
+        expect(launcherMove({...same, now: 'b', busy: 2})).toBe('wait')
     })
 
     it("doesn't restart when it can't tell what code it started on", () => {
-        expect(launcherMove({...same, code: undefined, now: 'b', running: 0})).toBeNull()
+        expect(launcherMove({...same, code: undefined, now: 'b', busy: 0})).toBeNull()
     })
 
     it('reads the same code from an unchanged checkout', () => {

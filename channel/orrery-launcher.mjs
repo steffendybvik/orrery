@@ -33,7 +33,7 @@
 // stop time (or `never`) and its launcher's pid in tmux, and tells orrery which it runs whenever it connects. A
 // second launcher leaves alone the sessions of one that's still running, so stopping it can't stop them. As the
 // service, once an orrery it serves runs other code and its checkout has been updated, it restarts itself on the new
-// code when it has no session running. As the service it also follows its list while running (ORR-597): a project
+// code, its sessions going on as it takes them back (ORR-686). As the service it also follows its list while running (ORR-597): a project
 // added there is served within a few seconds, and one taken off is let go, its sessions stopped, while the others' go on. It
 // answers the warning Claude Code shows for the channel flag on every start (the channel is the repo's own); run
 // the channel command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
@@ -42,7 +42,7 @@ import {mkdirSync, unwatchFile, watchFile, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
-import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
+import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
@@ -204,8 +204,7 @@ async function stop(id, why) {
     } catch {
         // It had ended on its own.
     }
-    await fetch(`${session.api}/launches/${id}/ended`, {method: 'POST', headers: authHeaders(session.api)}).catch(() => {})
-    restartIfBehind()
+    await midway(() => fetch(`${session.api}/launches/${id}/ended`, {method: 'POST', headers: authHeaders(session.api)}).catch(() => {}))
 }
 
 /** The version each orrery it serves runs, as its stream said on connecting. */
@@ -219,14 +218,28 @@ async function checkServed(url) {
     const served = await fetch(`${url}/channel/manifest.json`, {redirect: 'error', signal: AbortSignal.timeout(5000)}).then(r => r.ok ? r.json() : null, () => null)
     if (servedOtherCode({served, url, from: (process.env.ORRERY_FROM ?? '').replace(/\/+$/, ''), mine: VERSION, code: CODE})) servedCode = served.code
 }
-/** Its checkout moving on (ORR-434, ORR-470): as the service, with no session of its own running, it exits once the
- * checkout it runs from holds other code, a new version or a change within one, and launchd or systemd starts it again
- * on that code (it comes back when it exits with a failure). While an orrery it serves runs another version and the
+/** Whether its sessions outlive it restarting itself. An older systemd unit that can't be brought up to date doesn't
+ * let them, so it waits for them to end. */
+const keepsSessions = args.includes('--service') && restartKeepsSessions()
+/** What it's in the middle of that a restart would cut off: a session it's starting and getting past its prompts, a
+ * `/clear` half typed, an end not yet told. */
+let underway = 0
+/** Does `work`, holding off a restart until it's finished. */
+function midway(work) {
+    underway++
+    return work().finally(() => {
+        underway--
+        restartIfBehind()
+    })
+}
+/** Its checkout moving on (ORR-434, ORR-470, ORR-686): as the service it exits once the checkout it runs from holds
+ * other code, a new version or a change within one, and launchd or systemd starts it again on that code (it comes back
+ * when it exits with a failure), to take its sessions back. While an orrery it serves runs another version and the
  * checkout isn't updated, it says so once. */
 function restartIfBehind() {
     const theirs = [...orreryVersions.values()]
     const disk = versionOnDisk()
-    const move = launcherMove({theirs, mine: VERSION, code: CODE, now: BOOTSTRAP ? servedCode ?? CODE : codeOnDisk(), running: running.size, service: args.includes('--service')})
+    const move = launcherMove({theirs, mine: VERSION, code: CODE, now: BOOTSTRAP ? servedCode ?? CODE : codeOnDisk(), busy: underway + (keepsSessions ? 0 : running.size), service: args.includes('--service')})
     const other = theirs.find(v => v !== VERSION)
     if (move === 'tell' && toldBehind !== other) {
         toldBehind = other
@@ -236,6 +249,8 @@ function restartIfBehind() {
         process.exit(75)
     }
 }
+// A checkout can move on with nothing connecting or stopping to show it.
+if (args.includes('--service')) setInterval(restartIfBehind, 60_000)
 
 /** Opens a terminal window on this machine attached to a session it started, as the owner pressing Watch asks, in
  * the app the orrery's settings name. A session another launcher runs is that one's to open. */
@@ -459,7 +474,7 @@ function serve({url, project, dir, picked_at: picked}, signal) {
         if (launch.chat) tmux('set-option', '-t', launch.tmux, CHAT, 'yes')
         keepStopTime(launch.id, launch.minutes ? new Date(Date.now() + launch.minutes * 60_000).toISOString() : undefined)
         log(`started ${launch.tmux}${launch.untrusted ? ' locked down, for an untrusted schedule,' : launch.chat ? ' for a chat, able only to read and answer,' : ''} ${launch.minutes ? `for ${launch.minutes} minutes` : 'until stopped'}; watch it with: tmux attach -t ${launch.tmux}`)
-        getPast(launch.id, dir).catch(error => log(`${launch.tmux}: ${error.message}`))
+        midway(() => getPast(launch.id, dir)).catch(error => log(`${launch.tmux}: ${error.message}`))
     }
 
     return follow({
@@ -480,7 +495,7 @@ function serve({url, project, dir, picked_at: picked}, signal) {
                     ? `ready to start up to ${starts.limit} session(s) for ${project}, ${starts.minutes ? `${starts.minutes} minutes each` : 'each until stopped'}`
                     : "connected, but orrery doesn't start sessions yet: turn it on under Starting sessions, on its Sessions page")
             } else if (event === 'launch') {
-                await start(JSON.parse(data)).catch(error => log(`couldn't start a session for ${project}: ${error.message}`))
+                await midway(() => start(JSON.parse(data))).catch(error => log(`couldn't start a session for ${project}: ${error.message}`))
             } else if (event === 'stop') {
                 await stop(JSON.parse(data).id, 'orrery asked for it to stop')
             } else if (event === 'extend') {
@@ -488,7 +503,7 @@ function serve({url, project, dir, picked_at: picked}, signal) {
                 keepStopTime(id, stops_at)
                 if (running.has(id)) log(`${running.get(id).tmux} runs until ${new Date(stops_at).toLocaleTimeString()}`)
             } else if (event === 'clear') {
-                await clear(JSON.parse(data).id)
+                await midway(() => clear(JSON.parse(data).id))
             } else if (event === 'watch') {
                 const {id, terminal} = JSON.parse(data)
                 watch(id, terminal)
