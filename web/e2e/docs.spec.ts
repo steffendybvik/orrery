@@ -106,6 +106,27 @@ test('groups the docs into sections, folds one, and moves a doc by right-click a
     await expect(nav.getByRole('region', {name: 'Decisions'}).getByRole('link', {name: 'Decision: ids'})).toBeHidden()
     await nav.getByRole('region', {name: 'Decisions'}).getByRole('button', {name: /Decisions/}).click()
 
+    // The section with the open doc folds too, and the doc stays open (ORR-712).
+    await decisions.getByRole('link', {name: 'Decision: ids'}).click()
+    await expect(page).toHaveURL(/\/docs\/decision-ids$/)
+    const header = decisions.getByRole('button', {name: /Decisions/})
+    await header.click()
+    await expect(header).toHaveAttribute('aria-expanded', 'false')
+    await expect(decisions.getByRole('link', {name: 'Decision: ids'})).toBeHidden()
+    await expect(page.getByRole('heading', {name: 'Decision: ids', level: 1})).toBeVisible()
+
+    // It stays folded on the way to a doc elsewhere, and opening one of its docs unfolds it.
+    await nav.getByRole('link', {name: 'Readme'}).click()
+    await expect(page).toHaveURL(/\/docs\/readme$/)
+    await expect(decisions.getByRole('link', {name: 'Decision: ids'})).toBeHidden()
+    await page.goBack()
+    await expect(page).toHaveURL(/\/docs\/decision-ids$/)
+    await expect(header).toHaveAttribute('aria-expanded', 'true')
+    await expect(decisions.getByRole('link', {name: 'Decision: ids'})).toBeVisible()
+    await page.reload()
+    await expect(decisions.getByRole('link', {name: 'Decision: ids'})).toBeVisible()
+    await nav.getByRole('link', {name: 'Readme'}).click()
+
     // Right-click: into a new section.
     await nav.getByRole('link', {name: 'Event flows'}).click({button: 'right'})
     const menu = page.getByRole('menu', {name: 'Move Event flows'})

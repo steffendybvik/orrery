@@ -2,7 +2,7 @@
 import type {DocSummary, Project} from '#shared/roadmap'
 
 // A project's docs down the side of the docs pages (a row of tabs on a phone), and New doc after them. Docs with no
-// section come first, then each section (ORR-520), A–Z, folding away; the one with the open doc stays open, and what's
+// section come first, then each section (ORR-520), A–Z, folding away; opening a doc unfolds its section, and what's
 // folded is kept per project in this browser. A doc goes to another section by dragging it onto one (onto Docs: none),
 // or by right-clicking it. A section is made at the foot (empty until a doc goes in), and renamed or deleted by
 // right-clicking its header (ORR-560).
@@ -27,11 +27,16 @@ watch(foldKey, key => {
         folded.value = []
     }
 }, {immediate: true})
-const isFolded = (section: {name: string, docs: DocSummary[]}) => folded.value.includes(section.name) && !section.docs.some(d => d.id === route.params.doc)
+const isFolded = (section: {name: string}) => folded.value.includes(section.name)
 function fold(name: string) {
     folded.value = folded.value.includes(name) ? folded.value.filter(n => n !== name) : [...folded.value, name]
     localStorage.setItem(foldKey.value, JSON.stringify(folded.value))
 }
+// Opening a doc unfolds its section, so you land on a doc you can see; folding after that is up to you (ORR-712).
+watch(() => route.params.doc, id => {
+    const section = props.project.docs.find(d => d.id === id)?.section
+    if (section && folded.value.includes(section)) fold(section)
+}, {immediate: true})
 
 // Filing a doc, and making, renaming and deleting sections: saved as the owner; the project's patch redraws the list.
 const failed = ref('')
