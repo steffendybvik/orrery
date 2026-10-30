@@ -19,6 +19,7 @@ e2e-results.json
 
 # Playwright
 /web/test-results
+/web/test-results-login
 /web/playwright-report
 /web/perf-report
 
