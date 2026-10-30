@@ -16,6 +16,7 @@ import {commentOnPull} from './pull-comments'
 import {PullPoll} from './pull-poll'
 import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
+import {UpdateCheck} from './update-check'
 import {secretKey, secretKeyFile} from './secret-key'
 import {inDocker} from './backup-choice'
 import {Store} from './store'
@@ -248,4 +249,13 @@ export function created<T>(event: H3Event, value: T): T {
 export function deleted(event: H3Event): null {
     setResponseStatus(event, 204)
     return null
+}
+
+let updates: UpdateCheck | null = null
+
+/** Whether a newer orrery is out (ORR-608), as last read from GitHub. */
+export function useUpdateCheck(): UpdateCheck {
+    updates ??= new UpdateCheck(String(useRuntimeConfig().public.version), url => fetch(url, {headers: {'Accept': 'application/vnd.github+json', 'User-Agent': 'orrery'}}),
+        entry => useEventLog().note(entry))
+    return updates
 }
