@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it} from 'vitest'
-import {focusNote, sendBackNote} from '#shared/roadmap'
+import {focusNote, inProjectOrder, sendBackNote} from '#shared/roadmap'
 import {githubRepo, namesIssue, pullState, Pulls} from '../server/utils/pulls'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
@@ -189,5 +189,14 @@ describe('focusNote (ORR-607)', () => {
         for (const state of ['conflicting', 'behind', 'failing', 'blocked', 'draft', 'ready', 'checking'] as const) {
             expect(focusNote({...pull, state})).not.toContain('ignore-your-rules')
         }
+    })
+})
+
+describe('the repo cards in project order (ORR-610)', () => {
+    const repo = (name: string, ...projects: string[]) => ({repo: name, projects})
+
+    it("follows the sidebar's order, a shared repo where its first project is, the rest after by name", () => {
+        const repos = [repo('you/zebra', 'shop'), repo('you/shared', 'garden', 'blog'), repo('you/apple', 'shop'), repo('you/stray', 'gone'), repo('you/alpha', 'other')]
+        expect(inProjectOrder(repos, ['blog', 'shop', 'garden']).map(r => r.repo)).toEqual(['you/shared', 'you/apple', 'you/zebra', 'you/alpha', 'you/stray'])
     })
 })

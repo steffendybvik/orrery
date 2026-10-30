@@ -59,6 +59,13 @@ export interface IssuePulls {
 /** Where a PR stands when it needs someone before it can merge: it conflicts, fails its checks, or is behind its base. */
 export const PULL_NEEDS: PullState[] = ['conflicting', 'failing', 'behind']
 
+/** The Pull requests page's repos in the projects' order, as the sidebar has them (ORR-607): a repo shared by several
+ * projects goes where the first of them is; one with no project in `order`, after, by name. */
+export function inProjectOrder<T extends {repo: string, projects: string[]}>(repos: T[], order: string[]): T[] {
+    const at = (repo: T) => Math.min(...repo.projects.map(p => order.indexOf(p)).filter(i => i >= 0), Number.MAX_SAFE_INTEGER)
+    return [...repos].sort((a, b) => at(a) - at(b) || a.repo.localeCompare(b.repo))
+}
+
 /** An open pull request on one of the projects' repos, for the Pull requests page (ORR-491): the issue it names, when
  * one of the repo's projects has it. */
 export interface OpenPull extends PullRequest {
