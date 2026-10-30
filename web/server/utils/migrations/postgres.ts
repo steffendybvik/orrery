@@ -442,4 +442,14 @@ export const STEPS: string[] = [`
                              FROM json_array_elements_text(external::json) WITH ORDINALITY AS t(value, n)
                              WHERE t.value !~ '^https://github\\.com/[^/]+/[^/]+/issues/[1-9][0-9]*$')::text, '[]')
     WHERE external LIKE '%https://github.com/%';
+`, `
+    -- What an event schedule's minute held back (ORR-357): the event that would have run it for this subject, as JSON,
+    -- run in its turn if it still fits. One for each schedule and subject, the latest.
+    CREATE TABLE schedule_held (
+        schedule integer NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+        subject text NOT NULL,
+        event text NOT NULL,
+        at text NOT NULL,
+        PRIMARY KEY (schedule, subject)
+    );
 `]

@@ -9,7 +9,6 @@ import {afterEach, describe, expect, it} from 'vitest'
 import {COPIED_TABLES} from '../server/utils/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
-import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {PostgresDb} from '../server/utils/postgres'
 import {Store} from '../server/utils/store'
 
@@ -152,13 +151,15 @@ describe.runIf(url)('upgrading Postgres with data in it', () => {
     })
 
     it("moves the GitHub issues' links out of external, into github_issues (ORR-635)", async () => {
-        const store = await upgraded(MIGRATIONS.length - 1, GITHUB_LINKS)
+        const store = await upgraded(GITHUB_LINKS_STEP, GITHUB_LINKS)
         expect(await store.issue('greenhouse', 'GRE-1')).toMatchObject({external: ['ENG-1'], github_issues: ['you/greenhouse#223', 'other/lib#7']})
         expect(await store.issue('greenhouse', 'GRE-2')).toMatchObject({external: ['https://github.com/you/greenhouse/issues/12#issuecomment-1', 'https://github.com/you/greenhouse/pull/9'], github_issues: []})
         expect(await store.issue('greenhouse', 'GRE-3')).toMatchObject({external: ['ENG-2'], github_issues: []})
     })
 })
 
+/** The step before ORR-635's. */
+const GITHUB_LINKS_STEP = 58
 /** Issues linking GitHub issues in `external`, as they were before ORR-635: whole issue links move, anything else stays. */
 const GITHUB_LINKS = `${PROJECT}
             INSERT INTO issues (project, id, title, status, external, position, created_by, created_at, updated_at) VALUES
@@ -195,7 +196,7 @@ describe('upgrading SQLite with data in it', () => {
     })
 
     it("moves the GitHub issues' links out of external, into github_issues (ORR-635)", async () => {
-        const store = upgradedSqlite(MIGRATIONS.length - 1, GITHUB_LINKS)
+        const store = upgradedSqlite(GITHUB_LINKS_STEP, GITHUB_LINKS)
         expect(await store.issue('greenhouse', 'GRE-1')).toMatchObject({external: ['ENG-1'], github_issues: ['you/greenhouse#223', 'other/lib#7']})
         expect(await store.issue('greenhouse', 'GRE-2')).toMatchObject({external: ['https://github.com/you/greenhouse/issues/12#issuecomment-1', 'https://github.com/you/greenhouse/pull/9'], github_issues: []})
         expect(await store.issue('greenhouse', 'GRE-3')).toMatchObject({external: ['ENG-2'], github_issues: []})

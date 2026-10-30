@@ -50,6 +50,8 @@ export interface Schedule {
     next_run?: string
     /** The latest runs, newest first. */
     runs: ScheduleRun[]
+    /** How many subjects its minute held back, waiting their turn at one a minute (ORR-357); none when none are. */
+    held?: number
     created_by: string
     protected: boolean
     created_at: string

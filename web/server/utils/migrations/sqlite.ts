@@ -777,4 +777,14 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
                     WHERE NOT (value GLOB 'https://github.com/?*/?*/issues/[1-9]*' AND NOT value GLOB 'https://github.com/*/*/*/issues/*'
                                    AND NOT value GLOB '*/issues/*[^0-9]*'))
     WHERE external GLOB '*https://github.com/*';
+`, `
+    -- What an event schedule's minute held back (ORR-357): the event that would have run it for this subject, as JSON,
+    -- run in its turn if it still fits. One for each schedule and subject, the latest.
+    CREATE TABLE schedule_held (
+        schedule INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+        subject TEXT NOT NULL,
+        event TEXT NOT NULL,
+        at TEXT NOT NULL,
+        PRIMARY KEY (schedule, subject)
+    );
 `]
