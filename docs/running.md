@@ -53,7 +53,9 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | Variable | What it does | Default |
 |---|---|---|
 | `ORRERY_PORT` | the port on this machine | `9000` |
-| `ORRERY_HOST` | who can reach it: `0.0.0.0` opens it to the network (there are no accounts); see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
+| `ORRERY_HOST` | who can reach it: anything but loopback asks for a login, once [claimed](#claiming-it-and-logging-in); see [Reach it from your phone](#reach-it-from-your-phone) | `127.0.0.1` |
+| `ORRERY_AUTH` | `on` always asks for a login; `off` never, on loopback only, for trying people out; unset, see [Logging in](#claiming-it-and-logging-in) | unset |
+| `ORRERY_OIDC_ISSUER`, `ORRERY_OIDC_CLIENT_ID`, `ORRERY_OIDC_CLIENT_SECRET` | any standard OIDC provider to log in through | unset |
 | `ORRERY_DATA` | a folder for the database, `orrery.db` (with its `-wal` and `-shm` files beside it); on Linux it must be writable by uid 1000, the image's `node` user. Not a synced folder: syncing a live SQLite file corrupts it | the `orrery-data` volume |
 | `ORRERY_BACKUP` | a folder for the backups (one that syncs off the machine is best). Without it they stay on this computer, and orrery says so once, and in App settings | the `orrery-backup` volume |
 | `ORRERY_BACKUP_DATABASE` | a `postgres://` URL to back up into instead of the folder: an empty database, or this orrery's backup from before (see [Backups](#backups)) | none |
@@ -223,11 +225,34 @@ In a checkout you also work on orrery in, build them from a release rather than 
 A repo's channel and hook point at the server its projects are on, by `ORRERY_URL`:
 `http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
 
+## Claiming it and logging in
+
+On your own machine, alone, none of this applies: it opens straight to the board. Login comes on when the server is reachable from
+other machines, with a plain `docker run`, or when you add a second person ([what exactly](../SECURITY.md#login-and-keys)). Until it's been
+claimed, such a server answers nothing but its login page, which says what to run. Claim it on the machine it runs on:
+
+```sh
+pnpm orrery:claim --name "Your Name"                                      # from a checkout
+docker compose exec orrery node /app/server/claim.mjs --name "Your Name"  # in Docker
+```
+
+`--name` is only needed before you've given orrery your name. It prints your person key once: sign in with it on the page. On a server
+already claimed it refuses, unless given `--replace`, which revokes your person keys, for when you've lost yours.
+
+**Sessions.** Under Settings → You → Your keys, make an agent key for each machine, and either set `ORRERY_KEY` where you start
+Claude Code and the launcher, or, on several servers, add it to `~/.config/orrery/keys.json` (mode 0600), as
+`{"https://orrery.example": "orrery_agent_…"}`. `ORRERY_KEY` goes to any server that machine talks to, so use the file with more than one.
+Never commit a key in `.mcp.json`. A person key won't work there: the channel refuses to start with one.
+
+**Other people.** Add them, then either invite them through a login provider (`POST /api/invites`, a link good once and for a week), or, with
+no provider, give them a person key (`POST /api/keys` with `person`). To try people out on one machine with no logins, start orrery with `ORRERY_AUTH=off`, loopback only.
+
+**A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. Its address has to be https unless it's on this machine.
+
 ## Reach it from your phone
 
-Compose publishes orrery on `127.0.0.1`, so only this machine can open it. orrery has no accounts:
-whoever can reach it can read everything, change it and give your agents instructions (see
-[SECURITY.md](../SECURITY.md)). Open it only as far as you need.
+Compose publishes orrery on `127.0.0.1`, so only this machine can open it. Anything else
+asks for a login, so [claim it](#claiming-it-and-logging-in) first, and open it only as far as you need.
 
 **Your own devices only (best).** Put this machine and the phone on a private VPN: a free app on
 each that links your own devices, so the phone reaches the machine from anywhere, as if both were
@@ -245,8 +270,8 @@ ORRERY_ALLOWED_HOSTS=mac.my-vpn.net  # only to open it by the VPN's name for the
 be connected when Docker starts the container, since that's when the address is taken.
 
 **Your Wi-Fi (quickest, nothing to install).** `ORRERY_HOST=0.0.0.0`, then open
-`http://<this machine's IP>:9010` on the phone. It only works at home, and anyone else on that
-Wi-Fi, guests included, can use orrery too.
+`http://<this machine's IP>:9010` on the phone, and sign in. It only works at home, and over plain Wi-Fi your person key and
+the login's cookie travel unencrypted, so anyone else on it could read them, which the login page warns of.
 
 Either way, the database is still moved only from this machine: App settings → This orrery → Database refuses a
 move from any other address.

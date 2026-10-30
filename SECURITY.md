@@ -8,22 +8,59 @@ else.
 
 - **This machine only, by default.** Compose publishes the port on `127.0.0.1`, and the dev server
   (`docker-compose.dev.yml`) is always this machine's only, since it also hands out the source.
-- **`ORRERY_HOST=0.0.0.0` opens it to your network.** Then anyone on that network can read every
-  project and change or delete anything, and steer your agents (below). Only do that on a network you
-  trust, or put it behind a reverse proxy that asks for a login.
+- **Off this machine, it asks for a login.** With `ORRERY_HOST=0.0.0.0` or any address but loopback, or a plain
+  `docker run`, every route refuses anything without a login or a key, reads included, and until someone
+  has claimed the server it answers nothing else ([Login and keys](#login-and-keys)).
 - **Host names.** orrery answers to `localhost` (and `*.localhost`) and IP addresses. Reaching it by
   another name, say `orrery.lan`, needs `ORRERY_ALLOWED_HOSTS=orrery.lan` (`NUXT_ALLOWED_HOSTS` without
   Docker). This is what stops DNS rebinding, a website pointing its own domain at your machine.
 
-## The owner is a name, not a password
+## Login and keys
+
+**When it's on.** Login is on with `ORRERY_AUTH=on`; when the server listens on anything but loopback (outside Docker the address it
+bound to, in Docker `ORRERY_HOST`); once a second person exists, and for good after that; and for any one request that
+carries a proxy's headers. On one person's own machine it's off, and nothing changes. `ORRERY_AUTH=off` turns it off only
+on loopback, for trying people out on one machine: anywhere else the server refuses to serve. If nobody could log in, the
+API answers 503 rather than opening.
+
+**What it guards.** Every route under `/api` needs a credential, with no exemption for loopback. The login's own routes
+are open, as are the page's files, the channel's and `/connect`, which hold no data. With it on, what `Orrery-Actor` and
+`Orrery-Person` say doesn't decide who anyone is.
+
+**Agent keys and person keys.** An agent with Bash can read its own environment, so a key has a kind. An **agent key** goes
+in a session's environment (`ORRERY_KEY`) and acts as an agent of its person: it can never be that person, sign in to the
+page, make a key, or do what only the owner may, even when its person is the owner. A **person key** signs in to the page
+and is swapped for a cookie at once: it's refused as a bearer, and the channel won't start with one. Only a hash of either is
+stored. Revoking works at once, and removing a person revokes theirs.
+
+**What an agent key still can do.** Act as any session of its own person, so the lock between one person's sessions keeps
+honest agents apart and isn't a boundary. The boundary is between people, and between a person and their agents.
+
+**What this doesn't defend:**
+
+- **An agent on the server's machine.** Whoever has a shell on the server is its owner. An agent with Bash there can edit
+  the database or run `orrery:claim`, so running sessions on the same machine as the server gives them the owner's powers
+  if they go looking. Keys protect people from each other, and the owner from agents on other machines. Only sandboxing
+  sessions would change this.
+- **A tunnel, or a proxy that strips its headers.** It looks like loopback to orrery. Set `ORRERY_AUTH=on` there.
+- **Plain http.** Allowed on a private address, with a warning on the login page: over anything but a VPN, a person key and
+  the login's cookie can travel unencrypted. Another machine's sessions need https, as they fetch code from orrery.
+- **An older backup.** Restoring one brings back the keys revoked since it was made.
+
+**Logging in.** Through any standard OIDC provider, by setting its issuer, client id and secret (the authorization code flow with
+PKCE), with no passwords in orrery. An account is matched by issuer and subject, never email, and only attaches through the
+owner's single-use invite, so having an account with the provider gets nobody in. With no provider, the owner's person key signs in.
+`orrery:claim`, run on the server, makes the first one, so nothing on the network can race for it.
+
+## With login off, the owner is a name, not a password
 
 The owner (the name given on first open) is whoever sends their id in the `Orrery-Actor` header. That
 keeps agents from deleting the owner's things, as long as they name themselves honestly. It is not
 protection against a person or program that wants to pretend: anyone who can reach orrery can send
 the owner's id.
 
-The same goes for the people an owner adds, and for `Orrery-Person`, which says whose a session is: with no login yet,
-anyone who can reach orrery can send any of them. Adding people, and keeping a board to its members, keeps honest
+The same goes for the people an owner adds with `ORRERY_AUTH=off`, and for `Orrery-Person`, which says whose a session is:
+anyone who can reach orrery can send any of them. There, adding people, and keeping a board to its members, keeps honest
 sessions apart. It doesn't stop anyone, and reads aren't kept to a board at all yet.
 
 Moving the database (App settings → Database → Move…) repoints orrery at a database the mover picks, and setting

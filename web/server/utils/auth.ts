@@ -25,14 +25,22 @@ function onLoopback(event: H3Event): boolean {
     return LOOPBACK.test(String((bound as {address?: string} | null | undefined)?.address ?? ''))
 }
 
+/** Whether ORRERY_AUTH=off is set, for trying people out on one machine. */
+const toldOff = () => String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'off'
+
+/** A second person turns auth on, so without a way in that would lock the owner out: they claim the server first. */
+export async function needsWayInForPeople() {
+    if (toldOff() || await canGetIn()) return
+    throw conflict('A second person turns login on, and nobody could log in yet: run `pnpm orrery:claim` on this machine first (or `docker compose exec orrery node /app/server/claim.mjs`). To only try people out on this machine, start orrery with ORRERY_AUTH=off')
+}
+
 /** `off`, as orrery has always been; `on`, asking for a credential; `closed` when told off on a server others can reach,
  * which refuses rather than opens. A database that can't say counts as on. */
 export async function authMode(event: H3Event): Promise<'off' | 'on' | 'closed'> {
-    const config = useRuntimeConfig()
-    const setting = String(config.auth || process.env.ORRERY_AUTH || '').toLowerCase()
     const loopback = onLoopback(event)
-    if (setting === 'off') return loopback ? 'off' : 'closed'
-    if (setting === 'on' || !loopback || proxied(event)) return 'on'
+    if (toldOff()) return loopback ? 'off' : 'closed'
+    const on = String(useRuntimeConfig().auth || process.env.ORRERY_AUTH || '').toLowerCase() === 'on'
+    if (on || !loopback || proxied(event)) return 'on'
     return await useStore().authStaysOn().catch(() => true) ? 'on' : 'off'
 }
 

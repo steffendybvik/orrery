@@ -186,6 +186,26 @@ describe('when it is on', () => {
     })
 })
 
+describe('adding a second person', () => {
+    let needsWayInForPeople: typeof import('../server/utils/auth').needsWayInForPeople
+
+    beforeEach(async () => {
+        ({needsWayInForPeople} = await import('../server/utils/auth'))
+        config.auth = ''
+    })
+
+    it('waits until someone could log in, unless only trying it out', async () => {
+        const {status, message} = await failure(() => needsWayInForPeople())
+        expect(status).toBe(409)
+        expect(message).toContain('orrery:claim')
+        await store.makeKey('skoll', {kind: 'person', name: 'claim'})
+        await expect(needsWayInForPeople()).resolves.toBeUndefined()
+        await store.db.run('UPDATE keys SET revoked_at = ?', 'now')
+        config.auth = 'off'
+        await expect(needsWayInForPeople()).resolves.toBeUndefined()
+    })
+})
+
 describe('keys', () => {
     it('keeps only a hash, and never lists the secret', async () => {
         const made = await store.makeKey('hati', {kind: 'agent', name: 'laptop'})
