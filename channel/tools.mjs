@@ -424,8 +424,8 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
  * schedule's session, which says so on every call and reads GitHub issues through `gh` (its arguments; run in the
  * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. `report` hears each call's
  * tool and the text it answered, for the Context page (ORR-549); `load` a group of `ON_DEMAND` a work session asked for. */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, person, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
-    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...person ? {'Orrery-Person': person} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, person, auth = {}, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
+    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...person ? {'Orrery-Person': person} : {}, ...auth, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
         ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
         const response = await fetch(`${base}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})
@@ -628,7 +628,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async guide() {
             // The orrery's own, so it's what that orrery does; else the one beside this channel, from before it served it.
-            const response = await fetch(`${root}/guide/using`, {method: 'GET', headers: {Accept: 'text/markdown'}}).catch(() => null)
+            const response = await fetch(`${root}/guide/using`, {method: 'GET', headers: {Accept: 'text/markdown', ...auth}}).catch(() => null)
             const served = response?.ok ? await response.text() : ''
             if (served.trim()) return served
             return await readFile(new URL('../docs/using.md', import.meta.url), 'utf8')
@@ -711,7 +711,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async image({id}) {
             if (!/^[0-9a-f]{24}$/.test(String(id))) throw new Error(`${id} isn't an upload's id`)
-            const response = await fetch(`${root}/uploads/${id}`)
+            const response = await fetch(`${root}/uploads/${id}`, {headers: auth})
             if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
             const data = Buffer.from(await response.arrayBuffer()).toString('base64')
             return {content: [{type: 'image', data, mimeType: response.headers.get('content-type') ?? 'image/png'}]}

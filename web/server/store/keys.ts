@@ -2,20 +2,11 @@
 // that tie a provider's account to a person. Only hashes are kept, looked up on each request, so revoking works at once.
 // Below the projects, above the people.
 import {createHash, randomBytes} from 'node:crypto'
+import type {KeyKind, KeyRecord} from '#shared/roadmap'
 import {badRequest, conflict, notFound} from '../utils/input'
 import {PeopleStore} from './people'
 import {actorId, stamp} from './schema'
 
-export type KeyKind = 'agent' | 'person'
-export interface KeyRecord {
-    id: string
-    person: string
-    kind: KeyKind
-    name: string
-    created_at: string
-    last_used_at?: string
-    revoked_at?: string
-}
 /** A credential once checked: the person behind it, and the kind of key if it was one. */
 export interface Holder {
     person: string
@@ -51,8 +42,9 @@ export abstract class KeyStore extends PeopleStore {
         await this.needsPerson(person)
         const key = `orrery_${kind}_${token()}`
         const id = randomBytes(6).toString('hex')
-        await this.run('INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, person, kind, label, hashOf(key), stamp())
-        return {...keyOf((await this.get<KeyRow>('SELECT * FROM keys WHERE id = ?', id))!), key}
+        const created = stamp()
+        await this.run('INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, person, kind, label, hashOf(key), created)
+        return {id, person, kind, name: label, created_at: created, key}
     }
 
     /** Revokes a key, at once; revoking it again changes nothing. `mine`, when given, is whose it has to be. */
@@ -115,9 +107,9 @@ export abstract class KeyStore extends PeopleStore {
         return await this.db.transaction(async () => {
             const used = await this.run('UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?', stamp(), hashOf(invite), stamp())
             if (!Number(used.changes)) throw conflict('That invite has been used or has run out: ask for a new one')
-            const {person} = (await this.get<{person: string}>('SELECT person FROM invites WHERE id = ?', hashOf(invite)))!
-            await this.run('INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?)', issuer, subject, person)
-            return person
+            const row = await this.get<{person: string}>('SELECT person FROM invites WHERE id = ?', hashOf(invite))
+            await this.run('INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?)', issuer, subject, row?.person)
+            return row?.person
         })
     }
 
@@ -125,8 +117,8 @@ export abstract class KeyStore extends PeopleStore {
      * person is seen it's written down, so removing them doesn't open the orrery again. */
     async authStaysOn(): Promise<boolean> {
         if (await this.get("SELECT 1 FROM settings WHERE key = 'auth_on'")) return true
-        const {n} = (await this.get<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL'))!
-        if (Number(n) < 2) return false
+        const here = await this.get<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL')
+        if (Number(here?.n) < 2) return false
         await this.run("INSERT INTO settings (key, value) VALUES ('auth_on', 'true') ON CONFLICT (key) DO NOTHING")
         return true
     }

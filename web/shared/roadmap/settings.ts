@@ -8,6 +8,18 @@ export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green:
 /** This orrery's own settings, not a project's. */
 /** Someone on this orrery (`GET /api/people`): the owner, or a member they added. `id` is what a session sets as
  * `ORRERY_PERSON`, and `removed_at` when they were removed: their name stays on history. */
+export type KeyKind = 'agent' | 'person'
+/** A key as it's listed (ORR-664): never the key itself, which shows once, as it's made. */
+export interface KeyRecord {
+    id: string
+    person: string
+    kind: KeyKind
+    name: string
+    created_at: string
+    last_used_at?: string
+    revoked_at?: string
+}
+
 export interface Person {
     id: string
     name: string
