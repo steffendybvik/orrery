@@ -182,9 +182,9 @@ async function deliver(project, signal, query) {
     let content = signalWords(signal, {api, chat: !!chat})
     // What the owner gave the session as they started it, with the first signal after it connects (its hook gives it too).
     if (signal.context) content = `${content}\n\n${signal.context}`
-    const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : {schedule: String(signal.schedule)}
+    const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : signal.schedule ? {schedule: String(signal.schedule)} : {}
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind, ...named ? {session: named} : {}}}})
-    log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : `from schedule ${signal.schedule}`)}`)
+    log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : signal.schedule ? `from schedule ${signal.schedule}` : 'to this session')}`)
     // Tells orrery it got here, so the owner sees which window has it.
     await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST', headers: personHeaders}).catch(() => {})
 }

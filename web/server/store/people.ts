@@ -143,6 +143,18 @@ export abstract class PeopleStore extends OwnerStore {
         return (await this.one<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL')).n > 1
     }
 
+    /** Whose sessions an issue's hand-outs go to (ORR-656): with one person on this orrery nothing's to say (undefined),
+     * and otherwise the person it's assigned to, or on a board with one person on it, theirs when it's unassigned. Work
+     * unassigned on a board with more is nobody's (null), and stays put until someone takes it. */
+    async whoseWork(project: string, assignee: string | null | undefined): Promise<string | null | undefined> {
+        if (!await this.shared()) return undefined
+        const holder = await this.holderOf(assignee)
+        if (holder) return holder
+        if (assignee && assignee.toLowerCase() !== 'claude') return null
+        const on = await this.all<{person: string}>('SELECT person FROM project_members WHERE project = ?', project)
+        return on.length === 1 ? on[0]?.person ?? null : null
+    }
+
     /** The person an issue is assigned to: `claude` counts as the owner's, and an assignee who isn't a person is nobody. */
     protected async holderOf(assignee: string | null | undefined): Promise<string | null> {
         const id = assignee?.toLowerCase()

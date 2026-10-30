@@ -31,6 +31,9 @@ export abstract class StoreBase {
     /** Whose a session is, as its stream said; the server sets it from its sessions. */
     sessionPerson: (session: string) => string | undefined = () => undefined
 
+    /** See people.ts. */
+    abstract whoseWork(project: string, assignee: string | null | undefined): Promise<string | null | undefined>
+
     /** Hears what happens (`issue.status`, `release.frozen`…), for the schedules that run on it; the server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 

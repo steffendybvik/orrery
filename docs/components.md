@@ -177,6 +177,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `SectionIcon` | the icon of a project's page (issues, roadmap, docs…) |
 | `SessionDot` | a Claude session's state as a dot |
 | `PullStateChip` | where an open pull request stands (Conflicts, Behind, Ready to merge…), red to green |
+| `ScheduleRunButton` | **Run schedule** in a project's issues toolbar: a popover of the schedules Run now can run, each run at once; the confirmation is `ScheduleMenu`'s |
 | `PullFocus` | **Focus on this** on a pull request: a popover with the note `focusNote` writes from its state, to edit and send as a focus on its issue |
 | `KeyHint` | a key, as `<KeyHint>⌘↵</KeyHint>` |
 | `StepMark` | a step's number in a guide, ticked when done |
@@ -256,7 +257,7 @@ being written again in each component:
 | `FilterMenu` | `Listbox` |
 | `SegmentedControl` | `RadioGroup` |
 | `StatusFocus`, `ChatPane`, `SessionMessage`, `StartedSession` | `Menu` |
-| `PullFocus` | `Popover` |
+| `PullFocus`, `ScheduleRunButton` | `Popover` |
 
 Something new that opens, picks or closes builds on the matching part and only draws it, in the classes above. Two
 things stay our own, as Headless UI (v1) has nothing that fits: the right-click menus (`UiContextMenu`), and ⌘K's

@@ -1,4 +1,8 @@
-import type {Schedule, ScheduleAcross} from '#shared/roadmap'
+import type {Schedule, ScheduleAcross, ScheduleRun} from '#shared/roadmap'
+
+/** How long a run's confirmation shows. */
+const RAN_FOR = 6000
+let ranFor: ReturnType<typeof setTimeout> | undefined
 
 // Every project's schedules, by project, kept current from `/api/events`; and the schedule dialog
 // (open for a project, and a schedule to edit, or a new one filled in from a suggestion), the right-click menu, and pausing one.
@@ -46,5 +50,26 @@ export function useSchedules() {
         return mine
     }
 
-    return {byProject, of, load, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, adopt}
+    /** The last run's confirmation, which goes by itself, shown by ScheduleMenu whatever page it's on (ORR-688). */
+    const ran = useState<{text: string, project: string, issue?: string} | null>('schedule-ran', () => null)
+
+    /** Runs a schedule now, on top of its timetable or `instead` of its next run, staying on the page: says what it did, or
+     * gives why it failed, which a run can do with the request itself going through. */
+    async function run(schedule: Schedule, instead = false): Promise<string | null> {
+        try {
+            const done = await apiFetch<ScheduleRun>(`/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}/run`, {
+                method: 'POST', body: instead ? {instead: true} : undefined,
+            })
+            const text = ranSaid(done)
+            if (!text) return done.note ?? 'The run failed'
+            ran.value = {text, project: schedule.project, issue: done.issue}
+            clearTimeout(ranFor)
+            ranFor = setTimeout(() => ran.value = null, RAN_FOR)
+            return null
+        } catch (error) {
+            return errorMessage(error)
+        }
+    }
+
+    return {byProject, of, load, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, adopt, ran, run}
 }

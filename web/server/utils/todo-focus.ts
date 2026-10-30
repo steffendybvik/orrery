@@ -15,7 +15,7 @@
 import type {OrreryEvent} from '#shared/happenings'
 import {CLOSED, isBlocked, linkRef} from '#shared/roadmap'
 import type {IssueRecord} from '../store/schema'
-import {forSessions} from './pick'
+import {handedTo} from './pick'
 
 /** How long after the owner's move the issues are handed out, so a burst is one hand-out. */
 export const TODO_AFTER = 1500
@@ -96,8 +96,8 @@ const hears = (session: {project: string, also?: string[]}, project: string) => 
 
 /** Whether an issue on the board is free to hand out: open in Todo, not a proposal, a parent, someone else's
  * (`forSessions`), blocked (ORR-601) or waiting on the owner. */
-const handable = (issue: IssueRecord, parents: Set<string | null>, member?: string) => issue.kind === 'todo' && !issue.proposal && !issue.waiting
-    && (member ? issue.assignee?.toLowerCase() === member : forSessions(issue)) && !isBlocked(issue) && !parents.has(issue.id)
+const handable = (issue: IssueRecord, parents: Set<string | null>) => issue.kind === 'todo' && !issue.proposal && !issue.waiting
+    && !isBlocked(issue) && !parents.has(issue.id)
 
 /** What the issues in `project` that just changed did to what depends on them (ORR-601). One done frees each issue
  * waiting on it whose other blockers are done too; one with a link dropped may be free itself. Each freed is told
@@ -139,9 +139,12 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
         // Freed by a dropped link only if it waited on something: one never blocked has nothing to announce.
         if (!blocker && !issues.get(id)?.links) continue
         await store.systemEvent(on, id, 'issue.unblocked')
-        if (!handable(issue, new Set(board.map(i => i.parent))) || await store.focusOnItsWay(on, id)) continue
+        const to = handable(issue, new Set(board.map(i => i.parent))) ? await handedTo(on, issue) : null
+        if (!to || await store.focusOnItsWay(on, id)) continue
+        const theirs = (s: {person?: string}) => !to.person || s.person === to.person
         // A follow-up under an issue another session is on goes to that session (ORR-613), busy or not: it's its to start.
         const held = (await store.heldAbove(on, id))?.holder
+        if (held && !theirs(sessionNow(held) ?? {})) continue
         if (held) {
             await store.focus(on, id, {note: `${UNBLOCKED_NOTE} ${(issue.depends_on ?? []).join(', ')}.`, session: held}, owner)
             sent++
@@ -149,9 +152,9 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
         }
         const worker = blocker ? await store.workerOf(blocker.project, blocker.id) : null
         const finisher = worker ? listSessions().find(s => s.id === worker || sessionIds(s.id).includes(worker)) : undefined
-        let session = finisher && finisher.listening && hears(finisher, on) && !chatSession(finisher.id) && !untrustedSession(finisher.id)
+        let session = finisher && theirs(finisher) && finisher.listening && hears(finisher, on) && !chatSession(finisher.id) && !untrustedSession(finisher.id)
             && !given.has(finisher.id) && !await store.busy(on, sessionIds(finisher.id)) ? finisher : undefined
-        session ??= (await idleSessions(on)).find(s => !given.has(s.id))
+        session ??= (await idleSessions(on)).find(s => !given.has(s.id) && theirs(s))
         if (!session) continue
         given.add(session.id)
         await store.focus(on, id, {note: `${UNBLOCKED_NOTE} ${(issue.depends_on ?? []).join(', ')}.`, session: currentId(session.id)}, owner)
@@ -175,21 +178,22 @@ export async function handTodo(project: string, issues: Map<string, TodoMove>): 
     const work = []
     for (const issue of board) {
         const move = issues.get(issue.id)
-        if (!move || !handable(issue, parents, move.member) || (move.from && kinds.get(move.from) === 'todo')) continue
+        if (!move || !handable(issue, parents) || (move.from && kinds.get(move.from) === 'todo')) continue
         if (await store.focusOnItsWay(project, issue.id)) continue
-        work.push({issue, by: move.by, member: move.member})
+        const to = await handedTo(project, issue, move.member)
+        if (to) work.push({issue, by: move.by, member: move.member, to})
     }
     work.sort((a, b) => (a.issue.priority ? RANK[a.issue.priority] : 4) - (b.issue.priority ? RANK[b.issue.priority] : 4)
         || a.issue.created_at.localeCompare(b.issue.created_at))
 
     let sent = 0
     const given = new Set<string>()
-    for (const {issue, by, member} of work) {
+    for (const {issue, by, member, to} of work) {
         // A follow-up under an issue another session is on goes to that session (ORR-613), busy or not: any other would
         // be refused its start.
         const held = (await store.heldAbove(project, issue.id))?.holder
-        if (held && member && sessionNow(held)?.person !== member) continue
-        const free = held ? undefined : idle.find(s => !given.has(s.id) && (!member || s.person === member))
+        if (held && to.person && sessionNow(held)?.person !== to.person) continue
+        const free = held ? undefined : idle.find(s => !given.has(s.id) && (!to.person || s.person === to.person))
         if (free) given.add(free.id)
         const session = held ?? (free && currentId(free.id))
         if (!session) continue
