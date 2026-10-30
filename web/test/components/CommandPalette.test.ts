@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
 import {DOMWrapper} from '@vue/test-utils'
 import {mountSuspended} from '@nuxt/test-utils/runtime'
-import type {Project} from '#shared/roadmap'
+import type {Project, Session} from '#shared/roadmap'
 import CommandPalette from '~/components/CommandPalette.vue'
 
 // ⌘K's keyboard: what it shows with nothing typed, an exact id as the Top hit, ↑↓ round the ends, ⇥ by section, a scope
@@ -19,6 +19,7 @@ const PANTRY = project('pantry', 'Pantry', [issue('PAN-1', 'Sort the tins')])
 const mounted: VueWrapper[] = []
 beforeEach(() => {
     useRoadmaps().projects.value = [GREENHOUSE, PANTRY]
+    useRoadmaps().sessions.value = {}
     useState('palette-open').value = true
 })
 afterEach(() => {
@@ -103,5 +104,44 @@ describe('CommandPalette', () => {
         await vi.waitFor(() => expect(input().exists()).toBe(true))
         await key('Escape')
         expect(useState('palette-open').value).toBe(false)
+    })
+
+    it('starts a session on the project of the page, and offers nothing to message with nobody listening (ORR-679)', async () => {
+        const {input, key, wrapper} = await mount()
+        await input().setValue('>start session')
+        expect(wrapper.text()).not.toContain('Start session')
+        useRoadmaps().projects.value = [{...GREENHOUSE, starts: true}, PANTRY]
+        await nextTick()
+        await input().setValue('>session')
+        expect(wrapper.text()).toContain('Start session')
+        expect(wrapper.text()).not.toContain('Message sessions')
+        await input().setValue('>start session')
+        await key('Enter')
+        expect(useStartSession().target.value).toEqual({project: null})
+        useStartSession().close()
+    })
+
+    it('messages every session, or one found by name, once each and only those listening (ORR-679)', async () => {
+        const shelves = {id: 's1', name: 'kitchen shelves', project: 'greenhouse', also: ['pantry'], listening: true} as unknown as Session
+        const deaf = {id: 's2', name: 'cellar door', project: 'pantry', listening: false} as unknown as Session
+        useRoadmaps().sessions.value = {greenhouse: [shelves], pantry: [shelves, deaf]}
+        const {input, key, wrapper} = await mount()
+        await input().setValue('>message')
+        expect(wrapper.text()).toContain('Message sessions')
+        expect(wrapper.findAll('[role="option"]').filter(o => o.text().includes('kitchen shelves'))).toHaveLength(1)
+        expect(wrapper.text()).not.toContain('cellar door')
+
+        await input().setValue('>kitchen')
+        await key('Enter')
+        const {one, all} = useMessageSessions()
+        expect(one.value?.id).toBe('s1')
+        one.value = null
+
+        useState('palette-open').value = true
+        await nextTick()
+        await input().setValue('>message sessions')
+        await key('Enter')
+        expect(all.value).toBe(true)
+        all.value = false
     })
 })

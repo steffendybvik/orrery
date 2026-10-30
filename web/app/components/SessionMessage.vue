@@ -8,6 +8,7 @@ import type {Preset, Session} from '#shared/roadmap'
 // something to send. A preset (one its sessions can have) fills the box to tweak before sending, and the message is
 // labelled by its name; emptying the box lets it go.
 const props = defineProps<{session: Session, project: string}>()
+const emit = defineEmits<{sent: []}>()
 const {load} = useOwner()
 const text = ref('')
 const presets = ref<Preset[]>([])
@@ -71,6 +72,7 @@ async function send() {
         sent.value = true
         clearTimeout(timer)
         timer = setTimeout(() => sent.value = false, 2000)
+        emit('sent')
     } catch (error) {
         failed.value = errorMessage(error)
     } finally {
