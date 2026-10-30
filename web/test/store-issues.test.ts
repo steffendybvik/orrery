@@ -333,6 +333,24 @@ describe('starting an issue', () => {
         await store.claim('greenhouse', shelves, undefined, 'second')
     })
 
+    it("is refused for a sub-issue while another session that's there has a parent above it started (ORR-611)", async () => {
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-review'})).id
+        const brackets = (await store.createIssue('greenhouse', {title: 'Brackets', parent: shelves})).id
+        const screws = (await store.createIssue('greenhouse', {title: 'Screws', status: 'todo', parent: brackets})).id
+        await store.workedBy('greenhouse', shelves, 'first')
+        const refused = await failure(() => store.claim('greenhouse', screws, 'in-progress', 'second'))
+        expect(refused).toEqual({status: 409, message: `${screws} is a sub-issue of ${shelves}, which another session (first) is working on; it's that session's to start; pick another issue`})
+        // A comment on it isn't starting it; the parent's own session starts it.
+        await store.claim('greenhouse', screws, undefined, 'second')
+        await store.claim('greenhouse', screws, 'in-progress', 'first')
+        // Once that session is gone, or the parent is done, anyone may.
+        store.hears = (_project, session) => session !== 'first'
+        await store.claim('greenhouse', screws, 'in-progress', 'second')
+        store.hears = () => true
+        await store.updateIssue('greenhouse', shelves, {status: 'done'})
+        await store.claim('greenhouse', screws, 'in-progress', 'second')
+    })
+
     it('goes to one session only when two start it at once', async () => {
         const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'todo'})).id
         const start = (session: string) => store.claimed('greenhouse', shelves, 'in-progress', session, () => store.updateIssue('greenhouse', shelves, {status: 'in-progress'}))
