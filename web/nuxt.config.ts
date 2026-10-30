@@ -43,6 +43,9 @@ export default defineNuxtConfig({
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',
+        // Asks GitHub for orrery's releases at start and every 12 hours, for the sidebar's notice of a newer one
+        // (ORR-608). Override with NUXT_UPDATE_CHECK=false (ORRERY_UPDATE_CHECK in compose).
+        updateCheck: true,
         public: {
             // Where this repo is on the machine, for the channel setup the Connect page hands out.
             // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).

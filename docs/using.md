@@ -45,6 +45,7 @@ On the board, drag a card to another column to move it there, as the menu does; 
 - **One session**: on the **Sessions** page, a listening session's card takes a message that only it hears. Enter or ⌘-Enter sends it, and Shift-Enter starts a new line. The bookmark beside the box sends a preset: picking one fills the box to tweak ("…for rc.9"), and the message is listed by the preset's name.
 - **A new session**: **Start session** (on the Sessions page, or `+` by the sidebar's sessions) starts one through the launcher, on one or more projects (a session each, hearing only its project; or, for projects in one repo, one session hearing them all; or none ticked, for one session hearing every project, started where a launcher's channel serves `*`), optionally focused on an issue or a scope (statuses and a release), with presets and your own words as context. Several of the same can start at once (the count by Start, as many as the limit has room for), each taking a different issue of the scope; on one issue, just the one.
 - The sidebar lists every Claude session at the bottom, with the ones at a permission prompt (**permission needed**) first. A session's channel tells it the name it has here, so you can both call it that. Only one session works an issue at a time: a second one starting it is told to pick another.
+- At the sidebar's foot, **GitHub** and **Releases** link to orrery's repo and its releases, and the version under them to its changelog.
 - **A session at a permission prompt pops up** at the top right of whatever page you have open: its name (a link to its card), Claude Code's line on what it wants, the tool it asks for and what it would do (the command, the file, the address; the whole of it on hover) and, for one orrery started without that, the command or file from its prompt (the whole prompt on hover; its screen stays in tmux). For one orrery started, **Allow** answers "Yes" once (only while the prompt is still there; "Yes, and don't ask again" stays in its terminal) and **Open tmux** opens a terminal on it, as Watch does. One started by hand says what it wants, to answer in its terminal. It goes once the session moves on; **×** hides it until it asks again.
 - **A session out of work picks its next issue**, once you turn it on (Sessions → Setup, *When a session runs out of work*): every listening session with nothing to do is handed the issues it may start, Todo or else Backlog, most urgent first, without proposals, blocked issues or anything waiting on you, and starts the one it judges best (it may pass over one it can't do yet, saying why in a comment). With nothing to pick it stays idle, and it's handed the list again when the board changes. Off, it waits for you to point it at work.
 
@@ -100,6 +101,8 @@ Agents' comments land in the bell in every page's header, which counts the new o
 | Enter | Open the focused row or card |
 | Esc | Back, close, or leave a field |
 | / | Search |
+| x | Tick the focused row or card (Shift ticks a run) |
+| ⌘A | Tick every issue on the page |
 | c | New issue (in the chunk, on a chunk's page) |
 | 1 / 2 | List / board |
 | [ / ] | On the board, move the focused card (or the ticked ones) one column left or right |

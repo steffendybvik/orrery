@@ -165,14 +165,14 @@ function messageParts(event: LoggedEvent): {text: string, to?: string}[] {
       <div
           v-for="event in shown"
           :key="event.id"
-          class="flex w-full min-w-max items-baseline gap-3 px-4 whitespace-pre"
+          class="flex w-full flex-wrap items-baseline gap-x-3 px-4 whitespace-pre-wrap sm:min-w-max sm:flex-nowrap sm:whitespace-pre"
           :class="[LEVEL[event.level].line, event.resolved_at && 'opacity-50']"
       >
         <span class="text-faint">{{ stamp(event.first_seen) }}</span>
         <span class="w-10 shrink-0 font-semibold" :class="LEVEL[event.level].text">{{ LEVEL[event.level].label }}</span>
         <span class="text-muted">{{ event.kind }}</span>
         <NuxtLink v-if="event.project" :to="`/p/${event.project}`" class="text-faint hover:text-fg hover:underline">[{{ event.project }}]</NuxtLink>
-        <span :class="event.level === 'info' ? 'text-fg' : LEVEL[event.level].text"><template v-for="(part, i) in messageParts(event)" :key="i"><NuxtLink
+        <span class="basis-full break-words sm:basis-auto" :class="event.level === 'info' ? 'text-fg' : LEVEL[event.level].text"><template v-for="(part, i) in messageParts(event)" :key="i"><NuxtLink
             v-if="part.to"
             :to="part.to"
             class="text-accent-600 hover:underline dark:text-accent-400"

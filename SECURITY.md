@@ -79,12 +79,12 @@ So it has no way to send what it reads anywhere but to orrery, as proposals you 
 The chat (the button in the corner) is a session started for you to talk to on the page. Its launcher starts it with
 `Read`, `Grep` and `Glob` and no Bash or edits, so it can't change the code or run anything, and without `egress`,
 `secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
-unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release or parent (any other
+unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release, parent or what it depends on (any other
 change is refused), commenting, and
 answering you. It changes those fields even on an issue another session is working: the check that refuses one
 session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
 
-Three more go further, and you should know how far:
+Four more go further, and you should know how far:
 
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
   Secrets, the database, statuses and how sessions start aren't among them.
@@ -92,6 +92,9 @@ Three more go further, and you should know how far:
   Nothing is saved until you press **Allow**, and then a new one is yours, so a schedule that starts sessions starts
   them as you. A change to an agent's schedule leaves it the agent's: only **Make it mine** makes it yours. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
   the Schedules page.
+- **Sessions, releases, chunks and moves** it can only ask for as well: starting, stopping or giving more time to a
+  session, adding or changing a release or a chunk, and moving issues to another status or assigning them. Each shows
+  what it would do, and nothing happens until you press **Allow**.
 - **Messages to your sessions** it can only ask for as well: you see the text and who it goes to, and nothing is sent
   until you press **Send**. orrery refuses the chat on both message routes, so this holds whatever it was talked into.
   Once sent, a message goes out as yours, the owner's instructions in the sense below, marked as sent through the chat
@@ -162,6 +165,8 @@ and each is only ever asked:
 - **Starting, stopping or extending a session:** you see what would start (its project, focus, presets and words) or
   which session, and nothing happens until you press **Allow**. A session started this way is yours, with the context
   shown, so read it. The launch routes refuse the chat itself, and watching one (a window on your machine) stays yours.
+- **Adding or changing a release or a chunk, or moving or assigning issues:** you see what would change, and nothing
+  is saved until you press **Allow**.
 - **Messaging your other sessions:** you see the text and who it goes to, and nothing is sent until you press
   **Send**. Then it goes as you, marked as sent through the chat. The message routes refuse the chat itself, so a
   chat talked into it by something it read can't reach your sessions without you reading it first (ORR-416).
@@ -182,7 +187,10 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 [Secrets](docs/API.md#secrets) let your agents call outside services without the key ever reaching
 them: orrery fills it into the request and sends it.
 
-orrery itself calls one outside service: GitHub, at `api.github.com`, to show the open pull requests on
+orrery itself calls one outside service, GitHub at `api.github.com`, for two things. First, it asks for orrery's own
+releases (`steffendybvik/orrery`, public, no token) a few seconds after it starts and then every 12 hours, to say in the
+sidebar when a newer version is out. That request carries nothing of yours, and `ORRERY_UPDATE_CHECK=false` turns it
+off. Second, it shows the open pull requests on
 projects whose repo is there and to notice when one conflicts, merges or closes. It reads, never writes:
 each repo is polled in the background, once a minute with a token and every ten minutes without (a page
 open may also ask, no more than that), and it sends the `GITHUB_TOKEN` secret only when you've set one that
@@ -220,7 +228,8 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
 - The backups are copies of it. If `ORRERY_BACKUP` is a synced folder (iCloud Drive, Dropbox, …), your
   roadmaps leave the machine for that service.
 - The session hooks send orrery each session's id, its name, its working folder, what it's doing and
-  Claude Code's notification text. They go to the orrery at `ORRERY_URL`, nowhere else.
+  Claude Code's notification text, and, before each tool it uses, the tool's name with its command, file, address or
+  search (each Bash command in full, up to 4000 characters). They go to the orrery at `ORRERY_URL`, nowhere else.
 - **Context** (Advanced → Context) shows what each running session has been given since orrery started: the signals
   sent to it and its orrery tools' answers, kept in memory only. Like every page, it's open to whatever can reach
   orrery, sessions included, so an `egress` answer is kept by its size alone, never what the service sent back
