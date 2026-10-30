@@ -36,3 +36,37 @@ test('polls now on Poll, and holds a repo without a token for five minutes', asy
     // Only the owner polls.
     expect((await request.post('/api/pulls/poll', {headers: {'Orrery-Actor': 'claude'}})).status()).toBe(403)
 })
+
+// What GitHub would answer is made up here, so the page's rows can be every state whatever GitHub says.
+test('lists where each pull request stands, and Focus on this sends the note it fills in', async ({page, request}) => {
+    await makeProject(request, {name: 'Silo', key: 'SIL'})
+    const made = await request.post('/api/projects/silo/issues', {data: {title: 'Patch the roof'}, headers: OWNER})
+    const issue = await made.json()
+    const pull = (number: number, state: string, title: string, named: boolean) => ({
+        number, title, state, repo: 'orrery-e2e/silo', url: `https://github.com/orrery-e2e/silo/pull/${number}`, branch: `fix/${number}`, base: 'main', author: 'ada',
+        created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z',
+        ...named ? {issue: {project: 'silo', id: issue.id, title: 'Patch the roof'}} : {},
+    })
+    await page.route(/\/api\/pulls\?/, route => route.fulfill({json: {
+        pulls: [pull(11, 'conflicting', 'Mend the eaves', true), pull(12, 'ready', 'Tar the seams', false)],
+        open: 2, needs: 1, page: 1, limit: 50,
+        repos: [{repo: 'orrery-e2e/silo', projects: ['silo'], token: true, open: 2, needs: 1}],
+    }}))
+    await page.goto('/pulls')
+    const rows = page.getByRole('list', {name: 'Open pull requests on orrery-e2e/silo'}).getByRole('listitem')
+    const conflicting = rows.filter({hasText: 'Mend the eaves'})
+    const ready = rows.filter({hasText: 'Tar the seams'})
+    await expect(conflicting).toContainText('Conflicts')
+    await expect(ready).toContainText('Ready to merge')
+    // One naming no issue has none to focus.
+    await expect(ready).toContainText('no issue')
+    await expect(ready.getByRole('button', {name: 'Focus on this'})).toHaveCount(0)
+    await conflicting.getByRole('button', {name: 'Focus on this'}).click()
+    const note = page.getByLabel('Note')
+    await expect(note).toHaveValue(/#11 .*conflicts with main/)
+    await note.fill('Mind the ladder')
+    await page.getByRole('button', {name: 'Send', exact: true}).click()
+    await expect(conflicting.getByRole('button', {name: /^Sent/})).toBeVisible()
+    const signals = await (await request.get(`/api/projects/silo/signals`)).json() as {note?: string}[]
+    expect(signals.map(signal => signal.note)).toContain('Mind the ladder')
+})

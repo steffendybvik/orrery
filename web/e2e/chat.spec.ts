@@ -859,3 +859,47 @@ test('asks for permission in its own pane, with Allow and Deny, and starts a ses
         await endChats(request)
     }
 })
+
+test('asks the owner to start or stop a session, and does it only on their Allow', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    const working = hold(baseURL!, '/api/projects/observatory/signals/stream?session=e2e-worker&name=e2e-worker&stops=yes')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await request.patch('/api/settings', {data: {starts: {limit: 2}}, headers: OWNER})
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-ses&name=e2e-chat-ses&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-ses', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const ask = async (data: object) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+        }
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+
+        // Denied: nothing starts.
+        await ask({session: {action: 'start', project: 'observatory', instructions: 'Polish the lens'}})
+        const start = pane.getByRole('group', {name: 'Asks to start a session'})
+        await expect(start).toContainText('Polish the lens')
+        await start.getByRole('button', {name: 'Deny'}).click()
+        await expect(start).toContainText('Denied')
+        expect(launcher.said.text).not.toContain('Polish the lens')
+
+        // Allowed: it goes to its channel, and not before.
+        await ask({session: {action: 'stop', name: 'e2e-worker'}})
+        const stop = pane.getByRole('group', {name: 'Asks to stop a session'})
+        await expect(stop).toContainText('e2e-worker')
+        expect(working.said.text).not.toContain('event: stop')
+        await stop.getByRole('button', {name: 'Allow'}).click()
+        await expect(stop).toContainText('Allowed: stopping')
+        await expect.poll(() => working.said.text).toContain('event: stop')
+    } finally {
+        await endChats(request)
+        await request.patch('/api/settings', {data: {starts: null}, headers: OWNER})
+        session?.stop()
+        working.stop()
+        launcher.stop()
+    }
+})
