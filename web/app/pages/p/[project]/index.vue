@@ -3,7 +3,7 @@
 // columns): `?view=`, keys 1 and 2. Without `?view=` it's the view last picked in this browser.
 const route = useRoute()
 const router = useRouter()
-const {byId, ready} = useRoadmaps()
+const {byId, ready, sessions} = useRoadmaps()
 const {matches, active} = useFilters()
 const {view: lastView, group} = useLastView()
 
@@ -80,11 +80,12 @@ onMounted(() => nextTick(() => {
 
   <div class="min-h-0 flex-1" :class="view === 'list' ? 'overflow-y-auto' : 'overflow-hidden'">
     <template v-if="project">
-      <div v-if="!project.board.chunks.length" class="grid place-items-center px-4 py-24 text-center text-sm text-muted">
-        <div class="flex flex-col gap-2">
-          <p>{{ project.name }} has no chunks or issues yet.</p>
-          <p class="font-mono text-xs text-faint">POST /api/projects/{{ project.id }}/chunks</p>
-        </div>
+      <div v-if="!project.board.chunks.length" class="mx-auto flex max-w-xl flex-col gap-3 px-4 py-20 text-center">
+        <p class="text-sm text-muted">{{ project.name }} has no issues yet.</p>
+        <UiButton variant="primary" class="self-center" @click="useNewIssue().open(project.id)">New issue</UiButton>
+        <p v-if="!sessions[project.id]?.length" class="mt-3 text-xs text-faint">
+          Or <NuxtLink :to="`/connect?project=${project.id}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connect a session</NuxtLink> in its repo, and it can add them.
+        </p>
       </div>
       <div v-else-if="!chunks.length" class="grid place-items-center px-4 py-24 text-sm text-muted">No issue matches the filters.</div>
       <IssueBoard v-else-if="view === 'board'" :chunks="chunks" :project="project.id" />
