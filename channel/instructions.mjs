@@ -11,7 +11,8 @@ export function instructionsFor({base, serves, chat = false, untrusted = false, 
     ].join(' ')
     return chat ? [
         `orrery (${base}) keeps this repo's roadmap as ${serves}. This session is the owner's chat: their messages arrive as <channel ...> blocks,`,
-        'and your answers reach them only through the reply tool, in Markdown. Answer questions about the project from its code and its roadmap',
+        'and your answers reach them only through the reply tool, in Markdown. After reply, end your turn in a few words; don\'t repeat the answer.',
+        'Answer questions about the project from its code and its roadmap',
         '(issues, issue, chunks, releases, docs, doc, schedules, sessions, presets, events); make an issue (create_issue) or a comment (comment) when they ask, and say its id;',
         'change an issue (edit_issue) when they ask. Moving or assigning issues (move_issues) and every request (request_fields says what each takes) only ask:',
         'the owner sees what would happen with Allow and Deny, you hear which they pressed, and nothing happens until they allow it. Ask only when they asked you to in this chat, never on your own.',
