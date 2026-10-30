@@ -57,6 +57,11 @@ export abstract class ReleaseStore extends DocStore {
         return {...known(own.releases.find(r => r.version === version), `release ${version}`), project, tasks: mine.tasks, projects: [mine, ...drawing.map(part)]}
     }
 
+    /** The newest doc revision on this orrery, 0 with none yet: revision ids run across its projects, so it holds for a shared release too. */
+    private async docMark(): Promise<number> {
+        return (await this.one<{n: number | null}>('SELECT max(id) AS n FROM doc_revisions')).n ?? 0
+    }
+
     /** Refuses changing a release from a project that takes its releases from another. */
     protected async ownReleases(project: string, action: string) {
         const source = await this.releaseSource(project)
@@ -72,8 +77,8 @@ export abstract class ReleaseStore extends DocStore {
         const now = stamp()
         await this.db.transaction(async () => {
             const top = (await this.get<{n: number | null}>('SELECT min(position) AS n FROM releases WHERE project = ?', project))?.n ?? 0
-            await this.run('INSERT INTO releases (project, version, branch, notes, frozen_on, shipped_on, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.frozen_on), nullable(input.shipped_on), top - 1, actor.name, Number(actor.owner), now, now)
+            await this.run('INSERT INTO releases (project, version, branch, notes, frozen_on, shipped_on, doc_mark, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.frozen_on), nullable(input.shipped_on), input.shipped_on ? await this.docMark() : null, top - 1, actor.name, Number(actor.owner), now, now)
             if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)
         })
@@ -93,6 +98,9 @@ export abstract class ReleaseStore extends DocStore {
                 notes: input.notes,
                 frozen_on: input.frozen_on,
                 shipped_on: input.shipped_on,
+                // Shipping marks the docs as they are now, and shipping it again marks them anew: un-shipping lets go of the
+                // old mark, as what ships next isn't what shipped then. A new day on one already shipped keeps it.
+                doc_mark: input.shipped_on === undefined || !!input.shipped_on === !!before.shipped_on ? undefined : input.shipped_on ? await this.docMark() : null,
             })
             if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)

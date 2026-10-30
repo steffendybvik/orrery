@@ -106,7 +106,7 @@ describe('the database', () => {
     it('moves a named owner from settings to people, and leaves an unnamed one as they are (ORR-653)', async () => {
         const open = (name?: string) => {
             const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
-            const old = openDb(path, MIGRATIONS.length - 1)
+            const old = openDb(path, 62)
             if (name) old.prepare("INSERT INTO settings (key, value) VALUES ('owner', ?)").run(JSON.stringify(name))
             old.close()
             return new Store(new SqliteDb(openDb(path)))

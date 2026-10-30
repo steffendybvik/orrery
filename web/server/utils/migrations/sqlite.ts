@@ -859,4 +859,27 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     const person = owner && ownerPerson(owner.value)
     if (person) db.prepare("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)").run(person.id, person.name, new Date().toISOString())
     db.exec("DELETE FROM settings WHERE key = 'owner'")
-}]
+}, `
+    -- A doc's past (ORR-675): a row for each save that changed its title or text, the whole of both, with ids across the
+    -- orrery so one number can mark a moment on any project. A row with \`deleted\` is the doc being removed, holding its
+    -- last text and its \`section\`, which only such a row keeps. They outlive the doc, so \`doc\` is a plain column. What's
+    -- there now starts each doc's history, and \`doc_mark\` is the newest revision as a release shipped: none for those
+    -- shipped before this, as that moment can't be worked out.
+    CREATE TABLE doc_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        doc TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        section TEXT,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        session_name TEXT,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX doc_revisions_doc ON doc_revisions(project, doc, id);
+    INSERT INTO doc_revisions (project, doc, title, body, created_by, owned, created_at)
+        SELECT project, id, title, body, created_by, owned, updated_at FROM docs ORDER BY updated_at, project, id;
+    ALTER TABLE releases ADD COLUMN doc_mark INTEGER;
+`]

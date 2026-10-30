@@ -42,7 +42,7 @@ export abstract class OwnerStore extends StatusStore {
             const renamed = await this.run("UPDATE people SET id = ?, name = ? WHERE role = 'owner'", name, display)
             if (!Number(renamed.changes)) await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)", name, display, stamp())
             if (name === before.name) return
-            for (const table of ['projects', 'chunks', 'issues', 'docs', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'presets', 'issue_links'])
+            for (const table of ['projects', 'chunks', 'issues', 'docs', 'doc_revisions', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'presets', 'issue_links'])
                 await this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)
             await this.run('UPDATE schedules_across SET created_by = ? WHERE lower(created_by) = ?', name, before.name)
             await this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)
