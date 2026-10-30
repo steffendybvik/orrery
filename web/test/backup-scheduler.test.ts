@@ -18,7 +18,6 @@ let failing: boolean
 function scheduler(over: Partial<BackupHooks> = {}) {
     return new BackupScheduler({
         target: () => target,
-        hasBackup: () => true,
         fresh: async () => fresh,
         backUp: async () => {
             if (failing) throw new Error('disk full')
@@ -81,7 +80,7 @@ describe('backing up', () => {
         expect(made).toHaveLength(1)
     })
 
-    it("doesn't back a new orrery up over a folder's backups, but does once it isn't new", async () => {
+    it("doesn't back a new orrery up to a folder, but does once it isn't new", async () => {
         fresh = true
         const backups = scheduler()
         await backups.save()
@@ -89,10 +88,6 @@ describe('backing up', () => {
         fresh = false
         await backups.save()
         expect(made).toHaveLength(1)
-        // A folder with nothing in it yet takes even a new one's.
-        fresh = true
-        await scheduler({hasBackup: () => false}).save()
-        expect(made).toHaveLength(2)
     })
 
     it('says each one made or failed in the log, and never throws', async () => {
