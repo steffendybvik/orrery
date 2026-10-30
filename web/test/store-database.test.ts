@@ -120,6 +120,22 @@ describe('the database', () => {
         expect(await unnamed.people()).toEqual([])
     })
 
+    it('gives each board to the owner on upgrading, with one holder each (ORR-654)', async () => {
+        const open = (name?: string) => {
+            const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+            const old = openDb(path, 66)
+            if (name) old.prepare("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', 'x')").run(name.toLowerCase(), name)
+            old.prepare("INSERT INTO projects (id, name, key, uid, created_by, created_at, updated_at) VALUES ('greenhouse', 'Greenhouse', 'GRE', 'abcdefgh', 'agent', 'x', 'x')").run()
+            old.close()
+            return new Store(new SqliteDb(openDb(path)))
+        }
+        expect(await open('Skoll').members('greenhouse')).toMatchObject([{person: 'skoll', role: 'owner'}])
+        const unnamed = open()
+        expect(await unnamed.members('greenhouse')).toEqual([])
+        await unnamed.nameOwner({name: 'Skoll'})
+        expect(await unnamed.members('greenhouse')).toMatchObject([{person: 'skoll', role: 'owner'}])
+    })
+
     it('gives each board and the server a random id on upgrading (ORR-674)', async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
         const old = openDb(path, 63)

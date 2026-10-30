@@ -63,6 +63,16 @@ The owner can add others to an orrery, and each of them has their own sessions (
 
 A session says whose it is with `Orrery-Person: <id>` on its requests: the channel and the hook send `ORRERY_PERSON` from the environment Claude Code starts in, and a session the owner starts through a launcher gets theirs. It's worked out from each request, so it holds across a restart and a `/clear`. The owner and their chat are the owner's, whatever they send, and an untrusted session is nobody's. With more than one person, a session that names nobody, or somebody who isn't here, can read and comment, but changing an issue (`PATCH …/issues/:issue`, or in bulk) is a 409 saying how to set it. This is a name rather than a password, as `Orrery-Actor` is.
 
+Each board has one person holding it, and members. Existing boards are the owner's, and a new one is held by whoever made it, for them and their sessions alone until they add someone. The owner is on every board without being listed.
+
+| | |
+|---|---|
+| `GET /projects/:project/members` | who's on the board: `[{person, name, role, created_at}]`, its holder (`role` `owner`) first |
+| `POST /projects/:project/members` | `{person}` → 201 them on the board, a `member`: its holder's or the owner's, never an agent's (403). 404 for someone who isn't a person here; 409 for someone removed |
+| `DELETE /projects/:project/members/:person` | 204: the same. 400 for its holder, who stays. Removing a person from the orrery takes them off every board, and what they held goes to the owner |
+
+With more than one person, every write is checked against the permissions table's `member` column (`GET /permissions`): anything else is the owner's and their sessions' alone (403), and on a board the person isn't on it answers 404, as if the board weren't there. A route the table doesn't name is refused. A session naming nobody gets a 409 for all but commenting and reporting what it's doing. Reads stay open for now. A session hears only the boards its person is on: a signal stream for any other is a 404, one naming nobody is a 409, and `/signals/stream` with `*` or several projects follows only theirs. These are names until login comes, so they keep honest sessions apart and stop nobody else ([Security](/p/orrery/docs/security)).
+
 With more than one person, an agent works only what's assigned to its person (ORR-655). This holds at the store, so every route that writes an issue is held the same way:
 
 - **Starting, editing, closing, moving or deleting** an issue that isn't its person's is a 409 naming who has it, or saying nobody does. An assignee who isn't a person counts as nobody, and `claude` as the owner. Comments stay open to all.
@@ -687,7 +697,7 @@ writes are never refused. A chunk's list marks such an issue `(another session i
 other sessions. Two sessions starting the same issue at once are taken one after the other, so only the first
 gets it.
 
-`GET /permissions` → `{levels, kinds, permissions}` says what each kind of session may do: for each thing (`id`, `area`,
+`GET /permissions` → `{levels, kinds, permissions}` says what each kind of session may do, and each row's `member` what a member and their sessions may on an orrery with more than one person: for each thing (`id`, `area`,
 `action`, `why`, the `routes` that do it), its level for a working session (`session`), the owner's chat (`chat`) and an
 untrusted session (`untrusted`), each `{level, note?}`. A level is `free`, `limited` (free within its note), `asks` (the
 owner's Allow or Send does it), `owned` (saved, but runs only once it's the owner's), `owner` (the owner's alone: a 403,

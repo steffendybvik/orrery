@@ -19,8 +19,8 @@ export async function actorOf(event: H3Event): Promise<Actor> {
 }
 
 /** Whose a request is (ORR-653): the owner's, and their chat's, whatever they send; a session's, the person it names
- * (`Orrery-Person`, from `ORRERY_PERSON`); and an untrusted session's nobody's. Worked out each time from what it sends,
- * so a restart or a `/clear` changes nothing. */
+ * (`Orrery-Person`, from `ORRERY_PERSON`), or a person naming themselves (`Orrery-Actor`); and an untrusted session's
+ * nobody's. Worked out each time from what it sends, so a restart or a `/clear` changes nothing. */
 export async function personOf(event: H3Event): Promise<string | undefined> {
     if (untrustedWrite(event)) return undefined
     const {owner, name} = await actorOf(event)

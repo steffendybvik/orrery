@@ -31,6 +31,7 @@ beforeEach(async () => {
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('sessionName', () => undefined)
     vi.stubGlobal('param', (event: Event, name: string) => event.params[name])
+    vi.stubGlobal('needsBoard', async () => {})
     vi.stubGlobal('readBody', async (event: Event & {body?: unknown}) => event.body)
     vi.stubGlobal('actorOf', async () => ({name: 'claude', owner: false}))
     vi.stubGlobal('created', (_event: Event, value: unknown) => value)

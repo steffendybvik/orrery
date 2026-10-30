@@ -79,22 +79,3 @@ describe('with more than one person', () => {
         expect(await personOf(asking({'orrery-actor': 'skoll', 'orrery-untrusted': 'yes'}))).toBeUndefined()
     })
 })
-
-describe('the guard on changing an issue', () => {
-    it('holds PATCH on one issue and in bulk, and lets the rest by', async () => {
-        vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
-        const asked: string[] = []
-        vi.stubGlobal('needsPerson', async (event: {path: string}) => void asked.push(event.path))
-        vi.stubGlobal('getRequestURL', (event: {path: string}) => new URL(event.path, 'http://o'))
-        const guard = (await import('../server/middleware/person')).default as unknown as (event: {method: string, path: string}) => Promise<void>
-        for (const [method, path] of [
-            ['PATCH', '/api/projects/greenhouse/issues/GRE-1'],
-            ['PATCH', '/api/projects/greenhouse/issues?x=1'],
-            ['POST', '/api/projects/greenhouse/issues/GRE-1/comments'],
-            ['PATCH', '/api/projects/greenhouse/issues/GRE-1/comments/3'],
-            ['GET', '/api/projects/greenhouse/issues/GRE-1'],
-            ['PATCH', '/api/projects/greenhouse'],
-        ]) await guard({method: method!, path: path!})
-        expect(asked).toEqual(['/api/projects/greenhouse/issues/GRE-1', '/api/projects/greenhouse/issues?x=1'])
-    })
-})
