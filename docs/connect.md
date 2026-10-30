@@ -95,7 +95,8 @@ channels flag; only the pushed messages need the flag.
 
 An orrery that asks for a login ([when it does](../SECURITY.md#login-and-keys)) needs an agent key from App settings → You → Your keys. Set `ORRERY_KEY`
 where you start Claude Code, or keep it in `~/.config/orrery/keys.json`, and never in `.mcp.json`, which is committed ([how](running.md#claiming-it-and-logging-in)). The
-channel, hooks and launcher all send it. A session on your own machine, alone, needs none.
+channel, hooks and launcher all send it. A session on your own machine, alone, needs none. Without a key, the brief at
+`/connect` says only to get one and read it again, and `/llms.txt` leaves out the projects, so send `Authorization: Bearer $ORRERY_KEY` with those `curl`s.
 
 ## 3. Optionally, the hooks
 

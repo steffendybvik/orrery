@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {BoltIcon} from '@heroicons/vue/16/solid'
 // Every project's schedules, a card for each project that has any (ScheduleList), in the sidebar's order;
 // `?project=` keeps to one (a project's old Schedules tab comes here that way), shown even with none. New schedule
 // opens the dialog on the project kept to, else the first, and the project is picked there; a card's own makes one on it.
@@ -69,7 +70,7 @@ function newSchedule() {
             @click="editAcross(a)"
         >
           <span class="truncate font-medium text-fg">{{ a.title }}</span>
-          <span class="truncate text-xs text-faint">{{ reach(a) }} · {{ a.on ? describe({on: a.on, on_filter: a.on_filter, timezone: a.timezone ?? localZone()}) : describe({cron: a.cron, timezone: a.timezone ?? localZone()}) }}<template v-if="a.enabled === false"> · paused</template></span>
+          <span class="truncate text-xs text-faint"><BoltIcon v-if="a.on" class="mr-0.5 inline size-3 align-[-2px] text-teal-600 dark:text-teal-400" aria-hidden="true" />{{ reach(a) }} · {{ a.on ? describe({on: a.on, on_filter: a.on_filter, timezone: a.timezone ?? localZone()}) : describe({cron: a.cron, timezone: a.timezone ?? localZone()}) }}<template v-if="a.enabled === false"> · paused</template></span>
         </button>
       </section>
       <ScheduleList v-for="card in cards" :key="card.project.id" :project="card.project" :schedules="card.schedules" />
