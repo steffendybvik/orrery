@@ -29,9 +29,9 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // of the server's error (ORR-591).
 const {open, large, chat, session, project, pinned, failed, chats, lands, start, send, clear, land, fresh, answer, hide, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
-async function decide(message: number, allow: boolean) {
+async function decide(message: number, allow: boolean, anyway = false) {
     answering.value = message
-    await answer(message, allow)
+    await answer(message, allow, anyway)
     answering.value = null
 }
 const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed', expired: 'Expired: not answered in time, or asked again'}
@@ -439,8 +439,12 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
             </li>
           </ul>
           <span v-if="m.move.state === 'asked' && m.move.moved?.length" class="text-xs text-faint">Moved so far: {{ m.move.moved.join(', ') }}</span>
+          <ul v-if="m.move.state === 'asked' && m.move.drifted?.length" class="flex flex-col gap-0.5 text-xs text-amber-700 dark:text-amber-400" data-testid="move-drifted">
+            <li>Changed since it asked:</li>
+            <li v-for="d in m.move.drifted" :key="`${d.issue} ${d.field}`">{{ d.issue }} is now {{ d.field === 'status' ? statusName(d.to) : `assigned to ${d.to ?? 'nobody'}` }} (was {{ d.field === 'status' ? statusName(d.from) : d.from ?? 'nobody' }})</li>
+          </ul>
           <div v-if="m.move.state === 'asked' && !chat!.ended" class="flex gap-2">
-            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true, !!m.move.drifted?.length)">{{ m.move.drifted?.length ? 'Move anyway' : 'Allow' }}</UiButton>
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
           <span v-else class="text-xs" :class="m.move.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.move.state === 'asked' ? 'Not answered' : ANSWERED[m.move.state] }}</span>
