@@ -33,7 +33,8 @@ export const forSessions = (issue: {assignee?: string | null}) => !issue.assigne
 
 /** The issues a session hearing `projects` may start: Todo, or Backlog when there's no Todo, most urgent first (then
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
- * answer, ones blocked by an issue not done yet (ORR-601), and parents (their sub-issues are the work). At most PICK_FROM. */
+ * answer, ones blocked by an issue not done yet (ORR-601), sub-issues of one another session is on (ORR-613), and parents
+ * (their sub-issues are the work). At most PICK_FROM. */
 export async function pickable(projects: string[]): Promise<(IssueRecord & {project: string})[]> {
     const store = useStore()
     const open: (IssueRecord & {project: string})[] = []
@@ -41,6 +42,8 @@ export async function pickable(projects: string[]): Promise<(IssueRecord & {proj
         for (const issue of await store.listIssues(project)) {
             if (issue.proposal || issue.waiting || !forSessions(issue) || isBlocked(issue)) continue
             if (issue.kind !== 'todo' && issue.kind !== 'backlog') continue
+            // A follow-up under an issue a session is on is that session's to start (ORR-611), and the one picking isn't it: it's out of work.
+            if (issue.parent && await store.heldAbove(project, issue.id)) continue
             open.push({...issue, project})
         }
     }

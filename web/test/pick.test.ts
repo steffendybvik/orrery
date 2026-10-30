@@ -14,6 +14,7 @@ let left: {id: string}[]
 let untrusted: boolean
 let chat: boolean
 let due: string[]
+let held: string[]
 let sent: {project: string, session: string, text: string, owner: boolean}[]
 
 const issue = (id: string, kind: string, more: Record<string, unknown> = {}) =>
@@ -31,6 +32,7 @@ beforeEach(async () => {
     untrusted = false
     chat = false
     due = []
+    held = []
     sent = []
     vi.stubGlobal('sessionNow', (id: string) => sessions.find(s => s.id === id))
     vi.stubGlobal('listSessions', () => sessions)
@@ -46,6 +48,7 @@ beforeEach(async () => {
         settings: async () => ({pick_next: on}),
         ownerOf: async () => ({name: 'steffen'}),
         listIssues: async (project: string) => board[project] ?? [],
+        heldAbove: async (_project: string, id: string) => held.includes(id) ? {parent: 'ORR-5', holder: 'builder'} : null,
         workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})),
         waiting: async (_project: string, _ids: string[]) => waiting,
         async busy(project: string, ids: string[]) {
@@ -83,6 +86,13 @@ describe('a session out of work', () => {
         await pick.pickNext('orrery', 'w')
         // ORR-5 is a parent: its sub-issue is the work.
         expect(ids(sent[0]!.text)).toEqual(['ORR-1', 'ORR-6', 'ORR-9'])
+    })
+
+    it("isn't handed a follow-up under an issue another session is on (ORR-613)", async () => {
+        board.orrery = [issue('ORR-1', 'todo', {parent: 'ORR-5'}), issue('ORR-2', 'todo', {parent: 'ORR-5'}), issue('ORR-5', 'started')]
+        held = ['ORR-1']
+        await pick.pickNext('orrery', 'w')
+        expect(ids(sent[0]!.text)).toEqual(['ORR-2'])
     })
 
     it("isn't handed an issue still waiting on another (ORR-601)", async () => {

@@ -117,7 +117,9 @@ until the release ships.
   each only when there are some. A session starting a blocked issue is a 409 naming its blockers, unless the owner
   focused a session on it in the last day. So is a session starting a sub-issue while another session that's there has
   started an issue above it (ORR-611): a follow-up filed under that issue is that session's, until it stops or the
-  issue is done or canceled
+  issue is done or canceled, unless the owner focused this session on it in the last day. A focus aimed at no
+  session, the Todo hand-out and what an issue done unblocks send such a follow-up to that session (ORR-613), and
+  picking leaves it out
 - `notes` may use inline `` `code` `` and `**bold**`
 - `external`: its tasks on the team's tracker, a list of ids (`ENG-1567`) or full URLs; the orrery's
   `tracker` (`PATCH /settings {tracker}`, a task's web address with `{id}` where its id goes) links an id;
@@ -599,8 +601,9 @@ make these calls for it. An untrusted schedule's session (its launcher sets `ORR
 commenting on them, whether or not orrery knows its launch. A chat's session (`ORRERY_CHAT=yes`) sends `Orrery-Chat: yes`
 and `Orrery-Launch: <its chat>` on every call and `chat=yes` on its streams, and is held to what a [chat](#chats) does. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
 to the issue, so the owner's comments on it go to that session. Such a write to an issue another session has
-started (in progress or in review), while that session is still listening, is refused with a 409: starting it, a
-comment or an edit alike, so pick another issue. Closing it (done, canceled) is any session's, and the owner's
+started (in progress or in review), while that session is still listening, is refused with a 409: starting it or
+an edit alike, so pick another issue. A comment isn't (ORR-613): it neither starts nor changes the issue, and it's how
+a reviewer's findings reach the session on it. Closing it (done, canceled) is any session's, and the owner's
 writes are never refused. A chunk's list marks such an issue `(another session is on it: skip it)` for the
 other sessions. Two sessions starting the same issue at once are taken one after the other, so only the first
 gets it.

@@ -37,7 +37,7 @@ Before the code, read the project's docs a task touches (\`GET /api/projects/<pr
 each, \`?q=\` searches them), and fix one when it turns out wrong.
 An issue another session has started is that session's, and so are the sub-issues under it: starting one is a 409
 naming the session, so pick another. Found something to fix in another session's work? Say so in a comment on its
-issue, which that session hears, rather than fixing it yourself.
+issue, which that session hears and which goes through, rather than fixing it yourself.
 When you open a pull request for an issue, link the issue's page (${origin}/p/<project>/issues/<id>) in its
 description, so the owner can jump to it.
 

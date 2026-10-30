@@ -27,8 +27,8 @@ export function workedOn(event: H3Event, issue: {project: string, id: string}) {
     if (session) useStore().workedBy(issue.project, issue.id, currentId(session)).catch(() => {})
 }
 
-/** Refuses a session's (`Orrery-Session`) write to an issue another session is on (`Store.claim`), a comment as much
- * as starting it, so two sessions don't both take it up. The owner's writes never are. */
+/** Refuses a session's (`Orrery-Session`) write to an issue another session is on (`Store.claim`), so two sessions
+ * don't both take it up. The owner's writes never are. */
 export async function claimFor(event: H3Event, project: string, issue: string) {
     const session = sessionHeader(event)
     if (session && !(await actorOf(event)).owner) await useStore().claim(project, issue, undefined, currentId(session))
