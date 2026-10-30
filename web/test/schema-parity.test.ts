@@ -10,11 +10,9 @@ import {COPIED_TABLES} from '../server/utils/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {BASELINE, STEPS} from '../server/utils/migrations/postgres'
 import {Store} from '../server/utils/store'
 
 const url = process.env.TEST_POSTGRES_URL!
-const POSTGRES_STEPS = BASELINE + STEPS.length
 
 /** A table as both databases can describe it: its columns (NOT NULL, default without Postgres's casts), its indexes
  * other than the primary key (columns, unique), and how many CHECKs it has. Column order isn't part of it: an added
