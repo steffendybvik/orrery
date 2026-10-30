@@ -39,6 +39,9 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
+      # A release pull request has its changelog section, as its tag won't publish without one (ORR-742).
+      - if: ${{ github.base_ref == 'main' && !github.event.pull_request.draft }}
+        run: node web/scripts/changelog-section.mjs "$(jq -r .version web/package.json)" > /dev/null
       - run: pnpm install --frozen-lockfile
       # Every test on SQLite, then every unit test again on Postgres: the store's, the schema parity and upgrades, the
       # moves and backups into it. Each keeps its coverage, and the two are counted together, so code only the Postgres
