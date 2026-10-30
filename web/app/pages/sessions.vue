@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {SessionWork} from '#shared/roadmap'
 import {launcherInstall} from '#shared/connect'
-import {TERMINALS} from '#shared/roadmap'
+import {TERMINALS, listable, withoutChannel} from '#shared/roadmap'
 import {areaId, permissionAreas} from '#shared/permissions'
 import type {Heading} from '~/utils/markdown'
 
@@ -30,7 +30,8 @@ const install = launcherInstall(useRequestURL().origin)
 
 // A session that hears several projects spans them (heardBy): it's listed once, on top under Across projects, and in
 // each project it hears that has sessions of its own as a line saying so (`via`).
-const own = (project: string) => (sessions.value[project] ?? []).filter(s => s.project === project)
+const known = (project: string) => (sessions.value[project] ?? []).filter(s => s.project === project)
+const own = (project: string) => known(project).filter(listable)
 const spanning = computed(() => ordered.value.flatMap(p => own(p.id).filter(s => heardBy(s, projects.value).spans)))
 // Each project with sessions of its own.
 const groups = computed(() => ordered.value
@@ -42,6 +43,8 @@ const groups = computed(() => ordered.value
     .filter(g => g.sessions.length))
 // With none, the toolbar says nothing and offers no Message sessions: the empty state below says it once (ORR-555).
 const count = computed(() => spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
+// What takes the place of a session with no channel: a line per project, on what to do about it (ORR-716).
+const unheard = computed(() => ordered.value.map(project => ({project, sessions: withoutChannel(known(project.id))})).filter(u => u.sessions.length))
 
 const router = useRouter()
 type Tab = 'sessions' | 'setup' | 'permissions'
@@ -183,6 +186,9 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     <SessionPermissions v-else-if="tab === 'permissions'" class="min-w-0 max-w-4xl flex-1" />
     <div v-else class="flex min-w-0 max-w-4xl flex-1 flex-col gap-6">
       <LaunchersBehind />
+      <ul v-if="unheard.length" class="flex flex-col gap-1">
+        <li v-for="u in unheard" :key="u.project.id"><NoChannelHint :sessions="u.sessions" :project="u.project.id" :where="`on ${u.project.name}`" /></li>
+      </ul>
       <p v-if="ready && !count" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         No sessions right now.
         <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,

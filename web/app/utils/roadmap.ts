@@ -23,10 +23,10 @@ export function heardBy(session: {project: string, also?: string[]}, projects: {
 }
 
 /** The command that starts a session's window again with the channel: its server in the repo's `.mcp.json`, by the
- * name its channel found, else the orrery's as the Connect page names it (`orrery-<environment>`), keeping the window's name unless it was made up. */
-export function restartCommand(session: {name: string, project: string, server?: string}, environment: string): string {
+ * name its channel found, else the orrery's as the Connect page names it (`orrery-<environment>`), keeping the window's name unless it was made up or there's none, for several windows. */
+export function restartCommand(session: {name?: string, project: string, server?: string}, environment: string): string {
     const server = session.server ?? serverName(environment)
-    return `${madeUpName(session) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${server}`
+    return `${!session.name || madeUpName({name: session.name, project: session.project}) ? '' : `ORRERY_SESSION=${session.name} `}claude --dangerously-load-development-channels server:${server}`
 }
 
 export const PRIORITY_LABEL: Record<string, string> = {P0: 'Urgent', P1: 'High', P2: 'Medium', P3: 'Low', none: 'No priority'}

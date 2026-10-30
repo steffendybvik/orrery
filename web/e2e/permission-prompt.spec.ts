@@ -69,6 +69,8 @@ test('one started by hand says what it wants without the buttons, and × hides i
     await expect(popup).toContainText('Claude needs your permission to use Edit')
     await expect(popup).toContainText('Started in a terminal: answer it there.')
     await expect(popup.getByRole('button', {name: 'Allow'})).toHaveCount(0)
+    // No channel, so no card for its name to link to (ORR-716).
+    await expect(popup.getByRole('link', {name: 'by hand'})).toHaveCount(0)
     await popup.getByRole('button', {name: 'Hide until it asks again'}).click()
     await expect(popup).toBeHidden()
     await request.post('/api/sessions', {data: {id: 'e2e-h', project: 'pantry', event: 'PreToolUse'}})
@@ -77,9 +79,11 @@ test('one started by hand says what it wants without the buttons, and × hides i
     await request.post('/api/sessions', {data: {id: 'e2e-h', project: 'pantry', event: 'SessionEnd'}})
 })
 
-test('says the tool it asks for and what it would do, on the popup and its card', async ({page, request}) => {
+test('says the tool it asks for and what it would do, on the popup and its card', async ({page, request, baseURL}) => {
     const said = (data: Record<string, unknown>) => request.post('/api/sessions', {data: {id: 'e2e-t', project: 'pantry', name: 'tool user', ...data}})
     await page.goto('/sessions')
+    await said({event: 'SessionStart'})
+    const channel = hold(baseURL!, '/api/projects/pantry/signals/stream?session=e2e-t&name=tool%20user&format=text')
     await said({event: 'PreToolUse', tool: {name: 'Bash', detail: 'git push --force origin main'}})
     await said({event: 'Notification', message: 'Claude needs your permission'})
     const popup = page.getByRole('alertdialog', {name: 'tool user needs permission'})
@@ -91,5 +95,6 @@ test('says the tool it asks for and what it would do, on the popup and its card'
     await expect(popup.locator('[data-asking]')).toHaveText('orrery · comment')
     await said({event: 'PreToolUse', tool: {name: 'mcp__orrery__comment'}})
     await expect(popup).toBeHidden()
+    channel.stop()
     await said({event: 'SessionEnd'})
 })

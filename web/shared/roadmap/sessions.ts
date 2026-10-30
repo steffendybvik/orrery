@@ -77,6 +77,13 @@ export interface Session {
     cut_off?: {error?: string, text?: string, at: string}
 }
 
+/** Whether a session goes in a list of sessions (ORR-716): something can be done with it there, as it hears signals, its
+ * channel can stop it, or orrery started it. Any other is known only from its hooks, and has no message box and no Stop. */
+export const listable = (session: Pick<Session, 'listening' | 'reachable' | 'started'>) => session.listening || !!session.reachable || !!session.started
+
+/** The sessions the one-line hint is about (ORR-716): started by hand without the channel, so they can't hear the owner. */
+export const withoutChannel = <T extends Pick<Session, 'listening' | 'started'>>(sessions: T[]) => sessions.filter(s => !s.listening && !s.started)
+
 /** What a session's cut-off says on the page, in a few words (ORR-646). */
 export const cutOffLabel = ({error}: {error?: string}) => ({rate_limit: 'usage limit reached', billing_error: 'billing error'} as Record<string, string>)[error ?? ''] ?? 'cut off by an API error'
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Session, Signal} from '#shared/roadmap'
+import {listable, withoutChannel} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
 // a button to point one at this issue, or one or all at working through this chunk. With nobody listening, when
@@ -15,8 +16,9 @@ const {settings} = useAppSettings()
 const {who} = useOwner()
 const {look} = useStatuses()
 
-const sessions = computed(() => [...all.value[props.project] ?? []].sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
+const sessions = computed(() => (all.value[props.project] ?? []).filter(listable).sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
 const listening = computed(() => sessions.value.filter(s => s.listening))
+const unheard = computed(() => withoutChannel(all.value[props.project] ?? []))
 // Whether a focus sent with nobody listening has a session started for it.
 const {state: launch} = useLaunchState(() => props.project)
 const canStart = computed(() => !listening.value.length && !!byId(props.project)?.starts && !!launch.value?.launchers)
@@ -82,14 +84,12 @@ async function startOn() {
     }
 }
 
-const nameOf = (id?: string) => sessions.value.find(s => s.id === id)?.name ?? 'a session'
+const nameOf = (id?: string) => all.value[props.project]?.find(s => s.id === id)?.name ?? 'a session'
 /** Who a signal was for: a session, every session, one started for it (aimed at `launch-<id>` until it connects),
  * or (a comment aside) the one orrery picks. */
 const aimed = (signal: Signal) => signal.target === '*' || !signal.target && signal.kind === 'comment' ? 'every session'
     : signal.target?.startsWith('launch-') && !sessions.value.some(s => s.id === signal.target) ? 'a new session'
         : signal.target ? nameOf(signal.target) : 'one session'
-const {environment} = useRuntimeConfig().public
-const restart = (session: Session) => restartCommand({name: session.name, project: props.project, server: session.server}, String(environment || 'personal'))
 </script>
 
 <template>
@@ -157,16 +157,12 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
         >
           {{ sending === session.id ? 'Sending…' : 'Focus on this' }}
         </button>
-        <span v-else class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-faint" :title="`${session.name} was started without the orrery channel, so a signal can't reach it`">
-          can't hear signals: restart it with
-          <CopyButton :text="restart(session)" label="Copy command" />
-        </span>
       </li>
     </ul>
     <p v-else-if="canStart" class="text-[13px] leading-relaxed text-muted">
       No session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has orrery start one, in its repo, through the launcher.
     </p>
-    <p v-else class="text-[13px] leading-relaxed text-muted">
+    <p v-else-if="!unheard.length" class="text-[13px] leading-relaxed text-muted">
       No session on {{ project }} has said hello yet.
       <NuxtLink :to="`/connect?project=${project}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
       to point it at issues from here.
@@ -175,6 +171,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
         <NuxtLink to="/sessions#starts" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">how to install it</NuxtLink>.
       </template>
     </p>
+    <NoChannelHint v-if="unheard.length" :sessions="unheard" :project="project" where="here" />
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
 
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">
