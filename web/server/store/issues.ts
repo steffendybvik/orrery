@@ -1,6 +1,6 @@
 // Issues: listing, reading, making and changing one.
 import type {Kind, Signal} from '#shared/roadmap'
-import {CLOSED, isBlocked, issueRef, linkRef, parseLinkRef} from '#shared/roadmap'
+import {CLOSED, githubIssueOf, githubRepo, isBlocked, issueRef, linkRef, parseLinkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
@@ -26,6 +26,7 @@ export abstract class IssueStore extends ClaimStore {
         const statuses = filter.status ? await this.statusIds(filter.status) : []
         const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? await this.statusIds(filter.column) : []
         const assignee = filter.assignee && filter.assignee !== 'none' ? await this.assigneeOf(filter.assignee) : undefined
+        const [github] = filter.github_issue ? (await this.githubIssuesOf(project, JSON.stringify([filter.github_issue])) ?? []).map(g => g.toLowerCase()) : []
         const handle = await this.handle()
         return records.map(r => ({...r, ref: issueRef(handle, r.id)})).filter(r =>
             (!filter.status || statuses.includes(r.status))
@@ -34,6 +35,7 @@ export abstract class IssueStore extends ClaimStore {
             && (!filter.assignee || (filter.assignee === 'none' ? !r.assignee : r.assignee === assignee))
             && (!filter.label || r.labels.includes(filter.label))
             && (!filter.external || r.external.includes(filter.external))
+            && (!github || r.github_issues.some(g => g.toLowerCase() === github))
             && (!filter.chunk || (filter.chunk === 'none' ? !r.chunk : r.chunk === filter.chunk))
             && (!filter.release || (filter.release === 'none' ? !r.release : r.release === filter.release))
             && (!filter.parent || (filter.parent === 'none' ? !r.parent : r.parent === filter.parent))
@@ -62,19 +64,20 @@ export abstract class IssueStore extends ClaimStore {
         }
         if (chunk) await this.chunkRow(project, chunk)
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
+        const github = await this.githubIssuesOf(project, input.github_issues)
         const depends = await this.linksFrom(project, null, input.depends_on)
         if (parent && depends?.some(l => l.project === project && l.id === parent)) throw badRequest(`${parent} is this issue's parent, so it can't depend on it`)
 
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
-            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, notes, proposal, choices, parent, chunk, ships_in, position,
-                                          created_by, session_name, owned, created_at, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, chunk, ships_in,
+                                          position, created_by, session_name, owned, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 project, id, String(input.title).trim(), await this.resolveStatus(input.status, input.plan), nullable(input.priority),
                 // A proposal waits on the owner, so it's theirs, whoever the request names.
                 input.proposal === 'pending' ? (await this.ownerId()) : nullable(await this.assigneeOf(input.assignee)),
-                JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
+                JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), JSON.stringify(github ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
                 parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now)
             await this.record(project, id, actor, [['created', null, null]])
             if (depends) await this.setLinks(project, id, depends, actor)
@@ -129,6 +132,7 @@ export abstract class IssueStore extends ClaimStore {
         const assignee = input.proposal === 'pending' ? (await this.ownerId()) : await this.assigneeOf(input.assignee)
         const labels = input.labels === undefined ? undefined : JSON.stringify(input.labels ?? [])
         const external = input.external === undefined ? undefined : JSON.stringify(tasksOf(input.external))
+        const githubIssues = input.github_issues === undefined ? undefined : JSON.stringify(await this.githubIssuesOf(project, input.github_issues) ?? [])
         const moved = input.parent !== undefined && parent !== row.parent
         const depends = await this.linksFrom(project, id, input.depends_on)
         // The projects whose boards show this issue's links: theirs change with its status, as its own does.
@@ -141,6 +145,7 @@ export abstract class IssueStore extends ClaimStore {
                 ['assignee', row.assignee, assignee],
                 ['labels', row.labels, labels],
                 ['external', row.external, external],
+                ['github_issues', row.github_issues, githubIssues],
                 ['notes', row.notes, input.notes],
                 ['proposal', row.proposal, input.proposal],
                 // A sub-issue is in its parent's chunk, so a new parent says it all.
@@ -154,6 +159,7 @@ export abstract class IssueStore extends ClaimStore {
                 assignee,
                 labels,
                 external,
+                github_issues: githubIssues,
                 notes: input.notes,
                 proposal: input.proposal,
                 choices: input.choices === undefined ? undefined : String(input.choices ?? '[]'),
@@ -171,6 +177,20 @@ export abstract class IssueStore extends ClaimStore {
         for (const other of linked) if (other !== project) this.changed(other)
         await this.urgent(project, row, await this.issueRow(project, id), actor)
         return await this.issue(project, id)
+    }
+
+    /** The GitHub issues sent (`parseGithubIssues`'s JSON), each as kept, `owner/name#523`, once (ORR-635): a bare
+     * number is on the project's repo, refused when that isn't on GitHub. Undefined when the write leaves them be. */
+    protected async githubIssuesOf(project: string, sent: Input[string]): Promise<string[] | undefined> {
+        if (sent === undefined || sent === null) return sent === null ? [] : undefined
+        const repo = githubRepo((await this.projectRow(project)).repo)
+        const kept = (JSON.parse(String(sent)) as string[]).map(issue => githubIssueOf(issue, repo) ?? (() => {
+            throw badRequest(/^#?\d+$/.test(issue)
+                ? `${project}'s repo isn't on GitHub, so say whose issue ${issue} is: owner/name${issue.replace(/^#?/, '#')}`
+                : `"${issue}" isn't a GitHub issue: send its number on ${repo ?? "the project's repo"}, owner/name#523 or its link`)
+        })())
+        const seen = new Set<string>()
+        return kept.filter(issue => !seen.has(issue.toLowerCase()) && !!seen.add(issue.toLowerCase()))
     }
 
     /** The issues `depends_on` names, checked (ORR-601): each there (an id it had before finds it), in this project or

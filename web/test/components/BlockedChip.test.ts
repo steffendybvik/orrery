@@ -7,7 +7,7 @@ import IssueRow from '~/components/IssueRow.vue'
 
 // The Blocked chip (ORR-601): on a row while the issue waits on others not closed yet, naming them on hover, and gone
 // once none is left.
-const issue = (more: Record<string, unknown> = {}) => ({id: 'GRE-2', title: 'Fill the jars', aliases: [], labels: [], tasks: [], column: 'todo', status: 'todo', kind: 'todo', kinds: {done: 0}, ...more}) as unknown as Issue
+const issue = (more: Record<string, unknown> = {}) => ({id: 'GRE-2', title: 'Fill the jars', aliases: [], labels: [], github_issues: [], tasks: [], column: 'todo', status: 'todo', kind: 'todo', kinds: {done: 0}, ...more}) as unknown as Issue
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {

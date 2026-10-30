@@ -266,7 +266,7 @@ describe("the channel's tools", () => {
         expect((await call('edit_issue', {id: 'GRE-4', priority: 'P0'})).content[0]!.text).toMatch(/^Now GRE-4/)
         expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/greenhouse/issues/GRE-4', method: 'PATCH', body: {priority: 'P0'}})
         const edit = toolsFor(['greenhouse'], {chat: true}).find((t: {name: string}) => t.name === 'edit_issue')
-        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on'])
+        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on'])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('edit_issue')
     })
 
