@@ -48,6 +48,14 @@ const ROUTES = (): Route[] => [
     {path: `/p/atlas/issues/${made.issue}`, heading: 'Chart the fjords', sidebar: 'Issues', palette: 'Chart the fjords'},
 ]
 
+// Addresses that only go on to a page, from old links and bookmarks. test/page-specs.test.ts holds every page to these lists.
+const REDIRECTS = [
+    {from: '/', to: /\/mine$/},
+    {from: '/now', to: /\/mine$/},
+    {from: '/urgent', to: /\/mine$/},
+    {from: '/p/atlas/schedules', to: /\/schedules\?project=atlas$/},
+]
+
 // What the page walk already finds, for ORR-724 to fix: each comes off this list as it's fixed, and until then a new
 // case of one of these isn't caught. Any other rule fails the walk.
 const A11Y_KNOWN = ['color-contrast', 'label-content-name-mismatch', 'link-in-text-block', 'nested-interactive', 'aria-prohibited-attr']
@@ -109,6 +117,15 @@ test('every page renders its heading, with no page or console error', async ({pa
             await expect(heading(page, route.heading)).toBeVisible()
             await expect(page.getByRole('heading', {name: /^Nothing at /})).toHaveCount(0)
             expect(errors, route.path).toEqual([])
+        })
+    }
+})
+
+test('an old address goes on to the page that took it over', async ({page}) => {
+    for (const {from, to} of REDIRECTS) {
+        await test.step(from, async () => {
+            await page.goto(from)
+            await expect(page).toHaveURL(to)
         })
     }
 })
