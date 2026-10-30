@@ -65,7 +65,8 @@ beforeEach(async () => {
         return rest[path]?.() ?? json({message: 'Not Found'}, 404)
     }
     secrets = new Secrets(store, () => 'a long random test key', () => {}, send as typeof fetch)
-    pulls = new Pulls(store, (url, project, headers, init) => secrets.own(url, 'GITHUB_TOKEN', project, headers, init), () => now)
+    pulls = new Pulls(store, (url, project, headers, init) => secrets.own(url, 'GITHUB_TOKEN', project, headers, init), () => now,
+        project => secrets.ownProblem('https://api.github.com/graphql', 'GITHUB_TOKEN', project))
     poll = new PullPoll(store, pulls, project => secrets.ownsFor('https://api.github.com/graphql', 'GITHUB_TOKEN', project),
         change => changes.push(change), entry => notes.push(entry), () => now)
 })
@@ -408,6 +409,23 @@ describe('the pull request poll', () => {
         poll.secretsChanged()
         expect(await poll.pollNow()).toEqual(new Map())
         expect(asked).toHaveLength(2)
+    })
+
+    it("says why a token that's set isn't used, and polls at once when one that works is saved (ORR-632)", async () => {
+        await secrets.set('GITHUB_TOKEN', {value: TOKEN, hosts: ['github.com']}, me)
+        await poll.tick()
+        expect(asked.every(a => !a.auth)).toBe(true)
+        const [repo] = (await pulls.all()).repos
+        expect(repo).toMatchObject({token: false, token_problem: expect.stringContaining('may only go to github.com: set it again with api.github.com')})
+        expect(repo!.error).toMatch(/^GitHub has no public you\/shop, and the GITHUB_TOKEN secret is set, but may only go to github\.com/)
+        expect((await pulls.forIssue('shop', 'SHO-1')).token_problem).toContain('may only go to github.com')
+        asked = []
+        now += 5_000
+        await withToken()
+        await poll.secretsChanged()
+        expect(asked.map(a => [a.url.replace('https://api.github.com', ''), a.auth])).toEqual([['/graphql', `Bearer ${TOKEN}`]])
+        expect((await pulls.all()).repos[0]).toMatchObject({token: true})
+        expect((await pulls.all()).repos[0]!.token_problem).toBeUndefined()
     })
 
     it('reads past the first hundred open, up to three hundred, saying when it stopped short (ORR-615)', async () => {

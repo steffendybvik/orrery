@@ -114,6 +114,18 @@ describe('secrets', () => {
         expect(status).toBe(503)
         expect(sent).toEqual([])
     })
+
+    it("says why a secret that's set wouldn't go with orrery's own request, and nothing when it would (ORR-632)", async () => {
+        const problem = (project = 'greenhouse') => secrets.ownProblem('https://api.stripe.com/v1', 'STRIPE_KEY', project)
+        expect(await problem()).toBeUndefined()
+        await secrets.set('STRIPE_KEY', {value: VALUE, hosts: ['stripe.com']}, me)
+        expect(await problem()).toBe('the STRIPE_KEY secret is set, but may only go to stripe.com: set it again with api.stripe.com among its hosts')
+        await secrets.set('STRIPE_KEY', {value: VALUE, hosts: ['api.stripe.com'], projects: ['pantry']}, me)
+        expect(await problem()).toBe('the STRIPE_KEY secret is set, but not for greenhouse: set it again with greenhouse among its projects')
+        expect(await problem('pantry')).toBeUndefined()
+        key = 'another key'
+        expect(await problem('pantry')).toBe("the STRIPE_KEY secret is set, but this orrery's key can't open it: set it again")
+    })
 })
 
 describe('egress', () => {

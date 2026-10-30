@@ -53,6 +53,8 @@ export interface IssuePulls {
     error?: string
     /** Whether a GITHUB_TOKEN secret went with the request (one that may go to api.github.com, for this project). */
     token: boolean
+    /** Why a GITHUB_TOKEN secret that's set didn't go (ORR-632): its hosts or projects leave this out, or it can't be opened. */
+    token_problem?: string
     checked_at: string | null
 }
 
@@ -90,5 +92,5 @@ export interface AllPulls {
     /** `open` and `needs` are the repo's, on every page. `cut`: GitHub had more open than orrery reads (300), and
      * this many were read. `held`: why Poll now didn't ask GitHub for the repo (a rate limit, a refused token, or
      * polled without one a moment ago). */
-    repos: {repo: string, projects: string[], token: boolean, checked_at: string | null, open: number, needs: number, cut?: number, error?: string, held?: string}[]
+    repos: {repo: string, projects: string[], token: boolean, token_problem?: string, checked_at: string | null, open: number, needs: number, cut?: number, error?: string, held?: string}[]
 }

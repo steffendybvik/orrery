@@ -35,6 +35,11 @@ function open(secret?: Secret) {
     Object.assign(form, {name: secret?.name ?? '', value: '', hosts: secret?.hosts.join(', ') ?? '', projects: [...secret?.projects ?? []]})
 }
 const list = (text: string) => text.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
+// orrery reads pull requests with a GITHUB_TOKEN only when it may go to api.github.com (ORR-632): one saved without that
+// host would be ignored, so the form says so while the value is still in it, and adds the host on a click.
+const GITHUB_HOST = 'api.github.com'
+const githubUnused = computed(() => form.name.trim().toUpperCase() === 'GITHUB_TOKEN' && !list(form.hosts).includes(GITHUB_HOST))
+const addGithubHost = () => form.hosts = [...list(form.hosts), GITHUB_HOST].join(', ')
 async function save() {
     const name = form.name.trim().toUpperCase()
     if (await call(name, 'PUT', {value: form.value, hosts: list(form.hosts), projects: form.projects.length ? form.projects : null})) {
@@ -122,6 +127,10 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
         >
       </div>
       <input v-model="form.hosts" placeholder="Hosts it may go to: api.example.com, …" aria-label="Hosts" autocomplete="off" :class="[input, 'w-full font-mono']">
+      <p v-if="githubUnused" class="flex flex-wrap items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+        <span>orrery reads pull requests with a GITHUB_TOKEN only when it may go to <span class="font-mono">{{ GITHUB_HOST }}</span>, so without it this one won't be used there.</span>
+        <UiButton size="xs" @click="addGithubHost">Add {{ GITHUB_HOST }}</UiButton>
+      </p>
       <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
         For
         <button

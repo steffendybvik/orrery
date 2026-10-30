@@ -266,6 +266,24 @@ export class Secrets {
         }
     }
 
+    /** Why a secret `name` that's set wouldn't go to `url` for `project` (ORR-632): its hosts or projects leave them out,
+     * or this orrery's key can't open it. Undefined when it would go, or there's none to send. */
+    async ownProblem(url: string, name: string, project: string): Promise<string | undefined> {
+        const row = await this.db.get<SecretRow>('SELECT * FROM secrets WHERE name = ?', name)
+        const {host, protocol} = new URL(url)
+        if (!row || protocol !== 'https:') return undefined
+        const hosts = JSON.parse(row.hosts) as string[]
+        if (!hosts.includes(host)) return `the ${name} secret is set, but may only go to ${hosts.join(', ')}: set it again with ${host} among its hosts`
+        const projects = row.projects ? JSON.parse(row.projects) as string[] : null
+        if (projects && !projects.includes(project)) return `the ${name} secret is set, but not for ${project}: set it again with ${project} among its projects`
+        try {
+            this.open(row)
+            return undefined
+        } catch {
+            return `the ${name} secret is set, but this orrery's key can't open it: set it again`
+        }
+    }
+
     /** Whether `own` would send the secret `name` to `url` for `project`, asking nothing. */
     async ownsFor(url: string, name: string, project: string): Promise<boolean> {
         return !!await this.ownValue(new URL(url), name, project)

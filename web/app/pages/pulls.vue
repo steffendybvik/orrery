@@ -93,6 +93,7 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
             <span class="w-full text-[11px] text-faint">
               <template v-if="card.error">not read</template>
               <template v-else-if="card.token">read with the GITHUB_TOKEN secret{{ card.checked_at ? `, ${ago(card.checked_at)}` : '' }}</template>
+              <template v-else-if="card.token_problem">read without a token, so only the list: <span class="text-amber-700 dark:text-amber-400">{{ card.token_problem }}</span></template>
               <template v-else>read without a token, so only the list: set a GITHUB_TOKEN secret for api.github.com to see where each stands</template>
               <template v-if="card.cut"> · <span class="text-amber-700 dark:text-amber-400">only the first {{ card.cut }} read: GitHub has more open</span></template>
               <template v-if="card.held"> · <span class="text-amber-700 dark:text-amber-400">not polled now: {{ card.held }}</span></template>
