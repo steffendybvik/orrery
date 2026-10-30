@@ -198,6 +198,48 @@ describe('images', () => {
     })
 })
 
+describe('artifacts (ORR-677)', () => {
+    const html = '<div class="p-4">Hello</div><script>1</script>'
+
+    it('are docs of their own kind, with no Markdown summary, in the list and searched like any', async () => {
+        expect((await store.createDoc('greenhouse', {title: 'Plain'})).kind).toBe('markdown')
+        const made = await store.createDoc('greenhouse', {title: 'Speed', body: html, kind: 'artifact'})
+        expect(made).toMatchObject({kind: 'artifact', summary: '', body: html})
+        expect((await store.listDocs('greenhouse')).find(d => d.id === 'speed')).toMatchObject({kind: 'artifact', summary: ''})
+        expect((await store.listDocs('greenhouse', {q: 'hello'})).map(d => d.id)).toEqual(['speed'])
+        expect((await failure(() => store.createDoc('greenhouse', {title: 'Odd', kind: 'pdf'}))).status).toBe(400)
+    })
+
+    it('stay what they were made as', async () => {
+        await store.createDoc('greenhouse', {id: 'speed', title: 'Speed', body: html, kind: 'artifact'})
+        const {doc} = await store.putDoc('greenhouse', 'speed', {title: 'Speed', body: '<p>New</p>'})
+        expect(doc).toMatchObject({kind: 'artifact', body: '<p>New</p>'})
+        expect((await store.putDoc('greenhouse', 'speed', {title: 'Speed', body: '<p>Newer</p>', kind: 'artifact'})).doc.body).toBe('<p>Newer</p>')
+        expect((await failure(() => store.updateDoc('greenhouse', 'speed', {kind: 'markdown'}))).status).toBe(400)
+        expect((await store.putDoc('greenhouse', 'made-by-put', {title: 'Put', kind: 'artifact'})).doc.kind).toBe('artifact')
+    })
+
+    it('keep their history, and come back as artifacts', async () => {
+        await store.createDoc('greenhouse', {id: 'speed', title: 'Speed', body: html, kind: 'artifact', section: 'Charts'})
+        await store.updateDoc('greenhouse', 'speed', {body: '<p>Two</p>'})
+        const [two, one] = await store.docRevisions('greenhouse', 'speed')
+        expect(two).toMatchObject({kind: 'artifact'})
+        expect((await store.restoreDoc('greenhouse', 'speed', one!.id)).doc).toMatchObject({kind: 'artifact', body: html})
+        await store.deleteDoc('greenhouse', 'speed')
+        const [gone] = await store.deletedDocs('greenhouse')
+        expect(gone).toMatchObject({kind: 'artifact', summary: ''})
+        expect((await store.restoreDoc('greenhouse', 'speed', gone!.revision)).doc).toMatchObject({kind: 'artifact', section: 'Charts', body: html})
+    })
+
+    it("won't restore a revision of another kind over a doc", async () => {
+        await store.createDoc('greenhouse', {id: 'speed', title: 'Speed', body: 'text'})
+        const [markdown] = await store.docRevisions('greenhouse', 'speed')
+        await store.deleteDoc('greenhouse', 'speed')
+        await store.createDoc('greenhouse', {id: 'speed', title: 'Speed', body: html, kind: 'artifact'})
+        expect((await failure(() => store.restoreDoc('greenhouse', 'speed', markdown!.id))).status).toBe(409)
+    })
+})
+
 describe("a doc's past (ORR-675)", () => {
     const owner = {name: 'skoll', owner: true}
     const session = {name: 'claude', owner: false, session: 'orrery · Høne'}

@@ -216,6 +216,14 @@ function upgradedSqlite(step: number, rows: string) {
 
 // SQLite's twins of the steps above that had no test on either database.
 describe('upgrading SQLite with data in it', () => {
+    it("keeps the docs there were as Markdown, their revisions too (ORR-677)", async () => {
+        const store = upgradedSqlite(68, `INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'agent', 'x', 'x');
+            INSERT INTO docs (project, id, title, body, position, created_by, created_at, updated_at) VALUES ('greenhouse', 'first', 'First', 'a', 0, 'agent', 'x', 'x');
+            INSERT INTO doc_revisions (project, doc, title, body, created_by, created_at) VALUES ('greenhouse', 'first', 'First', 'a', 'agent', 'x');`)
+        expect(await store.doc('greenhouse', 'first')).toMatchObject({kind: 'markdown', summary: 'a'})
+        expect((await store.docRevisions('greenhouse', 'first'))[0]).toMatchObject({kind: 'markdown'})
+    })
+
     it("starts each doc's history from its text, and marks no release shipped before (ORR-675)", async () => {
         await expectDocHistoryStarted(upgradedSqlite(DOC_REVISIONS_STEP, DOCS_BEFORE_REVISIONS))
     })

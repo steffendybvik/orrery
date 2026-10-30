@@ -131,7 +131,8 @@ watch(() => [route.params.project, route.params.doc], () => {
     resetUploads()
 })
 
-const rendered = computed(() => doc.value ? renderMarkdown(doc.value.body, doc.value.title, before.value?.body) : null)
+const isArtifact = computed(() => doc.value?.kind === 'artifact')
+const rendered = computed(() => doc.value && !isArtifact.value ? renderMarkdown(doc.value.body, doc.value.title, before.value?.body) : null)
 const headings = computed(() => rendered.value?.headings ?? [])
 const scroller = ref<HTMLElement | null>(null)
 const {size} = useDocSize()
@@ -158,7 +159,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
   <DocsNav :project="project" />
   <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
     <div v-if="doc && !missing" :key="doc.id" class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8 sm:py-12">
-    <article class="min-w-0 max-w-3xl flex-1">
+    <article class="min-w-0 flex-1" :class="!isArtifact && 'max-w-3xl'">
       <header class="mb-8 flex flex-col gap-3 border-b border-line pb-6">
         <div class="flex items-start gap-3">
           <input
@@ -198,7 +199,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
           <span>· updated {{ ago(doc.updated_at) }}</span>
           <span v-if="doc.protected" class="flex items-center gap-1" title="Only the owner can delete it">· protected</span>
           <span class="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
-            <SegmentedControl v-model="size" :options="sizes" class="[&_[role=radio]]:px-2 [&_[role=radio]]:py-0.5" title="Text size" />
+            <SegmentedControl v-if="!isArtifact" v-model="size" :options="sizes" class="[&_[role=radio]]:px-2 [&_[role=radio]]:py-0.5" title="Text size" />
             <span class="whitespace-nowrap font-mono">{{ doc.id }}</span>
             <CopyButton :text="fullId('doc', doc.id, project.uid)" label="Copy id" name="this doc's id" />
             <CopyButton :text="address" label="Copy URL" name="this doc's URL" />
@@ -211,7 +212,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
       <section
           v-if="editing"
           class="relative flex flex-col gap-2 rounded-xl"
-          v-on="drop"
+          v-on="isArtifact ? {} : drop"
           @keydown.esc.stop.prevent="editing = false"
       >
         <ImageDropOverlay v-if="over" />
@@ -222,7 +223,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
             ref="bodyInput"
             v-model="body"
             aria-label="Text"
-            placeholder="Write it in Markdown (paste or drop an image)"
+            :placeholder="isArtifact ? 'Write it in HTML, with Tailwind classes' : 'Write it in Markdown (paste or drop an image)'"
             rows="20"
             class="field-sizing-content min-h-80 w-full resize-y rounded-xl bg-well px-4 py-3 font-mono text-[13px] leading-6 text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none"
             :disabled="saving"
@@ -230,11 +231,11 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
             @keydown.ctrl.enter.prevent="save"
         />
         <div class="flex items-center justify-end gap-2">
-          <ImageButton @picked="upload" />
+          <ImageButton v-if="!isArtifact" @picked="upload" />
           <span v-if="saveFailed" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</span>
           <span v-else-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
           <span v-else-if="uploadError" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
-          <span v-else class="mr-auto text-xs text-faint">Markdown</span>
+          <span v-else class="mr-auto text-xs text-faint">{{ isArtifact ? 'HTML' : 'Markdown' }}</span>
           <UiButton :disabled="saving" @click="editing = false">Cancel <KeyHint>esc</KeyHint></UiButton>
           <UiButton variant="primary" :disabled="saving || !!uploading || !title.trim()" @click="save">
             {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
@@ -242,6 +243,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
         </div>
       </section>
       <DocHistory v-else-if="history" :project="doc.project" :doc="doc.id" :updated-at="doc.updated_at" @restored="restored" />
+      <ArtifactFrame v-else-if="isArtifact" :project="doc.project" :doc="doc.id" :version="doc.updated_at" />
       <MarkdownView v-else :source="doc.body" :title="doc.title" :before="before?.body" :data-size="size" />
       <p class="mt-12 rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PUT /api/projects/{{ doc.project }}/docs/{{ doc.id }}</p>
     </article>

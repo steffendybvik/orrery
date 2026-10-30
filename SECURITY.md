@@ -243,6 +243,21 @@ machine**, as anything in a repo's `.mcp.json` would. The bootstrap holds to thi
 
 A repo connected the older way runs a checkout's scripts, and fetches nothing.
 
+## Artifacts
+
+An artifact is a doc whose text is HTML (ORR-677), which agents write freely, and they read text from outside. So it never
+runs as part of orrery's page, where it could do anything you can, such as press Allow on a session's prompt or use a
+secret. It's drawn only in a frame with `sandbox="allow-scripts"`, and served with a matching `Content-Security-Policy`, so
+opening its address in a tab is locked down too. `sandbox` gives it no origin, and the policy lets no request leave it.
+
+**It can't** call orrery's API, read the page around it, use cookies or storage, make a network request, open a popup,
+submit a form, or move the top tab. It has none of your data to send, only what its author put in it.
+
+**It can** run its own scripts and show anything, including a button that looks like one of orrery's, so don't take
+what it shows as orrery speaking. It can navigate its own frame, or itself if opened in its own tab, which can load another
+site's page there, though a link it shows has nothing of yours to carry. An endless loop can slow the tab, since a
+sandboxed frame usually shares its thread: leave the page.
+
 ## The browser can't be used against it
 
 A website open in your browser can't write to orrery: a write from another site's page (its `Origin`)
