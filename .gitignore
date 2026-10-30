@@ -12,6 +12,8 @@ dist
 *.log
 .DS_Store
 coverage
+vitest-results.json
+e2e-results.json
 .vitest-reports
 .idea
 

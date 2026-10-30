@@ -13,7 +13,7 @@ export default defineConfig({
     // so it runs first, as a Playwright project the rest depend on; each of them then makes an orrery project of its own.
     workers: 1,
     retries: process.env.CI ? 1 : 0,
-    reporter: process.env.CI ? [['list'], ['html', {open: 'never'}]] : 'list',
+    reporter: process.env.CI ? [['list'], ['html', {open: 'never'}], ['json', {outputFile: 'e2e-results.json'}]] : 'list',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure'},
     projects: [
         {name: 'first-run', testMatch: 'first-run.spec.ts', use: devices['Desktop Chrome']},
