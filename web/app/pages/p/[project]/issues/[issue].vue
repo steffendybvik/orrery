@@ -125,6 +125,13 @@ function editNotes() {
     editingNotes.value = true
     nextTick(() => notesInput.value?.focus())
 }
+/** A double-click on the text opens the editor. A link, picture or button keeps its own click, and a double-click that
+ * dragged out more than a word was selecting. */
+function editNotesFromText(event: MouseEvent) {
+    if ((event.target as HTMLElement).closest('a, button, img, input')) return
+    if (/\s/.test(getSelection()?.toString().trim() ?? '')) return
+    editNotes()
+}
 async function saveNotes() {
     if (uploading.value) return
     const next = notes.value.trim()
@@ -301,7 +308,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               class="absolute -top-1 right-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               @click="editNotes"
           >Edit</UiButton>
-          <MarkdownView v-if="issueNotes" :source="issueNotes" />
+          <MarkdownView v-if="issueNotes" :source="issueNotes" @dblclick="editNotesFromText" />
           <button v-else-if="issueNotes !== undefined" type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No description. Add one</button>
         </section>
 
