@@ -231,6 +231,44 @@ export abstract class IssueStore extends ClaimStore {
         return await this.issue(project, id)
     }
 
+    /** A person taking up an issue themselves (ORR-657), or an agent its person's. See the route for who may. */
+    async claimIssue(project: string, id: string, actor = AGENT): Promise<IssueDetail> {
+        id = await this.issueId(project, id)
+        const row = await this.issueRow(project, id)
+        const rails = await this.railsFor(actor)
+        const person = actor.owner ? await this.ownerId() : actor.person ?? (rails ? rails.person : await this.ownerId())
+        const holder = await this.holderOf(row.assignee)
+        // Only the owner takes one over, and only a person assigns themselves what's nobody's.
+        if (rails && (!person || holder !== person) && !(actor.person && !holder)) await this.mustHold(rails, id, row.assignee, 'take it up')
+        const assignee = holder === person ? row.assignee : person
+        await this.db.transaction(async () => {
+            const {changes} = await this.run(`UPDATE issues SET assignee = ?, claimed_by = ?, claimed_at = ?, claimed_session = NULL WHERE project = ? AND id = ?${actor.owner ? '' : " AND coalesce(assignee, '') = ?"}`,
+                assignee ?? null, person ?? null, stamp(), project, id, ...actor.owner ? [] : [row.assignee ?? ''])
+            if (!Number(changes)) throw conflict(`${id} has just been reassigned; read it again`)
+            await this.record(project, id, actor, [['assignee', row.assignee, assignee], ['claim', row.claimed_by, person ?? null]])
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        return await this.issue(project, id)
+    }
+
+    /** Lets go of a claim, which leaves the issue assigned: its holder's, or the owner's. */
+    async releaseIssue(project: string, id: string, actor = AGENT): Promise<IssueDetail> {
+        id = await this.issueId(project, id)
+        const row = await this.issueRow(project, id)
+        if (!row.claimed_by) return await this.issue(project, id)
+        const rails = await this.railsFor(actor)
+        const person = actor.owner ? await this.ownerId() : actor.person ?? rails?.person
+        if (rails && person !== row.claimed_by) throw conflict(`${id} is held by ${row.claimed_by}, so only they or the owner can let it go`)
+        await this.db.transaction(async () => {
+            await this.update('issues', 'project = ? AND id = ?', [project, id], {claimed_by: null, claimed_at: null, claimed_session: null})
+            await this.record(project, id, actor, [['claim', row.claimed_by, null]])
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        return await this.issue(project, id)
+    }
+
     /** The GitHub issues sent (`parseGithubIssues`'s JSON), each as kept, `owner/name#523`, once (ORR-635): a bare
      * number is on the project's repo, refused when that isn't on GitHub. Undefined when the write leaves them be. */
     protected async githubIssuesOf(project: string, sent: Input[string]): Promise<string[] | undefined> {

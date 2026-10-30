@@ -133,6 +133,8 @@ export interface Issue {
     session_name?: string
     /** The person who has taken it up (ORR-655), on an orrery with more than one person. */
     claimed_by?: string
+    /** When they did. */
+    claimed_at?: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
     /** The issues it builds on (ORR-601), as `linkRef`s: work on it waits until each is done. Only with some. */
@@ -381,7 +383,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
+export type ActivityField = 'claim' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */

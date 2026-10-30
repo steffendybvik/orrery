@@ -4,6 +4,7 @@
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
+const {shared} = usePeople()
 const {of} = useSchedules()
 const project = computed(() => byId(route.params.project as string))
 
@@ -205,6 +206,8 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
           <p v-if="iconFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ iconFailed }}</p>
         </IconPicker>
       </section>
+
+      <BoardMembers v-if="shared" :project="project.id" />
 
       <section id="export" class="flex flex-col gap-3 border-t border-line pt-8">
         <div>

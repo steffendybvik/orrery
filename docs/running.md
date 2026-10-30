@@ -244,9 +244,11 @@ Claude Code and the launcher, or, on several servers, add it to `~/.config/orrer
 `{"https://orrery.example": "orrery_agent_…"}`. `ORRERY_KEY` goes to any server that machine talks to, so use the file with more than one.
 Never commit a key in `.mcp.json`. A person key won't work there: the channel refuses to start with one.
 
-**Other people.** Claim it first, then add them (`POST /api/people`, refused before that unless `ORRERY_AUTH=off`) and put them on a board
-(`POST /api/projects/<project>/members`). Then either invite them through a login provider (`POST /api/invites`, a link good once and for a week), or, with
+**Other people.** Claim it first, then add them (App settings → This orrery → People, or `POST /api/people`, refused before that unless `ORRERY_AUTH=off`) and put them on a board
+(its Settings → Members, or `POST /api/projects/<project>/members`). Then either invite them through a login provider (`POST /api/invites`, a link good once and for a week), or, with
 no provider, give them a person key (`POST /api/keys` with `kind: "person"`, `name` and `person`). To try people out on one machine with no logins, start orrery with `ORRERY_AUTH=off`, loopback only.
+
+**With more than one person,** an issue's page shows who holds it, for how long and which session is on it, with **Claim**, **Let go** and, for the owner, **Take over**, each in its activity, and a list and a board show the holder. A person's agents only take up what's assigned to them, and their comments, focuses and Todo moves reach only their own sessions. **Work unassigned on a board with more than one person isn't handed to anyone** until someone takes it. The bell and My issues are each person's own. With `ORRERY_AUTH=off`, the sidebar's **Acting as** picks who this browser is, remembered here: it's a name, not a login, and anyone who can reach orrery can say they're anyone.
 
 **A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. Its address has to be https unless it's on this machine. Your own account attaches the way anyone's does: claim it, sign in with the key, and invite yourself.
 

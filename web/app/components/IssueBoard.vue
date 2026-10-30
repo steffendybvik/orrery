@@ -176,6 +176,7 @@ watch(columns, () => {
             <span class="font-mono">{{ issue.id }}</span>
             <span class="min-w-0 flex-1 truncate">{{ chunk.title }}</span>
             <WorkingDot v-if="!isClosed(issue.kind) && workerOf(project, issue.id)" :session="workerOf(project, issue.id)!" />
+            <ClaimMark :issue="issue" />
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />
           </div>
           <div class="flex items-start gap-2">
