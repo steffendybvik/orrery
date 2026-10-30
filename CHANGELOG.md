@@ -32,6 +32,11 @@ overview, is one list.
 - **Sessions search an issue's text:** `q` on the `issues` tool finds words in descriptions and comments, title
   matches first, each with where it is and the words around it. `?q=` on its own stays the id and title, and `&in=all`
   searches the text. An issue labelled `external` says only where, and an untrusted session gets no quotes.
+- **Upgrades follow orrery:** orrery serves the channel, hooks and launcher itself, and Connect has repos run them
+  through `~/.orrery/bootstrap.mjs`, so connecting a repo needs Node but no clone, and upgrading orrery upgrades them:
+  a session as it starts, the launcher once it has no session running. It fetches only from this machine or over
+  https, and checks the orrery's id and each file (see Security). A repo already connected keeps working from its
+  checkout until you paste Connect's line into it and run the launcher's install line again.
 
 ### Changes
 
@@ -69,8 +74,8 @@ overview, is one list.
 
 ### Docs
 
-- **Quick start pulls the published image:** it downloads the release's `compose.yml` into the clone and runs it, and
-  `ORRERY_REPO_DIR` names the clone. Building from source moved to Running orrery.
+- **Quick start pulls the published image:** it downloads the release's `compose.yml` into a folder of its own and
+  runs it, with no clone. Building from source moved to Running orrery.
 
 ### Internal
 
