@@ -164,11 +164,11 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
     </p>
     <p v-else-if="!unheard.length" class="text-[13px] leading-relaxed text-muted">
       No session on {{ project }} has said hello yet.
-      <NuxtLink :to="`/connect?project=${project}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
+      <NuxtLink :to="`/connect?project=${project}`" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
       to point it at issues from here.
       <template v-if="byId(project)?.starts && launch && !launch.launchers">
         No launcher is running for it, so orrery can't start one:
-        <NuxtLink to="/sessions#starts" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">how to install it</NuxtLink>.
+        <NuxtLink to="/sessions#starts" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">how to install it</NuxtLink>.
       </template>
     </p>
     <NoChannelHint v-if="unheard.length" :sessions="unheard" :project="project" where="here" />

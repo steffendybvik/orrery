@@ -28,7 +28,7 @@ function lightFirst() {
   <Listbox v-slot="{open}" v-model="model" as="div" class="relative" multiple>
     <ListboxButton
         class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium ring-1 transition-colors"
-        :class="model.length ? 'bg-accent-500/10 text-accent-600 ring-accent-500/30 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
+        :class="model.length ? 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
     >
       <slot name="icon" />
       {{ summary }}
@@ -39,7 +39,7 @@ function lightFirst() {
         <ListboxOption v-for="option in options" :key="option.value" v-slot="{active, selected}" :value="option.value" as="template">
           <li class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg" :class="active && 'bg-hover'">
             <span class="grid size-3.5 place-items-center rounded ring-1" :class="selected ? 'bg-accent-500 ring-accent-500' : 'ring-faint/60'">
-              <svg v-if="selected" class="size-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+              <svg v-if="selected" class="size-2.5 text-zinc-950" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
             </span>
             <slot name="option" :value="option.value" />
             <span class="flex-1 truncate">{{ option.label }}</span>

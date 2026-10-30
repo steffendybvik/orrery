@@ -221,7 +221,7 @@ async function start() {
           <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3.5" />
           <span class="min-w-0 flex-1 truncate">{{ p.name }}</span>
           <span v-if="why(p)" class="shrink-0 text-xs">
-            {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/sessions#starts" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
+            {{ why(p) }}<template v-if="!p.starts"> · <NuxtLink to="/sessions#starts" class="text-accent-700 hover:underline dark:text-accent-400" @click="close">turn it on</NuxtLink></template>
           </span>
           <span v-else-if="p.starts" class="shrink-0 text-xs text-faint">
             <template v-if="chosen.includes(p.id) && scoped">{{ scopeOf(p).length }} {{ scopeOf(p).length === 1 ? 'issue' : 'issues' }} · </template>{{ p.starts.minutes ? `${p.starts.minutes} min` : 'until stopped' }}
@@ -290,7 +290,7 @@ async function start() {
           </span>
           <span
               class="grid size-4 shrink-0 place-items-center rounded-full"
-              :class="picked.includes(p.id) ? 'bg-accent-500 text-white' : 'ring-1 ring-inset ring-line'"
+              :class="picked.includes(p.id) ? 'bg-accent-500 text-zinc-950' : 'ring-1 ring-inset ring-line'"
           >
             <svg v-if="picked.includes(p.id)" class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
           </span>
@@ -304,7 +304,7 @@ async function start() {
           class="w-full field py-2 leading-5"
       />
       <p v-if="!presets.length" class="px-1 text-xs text-faint">
-        Context you give often can be saved as a preset under <NuxtLink to="/sessions#presets" class="text-accent-600 hover:underline dark:text-accent-400" @click="close">Presets</NuxtLink> on the Sessions page.
+        Context you give often can be saved as a preset under <NuxtLink to="/sessions#presets" class="text-accent-700 hover:underline dark:text-accent-400" @click="close">Presets</NuxtLink> on the Sessions page.
       </p>
     </div>
 
@@ -315,7 +315,7 @@ async function start() {
         <template v-if="launches > 1">each, {{ count * launches }} in all</template>
       </label>
       <UiButton type="submit" variant="primary" size="md" :class="most > 1 ? '' : 'ml-auto'" :disabled="!ready">
-        {{ busy ? 'Starting…' : count * launches > 1 ? `Start ${count * launches} sessions` : 'Start session' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+        {{ busy ? 'Starting…' : count * launches > 1 ? `Start ${count * launches} sessions` : 'Start session' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

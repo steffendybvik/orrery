@@ -31,7 +31,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
         <p class="text-[15px] leading-relaxed text-muted">
           Connect a repo with a click, or pick the app and copy the line into a session in its repo. The agent reads its brief
           from orrery, starts keeping the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the window.
-          Any agent can also start from <a :href="`${origin}/llms.txt`" target="_blank" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">/llms.txt</a>.
+          Any agent can also start from <a :href="`${origin}/llms.txt`" target="_blank" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">/llms.txt</a>.
         </p>
       </header>
 

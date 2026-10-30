@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<{
 }>(), {variant: 'secondary', size: 'sm', type: 'button'})
 
 const VARIANT = {
-    'primary': 'bg-accent-500 font-medium text-white hover:opacity-90',
+    'primary': 'bg-accent-500 font-medium text-zinc-950 hover:opacity-90',
     'secondary': 'text-muted ring-1 ring-line hover:bg-hover hover:text-fg',
     'ghost': 'text-muted hover:bg-hover hover:text-fg',
     'danger': 'bg-rose-600 font-medium text-white hover:opacity-90',

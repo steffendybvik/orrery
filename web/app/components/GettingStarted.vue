@@ -56,7 +56,7 @@ async function tryDemo() {
       </li>
       </template>
       <li v-if="current >= WITHOUT_CLAUDE && !finished">
-        <button type="button" class="text-xs text-accent-600 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
+        <button type="button" class="text-xs text-accent-700 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
       </li>
     </ol>
   </section>
@@ -99,16 +99,16 @@ async function tryDemo() {
       </li>
       </template>
       <li v-if="current >= WITHOUT_CLAUDE && !finished" class="px-4">
-        <button type="button" class="text-xs text-accent-600 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
+        <button type="button" class="text-xs text-accent-700 hover:underline dark:text-accent-400" @click="plan()">Just planning? You're set</button>
       </li>
       <li v-else-if="planning && done < steps.length" class="px-4 text-xs text-faint">
         You're set for planning.
-        <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="plan(false)">Working with agents after all?</button>
+        <button type="button" class="text-accent-700 hover:underline dark:text-accent-400" @click="plan(false)">Working with agents after all?</button>
       </li>
     </ol>
     <p class="text-xs text-faint">
-      Later: let orrery start sessions itself, from the <NuxtLink to="/sessions#starts" class="text-accent-600 hover:underline dark:text-accent-400">Sessions page</NuxtLink>.
-      Every step by hand is on <NuxtLink to="/connect" class="text-accent-600 hover:underline dark:text-accent-400">Connect an agent</NuxtLink>.
+      Later: let orrery start sessions itself, from the <NuxtLink to="/sessions#starts" class="text-accent-700 hover:underline dark:text-accent-400">Sessions page</NuxtLink>.
+      Every step by hand is on <NuxtLink to="/connect" class="text-accent-700 hover:underline dark:text-accent-400">Connect an agent</NuxtLink>.
     </p>
   </div>
 </template>

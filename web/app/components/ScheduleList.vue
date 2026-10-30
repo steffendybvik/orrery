@@ -65,7 +65,7 @@ const OUTCOME = {
 <template>
   <section :id="`schedules-${project.id}`" class="flex scroll-mt-14 flex-col overflow-hidden rounded-xl border border-line bg-panel">
     <header class="flex items-center gap-2 border-b border-line bg-well/60 px-4 py-2.5">
-      <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-600 dark:hover:text-accent-400">
+      <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-700 dark:hover:text-accent-400">
         <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-4" />
         <ProgressRing v-else :kinds="project.board.kinds" bare :size="16" />
         <h2 class="truncate text-[14px] font-semibold">{{ project.name }}</h2>
@@ -94,7 +94,7 @@ const OUTCOME = {
           class="grid size-9 shrink-0 place-items-center rounded-full transition hover:scale-105 active:scale-95 disabled:opacity-50"
           :class="s.enabled
             ? 'bg-accent-500 text-zinc-950 shadow-sm shadow-accent-600/30 hover:bg-accent-400'
-            : 'border-2 border-line text-muted hover:border-accent-500 hover:text-accent-600 dark:hover:text-accent-400'"
+            : 'border-2 border-line text-muted hover:border-accent-500 hover:text-accent-700 dark:hover:text-accent-400'"
           :disabled="pausing.has(s.id)"
           :title="s.enabled ? 'Running: pause it' : 'Paused: resume it'"
           :aria-label="`${s.enabled ? 'Pause' : 'Resume'} ${s.title}`"
@@ -112,7 +112,7 @@ const OUTCOME = {
           <span class="max-w-full truncate text-fg" :class="scheduleUnseen(s) ? 'font-semibold' : 'font-medium'">{{ s.title }}</span>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
-              :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : s.kind === 'action' ? 'bg-amber-500/12 text-amber-700 dark:text-amber-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
+              :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : s.kind === 'action' ? 'bg-amber-500/12 text-amber-800 dark:text-amber-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
           >{{ s.kind === 'message' ? s.untrusted ? 'Own locked-down session' : 'Messages sessions' : s.kind === 'session' ? 'Starts a session' : s.kind === 'action' ? 'Moves issues' : 'Makes an issue' }}</span>
         </div>
         <span v-if="s.across" class="truncate text-xs text-muted">Across projects: edit it here, or leave this project out from its ⋯</span>

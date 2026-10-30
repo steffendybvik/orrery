@@ -153,7 +153,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <div class="flex flex-wrap items-center gap-3 text-xs">
           <span
               class="rounded-full px-2 py-px text-[11px] font-medium ring-1"
-              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : isFrozen(release) ? 'text-amber-700 ring-amber-500/30 dark:text-amber-300' : 'text-accent-600 ring-accent-500/30 dark:text-accent-300'"
+              :class="release.shipped_on ? 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300' : isFrozen(release) ? 'text-amber-700 ring-amber-500/30 dark:text-amber-300' : 'text-accent-700 ring-accent-500/30 dark:text-accent-300'"
               :title="isFrozen(release) ? 'Feature freeze: fixes, tests and docs; a new feature goes on the next release' : undefined"
           >{{ release.shipped_on ? `Shipped ${release.shipped_on}` : isFrozen(release) ? `Frozen ${release.frozen_on}` : 'Preparing' }}</span>
           <template v-if="!release.shipped_on">
@@ -211,8 +211,8 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           >
           <button v-else type="button" class="rounded-md px-1.5 py-0.5 font-mono hover:bg-hover hover:text-fg" :class="!release.branch && 'font-sans text-faint italic'" title="Click to edit" @click="editBranch">{{ release.branch ?? 'None. Add one' }}</button>
           <template v-if="links && !editingBranch">
-            <a :href="links.branch" target="_blank" rel="noopener" class="text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400">Code</a>
-            <a :href="links.prs" target="_blank" rel="noopener" class="text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400">PRs into it</a>
+            <a :href="links.branch" target="_blank" rel="noopener" class="text-accent-700 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400">Code</a>
+            <a :href="links.prs" target="_blank" rel="noopener" class="text-accent-700 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400">PRs into it</a>
           </template>
           <NuxtLink v-else-if="release.branch && source && !source.repo" :to="`/p/${source.id}/settings#repo`" class="text-faint underline underline-offset-2 hover:text-fg">Say where the code is, to link its PRs</NuxtLink>
         </div>
@@ -233,7 +233,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
             <span class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving" @click="saveNotes">
-              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
             </UiButton>
           </div>
         </section>

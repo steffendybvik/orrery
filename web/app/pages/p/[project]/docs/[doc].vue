@@ -205,7 +205,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
             <CopyButton :text="address" label="Copy URL" name="this doc's URL" />
           </span>
         </div>
-        <p v-if="rendered?.changed" class="flex items-center gap-2 text-xs text-accent-600 dark:text-accent-400">
+        <p v-if="rendered?.changed" class="flex items-center gap-2 text-xs text-accent-700 dark:text-accent-400">
           <span class="unseen-dot" />{{ rendered.changed }} {{ rendered.changed === 1 ? 'part' : 'parts' }} changed since you last read it, tinted below
         </p>
       </header>
@@ -238,7 +238,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
           <span v-else class="mr-auto text-xs text-faint">{{ isArtifact ? 'HTML' : 'Markdown' }}</span>
           <UiButton :disabled="saving" @click="editing = false">Cancel <KeyHint>esc</KeyHint></UiButton>
           <UiButton variant="primary" :disabled="saving || !!uploading || !title.trim()" @click="save">
-            {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+            {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
           </UiButton>
         </div>
       </section>

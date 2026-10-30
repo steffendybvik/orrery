@@ -53,7 +53,7 @@ function toggle(group: Group) {
         <ProgressRing v-if="g.kinds" :kinds="g.kinds" :size="13" />
         <span v-else class="font-mono text-[11px] text-faint tabular-nums">{{ g.issues.length }}</span>
         <span v-if="g.summary" class="hidden min-w-0 flex-1 truncate text-xs text-faint md:inline"><InlineText :text="g.summary" /></span>
-        <span v-if="g.counts" class="ml-auto shrink-0 text-xs" :style="{color: look(g.column).color}">{{ look(g.column).label }}</span>
+        <span v-if="g.counts" class="ml-auto shrink-0 text-xs" :style="{color: readable(look(g.column).color)}">{{ look(g.column).label }}</span>
         <div v-if="$slots['group-end']" class="ml-auto shrink-0"><slot name="group-end" :column="g.column" /></div>
       </div>
       <div v-if="isOpen(g)">

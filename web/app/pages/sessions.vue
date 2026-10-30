@@ -191,9 +191,9 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
       </ul>
       <p v-if="ready && !count" class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         No sessions right now.
-        <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
-        or run <span class="font-mono">claude</span> in a <NuxtLink to="/connect" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
-        orrery can start them for you too, set up under <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
+        <button type="button" class="text-accent-700 underline underline-offset-2 dark:text-accent-400" @click="open()">Start one</button>,
+        or run <span class="font-mono">claude</span> in a <NuxtLink to="/connect" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">connected</NuxtLink> repo.
+        orrery can start them for you too, set up under <button type="button" class="text-accent-700 underline underline-offset-2 dark:text-accent-400" @click="tab = 'setup'">Setup</button>.
       </p>
       <section v-if="spanning.length" id="sessions-across" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -214,7 +214,7 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
       </section>
       <section v-for="group in groups" :id="`sessions-${group.project.id}`" :key="group.project.id" class="flex scroll-mt-14 flex-col gap-3">
         <header class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <NuxtLink :to="`/p/${group.project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-600 dark:hover:text-accent-400">
+          <NuxtLink :to="`/p/${group.project.id}`" class="flex min-w-0 items-center gap-2 hover:text-accent-700 dark:hover:text-accent-400">
             <ProjectIcon v-if="group.project.icon && heroicon(group.project.icon)" :icon="group.project.icon" :color="group.project.icon_color" class="size-3.5" />
             <h2 class="truncate text-[15px] font-semibold">{{ group.project.name }}</h2>
           </NuxtLink>

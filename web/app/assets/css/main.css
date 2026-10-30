@@ -12,6 +12,8 @@
     --color-accent-400: oklch(0.80 0.15 65);
     --color-accent-500: oklch(0.74 0.17 55);
     --color-accent-600: oklch(0.66 0.18 45);
+    /* For text on the page: the others are too light to read on it in the light theme (WCAG AA, ORR-724). */
+    --color-accent-700: oklch(0.52 0.17 45);
 
     --animate-fade-up: fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     --animate-slide-in: slide-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -63,7 +65,7 @@
     --line: rgb(0 0 0 / 0.08);
     --fg: #18181b;
     --muted: #52525b;
-    --faint: #a1a1aa;
+    --faint: #66666e;
     --hover: rgb(0 0 0 / 0.04);
     --active: rgb(0 0 0 / 0.07);
     --well: rgb(0 0 0 / 0.05);
@@ -77,7 +79,7 @@
     --line: rgb(255 255 255 / 0.08);
     --fg: #f4f4f5;
     --muted: #a1a1aa;
-    --faint: #71717a;
+    --faint: #8b8b94;
     --hover: rgb(255 255 255 / 0.05);
     --active: rgb(255 255 255 / 0.1);
     --well: rgb(0 0 0 / 0.25);
@@ -166,7 +168,7 @@ body {
         & > :first-child { @apply mt-0; }
         /* A long link or path breaks rather than running out of its column (comments on a phone). */
         & a, & :not(pre) > code { overflow-wrap: anywhere; }
-        & a { @apply text-accent-600 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
+        & a { @apply text-accent-700 underline decoration-accent-500/40 underline-offset-2 hover:decoration-accent-500 dark:text-accent-400; }
         & strong { @apply font-semibold text-fg; }
         & ul { @apply list-disc pl-5; }
         & ol { @apply list-decimal pl-5; }

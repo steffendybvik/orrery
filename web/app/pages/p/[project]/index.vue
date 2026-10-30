@@ -85,7 +85,7 @@ onMounted(() => nextTick(() => {
         <p class="text-sm text-muted">{{ project.name }} has no issues yet.</p>
         <UiButton variant="primary" class="self-center" @click="useNewIssue().open(project.id)">New issue</UiButton>
         <p v-if="!sessions[project.id]?.length" class="mt-3 text-xs text-faint">
-          Or <NuxtLink :to="`/connect?project=${project.id}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">connect a session</NuxtLink> in its repo, and it can add them.
+          Or <NuxtLink :to="`/connect?project=${project.id}`" class="text-accent-700 underline underline-offset-2 dark:text-accent-400">connect a session</NuxtLink> in its repo, and it can add them.
         </p>
       </div>
       <div v-else-if="!chunks.length" class="grid place-items-center px-4 py-24 text-sm text-muted">No issue matches the filters.</div>
