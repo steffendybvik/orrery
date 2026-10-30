@@ -99,6 +99,27 @@ describe('with auth on', () => {
         expect((await failure(() => store.updateIssue('greenhouse', issue.id, {status: 'done'}, actor))).status).toBe(409)
     })
 
+    it("keeps a session with the person whose key it first reported with, and refuses another's writes as it", async () => {
+        const {key: skolls} = await store.makeKey('skoll', {kind: 'agent', name: 'desk'})
+        const write = (key: string, session?: string) => gate(asking('/api/projects', {method: 'POST', headers: bearer(key, session ? {'orrery-session': session} : {})}))
+        await write(agent, 'window-a')
+        await write(agent, 'window-a')
+        const {status, message} = await failure(() => write(skolls, 'window-a'))
+        expect(status).toBe(409)
+        expect(message).toContain("hati's")
+        // A read isn't a write, its own session is its own, and one naming no session is still that key's.
+        await gate(asking('/api/projects', {headers: bearer(skolls, {'orrery-session': 'window-a'})}))
+        await write(skolls, 'window-b')
+        await write(skolls)
+    })
+
+    it("holds a session's person through the owner's rename", async () => {
+        const {key: skolls} = await store.makeKey('skoll', {kind: 'agent', name: 'desk'})
+        await gate(asking('/api/projects', {method: 'POST', headers: bearer(skolls, {'orrery-session': 'window-a'})}))
+        await store.nameOwner({name: 'Sol'}, {name: 'skoll', owner: true, asked: true})
+        expect(await store.fixSessionPerson('window-a', 'hati')).toBe('sol')
+    })
+
     it("an owner's agent key is still not the owner", async () => {
         const {key} = await store.makeKey('skoll', {kind: 'agent', name: 'desk'})
         const event = asking('/api/projects', {headers: bearer(key, {'orrery-actor': 'skoll'})})
