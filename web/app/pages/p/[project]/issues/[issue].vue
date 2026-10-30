@@ -275,7 +275,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
         </header>
 
         <div class="lg:hidden">
-          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
+          <IssueProperties fold :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
 
         <ProposalPanel :project="project.id" :issue="issue" />

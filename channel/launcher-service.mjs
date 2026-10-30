@@ -148,6 +148,12 @@ export function plist({node, script, path, log}) {
 `
 }
 
+/** What keeps a unit's sessions going when its launcher restarts: left to itself, systemd kills all that's in the
+ * service's cgroup as it exits, the tmux server its sessions run in among them. */
+const KEEP_SESSIONS = 'KillMode=process'
+/** A unit installed before that, with it added where `systemdUnit` puts it, so installing again doesn't restart it. */
+export const keepingSessions = unit => unit.includes(KEEP_SESSIONS) ? unit : unit.replace('[Service]\n', `[Service]\n${KEEP_SESSIONS}\n`)
+
 /** systemd's user unit for the service, the same way; it logs to the journal. Inside WSL, `distro` is the one it was
  * installed from, which Watch opens Windows Terminal on (the service doesn't get WSL's own variables). */
 export function systemdUnit({node, script, path, distro}) {
@@ -156,6 +162,7 @@ export function systemdUnit({node, script, path, distro}) {
 Description=orrery launcher: starts Claude sessions for orrery
 
 [Service]
+${KEEP_SESSIONS}
 ExecStart=${quote(node)} ${[script].flat().map(quote).join(' ')} --service
 Environment=${quote(`${RELOADS}=1`)}
 Environment=${quote(`PATH=${path}`)}
@@ -266,6 +273,25 @@ export function uninstall(entries, {node = process.execPath, script, path = proc
         removeService(where, config)
     }
     return {config, file: where.file}
+}
+
+/** Whether the sessions outlive the service restarting itself (ORR-686). On a Mac they do, as launchd kills only its
+ * job's process group and the tmux server has its own. systemd needs telling, so an older unit is brought up to date
+ * here, which takes effect with no restart. */
+export function restartKeepsSessions() {
+    if (process.platform === 'darwin') return true
+    try {
+        const {file} = platform()
+        const unit = readFileSync(file, 'utf8')
+        const kept = keepingSessions(unit)
+        if (kept !== unit) {
+            writeFileSync(file, kept)
+            run('systemctl', '--user', 'daemon-reload')
+        }
+        return kept.includes(KEEP_SESSIONS)
+    } catch {
+        return false
+    }
 }
 
 /** Stops the service and removes its file, whatever is on the list, which stays for the next `--install`. Pick-up goes

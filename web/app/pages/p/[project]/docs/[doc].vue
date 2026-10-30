@@ -161,7 +161,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
     <div v-if="doc && !missing" :key="doc.id" class="mx-auto flex max-w-6xl animate-fade-up gap-12 px-4 py-8 sm:px-8 sm:py-12">
     <article class="min-w-0 flex-1" :class="!isArtifact && 'max-w-3xl'">
       <header class="mb-8 flex flex-col gap-3 border-b border-line pb-6">
-        <div class="flex items-start gap-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start">
           <input
               v-if="editing"
               v-model="title"
@@ -172,7 +172,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
               @keydown.esc.stop.prevent="editing = false"
           >
           <h1 v-else class="min-w-0 flex-1 text-3xl font-semibold tracking-tight text-fg">{{ doc.title }}</h1>
-          <div v-if="!editing" class="mt-1.5 flex shrink-0 items-center gap-1">
+          <div v-if="!editing" class="-ml-2.5 flex shrink-0 flex-wrap items-center gap-1 sm:mt-1.5 sm:ml-0">
             <template v-if="!removing">
               <UiButton variant="ghost" title="Every saved version, with what changed" @click="history = !history">
                 <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></svg>
