@@ -20,8 +20,9 @@
 # Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network,
 # and ORRERY_ALLOWED_HOSTS names any host name it's reached by besides localhost and an IP (see SECURITY.md).
 #
-# ORRERY_SECRET_KEY (a long random string: openssl rand -base64 32) turns on secrets, keys agents use to
-# call outside services without seeing them; it encrypts them, so keep it out of the backups.
+# Secrets, keys agents use to call outside services without seeing them, are encrypted with a key orrery makes on its
+# first start and keeps in /data/orrery.key, out of the backups. Or set your own: ORRERY_SECRET_KEY (a long random
+# string: openssl rand -base64 32), and keep it out of the backups too.
 #
 # Postgres instead of the SQLite file: `docker compose --profile postgres up -d` adds a postgres service (its
 # data in the orrery-pg volume), and ORRERY_DATABASE points orrery at it; put both in .env to keep them:

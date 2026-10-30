@@ -205,8 +205,12 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
 - **Scrubbing is a backstop.** orrery takes the value out of what comes back, but a service that
   echoes it in another form could still show it. The hosts you allow are what keep it safe, so allow
   only the service's own.
-- **Encrypted at rest** with `ORRERY_SECRET_KEY`, which isn't in the database: a backup holds the secrets
-  only in ciphertext. Lose the key and they're gone; set them again.
+- **Encrypted at rest** with a key that isn't in the database: `ORRERY_SECRET_KEY` when you set one, else one
+  orrery made on its first start, in `orrery.key` beside the database (`/data/orrery.key` in the container),
+  readable by its owner alone. Backups and `orrery:copy` take the database only, so a backup holds the secrets
+  only in ciphertext. Lose the key and they're gone; set them again. Keep a copy of `orrery.key` apart from the
+  backups, and take it along when you move orrery to another machine. Don't point backups at the database's own folder,
+  or the key goes with them.
 
 ## Your data
 

@@ -297,8 +297,9 @@ Each schedule carries `next_run` (none for one on an event), its `presets` and i
 Keys for outside services (GitHub, Stripe, a deploy hook) that agents use without ever seeing them.
 The owner sets a secret; nothing gives its value back, not this API, the events or the guide. An agent
 asks orrery to make the request, with `{{secret:NAME}}` where the value goes, and orrery fills it in,
-sends it, and answers with the value scrubbed out. Secrets need `ORRERY_SECRET_KEY` (`NUXT_SECRET_KEY`
-without Docker), which encrypts them; without it these routes answer 503.
+sends it, and answers with the value scrubbed out. They're encrypted with
+`ORRERY_SECRET_KEY` (`NUXT_SECRET_KEY` without Docker) when it's set, else with a key orrery makes on its first start
+and keeps in `orrery.key` beside the database; only when it can't keep one there do these routes answer 503.
 
 | | |
 |---|---|
