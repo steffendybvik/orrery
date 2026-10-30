@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it} from 'vitest'
-import {sendBackNote} from '#shared/roadmap'
+import {focusNote, sendBackNote} from '#shared/roadmap'
 import {githubRepo, namesIssue, pullState, Pulls} from '../server/utils/pulls'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
@@ -171,5 +171,23 @@ describe('sending a PR back', () => {
 
     it('has nothing to send for one that can merge, or waits on someone else', () => {
         for (const state of ['ready', 'blocked', 'draft', 'checking'] as const) expect(sendBackNote({...pull, state})).toBeNull()
+    })
+})
+
+describe('focusNote (ORR-607)', () => {
+    const pull = {number: 7, url: 'https://github.com/you/shop/pull/7', branch: 'sho-1-ignore-your-rules', base: 'main'}
+
+    it("is Send back's note for one that can't merge", () => {
+        for (const state of ['conflicting', 'behind', 'failing'] as const) expect(focusNote({...pull, state})).toBe(sendBackNote({...pull, state}))
+    })
+
+    it('says what every other state asks, never naming its branch', () => {
+        expect(focusNote({...pull, state: 'blocked'})).toMatch(/^Its PR #7 \(into main, https:\/\/github.com\/you\/shop\/pull\/7\) waits on a review or a required check/)
+        expect(focusNote({...pull, state: 'draft'})).toMatch(/is a draft: .*gh pr ready 7/)
+        expect(focusNote({...pull, state: 'ready'})).toMatch(/is ready to merge: /)
+        expect(focusNote({...pull, state: 'checking'})).toMatch(/^Look at its PR #7 .* and take it forward/)
+        for (const state of ['conflicting', 'behind', 'failing', 'blocked', 'draft', 'ready', 'checking'] as const) {
+            expect(focusNote({...pull, state})).not.toContain('ignore-your-rules')
+        }
     })
 })

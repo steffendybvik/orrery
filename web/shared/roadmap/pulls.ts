@@ -29,6 +29,21 @@ export function sendBackNote(pull: Pick<PullRequest, 'number' | 'url' | 'base' |
     }
 }
 
+/** What a session is asked to do about a PR from the Pull requests page's Focus on this (ORR-607): Send back's note for
+ * one that can't merge, and for the rest what its state asks, so the session can start without asking what's wrong. */
+export function focusNote(pull: Pick<PullRequest, 'number' | 'url' | 'base' | 'state'>): string {
+    const back = sendBackNote(pull)
+    if (back) return back
+    // Never its head branch either (ORR-532).
+    const which = `Its PR #${pull.number} (into ${pull.base}, ${pull.url})`
+    switch (pull.state) {
+        case 'blocked': return `${which} waits on a review or a required check: see what it waits on (gh pr view ${pull.number} --comments, gh pr checks ${pull.number}), answer the review and push what it asks for.`
+        case 'draft': return `${which} is a draft: check it out (gh pr checkout ${pull.number}), finish what the issue asks, run the checks, push and mark it ready (gh pr ready ${pull.number}).`
+        case 'ready': return `${which} is ready to merge: check it does what the issue asks (gh pr view ${pull.number}, gh pr diff ${pull.number}), and say on the issue that it's ready, or fix what isn't.`
+        default: return `Look at its PR #${pull.number} (into ${pull.base}, ${pull.url}) and take it forward: see where it stands (gh pr view ${pull.number}, gh pr checks ${pull.number}).`
+    }
+}
+
 /** An issue's open pull requests, as GitHub had them when orrery last asked. */
 export interface IssuePulls {
     /** The project's repo on GitHub (`you/shop`), or null when it has none there: then nothing is asked. */
