@@ -11,7 +11,7 @@ describe('connecting a repo', () => {
         const {mcpJson, server, launch, brief} = connectPieces({...greenhouse, orrery: {id: 'orr_7f3a9c', environment: 'Work'}})
         expect(server).toBe('orrery-work')
         expect(JSON.parse(mcpJson)).toEqual({mcpServers: {'orrery-work': {
-            command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'greenhouse'},
+            command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'greenhouse', ORRERY_PERSON: '${ORRERY_PERSON:-}'},
         }}})
         expect(launch).toBe('claude --dangerously-load-development-channels server:orrery-work')
         expect(brief).toContain("add `greenhouse` to that entry's `ORRERY_PROJECTS`")
@@ -20,7 +20,7 @@ describe('connecting a repo', () => {
     it('names the channel after the project when the orrery is not known', () => {
         const {mcpJson, server} = connectPieces(greenhouse)
         expect(server).toBe('greenhouse')
-        expect(JSON.parse(mcpJson).mcpServers.greenhouse.env).toEqual({ORRERY_URL: 'http://localhost:9000', ORRERY_PROJECTS: 'greenhouse'})
+        expect(JSON.parse(mcpJson).mcpServers.greenhouse.env).toEqual({ORRERY_URL: 'http://localhost:9000', ORRERY_PROJECTS: 'greenhouse', ORRERY_PERSON: '${ORRERY_PERSON:-}'})
     })
 
     it('hooks every event a session state needs, PreToolUse and PermissionRequest in the background', () => {

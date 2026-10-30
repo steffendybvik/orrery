@@ -1,6 +1,8 @@
 // Postgres's schema: one baseline, SQLite's schema at step BASELINE written for Postgres, then a step for each of
 // SQLite's after it (migrations/sqlite.ts), tracked in `schema_version`. postgres.ts lays down the baseline on an empty
 // database and runs the steps it hasn't had. test/schema-parity.test.ts holds the two lists to the same schema.
+import type {PoolClient} from 'pg'
+import {ownerPerson} from '../owner-person'
 
 /** SQLite's step this schema matches (`PRAGMA user_version`). */
 export const BASELINE = 23
@@ -195,7 +197,7 @@ export const SCHEMA = `
 `
 
 /** Steps after the baseline, in order, each matching SQLite's step BASELINE + its place + 1. */
-export const STEPS: string[] = [`
+export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<unknown>))[] = [`
     ALTER TABLE issues ADD COLUMN choices text NOT NULL DEFAULT '[]';
     ALTER TABLE issues ADD COLUMN picks text;
     ALTER TABLE issues ADD COLUMN explore text;
@@ -471,4 +473,22 @@ export const STEPS: string[] = [`
     );
     ALTER TABLE schedules ADD COLUMN across integer REFERENCES schedules_across(id) ON DELETE CASCADE;
     CREATE UNIQUE INDEX schedules_across_project ON schedules(across, project) WHERE across IS NOT NULL;
-`]
+`, async client => {
+    await client.query(`
+    -- The people on this orrery (ORR-653): the owner, moved over from settings, and the members they add. A person's id
+    -- never changes once they're a member; the owner's follows their name, as it always has.
+    CREATE TABLE people (
+        id text PRIMARY KEY,
+        name text NOT NULL,
+        role text NOT NULL CHECK (role IN ('owner', 'member')),
+        handle text,
+        created_at text NOT NULL,
+        removed_at text
+    );
+    CREATE UNIQUE INDEX people_one_owner ON people(role) WHERE role = 'owner';
+`)
+    const owner = (await client.query<{value: string}>("SELECT value FROM settings WHERE key = 'owner'")).rows[0]
+    const person = owner && ownerPerson(owner.value)
+    if (person) await client.query("INSERT INTO people (id, name, role, created_at) VALUES ($1, $2, 'owner', $3)", [person.id, person.name, new Date().toISOString()])
+    await client.query("DELETE FROM settings WHERE key = 'owner'")
+}]

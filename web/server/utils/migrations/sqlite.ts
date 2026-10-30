@@ -3,6 +3,7 @@
 // test/schema-parity.test.ts holds the two to the same schema.
 import type {DatabaseSync} from 'node:sqlite'
 import {renumberSync} from '../renumber'
+import {ownerPerson} from '../owner-person'
 
 // Each step brings the schema up one version (`PRAGMA user_version`); add steps, never edit them.
 // A step is SQL, or a function for what SQL can't say.
@@ -840,4 +841,22 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     ALTER TABLE schedules ADD COLUMN across INTEGER REFERENCES schedules_across(id) ON DELETE CASCADE;
     CREATE UNIQUE INDEX schedules_across_project ON schedules(across, project) WHERE across IS NOT NULL;
-`]
+`, db => {
+    db.exec(`
+    -- The people on this orrery (ORR-653): the owner, moved over from settings, and the members they add. A person's id
+    -- never changes once they're a member; the owner's follows their name, as it always has.
+    CREATE TABLE people (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+        handle TEXT,
+        created_at TEXT NOT NULL,
+        removed_at TEXT
+    );
+    CREATE UNIQUE INDEX people_one_owner ON people(role) WHERE role = 'owner';
+`)
+    const owner = db.prepare("SELECT value FROM settings WHERE key = 'owner'").get() as {value: string} | undefined
+    const person = owner && ownerPerson(owner.value)
+    if (person) db.prepare("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)").run(person.id, person.name, new Date().toISOString())
+    db.exec("DELETE FROM settings WHERE key = 'owner'")
+}]

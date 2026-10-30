@@ -2,7 +2,7 @@
 import type {Notice, NoticeList, Owner} from '#shared/roadmap'
 import {NOTICE_LISTS} from '#shared/roadmap'
 import type {Input} from '../utils/input'
-import {badRequest, checkInput, forbidden} from '../utils/input'
+import {badRequest, checkInput, conflict, forbidden} from '../utils/input'
 import type {CommentRow} from './schema'
 import {AGENT, OWNER_FIELDS, actorId, ANSWERED, SINCE, commentOf, stamp} from './schema'
 import {StatusStore} from './statuses'
@@ -22,9 +22,8 @@ export abstract class OwnerStore extends StatusStore {
 
     /** The owner: their name as the page shows it, their `Orrery-Actor` id, and whether they've given it. */
     async ownerOf(): Promise<Owner> {
-        const row = await this.get<{value: string}>("SELECT value FROM settings WHERE key = 'owner'")
-        const display = row ? String(JSON.parse(row.value)) : ''
-        return display ? {name: actorId(display), display, named: true} : {name: this.unnamed, display: this.unnamed, named: false}
+        const row = await this.get<{id: string, name: string}>("SELECT id, name FROM people WHERE role = 'owner'")
+        return row ? {name: row.id, display: row.name, named: true} : {name: this.unnamed, display: this.unnamed, named: false}
     }
 
     /** Names the owner: anyone may the first time (the page asks on first open), then only the owner. What
@@ -38,14 +37,18 @@ export abstract class OwnerStore extends StatusStore {
         if (name === AGENT.name) throw badRequest(`"${AGENT.name}" is what requests without Orrery-Actor are; pick another name`)
         // Every agent sends this one, as the guide tells it to: as the owner's name it would make them all the owner.
         if (name === 'claude') throw badRequest('"claude" is what agents send as Orrery-Actor; pick another name')
+        if (name !== before.name && await this.get("SELECT 1 FROM people WHERE id = ? AND role <> 'owner'", name)) throw conflict(`"${name}" is someone else on this orrery; pick another name`)
         await this.db.transaction(async () => {
-            await this.run("INSERT INTO settings (key, value) VALUES ('owner', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(display))
+            const renamed = await this.run("UPDATE people SET id = ?, name = ? WHERE role = 'owner'", name, display)
+            if (!Number(renamed.changes)) await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)", name, display, stamp())
             if (name === before.name) return
-            for (const table of ['projects', 'chunks', 'issues', 'docs', 'comments', 'signals', 'schedules', 'issue_events'])
+            for (const table of ['projects', 'chunks', 'issues', 'docs', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'presets', 'issue_links'])
                 await this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)
             await this.run('UPDATE schedules_across SET created_by = ? WHERE lower(created_by) = ?', name, before.name)
             await this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)
             await this.run('UPDATE issues SET decided_by = ? WHERE lower(decided_by) = ?', name, before.name)
+            await this.run('UPDATE events SET resolved_by = ? WHERE lower(resolved_by) = ?', name, before.name)
+            await this.run('UPDATE schedule_requests SET answered_by = ? WHERE lower(answered_by) = ?', name, before.name)
         })
         if (name !== before.name) for (const {id} of await this.all<{id: string}>('SELECT id FROM projects')) this.changed(id)
         // Open pages hear it with the settings, and ask who the owner is now.

@@ -61,15 +61,19 @@ const server = new Server({name: 'orrery', version: VERSION}, {
 })
 // Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
 // untrusted session's guards don't take it for one of their writes.
+/** Whose this session is, from the user's environment (or the launcher's, for one it started): sent on every request, so
+ * it holds across an orrery restart and a `/clear`. */
+const person = process.env.ORRERY_PERSON?.trim() || undefined
+const personHeaders = person ? {'Orrery-Person': person} : {}
 const reportCall = (tool, text) => window.id && fetch(`${base}/api/sessions/${encodeURIComponent(window.id)}/calls`,
-    {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tool, text})}).catch(() => {})
+    {method: 'POST', headers: {'Content-Type': 'application/json', ...personHeaders}, body: JSON.stringify({tool, text})}).catch(() => {})
 // The groups of tools this session asked for with more_tools (ORR-625): listed from then on.
 const loaded = new Set()
 const loadTools = async group => {
     loaded.add(group)
     await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
 }
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat, report: reportCall, load: loadTools})
+const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, person, untrusted, chat, report: reportCall, load: loadTools})
 server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted, loaded: [...loaded]})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
@@ -126,7 +130,7 @@ const orrery = {}
 async function reach() {
     for (let wait = 1000; ; wait = Math.min(wait * 2, 30_000)) {
         try {
-            const settings = await fetch(`${base}/api/settings`).then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
+            const settings = await fetch(`${base}/api/settings`, {headers: personHeaders}).then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
             orrery.id = settings.id
             orrery.environment = settings.environment
             if (process.env.ORRERY_ID && settings.id && settings.id !== process.env.ORRERY_ID) {
@@ -134,7 +138,7 @@ async function reach() {
                 return
             }
             if (every) {
-                const all = await fetch(`${base}/api/projects`).then(r => r.json())
+                const all = await fetch(`${base}/api/projects`, {headers: personHeaders}).then(r => r.json())
                 projects.push(...all.map(p => p.id))
                 await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
             }
@@ -230,7 +234,7 @@ async function deliver(project, signal, query) {
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind, ...named ? {session: named} : {}}}})
     log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : `from schedule ${signal.schedule}`)}`)
     // Tells orrery it got here, so the owner sees which window has it.
-    await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST'}).catch(() => {})
+    await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST', headers: personHeaders}).catch(() => {})
 }
 
 /** What orrery calls this session (`orrery · …`), as its stream says: every signal carries it, and Claude hears it
@@ -265,6 +269,7 @@ function listen({url, started, label}) {
     const query = new URLSearchParams(who)
     if (started) query.set('started', process.env.ORRERY_STARTED)
     return follow({
+        headers: personHeaders,
         url: () => {
             const asked = new URLSearchParams(query)
             if (last || catchUp) asked.set('after', String(last))
@@ -285,7 +290,7 @@ function listen({url, started, label}) {
 
 // One stream for all its projects (`*` picks up a project made later too). An orrery from before there was one
 // answers 404 there, and then each project's stream is followed on its own.
-const single = await fetch(`${base}/api/signals/stream`).then(r => r.status !== 404, () => true)
+const single = await fetch(`${base}/api/signals/stream`, {headers: personHeaders}).then(r => r.status !== 404, () => true)
 if (single) {
     const names = every ? '*' : projects.join(',')
     await listen({

@@ -17,7 +17,8 @@ try {
     const window = claudeWindow()
     const response = await fetch(`${base}/api/sessions`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        // Whose this session is, from the user's environment.
+        headers: {'Content-Type': 'application/json', ...process.env.ORRERY_PERSON?.trim() ? {'Orrery-Person': process.env.ORRERY_PERSON.trim()} : {}},
         signal: AbortSignal.timeout(1500),
         body: JSON.stringify({
             id: hook.session_id ?? window.id,

@@ -7,7 +7,7 @@ import type {Db} from './database'
 import {one} from './database'
 
 /** In an order every foreign key is satisfied in, the statuses first (issues point at them). */
-export const COPIED_TABLES = ['statuses', 'settings', 'projects', 'releases', 'chunks', 'issues', 'comments', 'schedule_requests', 'issue_events', 'issue_sessions',
+export const COPIED_TABLES = ['statuses', 'settings', 'people', 'projects', 'releases', 'chunks', 'issues', 'comments', 'schedule_requests', 'issue_events', 'issue_sessions',
     'issue_aliases', 'issue_links', 'chunk_aliases', 'docs', 'doc_sections', 'schedules_across', 'schedules', 'schedule_runs', 'schedule_held', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets', 'preset_defaults', 'events', 'proposal_clears', 'pull_states', 'pull_repos'] as const
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
 const NUMBERED = ['comments', 'issue_events', 'schedules_across', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
@@ -30,6 +30,7 @@ export async function copyDatabase(source: Db, target: Db, {replace = false, mar
         // A new database starts with the default statuses, and may have had the presets orrery ships seeded; the source's replace them.
         await target.run('DELETE FROM statuses')
         await target.run('DELETE FROM settings')
+        await target.run('DELETE FROM people')
         await target.run('DELETE FROM presets')
         await target.run('DELETE FROM preset_defaults')
         for (const table of COPIED_TABLES) {

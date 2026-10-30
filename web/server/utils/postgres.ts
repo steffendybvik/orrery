@@ -129,7 +129,8 @@ export class PostgresDb implements Db {
             for (const [i, step] of STEPS.entries()) {
                 if (version >= BASELINE + i + 1) continue
                 if (BASELINE + i + 1 > upTo) break
-                await client.query(step)
+                if (typeof step === 'string') await client.query(step)
+                else await step(client)
                 await client.query('UPDATE schema_version SET version = $1', [BASELINE + i + 1])
                 version = BASELINE + i + 1
             }

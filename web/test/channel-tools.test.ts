@@ -28,6 +28,21 @@ const issue = (fields: object = {}) => ({id: 'GRE-1', title: 'Shelves', status: 
 const requestActions = () => (toolsFor(['greenhouse'], {chat: true}) as {name: string, inputSchema: {properties: {action?: {enum: string[]}}}}[])
     .find(t => t.name === 'request')!.inputSchema.properties.action!.enum
 
+describe('whose a session is', () => {
+    it('sends its person on every call, and nothing without one', async () => {
+        const sent: Record<string, string>[] = []
+        const fetch = async (_url: string, init: {headers: Record<string, string>}) => {
+            sent.push(init.headers)
+            return {ok: true, status: 200, statusText: '', text: async () => '[]'}
+        }
+        const tools = (person?: string) => orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', person, fetch}) as (name: string, args?: object) => Promise<unknown>
+        await tools('hati')('issues')
+        expect(sent[0]).toMatchObject({'Orrery-Person': 'hati'})
+        await tools()('issues')
+        expect(sent[1]).not.toHaveProperty('Orrery-Person')
+    })
+})
+
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
         expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])

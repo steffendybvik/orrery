@@ -6,6 +6,16 @@ import type {IssueStatus} from './board'
 export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green: '#22c55e', amber: '#f59e0b', rose: '#f43f5e', violet: '#8b5cf6'} as const
 
 /** This orrery's own settings, not a project's. */
+/** Someone on this orrery (`GET /api/people`): the owner, or a member they added. `id` is what a session sets as
+ * `ORRERY_PERSON`, and `removed_at` when they were removed: their name stays on history. */
+export interface Person {
+    id: string
+    name: string
+    role: 'owner' | 'member'
+    created_at: string
+    removed_at?: string
+}
+
 /** Whose orrery it is: their name as the page shows it, and the `Orrery-Actor` id it makes. */
 export interface Owner {
     /** The id: the name in lowercase snake case (`skoll_fenrisson`); `owner` until they give one. */
