@@ -37,6 +37,7 @@ import type {Actor, Store} from './store'
 import {AGENT} from './store'
 import {ownerOnly, refusedFor} from './permission'
 import {startsNone} from './starts-none'
+import {splitChecklist} from './schedule-checklist'
 
 interface ScheduleRow {
     id: number, project: string, kind: Schedule['kind'], title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
@@ -659,14 +660,15 @@ export class Schedules {
         return await record('sent', null, heard ? `sent to ${heard} listening` : 'nobody listening; the next session to connect gets it')
     }
 
-    /** An issue schedule's run: makes its issue, and asks the sessions to take it when it says to. */
+    /** An issue schedule's run: makes its issue, with a sub-issue for each line of its checklist (ORR-722), and asks the
+     * sessions to take it when it says to. A sub-issue that can't be made takes the rest back with it, so a run's tree is whole. */
     private async runIssue(run: Run): Promise<ScheduleRun> {
         const {row, now, manual, event, actor, record} = run
         if (row.skip_open && !manual) {
             const open = await this.lastOpenIssue(row)
             if (open) return await record('skipped', null, `${open} from the last run isn't done yet`)
         }
-        const words = wordsOf(run)
+        const {notes: words, items} = splitChecklist(wordsOf(run))
         try {
             const issue = await this.store.createIssue(row.project, {
                 title: `${row.title} · ${event ? event.subject ?? event.type : day(now, row.timezone)}`,
@@ -675,13 +677,23 @@ export class Schedules {
                 ...row.priority ? {priority: row.priority} : {},
                 ...row.labels !== '[]' ? {labels: JSON.parse(row.labels) as string[]} : {},
                 status: row.place,
-            }, actor, {urgent: !row.ask})
+            }, actor, {urgent: false})
+            try {
+                for (const item of items) {
+                    await this.store.createIssue(row.project, {...item, parent: issue.id, ...row.priority ? {priority: row.priority} : {}, status: row.place}, actor, {urgent: false})
+                }
+            } catch (error) {
+                await this.store.deleteIssue(row.project, issue.id, actor)
+                throw error
+            }
+            if (!row.ask) await this.store.sayUrgent(row.project, issue.id, actor)
             await this.db.run('UPDATE issues SET schedule = ? WHERE project = ? AND id = ?', row.id, row.project, issue.id)
             this.store.changed(row.project)
-            let note: string | null = null
+            let note: string | null = items.length ? `with ${items.length === 1 ? '1 sub-issue' : `${items.length} sub-issues`}` : null
             if (row.ask) {
                 await this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}${row.priority === 'P0' ? ". It's urgent (P0)." : ''}`}, actor)
-                note = actor.owner ? `asked the sessions (${this.listening(row.project)} listening)` : `made by ${await this.maker(actor)}, so it didn't ask the sessions`
+                const asked = actor.owner ? `asked the sessions (${this.listening(row.project)} listening)` : `made by ${await this.maker(actor)}, so it didn't ask the sessions`
+                note = note ? `${note}; ${asked}` : asked
             }
             return await record('made', issue.id, note)
         } catch (error) {

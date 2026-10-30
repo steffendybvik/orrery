@@ -361,6 +361,11 @@ export abstract class IssueStore extends ClaimStore {
     /** An issue the owner's or a member's write (which goes to their own sessions) just made urgent open work (P0, and committed, not closed and not blocked, which it wasn't
      * before) goes to the sessions as a focus, without their asking: to the session working it while it can hear,
      * else to one session orrery picks (pool.ts). The write is saved by now, so a push that fails is only logged. */
+    /** What a new P0 sets off, once it's all made, for a write that held it back (`urgent: false`). */
+    async sayUrgent(project: string, id: string, actor: Actor) {
+        await this.urgent(project, null, await this.issueRow(project, id), actor)
+    }
+
     protected async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
         try {
             const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal

@@ -338,7 +338,10 @@ curl -s -X POST $ORRERY_URL/api/uploads -H 'Content-Type: application/json' -H '
 Recurring work in a project. A `message` schedule sends its message (`notes`) to one of the project's
 listening sessions each run, the first one free (see `POST …/focus`), with no issue (a `message` signal; the run is `sent`). Otherwise, at each
 time a schedule makes an issue (its title plus the day, e.g.
-`Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`, and with `ask` points
+`Groom the backlog · Mon 26 Oct`), placed as it says and marked with `schedule`. Each top-level `- [ ]` line in its `notes` becomes a
+sub-issue, in the order written, with the same priority and status and in the same chunk: a bold lead is the title and the rest of the line
+its notes (with no lead, the line is the title), and what's indented under it goes with it. The rest stays the issue's `notes`. If one
+can't be made the run is `failed` and leaves nothing behind. With `ask` it points
 the project's listening sessions at it (the owner's schedules only, as with every signal; if no session
 is listening, the next to connect within a day gets it). An agent's message or session schedule doesn't run (each
 run is `skipped`) until the owner makes it theirs with `POST …/schedules/:id/adopt {seen?}` (Make it mine), `seen`
