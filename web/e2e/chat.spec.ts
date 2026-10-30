@@ -675,4 +675,34 @@ test('writes a code block in the box: Enter after ``` closes it, and inside it i
     await expect(box).toHaveValue('```ts\none\ntwo\n```')
     await box.press('ControlOrMeta+z')
     await expect(box).not.toHaveValue('```ts\none\ntwo\n```')
+
+test('holds a setting that changed while the request waited until Allow anyway', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await request.patch('/api/settings', {data: {tint: null}, headers: OWNER})
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-drift&name=e2e-chat-drift&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-drift', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const asked = await request.post(`/api/chats/${chat.id}/requests`, {data: {setting: 'tint', value: 'teal'}, headers: asChat})
+        expect(asked.status(), await asked.text()).toBe(201)
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const card = page.getByRole('region', {name: 'Chat'}).getByRole('group', {name: /Change /})
+        await request.patch('/api/settings', {data: {tint: 'rose'}, headers: OWNER})
+        await card.getByRole('button', {name: 'Allow', exact: true}).click()
+        await expect(card.getByTestId('request-drifted')).toContainText('is now rose (was (none))')
+        expect((await (await request.get('/api/settings')).json()).tint).toBe('rose')
+        await card.getByRole('button', {name: 'Allow anyway'}).click()
+        await expect(card).toContainText('Allowed and saved')
+        expect((await (await request.get('/api/settings')).json()).tint).toBe('teal')
+        await expect.poll(() => session!.said.text).toContain('had changed since you asked')
+    } finally {
+        await request.patch('/api/settings', {data: {tint: null}, headers: OWNER})
+        await endChats(request)
+        session?.stop()
+        launcher.stop()
+    }
 })

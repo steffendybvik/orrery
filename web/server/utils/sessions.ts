@@ -73,6 +73,9 @@ export interface Report {
     cwd?: string
     /** A hook event name, or a state. */
     event: string
+    /** For `StopFailure`: why the turn was cut off, and what Claude Code told the session. */
+    error?: string
+    errorText?: string
     /** For `Notification`: what Claude Code is waiting for. */
     message?: string
     /** For `PreToolUse` on Bash: the command it's about to run, to see which issues it writes to. */
@@ -197,6 +200,7 @@ export function report(input: Report): Session | null {
         && Date.now() - session.asked < PARALLEL_WITHIN && !sameTool(input.tool, session.tool)
     const state = parallel ? 'waiting' : (['starting', 'working', 'idle', 'waiting'] as const).find(s => s === event) ?? 'idle'
     if (!session && event === 'end') return null
+    const cutOff = input.event === 'StopFailure' ? {...input.error ? {error: input.error} : {}, ...input.errorText ? {text: input.errorText} : {}, at: now} : undefined
     if (!session) {
         session = {
             id: input.id ?? `pid-${input.pid}`, pid: input.pid, project: input.project, name: input.name || nameFor(input.project),
@@ -205,6 +209,7 @@ export function report(input: Report): Session | null {
             ...input.tool ? {tool: input.tool} : {},
             ...input.event === 'PermissionRequest' && input.tool ? {asked: Date.now()} : {},
             ...state === 'waiting' && input.tool ? {asking: input.tool} : {},
+            ...cutOff ? {cut_off: cutOff} : {},
         }
         add(session)
     } else {
@@ -228,6 +233,9 @@ export function report(input: Report): Session | null {
         if (input.tool && (input.event === 'PermissionRequest' || !session.asked)) session.tool = input.tool
         if (input.event === 'PermissionRequest' && input.tool) session.asked = Date.now()
         session.asking = state === 'waiting' ? session.tool : undefined
+        // Cut off until a turn gets going or ends as it should.
+        if (cutOff) session.cut_off = cutOff
+        else if (state === 'working' || input.event === 'Stop') session.cut_off = undefined
         // Done with its turn: the next prompt comes after a tool of its next.
         if (state === 'idle') session.tool = session.asked = undefined
         session.seenAt = Date.now()

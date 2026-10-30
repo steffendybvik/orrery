@@ -27,6 +27,7 @@ beforeEach(() => {
     vi.stubGlobal('pickNext', async (...args: unknown[]) => void calls.push(`pickNext ${args.join(' ')}`))
     vi.stubGlobal('getRequestURL', () => new URL('http://localhost:9000/api/sessions'))
     vi.stubGlobal('useStore', () => ({}))
+    vi.stubGlobal('useEventLog', () => ({note: () => {}}))
     vi.stubGlobal('sessionBrief', async () => undefined)
     vi.resetModules()
 })

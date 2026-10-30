@@ -578,6 +578,73 @@ describe("the owner's chat moving issues", () => {
         expect(asked.move!.state).toBe('allowed')
     })
 
+    const skoll = {name: 'skoll', owner: true}
+    const chatId = 'c1c2c3c4c5c6'
+
+    it('holds a setting that changed while it waited until the owner goes ahead anyway', async () => {
+        const asked = await chats.ask(chatId, {setting: 'tint', value: 'teal'})
+        await store.updateSettings({tint: 'rose'}, skoll)
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.request).toMatchObject({state: 'asked', drifted: [{label: 'Background tint', from: '(none)', to: 'rose'}]})
+        expect((await store.settings()).tint).toBe('rose')
+        await chats.answer(chatId, asked.id, true, skoll, true)
+        expect(asked.request!.state).toBe('allowed')
+        expect((await store.settings()).tint).toBe('teal')
+        expect(messages.at(-1)!.text).toBe('(That had changed since you asked: Background tint was (none) and is rose now.)')
+    })
+
+    it('holds a chunk change the same way, and tells the session on Deny too', async () => {
+        const {id} = await store.createChunk('greenhouse', {title: 'Shelves'}, skoll)
+        const asked = await chats.ask(chatId, {id, chunk: {title: 'Racks'}})
+        await store.updateChunk('greenhouse', id, {title: 'Benches'})
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.chunk).toMatchObject({state: 'asked', drifted: [{label: 'Name', from: 'Shelves', to: 'Benches'}]})
+        expect((await store.chunk('greenhouse', id)).title).toBe('Benches')
+        await chats.answer(chatId, asked.id, false, skoll)
+        expect(asked.chunk!.state).toBe('denied')
+        expect(messages.at(-1)!.text).toBe('(That had changed since you asked: Name was Shelves and is Benches now.)')
+    })
+
+    it('holds a release change the same way, and asks nothing of one that is new', async () => {
+        await store.updateProject('greenhouse', {release_mode: 'own'}, skoll)
+        await store.createRelease('greenhouse', {version: '1.0.0'}, skoll)
+        const asked = await chats.ask(chatId, {version: '1.0.0', release: {branch: 'v1'}})
+        await store.updateRelease('greenhouse', '1.0.0', {branch: 'v2'}, skoll)
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.release).toMatchObject({state: 'asked', drifted: [{label: 'Branch', from: '(none)', to: 'v2'}]})
+        await chats.answer(chatId, asked.id, true, skoll, true)
+        expect((await store.listReleases('greenhouse')).find(r => r.version === '1.0.0')!.branch).toBe('v1')
+        const fresh = await chats.ask(chatId, {release: {version: '2.0.0'}})
+        await chats.answer(chatId, fresh.id, true, skoll)
+        expect(fresh.release).toMatchObject({state: 'allowed'})
+        expect(fresh.release!.drifted).toBeUndefined()
+    })
+
+    it('holds a schedule change the same way', async () => {
+        const nightly = {id: 3, title: 'Nightly', cron: '0 2 * * *', presets: []}
+        const updated: unknown[] = []
+        vi.stubGlobal('useScheduler', () => ({
+            get: async () => nightly,
+            check: async () => {},
+            update: async (_project: string, _id: number, body: unknown) => (updated.push(body), {...nightly, ...body as object, enabled: true}),
+        }))
+        const asked = await chats.ask(chatId, {id: 3, schedule: {cron: '0 3 * * *'}})
+        nightly.cron = '0 4 * * *'
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.schedule).toMatchObject({state: 'asked', drifted: [{label: 'Cron', from: '0 2 * * *', to: '0 4 * * *'}]})
+        expect(updated).toEqual([])
+        await chats.answer(chatId, asked.id, true, skoll, true)
+        expect(updated).toEqual([{cron: '0 3 * * *'}])
+    })
+
+    it('saves a request as before when nothing has changed', async () => {
+        const asked = await chats.ask(chatId, {setting: 'tint', value: 'teal'})
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.request!.state).toBe('allowed')
+        expect(asked.request!.drifted).toBeUndefined()
+        expect(messages.at(-1)!.text).not.toContain('changed since')
+    })
+
     it('keeps those moved when one fails on Allow, and moves only the rest when allowed again', async () => {
         const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-3'], assignee: 'claude'}})
         // Asking again for one of them lets the one before go.

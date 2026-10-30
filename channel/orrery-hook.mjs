@@ -32,6 +32,8 @@ try {
             source: hook.source,
             // StopFailure's: why the turn was cut off (`rate_limit`, `overloaded`, `server_error`…).
             error: hook.error,
+            // And what Claude Code told it, which says when a usage limit resets.
+            error_text: hook.hook_event_name === 'StopFailure' && typeof hook.last_assistant_message === 'string' ? hook.last_assistant_message.slice(0, 300) : undefined,
             // The launch orrery started this session for (the launcher hands it down), for the context it was given.
             started: process.env.ORRERY_STARTED,
             // Which issues it's about to write to: an owner's comment on one goes to this session.

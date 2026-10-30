@@ -150,6 +150,7 @@ export default defineNuxtPlugin(() => {
             const {project, schedules} = JSON.parse((event as MessageEvent).data) as {project: string, schedules: Schedule[]}
             const {byProject} = useSchedules()
             byProject.value = {...byProject.value, [project]: schedules}
+            void useSchedules().loadAcross()
         })
         events.addEventListener('secrets', event => {
             useSecretList().secrets.value = JSON.parse((event as MessageEvent).data) as Secret[]

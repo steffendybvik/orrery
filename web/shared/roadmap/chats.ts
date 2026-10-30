@@ -58,12 +58,21 @@ export const CHAT_SETTINGS = {
 } as const
 export type ChatSetting = keyof typeof CHAT_SETTINGS
 
+/** What has changed on what a request would change since it was asked, shown as it reads (ORR-645): Allow then saves
+ * nothing until the owner has seen it and allowed it anyway. */
+export interface ChatRequestDrift {
+    label: string
+    from: string
+    to: string
+}
+
 /** One setting the chat asked to change, from what to what: saved only once the owner allows it, and `expired` when
  * they didn't answer in time or it asked again. */
 export interface ChatRequest {
     setting: ChatSetting
     from: unknown
     to: unknown
+    drifted?: ChatRequestDrift[]
     state: 'asked' | 'allowed' | 'denied' | 'expired'
 }
 
@@ -101,6 +110,7 @@ export interface ChatScheduleRequest {
     title: string
     changes: {field: ChatScheduleField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatScheduleField, unknown>>
+    drifted?: ChatRequestDrift[]
     state: ChatRequest['state']
 }
 
@@ -123,6 +133,7 @@ export interface ChatReleaseRequest {
     change: boolean
     changes: {field: ChatReleaseField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatReleaseField, unknown>>
+    drifted?: ChatRequestDrift[]
     state: ChatRequest['state']
 }
 
@@ -142,6 +153,7 @@ export interface ChatChunkRequest {
     title: string
     changes: {field: ChatChunkField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatChunkField, unknown>>
+    drifted?: ChatRequestDrift[]
     state: ChatRequest['state']
 }
 

@@ -19,11 +19,15 @@
 // An `action` schedule (ORR-636) changes the board itself, with no session: on an event it moves the event's issue, or a
 // release's issues, to its status (`place`), each with a word from orrery saying why. It's the owner's alone, and it passes
 // over what still waits on them: an open ask, a proposal, or (for a pull request's news) another PR still open.
+//
+// A schedule across projects (ORR-638) is a saved definition (`schedules_across`) with one ordinary schedule made from it
+// per project, so each project's keeps its own runs and guards, and every other part of this file doesn't know the
+// difference. `settleAcross` keeps those copies to what the definition names: `*` takes in a project added later.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {Cron} from 'croner'
 import type {OnFilter, OrreryEvent} from '#shared/happenings'
 import {EVENT_PATTERN, matchesType} from '#shared/happenings'
-import type {Issue, Preset, Priority, Schedule, ScheduleRun} from '#shared/roadmap'
+import type {Issue, Preset, Priority, Schedule, ScheduleAcross, ScheduleRun} from '#shared/roadmap'
 import {CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
 import type {Db} from './database'
 import {one} from './database'
@@ -31,14 +35,15 @@ import type {Field, Input} from './input'
 import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
-import {refusedFor} from './permission'
+import {ownerOnly, refusedFor} from './permission'
 import {startsNone} from './starts-none'
 
 interface ScheduleRow {
     id: number, project: string, kind: Schedule['kind'], title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
     place: string, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, only_if_changed: number, untrusted: number, enabled: number,
-    next_run: string | null, on_event: string | null, on_filter: string | null, presets: string, move_from: string, created_by: string, owned: number, created_at: string, updated_at: string
+    next_run: string | null, on_event: string | null, on_filter: string | null, presets: string, move_from: string, across: number | null, created_by: string, owned: number, created_at: string, updated_at: string
 }
+interface AcrossRow { id: number, projects: string, skip: string, body: string, created_by: string, created_at: string, updated_at: string }
 interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null, subject: string | null }
 
 /** What a session schedule's run starts: as `POST …/launches` takes it. */
@@ -171,10 +176,10 @@ export class Schedules {
         return await this.scheduleOf(await this.row(project, id))
     }
 
-    async create(project: string, body: unknown, actor = AGENT): Promise<Schedule> {
+    async create(project: string, body: unknown, actor = AGENT, across: number | null = null): Promise<Schedule> {
         const insert = await this.toCreate(project, body, actor)
         const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, move_from, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
-            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, ...insert)
+            untrusted, enabled, next_run, created_by, owned, created_at, updated_at, across) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, ...insert, across)
         this.listeners = null
         this.onChange(project)
         return await this.get(project, id)
@@ -209,16 +214,22 @@ export class Schedules {
      * theirs: what one says runs as them, so only they change it. */
     async update(project: string, id: number, body: unknown, actor = AGENT): Promise<Schedule> {
         const fields = await this.toUpdate(project, id, body, actor)
-        await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), id)
-        this.listeners = null
-        this.onChange(project)
+        await this.write(project, id, fields)
         return await this.get(project, id)
     }
 
-    /** A change to schedule `id`, checked: the columns `update` sets. */
-    private async toUpdate(project: string, id: number, body: unknown, actor: Actor): Promise<[string, unknown][]> {
+    private async write(project: string, id: number, fields: [string, unknown][]) {
+        await this.db.run(`UPDATE schedules SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, ...fields.map(([, v]) => v as string | number | null), id)
+        this.listeners = null
+        this.onChange(project)
+    }
+
+    /** A change to schedule `id`, checked: the columns `update` sets. One made from a schedule across projects can only be
+     * paused or resumed, unless the change comes from that (`asAcross`). */
+    private async toUpdate(project: string, id: number, body: unknown, actor: Actor, asAcross = false): Promise<[string, unknown][]> {
         const row = await this.row(project, id)
         if (row.owned && !actor.owner) throw refusedFor('schedules.owners', `Changing schedule ${id}: it's the owner's; only they can change it`)
+        if (row.across && !asAcross && Object.keys(body as object).some(field => field !== 'enabled')) throw conflict(`Schedule ${id} is made from schedule across projects ${row.across}: change it there, or pause it here`)
         const input = checkInput(body, SCHEDULE_FIELDS, true)
         const timing = input.cron !== undefined || input.at !== undefined || input.on !== undefined || input.timezone !== undefined
         // Setting one of cron, at and on lets go of the others.
@@ -282,14 +293,133 @@ export class Schedules {
     async delete(project: string, id: number, actor = AGENT) {
         const row = await this.row(project, id)
         if (row.owned && !actor.owner) throw refusedFor('schedules.owners', `Deleting schedule ${id}: it's the owner's; only they can delete it`)
+        if (row.across) await this.leaveOut(row.across, project)
+        await this.remove(project, id)
+    }
+
+    private async remove(project: string, id: number) {
         await this.db.run('DELETE FROM schedules WHERE id = ?', id)
         await this.db.run('UPDATE issues SET schedule = NULL WHERE schedule = ?', id)
         this.listeners = null
         this.onChange(project)
     }
 
+    /** Every schedule across projects, oldest first. */
+    async listAcross(): Promise<ScheduleAcross[]> {
+        return await Promise.all((await this.db.all<AcrossRow>('SELECT * FROM schedules_across ORDER BY id')).map(row => this.acrossOf(row)))
+    }
+
+    /** A schedule across projects, `{projects: '*' | [ids], skip?, …a schedule's fields}`: the owner's alone, as it runs as
+     * them everywhere. Checked as each project's own would be, and made on each. */
+    async createAcross(body: unknown, actor = AGENT): Promise<ScheduleAcross> {
+        ownerOnly(actor, 'schedules.across')
+        const {projects, skip, fields} = this.acrossInput(body)
+        if (projects === undefined) throw badRequest('Send "projects": "*" for all of them, or a list of ids')
+        const targets = await this.acrossTargets(projects, skip ?? [])
+        if (!targets.length) throw badRequest('That leaves no project for it to run on')
+        for (const project of targets) await this.check(project, fields, actor)
+        const now = new Date().toISOString()
+        const {id} = await one<{id: number}>(this.db, 'INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
+            projects === '*' ? '*' : JSON.stringify(projects), JSON.stringify(skip ?? []), JSON.stringify(fields), actor.name, now, now)
+        await this.settleAcross()
+        return await this.acrossOf(await this.acrossRow(id))
+    }
+
+    /** Changes it and the schedules made from it, all checked first, and which projects it's for. What each has run stays. */
+    async updateAcross(id: number, body: unknown, actor = AGENT): Promise<ScheduleAcross> {
+        ownerOnly(actor, 'schedules.across')
+        const row = await this.acrossRow(id)
+        const {projects, skip, fields} = this.acrossInput(body)
+        const merged = {...JSON.parse(row.body) as Record<string, unknown>, ...fields}
+        // Setting one of cron and on lets go of the other, as a schedule's own change does.
+        if (fields.cron) delete merged.on
+        if (fields.on) delete merged.cron
+        const projectsNow: '*' | string[] = projects ?? (row.projects === '*' ? '*' : JSON.parse(row.projects) as string[])
+        const skipNow = skip ?? JSON.parse(row.skip) as string[]
+        const targets = await this.acrossTargets(projectsNow, skipNow)
+        const copies = await this.db.all<{id: number, project: string}>('SELECT id, project FROM schedules WHERE across = ?', id)
+        for (const copy of copies) await this.toUpdate(copy.project, copy.id, fields, actor, true)
+        for (const project of targets) if (!copies.some(c => c.project === project)) await this.check(project, merged, actor)
+        await this.db.run('UPDATE schedules_across SET projects = ?, skip = ?, body = ?, updated_at = ? WHERE id = ?',
+            projectsNow === '*' ? '*' : JSON.stringify(projectsNow), JSON.stringify(skipNow), JSON.stringify(merged), new Date().toISOString(), id)
+        for (const copy of copies) await this.write(copy.project, copy.id, await this.toUpdate(copy.project, copy.id, fields, actor, true))
+        await this.settleAcross()
+        return await this.acrossOf(await this.acrossRow(id))
+    }
+
+    /** Deletes it and the schedules made from it. Their issues stay. */
+    async deleteAcross(id: number, actor = AGENT) {
+        ownerOnly(actor, 'schedules.across')
+        await this.acrossRow(id)
+        for (const copy of await this.db.all<{id: number, project: string}>('SELECT id, project FROM schedules WHERE across = ?', id)) await this.remove(copy.project, copy.id)
+        await this.db.run('DELETE FROM schedules_across WHERE id = ?', id)
+    }
+
+    /** Keeps each one's schedules to the projects it's for: makes the missing, as a project added since, and removes those
+     * no longer named. Goes on past one that can't be made (a preset gone), to try again next time. */
+    async settleAcross(): Promise<void> {
+        for (const row of await this.db.all<AcrossRow>('SELECT * FROM schedules_across')) {
+            const targets = await this.acrossTargets(row.projects === '*' ? '*' : JSON.parse(row.projects) as string[], JSON.parse(row.skip) as string[], true)
+            const copies = await this.db.all<{id: number, project: string}>('SELECT id, project FROM schedules WHERE across = ?', row.id)
+            for (const copy of copies) if (!targets.includes(copy.project)) await this.remove(copy.project, copy.id)
+            for (const project of targets) {
+                if (copies.some(c => c.project === project)) continue
+                await this.create(project, JSON.parse(row.body), {name: row.created_by, owner: true}, row.id)
+                    .catch(error => console.error(`[orrery] schedule across projects ${row.id} on ${project}:`, error))
+            }
+        }
+    }
+
+    /** A project leaving one: out of `*` it's skipped from then on, and taken off a list, the last one taking the whole of it. */
+    private async leaveOut(id: number, project: string) {
+        const row = await this.acrossRow(id)
+        const now = new Date().toISOString()
+        if (row.projects === '*') {
+            await this.db.run('UPDATE schedules_across SET skip = ?, updated_at = ? WHERE id = ?', JSON.stringify([...new Set([...JSON.parse(row.skip) as string[], project])]), now, id)
+            return
+        }
+        const left = (JSON.parse(row.projects) as string[]).filter(p => p !== project)
+        if (left.length) await this.db.run('UPDATE schedules_across SET projects = ?, updated_at = ? WHERE id = ?', JSON.stringify(left), now, id)
+        else await this.db.run('UPDATE schedules SET across = NULL WHERE across = ?', id).then(() => this.db.run('DELETE FROM schedules_across WHERE id = ?', id))
+    }
+
+    /** The projects named, what opted out left out; one named that's gone is refused, or with `lenient` passed over. */
+    private async acrossTargets(projects: '*' | string[], skip: string[], lenient = false): Promise<string[]> {
+        const every = (await this.db.all<{id: string}>('SELECT id FROM projects ORDER BY id')).map(p => p.id)
+        if (projects === '*') return every.filter(id => !skip.includes(id))
+        if (!lenient) for (const project of projects) await this.store.project(project)
+        return projects.filter(id => every.includes(id))
+    }
+
+    /** What's sent for one: its projects, those skipped, and a schedule's fields, less what can't be the same on every project. */
+    private acrossInput(body: unknown): {projects?: '*' | string[], skip?: string[], fields: Record<string, unknown>} {
+        if (typeof body !== 'object' || body === null || Array.isArray(body)) throw badRequest('Send an object: {"projects": "*", "title": "Tidy", "on": "pr.merged"}')
+        const {projects, skip, ...fields} = body as Record<string, unknown>
+        const isList = (value: unknown) => Array.isArray(value) && value.every(id => typeof id === 'string')
+        if (projects !== undefined && projects !== '*' && !(isList(projects) && (projects as string[]).length)) throw badRequest('"projects" is "*", or a list of ids')
+        if (skip !== undefined && !isList(skip)) throw badRequest('"skip" is a list of ids')
+        if (fields.chunk) throw badRequest("A schedule across projects can't name a chunk: a chunk is one project's")
+        if (fields.at) throw badRequest('A schedule across projects runs on a cron or an event, not once')
+        if (fields.untrusted) throw badRequest("A schedule across projects can't be untrusted")
+        return {projects: projects as '*' | string[] | undefined, skip: skip as string[] | undefined, fields}
+    }
+
+    private async acrossRow(id: number): Promise<AcrossRow> {
+        const row = await this.db.get<AcrossRow>('SELECT * FROM schedules_across WHERE id = ?', id)
+        if (!row) throw notFound(`No schedule across projects ${id}`)
+        return row
+    }
+
+    private async acrossOf(row: AcrossRow): Promise<ScheduleAcross> {
+        const copies = await this.db.all<{project: string}>('SELECT project FROM schedules WHERE across = ? ORDER BY project', row.id)
+        const {enabled = true, ...fields} = JSON.parse(row.body) as Record<string, unknown>
+        return {...fields as Partial<ScheduleAcross>, enabled: !!enabled, id: row.id, title: String(fields.title), projects: row.projects === '*' ? '*' : JSON.parse(row.projects) as string[], skip: JSON.parse(row.skip) as string[],
+            on_projects: copies.map(c => c.project), created_by: row.created_by, created_at: row.created_at, updated_at: row.updated_at}
+    }
+
     /** Runs what's due, each once, and says how many ran. */
     async runDue(now = new Date()): Promise<number> {
+        await this.settleAcross()
         const due = (await this.db.all<ScheduleRow>('SELECT * FROM schedules WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ?', now.toISOString()))
         let ran = 0
         for (const row of due) {
@@ -722,6 +852,7 @@ export class Schedules {
             runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined, ...r.subject ? {subject: r.subject} : {}})),
             ...held ? {held} : {},
             created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
+            ...row.across ? {across: row.across} : {},
         }
     }
 }
