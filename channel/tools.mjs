@@ -368,6 +368,13 @@ function firstLine(body) {
     return first.length > 140 ? `${first.slice(0, 139)}…` : first
 }
 
+/** An approved proposal's choices as what still matters, each question with the titles picked (ORR-643). A choice left
+ * unanswered stays out; a pending proposal, or one sent back or rejected, has no such thing and keeps them all. */
+function pickedOf({decided_by, proposal, picks, choices}) {
+    if (!decided_by || proposal || !picks || !choices?.length) return null
+    return choices.filter(c => picks[c.key]?.length).map(c => ({question: c.question, picked: picks[c.key].map(key => c.options.find(o => o.key === key)?.title ?? key)}))
+}
+
 /** A GitHub login as it can only be: letters, digits, `_` and `-` (ORR-532). */
 const LOGIN = /^[\w-]+$/
 
@@ -475,12 +482,18 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const counted = Object.entries(Object.groupBy(finished, t => t.status)).map(([status, of]) => `${of.length} ${status}`).join(', ')
             const subIssues = {sub_issues: tasks.filter(t => !finished.includes(t)).map(line), ...counted ? {finished_sub_issues: counted} : {}}
             const all = which === 'all'
+            const picked = all ? null : pickedOf(rest)
+            if (picked) {
+                delete rest.choices
+                rest.picks = picked
+            }
             const said = comments.map((c, i) => all || i >= comments.length - LATEST_COMMENTS || (c.asks && !c.answered)
                 ? {by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}
                 : {by: c.created_by, at: c.created_at, first_line: firstLine(c.body)})
             const older = said.filter(c => 'first_line' in c).length
             return JSON.stringify({...rest, ...subIssues, ...open.length ? {pull_requests: open} : {}, comments: said,
-                ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {}})
+                ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {},
+                ...picked ? {choices_left_out: 'comments: "all" gives every option'} : {}})
         },
         async create_issue(args) {
             const {proposal, project, ...fields} = args
