@@ -45,7 +45,7 @@ export abstract class PeopleStore extends OwnerStore {
     }
 
     /** Removes a member: their name stays on history, their open issues go back to unassigned, each with an activity
-     * line, and their sessions can no longer claim (`personFor` no longer knows them). */
+     * line, their sessions can no longer claim (`personFor` no longer knows them), and their keys and logins stop at once. */
     async removePerson(id: string, actor: Actor): Promise<void> {
         const person = await this.person(id)
         if (person.role === 'owner') throw badRequest('The owner can\'t be removed')
@@ -60,6 +60,9 @@ export abstract class PeopleStore extends OwnerStore {
             await this.run("DELETE FROM project_members WHERE person = ? AND role = 'member'", person.id)
             await this.run("DELETE FROM project_members WHERE person = ? AND project IN (SELECT project FROM project_members WHERE person = ?)", owner, person.id)
             await this.run('UPDATE project_members SET person = ? WHERE person = ?', owner, person.id)
+            await this.run('UPDATE keys SET revoked_at = ? WHERE person = ? AND revoked_at IS NULL', stamp(), person.id)
+            await this.run('DELETE FROM logins WHERE person = ?', person.id)
+            await this.run('DELETE FROM invites WHERE person = ?', person.id)
             for (const issue of open) {
                 await this.update('issues', 'project = ? AND id = ?', [issue.project, issue.id], {assignee: null})
                 await this.record(issue.project, issue.id, actor, [['assignee', issue.assignee, null]])

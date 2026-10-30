@@ -26,11 +26,12 @@ RUN pnpm build
 
 FROM node:24.22.1-bookworm-slim AS prod
 COPY --from=build /src/web/.output /app
+COPY web/scripts/claim.mjs /app/server/claim.mjs
 RUN mkdir /data /backup && chown node:node /data /backup
 USER node
 ENV HOST=0.0.0.0 PORT=9000 ORRERY_IMAGE=1 NODE_ENV=production NUXT_DATABASE=/data/orrery.db
 VOLUME /data
 EXPOSE 9000
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
-    CMD node -e "fetch('http://127.0.0.1:9000/api/projects').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+    CMD node -e "fetch('http://127.0.0.1:9000/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 CMD ["node", "/app/server/index.mjs"]

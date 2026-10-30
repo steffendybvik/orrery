@@ -8,13 +8,13 @@ import type {Instruction} from '#shared/prompt'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
 import type {ProjectSummary, Actor, ProjectRow} from './schema'
 import {AGENT, SLUG, PROJECT_FIELDS, PROMPT_FIELDS, releaseModeOf, nullable, stamp} from './schema'
-import {PeopleStore} from './people'
+import {KeyStore} from './keys'
 import {refusedFor} from '../utils/permission'
 
 /** Keys a new project can't take, as they read as the start of a full id (ORR-674); ones already in use keep working. */
 const FULL_ID_KEYS = ['DOC', 'CHK', 'PST', 'SCH']
 
-export abstract class ProjectStore extends PeopleStore {
+export abstract class ProjectStore extends KeyStore {
     async listProjects(): Promise<ProjectSummary[]> {
         return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY lower(name), name')).map(async row => {
             const {board, ...project} = await this.projectOf(row)

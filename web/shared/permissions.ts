@@ -312,6 +312,14 @@ export const PERMISSIONS: Permission[] = [
         member: ownerAlone,
     },
     {
+        id: 'keys.write', area: 'This orrery', action: 'Make or revoke a key, or invite a person to log in',
+        why: 'A key can’t make or widen a key, so an agent can never become its person. A person handles their own, and the owner issues them to others.',
+        routes: ['POST /api/keys', 'DELETE /api/keys/:key', 'POST /api/invites'],
+        session: {level: 'owner', note: 'a person, logged in: never a session, whatever key it has'},
+        chat: refused,
+        untrusted: refused,
+    },
+    {
         id: 'secrets.write', area: 'Secrets', action: 'Set, change or delete a secret',
         why: 'A secret’s value and where it may go are the owner’s to decide.',
         routes: ['PUT /api/secrets/:name', 'PATCH /api/secrets/:name', 'DELETE /api/secrets/:name'],
