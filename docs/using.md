@@ -27,7 +27,7 @@ Right-click only opens orrery's own menus. Anywhere else the browser's menu is h
 |---|---|
 | An issue (a row in the list, a card on the board) | Move to a column · set its priority · move to a chunk · **ask a listening session to focus on it** · copy id, in its full form · open · remove (with its sub-issues, asked once more) |
 | A chunk's card on the roadmap | Set its priority · **ask the listening session(s) to work through it** · new issue in it · copy id, in its full form · open · remove (its issues stay, in no chunk) |
-| A schedule (or its ⋯) | Run now (not one that moves issues: it needs its event) · run now instead of its next run, which it then skips · pause or resume · edit · remove (the issues it made stay; its dialog has Remove too) |
+| A schedule (or its ⋯) | Run now (not one that moves issues: it needs its event), which stays on the page and confirms what it did · run now instead of its next run, which it then skips · pause or resume · edit · remove (the issues it made stay; its dialog has Remove too) |
 
 The "ask the session" items only show when a Claude session is listening on that project and the issue or chunk isn't done.
 
