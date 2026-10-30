@@ -57,6 +57,7 @@ describe("the owner's chat", () => {
         writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({hooks, permissions: {allow: ['Bash(curl:*)']}}))
         const args: string[] = chatOnly(dir, 'orrery-shop')
         expect(args).toEqual(expect.arrayContaining(['--restricted', '--strict-mcp-config']))
+        // Reading GitHub (ORR-748) is the channel's own gh, so it still has no Bash to point gh anywhere else.
         expect(args.slice(args.indexOf('--tools'), args.indexOf('--tools') + 2)).toEqual(['--tools', 'Read,Grep,Glob'])
         expect(args.slice(args.indexOf('--permission-mode'), args.indexOf('--permission-mode') + 2)).toEqual(['--permission-mode', 'dontAsk'])
         expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks})

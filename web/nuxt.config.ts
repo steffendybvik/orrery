@@ -76,6 +76,16 @@ export default defineNuxtConfig({
     alias: {'#channel': fileURLToPath(new URL('../channel', import.meta.url))},
 
     // docs/API.md is served to agents (/api/guide, /llms-full.txt).
+    // Nothing on the page loads from elsewhere by itself, so what an agent writes in Markdown can't send what it read to
+    // another server just by being shown (ORR-748). Fonts are Google's. A route with a policy of its own replaces this.
+    routeRules: {
+        '/**': {
+            headers: {
+                'Content-Security-Policy': "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; object-src 'none'",
+                'X-DNS-Prefetch-Control': 'off',
+            },
+        },
+    },
     nitro: {
         // And the bundled channel, hook and launcher are served to the machines that run them (/channel, ORR-435).
         serverAssets: [

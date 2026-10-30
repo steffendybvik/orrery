@@ -20,8 +20,8 @@ export function lockedDown(dir, server) {
         '--disallowedTools', ...[...NOT_FOR_UNTRUSTED, 'more_tools'].map(tool => `mcp__${server}__${tool}`)]
 }
 
-/** How the owner's chat session is started: it reads the repo (`Read`, `Grep`, `Glob`, no Bash or edits) and the
- * roadmap, and has the channel's tools but `NOT_FOR_CHAT` (tools.mjs); everything else is refused, not asked. `--restricted` as
+/** How the owner's chat session is started: it reads the repo (`Read`, `Grep`, `Glob`, no Bash or edits), the roadmap
+ * and, through the channel's own gh, the repo's GitHub issues and pull requests (ORR-748), and has the channel's tools but `NOT_FOR_CHAT` (tools.mjs); everything else is refused, not asked. `--restricted` as
  * for `lockedDown`. */
 export function chatOnly(dir, server) {
     return ['--restricted', '--tools', 'Read,Grep,Glob', '--permission-mode', 'dontAsk', '--settings', JSON.stringify({hooks: hooksOf(dir)}),
