@@ -139,6 +139,9 @@ export abstract class IssueStore extends ClaimStore {
         const input = checkInput(body, ISSUE_FIELDS, true)
         if (input.project !== undefined && input.project !== project) {
             const {project: to, parent, chunk, ...rest} = input
+            // Held before it moves (and in moveIssue), as the write after this is too late to refuse: it has already gone.
+            const rails = await this.railsFor(actor)
+            if (rails) await this.railedAssignee(rails, id, rest.assignee as string | null | undefined)
             const moved = await this.moveIssue(project, id, String(to), parent ?? null, chunk ?? null, actor)
             return await this.updateIssue(String(to), moved, rest, actor)
         }
