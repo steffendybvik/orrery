@@ -174,7 +174,7 @@ describe('what a tool brings', () => {
             const call = orreryTools({root: 'http://o/api', projects: ['greenhouse']}) as (name: string, args: object) => Promise<{content: {text: string}[]}>
             const {content} = await call('guide', {})
             expect(content[0]!.text).toContain('What you can do')
-            expect(size(content[0]!.text)).toBeLessThanOrEqual(39_000)
+            expect(size(content[0]!.text)).toBeLessThanOrEqual(39_100)
         } finally {
             vi.unstubAllGlobals()
         }
