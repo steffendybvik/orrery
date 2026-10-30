@@ -25,8 +25,8 @@ sidebar (App settings → Advanced turns it back on).
    copy.
 3. **Everything else follows.** Each connected repo's channel and hooks, and the launcher, run on your machine through
    `~/.orrery/bootstrap.mjs`, which fetches what orrery serves (`/channel`) and keeps it in `~/.orrery`. A session gets the
-   new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code once it has no
-   session running, which the Sessions page shows until it has. A session already open keeps its channel until it
+   new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code and takes its
+   sessions back, so they go on, and the Sessions page says something only about one too old for this orrery. A session already open keeps its channel until it
    restarts, and the Sessions page marks it. It fetches only from this machine or over https: see
    [what running served code means](../SECURITY.md#the-code-orrery-serves-your-machine).
 

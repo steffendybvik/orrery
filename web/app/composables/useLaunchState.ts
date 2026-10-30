@@ -10,6 +10,8 @@ export interface LaunchState {
     launchers: number
     /** The version each launcher runs; `''` from one too old to say. */
     versions: string[]
+    /** The oldest version that does all this orrery asks of a launcher. */
+    minimum: string
     folders: string[]
     repos: LauncherRepo[]
     every: boolean

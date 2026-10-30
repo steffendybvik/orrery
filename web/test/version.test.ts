@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {olderVersion} from '#shared/version'
+import {launcherMinimum, olderVersion} from '#shared/version'
 
 describe('a version', () => {
     it('is older than a later release, a prerelease before its release, rc.9 before rc.10', () => {
@@ -19,5 +19,28 @@ describe('a version', () => {
 
     it('is older when unknown: from code too old to say', () => {
         expect(olderVersion(undefined, '1.0.0-rc.10')).toBe(true)
+    })
+})
+
+describe('a launcher against this orrery (ORR-686)', () => {
+    const works = (version: string | undefined, people = 1) => !olderVersion(version, launcherMinimum(people))
+
+    it('still works on an older release that does all it is asked', () => {
+        expect(works('1.0.0-rc.10')).toBe(true)
+        expect(works('1.0.0-rc.14')).toBe(true)
+    })
+
+    it('still works when it is newer than this orrery', () => {
+        expect(works('1.1.0')).toBe(true)
+    })
+
+    it("doesn't when it's too old to say, or from before what it's asked", () => {
+        expect(works(undefined)).toBe(false)
+        expect(works('1.0.0-rc.9')).toBe(false)
+    })
+
+    it('has to say whose a session is once there are several people', () => {
+        expect(works('1.0.0-rc.14', 2)).toBe(false)
+        expect(works('1.0.0-rc.15', 2)).toBe(true)
     })
 })

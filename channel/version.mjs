@@ -42,14 +42,14 @@ export const VERSION = versionOnDisk() ?? '0.0.0'
 /** The code this process started on. */
 export const CODE = codeOnDisk()
 
-/** What a launcher on version `mine` and code `code` does (ORR-434, ORR-470): `restart` once the checkout holds other
- * code (`now`) and no session of its own is running, as only the service is started again, whether or not the version
- * moved with it; `tell` the owner to update the checkout while an orrery it serves (`theirs`) runs another version and
- * the checkout still holds the code it runs; else nothing, `wait` while it has sessions running. */
-export function launcherMove({theirs, mine, code, now, running, service}) {
+/** What a launcher on version `mine` and code `code` does (ORR-434, ORR-470, ORR-686): `restart` once the checkout holds
+ * other code (`now`), as only the service is started again, whether or not the version moved with it; `tell` the owner
+ * to update the checkout while an orrery it serves (`theirs`) runs another version and the checkout still holds the code
+ * it runs; else nothing, `wait` while it's `busy`: midway through something a restart would cut off. */
+export function launcherMove({theirs, mine, code, now, busy, service}) {
     if (!service) return null
     if (!now || !code || now === code) return theirs.some(v => v !== mine) ? 'tell' : null
-    return running ? 'wait' : 'restart'
+    return busy ? 'wait' : 'restart'
 }
 
 /** Whether a launcher the bootstrap ran gets other code by restarting, for what the orrery at `url` serves (`served`, its
