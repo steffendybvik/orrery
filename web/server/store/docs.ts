@@ -1,8 +1,9 @@
 // A project's docs.
-import type {Doc, DocSummary} from '#shared/roadmap'
+import type {DeletedDoc, Doc, DocRevision, DocRevisionSummary, DocSummary} from '#shared/roadmap'
 import {slugify} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, isObject, notFound} from '../utils/input'
-import {AGENT, SLUG, DOC_FIELDS, docOf, stamp} from './schema'
+import type {Actor, DocRevisionRow, DocRow} from './schema'
+import {AGENT, SLUG, DOC_FIELDS, docOf, docRevisionOf, docRevisionSummaryOf, stamp, summaryOf} from './schema'
 import type {Input} from '../utils/input'
 import {ChunkStore} from './chunks'
 import {readDocSections, readDocSummaries} from './reads'
@@ -13,6 +14,9 @@ export function sectionOf(value: Input[string]): string | null | undefined {
     const section = value === null ? '' : String(value).trim().slice(0, 60)
     return section || null
 }
+
+/** The largest id a revision's column can hold: past it, or not a number, there's no such revision. */
+const MOST_REVISIONS = 2_147_483_647
 
 /** A section's name as sent in `{name}`: trimmed, up to 60 characters, and not empty. */
 function sectionName(body: unknown): string {
@@ -47,6 +51,7 @@ export abstract class DocStore extends ChunkStore {
         await this.db.transaction(async () => {
             await this.run('INSERT INTO docs (project, id, title, body, position, section, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 project, id, title, String(input.body ?? ''), Number(input.position ?? await this.nextPosition('docs', project)), sectionOf(input.section) ?? null, actor.name, Number(actor.owner), now, now)
+            await this.keepRevision(project, {id, title, body: String(input.body ?? '')}, actor)
             await this.touchProject(project)
         })
         this.changed(project)
@@ -74,11 +79,12 @@ export abstract class DocStore extends ChunkStore {
         const fields = {title: input.title === undefined ? undefined : String(input.title).trim(), body: input.body, position: input.position}
         const section = sectionOf(input.section)
         await this.db.transaction(async () => {
-            if (was) {
-                const now = await this.docRow(project, id)
-                if (now.title !== was.title || now.body !== was.body || (now.section ?? null) !== was.section) throw conflict(`Doc "${id}" has changed since then`)
-            }
+            const then = await this.docRow(project, id)
+            if (was && (then.title !== was.title || then.body !== was.body || (then.section ?? null) !== was.section)) throw conflict(`Doc "${id}" has changed since then`)
             if (Object.values(fields).some(value => value !== undefined)) await this.update('docs', 'project = ? AND id = ?', [project, id], fields)
+            // Only a change to its title or text is a revision: not a move, a new position, or the same text saved again.
+            const now = await this.docRow(project, id)
+            if (now.title !== then.title || now.body !== then.body) await this.keepRevision(project, now, actor)
             // Filing it elsewhere isn't a change to read, so it doesn't count as one (`updated_at`, what's unseen).
             if (section !== undefined) await this.run('UPDATE docs SET section = ? WHERE project = ? AND id = ?', section, project, id)
             await this.touchProject(project)
@@ -86,6 +92,62 @@ export abstract class DocStore extends ChunkStore {
         this.changed(project)
         if (input.title !== undefined || input.body !== undefined) this.tell('doc.changed', project, id, actor)
         return await this.doc(project, id)
+    }
+
+    /** Keeps a doc's title and text as they now are, or, with `deleted`, as they were when it went, and where it was filed. */
+    private async keepRevision(project: string, doc: {id: string, title: string, body: string}, actor: Actor, deleted?: {section: string | null}) {
+        await this.run('INSERT INTO doc_revisions (project, doc, title, body, section, deleted, created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            project, doc.id, doc.title, doc.body, deleted?.section ?? null, Number(!!deleted), actor.name, actor.session ?? null, Number(actor.owner), stamp())
+    }
+
+    /** A doc's revisions, newest first, without their text; a deleted doc's too. */
+    async docRevisions(project: string, id: string): Promise<DocRevisionSummary[]> {
+        await this.projectRow(project)
+        const rows = await this.all<Omit<DocRevisionRow, 'body'>>('SELECT id, project, doc, title, section, deleted, created_by, session_name, owned, created_at FROM doc_revisions WHERE project = ? AND doc = ? ORDER BY id DESC', project, id)
+        if (!rows.length) throw notFound(`No doc "${id}" in ${project}, and none deleted`)
+        return rows.map(docRevisionSummaryOf)
+    }
+
+    async docRevision(project: string, id: string, revision: number): Promise<DocRevision> {
+        return docRevisionOf(await this.docRevisionRow(project, id, revision))
+    }
+
+    private async docRevisionRow(project: string, id: string, revision: number): Promise<DocRevisionRow> {
+        await this.projectRow(project)
+        const row = Number.isInteger(revision) && revision > 0 && revision <= MOST_REVISIONS
+            ? await this.get<DocRevisionRow>('SELECT * FROM doc_revisions WHERE project = ? AND doc = ? AND id = ?', project, id, revision)
+            : undefined
+        if (!row) throw notFound(`No revision ${revision} of doc "${id}" in ${project}`)
+        return row
+    }
+
+    /** The project's docs that are gone: those whose newest revision says so, the latest removed first. */
+    async deletedDocs(project: string): Promise<DeletedDoc[]> {
+        await this.projectRow(project)
+        const rows = await this.all<DocRevisionRow>(`SELECT r.* FROM doc_revisions r
+            WHERE r.project = ? AND r.deleted = 1 AND r.id = (SELECT max(n.id) FROM doc_revisions n WHERE n.project = r.project AND n.doc = r.doc)
+            ORDER BY r.id DESC`, project)
+        return rows.map(row => ({id: row.doc, title: row.title, summary: summaryOf(row.body), revision: row.id, deleted_by: row.created_by, deleted_at: row.created_at}))
+    }
+
+    /** Puts a revision's title and text back, as a new revision so it can be undone too. On a deleted doc, it comes back
+     * where it was filed and with who made it, so one the owner made stays theirs. */
+    async restoreDoc(project: string, id: string, revision: number, actor = AGENT): Promise<{doc: Doc, created: boolean}> {
+        const {title, body} = await this.docRevisionRow(project, id, revision)
+        const live = await this.get<DocRow>('SELECT * FROM docs WHERE project = ? AND id = ?', project, id)
+        if (live) return {doc: live.title === title && live.body === body ? docOf(live) : await this.updateDoc(project, id, {title, body}, actor), created: false}
+        const now = stamp()
+        await this.db.transaction(async () => {
+            const first = await this.one<DocRevisionRow>('SELECT * FROM doc_revisions WHERE project = ? AND doc = ? ORDER BY id LIMIT 1', project, id)
+            const last = await this.one<DocRevisionRow>('SELECT * FROM doc_revisions WHERE project = ? AND doc = ? ORDER BY id DESC LIMIT 1', project, id)
+            await this.run('INSERT INTO docs (project, id, title, body, position, section, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, id, title, body, await this.nextPosition('docs', project), last.section, first.created_by, first.owned, first.created_at, now)
+            await this.keepRevision(project, {id, title, body}, actor)
+            await this.touchProject(project)
+        })
+        this.changed(project)
+        this.tell('doc.created', project, id, actor)
+        return {doc: await this.doc(project, id), created: true}
     }
 
     async docSections(project: string): Promise<string[]> {
@@ -141,6 +203,7 @@ export abstract class DocStore extends ChunkStore {
         const row = await this.docRow(project, id)
         this.refuse(actor, `Deleting doc "${id}"`, row.owned ? [`doc "${id}"`] : [])
         await this.db.transaction(async () => {
+            await this.keepRevision(project, row, actor, {section: row.section})
             await this.run('DELETE FROM docs WHERE project = ? AND id = ?', project, id)
             await this.touchProject(project)
         })

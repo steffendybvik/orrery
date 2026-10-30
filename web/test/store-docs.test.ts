@@ -197,3 +197,125 @@ describe('images', () => {
         expect((await failure(() => store.upload('../etc'))).status).toBe(404)
     })
 })
+
+describe("a doc's past (ORR-675)", () => {
+    const owner = {name: 'skoll', owner: true}
+    const session = {name: 'claude', owner: false, session: 'orrery · Høne'}
+    const texts = async (id: string) => Promise.all((await store.docRevisions('greenhouse', id)).map(async r => (await store.docRevision('greenhouse', id, r.id)).body))
+
+    it('keeps a revision for each save that changes the title or text, however it was saved', async () => {
+        await store.createDoc('greenhouse', {id: 'joints', title: 'Joints', body: 'one'}, owner)
+        await store.updateDoc('greenhouse', 'joints', {body: 'two'}, session)
+        await store.putDoc('greenhouse', 'joints', {title: 'Joints', body: 'three'}, session)
+        await store.updateDoc('greenhouse', 'joints', {title: 'Hinges'}, owner)
+        const revisions = await store.docRevisions('greenhouse', 'joints')
+        expect(revisions.map(r => r.title)).toEqual(['Hinges', 'Joints', 'Joints', 'Joints'])
+        expect(revisions[0]).not.toHaveProperty('body')
+        expect(revisions.map(r => r.created_by)).toEqual(['skoll', 'claude', 'claude', 'skoll'])
+        expect(revisions[1]!.session_name).toBe('orrery · Høne')
+        expect(revisions[3]).not.toHaveProperty('session_name')
+        expect(await texts('joints')).toEqual(['three', 'three', 'two', 'one'])
+        // The doc itself reads as it is now.
+        expect((await store.doc('greenhouse', 'joints')).body).toBe('three')
+    })
+
+    it("doesn't count a move, a new position, or the same text saved again", async () => {
+        await store.createDoc('greenhouse', {id: 'joints', title: 'Joints', body: 'one'})
+        await store.updateDoc('greenhouse', 'joints', {section: 'Decisions'})
+        await store.updateDoc('greenhouse', 'joints', {position: 9})
+        await store.updateDoc('greenhouse', 'joints', {title: 'Joints', body: 'one'})
+        await store.putDoc('greenhouse', 'joints', {title: 'Joints', body: 'one'})
+        await store.renameDocSection('greenhouse', 'Decisions', {name: 'Choices'})
+        await store.deleteDocSection('greenhouse', 'Choices')
+        expect(await store.docRevisions('greenhouse', 'joints')).toHaveLength(1)
+    })
+
+    it('restores a revision as a new one, so a restore can be undone', async () => {
+        await store.createDoc('greenhouse', {id: 'joints', title: 'Joints', body: 'one'})
+        await store.updateDoc('greenhouse', 'joints', {title: 'Hinges', body: 'two'})
+        const [two, one] = await store.docRevisions('greenhouse', 'joints')
+        const {doc, created} = await store.restoreDoc('greenhouse', 'joints', one!.id, session)
+        expect([doc.title, doc.body, created]).toEqual(['Joints', 'one', false])
+        const after = await store.docRevisions('greenhouse', 'joints')
+        expect(after).toHaveLength(3)
+        expect(after[0]).toMatchObject({title: 'Joints', created_by: 'claude'})
+        expect((await store.restoreDoc('greenhouse', 'joints', two!.id)).doc.body).toBe('two')
+        // Restoring what it already says is a save that changes nothing.
+        expect((await store.restoreDoc('greenhouse', 'joints', two!.id)).doc.body).toBe('two')
+        expect(await texts('joints')).toEqual(['two', 'one', 'two', 'one'])
+    })
+
+    it('refuses a revision that is not of this doc, or no revision at all', async () => {
+        await store.createDoc('greenhouse', {id: 'joints', title: 'Joints', body: 'one'})
+        await store.createDoc('greenhouse', {id: 'gears', title: 'Gears', body: 'two'})
+        const [gears] = await store.docRevisions('greenhouse', 'gears')
+        expect((await failure(() => store.docRevision('greenhouse', 'joints', gears!.id))).status).toBe(404)
+        expect((await failure(() => store.restoreDoc('greenhouse', 'joints', gears!.id))).status).toBe(404)
+        for (const bad of [Number.NaN, 0, -1, 1.5, 2 ** 40]) expect((await failure(() => store.docRevision('greenhouse', 'joints', bad))).status).toBe(404)
+        expect((await failure(() => store.docRevisions('greenhouse', 'never'))).status).toBe(404)
+    })
+
+    it('brings a deleted doc back, filed where it was and made by who made it', async () => {
+        await store.createDoc('greenhouse', {id: 'joints', title: 'Joints', body: 'one', section: 'Decisions'}, owner)
+        await store.updateDoc('greenhouse', 'joints', {body: 'two', section: 'How it works'}, session)
+        await store.deleteDoc('greenhouse', 'joints', owner)
+        expect((await failure(() => store.doc('greenhouse', 'joints'))).status).toBe(404)
+        expect((await store.listDocs('greenhouse')).map(d => d.id)).toEqual([])
+
+        const [gone] = await store.deletedDocs('greenhouse')
+        expect(gone).toMatchObject({id: 'joints', title: 'Joints', summary: 'two', deleted_by: 'skoll'})
+        expect((await store.docRevisions('greenhouse', 'joints'))[0]).toMatchObject({id: gone!.revision, deleted: true})
+
+        const {doc, created} = await store.restoreDoc('greenhouse', 'joints', gone!.revision, session)
+        expect(created).toBe(true)
+        expect(doc).toMatchObject({body: 'two', section: 'How it works', created_by: 'skoll', protected: true})
+        expect(await store.deletedDocs('greenhouse')).toEqual([])
+        // Back, it still has its past, and a session still can't remove what the owner made.
+        expect(await texts('joints')).toEqual(['two', 'two', 'two', 'one'])
+        expect((await failure(() => store.deleteDoc('greenhouse', 'joints', session))).status).toBe(403)
+    })
+
+    it('carries on the history of a deleted doc when one is made again at its id', async () => {
+        await store.createDoc('greenhouse', {id: 'joints', title: 'Joints', body: 'old'})
+        await store.deleteDoc('greenhouse', 'joints')
+        await store.createDoc('greenhouse', {title: 'Joints', body: 'new'})
+        expect(await store.deletedDocs('greenhouse')).toEqual([])
+        expect(await texts('joints')).toEqual(['new', 'old', 'old'])
+    })
+
+    it('goes with its project, and only then', async () => {
+        await store.createProject({name: 'other', key: 'OTH'})
+        await store.createDoc('other', {id: 'joints', title: 'Joints', body: 'theirs'})
+        await store.createDoc('greenhouse', {id: 'joints', title: 'Joints', body: 'ours'})
+        await store.deleteProject('other')
+        expect(await texts('joints')).toEqual(['ours'])
+        await store.createProject({name: 'other', key: 'OTH'})
+        expect((await failure(() => store.docRevisions('other', 'joints'))).status).toBe(404)
+    })
+
+    it('marks a release with the newest revision as it ships, across projects', async () => {
+        await store.updateProject('greenhouse', {release_mode: 'own'})
+        await store.createRelease('greenhouse', {version: '1.0.0'})
+        expect((await store.createRelease('greenhouse', {version: '0.0.1', shipped_on: '2026-01-01'})).doc_mark).toBe(0)
+        expect((await store.release('greenhouse', '1.0.0')).doc_mark).toBeUndefined()
+
+        await store.createDoc('greenhouse', {id: 'joints', title: 'Joints', body: 'shipped'})
+        await store.createProject({name: 'other', key: 'OTH'})
+        await store.createDoc('other', {id: 'gears', title: 'Gears', body: 'any project counts'})
+        const [newest] = await store.docRevisions('other', 'gears')
+        const shipped = await store.updateRelease('greenhouse', '1.0.0', {shipped_on: '2026-10-30'})
+        expect(shipped.doc_mark).toBe(newest!.id)
+
+        // A doc as of the release is its newest revision at or below the mark.
+        await store.updateDoc('greenhouse', 'joints', {body: 'later'})
+        const asOf = (await store.docRevisions('greenhouse', 'joints')).find(r => r.id <= shipped.doc_mark!)
+        expect((await store.docRevision('greenhouse', 'joints', asOf!.id)).body).toBe('shipped')
+
+        // A new day keeps the mark, un-shipping lets go of it, and shipping again marks anew.
+        expect((await store.updateRelease('greenhouse', '1.0.0', {shipped_on: '2026-10-31'})).doc_mark).toBe(newest!.id)
+        expect((await store.updateRelease('greenhouse', '1.0.0', {notes: 'Hello'})).doc_mark).toBe(newest!.id)
+        expect((await store.updateRelease('greenhouse', '1.0.0', {shipped_on: null})).doc_mark).toBeUndefined()
+        const [latest] = await store.docRevisions('greenhouse', 'joints')
+        expect((await store.updateRelease('greenhouse', '1.0.0', {shipped_on: '2026-11-01'})).doc_mark).toBe(latest!.id)
+    })
+})

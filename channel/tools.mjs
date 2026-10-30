@@ -92,7 +92,7 @@ export const TOOLS = [
         description: "Lists the project's docs (decisions, how things work), a line each. Read the ones a task touches before its code.",
         inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Words every doc listed has'}}},
     },
-    {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
+    {name: 'doc', description: 'A doc in full: the latest, unless revision (history lists them, a deleted doc\'s too).', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, history: {type: 'boolean'}, revision: {type: 'integer'}}}},
     {
         name: 'write_doc',
         description: 'Writes a doc, new or replacing the one with this id: a decision and why, or how something works.',
@@ -573,8 +573,13 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const docs = await call('GET', `/docs${query}`, undefined, at(await projectOf(args)))
             return docs.map(d => `${d.id}: ${d.title}${d.section ? ` [${d.section}]` : ''}${d.summary ? ` — ${d.summary}` : ''}${d.match ? `\n    ${d.match}` : ''}`).join('\n') || (args.q ? 'No docs match.' : 'No docs yet.')
         },
-        async doc({id, project}) {
-            const doc = await call('GET', `/docs/${encodeURIComponent(id)}`, undefined, at(await projectOf({project})))
+        async doc({id, history, revision, project}) {
+            const path = `/docs/${encodeURIComponent(id)}`
+            if (history) {
+                const revisions = await call('GET', `${path}/revisions`, undefined, at(await projectOf({project})))
+                return revisions.map(r => `${r.id}: ${r.deleted ? 'removed' : r.title} (${r.created_by}${r.session_name ? `, ${r.session_name}` : ''}, ${r.created_at})`).join('\n')
+            }
+            const doc = await call('GET', revision === undefined ? path : `${path}/revisions/${revision}`, undefined, at(await projectOf({project})))
             return `# ${doc.title}\n\n${doc.body}`
         },
         async write_doc({id, title, body, section, project}) {

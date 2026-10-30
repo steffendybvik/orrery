@@ -81,6 +81,15 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 | `PATCH /projects/:project/releases/:release` | `{branch?, notes?, frozen_on?, shipped_on?, position?}`; `position` moves it in the list (0 the top); the version doesn't change; `null` clears |
 | `DELETE /projects/:project/releases/:release` | its issues stay, set for none, in every project drawing on it too |
 
+A doc's **revisions** (ORR-675): a save that changes its title or text keeps the whole of both, whether it came from the
+page, a session or `PUT`. Moving it to another section, a new position, or the same text saved again doesn't count. A
+removal is a revision too (`deleted: true`), holding its last text. `GET …/docs/:doc` always reads the latest. Their ids
+run across the orrery.
+
+Shipping a release (setting `shipped_on`) stores the newest revision id on it as `doc_mark`, read-only: a doc as of that
+release is its newest revision at or below it. Un-shipping clears it and shipping again sets it anew; a new day on one
+already shipped keeps it. A release shipped before revisions were kept has none.
+
 A **feature freeze** (`frozen_on`) is a preference, not a lock: from that day the release would rather take
 fixes, tests and docs, and a new feature goes on the next one. Nothing is refused. It shows on the release,
 in an issue's release picker, and in what sessions hear: a focus on an issue set for it (or a sub-issue going
@@ -194,7 +203,11 @@ instead of `done` when it won't ship.
 | `GET /projects/:project/docs/:doc` | with its Markdown |
 | `PUT /projects/:project/docs/:doc` | `{title, body?, section?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync. A `section` left out keeps the one it has |
 | `PATCH /projects/:project/docs/:doc` | `{title?, body?, section?}`; `section` `null` or `""` takes it out of one. Moving a doc to another section doesn't count as changing it (its `updated_at` stays) |
-| `DELETE /projects/:project/docs/:doc` | |
+| `DELETE /projects/:project/docs/:doc` | its past stays, so it can come back; only deleting the project removes that |
+| `GET /projects/:project/docs/:doc/revisions` | its revisions, newest first, without their text: `{id, title, deleted, created_by, session_name?, created_at}`. A deleted doc's too; a 404 when there's never been such a doc |
+| `GET /projects/:project/docs/:doc/revisions/:revision` | that revision with its `project`, `doc` and Markdown `body` |
+| `POST /projects/:project/docs/:doc/revisions/:revision/restore` | the doc with that revision's title and text, kept as a new revision so it can be undone too; 201 when it brings a deleted doc back, where it was filed and with who made it, else 200 |
+| `GET /projects/:project/deleted-docs` | its docs that are gone, the latest removed first: `{id, title, summary, revision, deleted_by, deleted_at}`. Bring one back by restoring its `revision` |
 | `GET /projects/:project/doc-sections` | its docs' sections, A–Z: each one a doc is filed under, and the empty ones made with `POST`. A project's own read has them too, as `doc_sections` |
 | `POST /projects/:project/doc-sections` | `{name}` (up to 60 characters) → 201 `{name}`: a section with no docs in it yet, kept until it's deleted; 409 when there's one by that name |
 | `PATCH /projects/:project/doc-sections/:section` | `{name}` → `{name}`: renames it on every doc in it at once, without counting as a change to them (their `updated_at` stays); 409 when there's already one by the new name |
