@@ -1,6 +1,7 @@
 import type {H3Event} from 'h3'
 import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
+import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
 import {CHUNK_FIELDS, SETTINGS_FIELDS} from '../store/schema'
 import {checkInput, isObject} from './input'
@@ -222,11 +223,59 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
     if (!changes.length) throw conflict(`${issues.length === 1 ? `${issues.map(i => i.id).join('')} is` : 'They are'} like that already: nothing would change`)
     const asking = issues.map(i => i.id)
     for (const m of chat.messages) if (m.move?.state === 'asked' && m.move.body.ids.some(i => asking.includes(i))) m.move.state = 'expired'
-    const request: ChatMoveRequest = {changes, body: {ids: [...new Set(changes.map(c => c.issue))], ...to}, state: 'asked'}
+    const moving = [...new Set(changes.map(c => c.issue))]
+    const was = Object.fromEntries(issues.filter(i => moving.includes(i.id)).map(i => [i.id, {status: i.column, assignee: i.assignee ?? null}]))
+    const request: ChatMoveRequest = {changes, was, body: {ids: moving, ...to}, state: 'asked'}
     const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], move: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${moveAsk(request)}`, details: {issues: request.body.ids, ...to}})
     return said
 }
+
+/** What has changed on a move request's issues since it was asked (ORR-644), leaving out those it moved already. */
+async function driftOf(chat: Chat, request: ChatMoveRequest): Promise<NonNullable<ChatMoveRequest['drifted']>> {
+    const drifted: NonNullable<ChatMoveRequest['drifted']> = []
+    for (const id of request.body.ids) {
+        const was = request.was?.[id]
+        if (!was || request.moved?.includes(id)) continue
+        const issue = await useStore().issue(chat.project, id).catch(() => null)
+        // Gone, or a proposal waiting on the owner now: Allow refuses it as it stands, with no warning needed.
+        if (!issue || undecided(issue.proposal)) continue
+        if (issue.column !== was.status) drifted.push({issue: id, field: 'status', from: was.status, to: issue.column})
+        if ((issue.assignee ?? null) !== was.assignee) drifted.push({issue: id, field: 'assignee', from: was.assignee, to: issue.assignee ?? null})
+    }
+    return drifted
+}
+
+const sameDrift = (a: NonNullable<ChatMoveRequest['drifted']>[number], b: typeof a) => a.issue === b.issue && a.field === b.field && a.from === b.from && a.to === b.to
+
+/** Keeps what has changed on the request as it is now, for the page to show. */
+function noteDrift(chat: Chat, request: ChatMoveRequest, drifted: NonNullable<ChatMoveRequest['drifted']>) {
+    const before = request.drifted ?? []
+    if (before.length === drifted.length && drifted.every(d => before.some(b => sameDrift(b, d)))) return
+    if (drifted.length) request.drifted = drifted
+    else delete request.drifted
+    changed(chat)
+}
+
+/** What the store said happened: an issue's status or assignee changing shows on any request still asking to move it,
+ * so the owner sees it before they answer. A parent's column follows its sub-issues with no event of its own: that
+ * shows when they answer. */
+export function heardForMoves({event}: {event: OrreryEvent}) {
+    if (event.type !== 'issue.status' && event.type !== 'issue.assignee') return
+    for (const chat of chats.values()) {
+        if (chat.project !== event.project) continue
+        for (const {move} of chat.messages) {
+            if (move?.state !== 'asked' || !move.body.ids.includes(event.subject as string)) continue
+            void driftOf(chat, move).then(drifted => noteDrift(chat, move, drifted)).catch(() => {})
+        }
+    }
+}
+
+/** What has changed on a move request's issues, as a sentence for the chat's session: "GRE-1 was in todo when you
+ * asked and is in done now." */
+const driftSaid = (drifted: ChatMoveRequest['drifted'] = []) => drifted.map(d => d.field === 'status'
+    ? `${d.issue} was in ${d.from} when you asked and is in ${d.to} now.`
+    : `${d.issue} was assigned to ${d.from ?? 'nobody'} when you asked and is assigned to ${d.to ?? 'nobody'} now.`).join(' ')
 
 /** Where a move request puts its issues, as a phrase: "in done, assigned to claude". */
 const moveTo = ({body: {status, assignee}}: ChatMoveRequest) => [
@@ -326,7 +375,7 @@ const answering = new Set<string>()
 
 /** The owner's answer to a request (`allow`): allowed, the setting or the schedule is saved as asked; either way the
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
-export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
+export async function answer(id: string, message: number, allow: boolean, actor: Actor, anyway = false): Promise<ChatMessage> {
     const chat = chatOf(id)
     const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.chunk || m.move))
     const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.chunk ?? asked?.move
@@ -345,7 +394,7 @@ export async function answer(id: string, message: number, allow: boolean, actor:
         else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
         else if (asked.release) await answerRelease(chat, asked.release, allow, actor)
         else if (asked.chunk) await answerChunk(chat, asked.chunk, allow, actor)
-        else if (asked.move) await answerMove(chat, asked.move, allow, actor)
+        else if (asked.move) await answerMove(chat, asked.move, allow, actor, anyway)
         else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
     } finally {
         answering.delete(key)
@@ -393,8 +442,14 @@ async function answerRelease(chat: Chat, request: ChatReleaseRequest, allow: boo
 /** The owner allowing or denying the chat's request to move or assign issues: allowed, each is changed as theirs, through
  * their chat, as their own move on the page would be (the session on one hears it the same way). One that became a
  * proposal waiting on them since, or can't be moved now, fails as their move would, still asked; those moved before it
- * stay in `moved`, so Allow again moves only the rest. */
-async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, actor: Actor) {
+ * stay in `moved`, so Allow again moves only the rest. If an issue has changed since it was asked (ORR-644), Allow moves
+ * nothing until the owner has seen that and allowed it `anyway`: one that has changed further shows, and waits again.
+ * Either way the session hears what had changed. */
+async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, actor: Actor, anyway: boolean) {
+    const drifted = await driftOf(chat, request)
+    const unseen = drifted.some(d => !request.drifted?.some(b => sameDrift(b, d)))
+    noteDrift(chat, request, drifted)
+    if (allow && drifted.length && (unseen || !anyway)) return
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
         const {ids, ...to} = request.body
@@ -420,9 +475,10 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
     changed(chat)
     useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${moveAsk(request)}`,
         details: {issues: request.body.ids, allowed: allow}})
+    const since = driftSaid(request.drifted)
     await useStore().messageSession(chat.project, launchTarget(chat.id), allow
-        ? `(I allowed your request: ${request.body.ids.join(', ')} ${request.body.ids.length === 1 ? 'is' : 'are'} now ${moveTo(request)}, saved.)`
-        : `(I denied your request to ${moveAsk(request)}: nothing changed.)`, actor)
+        ? `(I allowed your request: ${request.body.ids.join(', ')} ${request.body.ids.length === 1 ? 'is' : 'are'} now ${moveTo(request)}, saved.${since && ` Before that, ${since}`})`
+        : `(I denied your request to ${moveAsk(request)}: nothing changed.${since && ` ${since}`})`, actor)
 }
 
 /** The owner allowing or denying the chat's request for a chunk: allowed, it's made or changed as theirs, through their

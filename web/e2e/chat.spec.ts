@@ -350,6 +350,20 @@ test('asks the owner to move or assign issues, and moves them as theirs only on 
         await expect(card).toContainText('Allowed and saved')
         for (const id of made) await expect.poll(async () => [(await issue(id)).column, (await issue(id)).assignee]).toEqual(['done', OWNER['Orrery-Actor']])
         await expect.poll(() => session!.said.text).toContain('are now in done')
+
+        // One that changes while the request waits says so, and moves only on Move anyway (ORR-644).
+        const again = await request.post(`/api/chats/${chat.id}/requests`, {data: {move: {ids: [made[0]], status: 'todo'}}, headers: asChat})
+        expect(again.status(), await again.text()).toBe(201)
+        const waiting = page.getByRole('region', {name: 'Chat'}).getByRole('group', {name: `Move ${made[0]}`, exact: true})
+        await expect(waiting.getByRole('button', {name: 'Allow'})).toBeVisible()
+        await expect(waiting.getByTestId('move-drifted')).toHaveCount(0)
+        await request.patch(`/api/projects/observatory/issues/${made[0]}`, {data: {status: 'in-review'}, headers: OWNER})
+        await expect(waiting.getByTestId('move-drifted')).toContainText(`${made[0]} is now In review (was Done)`)
+        expect((await issue(made[0]!)).column).toBe('in-review')
+        await waiting.getByRole('button', {name: 'Move anyway'}).click()
+        await expect(waiting).toContainText('Allowed and saved')
+        await expect.poll(async () => (await issue(made[0]!)).column).toBe('todo')
+        await expect.poll(() => session!.said.text).toContain('was in done when you asked and is in in-review now')
     } finally {
         await endChats(request)
         for (const id of made) await request.delete(`/api/projects/observatory/issues/${id}`, {headers: OWNER})
