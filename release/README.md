@@ -8,7 +8,7 @@ docker compose up -d    # http://localhost:9000
 ```
 
 The first time you open it, it asks your name: you're its owner. To connect Claude sessions, clone the repo
-(https://github.com/steffendybvik/orrery) and follow its README from "Connect a repo".
+(https://github.com/steffendybvik/orrery) and follow its README's Quick start from step 4.
 
 ## Keep your data safe
 
@@ -24,5 +24,5 @@ The first time you open it, it asks your name: you're its owner. To connect Clau
 - **To move to a new computer:** set it up the same way, point `ORRERY_BACKUP` at the same folder, and choose the
   backup to restore when it first opens.
 - **If your data looks gone after an update:** run `docker volume ls`. A volume with another name (from an older
-  setup in a folder with another name) may hold it. App settings → Database → **Restore a backup…** brings back any
+  setup in a folder with another name) may hold it. App settings → This orrery → Database → **Restore a backup…** brings back any
   backup in the folder.
