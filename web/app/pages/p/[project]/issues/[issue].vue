@@ -270,7 +270,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <p v-if="blockers.length" class="flex flex-wrap items-center gap-x-1 text-xs text-muted">
             <LockClosedIcon class="mr-0.5 size-3 text-amber-600 dark:text-amber-400" aria-hidden="true" />
             Waiting on
-            <span v-for="(b, i) in blockers" :key="b.link"><NuxtLink :to="pathOf(b.project, b.id)" class="font-mono text-fg hover:underline" :title="b.issue?.title">{{ b.link }}</NuxtLink>{{ i < blockers.length - 1 ? ',' : '' }}</span>
+            <span v-for="(b, i) in blockers" :key="b.link" class="inline-flex items-center"><NuxtLink :to="pathOf(b.project, b.id)" class="font-mono text-fg hover:underline" :title="b.issue?.title">{{ b.link }}</NuxtLink><button type="button" class="ml-0.5 rounded px-0.5 text-faint hover:bg-hover hover:text-fg" :aria-label="`Stop waiting on ${b.link}`" :title="`Stop waiting on ${b.link}`" @click="save({depends_on: (issue!.depends_on ?? []).filter(l => l !== b.link)})">×</button>{{ i < blockers.length - 1 ? ',' : '' }}</span>
           </p>
           <p v-if="saveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</p>
         </header>
