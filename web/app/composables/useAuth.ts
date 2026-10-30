@@ -13,7 +13,7 @@ export function useAuth() {
     const status = useState<AuthStatus | null>('auth-status', () => null)
     const loggedOut = computed(() => status.value?.mode !== 'off' && !status.value?.person)
     async function logOut() {
-        await $fetch('/api/auth/logout', {method: 'POST'})
+        await apiFetch('/auth/logout', {method: 'POST', headers: {}})
         location.assign('/login')
     }
     return {status, loggedOut, logOut}

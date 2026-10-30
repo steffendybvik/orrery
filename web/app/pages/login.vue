@@ -7,7 +7,7 @@ useHead({title: 'Log in'})
 const {status} = useAuth()
 const route = useRoute()
 const invite = computed(() => typeof route.query.invite === 'string' ? route.query.invite : '')
-const provider = computed(() => `/api/auth/oidc/start${invite.value ? `?invite=${encodeURIComponent(invite.value)}` : ''}`)
+const provider = computed(() => apiUrl(`/auth/oidc/start${invite.value ? `?invite=${encodeURIComponent(invite.value)}` : ''}`))
 const key = ref('')
 const busy = ref(false)
 const failed = ref('')
@@ -16,7 +16,8 @@ async function submit() {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch('/api/auth/login', {method: 'POST', body: {key: key.value}})
+        // With no owner to name yet: nobody's logged in to ask.
+        await apiFetch('/auth/login', {method: 'POST', headers: {}, body: {key: key.value}})
         location.assign('/')
     } catch (error) {
         failed.value = errorMessage(error)

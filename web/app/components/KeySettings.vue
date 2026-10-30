@@ -14,7 +14,7 @@ const failed = ref('')
 
 const headers = async () => ({'Orrery-Actor': await load()})
 async function refresh() {
-    keys.value = await $fetch<KeyRecord[]>('/api/keys', {headers: await headers()})
+    keys.value = await apiFetch<KeyRecord[]>('/keys', {headers: await headers()})
 }
 onMounted(() => refresh().catch(error => failed.value = errorMessage(error)))
 
@@ -31,11 +31,11 @@ async function act(what: () => Promise<unknown>) {
     }
 }
 const make = () => act(async () => {
-    const {key} = await $fetch<{key: string}>('/api/keys', {method: 'POST', headers: await headers(), body: {kind: kind.value, name: name.value}})
+    const {key} = await apiFetch<{key: string}>('/keys', {method: 'POST', body: {kind: kind.value, name: name.value}})
     made.value = key
     name.value = ''
 })
-const revoke = (id: string) => act(async () => $fetch(`/api/keys/${id}`, {method: 'DELETE', headers: await headers()}))
+const revoke = (id: string) => act(() => apiFetch(`/keys/${id}`, {method: 'DELETE'}))
 </script>
 
 <template>
