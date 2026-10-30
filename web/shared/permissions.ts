@@ -195,6 +195,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'limited', note: 'Stop or give more time to their own, never their agents; starting one stays the owner’s', routes: ['POST /api/projects/:project/launches/:launch/stop', 'POST /api/projects/:project/launches/:launch/extend', 'POST /api/projects/:project/sessions/:session/stop'], check: 'ownSession'},
     },
     {
+        id: 'connects.start', area: 'Sessions', action: 'Connect a repo: open a folder picker on a launcher\u2019s machine',
+        why: 'It opens a window on your machine, and writes to the folder you choose there.',
+        routes: ['POST /api/connects', 'POST /api/connects/:connect/write'],
+        session: {level: 'owner'},
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'owner'},
+    },
+    {
         id: 'sessions.watch', area: 'Sessions', action: 'Watch a session in a terminal',
         why: 'It opens a window on your machine.',
         routes: ['POST /api/projects/:project/launches/:launch/watch'],
@@ -441,12 +450,12 @@ export const PERMISSIONS: Permission[] = [
     {
         id: 'sessions.report', area: 'Sessions', action: 'Say what a session is doing, from its hook, channel or launcher',
         why: 'It’s a session reporting on itself, which changes nothing on the roadmap.',
-        routes: ['POST /api/sessions', 'POST /api/sessions/:session/calls', 'POST /api/projects/:project/signals/:signal/delivered', 'POST /api/projects/:project/launches/running', 'POST /api/projects/:project/launches/:launch/claim', 'POST /api/projects/:project/launches/:launch/ended', 'POST /api/projects/:project/launches/:launch/screen'],
+        routes: ['POST /api/connects/:connect/report', 'POST /api/sessions', 'POST /api/sessions/:session/calls', 'POST /api/projects/:project/signals/:signal/delivered', 'POST /api/projects/:project/launches/running', 'POST /api/projects/:project/launches/:launch/claim', 'POST /api/projects/:project/launches/:launch/ended', 'POST /api/projects/:project/launches/:launch/screen'],
         session: {level: 'free'},
         chat: refused,
         untrusted: refused,
         member: onTheirBoards,
-        unnamed: ['POST /api/sessions', 'POST /api/sessions/:session/calls', 'POST /api/projects/:project/signals/:signal/delivered', 'POST /api/projects/:project/launches/running', 'POST /api/projects/:project/launches/:launch/claim', 'POST /api/projects/:project/launches/:launch/ended', 'POST /api/projects/:project/launches/:launch/screen'],
+        unnamed: ['POST /api/connects/:connect/report', 'POST /api/sessions', 'POST /api/sessions/:session/calls', 'POST /api/projects/:project/signals/:signal/delivered', 'POST /api/projects/:project/launches/running', 'POST /api/projects/:project/launches/:launch/claim', 'POST /api/projects/:project/launches/:launch/ended', 'POST /api/projects/:project/launches/:launch/screen'],
     },
     {
         id: 'events.report', area: 'This orrery', action: 'Report an error to the event log',

@@ -1,8 +1,15 @@
 # Connecting a repo
 
-The easy way: open **Connect an agent** in orrery's sidebar, pick (or make) the repo's project, and
-hand the Claude session in that repo the line it gives you. It writes the repo's `CLAUDE.md` section,
-`.mcp.json` and hooks with this orrery's address and paths filled in. What follows is the same by hand.
+The easy way: open **Connect an agent** in orrery's sidebar and press **Connect a repo**. Your launcher opens this
+machine's folder picker; choose the repo, tick its projects (or make one) on the page, and press **Set it up**. The launcher
+writes the repo's `CLAUDE.md` section, `.mcp.json` and hooks, keeping what's in them and safe to run again, puts the repo on
+its list, and opens Claude there in a terminal, where Claude Code asks once about the folder and the server. Commit the
+files with the repo.
+
+It needs the launcher running as a service, once per machine; the page gives the line until it is. macOS has its picker. On
+Linux it needs a desktop with `zenity` or `kdialog`. In WSL, or with neither, use the other way: pick (or make) the repo's
+project on the same page, and hand the Claude session in that repo the line it gives you, which has it write the same
+files. What follows is the same by hand.
 
 The channel and hooks run on macOS and Linux, and on Windows inside WSL: the hook commands set their
 variables the POSIX shell way (`ORRERY_PROJECT=shop node …`), and the channel finds its Claude window

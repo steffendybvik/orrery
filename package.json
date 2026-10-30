@@ -18,6 +18,7 @@
     "test:coverage": "pnpm --dir web test:coverage",
     "test:e2e": "pnpm --dir web test:e2e",
     "test:e2e:perf": "pnpm --dir web test:e2e:perf",
+    "test:e2e:login": "pnpm --dir web test:e2e:login",
     "orrery:claim": "pnpm --dir web orrery:claim",
     "orrery:copy": "pnpm --dir web orrery:copy",
     "worktrees": "node web/scripts/worktrees.mjs"
