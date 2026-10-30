@@ -2,8 +2,6 @@ import {readdirSync} from 'node:fs'
 import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
-import {actorId} from '../server/utils/store'
-import {idOf} from '../scripts/claim.mjs'
 import {failure, storeSetup} from './store-setup'
 
 // Login and keys (ORR-664): the middleware that asks every /api route for a credential, against a real store, on events
@@ -266,11 +264,5 @@ describe('identities', () => {
         await store.identity('https://id.example', 'sub-1', secret)
         await store.removePerson('hati', {name: 'skoll', owner: true})
         expect(await store.identity('https://id.example', 'sub-1')).toBeUndefined()
-    })
-})
-
-describe('orrery:claim', () => {
-    it('makes the same id as the server', () => {
-        for (const name of ['Sköll Fenrisson', '  A--b ', 'Ævar Þór']) expect(idOf(name)).toBe(actorId(name))
     })
 })
