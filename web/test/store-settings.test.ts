@@ -157,6 +157,24 @@ describe('settings', () => {
         expect((await store.updateSettings({tracker: 'https://tracker.example.com/issue/{id}'}, owner)).tracker).toBe('https://tracker.example.com/issue/{id}')
         expect((await failure(() => store.updateSettings({tracker: 'https://tracker.example.com'}, owner))).status).toBe(400)
     })
+
+    it('names the GitHub issues an issue came from, a bare number on the project\'s repo, found by any form (ORR-635)', async () => {
+        const plain = await failure(() => store.createIssue('greenhouse', {title: 'Hinges', github_issues: [523]}))
+        expect([plain.status, plain.message]).toEqual([400, expect.stringContaining('owner/name#523')])
+        await store.updateProject('greenhouse', {repo: 'https://github.com/you/greenhouse'})
+        const {id} = await store.createIssue('greenhouse', {title: 'Hinges', github_issues: [523, '#523', 'https://github.com/other/lib/issues/7']})
+        expect((await store.issue('greenhouse', id)).github_issues).toEqual(['you/greenhouse#523', 'other/lib#7'])
+        await store.createIssue('greenhouse', {title: 'Pins'})
+        for (const form of ['523', '#523', 'You/Greenhouse#523', 'https://github.com/you/greenhouse/issues/523']) {
+            expect((await store.listIssues('greenhouse', {github_issue: form})).map(i => i.id)).toEqual([id])
+        }
+        expect((await failure(() => store.updateIssue('greenhouse', id, {github_issues: ['ENG-1567']}))).status).toBe(400)
+        expect((await failure(() => store.updateIssue('greenhouse', id, {github_issues: [0]}))).status).toBe(400)
+        expect((await store.updateIssue('greenhouse', id, {github_issues: ['other/lib#7']})).github_issues).toEqual(['other/lib#7'])
+        expect((await store.listActivity('greenhouse', id)).filter(e => e.field === 'github_issues').map(e => e.after))
+            .toEqual(['["other/lib#7"]'])
+        expect((await store.updateIssue('greenhouse', id, {github_issues: null})).github_issues).toEqual([])
+    })
 })
 describe('the terminal Watch opens', () => {
     const owner = {name: 'skoll', owner: true}

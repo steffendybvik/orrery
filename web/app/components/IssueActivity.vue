@@ -54,6 +54,13 @@ function said(event: IssueEvent): string[] {
             ...was.filter(t => !now.includes(t)).map(t => `unlinked the team task ${t}`),
         ]
     }
+    if (field === 'github_issues') {
+        const [was, now] = [list(before), list(after)]
+        return [
+            ...now.filter(g => !was.includes(g)).map(g => `linked the GitHub issue ${g}`),
+            ...was.filter(g => !now.includes(g)).map(g => `unlinked the GitHub issue ${g}`),
+        ]
+    }
     if (field === 'depends') {
         const [was, now] = [list(before), list(after)]
         return [

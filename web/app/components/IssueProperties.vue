@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Chunk, Column, Issue, Project, Session} from '#shared/roadmap'
-import {isFrozen, taskUrl} from '#shared/roadmap'
+import {githubIssueLabel, githubIssueOf, githubRepo, isFrozen, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once. The issues it
@@ -40,7 +40,7 @@ const frozen = computed(() => isFrozen(props.project.releases.find(r => r.versio
 // A list picked from a menu that stays open (labels, team tasks, depends on): a pick shows at once and the menu stays
 // up while it saves (ORR-602). Each pick sends the whole list, after the one before has gone, so a quick second pick
 // keeps the first, and the page's own list takes over once it says the same (or a save is refused, said below).
-function pickedList(field: 'labels' | 'external' | 'depends_on', current: () => string[]) {
+function pickedList(field: 'labels' | 'external' | 'github_issues' | 'depends_on', current: () => string[]) {
     const picked = ref<string[] | null>(null)
     let queue = Promise.resolve()
     const same = (a: string[], b: string[]) => a.length === b.length && a.every(v => b.includes(v))
@@ -71,6 +71,19 @@ const knownTasks = computed(() => [...new Set(allIssues(props.project).flatMap((
 const tasks = pickedList('external', () => props.issue.external)
 const taskOptions = computed(() => [...new Set([...knownTasks.value, ...tasks.value])].sort((a, b) => a.localeCompare(b)).map(t => ({value: t, label: t})))
 const taskLinks = computed(() => tasks.value.map(t => ({task: t, url: taskUrl(settings.value.tracker, t)})))
+
+// The GitHub issues it came from (ORR-635): any the project names, or a new one, typed as `523` on the project's repo,
+// `owner/name#523` or its link, and sent as kept (`owner/name#523`), so the page's list takes over once saved.
+const repo = computed(() => githubRepo(props.project.repo))
+const githubPicked = pickedList('github_issues', () => props.issue.github_issues)
+const githubIssues = computed({
+    get: () => githubPicked.value,
+    set: (next: string[]) => githubPicked.value = [...new Set(next.map(issue => githubIssueOf(issue, repo.value) ?? issue))],
+})
+const knownGithub = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.github_issues))])
+const githubOptions = computed(() => [...new Set([...knownGithub.value, ...githubIssues.value])]
+    .map(issue => ({value: issue, label: githubIssueLabel(issue, repo.value)}))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, {numeric: true})))
 
 // The issues it depends on, the whole list sent each time (a cycle or an unknown one is refused, and says why below).
 const dependsOn = pickedList('depends_on', () => props.issue.depends_on ?? [])
@@ -158,6 +171,16 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
       </span>
       <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. ENG-1567…" multiple creatable>
         <span class="text-faint">{{ tasks.length ? 'Edit' : 'None' }}</span>
+      </PropertyPicker>
+    </dd>
+
+    <dt class="label">GitHub issues</dt>
+    <dd class="flex min-w-0 flex-wrap items-center gap-1">
+      <span v-if="githubIssues.length" class="flex min-w-0 flex-wrap gap-1">
+        <GithubIssueChip v-for="github in githubIssues" :key="github" :issue="github" :repo="project.repo" />
+      </span>
+      <PropertyPicker v-model="githubIssues" :options="githubOptions" label="GitHub issues" :placeholder="repo ? 'Add an issue number, e.g. 523…' : 'Add owner/name#523…'" multiple creatable>
+        <span class="text-faint">{{ githubIssues.length ? 'Edit' : 'None' }}</span>
       </PropertyPicker>
     </dd>
 

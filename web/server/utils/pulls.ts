@@ -8,7 +8,7 @@
 // otherwise GitHub is asked, and the answers kept for a minute (five without a token, as GitHub allows 60 requests an
 // hour then), so many pages and issues cost one list per repo.
 import type {AllPulls, IssuePulls, OpenPull, PullRequest, PullState} from '#shared/roadmap'
-import {PULL_NEEDS} from '#shared/roadmap'
+import {PULL_NEEDS, githubRepo} from '#shared/roadmap'
 import {notFound} from './input'
 import type {Store} from './store'
 
@@ -81,11 +81,8 @@ interface Read<T> {
     secret: boolean
 }
 
-/** The repo's `owner/name` on GitHub, from its web address; null for anywhere else. */
-export function githubRepo(repo: string | null | undefined): string | null {
-    const match = repo?.trim().match(/^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i)
-    return match ? `${match[1]}/${match[2]}` : null
-}
+// The repo's `owner/name` on GitHub lives with the issue's GitHub references (ORR-635).
+export {githubRepo}
 
 /** Whether a PR names one of the issue's ids: a link to its page in the body, or the id in its branch. */
 export function namesIssue(pull: Pick<ListedPull, 'body' | 'head'>, ids: string[]): boolean {

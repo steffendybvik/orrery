@@ -35,7 +35,7 @@ await primes('/releases', {version: '1.0.0', notes: 'Sieves and a test good enou
 
 const eratosthenes = await primes('/issues', {title: 'Sieve of Eratosthenes', status: 'done', chunk: sieves.id, release: '1.0.0'}, 'claude')
 await primes('/issues', {title: 'Skip the even numbers', status: 'done', parent: eratosthenes.id}, 'claude')
-const segmented = await primes('/issues', {title: 'Segmented sieve for n past memory', status: 'in-progress', priority: 'P1', assignee: 'claude', chunk: sieves.id, release: '1.0.0', external: ['DEMO-12']}, 'claude')
+const segmented = await primes('/issues', {title: 'Segmented sieve for n past memory', status: 'in-progress', priority: 'P1', assignee: 'claude', chunk: sieves.id, release: '1.0.0', external: ['DEMO-12'], github_issues: [8]}, 'claude')
 await primes('/issues', {title: 'Split the range into segments', status: 'done', parent: segmented.id}, 'claude')
 await primes('/issues', {title: 'Sieve each segment with the base primes', status: 'in-progress', parent: segmented.id}, 'claude')
 await primes('/issues', {title: 'Merge the segments in order', status: 'todo', parent: segmented.id}, 'claude')

@@ -21,7 +21,7 @@ registerEndpoint('/api/projects/greenhouse/issues/GRE-2', {method: 'PATCH', hand
     return {}
 }})
 
-const issue = (id: string, title: string, more: Record<string, unknown> = {}) => ({id, title, aliases: [], labels: [], external: [], tasks: [], column: 'todo', kind: 'todo', kinds: {done: 0}, created_by: 'skoll', ...more}) as unknown as Issue
+const issue = (id: string, title: string, more: Record<string, unknown> = {}) => ({id, title, aliases: [], labels: [], external: [], github_issues: [], tasks: [], column: 'todo', kind: 'todo', kinds: {done: 0}, created_by: 'skoll', ...more}) as unknown as Issue
 const STOCK = {id: 'stock', title: 'Stock', tasks: [
     issue('GRE-1', 'Label the jars', {blocks: ['GRE-2']}),
     issue('GRE-2', 'Fill the jars', {depends_on: ['GRE-1'], blocked_by: ['GRE-1'], blocks: ['pantry/PAN-4']}),

@@ -96,6 +96,8 @@ export interface Issue {
     labels: string[]
     /** Its tasks on the team's tracker: ids (`ENG-1567`), linked through the orrery's `tracker`, or full URLs. */
     external: string[]
+    /** The GitHub issues it came from (ORR-635), each `owner/name#523`: shown as `#523` on the project's own repo. */
+    github_issues: string[]
     /** A status's id, as written; a parent's own status is ignored, its issues decide its column. */
     status: string
     notes?: string
@@ -307,7 +309,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
+export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */
@@ -336,6 +338,35 @@ export const open = (kinds: Kinds) => kinds.backlog + kinds.todo + kinds.started
 export function taskUrl(tracker: string | null, task: string): string | undefined {
     if (/^https?:\/\//.test(task)) return task
     return tracker ? tracker.replace('{id}', encodeURIComponent(task)) : undefined
+}
+
+/** The repo's `owner/name` on GitHub, from its web address; null for anywhere else. */
+export function githubRepo(repo: string | null | undefined): string | null {
+    const match = repo?.trim().match(/^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i)
+    return match ? `${match[1]}/${match[2]}` : null
+}
+
+/** A GitHub issue an issue came from (ORR-635), as it's kept: `owner/name#523`. Sent as that, as its link, or as
+ * `523` or `#523` on `repo` (the project's, `owner/name`); null for anything else, or a bare number with no repo. */
+export function githubIssueOf(sent: string | number, repo: string | null): string | null {
+    const text = String(sent).trim()
+    const link = text.match(/^https?:\/\/(?:www\.)?github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)\/?$/i)
+    const full = text.match(/^([\w.-]+\/[\w.-]+)#(\d+)$/)
+    const own = text.match(/^#?(\d+)$/)
+    const [on, number] = link ? [link[1], link[2]] : full ? [full[1], full[2]] : own && repo ? [repo, own[1]] : []
+    return on && Number(number) > 0 ? `${on}#${Number(number)}` : null
+}
+
+/** How a GitHub issue shows: `#523` on the project's repo, `owner/name#523` on another. */
+export function githubIssueLabel(issue: string, repo: string | null): string {
+    const at = issue.lastIndexOf('#')
+    return repo && issue.slice(0, at).toLowerCase() === repo.toLowerCase() ? issue.slice(at) : issue
+}
+
+/** Where a GitHub issue (`owner/name#523`) opens. */
+export function githubIssueUrl(issue: string): string {
+    const at = issue.lastIndexOf('#')
+    return `https://github.com/${issue.slice(0, at)}/issues/${issue.slice(at + 1)}`
 }
 
 /** A tracker link as `tracker` keeps it (ORR-404): one with `{id}` as it is; a link into a known tracker's workspace
