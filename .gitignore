@@ -5,6 +5,8 @@ node_modules
 .env
 .env.*
 !.env.example
+# The release's compose file, downloaded beside docker-compose.yml by Quick start
+/compose.yml
 dist
 *.log
 .DS_Store
