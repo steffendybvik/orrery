@@ -80,6 +80,20 @@ describe('DependsPicker', () => {
     })
 })
 
+describe('IssueProperties, folded for a small screen', () => {
+    it('keeps status, priority and assignee out, and the rest behind More (ORR-692)', async () => {
+        const wrapper = await mountSuspended(IssueProperties, {props: {issue: STOCK.tasks[1]!, project: GREENHOUSE, chunk: STOCK, fold: true}, attachTo: document.body})
+        mounted.push(wrapper)
+        const terms = () => wrapper.findAll('dt').map(dt => dt.text())
+        expect(terms()).toEqual(['Status', 'Priority', 'Assignee'])
+        const more = wrapper.findAll('button').find(b => b.text() === 'More')!
+        await more.trigger('click')
+        expect(more.text()).toBe('Less')
+        expect(more.attributes('aria-expanded')).toBe('true')
+        expect(terms()).toEqual(expect.arrayContaining(['Labels', 'Blocked by', 'Blocks', 'Updated']))
+    })
+})
+
 describe('IssueProperties, Blocked by and Blocks', () => {
     async function mount() {
         const wrapper = await mountSuspended(IssueProperties, {props: {issue: STOCK.tasks[1]!, project: GREENHOUSE, chunk: STOCK}, attachTo: document.body})
