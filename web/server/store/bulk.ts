@@ -105,8 +105,8 @@ export abstract class BulkStore extends CommentStore {
         id = await this.issueId(project, id)
         await this.issueRow(project, id)
         const rails = await this.railsFor(actor)
-        if (rails) await this.mustHold(rails, id, (await this.issueRow(project, id)).assignee, 'delete it')
         const subtree = await this.subtree(project, id)
+        if (rails) await this.mustHoldAll(rails, project, subtree, 'delete it')
         this.refuse(actor, `Deleting ${id}`, await this.ownedUnder(project, subtree))
         await this.db.transaction(async () => {
             await this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
@@ -177,6 +177,8 @@ export abstract class BulkStore extends CommentStore {
         if (parentId && chunkId) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
         if (chunkId) await this.chunkRow(to, chunkId)
         const subtree = await this.subtree(from, id)
+        const rails = await this.railsFor(actor)
+        if (rails) await this.mustHoldAll(rails, from, subtree, 'move it')
         const marks = subtree.map(() => '?').join(', ')
         // Releases are the source project's, so an issue keeps its release only between projects sharing them.
         const source = await this.releaseSource(from)

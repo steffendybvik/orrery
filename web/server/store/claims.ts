@@ -56,6 +56,11 @@ export abstract class ClaimStore extends ReleaseStore {
         throw conflict(`${issue} is ${holder ? `assigned to ${holder}` : 'assigned to nobody'}, and this session is ${person}'s, so it can't ${what}; ${holder ? 'comment on it instead, or pick another issue' : 'a person has to assign it first'}`)
     }
 
+    /** Refuses an agent an issue, or anything under it, that isn't its person's: moving or deleting one takes them all. */
+    protected async mustHoldAll(rails: {person: string | undefined}, project: string, issues: string[], what: string) {
+        for (const issue of issues) await this.mustHold(rails, issue, (await this.issueRow(project, issue)).assignee, what)
+    }
+
     /** An agent's assignee: what it may hand on (back to the owner, or letting go), with `claude` and its own person
      * being who the issue is with already. Nobody else, as people assign. */
     protected async railedAssignee(rails: {person: string | undefined}, issue: string, assignee: string | null | undefined): Promise<string | null | undefined> {

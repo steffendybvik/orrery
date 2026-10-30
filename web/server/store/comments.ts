@@ -226,7 +226,7 @@ export abstract class CommentStore extends SignalStore {
         issue = await this.issueId(project, issue)
         const row = await this.commentRow(project, issue, id)
         this.refuse(actor, `Editing comment ${id}`, row.owned ? [`comment ${id}`] : [])
-        this.leaveTheirWords(row, actor, `Editing comment ${id}`)
+        await this.leaveTheirWords(row, actor, `Editing comment ${id}`)
         const input = checkInput(body, COMMENT_FIELDS, true)
         await this.db.transaction(async () => {
             await this.update('comments', 'id = ?', [id], {body: input.body, asks: input.asks})
@@ -240,16 +240,20 @@ export abstract class CommentStore extends SignalStore {
         return await this.comment(project, issue, id)
     }
 
-    /** A member's comment is theirs, as the owner's are the owner's: only they and the owner change it. */
-    private leaveTheirWords(row: CommentRow, actor: Actor, action: string) {
+    /** A member's comment is theirs, as the owner's are the owner's: only they and the owner change it. Their agents'
+     * are theirs too, which only they, their agents and the owner change. */
+    private async leaveTheirWords(row: CommentRow, actor: Actor, action: string) {
         if (row.person && !row.by_agent && !actor.owner && actor.person !== row.person) throw refusedFor('issues.delete', `${action} is ${row.person}'s call: they wrote it`)
+        if (!row.person || !row.by_agent) return
+        const rails = await this.railsFor(actor)
+        if (rails && (actor.person ?? rails.person) !== row.person) throw refusedFor('issues.delete', `${action} is ${row.person}'s call: their agent wrote it`)
     }
 
     async deleteComment(project: string, issue: string, id: number, actor = AGENT) {
         issue = await this.issueId(project, issue)
         const row = await this.commentRow(project, issue, id)
         this.refuse(actor, `Deleting comment ${id}`, row.owned ? [`comment ${id}`] : [])
-        this.leaveTheirWords(row, actor, `Deleting comment ${id}`)
+        await this.leaveTheirWords(row, actor, `Deleting comment ${id}`)
         await this.db.transaction(async () => {
             await this.run('DELETE FROM comments WHERE id = ?', id)
             await this.touchIssue(project, issue)
