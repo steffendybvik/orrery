@@ -6,10 +6,10 @@ import {AGENT, makeProject} from './support'
 test.describe.configure({mode: 'serial'})
 
 const put = async (request: import('@playwright/test').APIRequestContext, id: string, title: string, body: string) =>
-    expect((await request.put(`/api/projects/gallery/docs/${id}`, {data: {title, body, kind: 'artifact'}, headers: AGENT})).ok()).toBeTruthy()
+    expect((await request.put(`/api/projects/atelier/docs/${id}`, {data: {title, body, kind: 'artifact'}, headers: AGENT})).ok()).toBeTruthy()
 
 test.beforeAll(async ({request}) => {
-    await makeProject(request, {name: 'Gallery', key: 'GAL'})
+    await makeProject(request, {name: 'Atelier', key: 'ATL'})
 })
 
 const TRIES = `<pre id="out">waiting</pre><script>
@@ -56,12 +56,12 @@ test("runs its script, which can't reach the app, the network, a popup, a form o
     })
     let popups = 0
     page.on('popup', () => popups++)
-    await page.goto('/p/gallery/docs/tries')
+    await page.goto('/p/atelier/docs/tries')
     const frame = page.frameLocator('iframe[title="Artifact"]')
     await expect(frame.locator('#out')).toContainText('"ran":true')
     const out = JSON.parse(await frame.locator('#out').textContent() ?? '{}') as Record<string, unknown>
     expect(out).toMatchObject({api: 'blocked', parent: 'blocked', storage: 'blocked', cookie: 'blocked', popup: 'blocked', image: 'blocked', origin: 'null'})
-    await expect(page).toHaveURL(/\/p\/gallery\/docs\/tries$/)
+    await expect(page).toHaveURL(/\/p\/atelier\/docs\/tries$/)
     expect(answered).toEqual([])
     expect(failed).toEqual(['/api/sentinel-image csp'])
     expect(popups).toBe(0)
@@ -81,7 +81,7 @@ test('is locked down in a tab of its own too', async ({page, request}) => {
     page.on('response', r => {
         if (r.url().includes('sentinel')) answered.push(r.url())
     })
-    const answer = await page.goto('/api/projects/gallery/docs/alone/artifact')
+    const answer = await page.goto('/api/projects/atelier/docs/alone/artifact')
     const headers = answer!.headers()
     expect(headers['content-security-policy']).toContain('sandbox allow-scripts')
     expect(headers['x-content-type-options']).toBe('nosniff')
@@ -91,7 +91,7 @@ test('is locked down in a tab of its own too', async ({page, request}) => {
 
 test("draws Tailwind's classes and the app's theme, and follows dark mode", async ({page, request}) => {
     await put(request, 'styled', 'Styled', '<div id="box" class="bg-accent-500 p-4 text-fg dark:bg-fg">Styled</div>')
-    await page.goto('/p/gallery/docs/styled')
+    await page.goto('/p/atelier/docs/styled')
     await page.evaluate(() => {
         localStorage.setItem('orrery-theme', 'light')
     })
@@ -115,7 +115,7 @@ test("draws Tailwind's classes and the app's theme, and follows dark mode", asyn
 
 test('takes a whole document of its own', async ({page, request}) => {
     await put(request, 'whole', 'Whole', '<!doctype html><html><head><title>Mine</title><style>#own { margin-top: 7px }</style></head><body><div id="own" class="p-2">Own</div></body></html>')
-    await page.goto('/p/gallery/docs/whole')
+    await page.goto('/p/atelier/docs/whole')
     const own = page.frameLocator('iframe[title="Artifact"]').locator('#own')
     await expect(own).toHaveCSS('margin-top', '7px')
     await expect(own).toHaveCSS('padding-top', '8px')
@@ -123,7 +123,7 @@ test('takes a whole document of its own', async ({page, request}) => {
 
 test('keeps what it throws to itself, and the app keeps working', async ({page, request}) => {
     await put(request, 'boom', 'Boom', '<p id="before">Before</p><script>throw new Error("boom")</script>')
-    await page.goto('/p/gallery/docs/boom')
+    await page.goto('/p/atelier/docs/boom')
     await expect(page.frameLocator('iframe[title="Artifact"]').locator('#before')).toBeVisible()
     await expect(page.getByRole('heading', {level: 1, name: 'Boom'})).toBeVisible()
     await page.getByRole('button', {name: 'Reload'}).click()
@@ -135,7 +135,7 @@ test('keeps what it throws to itself, and the app keeps working', async ({page, 
 test('says so when it fails to load, and Reload tries again', async ({page, request}) => {
     await put(request, 'fails', 'Fails', '<p id="fine">Fine</p>')
     await page.route('**/docs/fails/artifact*', route => route.fulfill({status: 500, body: 'no'}))
-    await page.goto('/p/gallery/docs/fails')
+    await page.goto('/p/atelier/docs/fails')
     await expect(page.getByRole('alert')).toContainText('500')
     await expect(page.locator('iframe[title="Artifact"]')).toHaveCount(0)
     await page.unroute('**/docs/fails/artifact*')
@@ -144,7 +144,7 @@ test('says so when it fails to load, and Reload tries again', async ({page, requ
 })
 
 test('is made from the docs list, edited as text, and a Markdown doc is never served as a page', async ({page, request}) => {
-    await page.goto('/p/gallery/docs')
+    await page.goto('/p/atelier/docs')
     await page.getByRole('button', {name: 'New artifact'}).click()
     const dialog = page.getByRole('dialog', {name: 'New artifact'})
     await dialog.getByLabel('Title').fill('By hand')
@@ -162,6 +162,6 @@ test('is made from the docs list, edited as text, and a Markdown doc is never se
     await page.getByRole('button', {name: 'History'}).click()
     await expect(page.getByRole('region', {name: 'History'}).locator('[data-diff="added"]')).toContainText('Changed')
 
-    await request.put('/api/projects/gallery/docs/plain', {data: {title: 'Plain', body: '<script>1</script>'}, headers: AGENT})
-    expect((await request.get('/api/projects/gallery/docs/plain/artifact')).status()).toBe(404)
+    await request.put('/api/projects/atelier/docs/plain', {data: {title: 'Plain', body: '<script>1</script>'}, headers: AGENT})
+    expect((await request.get('/api/projects/atelier/docs/plain/artifact')).status()).toBe(404)
 })
