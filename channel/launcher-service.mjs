@@ -307,11 +307,11 @@ export function removeService(where = platform(), config = readConfig()) {
     return {file: where.file}
 }
 
-/** Whether the process `pid` is a launcher still running. Once a launcher dies the system can hand its pid to
+/** Whether the process `pid` is a launcher still running, from a checkout or through the bootstrap (ORR-703). Once a launcher dies the system can hand its pid to
  * another program, which doesn't count: its sessions would otherwise be left to nobody. */
 export function launcherAlive(pid) {
     try {
-        return execFileSync('ps', ['-p', String(pid), '-o', 'command='], {encoding: 'utf8'}).includes('orrery-launcher')
+        return execFileSync('ps', ['-p', String(pid), '-o', 'command='], {encoding: 'utf8'}).match(/orrery-launcher|bootstrap\.mjs launcher/) !== null
     } catch {
         return false // No such process.
     }

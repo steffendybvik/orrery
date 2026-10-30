@@ -26,7 +26,7 @@ const columnOf = (ref: string) => columns.value.get(ref)
     <span v-else class="text-faint">{{ model.length ? 'Edit' : 'Add' }}</span>
     <template #option="{option}">
       <StatusIcon v-if="columnOf(option.value)" :column="columnOf(option.value)!" />
-      <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+      <span class="min-w-0 flex-1 truncate" :title="option.label">{{ option.label }}</span>
     </template>
   </PropertyPicker>
 </template>
