@@ -3,20 +3,10 @@
 // Runs first. What stays open is what can't hold data: the login's own routes, and outside /api the page's files, the
 // channel's, and /llms* and /connect, which leave out what's on this orrery unless `mayRead` says otherwise (ORR-689).
 // Off, as on one person's own machine, this does nothing.
-import {authMode, canGetIn, credential, holdSession, noteOtherPerson} from '../utils/auth'
+import {authMode, canGetIn, credential, holdSession, noteOtherPerson, pathOf} from '../utils/auth'
 
 const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/oidc/start', '/api/auth/oidc/callback'])
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-
-/** The path as a router might come to read it, so no spelling of /api slips past as something else. */
-function pathOf(event: {path: string}): string {
-    const path = event.path.split('?')[0] ?? ''
-    try {
-        return decodeURIComponent(path).replace(/\\/g, '/').replace(/\/{2,}/g, '/').toLowerCase()
-    } catch {
-        return '/api/'
-    }
-}
 
 export default defineEventHandler(async event => {
     const path = pathOf(event)

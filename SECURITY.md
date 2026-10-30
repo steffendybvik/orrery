@@ -90,6 +90,8 @@ come from loopback, whoever sent it, so a request that carries a proxy's headers
 without saying so, defeats this check: don't put one in front of orrery that forwards from other machines without
 asking for a login.
 
+A request's body is held to 32 MB, or 256 MB for a board's file or an import, and 64 KB on the login's own routes, the only ones open to anyone (ORR-753). Nothing limits how many requests arrive, so on a shared server a proxy should.
+
 Errors the page reports (`POST /api/events/log`) are taken from anyone, a few a minute from each sender (who it
 says it is, and where from) and a hundred from all of them, so one script can't use up what the page may send.
 
