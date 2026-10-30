@@ -104,6 +104,8 @@ export abstract class BulkStore extends CommentStore {
     async deleteIssue(project: string, id: string, actor = AGENT) {
         id = await this.issueId(project, id)
         await this.issueRow(project, id)
+        const rails = await this.railsFor(actor)
+        if (rails) await this.mustHold(rails, id, (await this.issueRow(project, id)).assignee, 'delete it')
         const subtree = await this.subtree(project, id)
         this.refuse(actor, `Deleting ${id}`, await this.ownedUnder(project, subtree))
         await this.db.transaction(async () => {
@@ -127,7 +129,8 @@ export abstract class BulkStore extends CommentStore {
         const input = checkInput(body ?? {}, DECISION_FIELDS)
         const decision = input.decision as Decision
         const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null
-        const assignee = row.owned ? row.assignee : row.created_by
+        // With people, the person whose agent proposed it.
+        const assignee = row.owned ? row.assignee : await this.shared() && row.created_person || row.created_by
         // With choices: approving takes the picks (the recommendation where none is sent), and asking for
         // changes can name an option to go further down.
         const choices = JSON.parse(row.choices) as Choice[]

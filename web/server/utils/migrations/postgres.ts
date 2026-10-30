@@ -522,4 +522,11 @@ export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<un
     INSERT INTO doc_revisions (project, doc, title, body, created_by, owned, created_at)
         SELECT project, id, title, body, created_by, owned, updated_at FROM docs ORDER BY updated_at, project, id;
     ALTER TABLE releases ADD COLUMN doc_mark integer;
+`, `
+    -- Who holds an issue (ORR-655): the person who took it up and when, and the session on it, each taken with a
+    -- conditional write; and whose agent made it.
+    ALTER TABLE issues ADD COLUMN claimed_by text;
+    ALTER TABLE issues ADD COLUMN claimed_at text;
+    ALTER TABLE issues ADD COLUMN claimed_session text;
+    ALTER TABLE issues ADD COLUMN created_person text;
 `]

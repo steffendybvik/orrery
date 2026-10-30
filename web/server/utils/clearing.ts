@@ -163,7 +163,8 @@ export async function letGo(project: string, id: string, error?: string): Promis
     const why = error ? CUT_OFF[error] ?? `an API error (${error})` : 'an API error'
     const actor = {name: 'claude', owner: false}
     for (const issue of issues) {
-        await store.updateIssue(project, issue.id, {status: 'todo', assignee: null}, actor)
+        // With people it stays its person's, for another of their agents to pick up.
+        await store.updateIssue(project, issue.id, await store.isShared() ? {status: 'todo'} : {status: 'todo', assignee: null}, actor)
         await store.createComment(project, issue.id, {
             body: `The session working on this (${sessionNow(id)?.name ?? id}) had its turn cut off by ${why}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`,
         }, actor)

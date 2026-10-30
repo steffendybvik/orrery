@@ -71,6 +71,24 @@ export abstract class PeopleStore extends OwnerStore {
         return here.find(person => person.id === id)?.id
     }
 
+    /** `shared`, for what orrery does outside the store. */
+    async isShared(): Promise<boolean> {
+        return await this.shared()
+    }
+
+    /** Whether more than one person is here: only then do the rails between people hold. */
+    protected async shared(): Promise<boolean> {
+        return (await this.one<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL')).n > 1
+    }
+
+    /** The person an issue is assigned to: `claude` counts as the owner's, and an assignee who isn't a person is nobody. */
+    protected async holderOf(assignee: string | null | undefined): Promise<string | null> {
+        const id = assignee?.toLowerCase()
+        if (!id) return null
+        if (id === 'claude') return await this.ownerId()
+        return await this.get('SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL', id) ? id : null
+    }
+
     private async person(id: string): Promise<Person> {
         const row = await this.get<PersonRow>('SELECT * FROM people WHERE id = ?', id)
         if (!row) throw notFound(`No person "${id}"`)

@@ -14,7 +14,8 @@ export async function actorOf(event: H3Event): Promise<Actor> {
     const name = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
     const owner = name.toLowerCase() === (await useStore().ownerOf()).name
     const session = owner ? undefined : sessionName(sessionHeader(event))
-    return {name, owner, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}}
+    const named = personHeader(event)
+    return {name, owner, asked: true, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}, ...named ? {named} : {}, ...chatWrite(event) ? {chat: true} : {}}
 }
 
 /** Whose a request is (ORR-653): the owner's, and their chat's, whatever they send; a session's, the person it names
@@ -24,7 +25,7 @@ export async function personOf(event: H3Event): Promise<string | undefined> {
     if (untrustedWrite(event)) return undefined
     const {owner, name} = await actorOf(event)
     if (owner) return name.toLowerCase()
-    return chatWrite(event) ? (await useStore().ownerOf()).name : await useStore().personFor(personHeader(event))
+    return chatWrite(event) ? (await useStore().ownerOf()).name : await useStore().personFor(personHeader(event) ?? name)
 }
 
 const personHeader = (event: H3Event) => getHeader(event, 'orrery-person')?.trim() || undefined
