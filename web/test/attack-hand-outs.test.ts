@@ -108,6 +108,81 @@ describe('a session catching up after a restart or a /clear', () => {
     })
 })
 
+describe('a move into Todo', () => {
+    type Listed = {id: string, project: string, state: string, listening: boolean, person: string}
+    const session = (id: string, state = 'idle'): Listed => ({id, project: 'greenhouse', state, listening: true, person: id === 'skoll-a' ? 'skoll' : SESSIONS[id] as string})
+    let sessions: Listed[]
+
+    beforeEach(() => {
+        // Manni's come first, so a hand-out that didn't look whose it is would land on them.
+        sessions = [session('manni-a'), session('manni-b'), session('hati-a'), session('skoll-a')]
+        store.sessionPerson = id => sessions.find(s => s.id === id)?.person
+        vi.stubGlobal('listSessions', () => sessions)
+        vi.stubGlobal('sessionIds', (id: string) => [id])
+        vi.stubGlobal('sessionNow', (id: string) => sessions.find(s => s.id === id))
+        vi.stubGlobal('chatSession', () => false)
+        vi.stubGlobal('untrustedSession', () => false)
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    /** Which issues went to which session once these moves, heard as the store says them, have been handed out. A last
+     * move of the owner's, with no priority, goes out after all of them, so what it hasn't brought never will. */
+    const handed = async (...moves: [id: string, actor: Actor][]) => {
+        const {heardTodo, TODO_AFTER} = await import('../server/utils/todo-focus')
+        const last = await add('claude')
+        for (const [id] of moves) await store.updateIssue('greenhouse', id, {priority: 'P1'}, owner)
+        store.happened = event => heardTodo({event})
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+        for (const [id, actor] of [...moves, [last, owner] as const]) await store.updateIssue('greenhouse', id, {status: 'todo'}, actor)
+        await vi.advanceTimersByTimeAsync(TODO_AFTER)
+        vi.useRealTimers()
+        const sent = () => signals.filter(s => s.target && s.issue).map(s => [s.issue, s.target])
+        await vi.waitFor(() => expect(sent()).toContainEqual([last, 'skoll-a']))
+        return sent().filter(([issue]) => issue !== last)
+    }
+
+    it('by a member goes to their own session, not the other person\'s idle ones', async () => {
+        const id = await add('hati')
+        expect(await handed([id, hati])).toEqual([[id, 'hati-a']])
+    })
+
+    it('by a member is refused when it\'s the other person\'s, or nobody\'s', async () => {
+        for (const id of [await add('manni'), await add()]) {
+            await expect(store.updateIssue('greenhouse', id, {status: 'todo'}, hati)).rejects.toMatchObject({statusCode: 409})
+        }
+    })
+
+    it('by a member goes to nobody when none of their own is free', async () => {
+        sessions = [session('manni-a'), session('hati-a', 'working'), session('skoll-a')]
+        const id = await add('hati')
+        expect(await handed([id, hati])).toEqual([])
+    })
+
+    it('by the owner goes to the session of the person it\'s assigned to, not the other\'s', async () => {
+        const id = await add('hati')
+        expect(await handed([id, owner])).toEqual([[id, 'hati-a']])
+    })
+
+    it('by the owner waits when none of that person\'s is free, not going to the other\'s', async () => {
+        sessions = [session('manni-a'), session('hati-a', 'working'), session('skoll-a')]
+        const id = await add('hati')
+        expect(await handed([id, owner])).toEqual([])
+    })
+
+    it('by the owner goes to nobody when it\'s nobody\'s, on a board with more than one person', async () => {
+        const id = await add()
+        expect(await handed([id, owner])).toEqual([])
+    })
+
+    it('by an agent sends nothing, even of its own person\'s', async () => {
+        const id = await add('hati')
+        expect(await handed([id, {name: 'claude', owner: false, asked: true, session: 'hati-b', named: 'hati'}])).toEqual([])
+    })
+})
+
 describe('Manni, doing the same to Hati\'s', () => {
     it('wakes nobody by a comment, and can\'t focus anyone on it', async () => {
         const id = await add('hati')
