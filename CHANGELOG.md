@@ -7,6 +7,56 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.16 (2026-10-30)
+
+### Features
+
+- **The chat works with your own Claude Code settings:** it starts with the settings of the machine its launcher runs
+  on, so what you allow in a terminal, such as fetching a page, works in the chat, and what you deny stays refused. It
+  writes docs, calls `egress` and resolves events itself. A permission prompt shows in its pane with **Allow** and
+  **Deny**. This also means a planted comment it reads can try to talk it into whatever those settings allow, and with
+  Bash allowed it can reach orrery without its channel's mark, as `SECURITY.md` says.
+- **The chat hands issue work to a session:** asked to do work on an issue, it starts a session for it, with no
+  **Allow**, and stays free to talk to. Your last message has to name the issue or come from its page.
+- **The chat reads GitHub:** the repo's issues and pull requests, including a pull request's diff and why its checks
+  failed. It reads outsiders' text unfiltered, as data, so planted text could reach work sessions through what it files.
+- **Upload a board's file as a new board:** `POST /api/projects/upload` brings a board's export onto a server, checking
+  the file as untrusted, with its schedules paused. It's the API alone: there's no page for it yet, and the old board
+  doesn't go read-only.
+
+### Changes
+
+- **Backlog is a safe place to park an issue:** a session out of work now picks from Todo only, and with Todo empty it
+  stays idle. Pointing a session at a Backlog issue still works.
+- **A limit on a request's size:** a body over 32 MB gets a 413, over 256 MB for a board's file or an import, and over
+  64 KB on the login's routes, including a doc or comment that big.
+
+### Fixes
+
+- **Comments and docs load nothing from other sites:** viewing one could send what its writer had read to another site,
+  and a style in one could cover the page. A remote image now shows as a link naming its site, and inline styles,
+  classes, video and audio in Markdown no longer show, on what's already there too. Every page also has a
+  `Content-Security-Policy`, limiting images, media, fonts and styles to orrery and Google Fonts.
+- **A session's stream is guarded with a slash on its path:** another site's picture could open a stream as any session
+  name.
+- **A chat no longer stays on Thinking…** in a repo that keeps its hooks in its local settings.
+- **A fresh install no longer offers to restore its own empty backups.**
+
+### Docs
+
+- **Upgrading on Postgres:** Running says to take a `pg_dump` first, as orrery keeps no copy before upgrading there.
+
+### Internal
+
+- **Shipping:** `CHANGELOG.md` is the only place a release's notes are written, and the Release run makes the GitHub
+  release from it, so don't make one by hand.
+- **The browser suite:** it runs on four workers, grouped by what specs share, and only on pull requests into `main`. A
+  session's pull request into a release branch merges itself once `check` and `docker` pass.
+- **Test speed history:** each run keeps how the suite ran, and a version isn't compared with one that ran differently
+  or had failing tests. Working on orrery says how to benchmark. This version starts a new baseline.
+- **Tests:** axe on every page of the walk, a test that fails when a page has no browser test, the components no browser
+  test mounted, the routes no spec named, and backups and failed upgrades on Postgres.
+
 ## 1.0.0-rc.15 (2026-10-30)
 
 ### Features
