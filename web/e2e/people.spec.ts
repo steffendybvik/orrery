@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test'
+import {type Page, expect, test} from '@playwright/test'
 import {OWNER, makeProject} from './support'
 
 // Two people on one machine (ORR-657), with login off: the owner adds someone, puts them on a board, and the page acts as
@@ -9,6 +9,11 @@ const ID = 'hati_lokason'
 test.afterEach(async ({request}) => {
     await request.delete(`/api/people/${ID}`, {headers: OWNER})
 })
+
+/** Acts as `person`: the page reloads for it, so what comes next has to wait, or a `goto` is cut short by that. */
+async function actAs(page: Page, person: string) {
+    await Promise.all([page.waitForEvent('load'), page.getByRole('combobox', {name: 'Acting as'}).selectOption(person)])
+}
 
 test('claims, board members and acting as someone, and none of it with one person', async ({page, request}) => {
     await makeProject(request, {name: 'Sorrel', key: 'SOR'})
@@ -33,7 +38,7 @@ test('claims, board members and acting as someone, and none of it with one perso
 
     // Assigned to them, so they can claim it, and it shows who holds it, on the page and on the list.
     await request.patch(`/api/projects/sorrel/issues/${made.id}`, {data: {assignee: ID}, headers: OWNER})
-    await page.getByRole('combobox', {name: 'Acting as'}).selectOption(ID)
+    await actAs(page, ID)
     await expect(page.getByRole('combobox', {name: 'Acting as'})).toHaveValue(ID)
     await page.goto(`/p/sorrel/issues/${made.id}`)
     await page.getByRole('button', {name: 'Claim'}).click()
@@ -52,7 +57,7 @@ test('claims, board members and acting as someone, and none of it with one perso
     await page.screenshot({path: process.env.SHOTS ? `${process.env.SHOTS}/claim-members.png` : undefined})
 
     // The owner takes it over.
-    await page.getByRole('combobox', {name: 'Acting as'}).selectOption('ada_lovelace')
+    await actAs(page, 'ada_lovelace')
     await expect(page.getByRole('combobox', {name: 'Acting as'})).toHaveValue('ada_lovelace')
     await page.goto(`/p/sorrel/issues/${made.id}`)
     await page.getByRole('button', {name: 'Take over'}).click()
