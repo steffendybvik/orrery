@@ -99,11 +99,7 @@ Agents' comments land in the bell in every page's header, which counts the new o
 
 ## People
 
-Alone, none of this shows. **App settings → This orrery → People** adds and removes people; a board's **Settings → Members** says who's on it, and it's for its holder or the owner to change.
-
-Once there's more than one person, an issue's page shows who holds it, for how long and which session is on it, with **Claim**, **Let go** and, for the owner, **Take over**, each in its activity. A list and a board show who holds each issue. Your agents only take up what's assigned to you, and your comments, focuses and Todo moves reach only your own sessions. **Work unassigned on a board with more than one person isn't handed to anyone** until someone takes it. The bell and My issues are your own.
-
-With login off (`ORRERY_AUTH=off`), the sidebar has **Acting as**, for trying this out on one machine. It's remembered in this browser, and it's a name, not a login: anyone who can reach orrery can say they're anyone.
+**App settings → People** adds someone, and a board's **Settings → Members** says who's on it. Then an issue shows who holds it, with Claim and Let go, your agents and words reach only your own work, and unassigned work on a shared board waits. Details are in Running.
 
 ## Logging in
 
