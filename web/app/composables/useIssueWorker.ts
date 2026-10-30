@@ -12,7 +12,7 @@ export function useIssueWorker(project: MaybeRefOrGetter<string>, issue: MaybeRe
         const id = toValue(project)
         // Before the issue's project is known there's nothing to ask about.
         if (!id) return
-        const got = await $fetch<Record<string, SessionWork>>(`/api/projects/${encodeURIComponent(id)}/sessions/work`).catch(() => null)
+        const got = await apiFetch<Record<string, SessionWork>>(`/projects/${encodeURIComponent(id)}/sessions/work`).catch(() => null)
         if (got && id === toValue(project)) work.value = got
     }
     watch(() => [toValue(project), toValue(changed), listening.value.map(s => `${s.id}:${s.state}`).join(), signals.value.length], refresh, {immediate: true})

@@ -35,7 +35,7 @@ watch([project, kind, session], async ([p, k, s]) => {
     if (!p) return
     failed.value = ''
     try {
-        view.value = await $fetch<ContextView>(`/api/projects/${encodeURIComponent(p)}/context`, {query: s ? {session: s} : {kind: k}})
+        view.value = await apiFetch<ContextView>(`/projects/${encodeURIComponent(p)}/context`, {query: s ? {session: s} : {kind: k}})
     } catch (error) {
         view.value = null
         failed.value = (error as {data?: {message?: string}}).data?.message ?? 'It couldn’t be read.'

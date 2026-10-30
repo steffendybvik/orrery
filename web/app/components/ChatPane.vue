@@ -356,7 +356,7 @@ const {over, on: drop} = useImageDrop(attach)
       </li>
       <li v-else class="flex flex-col gap-1.5" :class="[m.from === 'owner' ? 'items-end' : 'items-start', i < cut && 'opacity-60']">
         <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
-          <img v-for="id in m.images" :key="id" :src="`/api/uploads/${id}`" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
+          <img v-for="id in m.images" :key="id" :src="apiUrl(`/uploads/${id}`)" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
         </div>
         <template v-if="m.from === 'owner' && m.text">
           <div v-for="(part, p) in m.parts ?? [m.text]" :key="p" class="max-w-[85%] rounded-2xl rounded-br-md bg-accent-500/15 px-3 py-2 whitespace-pre-wrap text-fg">{{ part }}</div>

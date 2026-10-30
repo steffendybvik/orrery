@@ -25,7 +25,7 @@ export function useRoadmaps() {
     /** Loads one project afresh and puts it in place: for when its update hasn't come yet (a page opened right
      * after a write), or won't (offline). Nothing when it can't be loaded. */
     async function reload(id: string): Promise<Project | undefined> {
-        const project = await $fetch<Project>(`/api/projects/${encodeURIComponent(id)}`, {query: {notes: '0'}}).catch(() => undefined)
+        const project = await apiFetch<Project>(`/projects/${encodeURIComponent(id)}`, {query: {notes: '0'}}).catch(() => undefined)
         if (project) {
             if (partial.value[id]) partial.value = {...partial.value, [id]: false}
             projects.value = byId(id) ? projects.value.map(p => p.id === id ? project : p)

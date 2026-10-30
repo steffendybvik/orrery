@@ -5,7 +5,7 @@ import type {Secret} from '#shared/roadmap'
 // go to, the projects that may use it, and its last use. Set or replace one with its value (which never
 // comes back); take a host off without it, since that only narrows where it goes. Saved as the owner.
 const {secrets, load: loadSecrets} = useSecretList()
-const {load, who} = useOwner()
+const {who} = useOwner()
 const {projects, byId} = useRoadmaps()
 const failed = ref('')
 const busy = ref(false)
@@ -16,7 +16,7 @@ async function call(name: string, method: 'PUT' | 'PATCH' | 'DELETE', body?: Rec
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`/api/secrets/${encodeURIComponent(name)}`, {method: method as 'PUT', headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(`/secrets/${encodeURIComponent(name)}`, {method: method as 'PUT', body})
         return true
     } catch (error) {
         failed.value = errorMessage(error)

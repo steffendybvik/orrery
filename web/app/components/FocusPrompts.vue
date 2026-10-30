@@ -9,7 +9,6 @@ import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, PLACEHOLDERS, renderPrompt} 
 // Each template shows what it's for and whose it is; its text opens with Edit.
 const props = defineProps<{project?: Project}>()
 const {settings, save: saveSettings} = useAppSettings()
-const {load} = useOwner()
 const failed = ref('')
 
 const KINDS = [
@@ -31,7 +30,7 @@ async function save(change: Record<string, unknown>) {
     failed.value = ''
     try {
         if (props.project) {
-            await $fetch(`/api/projects/${encodeURIComponent(props.project.id)}`, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: change})
+            await apiFetch(`/projects/${encodeURIComponent(props.project.id)}`, {method: 'PATCH', body: change})
         } else {
             await saveSettings(change as Partial<typeof settings.value>)
         }

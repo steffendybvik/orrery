@@ -22,24 +22,24 @@ export default defineNuxtPlugin(() => {
 
     async function load() {
         const app = useAppSettings()
-        app.settings.value = await $fetch<Settings>('/api/settings').catch(() => app.settings.value)
+        app.settings.value = await apiFetch<Settings>('/settings').catch(() => app.settings.value)
         app.apply()
         await useOwner().refresh()
         // The page's own project comes whole in the same call.
         const here = router.currentRoute.value.params.project
         const own = typeof here === 'string' ? here : undefined
-        const read = await $fetch<(Project & {rev: number})[]>('/api/projects', {query: {expand: 'board', notes: '0', closed: '0', ...own ? {whole: own} : {}}})
+        const read = await apiFetch<(Project & {rev: number})[]>('/projects', {query: {expand: 'board', notes: '0', closed: '0', ...own ? {whole: own} : {}}})
         revs.clear()
         for (const project of read) revs.set(project.id, project.rev)
         partial.value = Object.fromEntries(read.map(p => [p.id, p.id !== own]))
         projects.value = read
         ready.value = true
         wholeForPage()
-        useInbox().notices.value = await $fetch<Notice[]>('/api/notices').catch(() => [])
+        useInbox().notices.value = await apiFetch<Notice[]>('/notices').catch(() => [])
         await useLoggedEvents().loadNew()
         await useSchedules().load()
         await useChat().fetchChats()
-        const all = await $fetch<Session[]>('/api/sessions').catch(() => [])
+        const all = await apiFetch<Session[]>('/sessions').catch(() => [])
         // Under each project it's on, as the `sessions` event lists them: its own and the others its channel hears.
         const grouped: Record<string, Session[]> = {}
         for (const s of all) for (const p of [s.project, ...s.also ?? []]) (grouped[p] ??= []).push(s)
@@ -90,7 +90,7 @@ export default defineNuxtPlugin(() => {
             return received(project)
         }
         // Read again as the page has it: without its closed issues while it was.
-        $fetch<Project & {rev: number}>(`/api/projects/${encodeURIComponent(patch.id)}`, {query: {notes: '0', ...lacking ? {closed: '0'} : {}}}).then(read => {
+        apiFetch<Project & {rev: number}>(`/projects/${encodeURIComponent(patch.id)}`, {query: {notes: '0', ...lacking ? {closed: '0'} : {}}}).then(read => {
             revs.set(read.id, Math.max(revs.get(read.id) ?? 0, read.rev))
             received(read)
         }, () => {})
@@ -100,7 +100,7 @@ export default defineNuxtPlugin(() => {
     /** How long to wait before opening a stream the browser gave up on again, longer each time. */
     let wait = 1000
     function connect() {
-        const events = new EventSource('/api/events?patch=1')
+        const events = new EventSource(apiUrl('/events?patch=1'))
         events.addEventListener('open', () => {
             live.value = 'connected'
             wait = 1000

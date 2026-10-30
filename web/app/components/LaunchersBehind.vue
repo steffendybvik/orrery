@@ -13,7 +13,7 @@ const install = launcherInstall(useRequestURL().origin)
 /** Each project with a launcher behind, and the versions they run (`''` for one too old to say). */
 const behind = ref<{id: string, name: string, versions: string[]}[]>([])
 async function ask() {
-    const states = await Promise.all(ordered.value.map(async p => ({p, state: await $fetch<LaunchState>(`/api/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)})))
+    const states = await Promise.all(ordered.value.map(async p => ({p, state: await apiFetch<LaunchState>(`/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)})))
     behind.value = states
         .map(({p, state}) => ({id: p.id, name: p.name, versions: [...new Set((state?.versions ?? []).filter(v => olderVersion(v || undefined, String(version))))]}))
         .filter(b => b.versions.length)

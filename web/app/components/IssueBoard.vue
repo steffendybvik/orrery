@@ -18,7 +18,6 @@ const {columns: order, look} = useStatuses()
 const {selected, isSelected, toggle} = useSelection()
 const {settings} = useAppSettings()
 const {filters} = useFilters()
-const {load} = useOwner()
 function click(event: MouseEvent, issue: Issue) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
     else open(props.project, issue.id)
@@ -93,9 +92,8 @@ function onStep(event: KeyboardEvent, issue: Issue) {
 /** Each card to the column, as the owner; the board updates live once they're saved. */
 async function move(issues: Issue[], column: Column) {
     failed.value = ''
-    const actor = await load()
     const results = await Promise.allSettled(issues.filter(i => i.column !== column).map(issue =>
-        $fetch(`/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(issue.id)}`, {method: 'PATCH', headers: {'Orrery-Actor': actor}, body: columnPatch(column, issue.proposal)})
+        apiFetch(`/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(issue.id)}`, {method: 'PATCH', body: columnPatch(column, issue.proposal)})
             .catch(error => Promise.reject(new Error(`${issue.id}: ${errorMessage(error)}`)))))
     const why = results.flatMap(r => r.status === 'rejected' ? [(r.reason as Error).message] : [])
     if (why.length) failed.value = `Couldn't move ${why.join('; ')}`

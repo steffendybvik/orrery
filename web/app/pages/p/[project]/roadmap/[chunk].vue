@@ -25,16 +25,15 @@ const share = computed(() => chunk.value ? progress(chunk.value.kinds) : null)
 const {look} = useStatuses()
 
 // Changes, as the owner; the page catches up live once they're saved. `failed` holds why the last didn't.
-const {load} = useOwner()
 const saving = ref(false)
 const failed = ref('')
-const api = computed(() => project.value && chunk.value?.id ? `/api/projects/${encodeURIComponent(project.value.id)}/chunks/${encodeURIComponent(chunk.value.id)}` : '')
+const api = computed(() => project.value && chunk.value?.id ? `/projects/${encodeURIComponent(project.value.id)}/chunks/${encodeURIComponent(chunk.value.id)}` : '')
 async function save(body: Record<string, unknown>): Promise<boolean> {
     if (!api.value) return false
     saving.value = true
     failed.value = ''
     try {
-        await $fetch(api.value, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(api.value, {method: 'PATCH', body})
         return true
     } catch (error) {
         failed.value = errorMessage(error)
@@ -87,7 +86,7 @@ async function remove() {
     saving.value = true
     failed.value = ''
     try {
-        await $fetch(api.value, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(api.value, {method: 'DELETE'})
         router.push(`/p/${project.value.id}/roadmap`)
     } catch (error) {
         failed.value = errorMessage(error, 'remove')

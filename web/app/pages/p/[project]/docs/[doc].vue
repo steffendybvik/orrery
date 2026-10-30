@@ -7,7 +7,7 @@ import {fullId} from '#shared/roadmap'
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
-const {who, load} = useOwner()
+const {who} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 const summary = computed(() => project.value?.docs.find(d => d.id === route.params.doc))
 // Open, it's seen, and stays seen as it changes in front of you.
@@ -28,7 +28,7 @@ watch(() => [route.params.project, route.params.doc, summary.value?.updated_at] 
     let left = false
     onCleanup(() => left = true)
     try {
-        const fetched = await $fetch<Doc>(`/api/projects/${encodeURIComponent(String(p))}/docs/${encodeURIComponent(String(d))}`)
+        const fetched = await apiFetch<Doc>(`/projects/${encodeURIComponent(String(p))}/docs/${encodeURIComponent(String(d))}`)
         if (left) return
         const key = `${fetched.project}/${fetched.id}`
         if (before.value?.key !== key) before.value = {key, body: lastRead(fetched.project, fetched.id)}
@@ -74,8 +74,8 @@ async function save() {
     saving.value = true
     saveFailed.value = ''
     try {
-        const saved = await $fetch<Doc>(`/api/projects/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}`, {
-            method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: change,
+        const saved = await apiFetch<Doc>(`/projects/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}`, {
+            method: 'PATCH', body: change,
         })
         before.value = {key: `${saved.project}/${saved.id}`, body: saved.body}
         read(saved.project, saved.id, saved.body)
@@ -104,7 +104,7 @@ watch([missing, () => route.params.doc], async ([gone]) => {
     removed.value = null
     if (!gone) return
     const asked = String(route.params.doc)
-    const list = await $fetch<DeletedDoc[]>(`/api/projects/${encodeURIComponent(String(route.params.project))}/deleted-docs`).catch(() => [])
+    const list = await apiFetch<DeletedDoc[]>(`/projects/${encodeURIComponent(String(route.params.project))}/deleted-docs`).catch(() => [])
     if (missing.value && String(route.params.doc) === asked) removed.value = list.find(d => d.id === asked) ?? null
 })
 
@@ -116,7 +116,7 @@ async function remove() {
     removing.value = 'busy'
     removeFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}`, {method: 'DELETE'})
         router.replace(`/p/${doc.value.project}/docs`)
     } catch (error) {
         removing.value = 'ask'

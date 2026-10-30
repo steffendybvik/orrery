@@ -6,7 +6,7 @@ export function useSecretList() {
     const secrets = useState<Secret[]>('secrets', () => [])
 
     async function load() {
-        secrets.value = await $fetch<Secret[]>('/api/secrets')
+        secrets.value = await apiFetch<Secret[]>('/secrets')
     }
 
     return {secrets, load}

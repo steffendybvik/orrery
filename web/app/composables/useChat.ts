@@ -40,7 +40,6 @@ export function useChat() {
             return 'todo'
         }
     })
-    const {load} = useOwner()
     const {chatSessions} = useRoadmaps()
 
     const chat = computed(() => chats.value.find(c => c.id === current.value) ?? (ended.value?.id === current.value ? ended.value : null))
@@ -52,7 +51,7 @@ export function useChat() {
 
     async function fetchChats() {
         const since = heard.value
-        const fetched = await $fetch<Chat[]>('/api/chats').catch(() => null)
+        const fetched = await apiFetch<Chat[]>('/chats').catch(() => null)
         // What came live while it was on its way is newer; the fetch only adds the chats it didn't bring.
         if (fetched) chats.value = heard.value === since ? fetched : [...chats.value, ...fetched.filter(f => !chats.value.some(c => c.id === f.id))]
         if (!current.value && chats.value[0]) current.value = chats.value[0].id
@@ -79,7 +78,7 @@ export function useChat() {
         if (!project.value) return false
         failed.value = ''
         try {
-            const made = await $fetch<Chat>('/api/chats', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {project: project.value, issues: lands.value}})
+            const made = await apiFetch<Chat>('/chats', {method: 'POST', body: {project: project.value, issues: lands.value}})
             ended.value = null
             arrived(made)
             current.value = made.id
@@ -97,7 +96,7 @@ export function useChat() {
         try {
             // The page's tab title, without the app's name it ends in.
             const title = document.title.replace(/\s*·\s*orrery$/, '')
-            await $fetch(`/api/chats/${chat.value.id}/messages`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {...Array.isArray(text) ? {parts: text} : {text}, images, page: {path: location.pathname + location.search, title}}})
+            await apiFetch(`/chats/${chat.value.id}/messages`, {method: 'POST', body: {...Array.isArray(text) ? {parts: text} : {text}, images, page: {path: location.pathname + location.search, title}}})
             return true
         } catch (error) {
             failed.value = errorMessage(error, 'send')
@@ -110,7 +109,7 @@ export function useChat() {
         if (!chat.value || chat.value.ended) return false
         failed.value = ''
         try {
-            await $fetch(`/api/chats/${chat.value.id}/clear`, {method: 'POST', headers: {'Orrery-Actor': await load()}})
+            await apiFetch(`/chats/${chat.value.id}/clear`, {method: 'POST'})
             return true
         } catch (error) {
             failed.value = errorMessage(error, 'clear')
@@ -123,7 +122,7 @@ export function useChat() {
         if (!chat.value || chat.value.ended) return false
         failed.value = ''
         try {
-            const asked = await $fetch<ChatMessage>(`/api/chats/${chat.value.id}/requests/${message}`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {allow, ...anyway ? {anyway} : {}}})
+            const asked = await apiFetch<ChatMessage>(`/chats/${chat.value.id}/requests/${message}`, {method: 'POST', body: {allow, ...anyway ? {anyway} : {}}})
             const request = asked.request ?? asked.schedule ?? asked.release ?? asked.chunk ?? asked.move
             return allow && request?.state === 'asked'
         } catch (error) {
@@ -144,7 +143,7 @@ export function useChat() {
         if (!on || on.ended || on.issues === where) return
         failed.value = ''
         try {
-            arrived(await $fetch<Chat>(`/api/chats/${on.id}`, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: {issues: where}}))
+            arrived(await apiFetch<Chat>(`/chats/${on.id}`, {method: 'PATCH', body: {issues: where}}))
         } catch (error) {
             failed.value = errorMessage(error, 'save')
         }
@@ -169,7 +168,7 @@ export function useChat() {
         fresh()
         if (!on || on.ended) return
         chats.value = chats.value.filter(c => c.id !== on.id)
-        await $fetch(`/api/chats/${on.id}/end`, {method: 'POST', headers: {'Orrery-Actor': await load()}}).catch(() => {})
+        await apiFetch(`/chats/${on.id}/end`, {method: 'POST'}).catch(() => {})
     }
 
     /** Pins the pane to `on`, so it stays there whatever page is open, or unpins it (null) to follow the page again. */
@@ -196,7 +195,7 @@ export function useChat() {
 
     /** A pasted image, kept by orrery: its id, to send with the message. */
     async function upload(file: File): Promise<Upload> {
-        return $fetch<Upload>('/api/uploads', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null}})
+        return apiFetch<Upload>('/uploads', {method: 'POST', body: {data: await readAsDataUrl(file), name: file.name || null}})
     }
 
     return {chats, open, large, current, chat, session, project, pinned, failed, ended, lands, fetchChats, arrived, show, start, send, clear, land, fresh, answer, hide, close, pin, resize, upload}

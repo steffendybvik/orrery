@@ -10,7 +10,7 @@ const hidden = ref<string | null>(null)
 
 onMounted(async () => {
     hidden.value = localStorage.getItem(HIDDEN)
-    newer.value = (await $fetch<{newer: Newer | null}>('/api/version').catch(() => null))?.newer ?? null
+    newer.value = (await apiFetch<{newer: Newer | null}>('/version').catch(() => null))?.newer ?? null
 })
 
 function hide() {

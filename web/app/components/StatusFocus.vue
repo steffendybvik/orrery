@@ -7,7 +7,6 @@ import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 // does the keys, focus and outside-click.
 const props = defineProps<{project: string, chunk: string, column: Column}>()
 const {sessions: all} = useRoadmaps()
-const {load} = useOwner()
 
 const listening = computed(() => (all.value[props.project] ?? []).filter(s => s.listening))
 const {look} = useStatuses()
@@ -18,8 +17,8 @@ const note = ref('')
 async function focus(session: Session | null) {
     sending.value = true
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.project)}/chunks/${encodeURIComponent(props.chunk)}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': await load()}, body: {status: props.column, session: session?.id ?? '*'},
+        await apiFetch(`/projects/${encodeURIComponent(props.project)}/chunks/${encodeURIComponent(props.chunk)}/focus`, {
+            method: 'POST', body: {status: props.column, session: session?.id ?? '*'},
         })
         note.value = `Sent to ${session ? session.name : listening.value.length === 1 ? 'the session' : `${listening.value.length} sessions`}`
     } catch {

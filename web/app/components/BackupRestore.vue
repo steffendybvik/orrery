@@ -9,7 +9,6 @@ import {bytes} from '~/utils/bytes'
 
 const props = defineProps<{backups: Backups, id?: string, first?: boolean}>()
 const emit = defineEmits<{fresh: []}>()
-const {load} = useOwner()
 
 const open = ref(!!props.first)
 const picked = ref(props.backups.snapshots[0]?.name ?? '')
@@ -27,7 +26,7 @@ async function restore() {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch('/api/backups/restore', {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {name: picked.value}})
+        await apiFetch('/backups/restore', {method: 'POST', body: {name: picked.value}})
         restored.value = true
         location.reload()
     } catch (error) {

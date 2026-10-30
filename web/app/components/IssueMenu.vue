@@ -7,7 +7,6 @@ import {PRIORITIES, fullId} from '#shared/roadmap'
 // opening its page. The board updates live once a change is saved. Esc or a click outside closes it.
 const {target, close} = useIssueMenu()
 const {byId, sessions} = useRoadmaps()
-const {load} = useOwner()
 const {open: openIssue} = useIssueLink()
 
 const project = computed(() => byId(target.value?.project))
@@ -32,13 +31,13 @@ watch(target, () => {
 // Closed if the issue goes away (removed elsewhere).
 watch(issue, now => target.value && !now && close())
 
-const api = computed(() => target.value ? `/api/projects/${encodeURIComponent(target.value.project)}/issues/${encodeURIComponent(target.value.issue)}` : '')
+const api = computed(() => target.value ? `/projects/${encodeURIComponent(target.value.project)}/issues/${encodeURIComponent(target.value.issue)}` : '')
 
 async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Record<string, unknown>, then?: () => void) {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`${api.value}${path}`, {method, headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(`${api.value}${path}`, {method, body})
         if (then) then()
         else close()
     } catch (error) {

@@ -14,7 +14,6 @@ import type {LaunchState} from '~/composables/useLaunchState'
 const {target, close} = useStartSession()
 const {launchers, sessions, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {load} = useOwner()
 const {places} = useStatuses()
 const router = useRouter()
 
@@ -40,7 +39,7 @@ const count = ref(1)
 /** Whether a launcher is there and how many are running, for each project that lets orrery start sessions. */
 async function loadStates() {
     const asked = await Promise.all(ordered.value.filter(p => p.starts).map(async p =>
-        [p.id, await $fetch<LaunchState>(`/api/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)] as const))
+        [p.id, await apiFetch<LaunchState>(`/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)] as const))
     states.value = Object.fromEntries(asked)
 }
 
@@ -69,8 +68,8 @@ watch(chosen, () => {
 
 async function loadPresets() {
     const lists = await Promise.all([
-        $fetch<Preset[]>('/api/presets').catch(() => []),
-        ...chosen.value.map(id => $fetch<Preset[]>(`/api/projects/${encodeURIComponent(id)}/presets`).then(all => all.filter(p => p.project)).catch(() => [])),
+        apiFetch<Preset[]>('/presets').catch(() => []),
+        ...chosen.value.map(id => apiFetch<Preset[]>(`/projects/${encodeURIComponent(id)}/presets`).then(all => all.filter(p => p.project)).catch(() => [])),
     ])
     presets.value = lists.flat()
     picked.value = picked.value.filter(id => presets.value.some(p => p.id === id))
@@ -159,7 +158,6 @@ async function start() {
     if (!ready.value) return
     busy.value = true
     failed.value = ''
-    const actor = await load()
     const work = issue.value ? {issue: issue.value} : scoped.value ? {statuses: statuses.value, ...release.value ? {release: release.value} : {}} : {}
     const own = instructions.value.trim() ? {instructions: instructions.value.trim()} : {}
     // Each project's session gets the orrery's presets ticked and its own.
@@ -173,7 +171,7 @@ async function start() {
     const launch = async (id: string, name: string | null, sent: object) => {
         for (let n = 0; n < count.value; n++) {
             try {
-                await $fetch(`/api/projects/${encodeURIComponent(id)}/launches`, {method: 'POST', headers: {'Orrery-Actor': actor}, body: sent})
+                await apiFetch(`/projects/${encodeURIComponent(id)}/launches`, {method: 'POST', body: sent})
             } catch (error) {
                 refused.set(id, `${name ? `${name}: ` : ''}${n ? `${n} of ${count.value} started, then ` : ''}${errorMessage(error)}`)
                 return

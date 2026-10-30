@@ -19,7 +19,7 @@ export function useWorkedIssues() {
             heard.value.flatMap(p => listening(p).map(s => `${p}:${s.id}:${s.state}`)).join(), changed.value, signals.value.length,
         ], () => {
             if (!heard.value.length) return void (work.value = {})
-            $fetch<Record<string, Record<string, SessionWork>>>('/api/sessions/work', {query: {projects: heard.value.join(',')}})
+            apiFetch<Record<string, Record<string, SessionWork>>>('/sessions/work', {query: {projects: heard.value.join(',')}})
                 .then(found => work.value = found)
                 .catch(() => {})
         }, {immediate: true}))
