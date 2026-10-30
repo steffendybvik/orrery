@@ -47,6 +47,20 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_UPDATE_CHECK` | `false` stops orrery asking GitHub for its own releases (at start, then every 12 hours), which it does to show a notice above the version in the sidebar when a newer one is out. A pre-release is offered only to an orrery running one | on |
 | `ORRERY_ENVIRONMENT` | this orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
+## A GitHub token
+
+orrery reads each project's pull requests off GitHub (the Pull requests page, an issue's PRs, and the comments it
+leaves when one conflicts, fails or merges). A public repo works without a token, but only its list, every ten
+minutes. With a token, a private repo works too, and orrery reads where each pull request stands every minute.
+
+1. On GitHub, [make a fine-grained token](https://github.com/settings/personal-access-tokens/new) with
+   *Pull requests: Read-only* on the repos your projects point at (a classic token needs `repo`).
+2. In **App settings → This orrery → Secrets**, `GITHUB_TOKEN` is listed as *Not set*. Press **Set** and paste the
+   token: its name and its host, `api.github.com`, are filled in.
+
+orrery polls straight away. The row then shows when it was last used, or that GitHub turned it down. A token saved
+some other way is only used when its hosts include `api.github.com`; the Pull requests page says so when they don't.
+
 ## Backups
 
 A copy a few seconds after each change, `orrery.db`, plus one a day for two weeks (both can be changed, below). The live file never goes in the backup folder: a synced SQLite

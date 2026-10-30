@@ -334,7 +334,7 @@ and keeps in `orrery.key` beside the database; only when it can't keep one there
 
 orrery uses one secret itself: `GITHUB_TOKEN`, when it may go to `api.github.com` (and be used for the
 project), to read pull requests (`GET …/issues/:issue/pulls`, `GET /pulls`), polled in the background. It needs read access to the
-repo's pull requests and checks; a fine-grained token with *Pull requests: read* does. Its uses are kept as
+repo's pull requests and checks; a fine-grained token with *Pull requests: read* does. App settings lists it ready-made until it's set, with its host filled in ([Running orrery → A GitHub token](running.md#a-github-token)). Its uses are kept as
 `orrery`'s (the latest 100), and not in the event log.
 
 ## Signals to sessions
