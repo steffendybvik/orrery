@@ -3,5 +3,5 @@
 // next run, which is skipped.
 export default defineEventHandler(async event => {
     const body = await readBody<{instead?: unknown} | undefined>(event)
-    return created(event, await useScheduler().runNow(param(event, 'project'), scheduleId(event), await actorOf(event), body?.instead === true))
+    return created(event, await useScheduler().runNow(param(event, 'project'), await scheduleId(event), await actorOf(event), body?.instead === true))
 })

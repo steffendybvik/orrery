@@ -491,4 +491,12 @@ export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<un
     const person = owner && ownerPerson(owner.value)
     if (person) await client.query("INSERT INTO people (id, name, role, created_at) VALUES ($1, $2, 'owner', $3)", [person.id, person.name, new Date().toISOString()])
     await client.query("DELETE FROM settings WHERE key = 'owner'")
-}]
+}, `
+    -- Each board and the server get a random id, for the full form of ids (ORR-674): 8 characters of base32.
+    ALTER TABLE projects ADD COLUMN uid text NOT NULL DEFAULT '';
+    UPDATE projects SET uid = (
+        SELECT string_agg(substr('abcdefghijklmnopqrstuvwxyz234567', floor(random() * 32)::int + 1, 1), '')
+        FROM generate_series(1, 8) WHERE projects.id IS NOT NULL
+    );
+    INSERT INTO settings (key, value) SELECT 'uid', '"' || string_agg(substr('abcdefghijklmnopqrstuvwxyz234567', floor(random() * 32)::int + 1, 1), '') || '"' FROM generate_series(1, 8);
+`]

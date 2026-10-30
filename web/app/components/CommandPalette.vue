@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
+import {PRIORITIES, fullId} from '#shared/roadmap'
 
 // ⌘K: every command and place, in sections. With nothing typed: Here (what fits the page), Jump to (the
 // projects, this one first) and Go to. Typing finds Projects, Issues, Chunks, Docs and Commands, a few of
@@ -69,7 +69,7 @@ const here = computed<Entry[]>(() => {
         if (parent) entries.push({key: 'issue:parent', group: 'Issue', label: 'Open its parent', detail: parent.id, run: () => openIssue(p.id, parent.id)})
         entries.push(
             {key: 'issue:chunk', group: 'Issue', label: 'Open its chunk', detail: found.chunk.title, run: () => router.push(chunkPath(p.id, found.chunk.id))},
-            {key: 'issue:id', group: 'Copy', label: 'Copy the id', detail: found.issue.id, run: () => copy(found.issue.id, 'id')},
+            {key: 'issue:id', group: 'Copy', label: 'Copy the id', detail: found.issue.id, run: () => copy(fullId('issue', found.issue.id, p.uid), 'id')},
             {key: 'issue:link', group: 'Copy', label: 'Copy the link', run: () => copy(`${location.origin}${path}`, 'link')},
             {key: 'issue:curl', group: 'Copy', label: 'Copy a curl to update it', detail: 'for an agent', run: () => copy(
                 `curl -X PATCH ${location.origin}/api/projects/${p.id}/issues/${found.issue.id} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d '{"status": "in-progress"}'`, 'curl')},
@@ -164,7 +164,7 @@ const issues = computed<Entry[]>(() => projects.value.flatMap(p => {
     const had = allIssues(p).map(({issue: i}) => i)
     const ids = new Set(had.map(i => i.id))
     return [...had, ...partial.value[p.id] ? (closedFound.value[p.id] ?? []).filter(i => !ids.has(i.id)) : []].map(i => ({
-        key: `i:${p.id}/${i.id}`, group: 'Issue', id: i.id, label: i.title, detail: p.name, also: i.aliases.join(' '), run: () => openIssue(p.id, i.id),
+        key: `i:${p.id}/${i.id}`, group: 'Issue', id: i.id, label: i.title, detail: p.name, also: [...i.aliases, fullId('issue', i.id, p.uid)].join(' '), run: () => openIssue(p.id, i.id),
     }))
 }))
 

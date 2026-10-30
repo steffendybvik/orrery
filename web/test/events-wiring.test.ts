@@ -32,7 +32,7 @@ beforeEach(async () => {
     vi.stubGlobal('setResponseStatus', (event: {status?: number}, status: number) => void (event.status = status))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
     vi.resetModules()
-    vi.doMock('../server/utils/store', () => ({Store: fake('Store', {seedPresets: async () => void calls.push('seedPresets')})}))
+    vi.doMock('../server/utils/store', () => ({Store: fake('Store', {seedPresets: async () => void calls.push('seedPresets'), settings: async () => ({uid: 'x7k2m9qd'})})}))
     vi.doMock('../server/utils/secrets', () => ({Secrets: fake('Secrets', {scrubber: () => 'scrub', own: () => 'own', ownsFor: () => true})}))
     vi.doMock('../server/utils/pulls', () => ({GITHUB_SECRET: 'GITHUB_TOKEN', Pulls: fake('Pulls')}))
     vi.doMock('../server/utils/pull-poll', () => ({PullPoll: fake('PullPoll', {secretsChanged: () => calls.push('poll.secretsChanged')})}))
@@ -144,11 +144,13 @@ describe("events.ts's helpers", () => {
         expect(events.decoded('ORR-%E0')).toBe('ORR-%E0')
     })
 
-    it("reads a comment's or schedule's id from the route, and 404s one that isn't a number", () => {
+    it("reads a comment's or schedule's id from the route, and 404s one that isn't a number", async () => {
         expect(events.commentId({params: {comment: '12'}} as never)).toBe(12)
-        expect(events.scheduleId({params: {schedule: '3'}} as never)).toBe(3)
+        expect(await events.scheduleId({params: {schedule: '3'}} as never)).toBe(3)
+        expect(await events.scheduleId({params: {schedule: 'sch-3-x7k2m9qd'}} as never)).toBe(3)
         expect(() => events.commentId({params: {comment: 'x'}} as never)).toThrow('No comment x')
-        expect(() => events.scheduleId({params: {schedule: '1.5'}} as never)).toThrow('No schedule 1.5')
+        await expect(events.scheduleId({params: {schedule: '1.5'}} as never)).rejects.toThrow('No schedule 1.5')
+        await expect(events.scheduleId({params: {schedule: 'sch-3-aaaaaaaa'}} as never)).rejects.toThrow('No schedule sch-3-aaaaaaaa')
     })
 
     it('answers a create with 201 and a delete with 204', () => {

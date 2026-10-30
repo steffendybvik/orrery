@@ -1,6 +1,6 @@
 // A project's docs.
 import type {Doc, DocSummary} from '#shared/roadmap'
-import {slugify} from '#shared/roadmap'
+import {fullId, looksFullDoc, shortId, slugify} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, isObject, notFound} from '../utils/input'
 import {AGENT, SLUG, DOC_FIELDS, docOf, stamp} from './schema'
 import type {Input} from '../utils/input'
@@ -28,7 +28,14 @@ export abstract class DocStore extends ChunkStore {
     }
 
     async doc(project: string, id: string): Promise<Doc> {
-        return docOf(await this.docRow(project, id))
+        const row = await this.docRow(project, await this.docId(project, id))
+        return {...docOf(row), full_id: fullId('doc', row.id, (await this.projectRow(project)).uid)}
+    }
+
+    /** The doc's id, from its id or its full form on this board. */
+    private async docId(project: string, id: string): Promise<string> {
+        if (await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) return id
+        return shortId('doc', id, (await this.projectRow(project)).uid) ?? id
     }
 
     async createDoc(project: string, body: unknown, actor = AGENT): Promise<Doc> {
@@ -57,9 +64,12 @@ export abstract class DocStore extends ChunkStore {
     /** Creates the doc at `id` or replaces its title and text: how a repo's Markdown file is kept in sync. */
     async putDoc(project: string, id: string, body: unknown, actor = AGENT): Promise<{doc: Doc, created: boolean}> {
         await this.projectRow(project)
+        id = await this.docId(project, id)
         if (!SLUG.test(id)) throw badRequest(`"${id}" isn't a doc id; use lowercase letters, digits and dashes`)
         const input = checkInput(body, DOC_FIELDS)
         if (input.id !== undefined && input.id !== id) throw badRequest(`The body's id "${input.id}" isn't the URL's "${id}"`)
+        // Another board's full id isn't a new doc to make here.
+        if (looksFullDoc(id) && !await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) throw notFound(`No doc "${id}" on ${project}`)
         if (!await this.get('SELECT 1 FROM docs WHERE project = ? AND id = ?', project, id)) return {doc: await this.createDoc(project, {...input, id}, actor), created: true}
         // A section left out keeps the one it has, so a repo's file synced in doesn't take it out of its group.
         return {doc: await this.updateDoc(project, id, {title: input.title, body: input.body ?? '', position: input.position, section: input.section}, actor), created: false}
@@ -68,6 +78,7 @@ export abstract class DocStore extends ChunkStore {
     /** Changes a doc; with `was`, only if it's still as that says, or it's a 409: a change the owner read against that text
      * doesn't land on any other (the chat's request, ORR-661). */
     async updateDoc(project: string, id: string, body: unknown, actor = AGENT, was?: {title: string, section: string | null, body: string}): Promise<Doc> {
+        id = await this.docId(project, id)
         await this.docRow(project, id)
         const input = checkInput(body, DOC_FIELDS, true)
         if (input.id !== undefined && input.id !== id) throw badRequest("A doc's id can't change")
@@ -138,6 +149,7 @@ export abstract class DocStore extends ChunkStore {
     }
 
     async deleteDoc(project: string, id: string, actor = AGENT) {
+        id = await this.docId(project, id)
         const row = await this.docRow(project, id)
         this.refuse(actor, `Deleting doc "${id}"`, row.owned ? [`doc "${id}"`] : [])
         await this.db.transaction(async () => {

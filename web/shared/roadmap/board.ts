@@ -256,6 +256,8 @@ export interface DocSummary {
 export interface Doc extends DocSummary {
     project: string
     body: string
+    /** Its id to paste anywhere: `doc-ideas-x7k2m9qd`, which finds nothing on any other board. */
+    full_id?: string
 }
 
 /** One app: its details, its board and its docs. */
@@ -264,6 +266,8 @@ export interface Project {
     name: string
     /** The prefix of the issue ids the server hands out, e.g. `GRE` for `GRE-12`. */
     key: string
+    /** Its random id, in the full form of the ids on it: `GRE-12-x7k2m9qd`. It goes with the board when it moves. */
+    uid: string
     description?: string
     /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
     icon?: string
@@ -415,6 +419,24 @@ export function trackerLinkOf(sent: string): string | null {
 }
 
 /** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-ada: DOC-132`. */
+/** What each kind's full id starts with (ORR-674); an issue has the project's key already. */
+const FULL_PREFIX = {issue: '', doc: 'doc-', chunk: 'chk-', preset: 'pst-', schedule: 'sch-'}
+export type IdKind = keyof typeof FULL_PREFIX
+
+/** The form of an id to paste anywhere: `ORR-660-x7k2m9qd`. `uid` is the board's random id, or the server's for what
+ * belongs to the server, so on any other board or server it finds nothing. */
+export const fullId = (kind: IdKind, id: string | number, uid: string) => `${FULL_PREFIX[kind]}${id}-${uid}`
+
+/** The id inside a full one with this `uid`; null for anything else, a full id from another board included. */
+export function shortId(kind: IdKind, id: string, uid: string): string | null {
+    const [prefix, tail] = [FULL_PREFIX[kind], `-${uid}`]
+    return uid && id.startsWith(prefix) && id.endsWith(tail) && id.length > prefix.length + tail.length
+        ? id.slice(prefix.length, -tail.length) : null
+}
+
+/** Whether a doc's id reads as a full one, from any board: `doc-ideas-x7k2m9qd`. */
+export const looksFullDoc = (id: string) => /^doc-.+-[a-z2-7]{8}$/.test(id)
+
 export const issueRef = (handle: string, id: string) => `orrery-${handle.toLowerCase()}: ${id}`
 
 /** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */

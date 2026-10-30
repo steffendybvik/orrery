@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Doc} from '#shared/roadmap'
+import {fullId} from '#shared/roadmap'
 
 // One doc, its Markdown drawn as a page with its table of contents beside it. Read again when it
 // changes through the API. Its title and text edit in place, and it can be removed, as the owner.
@@ -174,7 +175,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
           <span class="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
             <SegmentedControl v-model="size" :options="sizes" class="[&_[role=radio]]:px-2 [&_[role=radio]]:py-0.5" title="Text size" />
             <span class="whitespace-nowrap font-mono">{{ doc.id }}</span>
-            <CopyButton :text="doc.id" label="Copy id" name="this doc's id" />
+            <CopyButton :text="fullId('doc', doc.id, project.uid)" label="Copy id" name="this doc's id" />
             <CopyButton :text="address" label="Copy URL" name="this doc's URL" />
           </span>
         </div>

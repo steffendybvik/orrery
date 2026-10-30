@@ -1,5 +1,6 @@
 // Chunks: a project's roadmap, in order.
 import type {Issue} from '#shared/roadmap'
+import {fullId} from '#shared/roadmap'
 import {checkInput} from '../utils/input'
 import type {ChunkRecord, ChunkRow} from './schema'
 import {AGENT, CHUNK_FIELDS, nullable, stamp} from './schema'
@@ -18,7 +19,7 @@ export abstract class ChunkStore extends PresetStore {
         id = await this.chunkId(project, id)
         const row = await this.chunkRow(project, id)
         const view = known((await this.project(project)).board.chunks.find(c => c.id === id), `chunk ${id} on the board`)
-        return {...chunkRecord(row, view), tasks: view.tasks}
+        return {...chunkRecord(row, view), tasks: view.tasks, full_id: fullId('chunk', view.id, (await this.projectRow(project)).uid)}
     }
 
     async createChunk(project: string, body: unknown, actor = AGENT): Promise<ChunkRecord & {tasks: Issue[]}> {

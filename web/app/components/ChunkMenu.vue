@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Priority} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
+import {PRIORITIES, fullId} from '#shared/roadmap'
 
 // Right-clicking a chunk's card on the roadmap: set its priority, ask the Claude sessions to work through
 // it, start a new issue in it, copy its id, open or remove it (its issues stay, in no chunk), all as the
@@ -64,7 +64,9 @@ function openChunk() {
 }
 
 async function copyId() {
-    if (chunk.value && await copyText(chunk.value.id)) note.value = `Copied ${chunk.value.id}`
+    if (!chunk.value || !project.value) return
+    const full = fullId('chunk', chunk.value.id, project.value.uid)
+    if (await copyText(full)) note.value = `Copied ${full}`
 }
 
 

@@ -1,6 +1,6 @@
 // Issues: listing, reading, making and changing one.
 import type {Kind, Signal} from '#shared/roadmap'
-import {CLOSED, githubIssueOf, githubRepo, isBlocked, issueRef, linkRef, parseLinkRef} from '#shared/roadmap'
+import {CLOSED, fullId, githubIssueOf, githubRepo, isBlocked, issueRef, linkRef, parseLinkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
@@ -28,9 +28,10 @@ export abstract class IssueStore extends ClaimStore {
         const assignee = filter.assignee && filter.assignee !== 'none' ? await this.assigneeOf(filter.assignee) : undefined
         const [github] = filter.github_issue ? (await this.githubIssuesOf(project, JSON.stringify([filter.github_issue])) ?? []).map(g => g.toLowerCase()) : []
         const handle = await this.handle()
+        const {uid} = await this.projectRow(project)
         // With `in: all`, every word in one place: the id and title, the description or a comment (ORR-641).
         const words = filter.in === 'all' && q ? q.split(/\s+/).filter(Boolean) : null
-        const listed = records.map(r => ({...r, ref: issueRef(handle, r.id)})).filter(r =>
+        const listed = records.map(r => ({...r, ref: issueRef(handle, r.id), full_id: fullId('issue', r.id, uid)})).filter(r =>
             (!filter.status || statuses.includes(r.status))
             && (!filter.priority || (filter.priority === 'none' ? !r.priority : r.priority === filter.priority))
             && (!filter.column || columns.includes(r.column))
@@ -65,7 +66,7 @@ export abstract class IssueStore extends ClaimStore {
         id = await this.issueId(project, id)
         const found = findIssue(await this.boardOf(project), id)
         if (!found) throw notFound(`No issue ${id} in ${project}`)
-        return {...found.issue, project, parent: found.parent, chunk: found.chunk || null, ref: issueRef(await this.handle(), id)}
+        return {...found.issue, project, parent: found.parent, chunk: found.chunk || null, ref: issueRef(await this.handle(), id), full_id: fullId('issue', id, (await this.projectRow(project)).uid)}
     }
 
     /** `urgent: false` leaves a P0 issue's push to the caller, which asks the sessions itself. */

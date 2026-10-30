@@ -31,6 +31,7 @@ export abstract class StatusStore extends StoreBase {
             chunk_prompt: (value('chunk_prompt') as string | undefined) || null,
             instructions: (value('instructions') as Instruction[] | undefined) ?? [],
             handle: (value('handle') as string | undefined) || null,
+            uid: (value('uid') as string | undefined) ?? '',
             tracker: (value('tracker') as string | undefined) || null,
             starts: (value('starts') as Starts | null | undefined) ?? null,
             terminal: (value('terminal') as TerminalApp | undefined) ?? 'terminal',
