@@ -578,6 +578,23 @@ describe("the owner's chat moving issues", () => {
         expect(asked.move!.state).toBe('allowed')
     })
 
+    it("doesn't take its own Allow moving an issue for a change since it asked", async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'done'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        // The store tells of the move while it's being made, and the check reads the issue as moved.
+        const moving = store.updateIssue.bind(store)
+        vi.spyOn(store, 'updateIssue').mockImplementationOnce(async (...args: Parameters<typeof moving>) => {
+            const moved = await moving(...args)
+            chats.heardForMoves({event: {type: 'issue.status', project: 'greenhouse', subject: 'GRE-1'} as never})
+            await new Promise(resolve => setTimeout(resolve, 20))
+            return moved
+        })
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true}, true)
+        expect(asked.move).toMatchObject({state: 'allowed', drifted: [{issue: 'GRE-1', field: 'status', from: 'todo', to: 'done'}]})
+        expect(messages.at(-1)!.text).toContain('GRE-1 was in todo when you asked and is in done now.')
+    })
+
     const skoll = {name: 'skoll', owner: true}
     const chatId = 'c1c2c3c4c5c6'
 
