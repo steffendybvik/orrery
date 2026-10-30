@@ -2,7 +2,7 @@
 import type {Session, Signal} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
-// a button to point one (or all) at this issue, or at working through this chunk. With nobody listening, when
+// a button to point one at this issue, or one or all at working through this chunk. With nobody listening, when
 // orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
 // New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
 // got them. The session working the issue (`worker`) comes first, marked. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
@@ -51,14 +51,16 @@ const offered = computed(() => {
 const ticked = ref<string[]>([])
 watch(() => offered.value.map(i => `${i.id}:${i.on}`).join(), () => ticked.value = offered.value.filter(i => i.on).map(i => i.id), {immediate: true})
 
-/** Sends the focus; `start` asks orrery to start a session for it, nobody being there to hear it. */
-async function focus(session: Session | null, start = false) {
-    sending.value = session?.id ?? 'all'
+/** Sends the focus, to a session, to every one (a chunk's alone, ORR-681) or to one orrery picks; `start` asks orrery
+ * to start a session for it, nobody being there to hear it. */
+async function focus(session: Session | '*' | null, start = false) {
+    const target = session === '*' ? '*' : session?.id
+    sending.value = session === '*' ? 'all' : target ?? 'all'
     failed.value = null
     try {
         const owner = await load()
         const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...session ? {session: session.id} : {}, ...start ? {start} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
+            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...target ? {session: target} : {}, ...start ? {start} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
     } catch {
@@ -106,9 +108,9 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
             @click="startOn"
         >{{ sending === 'new' ? 'Starting…' : 'New session on this' }}</UiButton>
         <UiButton
-            v-if="listening.length > 1"
+            v-if="listening.length > 1 && !issue"
             :disabled="!!sending"
-            @click="focus(null)"
+            @click="focus('*')"
         >Focus all on this</UiButton>
       </span>
       <button
