@@ -60,42 +60,42 @@ function openCard(notice: Notice, event: MouseEvent) {
       </NuxtLink>
     </div>
     <ul class="mx-auto flex max-w-3xl flex-col gap-3 px-3 py-4 sm:px-4">
-      <li
-          v-for="notice in shown"
-          :key="noticeKey(notice)"
-          class="group relative cursor-pointer rounded-xl bg-panel ring-1 transition-colors hover:tint focus-visible:ring-accent-500/60 focus-visible:outline-none"
-          :class="isWaiting(notice) ? 'ring-violet-500/40' : 'ring-line hover:ring-faint/50'"
-          tabindex="0"
-          role="link"
-          :aria-label="`${notice.issue}: ${notice.title}`"
-          @click="openCard(notice, $event)"
-          @keydown.enter.self="openIssue(notice.project, notice.issue)"
-      >
-        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-2.5 pr-12 text-[13px]">
-          <span v-if="isNew(notice)" class="size-2 shrink-0 rounded-full bg-accent-500" />
-          <span class="text-faint">{{ notice.proposal ? 'proposed' : 'on' }}</span>
-          <span class="flex min-w-0 items-center gap-2 px-1">
-            <span class="font-mono text-xs text-faint">{{ notice.issue }}</span>
-            <span class="truncate text-fg group-hover:underline">{{ notice.title }}</span>
-          </span>
-          <span class="text-xs text-faint">in {{ projectName(notice.project) }}</span>
-          <span class="ml-auto shrink-0 text-xs text-faint" :title="when(notice.created_at)">{{ ago(notice.created_at) }}</span>
-        </div>
-        <div class="px-4 py-3">
-          <WaitingChip v-if="isWaiting(notice)" :asks="notice.asks!" :proposal="notice.proposal" class="mb-2" />
-          <span v-else-if="notice.asks" class="mb-2 inline-block rounded-full px-2 py-0.5 text-[11px] text-faint ring-1 ring-line">{{ notice.answered ? 'Answered' : notice.proposal ? 'Cleared, still to decide' : 'Cleared unanswered' }}</span>
-          <MarkdownView :source="notice.body" class="text-[14px] leading-6" />
-        </div>
-        <button
-            v-if="!notice.cleared"
-            type="button"
-            class="absolute top-2 right-2 grid size-7 place-items-center rounded-md text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-fg focus-visible:opacity-100"
-            title="Clear"
-            aria-label="Clear this notice"
-            @click="clear([notice])"
+      <li v-for="notice in shown" :key="noticeKey(notice)">
+        <div
+            class="group relative cursor-pointer rounded-xl bg-panel ring-1 transition-colors hover:tint focus-visible:ring-accent-500/60 focus-visible:outline-none"
+            :class="isWaiting(notice) ? 'ring-violet-500/40' : 'ring-line hover:ring-faint/50'"
+            tabindex="0"
+            role="link"
+            :aria-label="`${notice.issue}: ${notice.title}`"
+            @click="openCard(notice, $event)"
+            @keydown.enter.self="openIssue(notice.project, notice.issue)"
         >
-          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-        </button>
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-2.5 pr-12 text-[13px]">
+            <span v-if="isNew(notice)" class="size-2 shrink-0 rounded-full bg-accent-500" />
+            <span class="text-faint">{{ notice.proposal ? 'proposed' : 'on' }}</span>
+            <span class="flex min-w-0 items-center gap-2 px-1">
+              <span class="font-mono text-xs text-faint">{{ notice.issue }}</span>
+              <span class="truncate text-fg group-hover:underline">{{ notice.title }}</span>
+            </span>
+            <span class="text-xs text-faint">in {{ projectName(notice.project) }}</span>
+            <span class="ml-auto shrink-0 text-xs text-faint" :title="when(notice.created_at)">{{ ago(notice.created_at) }}</span>
+          </div>
+          <div class="px-4 py-3">
+            <WaitingChip v-if="isWaiting(notice)" :asks="notice.asks!" :proposal="notice.proposal" class="mb-2" />
+            <span v-else-if="notice.asks" class="mb-2 inline-block rounded-full px-2 py-0.5 text-[11px] text-faint ring-1 ring-line">{{ notice.answered ? 'Answered' : notice.proposal ? 'Cleared, still to decide' : 'Cleared unanswered' }}</span>
+            <MarkdownView :source="notice.body" class="text-[14px] leading-6" />
+          </div>
+          <button
+              v-if="!notice.cleared"
+              type="button"
+              class="absolute top-2 right-2 grid size-7 place-items-center rounded-md text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-fg focus-visible:opacity-100"
+              title="Clear"
+              aria-label="Clear this notice"
+              @click="clear([notice])"
+          >
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
       </li>
     </ul>
     <div v-if="lists.inbox.more" class="flex justify-center pb-6">

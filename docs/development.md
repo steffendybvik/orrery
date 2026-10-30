@@ -65,8 +65,8 @@ each test in a schema of its own, and the ones that only make sense there run to
 
 `pnpm test:e2e` runs the flows in a real browser with Playwright, a file per area in `web/e2e/` (issues, proposals,
 roadmap, releases, sessions, schedules, the keys, the phone layout…). `navigation.spec.ts` walks the whole app from one
-list of pages: each renders with no error, and the sidebar, ⌘K and App settings → Advanced lead to it, so a new page
-is a line there. `first-run.spec.ts` (naming the owner, the first
+list of pages: each renders with no error, breaks no WCAG A or AA rule axe checks beyond the known ones listed in the
+spec, and the sidebar, ⌘K and App settings → Advanced lead to it, so a new page is a line there. `first-run.spec.ts` (naming the owner, the first
 project) runs first as a project the others depend on; each other file makes a project of its own, with the helpers in
 `e2e/support.ts`, so it can run alone. It starts `nuxt dev` with a fresh `web/.data/e2e.db`, so your own database isn't
 touched, on a port of the checkout's own (3100–3299, from its path, `web/e2e-port.ts`; `E2E_PORT` picks one), so
