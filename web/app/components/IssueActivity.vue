@@ -4,9 +4,12 @@ import type {Comment, Issue, IssueEvent, Project} from '#shared/roadmap'
 // An issue's activity on its page: who made it, its comments, and between them what changed, with the box
 // for a new comment. The owner's own comments edit and come out in place.
 const props = defineProps<{project: Project, issue: Issue}>()
+const emit = defineEmits<{comments: [Comment[]]}>()
 const {who, load} = useOwner()
 
 const comments = ref<Comment[]>([])
+// Once they're read, and as they change, so the page can copy the whole issue.
+watch(comments, list => emit('comments', list))
 const activity = ref<IssueEvent[]>([])
 watch(() => [props.project.id, props.issue.id, props.issue.updated_at] as const, async ([p, i], _, onCleanup) => {
     // Gone on to another issue (j/k) before these came back: they're that one's no longer.
