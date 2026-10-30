@@ -232,6 +232,8 @@ async function save() {
         skip_open: skipOpen.value,
         only_if_changed: onlyIfChanged.value,
         untrusted: sends.value === 'message' && untrusted.value,
+        // A new one a suggestion made paused stays so; one already made is paused and resumed on its own, at once.
+        ...!existing.value && !enabled.value ? {enabled: false} : {},
     }
     try {
         const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`

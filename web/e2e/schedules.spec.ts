@@ -55,7 +55,7 @@ test('runs a schedule now instead of its next run, which it skips', async ({page
 test("a suggested schedule opens filled in, and leaves the list once it's made", async ({page, request}) => {
     await page.goto('/schedules?project=cottage')
     const suggested = page.locator('section', {has: page.getByRole('heading', {name: 'Suggested for Cottage'})})
-    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(4)
+    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(6)
     await suggested.getByRole('button', {name: 'Add Review an issue in review'}).click()
     const dialog = page.getByRole('dialog', {name: 'New schedule'})
     await expect(dialog.getByLabel('Title')).toHaveValue('Review an issue in review')
@@ -68,7 +68,22 @@ test("a suggested schedule opens filled in, and leaves the list once it's made",
     expect(made).toMatchObject({kind: 'session', on: 'issue.status', on_filter: {to: 'in-review'}, enabled: true})
     expect(made.presets).toHaveLength(1)
     await expect(suggested.getByRole('button', {name: 'Add Review an issue in review'})).toBeHidden()
-    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(3)
+    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(5)
+})
+
+test('a suggestion that moves issues is made paused (ORR-637)', async ({page, request}) => {
+    await makeProject(request, {name: 'Orchard', key: 'ORC'})
+    await page.goto('/schedules?project=orchard')
+    const suggested = page.locator('section', {has: page.getByRole('heading', {name: 'Suggested for Orchard'})})
+    await suggested.getByRole('button', {name: 'Add Merged PR closes its issue'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await expect(dialog.getByRole('radio', {name: 'Moves issues'})).toBeChecked()
+    await expect(dialog.getByText("Paused: it won't run until you resume it")).toBeVisible()
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    await expect(dialog).toBeHidden()
+    const [made] = await projectApi('orchard')(request, 'get', '/schedules')
+    expect(made).toMatchObject({kind: 'action', on: 'pr.merged', column: 'done', move_from: ['in-review'], enabled: false})
+    await expect(suggested.getByRole('button', {name: 'Add Merged PR closes its issue'})).toBeHidden()
 })
 
 test('offers Review GitHub issues to a project on GitHub, every three hours (ORR-629)', async ({page, request}) => {
