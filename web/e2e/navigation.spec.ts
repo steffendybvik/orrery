@@ -58,7 +58,7 @@ const REDIRECTS = [
 
 // What the page walk already finds, for ORR-724 to fix: each comes off this list as it's fixed, and until then a new
 // case of one of these isn't caught. Any other rule fails the walk.
-const A11Y_KNOWN = ['color-contrast', 'label-content-name-mismatch', 'link-in-text-block', 'nested-interactive', 'aria-prohibited-attr']
+const A11Y_KNOWN = ['label-content-name-mismatch', 'link-in-text-block', 'nested-interactive', 'aria-prohibited-attr']
 
 let advanced = false
 
@@ -131,15 +131,20 @@ test('an old address goes on to the page that took it over', async ({page}) => {
 })
 
 test('no page breaks a WCAG A or AA rule, beyond those the UI/UX audit has (ORR-735)', async ({page}) => {
-    test.setTimeout(120_000)
+    test.setTimeout(240_000)
     await setAdvanced(page, true)
-    for (const route of ROUTES()) {
-        await test.step(route.path, async () => {
-            await page.goto(route.path)
-            await expect(heading(page, route.heading)).toBeVisible()
-            const {violations} = await new AxeBuilder({page}).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).disableRules(A11Y_KNOWN).analyze()
-            expect(violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), route.path).toEqual([])
-        })
+    for (const colorScheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({colorScheme})
+        for (const route of ROUTES()) {
+            await test.step(`${route.path}, ${colorScheme}`, async () => {
+                await page.goto(route.path)
+                await expect(heading(page, route.heading)).toBeVisible()
+                // A fade still running reads as low contrast, and differently each time.
+                await page.evaluate(() => Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))))
+                const {violations} = await new AxeBuilder({page}).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).disableRules(A11Y_KNOWN).analyze()
+                expect.soft(violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), `${route.path}, ${colorScheme}`).toEqual([])
+            })
+        }
     }
 })
 

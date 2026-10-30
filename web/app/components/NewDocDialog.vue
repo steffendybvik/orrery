@@ -71,7 +71,7 @@ async function create() {
       <span v-else-if="uploading" class="text-xs text-faint">Adding image…</span>
       <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Creating…' : artifact ? 'Create artifact' : 'Create doc' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+        {{ saving ? 'Creating…' : artifact ? 'Create artifact' : 'Create doc' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

@@ -149,7 +149,7 @@ watch(columns, () => {
           class="flex flex-col items-start gap-1 rounded-xl border border-dashed border-line p-3 text-left text-xs text-muted outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent-500/50"
           @click="fold(column)"
       >
-        <span class="font-mono text-lg font-medium tabular-nums" :style="{color: look(column).color}">{{ cards.length }}</span>
+        <span class="font-mono text-lg font-medium tabular-nums" :style="{color: readable(look(column).color)}">{{ cards.length }}</span>
         {{ cards.length === 1 ? 'issue' : 'issues' }} {{ look(column).label.toLowerCase() }}
       </button>
       <div v-else class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-4">

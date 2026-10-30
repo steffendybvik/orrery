@@ -79,9 +79,9 @@ const filteredAway = computed(() => inProject.value.length - shown.value.length)
 const LEVELS: EventLevel[] = ['error', 'warn', 'info']
 
 const LEVEL = {
-    error: {label: 'ERROR', line: 'bg-rose-500/10 hover:bg-rose-500/15', text: 'text-rose-600 dark:text-rose-400'},
-    warn: {label: 'WARN', line: 'bg-amber-500/10 hover:bg-amber-500/15', text: 'text-amber-700 dark:text-amber-300'},
-    info: {label: 'INFO', line: 'hover:bg-hover', text: 'text-sky-600 dark:text-sky-400'},
+    error: {label: 'ERROR', line: 'bg-rose-500/10 hover:bg-rose-500/15', text: 'text-rose-700 dark:text-rose-400'},
+    warn: {label: 'WARN', line: 'bg-amber-500/10 hover:bg-amber-500/15', text: 'text-amber-800 dark:text-amber-300'},
+    info: {label: 'INFO', line: 'hover:bg-hover', text: 'text-sky-700 dark:text-sky-400'},
 } satisfies Record<EventLevel, {label: string, line: string, text: string}>
 const pad = (n: number, width = 2) => String(n).padStart(width, '0')
 /** When it happened, to the millisecond, in local time: `2026-10-28 11:31:34.600`. */
@@ -166,16 +166,16 @@ function messageParts(event: LoggedEvent): {text: string, to?: string}[] {
           v-for="event in shown"
           :key="event.id"
           class="flex w-full flex-wrap items-baseline gap-x-3 px-4 whitespace-pre-wrap sm:min-w-max sm:flex-nowrap sm:whitespace-pre"
-          :class="[LEVEL[event.level].line, event.resolved_at && 'opacity-50']"
+          :class="event.resolved_at ? 'hover:bg-hover' : LEVEL[event.level].line"
       >
         <span class="text-faint">{{ stamp(event.first_seen) }}</span>
-        <span class="w-10 shrink-0 font-semibold" :class="LEVEL[event.level].text">{{ LEVEL[event.level].label }}</span>
+        <span class="w-10 shrink-0 font-semibold" :class="event.resolved_at ? 'text-muted' : LEVEL[event.level].text">{{ LEVEL[event.level].label }}</span>
         <span class="text-muted">{{ event.kind }}</span>
         <NuxtLink v-if="event.project" :to="`/p/${event.project}`" class="text-faint hover:text-fg hover:underline">[{{ event.project }}]</NuxtLink>
-        <span class="basis-full break-words sm:basis-auto" :class="event.level === 'info' ? 'text-fg' : LEVEL[event.level].text"><template v-for="(part, i) in messageParts(event)" :key="i"><NuxtLink
+        <span class="basis-full break-words sm:basis-auto" :class="event.resolved_at ? 'text-muted' : event.level === 'info' ? 'text-fg' : LEVEL[event.level].text"><template v-for="(part, i) in messageParts(event)" :key="i"><NuxtLink
             v-if="part.to"
             :to="part.to"
-            class="text-accent-600 hover:underline dark:text-accent-400"
+            class="text-accent-700 hover:underline dark:text-accent-400"
         >{{ part.text }}</NuxtLink><template v-else>{{ part.text }}</template></template></span>
         <span v-if="event.count > 1" class="text-faint">×{{ event.count }}</span>
         <span v-if="event.resolved_at" class="text-faint">(resolved{{ event.resolved_by ? ` by ${who(event.resolved_by)}` : '' }})</span>

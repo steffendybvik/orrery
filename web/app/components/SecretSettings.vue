@@ -150,7 +150,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
       <input v-model="form.hosts" placeholder="Hosts it may go to: api.example.com, …" aria-label="Hosts" autocomplete="off" :readonly="preset" :class="[input, 'w-full font-mono read-only:opacity-60']">
       <p v-if="githubForm" class="text-xs text-muted">
         A fine-grained token with <i>Pull requests: Read-only</i> on the repos, or a classic one with <span class="font-mono">repo</span>.
-        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" class="text-accent-600 hover:underline dark:text-accent-400">Make one on GitHub</a>
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" class="text-accent-700 hover:underline dark:text-accent-400">Make one on GitHub</a>
       </p>
       <p v-if="githubUnused" class="flex flex-wrap items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
         <span>orrery reads pull requests with a GITHUB_TOKEN only when it may go to <span class="font-mono">{{ GITHUB_HOST }}</span>, so without it this one won't be used there.</span>

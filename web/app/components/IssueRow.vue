@@ -98,7 +98,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
     <span v-if="issue.comments" class="hidden shrink-0 items-center gap-1 text-[11px] text-faint sm:flex" :title="`${issue.comments} comments`">
       <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4V5Z" /></svg>{{ issue.comments }}
     </span>
-    <span class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: look(shown).color}">{{ look(shown).label }}</span>
+    <span class="hidden h-5 shrink-0 items-center rounded-full px-2 text-[11px] font-medium ring-1 ring-line md:inline-flex" :style="{color: readable(look(shown).color)}">{{ look(shown).label }}</span>
     <ClaimMark :issue="issue" />
     <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
     <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/50" title="No assignee" />

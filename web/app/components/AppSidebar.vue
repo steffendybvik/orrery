@@ -149,7 +149,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
         <span class="flex-1">My issues</span>
-        <span v-if="urgentCount" class="rounded-full bg-accent-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${urgentCount} urgent`">{{ urgentCount }}</span>
+        <span v-if="urgentCount" class="rounded-full bg-accent-500 px-1.5 font-mono text-[10px] font-medium text-zinc-950 tabular-nums" :title="`${urgentCount} urgent`">{{ urgentCount }}</span>
         <span v-if="mineCount" class="font-mono text-[11px] text-faint tabular-nums">{{ mineCount }}</span>
       </NuxtLink>
 
@@ -200,7 +200,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
           <span class="flex-1">Events</span>
-          <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+          <span v-if="newErrors.length" class="rounded-full bg-rose-600 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
         </NuxtLink>
 
         <NuxtLink
@@ -219,7 +219,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         >
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
           <span class="flex-1">Pull requests</span>
-          <span v-if="pulls?.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
+          <span v-if="pulls?.needs" class="rounded-full bg-rose-600 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
           <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
         </NuxtLink>
       </template>
@@ -271,7 +271,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             <ProgressRing v-else :kinds="project.board.kinds" bare :size="14" />
             <span class="min-w-0 flex-1 truncate">{{ project.name }}</span>
             <span v-if="unseenIn(project)" class="unseen-dot" :title="`${unseenIn(project)} changed since you last looked`" />
-            <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-600 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
+            <span v-if="project.board.kinds.started" class="flex items-center gap-1 rounded-full bg-accent-500/12 px-1.5 font-mono text-[10px] text-accent-700 tabular-nums dark:text-accent-300" :title="`${project.board.kinds.started} being worked on`">
               <span class="size-1 rounded-full bg-accent-500" />{{ project.board.kinds.started }}
             </span>
             <span class="font-mono text-[11px] font-normal text-faint tabular-nums">{{ project.board.kinds.done }}/{{ progress(project.board.kinds).total }}</span>

@@ -29,7 +29,7 @@ function dismiss() {
       it (iCloud Drive, Dropbox, one Time Machine covers), then <code>docker compose up -d</code>.
     </p>
     <div class="flex items-center gap-2">
-      <NuxtLink to="/settings#database" class="text-accent-600 hover:underline dark:text-accent-400" @click="dismiss">Database settings</NuxtLink>
+      <NuxtLink to="/settings#database" class="text-accent-700 hover:underline dark:text-accent-400" @click="dismiss">Database settings</NuxtLink>
       <UiButton size="xs" class="ml-auto" @click="dismiss">Got it</UiButton>
     </div>
   </div>

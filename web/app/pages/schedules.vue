@@ -79,7 +79,7 @@ function newSchedule() {
     <div v-else-if="ready" class="mx-auto flex max-w-4xl flex-col px-4 py-6">
       <p class="rounded-xl border border-dashed border-line px-4 py-10 text-center text-[13px] leading-relaxed text-muted">
         Nothing scheduled on any project yet.
-        <button type="button" class="text-accent-600 underline underline-offset-2 dark:text-accent-400" @click="newSchedule">Make one</button>
+        <button type="button" class="text-accent-700 underline underline-offset-2 dark:text-accent-400" @click="newSchedule">Make one</button>
         to message sessions, start one, or make an issue, at a set time or when something happens.
       </p>
       <ScheduleSuggestions v-if="target" class="mt-4" :project="target" :schedules="byProject[target] ?? []" />

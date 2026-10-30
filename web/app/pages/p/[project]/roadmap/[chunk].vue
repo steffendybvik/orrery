@@ -130,7 +130,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
     <template v-if="project && chunk && share">
       <header class="mx-auto flex max-w-5xl animate-fade-up flex-col gap-4 px-4 pt-8 pb-6 sm:px-8">
         <div class="flex items-center gap-3 text-xs">
-          <span class="flex items-center gap-2" :style="{color: look(chunk.column).color}">
+          <span class="flex items-center gap-2" :style="{color: readable(look(chunk.column).color)}">
             <StatusIcon :column="chunk.column" :progress="share.share" />
             {{ look(chunk.column).label }}
           </span>
@@ -207,7 +207,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
             <span class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingSummary = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving" @click="saveSummary">
-              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+              {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
             </UiButton>
           </div>
         </section>
