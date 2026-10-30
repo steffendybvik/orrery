@@ -81,6 +81,9 @@ export default defineNuxtConfig({
         serverAssets: [
             {baseName: 'docs', dir: fileURLToPath(new URL('../docs', import.meta.url))},
             {baseName: 'channel', dir: channelBundle},
+            // What an artifact is served with: Tailwind's browser build and the app's theme, one source for both (ORR-677).
+            {baseName: 'tailwind-browser', dir: fileURLToPath(new URL('./node_modules/@tailwindcss/browser/dist', import.meta.url))},
+            {baseName: 'app-css', dir: fileURLToPath(new URL('./app/assets/css', import.meta.url))},
         ],
         externals: {inline: [fileURLToPath(new URL('../channel', import.meta.url))]},
     },
