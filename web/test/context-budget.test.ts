@@ -1,8 +1,11 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import type {Signal} from '#shared/roadmap'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
 import {instructionsFor} from '../../channel/instructions.mjs'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
 import {orreryTools, toolsFor} from '../../channel/tools.mjs'
+// @ts-expect-error: the channel is plain JavaScript, run by node from other repos
+import {signalWords} from '../../channel/signal-words.mjs'
 import {chatBrief} from '../server/utils/chats'
 import {signalPayload} from '../server/utils/signal-payload'
 import {Store} from '../server/utils/store'
@@ -114,5 +117,80 @@ describe('what a signal brings', () => {
         expect(size(message) - words.length).toBeLessThanOrEqual(320)
         const focus = await signalPayload(store, 'shop', await store.focus('shop', 'SHO-1', {note: words}, me), {api})
         expect(size(focus) - words.length).toBeLessThanOrEqual(540)
+    })
+
+    it('stays within its budget besides what was written, for a comment and a schedule (ORR-702)', () => {
+        const words = 'Wrap up first.'
+        const told = (signal: object) => (signalWords({created_by: 'skoll', note: words, ...signal}, {api}) as string).length - words.length
+        expect(told({kind: 'comment', issue: 'SHO-1', title: 'Pay with cards'})).toBeLessThanOrEqual(325)
+        expect(told({kind: 'message', schedule: 7, title: 'Nightly triage'})).toBeLessThanOrEqual(135)
+    })
+})
+
+// The two lists a session is told with no cap on them (ORR-702). A chunk of 50 open issues is as big as they're held to:
+// each line is about 60 characters here, so a bigger chunk costs that much more, on every compaction for the brief.
+describe('what a big chunk brings', () => {
+    const me = {name: 'skoll', owner: true}
+    const api = 'http://orrery.test/api/projects/shop'
+    let store: Store
+    let chunk: string
+
+    beforeEach(async () => {
+        store = new Store(testDb())
+        await store.createProject({name: 'shop', key: 'SHO', release_mode: 'own'}, me)
+        chunk = (await store.createChunk('shop', {title: 'Taking payments'})).id
+        for (let n = 1; n <= 50; n++) await store.createIssue('shop', {title: `Take card payment number ${n} at the till`, priority: 'P2', status: 'todo', chunk}, me)
+        vi.stubGlobal('useScheduler', () => ({get: async () => ({id: 7, title: 'Nightly triage'})}))
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        vi.doUnmock('../server/utils/clearing')
+        vi.doUnmock('../server/utils/launches')
+    })
+
+    it('stays within its budget for a focus on it, as the session hears it', async () => {
+        const {prompt} = await signalPayload(store, 'shop', await store.focusChunk('shop', chunk, {}, me), {api}) as {prompt: string}
+        expect(prompt.match(/^- SHO-/gm)).toHaveLength(50)
+        expect(size(prompt)).toBeLessThanOrEqual(3_340)
+    })
+
+    it('stays within its budget for the brief, after a clear or a compaction', async () => {
+        vi.resetModules()
+        vi.doMock('../server/utils/clearing', () => ({runOf: () => ({project: 'shop', chunk}) as Signal}))
+        vi.doMock('../server/utils/launches', () => ({launchContext: () => undefined, contextBlock: () => ''}))
+        const {sessionBrief} = await import('../server/utils/brief')
+        const brief = await sessionBrief(store, {project: 'shop', session: 's-1', source: 'compact', api})
+        expect(brief?.match(/^- SHO-/gm)).toHaveLength(50)
+        expect(size(brief)).toBeLessThanOrEqual(3_360)
+    })
+})
+
+describe('what a tool brings', () => {
+    it('stays within its budget for the guide, all of docs/using.md', async () => {
+        const fetch = async () => new Response('', {status: 404})
+        vi.stubGlobal('fetch', fetch)
+        try {
+            const call = orreryTools({root: 'http://o/api', projects: ['greenhouse']}) as (name: string, args: object) => Promise<{content: {text: string}[]}>
+            const {content} = await call('guide', {})
+            expect(content[0]!.text).toContain('What you can do')
+            expect(size(content[0]!.text)).toBeLessThanOrEqual(39_000)
+        } finally {
+            vi.unstubAllGlobals()
+        }
+    })
+
+    it("stays within its budget for a long issue, besides its description and its latest comments, which it keeps", async () => {
+        // 20 open sub-issues, 20 finished and 40 comments of a thousand characters: only the last five come in full.
+        const task = (n: number, status: string) => ({id: `GRE-${n}`, title: `Label jar number ${n} on the top shelf`, status, kind: status})
+        const notes = 'Why it matters. '.repeat(100)
+        const body = 'First line of a comment.\n' + 'word '.repeat(195)
+        const comments = Array.from({length: 40}, () => ({created_by: 'claude', created_at: '2026-10-29T08:00:00Z', body}))
+        const issue = {id: 'GRE-1', title: 'Label the jars', status: 'todo', column: 'todo', kind: 'todo', notes, labels: [], external: [], github_issues: [], choices: [], aliases: [], project: 'greenhouse', created_by: 'claude',
+            created_at: '2026-10-29T08:00:00Z', updated_at: '2026-10-29T08:00:00Z', counts: {}, kinds: {}, tasks: [...Array.from({length: 20}, (_, n) => task(n + 2, 'todo')), ...Array.from({length: 20}, (_, n) => task(n + 22, 'done'))]}
+        const fetch = async (url: string) => new Response(JSON.stringify(url.endsWith('/comments') ? comments : url.endsWith('/pulls') ? {pulls: []} : issue))
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', fetch}) as (name: string, args: object) => Promise<{content: {text: string}[]}>
+        const {content} = await call('issue', {id: 'GRE-1'})
+        expect(size(content[0]!.text) - notes.length - 5 * body.length).toBeLessThanOrEqual(4_720)
     })
 })
