@@ -82,6 +82,9 @@ const allOpen = computed(() => ordered.value.length > 0 && ordered.value.every(p
 const {open: startSession} = useStartSession()
 /** Whether any project lets orrery start sessions, so Start session has somewhere to go. */
 const canStart = computed(() => ordered.value.some(p => p.starts))
+// A working or waiting one says which issue it's on, on a second line (ORR-484): its newest, and how many more.
+const {issuesOf} = useWorkedIssues()
+const onIssue = (session: Session) => session.state === 'working' || session.state === 'waiting' ? issuesOf(session.id) : []
 const allSessions = computed(() => ordered.value
     .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id).map(session => ({session, project})))
     .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))
@@ -299,23 +302,34 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         </button>
       </div>
       <div class="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
-        <NuxtLink
-            v-for="{session, project} in allSessions"
-            :key="session.id"
-            :to="`/sessions#session-${session.id}`"
-            class="flex items-center gap-2 rounded-lg px-2 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
-            :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd, session.started?.context?.presets.length ? `as ${session.started.context.presets.join(', ')}` : ''].filter(Boolean).join(' · ')"
-        >
-          <SessionDot :session="session" />
-          <!-- What it's working on first (ORR-330): its project, or what it spans; the name orrery gave it after, quieter. -->
-          <span class="flex min-w-0 flex-1 items-center gap-1.5">
-            <ProjectIcon v-if="!spanLabel(session) && project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3 shrink-0" />
-            <!-- The project keeps its room; the name gives way first. -->
-            <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
-            <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
-          </span>
-          <span class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
-        </NuxtLink>
+        <div v-for="{session, project} in allSessions" :key="session.id" class="flex flex-col rounded-lg transition-colors hover:bg-hover">
+          <NuxtLink
+              :to="`/sessions#session-${session.id}`"
+              class="flex items-center gap-2 px-2 py-1 text-[12px] text-muted hover:text-fg"
+              :title="[[project.name, ...alsoNames(session)].join(', '), session.cwd, session.started?.context?.presets.length ? `as ${session.started.context.presets.join(', ')}` : ''].filter(Boolean).join(' · ')"
+          >
+            <SessionDot :session="session" />
+            <!-- What it's working on first (ORR-330): its project, or what it spans; the name orrery gave it after, quieter. -->
+            <span class="flex min-w-0 flex-1 items-center gap-1.5">
+              <ProjectIcon v-if="!spanLabel(session) && project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3 shrink-0" />
+              <!-- The project keeps its room; the name gives way first. -->
+              <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
+              <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
+            </span>
+            <span class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
+          </NuxtLink>
+          <NuxtLink
+              v-for="issue in onIssue(session).slice(0, 1)"
+              :key="issue.id"
+              :to="`/p/${issue.project}/issues/${issue.id}`"
+              class="-mt-1 flex min-w-0 items-center gap-1.5 pr-2 pb-1 pl-6 text-[11px] text-faint hover:text-fg"
+              :title="`${issue.id}: ${issue.title}`"
+          >
+            <span class="shrink-0 font-mono">{{ issue.id }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ issue.title }}</span>
+            <span v-if="onIssue(session).length > 1" class="shrink-0" :title="`and ${onIssue(session).length - 1} more in progress`">+{{ onIssue(session).length - 1 }}</span>
+          </NuxtLink>
+        </div>
       </div>
     </div>
 

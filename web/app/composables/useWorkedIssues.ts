@@ -29,5 +29,11 @@ export function useWorkedIssues() {
     function workerOf(project: string, issue: string): Session | undefined {
         return listening(project).find(s => work.value[project]?.[s.id]?.issues.some(i => i.id === issue))
     }
-    return {workerOf}
+    /** The open issues a session is on, newest first, in any project it hears (ORR-484): the sidebar's second line. */
+    function issuesOf(session: string): (SessionWork['issues'][number] & {project: string})[] {
+        return Object.entries(work.value)
+            .flatMap(([project, bySession]) => (bySession[session]?.issues ?? []).map(issue => ({...issue, project})))
+            .sort((a, b) => (b.since ?? '').localeCompare(a.since ?? ''))
+    }
+    return {workerOf, issuesOf}
 }
