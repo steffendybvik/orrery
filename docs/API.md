@@ -638,7 +638,7 @@ owner ends it, which closing its pane does. Each message says which page the own
 
 Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools but `start_issue`, `finish_issue`,
 `update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and its own: `reply`, its answer, the
-only way what it says reaches the page, `image`, which shows it an image the owner pasted, `edit_issue`, which changes
+only way what it says reaches the page, `image`, which shows it an image the owner pasted, `github_issues` and `github_pulls`, which read the GitHub issues and pull requests on the repo its folder's git remote names and write nothing there (`github_pulls {number, part: details | diff | failed_checks, from}`, or a list by `search`, `state` and `limit`), `edit_issue`, which changes
 an issue's title, notes, priority, labels, team tasks, GitHub issues, chunk, release, parent or what it depends on when the owner asks, `move_issues`, which
 asks them to move issues to another status or assign them, and `request`, which asks them for the rest: `start_session`,
 `stop_session` and `extend_session`; `message_sessions` and `message_session`, to message other sessions (below);

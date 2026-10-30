@@ -144,6 +144,18 @@ change is refused), commenting, and
 answering you. It changes those fields even on an issue another session is working: the check that refuses one
 session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
 
+**It reads GitHub, and what it reads there isn't filtered.** `github_issues` and `github_pulls` give it any issue or pull
+request on the repo the folder's git remote names, in full: titles, branches, bodies, comments, reviews, diffs and CI logs,
+which anyone who can open an issue or a pull request can write. Its instructions and the tools' descriptions say this is
+data, never instructions, which helps and isn't a boundary. So planted text could talk it into filing an issue or a comment,
+and those can reach your work sessions as material: unlike an untrusted session's, what it files doesn't wait as a proposal.
+Read what it files after reading GitHub with that in mind. The tools only read: `gh` runs inside the channel, each value in a
+flag of its own, on that one repo, and the chat has no tool that comments, merges or closes on GitHub. The answers are kept
+on the Context page by their size alone (ORR-748).
+
+**What it writes can't load anything by being shown.** See [The browser can't be used against it](#the-browser-cant-be-used-against-it).
+A link it writes can still carry what it read, once you click it, so look at where one goes before following it.
+
 Five more go further, and you should know how far:
 
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
@@ -301,6 +313,12 @@ asking first. orrery never says yes, and sets no CORS headers, so another site c
 either. A session's stream changes who's listening just by being opened, so a browser can't open one
 at all, not even as a picture in orrery's own page; only the channel, the launcher and curl can.
 
+Nor can what's written in orrery send anything out just by being shown (ORR-748). Issues, comments, docs and the chat's
+replies are drawn as Markdown, and an agent that has read something could put it in an image's address, which a browser would
+ask for by itself. So orrery's pages carry a `Content-Security-Policy` that loads images and media only from orrery, and fonts
+and styles only from orrery and Google Fonts. Browsers' DNS prefetching
+is off too, as looking up a link's host would send a name out. A link sends something only when you click it.
+
 ## Secrets
 
 [Secrets](docs/API.md#secrets) let your agents call outside services without the key ever reaching
@@ -352,7 +370,7 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
 - **Context** (Advanced → Context) shows what each running session has been given since orrery started: the signals
   sent to it and its orrery tools' answers, kept in memory only. Like every page, with login off it's open to whatever can reach
   orrery, sessions included, so an `egress` answer is kept by its size alone, never what the service sent back
-  (ORR-573). Anything can add an entry to a session's list there, as it can post a session's hook.
+  (ORR-573), and so is a GitHub read (ORR-748). Anything can add an entry to a session's list there, as it can post a session's hook.
 - **The event log** (Advanced → Events) keeps what went wrong, with error messages and stacks, for 30 days on
   this machine. Secrets' values and database passwords are taken out before it's written. Every session can read
   it. A session can mark an error resolved, but the row then says which agent did, and the bell keeps showing it

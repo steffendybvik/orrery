@@ -7,8 +7,9 @@ import {CONTEXT_KEPT, CONTEXT_TEXT_KEPT} from '#shared/context'
 /** Sessions whose entries are kept, the least recently given something dropped first. */
 const SESSIONS_KEPT = 50
 /** Tools whose answers are kept by their size alone: an egress answer is what an outside service sent back, which may
- * hold a token or someone's data, and anything that reaches orrery can read this log (ORR-573). */
-const SIZE_ONLY = new Set(['egress'])
+ * hold a token or someone's data, a GitHub read may be a private repo's (ORR-748), and anything that reaches orrery can
+ * read this log (ORR-573). */
+const SIZE_ONLY = new Set(['egress', 'github_issues', 'github_pulls'])
 const logs = new Map<string, ContextEntry[]>()
 /** When each session's context was last cleared or compacted, by the id it went by then (ORR-575). */
 const cuts = new Map<string, string>()
