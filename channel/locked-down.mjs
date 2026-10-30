@@ -30,12 +30,23 @@ export function chatOnly(dir, server) {
         '--disallowedTools', ...NOT_FOR_CHAT.map(tool => `mcp__${server}__${tool}`)]
 }
 
-/** The repo's hooks, passed back on their own, as `--restricted` leaves out its settings. */
+/** The repo's hooks, passed back on their own, as `--restricted` leaves out its settings: `settings.json`'s and
+ * `settings.local.json`'s, where a repo can keep them out of git. Without them orrery hears it only through its channel,
+ * and never hears a turn end (ORR-744). */
 function hooksOf(dir) {
+    const hooks = {}
+    for (const file of ['settings.json', 'settings.local.json']) {
+        for (const [event, groups] of Object.entries(settingsIn(join(dir, '.claude', file)).hooks ?? {})) {
+            hooks[event] = [...hooks[event] ?? [], ...groups]
+        }
+    }
+    return hooks
+}
+
+function settingsIn(path) {
     try {
-        return JSON.parse(readFileSync(join(dir, '.claude', 'settings.json'), 'utf8')).hooks ?? {}
+        return JSON.parse(readFileSync(path, 'utf8'))
     } catch {
-        // No hooks: orrery hears it only through its channel.
         return {}
     }
 }
