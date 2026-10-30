@@ -68,7 +68,7 @@ roadmap, releases, sessions, schedules, the keys, the phone layout…). `navigat
 list of pages: each renders with no error, breaks no WCAG A or AA rule axe checks beyond the known ones listed in the
 spec, and the sidebar, ⌘K and App settings → Advanced lead to it, so a new page is a line there, and `test/page-specs.test.ts` fails on a page that isn't, unless it names the spec that opens it. `first-run.spec.ts` (naming the owner, the first
 project) runs first as a project the others depend on; each other file makes a project of its own, with the helpers in
-`e2e/support.ts`, so it can run alone. It starts `nuxt dev` with a fresh `web/.data/e2e.db`, so your own database isn't
+`e2e/support.ts`, so it can run alone. The whole suite runs on four workers, grouped in `playwright.config.ts` by what specs share on the one orrery: specs in no group run side by side, the `sessions` and `settings` groups each take turns inside themselves, and the specs that affect everyone (`people`, `settings-database`, `visual`) run alone, last, and are skipped if an earlier spec fails. A spec that changes something others read goes in a group, as a new spec is in none unless it's named there. `pnpm exec playwright test e2e/x.spec.ts` runs one spec, a test at a time, rather than `pnpm test:e2e e2e/x.spec.ts`, which runs the suite before it. It starts `nuxt dev` with a fresh `web/.data/e2e.db`, so your own database isn't
 touched, on a port of the checkout's own (3100–3299, from its path, `web/e2e-port.ts`; `E2E_PORT` picks one), so
 sessions running it from their own worktrees at once don't share a server (`pnpm worktrees` tidies up those left behind). The first time, and after `@playwright/test` is bumped, get its browser with `pnpm exec playwright install
 chromium`. With `E2E_POSTGRES_URL` set it runs on that Postgres instead, emptied first, so its database's name
@@ -112,7 +112,7 @@ each; a step that changes data gets an upgrade test there. Before a SQLite file 
 2. Run nothing else: no other session's suite (check `pnpm worktrees` and Sessions), and at least 5 GB free on the disk. A full disk fails tests with `ENOSPC`, and looks like flaky tests.
 3. Throw away the first run of each way, as it warms Vite's cache, then run each three times and take the median:
    ```sh
-   PLAYWRIGHT_JSON_OUTPUT_NAME=run.json pnpm exec playwright test --reporter=line,json
+   E2E_WHOLE=1 PLAYWRIGHT_JSON_OUTPUT_NAME=run.json pnpm exec playwright test --reporter=line,json
    ```
 4. Read `stats.duration` in `run.json`, in milliseconds, and time the whole command too: a build a way needs is paid on every CI run, so count it.
 5. Count a run only if every test passed and the same tests ran. A way that's faster but fails tests isn't faster.

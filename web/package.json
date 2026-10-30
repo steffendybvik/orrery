@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:report": "node scripts/test-report.mjs",
-    "test:e2e": "playwright test",
+    "test:e2e": "E2E_WHOLE=1 playwright test",
     "test:e2e:visual": "scripts/e2e-visual.sh",
     "test:e2e:perf": "playwright test --config playwright.perf.config.ts",
     "test:e2e:login": "playwright test --config playwright.login.config.ts",

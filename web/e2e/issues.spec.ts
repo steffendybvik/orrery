@@ -123,7 +123,7 @@ test("marks what changed since the owner last looked, but not the owner's own ch
     await api(request, 'post', `/issues/${issue.id}/comments`, {body: 'All labelled'})
     await page.waitForTimeout(500)
     await expect(page.getByRole('button', {name: /Mark \d+ seen/})).toBeHidden()
-    await expect(page.getByTitle(/changed since you last looked/)).toBeHidden()
+    await expect(page.locator('aside nav').getByRole('link', {name: /^Scullery\b/}).getByTitle(/changed since you last looked/)).toBeHidden()
 })
 
 test('double-clicking a description opens its editor, unless it was a link, a picture or a drag', async ({page, request}) => {
