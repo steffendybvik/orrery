@@ -137,6 +137,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:e2e
+        env:
+          # The image runs as root, and Firefox won't start with a home folder that's another user's.
+          HOME: /root
       - run: pnpm test:e2e:login
         if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
       - uses: actions/upload-artifact@v7
