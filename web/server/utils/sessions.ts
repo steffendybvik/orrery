@@ -255,6 +255,12 @@ export function report(input: Report): Session | null {
     return publicOf(session)
 }
 
+/** A signal reached the session, which starts it working, with no prompt for its hooks to see. Only for one whose hooks
+ * have spoken: nothing else ends a turn, so one without them would stay working for good (ORR-744). */
+export function signalReached(id: string, project: string) {
+    if (find(id)?.hooked) report({id, project, event: 'working'})
+}
+
 /** The session goes by `id` from now on; the ids it had stay aliases of it, and what it worked moves to the new one. */
 function takeNewId(session: Known, id: string) {
     const {id: from, project} = session

@@ -31,6 +31,26 @@ describe("an untrusted schedule's session", () => {
 })
 
 describe("the owner's chat", () => {
+    it('gets the hooks a repo keeps in its local settings, as nothing else says when its turn ends (ORR-744)', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
+        mkdirSync(join(dir, '.claude'))
+        writeFileSync(join(dir, '.claude', 'settings.local.json'), JSON.stringify({hooks, permissions: {allow: ['Bash(curl:*)']}}))
+        const args: string[] = chatOnly(dir, 'orrery-shop')
+        expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks})
+    })
+
+    it('gets both when a repo has hooks in each of its settings', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
+        mkdirSync(join(dir, '.claude'))
+        const other = {type: 'command', command: 'node other.mjs'}
+        writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({hooks}))
+        writeFileSync(join(dir, '.claude', 'settings.local.json'), JSON.stringify({hooks: {Stop: [{hooks: [other]}], Notification: [{hooks: [other]}]}}))
+        const args: string[] = chatOnly(dir, 'orrery-shop')
+        expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({
+            hooks: {Stop: [...hooks.Stop, {hooks: [other]}], Notification: [{hooks: [other]}]},
+        })
+    })
+
     it('reads the repo and has the channel but its tools that take up work, with only the repo\'s hooks and servers', () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
         mkdirSync(join(dir, '.claude'))

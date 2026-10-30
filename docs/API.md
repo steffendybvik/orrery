@@ -623,7 +623,7 @@ listening; else whichever listening session is idle when it comes; else, with ev
 (within a day). The project's own sessions come first: a session whose channel hears several projects
 (`ORRERY_PROJECTS`) gets it only while none of the project's own is listening and idle. A schedule's message goes the same way. A focus on one session makes it the issue's session, unless another listening session has the issue started:
 then it stays with that one, and the session asked gets the 409 if it tries to start it. Each signal lists the sessions it reached in `delivered_to`
-(`POST /projects/:project/signals/:signal/delivered`, sent by the channel).
+(`POST /projects/:project/signals/:signal/delivered`, sent by the channel, which also sets a session whose hooks have spoken `working`).
 
 ### Chats
 

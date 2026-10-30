@@ -180,6 +180,21 @@ describe('a session', () => {
         expect(sessions.listSessions('greenhouse')[0]).not.toHaveProperty('idleAt')
     })
 
+    it('works on a signal only when its hooks have spoken, as nothing else would end the turn (ORR-744)', () => {
+        sessions.attend('greenhouse', 'hooked', undefined, undefined)
+        sessions.report({id: 'hooked', project: 'greenhouse', event: 'SessionStart'})
+        sessions.signalReached('hooked', 'greenhouse')
+        expect(sessions.sessionNow('hooked')?.state).toBe('working')
+        sessions.report({id: 'hooked', project: 'greenhouse', event: 'Stop'})
+        expect(sessions.sessionNow('hooked')?.state).toBe('idle')
+
+        sessions.attend('greenhouse', 'no-hooks', undefined, undefined)
+        const before = sessions.sessionNow('no-hooks')?.state
+        sessions.signalReached('no-hooks', 'greenhouse')
+        expect(sessions.sessionNow('no-hooks')?.state).toBe(before)
+        expect(before).not.toBe('working')
+    })
+
     it('first heard of by its pid takes its id when a hook brings it, and keeps no pid in public', () => {
         expect(sessions.report({pid: 42, project: 'greenhouse', event: 'SessionStart'})?.id).toBe('pid-42')
         const now = sessions.report({id: 'abc', pid: 42, project: 'greenhouse', cwd: '/repo', event: 'UserPromptSubmit'})!
