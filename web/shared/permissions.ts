@@ -412,6 +412,15 @@ export const PERMISSIONS: Permission[] = [
         member: onTheirBoards,
     },
     {
+        id: 'projects.upload', area: 'Roadmap', action: "Upload a board's file as a new board",
+        why: 'A file is untrusted, and a person chooses to bring one in. It never overwrites a board, and nothing in it speaks for anyone.',
+        routes: ['POST /api/projects/upload'],
+        session: {level: 'owner'},
+        chat: refused,
+        untrusted: refused,
+        member: onTheirBoards,
+    },
+    {
         id: 'projects.delete', area: 'Roadmap', action: 'Delete a project',
         why: 'It takes everything on the board with it.',
         routes: ['DELETE /api/projects/:project'],

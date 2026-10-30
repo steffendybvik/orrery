@@ -144,7 +144,9 @@ export interface SignalRow { person?: string | null, id: number, project: string
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
 const TINT: Field = {type: 'string', nullable: true, pattern: new RegExp(`^(${Object.keys(TINTS).join('|')}|#[0-9a-fA-F]{6})$`), hint: `use ${Object.keys(TINTS).join(', ')} or a colour like #3b82f6`}
-const KEY = /^[A-Z][A-Z0-9]{0,9}$/
+/** The keys a doc's, chunk's, preset's or schedule's full id starts with, so no project's. */
+export const FULL_ID_KEYS = ['DOC', 'CHK', 'PST', 'SCH']
+export const KEY = /^[A-Z][A-Z0-9]{0,9}$/
 /** A release's version: `1.0.0`, `1.0.0-rc.2`, `2026.10`, `v2`; it goes in URLs as it is. */
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,39}$/
 
