@@ -314,6 +314,20 @@ function allow(id) {
     }
 }
 
+/** Answers "No" once to the permission prompt a session it started is waiting at, as the owner pressing Deny asks
+ * (ORR-750): Escape, only while its pane still shows one, as `allow`. */
+function deny(id) {
+    const session = running.get(id)
+    if (!session) return
+    try {
+        if (!onYes(tmux('capture-pane', '-p', '-t', session.tmux))) return log(`${session.tmux} isn't at a permission prompt any more: left as it is`)
+        tmux('send-keys', '-t', session.tmux, 'Escape')
+        log(`denied what ${session.tmux} asked, as the owner said`)
+    } catch {
+        // It has ended.
+    }
+}
+
 /** Gives a session it started a fresh context between pieces of work, as orrery asks once it's idle: types
  * `/clear` into it. Its channel stays, and its hooks hand the new context what's left to do. */
 async function clear(id) {
@@ -511,6 +525,8 @@ function serve({url, project, dir, picked_at: picked}, signal) {
                 watch(id, terminal)
             } else if (event === 'allow') {
                 allow(JSON.parse(data).id)
+            } else if (event === 'deny') {
+                deny(JSON.parse(data).id)
             } else if (event === 'view') {
                 // Not awaited: it sends for as long as the owner views it, and the stream goes on meanwhile.
                 view(JSON.parse(data).id).catch(error => log(`couldn't send a screen: ${error.message}`))

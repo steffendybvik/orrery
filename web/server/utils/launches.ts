@@ -563,6 +563,17 @@ export function allowLaunch(project: string, id: string): Session {
     return session
 }
 
+/** The owner denying what a session orrery started is asking permission for: as `allowLaunch`, its launcher answering "No". */
+export function denyLaunch(project: string, id: string): Session {
+    const session = sessionOfLaunch(project, id)
+    if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (session.state !== 'waiting') throw conflict(`${session.name} isn't waiting at a permission prompt`)
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to answer it; attach by hand with tmux attach -t ${session.started.tmux}`)
+    emit({type: 'deny', project, id})
+    promptAnswered(project, id)
+    return session
+}
+
 /** The screens of the sessions orrery started that the owner is viewing, as their launchers last captured them, with
  * when; when the owner last asked for each; and when its launcher was last asked to send it. */
 const screens = new Map<string, {text: string, at: number}>()

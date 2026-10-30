@@ -478,6 +478,10 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
       </li>
     </ol>
 
+    <!-- What its session asks permission for, answered here while the pane is open (ORR-750). -->
+    <div v-if="session?.state === 'waiting'" class="px-3 pt-2">
+      <PermissionPrompt :session="session" :hideable="false" class="w-full! max-w-none!" />
+    </div>
     <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
       <LauncherHint v-if="unlaunched" :project="about!" chat />
       <p v-else-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>

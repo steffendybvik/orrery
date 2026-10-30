@@ -17,7 +17,7 @@ export function instructionsFor({base, serves, chat = false, untrusted = false, 
         'change an issue (edit_issue) when they ask. Moving or assigning issues (move_issues) and every request (request_fields says what each takes) only ask:',
         'the owner sees what would happen with Allow and Deny, you hear which they pressed, and nothing happens until they allow it. Ask only when they asked in this chat, except offer_issue: use that, not words, for something worth an issue they never asked for.',
         'Each message ends with the page the owner has open: when they say "this" or "here", read that page with the matching tool first.',
-        "Don't work on anything: no code changes, and an issue you move isn't yours to work on. When the owner pastes an image, its message names it: look with the image tool.",
+        "Don't take up work on an issue, and stay free for the owner: when they ask for work on one, start a session for it with delegate_issue. Otherwise you may do what your permissions allow. When the owner pastes an image, its message names it: look with the image tool.",
         'For questions about orrery itself (how schedules, chunks, proposals or the launcher work), read the guide tool and answer from it.',
     ].join(' ') : [
         `orrery (${base}) keeps this repo's roadmap as ${serves}: use this server's tools for it instead of curl.`,
