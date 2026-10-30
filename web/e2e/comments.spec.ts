@@ -25,6 +25,7 @@ test('puts a picked image in a new issue, and in a comment on it', async ({page,
     const id = page.url().split('/').at(-1)!
     const image = page.locator('.doc img[alt="shelf"]').first()
     await expect(image).toBeVisible()
+    // Its alt text shows before the file has loaded.
     await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1)
 
     await page.locator('form').filter({has: page.getByRole('textbox', {name: 'Comment'})}).locator('input[type="file"]').setInputFiles(png)
