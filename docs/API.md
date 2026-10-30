@@ -34,8 +34,8 @@ characters of base32: the project's `uid`, or the server's (`uid` on `GET /setti
 | Preset | `12` | `pst-12-x7k2m9qd` | the server's |
 | Schedule | `12` | `sch-12-x7k2m9qd` | the server's |
 
-Every route takes either form, and an alias's full form too. Issues, chunks and docs read back with theirs in
-`full_id`. A project's `uid` goes with it when the database moves, and a restored backup keeps the server's. An issue
+Every route takes either form, and an alias's full form too. Issues read back with theirs in
+`full_id`, and a chunk or doc read on its own too (not in a list or a board). A project's `uid` goes with it when the database moves, and a restored backup keeps the server's. An issue
 moved to another project has a new full id, and its old one gets a 404. A new project can't take the `key` `DOC`, `CHK`,
 `PST` or `SCH`, which read as the start of a full id; one that has it already keeps it.
 
@@ -52,10 +52,10 @@ person, with a label that's a person's name counting as `agent`. A logged-in wri
 | `POST /auth/login` | open: `{key}`, a person key → `{person}` and the login's cookie; 401 for anything else, an agent key included |
 | `POST /auth/logout` | open: 204, ending this browser's login |
 | `GET /auth/oidc/start?invite=` | open: a redirect to the login provider; 404 with none set up |
-| `GET /auth/oidc/callback` | open: the way back from it, a redirect to the board, logged in. 403 for an account with no invite |
-| `GET /keys` | your keys, or everyone's for the owner: `{id, person, kind, name, created_at, last_used_at?, revoked_at?}`, never the key |
-| `POST /keys` | `{kind, name, person?}` → 201 the key, with `key` this once only. `kind` is `agent` or `person`; `person` is the owner's to give. Only a person, never a session, whatever key it has |
-| `DELETE /keys/:key` | 204: revokes it at once. Your own, or anyone's for the owner |
+| `GET /auth/oidc/callback` | open: the way back from it, a redirect to the board, logged in. 403 for an account with no invite, 409 for an invite used or run out, 401 for a login that ran out or doesn't match |
+| `GET /keys` | your keys, or everyone's for the owner: `{id, person, kind, name, created_at, last_used_at?, revoked_at?}`, never the key. Only a person, never a session (403) |
+| `POST /keys` | `{kind, name, person?}` → 201 the key, with `key` this once only. `kind` is `agent` or `person`; `person` is the owner's to give. Only a person, never a session, whatever key it has. 404 for someone who isn't a person here |
+| `DELETE /keys/:key` | 204: revokes it at once. Your own, or anyone's for the owner; a 404 for any other. Only a person, never a session (403) |
 | `POST /invites` | `{person}` → 201 `{url, expires_at}`: the owner's only, a link good once and for a week, whose first login attaches that account to the person. 409 with no login provider |
 
 `GET /healthz`, outside `/api`, answers `{ok: true}` with no credential, for a container's health check.
@@ -63,7 +63,7 @@ person, with a label that's a person's name counting as `agent`. A logged-in wri
 ## Who can delete what
 
 With no login, the owner is whoever gave their name when the orrery was first opened (`GET /api/owner`
-→ `{name, display, named}`; `PUT /api/owner {name}` gives it, anyone the first time, then the owner only; not `agent` or `claude`, which agents send).
+→ `{name, display, named}`; `PUT /api/owner {name}` gives it, anyone the first time, then the owner only; not `agent` or `claude`, which agents send; a 409 for a member's id).
 Their `Orrery-Actor` is that name in lowercase snake case: `Sköll Fenrisson` is `skoll_fenrisson`
 (`owner` until a name is given; renaming moves what was theirs to the new id). Don't guess it from
 a git name: read it from `GET /api/owner`, or assign to `owner` (below), which always means them. What the owner makes is
@@ -73,14 +73,14 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 
 ## People
 
-The owner can add others to an orrery, and each of them has their own sessions ([the design](/p/orrery/docs/decision-people-and-claims); more of it is on its way). With one person, nothing here changes anything: every session is theirs.
+The owner can add others to an orrery, and each of them has their own sessions. With one person, nothing here changes anything: every session is theirs.
 
 | | |
 |---|---|
 | `GET /people` | everyone: `{id, name, role, created_at, removed_at?}`, the owner first, `role` `owner` or `member`. The owner is listed once they've given their name |
 | `POST /people` | `{name}` → 201 the person, a member: the owner's only. Their `id` is the name in lowercase snake case, and never changes. 400 for `owner`, `agent`, `claude` and `orrery`, or before the owner has a name; 409 for an id someone has, or a removed person had, or while nobody could log in, as a second person turns login on (`orrery:claim` first, or `ORRERY_AUTH=off` to only try people out) |
 | `PATCH /people/:person` | `{name}` → the person: the owner's only. The id stays, so what they hold stays theirs. The owner's own name goes through `PUT /owner` |
-| `DELETE /people/:person` | 204: the owner's only. Their name stays on history, their open issues go back to unassigned, each with an activity line, and their sessions can no longer change an issue. The owner can't be removed |
+| `DELETE /people/:person` | 204: the owner's only. Their name stays on history, their open issues go back to unassigned, each with an activity line, and their sessions can no longer change an issue. Their keys and logins stop at once. The owner can't be removed |
 
 A session says whose it is with `Orrery-Person: <id>` on its requests: the channel and the hook send `ORRERY_PERSON` from the environment Claude Code starts in, and a session the owner starts through a launcher gets theirs. It's worked out from each request, so it holds across a restart and a `/clear`. The owner and their chat are the owner's, whatever they send, and an untrusted session is nobody's. With more than one person, a session that names nobody, or somebody who isn't here, can read and comment, but changing an issue (`PATCH …/issues/:issue`, or in bulk) is a 409 saying how to set it. With no login this is a name rather than a password, as `Orrery-Actor` is; with one, the credential decides.
 
@@ -92,14 +92,14 @@ Each board has one person holding it, and members. Existing boards are the owner
 | `POST /projects/:project/members` | `{person}` → 201 them on the board, a `member`: its holder's or the owner's, never an agent's (403). 404 for someone who isn't a person here; 409 for someone removed |
 | `DELETE /projects/:project/members/:person` | 204: the same. 400 for its holder, who stays. Removing a person from the orrery takes them off every board, and what they held goes to the owner |
 
-With more than one person, every write is checked against the permissions table's `member` column (`GET /permissions`): anything else is the owner's and their sessions' alone (403), and on a board the person isn't on it answers 404, as if the board weren't there. A route the table doesn't name is refused. A session naming nobody gets a 409 for all but commenting and reporting what it's doing. Reads stay open for now. A session hears only the boards its person is on: a signal stream for any other is a 404, one naming nobody is a 409, and `/signals/stream` with `*` or several projects follows only theirs. These are names until login comes, so they keep honest sessions apart and stop nobody else ([Security](/p/orrery/docs/security)).
+With more than one person, every write is checked against the permissions table's `member` column (`GET /permissions`): anything else is the owner's and their sessions' alone (403), and on a board the person isn't on it answers 404, as if the board weren't there. A route the table doesn't name is refused. A session naming nobody gets a 409 for all but commenting and reporting what it's doing. Reads aren't held to a board yet. A session hears only the boards its person is on: a signal stream for any other is a 404, one naming nobody is a 409, and `/signals/stream` with `*` or several projects follows only theirs. With no login these are names, so they keep honest sessions apart and stop nobody else ([Security](../SECURITY.md#with-login-off-the-owner-is-a-name-not-a-password)); with one, the credential decides.
 
 With more than one person, an agent works only what's assigned to its person (ORR-655). This holds at the store, so every route that writes an issue is held the same way:
 
-- **Starting, editing, closing, moving or deleting** an issue that isn't its person's is a 409 naming who has it, or saying nobody does. An assignee who isn't a person counts as nobody, and `claude` as the owner. Comments stay open to all.
+- **Starting, editing, closing, moving or deleting** an issue that isn't its person's is a 409 naming who has it, or saying nobody does. An assignee who isn't a person counts as nobody, and `claude` as the owner. An agent's own proposal stays its to edit and put up again, though it waits on the owner. Comments stay open to all.
 - **Starting** it records the claim: `claimed_by` on the issue. That ends when the issue is closed or reassigned, and reopening doesn't bring it back. Another of the same person's agents can pick it up once the session on it has gone, and another person's can't.
 - **Assigning:** only people assign. An agent can hand an issue it holds to `owner` or let it go, and nothing else.
-- **A new issue** with no parent stays unassigned, so it can't be made started, closed or assigned to its own person. One under an issue its person holds is theirs. Sending a status with no person is refused like the rest. An untrusted session's proposals are as they were.
+- **A new issue** with no parent stays unassigned, or goes to `owner` if it asks, so it can't be made started, closed or assigned to its own person. One under an issue its person holds is theirs. A session naming nobody can't make one at all. An untrusted session's proposals are as they were.
 - **What orrery reassigns stays with the person:** an agent's question waits on its own person, and only on an issue that's theirs. An approved proposal goes to the person whose agent proposed it. A session cut off leaves its issue with its person.
 - **Focus** on an unassigned issue makes it the person's who sent it, and on someone else's is refused. An agent can't assign itself in this way. The owner's focus takes the issue over, which shows in its activity.
 - **Importing** a roadmap is a person's.
@@ -111,7 +111,7 @@ With more than one person, an agent works only what's assigned to its person (OR
 | `GET /projects` | every project with its counts; `?expand=board` adds boards, and each project's `rev` for the events stream's patches; `&notes=0` leaves the issues' notes out (the page reads an issue's own from `GET …/issues/:issue`); `&closed=0` leaves out closed (done, canceled) issues with no open sub-issue, but for the projects in `&whole=` (comma-separated ids). The page loads that way, with the project it's on whole, and reads another project whole as one of its pages opens; a patch on the events stream for a project it has without them leaves out the closed issues it never had |
 | `POST /projects` | `{name, id?, key?, description?, repo?, release_mode?, releases_from?}`, and any other field `PATCH` takes (`icon`, `icon_color`, the owner's prompt fields): `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board, docs and releases, and its `rev`; `?notes=0` leaves the issues' notes out, and `?closed=0` its closed issues with no open sub-issue |
-| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?}` (the last four the owner's; see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
+| `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?}` (the last four the owner's; see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them but `release_mode`; `releases_from: null` gives it its own |
 | `DELETE /projects/:project` | with everything in it: chunks, issues, comments, docs, releases, schedules, signals and its presets; a 409 while others take their releases from it |
 | `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; a 409 when the project already has chunks or issues, unless `?replace=true` replaces what's there (schedules that made issues in a chunk make them in none) |
 
@@ -146,7 +146,7 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 
 | | |
 |---|---|
-| `GET /projects/:project/releases` | in the order they're arranged in, a new one on top: `{version, branch?, notes?, frozen_on?, shipped_on?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included (a sub-issue set for another release counts there instead) |
+| `GET /projects/:project/releases` | in the order they're arranged in, a new one on top: `{version, branch?, notes?, frozen_on?, shipped_on?, doc_mark?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included (a sub-issue set for another release counts there instead) |
 | `GET /releases` | every project with releases of its own, for the Releases page: `[{project, projects, releases}]`, `projects` being it and those taking their releases from it, and each release as above without `notes`, plus `projects` `[{project, issues, kinds}]`, each one's part. A release several projects share is listed once, under the project it's made on; a project with `release_mode` `none` isn't listed. It's read without building the projects' boards |
 | `POST /projects/:project/releases` | `{version, branch?, notes?, frozen_on?, shipped_on?, position?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `frozen_on` the day its features froze (`YYYY-MM-DD`; see below), `shipped_on` the day it shipped (`YYYY-MM-DD`; none while it's being prepared), `position` where it goes in the list (0 the top, the default) |
 | `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues), and by project in `projects`: `{project, name, issues, kinds, tasks}`, the project's own first, then on a source each project drawing on it |
@@ -155,7 +155,7 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 
 An **artifact** (ORR-677) is a doc with `kind: "artifact"`, whose `body` is HTML: a visual for a person to look at, with
 sections and history like any doc. Make one with `POST` or `PUT` (`write_doc` for a session). Its kind is fixed when it's
-made, and a doc's `kind` is otherwise `markdown`. It's only ever drawn in a sandboxed frame on its doc's page, or served
+made (a 400 for another), and a doc's `kind` is otherwise `markdown`. It's only ever drawn in a sandboxed frame on its doc's page, or served
 at `…/artifact` with the same lock.
 
 - **What it has:** its own inline scripts and styles, and images and fonts as `data:` addresses. Tailwind is there already,
@@ -225,7 +225,7 @@ until the release ships.
 - `full_id` (read only, on `GET …/issues` and `GET …/issues/:issue`): its id to paste anywhere (see [Ids](#ids)), which
   is what a commit body or PR description says
 - `ref` (read only, the same): the earlier way of saying whose board it's on, `orrery-<handle>: <id>`
-  (`orrery-ada: DOC-132`), from the orrery's `handle` (see [For agents](#for-agents)); kept, but use `full_id`
+  (`orrery-ada: DOC-132`), from the orrery's `handle` (`PATCH /settings {handle}`); kept, but use `full_id`
 
 ### Proposals
 
@@ -285,17 +285,17 @@ instead of `done` when it won't ship.
 
 | | |
 |---|---|
-| `GET /projects/:project/docs` | without their text but with a `summary` (the first paragraph as plain text, about 160 characters), by title, A–Z (a `position` sent with a doc is kept but no longer orders them). `?q=` keeps those with every word of it in their title or text (any order or case), the ones with them all in the title first, each with a `match`: about 160 characters of text around its first hit. Each has its `section` when it's filed under one |
+| `GET /projects/:project/docs` | without their text but with a `summary` (the first paragraph as plain text, about 160 characters), by title, A–Z (a `position` sent with a doc is kept but no longer orders them; an artifact's `summary` is empty). `?q=` keeps those with every word of it in their title or text (any order or case), the ones with them all in the title first, each with a `match`: about 160 characters of text around its first hit. Each has its `section` when it's filed under one |
 | `POST /projects/:project/docs` | `{title, body?, id?, section?, kind?}`; `body` is Markdown (or HTML with `kind: "artifact"`, below), and `section` (up to 60 characters) is the group it's listed under, such as `Decisions` |
-| `GET /projects/:project/docs/:doc` | with its Markdown |
+| `GET /projects/:project/docs/:doc` | with its `body` and `full_id` |
 | `PUT /projects/:project/docs/:doc` | `{title, body?, section?, kind?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync. A `section` left out keeps the one it has |
 | `PATCH /projects/:project/docs/:doc` | `{title?, body?, section?}`; `section` `null` or `""` takes it out of one. Moving a doc to another section doesn't count as changing it (its `updated_at` stays) |
 | `GET /projects/:project/docs/:doc/artifact` | an artifact's HTML as a page, locked down (below); `?theme=dark` for dark mode. A 404 for a Markdown doc |
 | `DELETE /projects/:project/docs/:doc` | its past stays, so it can come back; only deleting the project removes that |
-| `GET /projects/:project/docs/:doc/revisions` | its revisions, newest first, without their text: `{id, title, deleted, created_by, session_name?, created_at}`. A deleted doc's too; a 404 when there's never been such a doc |
-| `GET /projects/:project/docs/:doc/revisions/:revision` | that revision with its `project`, `doc` and Markdown `body` |
-| `POST /projects/:project/docs/:doc/revisions/:revision/restore` | the doc with that revision's title and text, kept as a new revision so it can be undone too; 201 when it brings a deleted doc back, where it was filed and with who made it, else 200 |
-| `GET /projects/:project/deleted-docs` | its docs that are gone, the latest removed first: `{id, title, summary, revision, deleted_by, deleted_at}`. Bring one back by restoring its `revision` |
+| `GET /projects/:project/docs/:doc/revisions` | its revisions, newest first, without their text: `{id, title, kind, deleted, created_by, session_name?, created_at}`. A deleted doc's too; a 404 when there's never been such a doc |
+| `GET /projects/:project/docs/:doc/revisions/:revision` | that revision with its `project`, `doc` and `body` |
+| `POST /projects/:project/docs/:doc/revisions/:revision/restore` | the doc with that revision's title and text, kept as a new revision so it can be undone too; 201 when it brings a deleted doc back, where it was filed and with who made it, else 200; 409 when the revision is another kind of doc than the one there now |
+| `GET /projects/:project/deleted-docs` | its docs that are gone, the latest removed first: `{id, title, kind, summary, revision, deleted_by, deleted_at}`. Bring one back by restoring its `revision` |
 | `GET /projects/:project/doc-sections` | its docs' sections, A–Z: each one a doc is filed under, and the empty ones made with `POST`. A project's own read has them too, as `doc_sections` |
 | `POST /projects/:project/doc-sections` | `{name}` (up to 60 characters) → 201 `{name}`: a section with no docs in it yet, kept until it's deleted; 409 when there's one by that name |
 | `PATCH /projects/:project/doc-sections/:section` | `{name}` → `{name}`: renames it on every doc in it at once, without counting as a change to them (their `updated_at` stays); 409 when there's already one by the new name |
@@ -312,8 +312,8 @@ instead of `done` when it won't ship.
 | `GET /pulls?page=&limit=` | every open pull request on the projects' GitHub repos (the Pull requests page): `{pulls, open, needs, repos}`. Each pull is as an issue's (above) plus `repo` and `issue` `{project, id, title}` when one of the repo's projects has the issue it names (its body's link first, then its branch). Those `conflicting`, `failing` or `behind` come first, oldest first, then the rest, oldest first; `open` counts them all and `needs` the first. With `page` (from 1) or `limit` (50, at most 200), `pulls` is only that page, in the same order, with its `page` and `limit`; a page past the last is the last, and the counts stay totals. A repo several projects share is read once: `repos` is `[{repo, projects, token, token_problem?, checked_at, open, needs, cut?, error?}]`, its counts every page's. Up to 300 open PRs a repo are read, following GitHub's next pages; `cut` says how many were read when it had more. Without a token only each repo's list is read (GitHub allows 60 requests an hour then), so each PR not a draft is `checking` |
 | `POST /pulls/poll?repo=&page=&limit=` | → `GET /pulls`'s answer, fresh and paged as it pages: the owner's **Poll** (ORR-534). Every repo (or `repo`, `you/shop`) is polled at once, whenever it last was, and what changed is told as the background poll tells it. A repo GitHub is holding (its rate limit, a refused token), or without a token one polled now in the last five minutes or read at all in the last minute, isn't asked: its entry in `repos` has `held` saying why and when; a refused token is tried again once the secrets change. A second ask for the same while one runs gets the same answer. A `repo` no project is on is a 404. The owner's only (`pulls.poll`) |
 | `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, session_name?, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels`, `external` and `github_issues` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release`, `depends` (JSON lists of what it depends on; by `orrery` when a blocker was deleted) or `project` (moved in from `before`) |
-| `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell), led by agents' proposals waiting on the owner: `{id: 0, issue, title, body: <its notes>, asks: "decision", answered: false, proposal: {choices: <how many>}}`, there until the owner decides or clears it (clearing leaves it pending; put up again, it's back). `?list=waiting` is every one still waiting, proposals among them; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`, the cleared proposals still pending on its first page) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
-| `POST /notices/clear` | `{ids, proposals}` or `{before}` → `{cleared}`: the owner takes them out of the bell: the comments by `ids`, agents' proposals by `proposals: [{project, issue}]`, or every comment made at or before `before` that isn't waiting on them. Comments stay on their issues, proposals stay pending |
+| `GET /notices` | with more than one person, the bell of whoever's asking (ORR-658): their agents' comments and what others say on what's assigned to them, and proposals only for the owner. Otherwise agents' latest 30 comments across projects, those waiting on the owner first (the page's bell), led by agents' proposals waiting on the owner: `{id: 0, issue, title, body: <its notes>, asks: "decision", answered: false, proposal: {choices: <how many>}}`, there until the owner decides or clears it (clearing leaves it pending; put up again, it's back). `?list=waiting` is every one still waiting, proposals among them; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`, the cleared proposals still pending on its first page) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
+| `POST /notices/clear` | `{ids, proposals}` or `{before}` → `{cleared}`: a person takes them out of their own bell, and never a session's; a member's clears are their own, and `proposals` are the owner's: the comments by `ids`, agents' proposals by `proposals: [{project, issue}]`, or every comment made at or before `before` that isn't waiting on them. Comments stay on their issues, proposals stay pending |
 
 ### Images
 
@@ -555,7 +555,7 @@ and its old ids still find it.
 | `POST /sessions/message` | `{text, projects?, states?}` → 201 `{sent: [{project, session, name, signal}]}`: the owner's own words to every listening session at once, each a `message` with it as `target`, as above. Only `idle` ones unless `states` lists others (`working`, `waiting`); `projects` narrows it to sessions on or hearing any of them. A session hearing several projects gets it once; nobody listening is an empty `sent`, and starts no session. Never the owner's [chat](#chats)'s, as above |
 | `GET /projects/:project/sessions/work` | `{<session id>: {issues, signals}}`: what each is on, for its Sessions page: the open issues it worked last (newest first, each `{id, title, column, kind, priority, since}`, `since` being when it took the issue) and the last five signals that went to it |
 | `GET /sessions/work?projects=a,b` | `{<project>: {<session id>: {issues, signals}}}`: the same for every project with sessions (or those named), in one call |
-| `GET /projects/:project/context?kind=` | what orrery puts into a session's context on the project, part by part (ORR-549): `{kind, projects, parts, chars, tokens}`, each part `{id, group, title, text, chars, tokens}`: the channel's `instructions`, each of its `tools` as listed, and the `start` context a session was started with. `kind` is `work` (the default), `chat` or `untrusted`; `?session=<id>` gives a running one's, its kind and projects its own, with `sofar`: its latest 30 signals (each payload as its stream sent it) and tool answers, newest first, each `{at, kind, title, text, chars, tokens, before?}` (`before`: given before its last `/clear` or compaction, so no longer in its context), `text` cut at 20,000 characters (an `egress` answer's left empty, its size kept: it's what an outside service sent back), kept in memory since orrery started. Like every read, it's open to anything that reaches orrery. Tokens are estimated as a quarter of the characters |
+| `GET /projects/:project/context?kind=` | what orrery puts into a session's context on the project, part by part (ORR-549): `{kind, projects, parts, chars, tokens}`, each part `{id, group, title, text, chars, tokens}`: the channel's `instructions`, each of its `tools` as listed, and the `start` context a session was started with. `kind` is `work` (the default), `chat` or `untrusted`; `?session=<id>` gives a running one's, its kind and projects its own, with `sofar`: its latest 30 signals (each payload as its stream sent it) and tool answers, newest first, each `{at, kind, title, text, chars, tokens, before?}` (`before`: given before its last `/clear` or compaction, so no longer in its context), `text` cut at 20,000 characters (an `egress` answer's left empty, its size kept: it's what an outside service sent back), kept in memory since orrery started. Like every read, it's open to anything that reaches orrery, or with login on, to any credential. Tokens are estimated as a quarter of the characters |
 | `POST /sessions/:session/calls` | `{tool, text}` → 204: the channel saying what one of its tool calls answered, for the Context page's `sofar` |
 | `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?, command?, tool?, reason?, source?, started?, error?, error_text?}`: what a hook sends. `tool` (`{name, detail?}`, on `PreToolUse` and `PermissionRequest`) is the tool it's about to use or asks for, with the command, file path, address or search cut to 300 characters (nothing from an MCP tool's input); a permission prompt the session then waits at is for it (`asking`), the `PermissionRequest`'s tool over a `PreToolUse` that lands after it until the prompt is answered. A `PermissionRequest` leaves the state to the `Notification` that comes with it. A `SessionEnd` with `reason: "clear"` keeps the session, and the next `SessionStart` with `source: "clear"` in its `cwd` takes it over when no pid ties them; a `SessionStart` with `source` `clear`, `compact` or `resume` answers with `brief` too, the issues it has in progress, for the hook to hand the fresh context; a session orrery started with context (`started`, its launch id, from `ORRERY_STARTED`) gets that context in `brief` on every `SessionStart`, its first included. A `Stop` from a listening session that a few seconds later is still idle, with no signal waiting, while an issue it has in progress has sub-issues in backlog or todo (it just split it, say), sends it alone a focus on the most urgent of them, as the owner's, so it carries on; not again for a sub-issue that hasn't changed, and never to a session an untrusted schedule's run started. A chunk or scope it was working through stays its run. A `StopFailure` (a turn an API error cut off, with Claude Code's `error`, `rate_limit` say) puts each issue the session has in progress back in Todo with no assignee (with more than one person, it keeps its assignee, for another of their agents), with a comment from `claude` saying why, leaving one in review or waiting on the owner. The session reads `cut_off: {error?, text?, at}` until its next turn gets going, and the event log keeps `session.cut_off` as a warning |
 
@@ -605,7 +605,7 @@ with review instructions in it.
 | `POST /projects/:project/launches/:launch/screen` | `{screen}` → `{watching}`: the launcher sending the screen of a session it started; it stops once `watching` is false |
 | `POST /projects/:project/launches/:launch/extend` | `{minutes}` → the session: the owner giving it longer, from when it would have stopped; a 409 for one that runs until stopped |
 
-`POST …/focus` takes `{session}` to reach one session, or `{session: "*"}` for every session on the project.
+`POST …/focus` takes `{session}` to reach one session; a chunk's also takes `{session: "*"}` for every session on the project.
 Without it, one session gets it, and orrery picks which: for an issue, the session already on it if that one is
 listening; else whichever listening session is idle when it comes; else, with every one busy, the next to go idle
 (within a day). The project's own sessions come first: a session whose channel hears several projects
@@ -626,7 +626,7 @@ owner ends it, which closing its pane does. Each message says which page the own
 Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools but `start_issue`, `finish_issue`,
 `update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and its own: `reply`, its answer, the
 only way what it says reaches the page, `image`, which shows it an image the owner pasted, `edit_issue`, which changes
-an issue's title, notes, priority, labels, team tasks, chunk, release or parent when the owner asks, `move_issues`, which
+an issue's title, notes, priority, labels, team tasks, GitHub issues, chunk, release, parent or what it depends on when the owner asks, `move_issues`, which
 asks them to move issues to another status or assign them, and `request`, which asks them for the rest: `start_session`,
 `stop_session` and `extend_session`; `message_sessions` and `message_session`, to message other sessions (below);
 `update_settings`, one App setting (below); `create_schedule` and `update_schedule` (pause and resume included);
@@ -711,7 +711,7 @@ removed isn't added again. Only the owner makes, changes or removes them (an age
 
 ## For agents
 
-`/llms.txt` says how to use orrery and lists the projects; `/llms-full.txt` adds this reference;
+`/llms.txt` says how to use orrery and lists the projects (with login on, it and `/connect` stay open and show their names and keys); `/llms-full.txt` adds this reference;
 `/connect/<project>.md?session=` is the brief for a Claude session in that project's repo (how to set it up);
 `/channel/bootstrap.mjs`, `/channel/orrery-channel.mjs`, `orrery-hook.mjs` and `orrery-launcher.mjs` are what a connected
 machine runs, with `/channel/manifest.json` (`{id, version, code, files: {<file>: <sha256>}}`) saying what's there; and
@@ -741,15 +741,14 @@ comment instead of trying. The Sessions page's Permissions tab shows the same ta
 The owner-only routes check it as they run, so a 403 from one says which thing refused it: its message names the row,
 and its `data` is `{permission: "<id>"}`, kept in the event log's `request.refused`.
 
-An issue id is only unique within its orrery, and an orrery is one person's board. So when a commit body
-or PR description names an issue, write its `ref` (`orrery-ada: DOC-132`) as a trailer on a
-line of its own, never a bare id, and never in a title or branch name. The team's tracker
+An issue's short id can mean something else on another orrery. So when a commit body or PR description names an
+issue, write its `full_id` (`DOC-132-x7k2m9qd`) on a line of its own, never a bare id, and never in a title. A branch
+can use the short id: it's how a PR finds its issue (see `…/pulls`). The team's tracker
 stays the source of truth: its id goes in that repo's own trailer (`Part of ENG-1567`), and in the issue's
 `external`, so the board knows which team task the issue serves. An issue taken in from a GitHub issue names it in
 `github_issues` instead. A PR description also links the issue's
 page on this orrery (`/p/<project>/issues/<id>` on its address, `http://localhost:9010/p/doc/issues/DOC-132`),
-so the owner can jump from the PR to it. The owner sets the
-handle with `PATCH /settings {handle}` (their GitHub login, say; `null` uses their id).
+so the owner can jump from the PR to it.
 
 ## Event log
 
@@ -807,8 +806,9 @@ is done out of backlog, todo, started and done: proposals and canceled leaves ar
 
 ## Errors
 
-`{statusCode, message}`: 400 for a bad body, with `data: {problems: […]}` listing what's wrong (unknown
-fields are refused, so typos show); 403 for the owner's things; 404; 409 when the state is in the way (a taken id,
+`{statusCode, message}`: 400 for a bad body, with `data: {problems: […]}` listing what's wrong (most routes refuse unknown
+fields, so typos show); 401 with no credential where login is on; 503 while nobody could log in; 403 for the owner's
+things; 404, also for a board you're not on; 409 when the state is in the way (a taken id,
 an issue another session is on, a request already answered); 415 for a write whose body isn't
 `Content-Type: application/json`. Creating answers 201 and deleting 204.
 

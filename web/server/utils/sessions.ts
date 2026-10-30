@@ -310,7 +310,7 @@ function changedAll(session: Known) {
  * `untrusted` when its channel says it's an untrusted schedule's, and `chat` the owner's chat, which it stays; `version` the
  * version of its channel's code. Says the
  * session's id, the one it has now: a `/clear` changes it while the channel stays connected. */
-export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string, untrusted = false, chat = false, version?: string): {id: string, done: () => void} {
+export function attend(project: string, id: string | undefined, pid: number | undefined, name: string | undefined, heard = true, started?: StartedSession, stops = false, launch?: string, server?: string, untrusted = false, chat = false, version?: string, person?: string): {id: string, done: () => void} {
     let session = find(id, pid)
     if (!session) {
         const now = new Date().toISOString()
@@ -338,6 +338,7 @@ export function attend(project: string, id: string | undefined, pid: number | un
     else rename(held)
     if (server) held.server = server
     if (version) held.version = version
+    if (person) held.person ??= person
     changedAll(held)
     let open = true
     return {

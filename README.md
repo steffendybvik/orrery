@@ -25,12 +25,12 @@ the owner directs sessions from the board. It runs locally, in Docker, on SQLite
   docs, files and edits issues, messages your sessions for you, and asks before it changes a setting.
 - **Releases:** versions with their issues and a drafted changelog, shared across a monorepo's projects
   if wanted.
-- **Docs:** Markdown pages for each project. Comments and descriptions accept images.
+- **Docs:** Markdown pages for each project, with every version kept, and HTML artifacts drawn in a locked-down frame. Comments and descriptions accept images.
 - **Secrets:** API keys that agents use through orrery's egress, without ever seeing the value.
 - **Event log:** orrery's errors and each change to the roadmap, and with Advanced on what it did, kept on the machine,
   on an Events page that sessions can read too.
 - **Storage:** one SQLite file or Postgres, both backed up automatically, picked when you first open it or moved to
-  later from App settings. There are no accounts; the first name given becomes the owner.
+  later from App settings. Alone on your machine there's no login; with a second person or from another machine it asks for one. The first name given becomes the owner.
 
 [Using orrery](docs/using.md) describes each page, menu and shortcut. A session in any connected repo can ask the same
 through the `guide` tool.

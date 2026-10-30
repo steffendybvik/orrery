@@ -33,7 +33,7 @@ export function take(signal: Signal, project: string, session: string | undefine
     if (had) return !!session && currentId(had.session) === currentId(session)
     const now = session ? sessionNow(session) : undefined
     if (session && now?.state !== 'idle') return false
-    if (now?.also?.length && listSessions(project).some(s => s.project === project && !s.also?.length && s.listening && s.state === 'idle')) return false
+    if (now?.also?.length && listSessions(project).some(s => s.project === project && !s.also?.length && s.listening && s.state === 'idle' && (!signal.person || s.person === signal.person))) return false
     taken.set(signal.id, {session: session ?? '', project})
     // Only the latest matter: an old one was delivered long since, or nobody took it up.
     if (taken.size > 500) for (const oldest of taken.keys()) {

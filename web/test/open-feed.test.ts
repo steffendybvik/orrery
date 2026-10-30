@@ -65,6 +65,18 @@ async function open(listener = who(), from?: number) {
 }
 
 describe("a project's feed", () => {
+    it('hears a member\'s signal only on that member\'s session (ORR-658)', async () => {
+        const hatis = signal(1, {protected: false, person: 'hati'})
+        const feed = await open(who({person: 'hati'}))
+        expect(feed.wanted(hatis)).toBe(true)
+        const theirs = await open(who({session: 's-2', person: 'manni'}))
+        expect(theirs.wanted(hatis)).toBe(false)
+        expect(theirs.wanted(signal(2))).toBe(true)
+        expect(theirs.wanted(signal(3, {protected: false}))).toBe(false)
+        missed = [hatis, signal(2)]
+        expect((await open(who({session: 's-3', person: 'manni'}), 0)).missed.map(s => s.id)).toEqual([2])
+    })
+
     it('counts a session that hears as listening, and lets go of it once on close', async () => {
         const feed = await open()
         expect(log).toEqual(['attend greenhouse s-1', 'listen greenhouse'])

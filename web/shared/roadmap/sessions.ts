@@ -6,6 +6,8 @@ import type {Issue} from './board'
  * the chunk) now; `comment` brings the owner's comment on an issue (in `note`) to the session working
  * on it, to answer; `message` is a schedule's message (in `note`), about no issue. */
 export interface Signal {
+    /** A member's signal (ORR-658): only their sessions hear it. The owner's say `protected` instead. */
+    person?: string
     id: number
     project: string
     /** The issue it's about, or for a focus on a whole chunk, `chunk` (`none`: the issues in no chunk; `all`: every chunk's). */
@@ -41,6 +43,8 @@ export type SessionState = (typeof SESSION_STATES)[number]
 
 /** A Claude window working on a project, known from its hooks and its channel. */
 export interface Session {
+    /** Whose it is, as its stream said when it connected (ORR-658). */
+    person?: string
     /** Claude Code's session id. */
     id: string
     project: string

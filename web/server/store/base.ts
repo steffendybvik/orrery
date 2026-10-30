@@ -28,12 +28,15 @@ export abstract class StoreBase {
     /** Whether a session on the project is there to hear a signal now; the server sets it from its sessions. */
     hears: (project: string, session: string) => boolean = () => true
 
+    /** Whose a session is, as its stream said; the server sets it from its sessions. */
+    sessionPerson: (session: string) => string | undefined = () => undefined
+
     /** Hears what happens (`issue.status`, `release.frozen`…), for the schedules that run on it; the server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 
     /** Says what happened, as `actor` did it. */
     protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
-        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner}, ...actor.untrusted ? {untrusted: true} : {},
+        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
             ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
     }
 

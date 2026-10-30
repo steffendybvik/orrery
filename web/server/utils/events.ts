@@ -82,6 +82,7 @@ export function reread(id: string) {
 export function useStore(): Store {
     store ??= new Store(useDatabase(), reread, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
     store.hears = hearing
+    store.sessionPerson = session => sessionNow(session)?.person
     store.happened = changed
     return store
 }

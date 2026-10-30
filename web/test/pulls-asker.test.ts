@@ -24,7 +24,7 @@ beforeEach(async () => {
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getQuery', () => ({}))
     vi.stubGlobal('param', () => 'shop')
-    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'})}))
+    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), personFor: async () => undefined}))
     vi.stubGlobal('sessionName', () => undefined)
     vi.stubGlobal('untrustedWrite', (event: Event) => event.headers['orrery-untrusted'] === 'yes')
     vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')

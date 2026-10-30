@@ -13,7 +13,7 @@ export default defineEventHandler(async event => {
     // An `after` of 0 is a catch-up too: from a project's first signal, as a session started for it asks.
     const from = query.after ?? getHeader(event, 'last-event-id')
     const text = (key: string) => typeof query[key] === 'string' && query[key] ? String(query[key]) : undefined
-    const who = listenerOf(text)
+    const who = listenerOf(text, true, await personOf(event))
     const feed = await openFeed(project, who, from !== undefined ? Number(from) || 0 : undefined, getRequestURL(event).origin)
     const left = noteChannel([project], false, who, () => feed.attended?.id)
 

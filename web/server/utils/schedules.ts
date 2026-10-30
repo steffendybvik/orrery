@@ -560,7 +560,8 @@ export class Schedules {
     /** Whether the event says what the schedule's `on_filter` asks for. */
     private async fits(row: ScheduleRow, event: OrreryEvent): Promise<boolean> {
         const filter = row.on_filter ? JSON.parse(row.on_filter) as OnFilter : {}
-        if (filter.by && (!event.by || event.by.owner !== (filter.by === 'owner'))) return false
+        // A member is neither the owner nor an agent (ORR-658), so `by` hears neither from them.
+        if (filter.by && (!event.by || event.by.person || event.by.owner !== (filter.by === 'owner'))) return false
         if (filter.level && event.level !== filter.level) return false
         if (filter.to !== undefined && !await this.valueFits(event.type, event.to, filter.to, event.from)) return false
         if (filter.from !== undefined && !await this.valueFits(event.type, event.from, filter.from, event.to)) return false
@@ -613,9 +614,14 @@ export class Schedules {
         return row.kind === 'session' ? await this.runSession(run) : row.kind === 'message' ? await this.runMessage(run) : row.kind === 'action' ? await this.runAction(run) : await this.runIssue(run)
     }
 
+    /** Who made a schedule that isn't the owner's, as its run says: a member isn't an agent (ORR-658). */
+    private async maker(actor: Actor): Promise<string> {
+        return await this.store.isPerson(actor.name) ? actor.name : 'an agent'
+    }
+
     /** A session schedule's run: starts a session with its presets and notes, on the issue or release it ran on. */
     private async runSession({row, event, actor, about, presets, record}: Run): Promise<ScheduleRun> {
-        if (!actor.owner) return await record('skipped', null, 'made by an agent, so it starts no session')
+        if (!actor.owner) return await record('skipped', null, `made by ${await this.maker(actor)}, so it starts no session`)
         const subject = event?.subject && event.type !== 'issue.deleted' && event.type !== 'release.deleted' ? event.subject : undefined
         try {
             const {tmux} = await this.startSession(row.project, {
@@ -636,7 +642,7 @@ export class Schedules {
     private async runMessage(run: Run): Promise<ScheduleRun> {
         const {row, manual, event, actor, presets, record} = run
         // Only the owner's signals reach sessions, as with every signal.
-        if (!actor.owner) return await record('skipped', null, "made by an agent, so its message doesn't reach the sessions")
+        if (!actor.owner) return await record('skipped', null, `made by ${await this.maker(actor)}, so its message doesn't reach the sessions`)
         if (row.only_if_changed && !manual && !event && !await this.changedSinceSent(row)) return await record('skipped', null, 'nothing changed')
         const words = wordsOf(run)
         if (row.untrusted) {
@@ -675,7 +681,7 @@ export class Schedules {
             let note: string | null = null
             if (row.ask) {
                 await this.store.focus(row.project, issue.id, {note: `Scheduled: ${row.title}${row.priority === 'P0' ? ". It's urgent (P0)." : ''}`}, actor)
-                note = actor.owner ? `asked the sessions (${this.listening(row.project)} listening)` : "made by an agent, so it didn't ask the sessions"
+                note = actor.owner ? `asked the sessions (${this.listening(row.project)} listening)` : `made by ${await this.maker(actor)}, so it didn't ask the sessions`
             }
             return await record('made', issue.id, note)
         } catch (error) {
@@ -686,7 +692,7 @@ export class Schedules {
     /** An action schedule's run: moves what its event is about to its status, as the owner, with no session. What it
      * passes over it says, and a run that moved nothing is `skipped`, so the subject's next event can still move it. */
     private async runAction({row, event, actor, about, record}: Run): Promise<ScheduleRun> {
-        if (!actor.owner) return await record('skipped', null, 'made by an agent, so it moves nothing')
+        if (!actor.owner) return await record('skipped', null, `made by ${await this.maker(actor)}, so it moves nothing`)
         if (!event?.subject) return await record('skipped', null, 'it moves what an event is about, and this run has no event')
         const to = await this.store.status(row.place).catch(() => null)
         if (!to) return await record('failed', null, `its status ${row.place} is gone`)
@@ -895,6 +901,6 @@ const HANDLE = /^[\w.-]{1,40}$/
  * said by ids, since a session reads it as the owner's words. */
 function aboutEvent(event: OrreryEvent): string {
     const change = SAID_BY_ID.has(event.type) && (event.from !== undefined || event.to !== undefined) ? ` (${event.from ?? 'none'} → ${event.to ?? 'none'})` : ''
-    const by = !event.by ? '' : `, by ${event.by.owner ? 'the owner' : HANDLE.test(event.by.name) ? event.by.name : 'an agent'}`
+    const by = !event.by ? '' : `, by ${event.by.owner ? 'the owner' : event.by.person ?? (HANDLE.test(event.by.name) ? event.by.name : 'an agent')}`
     return `On ${event.type}${event.subject ? `: ${event.subject}` : ''}${change}${by}.`
 }

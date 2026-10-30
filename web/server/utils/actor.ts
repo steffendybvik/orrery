@@ -1,6 +1,7 @@
 import type {H3Event} from 'h3'
 import type {Actor} from './store'
 import type {Who} from './auth'
+import {actorId} from '../store/schema'
 
 // Who's asking, by the `Orrery-Actor` header (`agent` without one). There's no auth: it's what
 // keeps an agent from deleting what the owner (their id, from the name they gave) made, as long as
@@ -18,7 +19,7 @@ export async function actorOf(event: H3Event): Promise<Actor> {
     // With auth on (ORR-664) the credential decides: a person logged in is that person, and an agent key is an agent
     // whatever name it sends, with a label that's a person's name counting for nothing.
     const who = verified(event)
-    if (who?.via === 'browser') return {name: who.person, owner: who.owner, asked: true, named: who.person}
+    if (who?.via === 'browser') return {name: who.person, owner: who.owner, asked: true, named: who.person, ...who.owner ? {} : {person: who.person}}
     if (who) {
         const label = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
         const session = sessionName(sessionHeader(event))
@@ -28,7 +29,18 @@ export async function actorOf(event: H3Event): Promise<Actor> {
     const owner = name.toLowerCase() === (await useStore().ownerOf()).name
     const session = owner ? undefined : sessionName(sessionHeader(event))
     const named = personHeader(event)
-    return {name, owner, asked: true, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}, ...named ? {named} : {}, ...chatWrite(event) ? {chat: true} : {}}
+    const person = await personActing(event, name, owner, named)
+    return {name, owner, asked: true, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}, ...named ? {named} : {}, ...chatWrite(event) ? {chat: true} : {}, ...person ? {person} : {}}
+}
+
+/** The member a request with no credential names as itself, by `Orrery-Actor` (ORR-658), on an orrery with more than one
+ * person. An agent working for them says so with `Orrery-Person` under a name of its own. */
+async function personActing(event: H3Event, name: string, owner: boolean, named: string | undefined): Promise<string | undefined> {
+    if (untrustedWrite(event) || chatWrite(event)) return undefined
+    if (owner) return undefined
+    const id = actorId(name)
+    if (named && actorId(named) !== id) return undefined
+    return await useStore().personFor(name) === id ? id : undefined
 }
 
 /** Whose a request is (ORR-653): the owner's, and their chat's, whatever they send; a session's, the person it names

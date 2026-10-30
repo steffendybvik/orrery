@@ -127,6 +127,19 @@ describe('a schedule on an event', () => {
         expect(await pass(later(5))).toBe(0)
     })
 
+    it('hears a member under neither `by: owner` nor `by: session`, and names them in what it says (ORR-658)', async () => {
+        const hati = {name: 'hati', owner: false, person: 'hati'}
+        const issue = await store.createIssue('greenhouse', {title: 'Jars'}, me)
+        await schedules.create('greenhouse', {title: 'Owner', kind: 'message', notes: 'n', on: 'issue.status', on_filter: {by: 'owner'}}, me)
+        await schedules.create('greenhouse', {title: 'Session', kind: 'message', notes: 'n', on: 'issue.status', on_filter: {by: 'session'}}, me)
+        await store.updateIssue('greenhouse', issue.id, {status: 'todo'}, hati)
+        expect(await pass()).toBe(0)
+        await schedules.create('greenhouse', {title: 'Anyone', kind: 'message', notes: 'Look', on: 'issue.status'}, me)
+        await store.updateIssue('greenhouse', issue.id, {status: 'in-progress'}, hati)
+        expect(await pass()).toBe(1)
+        expect(signals.at(-1)?.note).toContain('by hati')
+    })
+
     it('takes a status\'s kind, a label added, who did it, and the event log\'s level', async () => {
         await schedules.create('greenhouse', {title: 'Closed', kind: 'message', notes: 'Tidy up', on: 'issue.status', on_filter: {to: 'done', by: 'owner'}}, me)
         await schedules.create('greenhouse', {title: 'UI', kind: 'message', notes: 'Look at it', on: 'issue.labels', on_filter: {to: 'ui'}}, me)

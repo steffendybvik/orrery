@@ -239,15 +239,16 @@ docker compose exec orrery node /app/server/claim.mjs --name "Your Name"  # in D
 `--name` is only needed before you've given orrery your name. It prints your person key once: sign in with it on the page. On a server
 already claimed it refuses, unless given `--replace`, which revokes your person keys, for when you've lost yours.
 
-**Sessions.** Under Settings → You → Your keys, make an agent key for each machine, and either set `ORRERY_KEY` where you start
+**Sessions.** Under App settings → You → Your keys, make an agent key for each machine, and either set `ORRERY_KEY` where you start
 Claude Code and the launcher, or, on several servers, add it to `~/.config/orrery/keys.json` (mode 0600), as
 `{"https://orrery.example": "orrery_agent_…"}`. `ORRERY_KEY` goes to any server that machine talks to, so use the file with more than one.
 Never commit a key in `.mcp.json`. A person key won't work there: the channel refuses to start with one.
 
-**Other people.** Add them, then either invite them through a login provider (`POST /api/invites`, a link good once and for a week), or, with
-no provider, give them a person key (`POST /api/keys` with `person`). To try people out on one machine with no logins, start orrery with `ORRERY_AUTH=off`, loopback only.
+**Other people.** Claim it first, then add them (`POST /api/people`, refused before that unless `ORRERY_AUTH=off`) and put them on a board
+(`POST /api/projects/<project>/members`). Then either invite them through a login provider (`POST /api/invites`, a link good once and for a week), or, with
+no provider, give them a person key (`POST /api/keys` with `kind: "person"`, `name` and `person`). To try people out on one machine with no logins, start orrery with `ORRERY_AUTH=off`, loopback only.
 
-**A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. Its address has to be https unless it's on this machine.
+**A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. Its address has to be https unless it's on this machine. Your own account attaches the way anyone's does: claim it, sign in with the key, and invite yourself.
 
 ## Reach it from your phone
 
@@ -303,4 +304,4 @@ The database file is made if it isn't there (by default the repo's `.data/orrery
 relative `NUXT_DATABASE` is taken from the folder the server starts in, so give it an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): orrery lays down its tables on an empty
 database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
-`NUXT_BACKUP_DIR`, `NUXT_BACKUP_DATABASE`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY`, `NUXT_UPDATE_CHECK` and `NUXT_PUBLIC_ENVIRONMENT`.
+`NUXT_BACKUP_DIR`, `NUXT_BACKUP_DATABASE`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY`, `NUXT_UPDATE_CHECK`, `NUXT_AUTH`, `NUXT_OIDC_ISSUER`, `NUXT_OIDC_CLIENT_ID`, `NUXT_OIDC_CLIENT_SECRET` and `NUXT_PUBLIC_ENVIRONMENT`.
