@@ -305,7 +305,7 @@ const {over, on: drop} = useImageDrop(attach)
                   variant="ghost" size="xs" square :aria-pressed="!!pinned"
                   :aria-label="pinned ? 'Unpin the project: follow the page you\'re on' : 'Pin the project: stay on it whatever page you open'"
                   :title="pinned ? 'Pinned: stays put. Unpin to follow the page' : 'Follows the page. Pin to stay on it'"
-                  :class="pinned ? 'text-accent-600 dark:text-accent-400' : 'text-faint'"
+                  :class="pinned ? 'text-accent-700 dark:text-accent-400' : 'text-faint'"
                   @click="pin(pinned ? null : about)"
               >
                 <svg class="size-3.5" viewBox="0 0 24 24" :fill="pinned ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 7 4 3v2H6v-2l4-3-1-7Z" /></svg>
@@ -433,7 +433,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
           <span class="text-xs text-faint">Asks to move {{ m.move.body.ids.length === 1 ? 'an issue' : `${m.move.body.ids.length} issues` }}, as you</span>
           <ul class="flex flex-col gap-1.5 text-[13px]">
             <li v-for="one in movedIssues(m.move.changes)" :key="one.issue" class="flex min-w-0 flex-col">
-              <span class="min-w-0 truncate"><NuxtLink :to="`/p/${chat!.project}/issues/${one.issue}`" class="font-medium text-accent-600 hover:underline dark:text-accent-400">{{ one.issue }}</NuxtLink> <span class="text-fg">{{ one.title }}</span></span>
+              <span class="min-w-0 truncate"><NuxtLink :to="`/p/${chat!.project}/issues/${one.issue}`" class="font-medium text-accent-700 hover:underline dark:text-accent-400">{{ one.issue }}</NuxtLink> <span class="text-fg">{{ one.title }}</span></span>
               <span v-for="c in one.changes" :key="c.field" class="flex flex-wrap items-center gap-1 text-muted">
                 <template v-if="c.field === 'status'">
                   <StatusIcon v-if="c.from" :column="c.from" :size="12" /><span class="line-through decoration-faint">{{ statusName(c.from) }}</span> →
@@ -474,7 +474,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
       </li>
       <li v-if="chat?.ended" class="flex items-center gap-2 text-xs text-faint">
         This chat has ended.
-        <button type="button" class="text-accent-600 hover:underline dark:text-accent-400" @click="fresh">Start another</button>
+        <button type="button" class="text-accent-700 hover:underline dark:text-accent-400" @click="fresh">Start another</button>
       </li>
     </ol>
 

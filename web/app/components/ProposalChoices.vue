@@ -58,7 +58,7 @@ function toggle(choice: Choice, option: string) {
             <span class="font-mono text-xs text-faint">{{ option.key }}</span>
             <span class="text-[13px] text-fg">{{ option.title }}</span>
             <span v-if="choice.recommended.includes(option.key)" class="text-[11px] text-emerald-600 dark:text-emerald-400">recommended</span>
-            <span v-if="yours(choice, option.key)" class="text-[11px] text-accent-600 dark:text-accent-400">your call</span>
+            <span v-if="yours(choice, option.key)" class="text-[11px] text-accent-700 dark:text-accent-400">your call</span>
           </span>
           <span v-if="option.body" class="text-xs leading-5 text-muted"><InlineText :text="option.body" /></span>
         </span>

@@ -92,7 +92,7 @@ async function restore() {
           <span class="min-w-0 flex-1 truncate" :class="revision.deleted ? 'text-rose-600 dark:text-rose-400' : 'text-fg'">
             {{ label(revision) }}<span class="text-muted"> by {{ who(revision.created_by) }}</span><span v-if="revision.session_name" class="text-faint"> · {{ revision.session_name }}</span>
           </span>
-          <span v-if="revision.id === newest?.id && !revision.deleted" class="shrink-0 text-xs text-accent-600 dark:text-accent-400">Current</span>
+          <span v-if="revision.id === newest?.id && !revision.deleted" class="shrink-0 text-xs text-accent-700 dark:text-accent-400">Current</span>
           <span class="shrink-0 text-xs text-faint" :title="revision.created_at">{{ ago(revision.created_at) }}</span>
         </button>
       </li>

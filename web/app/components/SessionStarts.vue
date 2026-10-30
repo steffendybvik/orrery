@@ -65,7 +65,7 @@ async function saveStarts(on = !!settings.value.starts) {
     <p class="text-xs text-muted" :class="{'opacity-50': !settings.starts}">
       orrery starts a session {{ onSignal ? "when work reaches a project nobody's listening on" : 'when you press Start session or Focus on this' }}, or when
       one of your schedules starts one
-      (<NuxtLink to="/schedules" class="text-accent-600 hover:underline dark:text-accent-400">{{ starting === 1 ? '1 does' : `${starting} do` }}</NuxtLink>).
+      (<NuxtLink to="/schedules" class="text-accent-700 hover:underline dark:text-accent-400">{{ starting === 1 ? '1 does' : `${starting} do` }}</NuxtLink>).
     </p>
     <p class="text-xs text-faint" :class="{'opacity-50': !settings.starts}">
       Left blank, a session runs until you stop it. Neither stops one mid-work: it waits until the session is idle with nothing in progress.

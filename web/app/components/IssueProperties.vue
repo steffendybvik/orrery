@@ -188,7 +188,7 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
               target="_blank"
               rel="noopener"
               class="max-w-full truncate rounded-md px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-line"
-              :class="link.url ? 'text-accent-600 hover:bg-hover dark:text-accent-400' : 'text-muted'"
+              :class="link.url ? 'text-accent-700 hover:bg-hover dark:text-accent-400' : 'text-muted'"
               :title="link.url ? `Open ${link.task} on the team's tracker` : 'Set the tracker in App settings to link it'"
           >{{ link.task }}</component>
         </span>

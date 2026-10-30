@@ -11,7 +11,7 @@ const label = computed(() => githubIssueLabel(props.issue, githubRepo(props.repo
       :href="githubIssueUrl(issue)"
       target="_blank"
       rel="noopener"
-      class="inline-flex h-5 max-w-36 shrink-0 items-center truncate rounded-md px-1.5 font-mono text-[11px] text-accent-600 ring-1 ring-line hover:bg-hover dark:text-accent-400"
+      class="inline-flex h-5 max-w-36 shrink-0 items-center truncate rounded-md px-1.5 font-mono text-[11px] text-accent-700 ring-1 ring-line hover:bg-hover dark:text-accent-400"
       :title="`Open ${issue} on GitHub`"
       @click.stop
   >{{ label }}</a>

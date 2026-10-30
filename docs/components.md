@@ -137,7 +137,7 @@ Where a class is all it takes, it's a utility rather than a component:
 
 Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-panel` (sidebar, cards),
 `bg-raised` (popovers), `bg-well` (fields, segmented controls), `border-line`, `text-fg` / `text-muted` /
-`text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…600`. Each has a light and a dark value,
+`text-faint`, `bg-hover` / `bg-active` (rows), and the accent `accent-300…700`: words on the page are `text-accent-700 dark:text-accent-400`, as the lighter ones can't be read on a light page, and words on a `bg-accent-500` fill are `text-zinc-950`. Each has a light and a dark value,
 and an orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
 
 A card or a section that should read as its own surface goes on `bg-panel`, not a border alone: in the dark a border on
