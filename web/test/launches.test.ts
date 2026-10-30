@@ -58,7 +58,7 @@ beforeEach(async () => {
     focused = []
     scoped = []
     messages = []
-    vi.stubGlobal('useStore', () => ({
+    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), 
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
         focus: async (_project: string, issue: string, body: {session: string}) => {
