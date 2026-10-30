@@ -365,6 +365,55 @@ test('ships presets that can be reset to default, and restored once removed', as
     await expect(presets.getByRole('button', {name: 'Restore defaults'})).toBeHidden()
 })
 
+test("keeps an issue's id and copy buttons in view: in the panel, or in a bar under the worker's banner (ORR-649)", async ({page, request, baseURL}) => {
+    const notes = Array.from({length: 80}, (_, i) => `Step ${i + 1}: strain and pour.`).join('\n\n')
+    const issue = await api(request, 'post', '/issues', {title: 'Strain the stock', status: 'todo', notes})
+    const row = page.getByTestId('issue-id').locator('visible=true')
+    const scroll = () => page.getByText('Step 80: strain and pour.').scrollIntoViewIfNeeded()
+    const banner = page.getByTestId('issue-worker')
+    const bar = page.getByTestId('issue-id-bar')
+    const bottomOf = async (locator: typeof bar) => {
+        const box = (await locator.boundingBox())!
+        return box.y + box.height
+    }
+    // Wide: at the top of the panel, one place only, no bar.
+    await page.goto(`/p/kitchen/issues/${issue.id}`)
+    await expect(row).toHaveCount(1)
+    await expect(page.getByRole('complementary').last().getByTestId('issue-id')).toBeVisible()
+    await expect(bar).toBeHidden()
+    await scroll()
+    await expect(row).toBeInViewport()
+    await expect(row.getByText('Copy ref')).toBeVisible()
+    // Narrow, with nobody on it: a bar on top.
+    await page.setViewportSize({width: 700, height: 600})
+    await page.goto(`/p/kitchen/issues/${issue.id}`)
+    await expect(row).toHaveCount(1)
+    await expect(bar).toBeVisible()
+    await scroll()
+    await expect(bar).toBeInViewport()
+    // With a session on it, the bar sits right under the banner, at one line and at the two a phone wraps it to.
+    await request.post('/api/sessions', {data: {id: 'e2e-bar', project: 'kitchen', event: 'SessionStart', name: 'e2e-bar'}})
+    const stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-bar&name=e2e-bar&format=text')
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {id: string, listening: boolean}) => s.id === 'e2e-bar' && s.listening)).toBe(true)
+        await api(request, 'post', `/issues/${issue.id}/focus`, {session: 'e2e-bar'}, OWNER)
+        await expect(banner).toBeVisible()
+        const heights: number[] = []
+        for (const width of [700, 320]) {
+            await page.setViewportSize({width, height: 600})
+            await scroll()
+            await expect(bar).toBeInViewport()
+            const barBox = (await bar.boundingBox())!
+            expect(Math.abs(barBox.y - await bottomOf(banner))).toBeLessThan(1)
+            heights.push((await banner.boundingBox())!.height)
+        }
+        expect(heights[1]).toBeGreaterThan(heights[0]!)
+    } finally {
+        stream.stop()
+        await request.post('/api/sessions', {data: {id: 'e2e-bar', project: 'kitchen', event: 'SessionEnd'}})
+    }
+})
+
 test('marks a session cut off by a usage limit until its next turn gets going', async ({page, request}) => {
     const say = (data: object) => request.post('/api/sessions', {data: {id: 'e2e-cut', project: 'kitchen', ...data}})
     await say({event: 'SessionStart', name: 'kitchen · Cut'})
