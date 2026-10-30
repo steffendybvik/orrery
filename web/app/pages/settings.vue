@@ -20,9 +20,9 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'handle', text: 'Your handle', level: 2},
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
+        {id: 'proposals', text: 'Proposals', level: 2},
         {id: 'tracker', text: 'Team tracker', level: 2},
         {id: 'statuses', text: 'Issue statuses', level: 2},
-        {id: 'proposals', text: 'Proposals', level: 2},
     ]},
     {value: 'orrery', label: 'This orrery', scope: 'This orrery as a whole: how it looks, the keys its agents use and where it keeps its data. How sessions start is under Sessions → Setup.', sections: [
         {id: 'tint', text: 'Background tint', level: 2},
@@ -303,6 +303,21 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
+      <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
+          <p class="text-xs text-muted">
+            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
+            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
+          </p>
+        </header>
+        <label class="flex items-center gap-2 text-[13px] text-fg">
+          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
+          Keep agents off proposals until you approve them
+        </label>
+        <p v-if="proposalsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ proposalsFailed }}</p>
+      </section>
+
       <section v-if="tab === 'issues'" id="tracker" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.tracker }}</h2>
@@ -341,21 +356,6 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <StatusSettings />
-      </section>
-
-      <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
-          <p class="text-xs text-muted">
-            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
-            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
-          </p>
-        </header>
-        <label class="flex items-center gap-2 text-[13px] text-fg">
-          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
-          Keep agents off proposals until you approve them
-        </label>
-        <p v-if="proposalsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ proposalsFailed }}</p>
       </section>
 
       <section v-if="tab === 'orrery'" id="tint" class="scroll-mt-6 flex flex-col gap-3">
