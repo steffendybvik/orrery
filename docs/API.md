@@ -638,10 +638,11 @@ asks them to move issues to another status or assign them, and `request`, which 
 `stop_session` and `extend_session`; `message_sessions` and `message_session`, to message other sessions (below);
 `update_settings`, one App setting (below); `create_schedule` and `update_schedule` (pause and resume included);
 `create_release` and `update_release` (freezing and shipping included); `create_chunk` and `update_chunk`; and
-`create_doc` and `update_doc` (below). Those
+`create_doc` and `update_doc` (below); and `offer_issue`. Those
 actions aren't listed as tools of their own, so they don't sit in its context until it needs one (ORR-624):
 `request_fields {action}` says what an action does and takes, and `request {action, fields, why}` asks. Each asks
-only when the owner asked in the chat, never on its own, and nothing happens until they allow it. It hears only its chat's messages: no focus, no message to
+only when the owner asked in the chat, never on its own, and nothing happens until they allow it. `offer_issue` is the exception (ORR-711): it offers an issue they
+didn't ask for, marked as not filed, with **File issue** and **Don't file**, rather than asking in words. It hears only its chat's messages: no focus, no message to
 every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
 or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), changing an issue's
 `title`, `notes`, `priority`, `labels`, `external`, `github_issues`, `chunk`, `release`, `parent` and `depends_on` (`PATCH` with anything else, `status`

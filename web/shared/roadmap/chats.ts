@@ -47,6 +47,8 @@ export interface ChatMessage {
     chunk?: ChatChunkRequest
     /** The session asking to make or change a doc, which waits on the owner's Allow (ORR-661). */
     doc?: ChatDocRequest
+    /** The session offering to file an issue the owner didn't ask for, which waits on their File issue (ORR-711). */
+    issue?: ChatIssueRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -177,6 +179,18 @@ export interface ChatDocRequest {
     body: {title?: string, section?: string | null, body?: string}
     was?: {title: string, section: string | null, body: string}
     stale?: boolean
+    state: ChatRequest['state']
+}
+
+/** An issue the chat offers to file (ORR-711): nothing is filed until the owner presses File issue, when `id` says what it
+ * became. `denied` is their Don't file, and `expired` as a setting's request is. */
+export interface ChatIssueRequest {
+    id?: string
+    title: string
+    notes?: string
+    priority?: string
+    labels?: string[]
+    chunk?: string
     state: ChatRequest['state']
 }
 

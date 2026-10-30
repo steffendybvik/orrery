@@ -1,9 +1,9 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatRequestDrift, ChatChunkField, ChatChunkRequest, ChatDocRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
+import type {Chat, ChatRequestDrift, ChatChunkField, ChatChunkRequest, ChatDocRequest, ChatIssueRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_CHUNK_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
-import {CHUNK_FIELDS, DOC_FIELDS, SETTINGS_FIELDS} from '../store/schema'
+import {CHUNK_FIELDS, DOC_FIELDS, ISSUE_FIELDS, SETTINGS_FIELDS} from '../store/schema'
 import {sectionOf} from '../store/docs'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
@@ -115,7 +115,7 @@ export const ASK_FOR = 30 * 60_000
  * `askSend`), a schedule made or changed (`{schedule, id?, why?}`, `askSchedule`), a release made or changed
  * (`{release, version?, why?}`, `askRelease`), a session started, stopped or given more time (`{session, why?}`,
  * `askSession`), a chunk made or changed (`{chunk, id?, why?}`, `askChunk`), a doc made or changed (`{doc, id?, why?}`,
- * `askDoc`), issues moved or assigned (`{move, why?}`, `askMove`), or else an App setting changed (`askSetting`). */
+ * `askDoc`), issues moved or assigned (`{move, why?}`, `askMove`), an issue offered (`{issue, why?}`, `askIssue`), or else an App setting changed (`askSetting`). */
 export async function ask(id: string, body: unknown): Promise<ChatMessage> {
     if (isObject(body) && 'session' in body) return await askSession(id, body)
     if (isObject(body) && 'message' in body) return await askSend(id, body)
@@ -123,6 +123,7 @@ export async function ask(id: string, body: unknown): Promise<ChatMessage> {
     if (isObject(body) && 'chunk' in body) return await askChunk(id, body)
     if (isObject(body) && 'doc' in body) return await askDoc(id, body)
     if (isObject(body) && 'move' in body) return await askMove(id, body)
+    if (isObject(body) && 'issue' in body) return await askIssue(id, body)
     return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
 }
 
@@ -349,6 +350,34 @@ async function askDoc(id: string, body: Record<string, unknown>): Promise<ChatMe
     return said
 }
 
+/** What the chat's offer of an issue can say. */
+const CHAT_ISSUE_FIELDS = ['title', 'notes', 'priority', 'labels', 'chunk']
+
+/** The chat's session offering to file an issue the owner didn't ask for (its `offer_issue`, ORR-711), rather than saying
+ * so in words that are easy to miss: `issue` holds the fields (`CHAT_ISSUE_FIELDS`), checked as the issue routes check them.
+ * Nothing is filed until the owner presses File issue. One it offered before under the same title, still unanswered, expires. */
+async function askIssue(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {issue: fields, why} = body as {issue?: unknown, why?: unknown}
+    if (!isObject(fields)) throw badRequest(`Send {issue: {…}}: its ${CHAT_ISSUE_FIELDS.join(', ')}`)
+    const refused = Object.keys(fields).filter(key => !CHAT_ISSUE_FIELDS.includes(key))
+    if (refused.length) throw forbidden(`The owner's chat offers an issue's ${CHAT_ISSUE_FIELDS.join(', ')}, not its ${refused.join(', ')}`)
+    const input = checkInput(fields, ISSUE_FIELDS)
+    const title = String(input.title).trim()
+    if (!title) throw badRequest('An issue needs a title')
+    for (const m of chat.messages) if (m.issue?.state === 'asked' && m.issue.title === title) m.issue.state = 'expired'
+    const request: ChatIssueRequest = {
+        title, state: 'asked',
+        ...typeof input.notes === 'string' && input.notes ? {notes: input.notes} : {},
+        ...typeof input.priority === 'string' ? {priority: input.priority} : {},
+        ...Array.isArray(input.labels) && input.labels.length ? {labels: input.labels as string[]} : {},
+        ...typeof input.chunk === 'string' ? {chunk: input.chunk} : {},
+    }
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], issue: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat offered to file "${title}"`, details: {fields: Object.keys(fields)}})
+    return said
+}
+
 /** What a doc request asks, as a line: "make the doc X", "change doc x: Title, Text". */
 const docAsk = (request: ChatDocRequest) => request.was
     ? `change doc ${request.id}: ${(Object.keys(request.body) as (keyof ChatDocRequest['body'])[]).map(field => CHAT_DOC_FIELDS[field]).join(', ')}`
@@ -441,8 +470,8 @@ const answering = new Set<string>()
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
 export async function answer(id: string, message: number, allow: boolean, actor: Actor, anyway = false): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.chunk || m.doc || m.move))
-    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.chunk ?? asked?.doc ?? asked?.move
+    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.chunk || m.doc || m.move || m.issue))
+    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.chunk ?? asked?.doc ?? asked?.move ?? asked?.issue
     if (!asked || !request) throw notFound(`No request ${message} in this chat`)
     if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
         request.state = 'expired'
@@ -471,6 +500,7 @@ export async function answer(id: string, message: number, allow: boolean, actor:
         else if (asked.chunk) await answerChunk(chat, asked.chunk, allow, actor)
         else if (asked.doc) await answerDoc(chat, asked.doc, allow, actor)
         else if (asked.move) await answerMove(chat, asked.move, allow, actor, anyway)
+        else if (asked.issue) await answerIssue(chat, asked.issue, allow, actor)
         else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
         if (saves?.drifted?.length) {
             await useStore().messageSession(chat.project, launchTarget(chat.id), `(That had changed since you asked: ${saves.drifted.map(d => `${d.label} was ${d.from} and is ${d.to} now`).join('; ')}.)`, actor)
@@ -614,6 +644,21 @@ async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, ac
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I allowed your request: doc ${made.id} ("${made.title}") is saved.)`
         : `(I denied your request to ${docAsk(request)}: nothing changed.)`, actor)
+}
+
+/** The owner's File issue or Don't file on the issue the chat offered: filed, it's theirs, through their chat, where they
+ * have the chat's issues land. An offer that no longer holds (its chunk removed since) fails as making it would, still asked. */
+async function answerIssue(chat: Chat, request: ChatIssueRequest, allow: boolean, actor: Actor) {
+    const {id: _, state: __, ...fields} = request
+    const made = allow ? await useStore().createIssue(chat.project, {...fields, status: chat.issues}, {...actor, via: 'chat'}) : undefined
+    request.state = allow ? 'allowed' : 'denied'
+    if (made) request.id = made.id
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: made ? `${actor.name} filed the issue the chat offered: ${made.id}` : `${actor.name} didn't file the issue the chat offered: "${request.title}"`,
+        details: {issue: request.id ?? null, allowed: allow}})
+    await useStore().messageSession(chat.project, launchTarget(chat.id), made
+        ? `(I pressed File issue: it's ${made.id}, "${made.title}".)`
+        : `(I pressed Don't file on "${request.title}": nothing was filed.)`, actor)
 }
 
 /** The owner sending or not sending the message the chat asked to: sent, it goes as theirs, through their chat, to the

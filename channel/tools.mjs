@@ -289,6 +289,11 @@ export const CHAT_REQUESTS = [
         inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
     },
     {
+        name: 'offer_issue',
+        description: "Offers an issue the owner didn't ask you to file: they see it marked as not filed, with File issue and Don't file, and you hear which they pressed. Nothing is filed until they press it. Use create_issue when they did ask.",
+        inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'The description, in Markdown'}, priority: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, labels: {type: 'array', items: {type: 'string'}}, chunk: {type: 'string'}}},
+    },
+    {
         name: 'create_chunk',
         description: 'Makes a chunk (a group of issues) in this project; once allowed, put issues in it with edit_issue.',
         inputSchema: {type: 'object', required: ['title'], properties: CHUNK_FIELDS},
@@ -692,6 +697,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async update_chunk({id, why, ...chunk}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, chunk, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async offer_issue({why, ...issue}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {issue, ...why ? {why} : {}}, root)
+            return "Offered: the owner sees it as not filed, with File issue and Don't file, and you'll hear which they pressed. Nothing is filed until they press it."
         },
         async create_doc({why, ...doc}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {doc, ...why ? {why} : {}}, root)

@@ -421,6 +421,53 @@ test('asks the owner to add or ship a release, and saves it only on their Allow'
     }
 })
 
+test("offers an issue it wasn't asked for, marked as not filed, and files it only on File issue", async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    const titled = async (title: string) => ((await (await request.get('/api/projects/observatory/issues')).json()) as {id: string, title: string, status: string, protected: boolean}[]).find(i => i.title === title)
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-offer&name=e2e-chat-offer&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-offer', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const offer = async (issue: object, why?: string) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data: {issue, ...why ? {why} : {}}, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+        }
+        // It offers an issue's words alone: no status, assignee or anything else that would start work.
+        expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {issue: {title: 'Mine', assignee: 'claude'}}, headers: asChat})).status()).toBe(403)
+
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+
+        await offer({title: 'Recoat the primary mirror', notes: 'It has **dulled**.\nSince the last clean.', priority: 'P2', labels: ['bug']}, 'I noticed this while reading the logs.')
+        const card = pane.getByRole('group', {name: 'Offer to file Recoat the primary mirror'})
+        await expect(card).toContainText('nothing is filed yet')
+        await expect(card).toContainText('It has **dulled**.')
+        await expect(card).toContainText('P2 · bug')
+        expect(await titled('Recoat the primary mirror')).toBeUndefined()
+        await card.getByRole('button', {name: 'File issue'}).click()
+        await expect(card).toContainText('Filed as')
+        const filed = await titled('Recoat the primary mirror')
+        expect(filed).toMatchObject({status: 'todo', protected: true})
+        await expect(card.getByRole('link', {name: filed!.id})).toHaveAttribute('href', `/p/observatory/issues/${filed!.id}`)
+        await expect.poll(() => session!.said.text).toContain(`it's ${filed!.id}`)
+
+        await offer({title: 'Oil the dome'})
+        const left = pane.getByRole('group', {name: 'Offer to file Oil the dome'})
+        await left.getByRole('button', {name: "Don't file"}).click()
+        await expect(left).toContainText('Not filed: you said not to')
+        expect(await titled('Oil the dome')).toBeUndefined()
+        await expect.poll(() => session!.said.text).toContain('nothing was filed')
+    } finally {
+        session?.stop()
+        launcher.stop()
+        await endChats(request)
+    }
+})
+
 test('asks the owner to make or change a doc, and saves it as theirs only on their Allow', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined

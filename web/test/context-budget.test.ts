@@ -49,7 +49,7 @@ describe('the tool list a session carries on every turn', () => {
         expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_730)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624).
         expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(9_130)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(10_380)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(10_400)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {
@@ -71,7 +71,7 @@ describe("the server's instructions a session carries on every turn", () => {
         expect(size(instructionsFor({base, serves: 'project "greenhouse"'}))).toBeLessThanOrEqual(1_100)
         expect(size(instructionsFor({base, serves: 'projects "greenhouse", "pantry"', several: true}))).toBeLessThanOrEqual(1_250)
         // The chat's grew by the asking rule its tools no longer each repeat (ORR-624).
-        expect(size(instructionsFor({base, serves: 'project "greenhouse"', chat: true}))).toBeLessThanOrEqual(1_300)
+        expect(size(instructionsFor({base, serves: 'project "greenhouse"', chat: true}))).toBeLessThanOrEqual(1_370)
         expect(size(instructionsFor({base, serves: 'project "greenhouse"', untrusted: true}))).toBeLessThanOrEqual(420)
     })
 
@@ -174,7 +174,7 @@ describe('what a tool brings', () => {
             const call = orreryTools({root: 'http://o/api', projects: ['greenhouse']}) as (name: string, args: object) => Promise<{content: {text: string}[]}>
             const {content} = await call('guide', {})
             expect(content[0]!.text).toContain('What you can do')
-            expect(size(content[0]!.text)).toBeLessThanOrEqual(39_000)
+            expect(size(content[0]!.text)).toBeLessThanOrEqual(39_100)
         } finally {
             vi.unstubAllGlobals()
         }
