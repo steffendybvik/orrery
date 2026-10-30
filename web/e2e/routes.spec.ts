@@ -77,5 +77,6 @@ test('forgets only a session it knows with no channel open, for the owner alone'
 test('keeps checking a database to the owner, and refuses a kind it doesn\'t know', async ({request}) => {
     const check = (data: object, headers = OWNER) => request.post('/api/database/check', {data, headers})
     expect((await check({kind: 'sqlite', path: '/tmp/orrery-e2e-no-such.db'}, AGENT)).status()).toBe(403)
-    expect((await check({kind: 'nonsense'})).status()).toBe(400)
+    // On Postgres the database is set by ORRERY_DATABASE, so there's nothing to check it against.
+    expect((await check({kind: 'nonsense'})).status()).toBe(process.env.E2E_POSTGRES_URL ? 409 : 400)
 })
