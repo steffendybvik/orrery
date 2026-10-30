@@ -32,6 +32,8 @@ test('the ticked cards move together, to a column the filter hides too', async (
     await card(page, made[0]!.id).hover()
     await page.mouse.down()
     await page.mouse.move(10, 10, {steps: 2})
+    // Twice, as a browser may only send a dragover on the second move, and a drop needs one.
+    await column(page, 'done').hover()
     await column(page, 'done').hover()
     await page.mouse.up()
     for (const {id} of made) await expect.poll(() => statusOf(request, id)).toBe('done')

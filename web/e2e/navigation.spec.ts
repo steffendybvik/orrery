@@ -83,7 +83,11 @@ async function setAdvanced(page: Page, on: boolean) {
 /** The page errors and console errors seen from here on. */
 function watchErrors(page: Page) {
     const errors: string[] = []
-    page.on('pageerror', error => errors.push(`page error: ${error.message}`))
+    // What Safari says of a request or a script the next `goto` cut short. Nothing here goes to another site, and a
+    // script really missing leaves its page without its heading.
+    page.on('pageerror', error => {
+        if (!/due to access control checks|Importing a module script failed/.test(error.message)) errors.push(`page error: ${error.message}`)
+    })
     page.on('console', message => {
         if (message.type() === 'error') errors.push(`console: ${message.text()}`)
     })

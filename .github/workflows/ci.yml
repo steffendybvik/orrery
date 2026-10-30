@@ -1,6 +1,7 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
 # tag has to pass before `release.yml` publishes anything. The e2e flows and the performance run, on SQLite and on Postgres,
 # run on a pull request into `main` that isn't a draft, on a release tag, and by hand (Run workflow); any other pull request runs the unit tests alone.
+# The flows also run on Safari's engine and Firefox then, on SQLite.
 name: CI
 
 on:
@@ -106,6 +107,10 @@ jobs:
       fail-fast: false
       matrix:
         database: [sqlite, postgres]
+        browser: [chromium]
+        include:
+          - {database: sqlite, browser: webkit}
+          - {database: sqlite, browser: firefox}
     # Playwright's own image has the browser and the system libraries it needs. Installing those with apt on
     # every run took from 10 seconds to 11 minutes, as Ubuntu's mirror allowed.
     container:
@@ -122,6 +127,7 @@ jobs:
     env:
       # The job runs in a container, so the service is reached by its name.
       E2E_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgres://orrery:orrery@postgres:5432/orrery_e2e' || '' }}
+      E2E_BROWSER: ${{ matrix.browser }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -132,9 +138,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:e2e
       - run: pnpm test:e2e:login
-        if: matrix.database == 'sqlite'
+        if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
       - uses: actions/upload-artifact@v7
-        if: matrix.database == 'sqlite'
+        if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
         with:
           name: test-results-e2e
           path: web/e2e-results.json
@@ -143,7 +149,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-report-${{ matrix.database }}
+          name: playwright-report-${{ matrix.database }}-${{ matrix.browser }}
           path: web/playwright-report/
           retention-days: 7
 
