@@ -144,7 +144,7 @@ test('copies the whole issue, with every comment or none, and no description', a
     const bare = await api(request, 'post', '/issues', {title: 'Sweep the floor'})
     await open(bare.id)
     await expect(copy).toBeVisible()
-    expect(await copied()).toMatch(new RegExp(`^orrery-[^:]+: ${bare.id}\\n\\n# Sweep the floor$`))
+    expect(await copied()).toBe(`${bare.full_id}\n\n# Sweep the floor`)
 
     const full = await api(request, 'post', '/issues', {title: 'Paint the door', notes: 'Two coats of green'})
     const first = await api(request, 'post', `/issues/${full.id}/comments`, {body: 'Bought the paint'})
@@ -153,7 +153,7 @@ test('copies the whole issue, with every comment or none, and no description', a
     await expect(page.getByText('First coat is on')).toBeVisible()
     const when = (at: string) => `${at.slice(0, 16).replace('T', ' ')} UTC`
     const whole = await copied()
-    expect(whole).toMatch(new RegExp(`^orrery-[^:]+: ${full.id}\\n\\n`))
+    expect(whole!.startsWith(`${full.full_id}\n\n`)).toBe(true)
     expect(whole!.split('\n\n').slice(1)).toEqual([
         '# Paint the door',
         'Two coats of green',
