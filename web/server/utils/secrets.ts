@@ -303,7 +303,7 @@ export class Secrets {
 
     private cipherKey(): Buffer {
         const key = this.key()
-        if (!key) throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: 'Secrets need ORRERY_SECRET_KEY: set it to a long random string (openssl rand -base64 32) and restart orrery'})
+        if (!key) throw createError({statusCode: 503, statusMessage: 'Service Unavailable', message: "Secrets need a key, and orrery couldn't keep one in orrery.key beside its database: set ORRERY_SECRET_KEY to a long random string (openssl rand -base64 32) and restart orrery"})
         return createHash('sha256').update(key).digest()
     }
 
