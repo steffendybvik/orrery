@@ -92,11 +92,11 @@ export abstract class IssueStore extends ClaimStore {
         const person = rails?.person
         const kind = (await this.statuses()).find(s => s.id === status)?.kind
         if (rails && !actor.untrusted) {
-            // A follow-up under its person's issue is theirs too. A new issue with no parent is anyone's on the board to
-            // make, but stays nobody's, so it can't be made already taken up.
+            // A follow-up under its person's issue is theirs too, unless it's a proposal, which waits on the owner. A new
+            // issue with no parent is anyone's on the board to make, but stays nobody's, so it can't be made already taken up.
             if (parent) {
                 await this.mustHold(rails, parent, (await this.issueRow(project, parent)).assignee, 'file a sub-issue under it')
-                assigned = person ?? null
+                if (!proposed) assigned = person ?? null
             } else {
                 if (!person) await this.mustHold(rails, 'a new issue', null, 'make one')
                 if (!proposed) {
@@ -106,6 +106,7 @@ export abstract class IssueStore extends ClaimStore {
             }
         }
 
+        const taken = parent && person && !proposed && kind === 'started'
         const id = await this.db.transaction(async () => {
             const id = await this.nextId(project, 'issue')
             const now = stamp()
@@ -117,7 +118,7 @@ export abstract class IssueStore extends ClaimStore {
                 assigned,
                 JSON.stringify(input.labels ?? []), JSON.stringify(tasksOf(input.external)), JSON.stringify(github ?? []), nullable(input.notes), nullable(input.proposal), String(input.choices ?? '[]'),
                 parent, chunk, release, Number(input.position ?? await this.nextPosition('issues', project)), actor.name, actor.session ?? null, Number(actor.owner), now, now,
-                person ?? null, parent && person && kind === 'started' ? person : null, parent && person && kind === 'started' ? now : null)
+                person ?? null, taken ? person : null, taken ? now : null)
             await this.record(project, id, actor, [['created', null, null]])
             if (depends) await this.setLinks(project, id, depends, actor)
             await this.touchProject(project)
