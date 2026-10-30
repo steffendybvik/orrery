@@ -9,6 +9,7 @@ import {afterEach, describe, expect, it} from 'vitest'
 import {COPIED_TABLES} from '../server/utils/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
+import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {PostgresDb} from '../server/utils/postgres'
 import {Store} from '../server/utils/store'
 
@@ -149,7 +150,21 @@ describe.runIf(url)('upgrading Postgres with data in it', () => {
         expect((await store.settings()).starts).toEqual({limit: 2, minutes: 60})
         expect((await store.project('greenhouse')).starts).toEqual({limit: 2, minutes: 60})
     })
+
+    it("moves the GitHub issues' links out of external, into github_issues (ORR-635)", async () => {
+        const store = await upgraded(MIGRATIONS.length - 1, GITHUB_LINKS)
+        expect(await store.issue('greenhouse', 'GRE-1')).toMatchObject({external: ['ENG-1'], github_issues: ['you/greenhouse#223', 'other/lib#7']})
+        expect(await store.issue('greenhouse', 'GRE-2')).toMatchObject({external: ['https://github.com/you/greenhouse/issues/12#issuecomment-1', 'https://github.com/you/greenhouse/pull/9'], github_issues: []})
+        expect(await store.issue('greenhouse', 'GRE-3')).toMatchObject({external: ['ENG-2'], github_issues: []})
+    })
 })
+
+/** Issues linking GitHub issues in `external`, as they were before ORR-635: whole issue links move, anything else stays. */
+const GITHUB_LINKS = `${PROJECT}
+            INSERT INTO issues (project, id, title, status, external, position, created_by, created_at, updated_at) VALUES
+            ('greenhouse', 'GRE-1', 'A', 'todo', '["ENG-1","https://github.com/you/greenhouse/issues/223","https://github.com/other/lib/issues/7"]', 0, 'agent', 'x', 'x'),
+            ('greenhouse', 'GRE-2', 'B', 'todo', '["https://github.com/you/greenhouse/issues/12#issuecomment-1","https://github.com/you/greenhouse/pull/9"]', 1, 'agent', 'x', 'x'),
+            ('greenhouse', 'GRE-3', 'C', 'todo', '["ENG-2"]', 2, 'agent', 'x', 'x');`
 
 /** A SQLite file at `step` with `rows` written into it, then opened again, upgraded, behind a store. */
 function upgradedSqlite(step: number, rows: string) {
@@ -160,7 +175,7 @@ function upgradedSqlite(step: number, rows: string) {
     return new Store(new SqliteDb(openDb(path)))
 }
 
-// SQLite's twins of the two steps above that had no test on either database.
+// SQLite's twins of the steps above that had no test on either database.
 describe('upgrading SQLite with data in it', () => {
     it('gives each project its release mode from the releases it had (step 32)', async () => {
         const store = upgradedSqlite(31, `INSERT INTO projects (id, name, key, releases_from, created_by, created_at, updated_at) VALUES
@@ -177,5 +192,12 @@ describe('upgrading SQLite with data in it', () => {
             ('greenhouse', '0.1', '2026-01-01', 'agent', '1', '1'), ('greenhouse', '0.2', '2026-02-01', 'agent', '2', '2'),
             ('greenhouse', '0.3', NULL, 'agent', '3', '3'), ('greenhouse', '0.4', NULL, 'agent', '4', '4');`)
         expect((await store.listReleases('greenhouse')).map(r => r.version)).toEqual(['0.4', '0.3', '0.2', '0.1'])
+    })
+
+    it("moves the GitHub issues' links out of external, into github_issues (ORR-635)", async () => {
+        const store = upgradedSqlite(MIGRATIONS.length - 1, GITHUB_LINKS)
+        expect(await store.issue('greenhouse', 'GRE-1')).toMatchObject({external: ['ENG-1'], github_issues: ['you/greenhouse#223', 'other/lib#7']})
+        expect(await store.issue('greenhouse', 'GRE-2')).toMatchObject({external: ['https://github.com/you/greenhouse/issues/12#issuecomment-1', 'https://github.com/you/greenhouse/pull/9'], github_issues: []})
+        expect(await store.issue('greenhouse', 'GRE-3')).toMatchObject({external: ['ENG-2'], github_issues: []})
     })
 })

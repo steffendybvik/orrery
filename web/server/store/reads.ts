@@ -78,6 +78,7 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         assignee: row.assignee ?? undefined,
         labels: JSON.parse(row.labels) as string[],
         external: JSON.parse(row.external) as string[],
+        github_issues: JSON.parse(row.github_issues) as string[],
         status: row.status,
         notes: row.notes ?? undefined,
         proposal: row.proposal ?? undefined,

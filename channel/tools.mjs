@@ -23,6 +23,7 @@ const FIELDS = {
     priority: PRIORITY,
     labels: {type: 'array', items: {type: 'string'}},
     external: {type: 'array', items: {type: 'string'}, description: "Team tracker task ids or URLs"},
+    github_issues: {type: 'array', items: {type: 'string'}, description: 'GitHub issues it came from: 523, owner/name#523'},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
     chunk: {type: ['string', 'null'], description: "A chunk's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
@@ -183,8 +184,8 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
+        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, chunk, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
         name: 'move_issues',

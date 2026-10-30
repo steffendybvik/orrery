@@ -660,7 +660,7 @@ export function asChatIssue(body: unknown, chat?: string): unknown {
 }
 
 /** What the chat may change on an issue when the owner asks: what it says and where it sits, never its state of work. */
-const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on']
+const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on']
 
 /** An edit to an issue from the chat, as it asks for it: refused (403) when it would change anything but `CHAT_EDITS`,
  * so a chat never moves or assigns an issue on its own (only through a request the owner allows, `askMove`), puts up a

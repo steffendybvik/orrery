@@ -91,8 +91,8 @@ until the release ships.
 
 | | |
 |---|---|
-| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?chunk= ?release= ?parent= ?proposal= ?blocked= ?q=` (`none` for unset; `?blocked=true` is what waits on an issue not done yet, `false` what doesn't; `status` and `column` take a status's id or a kind, or several comma-separated; `?proposal=none` is committed work only) |
-| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, notes?, proposal?, choices?, parent?, chunk?, release?, depends_on?, position?}`; gets the next `KEY-n` |
+| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?github_issue= ?chunk= ?release= ?parent= ?proposal= ?blocked= ?q=` (`none` for unset; `?blocked=true` is what waits on an issue not done yet, `false` what doesn't; `status` and `column` take a status's id or a kind, or several comma-separated; `?proposal=none` is committed work only) |
+| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, github_issues?, notes?, proposal?, choices?, parent?, chunk?, release?, depends_on?, position?}`; gets the next `KEY-n` |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and chunk |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |
 | `PATCH /projects/:project/issues` | many at once: `{ids, set?: {status?, priority?, assignee?, chunk?, release?}, labels?: {add?, remove?}}` → `[{id, ok, error?}]`, each issue on its own, so one refused doesn't stop the rest; open pages hear the batch once |
@@ -124,6 +124,10 @@ until the release ships.
 - `external`: its tasks on the team's tracker, a list of ids (`ENG-1567`) or full URLs; the orrery's
   `tracker` (`PATCH /settings {tracker}`, a task's web address with `{id}` where its id goes) links an id;
   `?external=ENG-1567` finds the issues linked to a task
+- `github_issues`: the GitHub issues it came from, kept as `owner/name#523`. Send each as its number on the
+  project's `repo` (`523` or `"#523"`, when that's on GitHub), `owner/name#523`, or its link; the issue page and list
+  show one on the project's repo as `#523`. `?github_issue=523` (any of those forms) finds the issues that came from
+  it. Set it, not `external`, when an issue comes from a GitHub issue: `external` is the team's tracker
 - `ref` (read only, on `GET …/issues` and `GET …/issues/:issue`): what says whose board the issue is on,
   `orrery-<handle>: <id>` (`orrery-ada: DOC-132`), from the orrery's `handle` (see [For agents](#for-agents))
 
@@ -206,7 +210,7 @@ instead of `done` when it won't ship.
 | `GET /projects/:project/issues/:issue/pulls` | its open pull requests on the project's `repo`, when that's on GitHub: `{repo, pulls, error?, token, checked_at}`. A PR is the issue's when its body links the issue's page (`…/issues/ORR-12`) or its branch names the issue (`feat/orr-12-…`), by its id or one it had before. Each is `{number, title, url, branch, base, author, state, created_at, updated_at}`, `state` being `draft`, `conflicting`, `behind` (its base moved on), `failing` (checks), `blocked` (a review or required check), `ready` or `checking` (GitHub hasn't worked it out yet). orrery polls each repo in the background, once a minute with a `GITHUB_TOKEN` [secret](#secrets) that may go to `api.github.com` (`token: true`), and this is read off what the poll kept while it's fresh. Without a token the poll reads only whether PRs merged or closed, every ten minutes, so this asks GitHub itself at most every five minutes (public repos only, and GitHub's 60 an hour); in between, and when GitHub can't be read (`error` says why: its rate limit, a private repo without a token), it's what GitHub said last. `repo: null` for a project with no repo on GitHub, and nothing is asked |
 | `GET /pulls?page=&limit=` | every open pull request on the projects' GitHub repos (the Pull requests page): `{pulls, open, needs, repos}`. Each pull is as an issue's (above) plus `repo` and `issue` `{project, id, title}` when one of the repo's projects has the issue it names (its body's link first, then its branch). Those `conflicting`, `failing` or `behind` come first, oldest first, then the rest, oldest first; `open` counts them all and `needs` the first. With `page` (from 1) or `limit` (50, at most 200), `pulls` is only that page, in the same order, with its `page` and `limit`; a page past the last is the last, and the counts stay totals. A repo several projects share is read once: `repos` is `[{repo, projects, token, checked_at, open, needs, cut?, error?}]`, its counts every page's. Up to 300 open PRs a repo are read, following GitHub's next pages; `cut` says how many were read when it had more. Without a token only each repo's list is read (GitHub allows 60 requests an hour then), so each PR not a draft is `checking` |
 | `POST /pulls/poll?repo=&page=&limit=` | → `GET /pulls`'s answer, fresh and paged as it pages: the owner's **Poll** (ORR-534). Every repo (or `repo`, `you/shop`) is polled at once, whenever it last was, and what changed is told as the background poll tells it. A repo GitHub is holding (its rate limit, a refused token), or without a token one polled now in the last five minutes or read at all in the last minute, isn't asked: its entry in `repos` has `held` saying why and when; a refused token is tried again once the secrets change. A second ask for the same while one runs gets the same answer. A `repo` no project is on is a 404. The owner's only (`pulls.poll`) |
-| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, session_name?, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` and `external` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release`, `depends` (JSON lists of what it depends on; by `orrery` when a blocker was deleted) or `project` (moved in from `before`) |
+| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, session_name?, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels`, `external` and `github_issues` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release`, `depends` (JSON lists of what it depends on; by `orrery` when a blocker was deleted) or `project` (moved in from `before`) |
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell), led by agents' proposals waiting on the owner: `{id: 0, issue, title, body: <its notes>, asks: "decision", answered: false, proposal: {choices: <how many>}}`, there until the owner decides or clears it (clearing leaves it pending; put up again, it's back). `?list=waiting` is every one still waiting, proposals among them; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`, the cleared proposals still pending on its first page) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
 | `POST /notices/clear` | `{ids, proposals}` or `{before}` → `{cleared}`: the owner takes them out of the bell: the comments by `ids`, agents' proposals by `proposals: [{project, issue}]`, or every comment made at or before `before` that isn't waiting on them. Comments stay on their issues, proposals stay pending |
 
@@ -528,7 +532,7 @@ actions aren't listed as tools of their own, so they don't sit in its context un
 only when the owner asked in the chat, never on its own, and nothing happens until they allow it. It hears only its chat's messages: no focus, no message to
 every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
 or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), changing an issue's
-`title`, `notes`, `priority`, `labels`, `external`, `chunk`, `release`, `parent` and `depends_on` (`PATCH` with anything else, `status`
+`title`, `notes`, `priority`, `labels`, `external`, `github_issues`, `chunk`, `release`, `parent` and `depends_on` (`PATCH` with anything else, `status`
 or `assignee` say, is a 403, and no other session's claim on it holds it back), commenting, replying, messaging
 asking to message sessions, and asking to change a setting, a schedule, a release or a chunk, to start, stop or extend a session, or to move or assign issues; it can't message a session itself (both
 message routes are a 403 to it). A message the owner sends from its request goes as theirs,
@@ -630,7 +634,8 @@ An issue id is only unique within its orrery, and an orrery is one person's boar
 or PR description names an issue, write its `ref` (`orrery-ada: DOC-132`) as a trailer on a
 line of its own, never a bare id, and never in a title or branch name. The team's tracker
 stays the source of truth: its id goes in that repo's own trailer (`Part of ENG-1567`), and in the issue's
-`external`, so the board knows which team task the issue serves. A PR description also links the issue's
+`external`, so the board knows which team task the issue serves. An issue taken in from a GitHub issue names it in
+`github_issues` instead. A PR description also links the issue's
 page on this orrery (`/p/<project>/issues/<id>` on its address, `http://localhost:9010/p/doc/issues/DOC-132`),
 so the owner can jump from the PR to it. The owner sets the
 handle with `PATCH /settings {handle}` (their GitHub login, say; `null` uses their id).

@@ -224,7 +224,7 @@ export abstract class StoreBase {
             await this.run('INSERT INTO issue_events (project, issue, field, before, after, created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 project, issue, field, from, to, actor.name, actor.session ?? null, Number(actor.owner), now)
             // Text an outsider may have written (a title, its links) isn't passed on: the issue's id is, to read.
-            this.tell(`issue.${field}`, project, issue, actor, field === 'title' || field === 'external' ? {} : {from, to})
+            this.tell(`issue.${field}`, project, issue, actor, field === 'title' || field === 'external' || field === 'github_issues' ? {} : {from, to})
         }
     }
 
