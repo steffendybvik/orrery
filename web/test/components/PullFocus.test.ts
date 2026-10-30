@@ -59,6 +59,31 @@ describe('PullFocus', () => {
         expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toMatch(/^Look at its PR #12 .* and take it forward/)
     })
 
+    it('sends once for ⌘↵ pressed twice, and not at all with nothing in the box (ORR-610)', async () => {
+        const wrapper = await mount()
+        await wrapper.find('button').trigger('click')
+        const box = wrapper.find('textarea')
+        await box.setValue('   ')
+        await box.trigger('keydown', {key: 'Enter', metaKey: true})
+        await box.setValue('Rerun the e2e.')
+        await box.trigger('keydown', {key: 'Enter', metaKey: true})
+        await box.trigger('keydown', {key: 'Enter', metaKey: true})
+        await expect.poll(() => wrapper.find('button').text()).toBe('Sent to orrery · Shelves')
+        expect(sent).toHaveLength(1)
+        expect(sent[0]!.body.note).toBe('Rerun the e2e.')
+    })
+
+    it('keeps a line the owner added when it closes and opens again (ORR-610)', async () => {
+        const wrapper = await mount()
+        const button = wrapper.find('button')
+        await button.trigger('click')
+        await wrapper.find('textarea').setValue('Only the flaky e2e.')
+        await button.trigger('click')
+        await expect.poll(() => wrapper.find('textarea').exists()).toBe(false)
+        await button.trigger('click')
+        expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('Only the flaky e2e.')
+    })
+
     it("says why it couldn't send, and stays open", async () => {
         const wrapper = await mount({issue: {project: 'greenhouse', id: 'GRN-5', title: 'Moss'}})
         await wrapper.find('button').trigger('click')

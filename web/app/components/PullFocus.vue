@@ -16,11 +16,15 @@ const failed = ref('')
 /** Who it reached, once sent; empty when nobody was listening (a session starts for it, or it waits for one). */
 const sent = ref<string[] | null>(null)
 
+/** The note as last filled in, so opening again keeps a line the owner added but follows a state that changed. */
+let filled = ''
 function fill() {
-    note.value = focusNote(props.pull)
+    if (!note.value.trim() || note.value === filled) note.value = filled = focusNote(props.pull)
     failed.value = ''
 }
 async function send(close: () => void) {
+    // ⌘↵ comes here past Send's disabled state: not twice at once, and not with nothing to say.
+    if (busy.value || !note.value.trim()) return
     busy.value = true
     failed.value = ''
     try {
@@ -29,6 +33,7 @@ async function send(close: () => void) {
             method: 'POST', headers: {'Orrery-Actor': await owner()}, body: {note: note.value.trim(), start: true},
         })
         sent.value = signal.delivered_to
+        note.value = ''
         close()
     } catch (error) {
         failed.value = errorMessage(error, 'send')

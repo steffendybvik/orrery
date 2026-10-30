@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import {PULL_NEEDS} from '#shared/roadmap'
+import {inProjectOrder, PULL_NEEDS} from '#shared/roadmap'
 
 // Every open pull request on the projects' GitHub repos (ORR-491), so one doesn't wait unseen once its issue is in
-// review or done. Each repo is its own card (ORR-603): repos with a PR that needs someone first, then the rest by name.
+// review or done. Each repo is its own card (ORR-603), in the sidebar's project order (ORR-610).
 // Its header names the repo, its projects, how many are open and how it was read (with or without a token, and why it
 // couldn't be read). Inside, those that need someone (conflicts, failing checks, behind) first, oldest first, then the
 // rest. Each row has the PR, where it stands, its branch and age, and the issue it names, if a project has it, with
@@ -11,6 +11,7 @@ import {PULL_NEEDS} from '#shared/roadmap'
 // why in its header.
 useHead({title: 'Pull requests · orrery'})
 const {projects, ready, byId} = useRoadmaps()
+const {ordered} = useProjectOrder()
 const {pulls, follow, poll, polling, failed} = useOpenPulls()
 follow(60_000)
 const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
@@ -18,10 +19,10 @@ const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
 const unread = computed(() => pulls.value?.repos.filter(r => r.error).length ?? 0)
 const noneRead = computed(() => !!unread.value && unread.value === pulls.value?.repos.length)
 // The repos as cards, each with its own pull requests in the answer's order.
-const cards = computed(() => (pulls.value?.repos ?? []).map(repo => {
+const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.value.map(p => p.id)).map(repo => {
     const own = (pulls.value?.pulls ?? []).filter(p => p.repo === repo.repo)
     return {...repo, pulls: own, needs: own.filter(p => needs(p.state)).length}
-}).sort((a, b) => Number(!a.needs) - Number(!b.needs) || a.repo.localeCompare(b.repo)))
+}))
 </script>
 
 <template>
