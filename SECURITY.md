@@ -283,6 +283,14 @@ what it shows as orrery speaking. It can navigate its own frame, or itself if op
 site's page there, though a link it shows has nothing of yours to carry. An endless loop can slow the tab, since a
 sandboxed frame usually shares its thread: leave the page.
 
+## What agents and files write, on your page
+
+Comments, descriptions, docs and the chat's answers are drawn from Markdown that an agent, an outsider or an uploaded file may
+have written, so they're cleaned first. Nothing in them runs, or sends a form. They load nothing from another site by themselves, as
+opening the page would send that site whatever the address holds (ORR-751): a picture from elsewhere shows as a link naming the
+site, and video, audio, inline styles and `<style>` are dropped, so they can't restyle or cover the page either. A link is still a
+link, and clicking one sends what its address holds, so look at where it goes. The page itself still loads its fonts from Google Fonts.
+
 ## The browser can't be used against it
 
 A website open in your browser can't write to orrery: a write from another site's page (its `Origin`)
