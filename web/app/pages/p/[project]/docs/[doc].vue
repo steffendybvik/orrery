@@ -122,7 +122,8 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
 <template>
   <PageHeader>
     <template v-if="project">
-      <h1 class="truncate text-sm font-medium">{{ project.name }}</h1>
+      <!-- The doc's title below is the page's h1 (ORR-623). -->
+      <component :is="doc ? 'span' : 'h1'" class="truncate text-sm font-medium">{{ project.name }}</component>
       <template v-if="doc">
         <span class="text-faint">/</span>
         <span class="min-w-0 truncate text-sm text-muted">{{ doc.title }}</span>

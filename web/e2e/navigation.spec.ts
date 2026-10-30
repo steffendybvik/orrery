@@ -1,0 +1,185 @@
+import type {Page} from '@playwright/test'
+import {expect, test} from '@playwright/test'
+import {OWNER, makeProject, projectApi} from './support'
+
+// The navigation as a whole (ORR-580): every page opens and renders its heading with no page or console error, each
+// sidebar entry goes to its page and shows as active there, and the ⌘K palette and App settings → Advanced still lead
+// to theirs. The pages are one list, so a new page is a line here.
+const api = projectApi('atlas')
+const made = {chunk: '', doc: '', issue: ''}
+
+interface Route {
+    path: string
+    heading: string
+    /** The sidebar entry that leads here and is active on it, by its link's text. */
+    sidebar?: string
+    /** The ⌘K palette's entry for it: in Go to, or found by typing it. */
+    palette?: string
+    /** Its sidebar entry shows only while Advanced is on (ORR-578). */
+    advanced?: true
+}
+
+const ROUTES = (): Route[] => [
+    {path: '/mine', heading: 'My issues', sidebar: 'My issues', palette: 'My issues and urgent'},
+    {path: '/connect', heading: 'Connect an agent', sidebar: 'Connect an agent', palette: 'Connect an agent'},
+    {path: '/sessions', heading: 'Sessions', sidebar: 'Sessions', palette: 'Sessions'},
+    {path: '/schedules', heading: 'Schedules', sidebar: 'Schedules', palette: 'Schedules'},
+    {path: '/events', heading: 'Events', sidebar: 'Events', palette: 'Events', advanced: true},
+    {path: '/context', heading: 'Context', sidebar: 'Context', palette: 'Context', advanced: true},
+    {path: '/pulls', heading: 'Pull requests', sidebar: 'Pull requests', palette: 'Pull requests', advanced: true},
+    {path: '/notifications', heading: 'Notifications', palette: 'Notifications'},
+    {path: '/getting-started', heading: 'Getting started', palette: 'Getting started'},
+    {path: '/settings', heading: 'Your name', palette: 'App settings'},
+    {path: '/settings?tab=issues', heading: 'Team tracker'},
+    {path: '/settings?tab=orrery', heading: 'Background tint'},
+    {path: '/settings?tab=advanced', heading: 'Pull requests'},
+    {path: '/p/atlas', heading: 'Atlas', sidebar: 'Issues', palette: 'Atlas'},
+    {path: '/p/atlas?view=board', heading: 'Atlas', sidebar: 'Issues'},
+    {path: '/p/atlas/roadmap', heading: 'Atlas', sidebar: 'Roadmap', palette: 'Atlas roadmap'},
+    {path: `/p/atlas/roadmap/${made.chunk}`, heading: 'Coastlines', sidebar: 'Roadmap', palette: 'Coastlines'},
+    {path: '/p/atlas/releases', heading: 'Atlas', sidebar: 'Releases', palette: 'Atlas releases'},
+    {path: '/p/atlas/releases/2.0.0', heading: '2.0.0', sidebar: 'Releases'},
+    // Docs opens on the first doc, whose title is the page's h1 (ORR-623).
+    {path: '/p/atlas/docs', heading: 'Projections', sidebar: 'Docs', palette: 'Atlas docs'},
+    {path: `/p/atlas/docs/${made.doc}`, heading: 'Projections', sidebar: 'Docs', palette: 'Projections'},
+    {path: '/p/atlas/settings', heading: 'Atlas', sidebar: 'Settings', palette: 'Atlas settings'},
+    {path: `/p/atlas/issues/${made.issue}`, heading: 'Chart the fjords', sidebar: 'Issues', palette: 'Chart the fjords'},
+]
+
+let advanced = false
+
+test.beforeAll(async ({request}) => {
+    advanced = !!(await (await request.get('/api/settings')).json()).advanced
+    // Once a test fails, the next starts on a fresh worker, which runs this again on the same orrery.
+    if ((await request.get('/api/projects/atlas')).ok()) {
+        made.chunk = String((await api(request, 'get', '/chunks') as {id: number, title: string}[]).find(c => c.title === 'Coastlines')!.id)
+        made.doc = (await api(request, 'get', '/docs') as {id: string, title: string}[]).find(d => d.title === 'Projections')!.id
+        made.issue = (await api(request, 'get', '/issues?q=fjords') as {id: string}[])[0]!.id
+        return
+    }
+    await makeProject(request, {name: 'Atlas', key: 'ATL', release_mode: 'own'})
+    made.chunk = String((await api(request, 'post', '/chunks', {title: 'Coastlines'})).id)
+    made.doc = (await api(request, 'post', '/docs', {title: 'Projections', body: 'Mercator, mostly.'})).id
+    await api(request, 'post', '/releases', {version: '2.0.0'})
+    made.issue = (await api(request, 'post', '/issues', {title: 'Chart the fjords', chunk: made.chunk})).id
+})
+
+test.afterAll(async ({request}) => {
+    await request.patch('/api/settings', {data: {advanced}, headers: OWNER})
+})
+
+/** Advanced on or off, as the owner. */
+async function setAdvanced(page: Page, on: boolean) {
+    const set = await page.request.patch('/api/settings', {data: {advanced: on}, headers: OWNER})
+    expect(set.ok(), await set.text()).toBeTruthy()
+}
+
+/** The page errors and console errors seen from here on. */
+function watchErrors(page: Page) {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(`page error: ${error.message}`))
+    page.on('console', message => {
+        if (message.type() === 'error') errors.push(`console: ${message.text()}`)
+    })
+    return errors
+}
+
+/** The sidebar's link to `path` (its own, not the sessions list under it), by its text: a project's name and its
+ * Issues both go to the project. */
+const sidebarLink = (page: Page, path: string, text: string) => page.locator('aside nav').locator(`a[href="${path.split('?')[0]}"]`).filter({hasText: text})
+
+/** Where going to `path` ends up: Docs opens on the first doc. */
+const landsOn = (path: string) => new RegExp(`${path.split('?')[0]}${path.endsWith('/docs') ? '(/[^/]+)?' : ''}(\\?.*)?$`)
+
+const heading = (page: Page, name: string) => page.getByRole('heading', {name, exact: true}).first()
+
+test('every page renders its heading, with no page or console error', async ({page}) => {
+    test.setTimeout(120_000)
+    await setAdvanced(page, true)
+    const errors = watchErrors(page)
+    for (const route of ROUTES()) {
+        await test.step(route.path, async () => {
+            await page.goto(route.path)
+            await expect(heading(page, route.heading)).toBeVisible()
+            await expect(page.getByRole('heading', {name: /^Nothing at /})).toHaveCount(0)
+            expect(errors, route.path).toEqual([])
+        })
+    }
+})
+
+test('each sidebar entry goes to its page and shows as active there', async ({page}) => {
+    test.setTimeout(120_000)
+    await setAdvanced(page, true)
+    for (const route of ROUTES().filter(r => r.sidebar && !r.advanced)) {
+        await test.step(route.path, async () => {
+            await page.goto(route.path)
+            const link = sidebarLink(page, entryPath(route), route.sidebar!)
+            await expect(link).toHaveClass(/\bbg-active\b/)
+        })
+    }
+    // And a click on each goes there, from a page that isn't it.
+    for (const route of ROUTES().filter(r => r.sidebar && !r.advanced && r.path === entryPath(r))) {
+        await test.step(`click ${route.sidebar}`, async () => {
+            const elsewhere = route.path === '/mine' ? '/connect' : !route.path.startsWith('/p/') ? '/mine' : route.path === '/p/atlas/settings' ? '/p/atlas' : '/p/atlas/settings'
+            await page.goto(elsewhere)
+            await sidebarLink(page, route.path, route.sidebar!).click()
+            await expect(page).toHaveURL(landsOn(route.path))
+            await expect(sidebarLink(page, route.path, route.sidebar!)).toHaveClass(/\bbg-active\b/)
+            await expect(heading(page, route.heading)).toBeVisible()
+        })
+    }
+})
+
+// The pages ORR-561 and ORR-565 moved to App settings → Advanced are back in the sidebar under Schedules (ORR-578).
+test('Events, Context and Pull requests are in the sidebar only while Advanced is on', async ({page}) => {
+    const entries = ROUTES().filter(r => r.advanced)
+    await setAdvanced(page, true)
+    for (const route of entries) {
+        await page.goto(route.path)
+        await expect(sidebarLink(page, route.path, route.sidebar!)).toHaveClass(/\bbg-active\b/)
+    }
+    await page.goto('/mine')
+    await sidebarLink(page, '/events', 'Events').click()
+    await expect(heading(page, 'Events')).toBeVisible()
+    await setAdvanced(page, false)
+    await page.goto('/mine')
+    await expect(sidebarLink(page, '/schedules', 'Schedules')).toBeVisible()
+    for (const route of entries) await expect(sidebarLink(page, route.path, route.sidebar!)).toHaveCount(0)
+})
+
+test('each page the ⌘K palette lists opens it', async ({page}) => {
+    test.setTimeout(120_000)
+    await setAdvanced(page, true)
+    for (const route of ROUTES().filter(r => r.palette)) {
+        await test.step(route.palette!, async () => {
+            await page.goto(route.path === '/mine' ? '/connect' : '/mine')
+            await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
+            await page.keyboard.press('ControlOrMeta+k')
+            const palette = page.getByRole('dialog', {name: 'Commands'})
+            const entry = (within: typeof palette) => within.getByRole('option').filter({has: page.getByText(route.palette!, {exact: true})})
+            // The places in Go to are there with nothing typed; the rest (a project's pages, a doc, an issue) are found.
+            if (!await entry(palette.getByRole('region', {name: 'Go to'})).count()) await palette.getByLabel('Type a command or search').fill(route.palette!)
+            await entry(palette).first().click()
+            await expect(page).toHaveURL(landsOn(route.path))
+            await expect(heading(page, route.heading)).toBeVisible()
+        })
+    }
+})
+
+test('the links on App settings → Advanced lead to their pages, with Advanced off too', async ({page}) => {
+    await setAdvanced(page, false)
+    for (const [link, route] of [['Open the event log', '/events'], ['See what a session is sent', '/context'], ['Open pull requests', '/pulls']] as const) {
+        await page.goto('/settings?tab=advanced')
+        await page.getByRole('link', {name: link}).click()
+        await expect(page).toHaveURL(new RegExp(`${route}$`))
+        await expect(heading(page, ROUTES().find(r => r.path === route)!.heading)).toBeVisible()
+    }
+})
+
+/** The sidebar link that's active on a route: a project's section is at the section's own address. */
+function entryPath(route: Route) {
+    const path = route.path.split('?')[0]!
+    const section = path.match(/^\/p\/atlas\/(roadmap|releases|docs|settings|issues)/)?.[1]
+    if (!section) return path
+    return section === 'issues' ? '/p/atlas' : `/p/atlas/${section}`
+}

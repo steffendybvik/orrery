@@ -35,7 +35,9 @@ describe('the context view', () => {
         const tools = work.parts.filter(p => p.group === 'tools')
         expect(tools.map(t => t.title).sort()).toEqual(toolsFor(['orrery']).map((t: {name: string}) => t.name).sort())
         expect(tools.map(t => t.chars)).toEqual(tools.map(t => t.chars).toSorted((a, b) => b - a))
-        for (const p of work.parts) expect(p).toMatchObject({chars: p.text.length, tokens: Math.ceil(p.text.length / 4)})
+        // A tool counts as it's sent, without the spaces it's laid out with to read (ORR-624); the rest, as written.
+        const sent = (p: {group: string, text: string}) => p.group === 'tools' ? JSON.stringify(JSON.parse(p.text)).length : p.text.length
+        for (const p of work.parts) expect(p).toMatchObject({chars: sent(p), tokens: Math.ceil(sent(p) / 4)})
         expect(work.chars).toBe(work.parts.reduce((sum, p) => sum + p.chars, 0))
         expect(work.parts.some(p => p.group === 'start')).toBe(false)
     })

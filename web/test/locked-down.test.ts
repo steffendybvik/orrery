@@ -21,7 +21,7 @@ describe("an untrusted schedule's session", () => {
         expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks})
         const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))
         expect(allowed).toEqual(['mcp__orrery-shop'])
-        expect(args.slice(args.indexOf('--disallowedTools') + 1)).toEqual(['mcp__orrery-shop__egress', 'mcp__orrery-shop__secrets'])
+        expect(args.slice(args.indexOf('--disallowedTools') + 1)).toEqual(['update_issue', 'start_issue', 'finish_issue', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event', 'more_tools'].map(t => `mcp__orrery-shop__${t}`))
     })
 
     it('starts with no hooks in a repo that has none', () => {

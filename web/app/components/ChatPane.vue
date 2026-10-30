@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SCHEDULE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, scheduleValue, settingValue} from '#shared/roadmap'
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 
@@ -22,7 +22,12 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
 // wide screen it shows on hover or focus). A message that's just `/clear` clears the session's context instead of going
 // to it: a divider marks the cut, and what was said above it stays, greyed. Any other slash command goes as words.
-const {open, large, chat, session, project, failed, chats, lands, start, send, clear, land, fresh, answer, hide, close, resize, upload, show} = useChat()
+// Before a chat starts, its project follows the page you're on; picking one by hand pins it (the pin beside the picker), so
+// it stays put whatever page you open, until unpinned. While the chat's project isn't the page's, a line under the header
+// says so (ORR-588).
+// While no launcher runs for its project, LauncherHint above the box says so, with the install command to copy, in place
+// of the server's error (ORR-591).
+const {open, large, chat, session, project, pinned, failed, chats, lands, start, send, clear, land, fresh, answer, hide, close, pin, resize, upload, show} = useChat()
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean) {
     answering.value = message
@@ -47,9 +52,15 @@ const list = ref<HTMLElement | null>(null)
 const field = ref<HTMLTextAreaElement | null>(null)
 const picker = ref<HTMLInputElement | null>(null)
 
-/** The project the chat would be about: the one you're on, else the first. */
-watch([() => route.params.project, projects], ([here]) => {
-    if (!project.value || here) project.value = typeof here === 'string' && projects.value.some(p => p.id === here) ? here : project.value ?? projects.value[0]?.id ?? null
+/** The project of the page you're on, if it's one of them. */
+const here = computed(() => {
+    const on = route.params.project
+    return typeof on === 'string' && projects.value.some(p => p.id === on) ? on : null
+})
+/** The project the chat would be about: the pinned one, else the one you're on, else the first. */
+watch([pinned, here, projects], () => {
+    if (pinned.value && projects.value.some(p => p.id === pinned.value)) project.value = pinned.value
+    else if (here.value || !project.value) project.value = here.value ?? project.value ?? projects.value[0]?.id ?? null
 }, {immediate: true})
 /** Where the issues the chat makes land: the running chat's, or the next one's. */
 const landing = computed<ChatIssues>(() => chat.value && !chat.value.ended ? chat.value.issues : lands.value)
@@ -59,6 +70,11 @@ const projectName = (id: string) => projects.value.find(p => p.id === id)?.name 
 const options = computed(() => projects.value.map(p => ({value: p.id, label: p.name})))
 /** Which project it's about: the chat's, else the one the first message will start it on. */
 const about = computed(() => chat.value && !chat.value.ended ? chat.value.project : project.value)
+/** The page's project, when it isn't the chat's: "here" isn't what the chat is about. */
+const away = computed(() => here.value && about.value && here.value !== about.value ? here.value : null)
+const {state: launch} = useLaunchState(() => about.value ?? '')
+/** No launcher runs for its project: the hint says how to install one, and stands in for the error it brings. */
+const unlaunched = computed(() => !!about.value && !!launch.value && !launch.value.launchers)
 /** How long after the owner's last keystroke a run of held messages goes. */
 const HOLD_MS = 2000
 /** The owner's messages held to go together, shown as sent until they go. */
@@ -279,15 +295,27 @@ const {over, on: drop} = useImageDrop(attach)
           <span>Chat</span>
           <template v-if="about">
             <span class="text-faint">·</span>
-            <PropertyPicker v-if="(!chat || chat.ended) && options.length > 1" :model-value="project ?? ''" :options="options" label="Project" field small @update:model-value="project = String($event)">
-              <span class="truncate">{{ projectName(about) }}</span>
-            </PropertyPicker>
+            <template v-if="(!chat || chat.ended) && options.length > 1">
+              <PropertyPicker :model-value="project ?? ''" :options="options" label="Project" field small @update:model-value="pin(String($event))">
+                <span class="truncate">{{ projectName(about) }}</span>
+              </PropertyPicker>
+              <UiButton
+                  variant="ghost" size="xs" square :aria-pressed="!!pinned"
+                  :aria-label="pinned ? 'Unpin the project: follow the page you\'re on' : 'Pin the project: stay on it whatever page you open'"
+                  :title="pinned ? 'Pinned: stays put. Unpin to follow the page' : 'Follows the page. Pin to stay on it'"
+                  :class="pinned ? 'text-accent-600 dark:text-accent-400' : 'text-faint'"
+                  @click="pin(pinned ? null : about)"
+              >
+                <svg class="size-3.5" viewBox="0 0 24 24" :fill="pinned ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 3h6l-1 7 4 3v2H6v-2l4-3-1-7Z" /></svg>
+              </UiButton>
+            </template>
             <span v-else class="truncate">{{ projectName(about) }}</span>
           </template>
         </div>
         <span v-if="state" class="flex items-center gap-1.5 text-xs text-faint">
           <SessionDot v-if="session" :session="session" />{{ state }}
         </span>
+        <span v-if="away" class="truncate text-xs text-muted" data-testid="chat-away">You're on <em>{{ projectName(away) }}</em>; this chat is about <em>{{ projectName(about!) }}</em></span>
       </div>
       <UiButton variant="ghost" size="xs" square class="max-sm:hidden" :aria-label="large ? 'Make the chat smaller' : 'Make the chat larger'" :title="large ? 'Smaller' : 'Larger'" @click="resize">
         <svg v-if="large" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
@@ -357,25 +385,7 @@ const {over, on: drop} = useImageDrop(attach)
           </div>
           <span v-else class="text-xs" :class="m.send.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.send.state === 'asked' ? 'Not answered' : SENT[m.send.state](m.send.sent ?? []) }}</span>
         </div>
-        <div
-v-if="m.schedule" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group"
-             :aria-label="m.schedule.changes.some(c => c.from !== undefined) ? `Change schedule ${m.schedule.title}` : `Make schedule ${m.schedule.title}`">
-          <span class="text-xs text-faint">{{ m.schedule.changes.some(c => c.from !== undefined) ? `Asks to change schedule ${m.schedule.id}` : 'Asks to make a schedule' }}</span>
-          <span class="font-medium text-fg">{{ m.schedule.title }}</span>
-          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
-            <template v-for="c in m.schedule.changes.filter(c => c.field !== 'title' || c.from !== undefined)" :key="c.field">
-              <dt class="text-muted">{{ CHAT_SCHEDULE_FIELDS[c.field] }}</dt>
-              <dd class="min-w-0 break-words whitespace-pre-wrap text-fg">
-                <template v-if="c.from !== undefined"><span class="text-muted line-through decoration-faint">{{ scheduleValue(c.from) }}</span> → </template>{{ scheduleValue(c.to) }}
-              </dd>
-            </template>
-          </dl>
-          <div v-if="m.schedule.state === 'asked' && !chat!.ended" class="flex gap-2">
-            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
-            <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
-          </div>
-          <span v-else class="text-xs" :class="m.schedule.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.schedule.state === 'asked' ? 'Not answered' : ANSWERED[m.schedule.state] }}</span>
-        </div>
+        <ScheduleRequestCard v-if="m.schedule" :request="m.schedule" :answerable="!chat!.ended" :busy="answering === m.id" @answer="allow => decide(m.id, allow)" />
         <div v-if="m.release" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="m.release.change ? `Change release ${m.release.version}` : `Add release ${m.release.version}`">
           <span class="text-xs text-faint">{{ m.release.change ? 'Asks to change a release' : 'Asks to add a release' }}</span>
           <span class="font-medium text-fg">{{ m.release.version }}</span>
@@ -458,7 +468,8 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
     </ol>
 
     <form v-if="!chat?.ended || !chat.messages.length" class="flex flex-col gap-2 p-3" @submit.prevent="submit(true)">
-      <p v-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <LauncherHint v-if="unlaunched" :project="about!" chat />
+      <p v-else-if="failed" class="px-1 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       <div class="flex flex-col gap-2 rounded-2xl bg-well p-2 ring-1 ring-line transition focus-within:ring-accent-500/50">
         <div v-if="images.length || uploading" class="flex flex-wrap gap-1.5 px-1 pt-1">
           <div v-for="(image, i) in images" :key="image.id" class="relative">

@@ -333,6 +333,65 @@ describe('starting an issue', () => {
         await store.claim('greenhouse', shelves, undefined, 'second')
     })
 
+    it("stays with its session when another writes to it, as a reviewer's comment does (ORR-627)", async () => {
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-review'})).id
+        await store.workedBy('greenhouse', shelves, 'first')
+        await store.workedBy('greenhouse', shelves, 'reviewer')
+        expect(await store.takenFrom('greenhouse', shelves, 'reviewer')).toBe('first')
+        await store.claim('greenhouse', shelves, 'in-progress', 'first')
+        // Once that session is gone, or the issue isn't started, the next one to write to it has it.
+        store.hears = (_project, session) => session !== 'first'
+        await store.workedBy('greenhouse', shelves, 'reviewer')
+        store.hears = () => true
+        expect(await store.takenFrom('greenhouse', shelves, 'first')).toBe('reviewer')
+        await store.updateIssue('greenhouse', shelves, {status: 'todo'})
+        await store.workedBy('greenhouse', shelves, 'first')
+        await store.updateIssue('greenhouse', shelves, {status: 'in-review'})
+        expect(await store.takenFrom('greenhouse', shelves, 'reviewer')).toBe('first')
+    })
+
+    it("goes to the session that starts it, though another commented on it while it sat in Todo (ORR-627)", async () => {
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'todo'})).id
+        await store.workedBy('greenhouse', shelves, 'commenter')
+        await store.claimed('greenhouse', shelves, 'in-progress', 'builder', () => store.updateIssue('greenhouse', shelves, {status: 'in-progress'}))
+        expect(await store.takenFrom('greenhouse', shelves, 'commenter')).toBe('builder')
+        expect(await store.takenFrom('greenhouse', shelves, 'builder')).toBeNull()
+        await store.claim('greenhouse', shelves, undefined, 'builder')
+    })
+
+    it("is refused for a sub-issue while another session that's there has a parent above it started (ORR-611)", async () => {
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-review'})).id
+        const brackets = (await store.createIssue('greenhouse', {title: 'Brackets', parent: shelves})).id
+        const screws = (await store.createIssue('greenhouse', {title: 'Screws', status: 'todo', parent: brackets})).id
+        await store.workedBy('greenhouse', shelves, 'first')
+        const refused = await failure(() => store.claim('greenhouse', screws, 'in-progress', 'second'))
+        expect(refused).toEqual({status: 409, message: `${screws} is a sub-issue of ${shelves}, which another session (first) is working on; it's that session's to start; pick another issue`})
+        // A comment on it isn't starting it; the parent's own session starts it.
+        await store.claim('greenhouse', screws, undefined, 'second')
+        await store.claim('greenhouse', screws, 'in-progress', 'first')
+        // Once that session is gone, or the parent is done, anyone may.
+        store.hears = (_project, session) => session !== 'first'
+        await store.claim('greenhouse', screws, 'in-progress', 'second')
+        store.hears = () => true
+        await store.updateIssue('greenhouse', shelves, {status: 'done'})
+        await store.claim('greenhouse', screws, 'in-progress', 'second')
+    })
+
+    it("goes to the session on a parent above it when it's a follow-up, and the owner's focus on another lets that one start it (ORR-613)", async () => {
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-review'})).id
+        const screws = (await store.createIssue('greenhouse', {title: 'Screws', status: 'todo', parent: shelves})).id
+        const owner = {name: 'skoll', owner: true}
+        await store.workedBy('greenhouse', shelves, 'first')
+        expect(await store.heldAbove('greenhouse', screws)).toEqual({parent: shelves, holder: 'first'})
+        expect(await store.heldAbove('greenhouse', screws, 'first')).toBeNull()
+        // A focus aimed at nobody goes to the session on the parent.
+        expect((await store.focus('greenhouse', screws, {}, owner)).target).toBe('first')
+        // The owner aiming another session at it lets that one start it, and nobody else.
+        await store.focus('greenhouse', screws, {session: 'second'}, owner)
+        await store.claim('greenhouse', screws, 'in-progress', 'second')
+        expect((await failure(() => store.claim('greenhouse', screws, 'in-progress', 'third'))).status).toBe(409)
+    })
+
     it('goes to one session only when two start it at once', async () => {
         const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'todo'})).id
         const start = (session: string) => store.claimed('greenhouse', shelves, 'in-progress', session, () => store.updateIssue('greenhouse', shelves, {status: 'in-progress'}))

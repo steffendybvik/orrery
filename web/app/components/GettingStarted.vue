@@ -67,7 +67,7 @@ async function tryDemo() {
         <OrreryMark class="size-5 text-zinc-950" />
       </div>
       <div class="flex flex-col">
-        <h1 class="text-lg font-semibold tracking-tight">Getting started</h1>
+        <h2 class="text-lg font-semibold tracking-tight">Getting started</h2>
         <p class="text-[13px] text-muted">{{ steps.length }} steps to a session working from your roadmap. Each ticks itself.</p>
       </div>
     </div>

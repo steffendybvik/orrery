@@ -97,7 +97,7 @@ export class EventLog {
     advanced(): Promise<boolean> {
         const known = this.read()
         known.advanced ??= this.db.get<{value: string}>("SELECT value FROM settings WHERE key = 'advanced'")
-            .then(row => row ? JSON.parse(row.value) === true : false)
+            .then(row => row ? JSON.parse(row.value) === true : true)
         return this.kept(known.advanced)
     }
 

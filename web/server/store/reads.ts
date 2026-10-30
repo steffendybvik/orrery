@@ -1,6 +1,7 @@
 // The store's reads that need nothing but the database: a project's board, its releases with how far their issues are,
 // its docs without their text, and the board's issues as records (ORR-501). StoreBase builds a project from them.
 import type {Asks, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Picks, Release} from '#shared/roadmap'
+import {linkRef} from '#shared/roadmap'
 import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db} from '../utils/database'
@@ -13,8 +14,36 @@ export async function drawingOn(db: Db, project: string): Promise<string[]> {
     return (await db.all<{id: string}>('SELECT id FROM projects WHERE releases_from = ? ORDER BY id', project)).map(r => r.id)
 }
 
-/** The project's board: its chunks and their issues, sub-issues within, each with its comment count, open question
- * and the ids it had before. */
+/** The project's issues that are done (ORR-601), by their own status, a parent's too whatever its sub-issues', and
+ * not while it's a proposal: what no longer holds back an issue that depends on it. A canceled one still does, until
+ * the owner drops the link or cancels what waits on it. */
+export async function doneIssues(db: Db, project: string, statuses: IssueStatus[]): Promise<Set<string>> {
+    const done = new Set(statuses.filter(s => s.kind === 'done').map(s => s.id))
+    const rows = await db.all<{id: string, status: string, proposal: string | null}>('SELECT id, status, proposal FROM issues WHERE project = ?', project)
+    return new Set(rows.filter(r => !r.proposal && done.has(r.status)).map(r => r.id))
+}
+
+/** The project's dependency links (ORR-601), each way: what each of its issues depends on (and which of those are
+ * not done yet), and what depends on each, as `linkRef`s from the project. */
+async function readLinks(db: Db, project: string, statuses: IssueStatus[]) {
+    const on = await db.all<{issue: string, on_project: string, on_issue: string}>('SELECT issue, on_project, on_issue FROM issue_links WHERE project = ? ORDER BY created_at, on_project, on_issue', project)
+    const by = await db.all<{project: string, issue: string, on_issue: string}>('SELECT project, issue, on_issue FROM issue_links WHERE on_project = ? ORDER BY created_at, project, issue', project)
+    const done = new Map<string, Set<string>>()
+    for (const other of new Set(on.map(l => l.on_project))) done.set(other, await doneIssues(db, other, statuses))
+    const dependsOn = new Map<string, string[]>()
+    const blockedBy = new Map<string, string[]>()
+    const blocks = new Map<string, string[]>()
+    for (const link of on) {
+        const ref = linkRef(project, link.on_project, link.on_issue)
+        dependsOn.set(link.issue, [...dependsOn.get(link.issue) ?? [], ref])
+        if (!done.get(link.on_project)?.has(link.on_issue)) blockedBy.set(link.issue, [...blockedBy.get(link.issue) ?? [], ref])
+    }
+    for (const link of by) blocks.set(link.on_issue, [...blocks.get(link.on_issue) ?? [], linkRef(project, link.project, link.issue)])
+    return {dependsOn, blockedBy, blocks}
+}
+
+/** The project's board: its chunks and their issues, sub-issues within, each with its comment count, open question,
+ * the ids it had before and its dependency links. */
 export async function readBoard(db: Db, project: string, statuses: IssueStatus[]): Promise<Board> {
     const chunks = await db.all<ChunkRow>('SELECT * FROM chunks WHERE project = ? ORDER BY position, created_at', project)
     const issues = await db.all<IssueRow>('SELECT * FROM issues WHERE project = ? ORDER BY position, created_at', project)
@@ -36,6 +65,7 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
     for (const row of issues) {
         if (row.proposal === 'pending' && !row.owned && !(row.parent && proposals.has(row.parent)) && !waiting.has(row.id)) waiting.set(row.id, 'decision')
     }
+    const links = await readLinks(db, project, statuses)
     const issueAliases = await aliases('issue_aliases', 'issue')
     const chunkAliases = await aliases('chunk_aliases', 'chunk')
     const children = new Map<string | null, IssueRow[]>()
@@ -65,6 +95,9 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         created_by: row.created_by,
         ...row.session_name ? {session_name: row.session_name} : {},
         protected: !!row.owned,
+        ...links.dependsOn.has(row.id) ? {depends_on: links.dependsOn.get(row.id)} : {},
+        ...links.blockedBy.has(row.id) ? {blocked_by: links.blockedBy.get(row.id)} : {},
+        ...links.blocks.has(row.id) ? {blocks: links.blocks.get(row.id)} : {},
         created_at: row.created_at,
         updated_at: row.updated_at,
         tasks: (children.get(row.id) ?? []).map(input),

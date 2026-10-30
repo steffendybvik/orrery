@@ -19,7 +19,8 @@ server/api/             the routes, one file per method and path (/api/…)
 server/store/           the store, a file per domain (issues, chunks, comments, signals, releases, docs, presets…),
                         each class extending the one before; server/utils/store.ts is the last, `Store`, which the routes use
 server/utils/           the rest of the server: the database and its migrations, sessions and launches, schedules, secrets
-shared/                 types and rules both sides use (roadmap.ts)
+shared/                 types and rules both sides use: roadmap/ a file per area (board, sessions, schedules, settings…),
+                        gathered by roadmap.ts, which everything imports from
 ```
 
 The root is a pnpm workspace with the app as its one package: `pnpm dev`, `pnpm test`,
@@ -59,7 +60,9 @@ With `TEST_POSTGRES_URL` set (`postgres://orrery:orrery@localhost:5432/orrery`),
 each test in a schema of its own, and the ones that only make sense there run too. CI runs every unit test both ways.
 
 `pnpm test:e2e` runs the flows in a real browser with Playwright, a file per area in `web/e2e/` (issues, proposals,
-roadmap, releases, sessions, schedules, the keys, the phone layout…). `first-run.spec.ts` (naming the owner, the first
+roadmap, releases, sessions, schedules, the keys, the phone layout…). `navigation.spec.ts` walks the whole app from one
+list of pages: each renders with no error, and the sidebar, ⌘K and App settings → Advanced lead to it, so a new page
+is a line there. `first-run.spec.ts` (naming the owner, the first
 project) runs first as a project the others depend on; each other file makes a project of its own, with the helpers in
 `e2e/support.ts`, so it can run alone. It starts `nuxt dev` with a fresh `web/.data/e2e.db`, so your own database isn't
 touched, on a port of the checkout's own (3100–3299, from its path, `web/e2e-port.ts`; `E2E_PORT` picks one), so
@@ -69,13 +72,13 @@ has to say e2e (`postgres://orrery:orrery@localhost:5432/orrery_e2e`). CI runs i
 version, once on each database. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
 
 `e2e/visual.spec.ts` compares the board, the list and an issue's page to stored images. They're Linux's, so off
-Linux the spec skips; `pnpm test:e2e:visual` runs it in CI's Playwright image through Docker, and
+Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwright image through Docker, and
 `pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
 
 `pnpm test:e2e:perf` times the pages on a big orrery. `e2e/perf/seed.ts` fills a fresh `web/.data/perf.db` (or, with
 `E2E_POSTGRES_URL`, that Postgres) through the store: 20 projects, about 3,000 issues, 20,000 comments, 50,000
 history rows, plus proposals, events, docs and schedules. The `PERF_*` variables change the sizes (`PERF_ISSUES=10000`).
-Then it builds the app and runs it on port 3398, and `e2e/perf/perf.spec.ts` opens each page fresh: the first load,
+Then it builds the app and runs it on a port of the checkout's own (3400–3599), and `e2e/perf/perf.spec.ts` opens each page fresh: the first load,
 a big project's list, board and roadmap, an issue with a long thread, My issues, the bell, Notifications, Events,
 Sessions, Releases, the search, a dropped stream reconnecting, and a change arriving live. Each one has a budget in
 milliseconds, and a page over its budget fails the run. `web/perf-report/report.md` (and `report.json`) gives each

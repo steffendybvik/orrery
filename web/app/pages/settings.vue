@@ -20,9 +20,9 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'handle', text: 'Your handle', level: 2},
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
+        {id: 'proposals', text: 'Proposals', level: 2},
         {id: 'tracker', text: 'Team tracker', level: 2},
         {id: 'statuses', text: 'Issue statuses', level: 2},
-        {id: 'proposals', text: 'Proposals', level: 2},
     ]},
     {value: 'orrery', label: 'This orrery', scope: 'This orrery as a whole: how it looks, the keys its agents use and where it keeps its data. How sessions start is under Sessions → Setup.', sections: [
         {id: 'tint', text: 'Background tint', level: 2},
@@ -303,6 +303,21 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
+      <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
+          <p class="text-xs text-muted">
+            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
+            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
+          </p>
+        </header>
+        <label class="flex items-center gap-2 text-[13px] text-fg">
+          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
+          Keep agents off proposals until you approve them
+        </label>
+        <p v-if="proposalsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ proposalsFailed }}</p>
+      </section>
+
       <section v-if="tab === 'issues'" id="tracker" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.tracker }}</h2>
@@ -341,21 +356,6 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <StatusSettings />
-      </section>
-
-      <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
-        <header class="flex flex-col gap-0.5">
-          <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
-          <p class="text-xs text-muted">
-            A proposal isn't work until you approve it. While one waits on you, sessions can comment on it and put it up again,
-            but not start it, assign it or put it in a release, so nothing gets built before you've said yes.
-          </p>
-        </header>
-        <label class="flex items-center gap-2 text-[13px] text-fg">
-          <input type="checkbox" class="accent-accent-500" :checked="settings.restrict_proposals" @change="restrictProposals(($event.target as HTMLInputElement).checked)">
-          Keep agents off proposals until you approve them
-        </label>
-        <p v-if="proposalsFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ proposalsFailed }}</p>
       </section>
 
       <section v-if="tab === 'orrery'" id="tint" class="scroll-mt-6 flex flex-col gap-3">
@@ -541,13 +541,15 @@ async function pick(tint: string | null) {
           <h2 class="text-[15px] font-semibold text-fg">{{ title.advanced }}</h2>
           <p class="text-xs text-muted">
             orrery always keeps a log of its errors, in the server and in this page, on this machine only.
-            With Advanced on, it also records what it does (sessions starting and stopping, launchers, schedule runs, backups,
-            migrations) and each change to the roadmap, and puts a notice in the bell for each new kind of error.
+            With Advanced on, which it is unless you turn it off, it also records what it does (sessions starting and stopping,
+            launchers, schedule runs, backups, migrations) and each change to the roadmap, puts a notice in the bell for each new
+            kind of error, and shows Events, Context and Pull requests in the sidebar under Schedules. They stay linked below
+            either way.
           </p>
         </header>
         <label class="flex items-center gap-2 text-[13px] text-fg">
           <input type="checkbox" class="accent-accent-500" :checked="settings.advanced" @change="setAdvanced(($event.target as HTMLInputElement).checked)">
-          Record what orrery does, and tell me about new errors
+          Record what orrery does, tell me about new errors, and show Events, Context and Pull requests in the sidebar
         </label>
         <p v-if="advancedFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ advancedFailed }}</p>
       </section>
@@ -588,7 +590,7 @@ async function pick(tint: string | null) {
         <div class="flex items-center gap-2">
           <NuxtLink to="/pulls" class="text-[13px] font-medium text-accent-600 hover:underline dark:text-accent-400">Open pull requests</NuxtLink>
           <span v-if="pulls?.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
-          <span v-else-if="pulls?.pulls.length" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.pulls.length }}</span>
+          <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
           <span v-else-if="pulls && !pulls.repos.length" class="text-xs text-faint">No project has a repo on GitHub yet.</span>
         </div>
       </section>

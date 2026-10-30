@@ -32,6 +32,14 @@ describe('LauncherHint', () => {
         await vi.waitFor(() => expect(wrapper.text()).not.toContain('No launcher'))
     })
 
+    it('says the chat needs it, in the chat (ORR-591)', async () => {
+        const wrapper = await mountSuspended(LauncherHint, {props: {project: 'greenhouse', chat: true}})
+        mounted.push(wrapper)
+        await vi.waitFor(() => expect(wrapper.text()).toMatch(/No launcher is running for Greenhouse\.\s+The chat starts its session through it/))
+        expect(wrapper.text()).not.toContain('Start session')
+        expect(wrapper.text()).toContain('orrery-launcher.mjs --install')
+    })
+
     it('says nothing when a launcher is running', async () => {
         launchers = 1
         const wrapper = await mountSuspended(LauncherHint, {props: {project: 'greenhouse'}})

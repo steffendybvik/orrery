@@ -20,8 +20,12 @@
 # Only this machine can reach it (there are no accounts): ORRERY_HOST=0.0.0.0 opens it to the network,
 # and ORRERY_ALLOWED_HOSTS names any host name it's reached by besides localhost and an IP (see SECURITY.md).
 #
-# ORRERY_SECRET_KEY (a long random string: openssl rand -base64 32) turns on secrets, keys agents use to
-# call outside services without seeing them; it encrypts them, so keep it out of the backups.
+# Secrets, keys agents use to call outside services without seeing them, are encrypted with a key orrery makes on its
+# first start and keeps in /data/orrery.key, out of the backups. Or set your own: ORRERY_SECRET_KEY (a long random
+# string: openssl rand -base64 32), and keep it out of the backups too.
+#
+# orrery asks GitHub for its own releases at start and every 12 hours, to say in the sidebar when a newer one is out;
+# ORRERY_UPDATE_CHECK=false turns that off.
 #
 # Postgres instead of the SQLite file: `docker compose --profile postgres up -d` adds a postgres service (its
 # data in the orrery-pg volume), and ORRERY_DATABASE points orrery at it; put both in .env to keep them:
@@ -54,6 +58,7 @@ services:
       NUXT_ALLOWED_HOSTS: ${ORRERY_ALLOWED_HOSTS:-}
       NUXT_LISTEN_HOST: ${ORRERY_HOST:-127.0.0.1}
       NUXT_SECRET_KEY: ${ORRERY_SECRET_KEY:-}
+      NUXT_UPDATE_CHECK: ${ORRERY_UPDATE_CHECK:-true}
     volumes:
       - ${ORRERY_DATA:-orrery-data}:/data
       - ${ORRERY_BACKUP:-orrery-backup}:/backup

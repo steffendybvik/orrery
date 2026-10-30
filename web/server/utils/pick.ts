@@ -8,7 +8,7 @@
 // others were tried: it picks after the clear), one at a time a few seconds apart, so they don't all go for the same issue; the one-session-per-issue lock (`claim` in
 // store.ts) turns away a second start anyway.
 import type {Issue} from '#shared/roadmap'
-import {freezeNote} from '#shared/roadmap'
+import {freezeNote, isBlocked} from '#shared/roadmap'
 import type {IssueRecord} from '../store/schema'
 
 /** How many issues a session is handed at most. */
@@ -26,20 +26,24 @@ const handed = new Map<string, string>()
 const RANK = {P0: 0, P1: 1, P2: 2, P3: 3}
 const urgency = (issue: Pick<Issue, 'priority'>) => issue.priority ? RANK[issue.priority] : 4
 
-/** Whether an issue is free for a session to take: nobody's on it, or an agent is (`claude`). One assigned to the
- * owner or to anyone else is theirs. Picking and the Todo hand-out (todo-focus.ts) both go by it. */
-export const forSessions = (issue: {assignee?: string | null}) => !issue.assignee || issue.assignee === 'claude'
+/** Whether an issue is free for a session to take: nobody's on it, or an agent is (`claude`, in any case, as the
+ * board shows it). One assigned to the owner or to anyone else is theirs. Picking and the Todo hand-out
+ * (todo-focus.ts) both go by it. */
+export const forSessions = (issue: {assignee?: string | null}) => !issue.assignee || issue.assignee.toLowerCase() === 'claude'
 
 /** The issues a session hearing `projects` may start: Todo, or Backlog when there's no Todo, most urgent first (then
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
- * answer, and parents (their sub-issues are the work). At most PICK_FROM. */
+ * answer, ones blocked by an issue not done yet (ORR-601), sub-issues of one another session is on (ORR-613), and parents
+ * (their sub-issues are the work). At most PICK_FROM. */
 export async function pickable(projects: string[]): Promise<(IssueRecord & {project: string})[]> {
     const store = useStore()
     const open: (IssueRecord & {project: string})[] = []
     for (const project of projects) {
         for (const issue of await store.listIssues(project)) {
-            if (issue.proposal || issue.waiting || !forSessions(issue)) continue
+            if (issue.proposal || issue.waiting || !forSessions(issue) || isBlocked(issue)) continue
             if (issue.kind !== 'todo' && issue.kind !== 'backlog') continue
+            // A follow-up under an issue a session is on is that session's to start (ORR-611), and the one picking isn't it: it's out of work.
+            if (issue.parent && await store.heldAbove(project, issue.id)) continue
             open.push({...issue, project})
         }
     }

@@ -118,10 +118,12 @@ test('Menu: ↵ opens it on its first line, ↓ moves, ↵ runs, Esc closes', as
 test('UiContextMenu: opens at the pointer, takes the focus, and Esc, a press outside or a pick closes it', async ({page}) => {
     const area = page.getByText('Right-click here')
     const menu = page.getByRole('menu', {name: 'Example menu'})
-    const at = (await area.boundingBox())!
-    const [x, y] = [at.x + 10, at.y + 10]
-    await page.mouse.click(x, y, {button: 'right'})
+    // The row still shifts by a few pixels as the page settles, so a box read first can go stale and the click miss
+    // (CI). The locator's click waits for the area to hold still, and the pointer's spot is the event's own.
+    await page.evaluate(() => addEventListener('contextmenu', e => Object.assign(window, {pointer: [e.clientX, e.clientY]}), {once: true, capture: true}))
+    await area.click({button: 'right', position: {x: 10, y: 10}})
     await expect(menu).toBeVisible()
+    const [x, y] = await page.evaluate(() => (window as unknown as {pointer: [number, number]}).pointer)
     await expect(menu).toBeFocused()
     // Where it's placed, not where it is mid fade-in.
     const [left, top] = await menu.evaluate(m => [parseFloat(m.style.left), parseFloat(m.style.top)])

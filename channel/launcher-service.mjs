@@ -1,10 +1,15 @@
 // The launcher as a background service, so nobody keeps a terminal open for it: `--install`, run once in a
 // project's repo, adds the project to the launcher's list (~/.config/orrery/launcher.json) and registers one
 // service for every project on it, with launchd on macOS or systemd on Linux (on Windows, inside WSL with systemd
-// on: ORR-576). It starts at login, comes back if it dies, and starts each project's sessions in its repo. `--uninstall` takes the repo's project off the
-// list, and the service with the last one.
+// on: ORR-576). It starts at login, comes back if it dies, and starts each project's sessions in its repo. Run
+// anywhere else, `--install` registers the service with nothing on the list yet (ORR-598). Either way it turns repo
+// pick-up on (`pickUp`, off with `--no-pick-up`), for a repo's channel to add the repo's projects as it connects (ORR-599).
+// `--uninstall` in a repo takes its projects off the list and keeps the repo off it (`skip`), so pick-up doesn't
+// add it back; with pick-up off it removes the service with the last project. Anywhere else it removes the service,
+// keeping the list. The running service follows the list as it changes (ORR-597), so neither restarts it, and the
+// sessions it runs go on, unless its file changed.
 import {execFileSync} from 'node:child_process'
-import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {dirname, join} from 'node:path'
 
@@ -35,14 +40,41 @@ export function serviceProblem({platform = process.platform, wsl = platform === 
     return "systemd isn't running here, so the launcher can't install as a service; run it in a terminal instead"
 }
 
-/** The launcher's list: `{projects: [{url, project, dir}]}`, empty when there's none yet. */
+/** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip}`, empty when there's none yet. `pickUp`:
+ * whether a repo's channel adds the repo as it connects; `skip`: the repos `--uninstall` took off, which it doesn't. */
 export function readConfig(file = configFile()) {
+    return listIn(file) ?? empty()
+}
+
+const empty = () => ({projects: [], pickUp: false, skip: []})
+
+/** The list, empty when its file is missing, or null when the file can't be read as one (broken, or caught half
+ * written), which the running service skips rather than taking every project off. */
+export function listIn(file = configFile()) {
+    let text
     try {
-        const config = JSON.parse(readFileSync(file, 'utf8'))
-        return {projects: Array.isArray(config.projects) ? config.projects : []}
+        text = readFileSync(file, 'utf8')
     } catch {
-        return {projects: []}
+        return empty()
     }
+    try {
+        const config = JSON.parse(text)
+        return {
+            projects: Array.isArray(config.projects) ? config.projects : [],
+            pickUp: config.pickUp === true,
+            skip: Array.isArray(config.skip) ? config.skip.filter(dir => typeof dir === 'string') : [],
+        }
+    } catch {
+        return null
+    }
+}
+
+/** Writes the list whole, by a rename, so the running service following it never reads it half written. */
+function writeList(config, file = configFile()) {
+    mkdirSync(dirname(file), {recursive: true})
+    const next = `${file}.${process.pid}`
+    writeFileSync(next, `${JSON.stringify(config, null, 2)}\n`)
+    renameSync(next, file)
 }
 
 const same = (a, b) => a.url === b.url && a.project === b.project
@@ -56,6 +88,41 @@ export function withProject(config, entry) {
 export function withoutProject(config, entry) {
     return {...config, projects: config.projects.filter(p => !same(p, entry))}
 }
+
+/** Where the project `entry` is served from another repo than its own, if it is (a monorepo's channel to the personal
+ * orrery): `--install` leaves it there unless ORRERY_PROJECT names it, and pick-up always does. */
+export const servedElsewhere = (projects, entry) => projects.find(p => same(p, entry) && p.dir !== entry.dir)
+
+/** Pick-up (ORR-599): a repo's channel, as it connects, puts the repo's projects (`entries`, each in `dir`) on the list
+ * the way `--install` there would, when pick-up is on, the repo isn't kept off (`--uninstall` there) and a project
+ * isn't on the list already, from this repo or another. It writes the list alone, which the running service follows.
+ * Each is marked with when it was picked up. Says which it put on. */
+export function pickUp(entries, dir, {file = configFile(), now = new Date()} = {}) {
+    const config = listIn(file)
+    if (!config?.pickUp || config.skip.includes(dir)) return []
+    const added = entries.filter(entry => entry.dir === dir && !config.projects.some(p => same(p, entry)))
+        .map(entry => ({...entry, picked_at: now.toISOString()}))
+    if (added.length) writeList(added.reduce(withProject, config), file)
+    return added
+}
+
+/** The list with the repo at `dir` kept off it (`--uninstall` there) or not (`--install`), for pick-up. */
+export function skipping(config, dir, skip) {
+    const others = config.skip.filter(d => d !== dir)
+    return {...config, skip: skip ? [...others, dir] : others}
+}
+
+/** What the running service has to do when its list goes from `before` to `after`: serve the projects `added`, and let
+ * go of those `removed`. A project that moved to another repo is both, so it's served from the new one. */
+export function listChanges(before, after) {
+    const kept = (entry, list) => list.some(p => same(p, entry) && p.dir === entry.dir)
+    return {added: after.filter(p => !kept(p, before)), removed: before.filter(p => !kept(p, after))}
+}
+
+/** Set in the service's environment by a launcher that follows its list while running (ORR-597). A service file
+ * without it ran one that read the list only at start, so installing over it restarts it once, onto the code that
+ * follows. */
+export const RELOADS = 'ORRERY_LAUNCHER_RELOADS'
 
 const xml = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -71,7 +138,7 @@ export function plist({node, script, path, log}) {
   <key>ProgramArguments</key>
   <array><string>${xml(node)}</string><string>${xml(script)}</string><string>--service</string></array>
   <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>${xml(path)}</string></dict>
+  <dict><key>PATH</key><string>${xml(path)}</string><key>${RELOADS}</key><string>1</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>StandardOutPath</key><string>${xml(log)}</string>
@@ -90,6 +157,7 @@ Description=orrery launcher: starts Claude sessions for orrery
 
 [Service]
 ExecStart=${quote(node)} ${quote(script)} --service
+Environment=${quote(`${RELOADS}=1`)}
 Environment=${quote(`PATH=${path}`)}
 ${distro ? `Environment=${quote(`WSL_DISTRO_NAME=${distro}`)}\n` : ''}Restart=on-failure
 RestartSec=10
@@ -129,6 +197,14 @@ function platform() {
                 }
             },
             stop: () => run('launchctl', 'bootout', `gui/${uid}/${LABEL}`),
+            running: () => {
+                try {
+                    // Loaded isn't enough: one that exited on its own stays loaded, and wouldn't pick the list up.
+                    return /^\s*state = running$/m.test(run('launchctl', 'print', `gui/${uid}/${LABEL}`))
+                } catch {
+                    return false
+                }
+            },
         }
     }
     // Linux, WSL's included: systemd.
@@ -141,39 +217,68 @@ function platform() {
             run('systemctl', '--user', 'restart', 'orrery-launcher')
         },
         stop: () => run('systemctl', '--user', 'disable', '--now', 'orrery-launcher'),
+        running: () => {
+            try {
+                return run('systemctl', '--user', 'is-active', 'orrery-launcher') === 'active'
+            } catch {
+                return false
+            }
+        },
     }
 }
 
-/** Adds the project to the list and (re)starts the service with it. Restarting stops the sessions it was running. */
-export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
-    const where = platform()
-    const config = entries.reduce(withProject, readConfig())
-    mkdirSync(dirname(configFile()), {recursive: true})
-    writeFileSync(configFile(), `${JSON.stringify(config, null, 2)}\n`)
+/** Writes the list, then the service's file, (re)starting the service only when that file changed or it isn't
+ * running: a running one picks the new list up itself. Says whether it restarted. */
+function apply(where, config, opts) {
+    writeList(config)
+    const text = where.render(opts)
+    let was = ''
+    try {
+        was = readFileSync(where.file, 'utf8')
+    } catch {
+        // Not installed yet.
+    }
+    if (was === text && where.running()) return false
     mkdirSync(dirname(where.file), {recursive: true})
-    writeFileSync(where.file, where.render({node, script, path}))
+    writeFileSync(where.file, text)
     where.start()
-    return {config, file: where.file, logs: where.logs}
+    return true
 }
 
-/** Takes the project off the list, restarting the service without it, or removing it with the last one. */
-export function uninstall(entries, {node = process.execPath, script, path = process.env.PATH ?? ''}) {
+/** Adds the projects of the repo at `dir` to the list (none, and no `dir`, to install the service alone), sets
+ * pick-up, and starts the service if it isn't running on the same file. A restart stops the sessions it was running. */
+export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true}) {
     const where = platform()
-    const config = entries.reduce(withoutProject, readConfig())
-    mkdirSync(dirname(configFile()), {recursive: true})
-    writeFileSync(configFile(), `${JSON.stringify(config, null, 2)}\n`)
-    if (config.projects.length) {
-        writeFileSync(where.file, where.render({node, script, path}))
-        where.start()
+    const listed = {...entries.reduce(withProject, readConfig()), pickUp}
+    const config = dir ? skipping(listed, dir, false) : listed
+    const restarted = apply(where, config, {node, script, path})
+    return {config, file: where.file, logs: where.logs, restarted}
+}
+
+/** Takes the projects of the repo at `dir` off the list and keeps the repo off it, which the running service follows.
+ * With pick-up off, the last project takes the service with it; with it on, the service stays to be handed repos. */
+export function uninstall(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir}) {
+    const where = platform()
+    const config = skipping(entries.reduce(withoutProject, readConfig()), dir, true)
+    if (config.projects.length || config.pickUp) {
+        apply(where, config, {node, script, path})
     } else {
-        try {
-            where.stop()
-        } catch {
-            // It wasn't running.
-        }
-        rmSync(where.file, {force: true})
+        removeService(where, config)
     }
     return {config, file: where.file}
+}
+
+/** Stops the service and removes its file, whatever is on the list, which stays for the next `--install`. Pick-up goes
+ * off with it, so no channel puts a repo on a list nothing serves. */
+export function removeService(where = platform(), config = readConfig()) {
+    writeList({...config, pickUp: false})
+    try {
+        where.stop()
+    } catch {
+        // It wasn't running.
+    }
+    rmSync(where.file, {force: true})
+    return {file: where.file}
 }
 
 /** Whether the process `pid` is a launcher still running. Once a launcher dies the system can hand its pid to

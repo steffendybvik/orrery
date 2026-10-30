@@ -69,6 +69,17 @@ export function useSelection() {
         window.addEventListener('pointercancel', end)
     }
 
+    /** The ticked ones in the order the page lists them, top to bottom (as the bar's Chain in order links them); any
+     *  not on the page after, in the order they were ticked. */
+    function inPageOrder(): string[] {
+        const all = visible()
+        const at = (k: string) => {
+            const i = all.indexOf(k)
+            return i < 0 ? all.length : i
+        }
+        return [...selected.value].sort((a, b) => at(a) - at(b))
+    }
+
     function selectVisible() {
         selected.value = [...new Set([...selected.value, ...visible()])]
     }
@@ -89,5 +100,5 @@ export function useSelection() {
         return out
     })
 
-    return {selected, key, isSelected, toggle, set, drag, selectVisible, clear, byProject}
+    return {selected, key, isSelected, toggle, set, drag, selectVisible, inPageOrder, clear, byProject}
 }

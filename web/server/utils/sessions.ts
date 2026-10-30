@@ -35,9 +35,9 @@ interface Known extends Session {
     chat?: boolean
     /** The tool its hook last said it's about to use or asks for: what a permission prompt after it is for. */
     tool?: SessionTool
-    /** `tool` came from a permission dialog, so a parallel tool's `PreToolUse` landing after it (both run in the
-     * background) doesn't take its place until the prompt is answered (ORR-572). */
-    asked?: boolean
+    /** When a permission dialog said `tool`: a parallel tool's `PreToolUse` landing after it (both run in the
+     * background) doesn't take its place until the prompt is answered (ORR-572), nor, just after, end the wait (ORR-574). */
+    asked?: number
 }
 
 const sessions = new Map<string, Known>()
@@ -50,6 +50,9 @@ const FORGET_AFTER = 6 * 60 * 60 * 1000
 const FORGET_IDLE_AFTER = 60 * 60 * 1000
 // How long a cleared session waits for the one that takes it over.
 const CLEARED_FOR = 60 * 1000
+// A permission prompt isn't answered this soon after its dialog opened: another tool's `PreToolUse` landing in this time
+// is a parallel call's, late, not the session going on.
+const PARALLEL_WITHIN = 1000
 
 /** What each hook event means for the session's state; `end` drops it. */
 const STATES: Record<string, SessionState | 'end'> = {
@@ -163,6 +166,8 @@ function forget(session: Known) {
     for (const [from, to] of aliases) if (to === session.id) aliases.delete(from)
 }
 
+const sameTool = (a?: SessionTool, b?: SessionTool) => a?.name === b?.name && a?.detail === b?.detail
+
 function changed(project: string) {
     projectEvents.emit('sessions', project)
 }
@@ -188,7 +193,9 @@ export function report(input: Report): Session | null {
         }
         return null
     }
-    const state = (['starting', 'working', 'idle', 'waiting'] as const).find(s => s === event) ?? 'idle'
+    const parallel = input.event === 'PreToolUse' && session?.state === 'waiting' && session.asked !== undefined
+        && Date.now() - session.asked < PARALLEL_WITHIN && !sameTool(input.tool, session.tool)
+    const state = parallel ? 'waiting' : (['starting', 'working', 'idle', 'waiting'] as const).find(s => s === event) ?? 'idle'
     if (!session && event === 'end') return null
     if (!session) {
         session = {
@@ -196,7 +203,7 @@ export function report(input: Report): Session | null {
             cwd: input.cwd, state, since: now, started_at: now, listening: false, seenAt: Date.now(), hooked: input.project,
             ...state === 'waiting' && input.message ? {asks: input.message} : {},
             ...input.tool ? {tool: input.tool} : {},
-            ...input.event === 'PermissionRequest' && input.tool ? {asked: true} : {},
+            ...input.event === 'PermissionRequest' && input.tool ? {asked: Date.now()} : {},
             ...state === 'waiting' && input.tool ? {asking: input.tool} : {},
         }
         add(session)
@@ -217,9 +224,9 @@ export function report(input: Report): Session | null {
         if (session.state === 'waiting' && state === 'working' && input.event !== 'PermissionRequest') session.asked = undefined
         if (session.state !== state) session.since = now
         session.state = state
-        if (input.event !== 'PermissionRequest') session.asks = state === 'waiting' ? input.message : undefined
+        if (input.event !== 'PermissionRequest' && !parallel) session.asks = state === 'waiting' ? input.message : undefined
         if (input.tool && (input.event === 'PermissionRequest' || !session.asked)) session.tool = input.tool
-        if (input.event === 'PermissionRequest' && input.tool) session.asked = true
+        if (input.event === 'PermissionRequest' && input.tool) session.asked = Date.now()
         session.asking = state === 'waiting' ? session.tool : undefined
         // Done with its turn: the next prompt comes after a tool of its next.
         if (state === 'idle') session.tool = session.asked = undefined
@@ -389,6 +396,13 @@ const byLaunch = (project: string, launch: string) => [...sessions.values()].fin
 export function sessionOfLaunch(project: string, launch: string): Session | undefined {
     const session = byLaunch(project, launch)
     return session && publicOf(session)
+}
+
+/** The owner answered the permission prompt of the session orrery started for the launch (Allow, sent to its launcher):
+ * the tool it runs next is its going on, however soon, not a parallel call's late hook (ORR-595). */
+export function promptAnswered(project: string, launch: string) {
+    const session = byLaunch(project, launch)
+    if (session) session.asked = undefined
 }
 
 /** A launch its launcher says it runs: the session started for it counts as started again, with its stop time,

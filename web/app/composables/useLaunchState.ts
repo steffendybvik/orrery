@@ -1,13 +1,16 @@
+import type {LauncherRepo} from '#shared/roadmap'
+
 // Whether a project's launcher is there and how many sessions it has started or has on their way, and every
 // project's together, which the limit counts (`GET /launches`), shared by everything on the page that shows it:
 // asked again when any project's launchers or sessions change, once however many show it. `install` is what installs the launcher, run
-// in the project's repo: this orrery's checkout, where it knows it. `folders`: where its launchers run, so projects
-// served from one repo can share a session; `every`: whether one runs where the channel serves every project (`*`).
+// once (in a repo, it adds the repo too), with this orrery's checkout as its path, where it knows it. `folders`: where its launchers run, so projects
+// served from one repo can share a session, and `repos`, the same with when a channel picked each up (ORR-605); `every`: whether one runs where the channel serves every project (`*`).
 export interface LaunchState {
     launchers: number
     /** The version each launcher runs; `''` from one too old to say. */
     versions: string[]
     folders: string[]
+    repos: LauncherRepo[]
     every: boolean
     started: number
     starting: number
@@ -24,6 +27,8 @@ export function useLaunchState(project: MaybeRefOrGetter<string>) {
 
     function refresh(): Promise<void> {
         const id = toValue(project)
+        // No project (the chat pane before one is picked): nothing to ask about (ORR-595).
+        if (!id) return Promise.resolve()
         const already = asking.get(id)
         if (already) return already
         const ask = $fetch<LaunchState>(`/api/projects/${encodeURIComponent(id)}/launches`).catch(() => null)

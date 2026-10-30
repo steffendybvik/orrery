@@ -21,9 +21,12 @@ let adopted: string[]
 let focused: {issue: string, session: string}[]
 let scoped: {chunk: string, body: Record<string, unknown>}[]
 let messages: {schedule: number, text: string, target?: string}[]
+/** The launches whose prompt the owner's Allow answered. */
+let answered: string[]
 
 beforeEach(async () => {
     sent = []
+    answered = []
     listeners = 0
     started = {greenhouse: 0, all: 0}
     starts = {limit: 2, minutes: 30}
@@ -40,6 +43,7 @@ beforeEach(async () => {
     vi.stubGlobal('listening', () => listeners)
     vi.stubGlobal('startedSessions', (project?: string) => project ? started.greenhouse : started.all)
     vi.stubGlobal('sessionOfLaunch', () => session)
+    vi.stubGlobal('promptAnswered', (project: string, id: string) => void answered.push(`${project}/${id}`))
     vi.stubGlobal('adoptLaunch', (_project: string, started: {launch: string}) => adopted.push(started.launch))
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stops_at: string) => ({...session, started: {...session!.started!, stops_at}}))
     vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
@@ -113,7 +117,7 @@ describe('starting a session', () => {
         expect(sent).toEqual([{type: 'launch', after: 6, minutes: 30}])
         // The launch on its way covers what comes after it, until its session connects.
         expect(await launches.considerLaunch(signal(8))).toBeNull()
-        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], every: false, started: 0, starting: 1, total: 1})
+        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], repos: [], every: false, started: 0, starting: 1, total: 1})
         expect(launches.launched(launch!.id)).toMatchObject({launch: launch!.id, tmux: launch!.tmux})
         started = {greenhouse: 1, all: 1}
         expect(await launches.considerLaunch(signal(9))).not.toBeNull()
@@ -132,6 +136,30 @@ describe('starting a session', () => {
         unsaid()
         now()
         expect(launches.launchState('greenhouse').versions).toEqual([])
+    })
+
+    it('knows which folders a channel picked up, and when, until their launchers go (ORR-605)', () => {
+        const picked = launches.addLauncher('greenhouse', '/code/greenhouse', false, '', '2026-10-29T20:00:00.000Z')
+        const installed = launches.addLauncher('greenhouse', '/code/monorepo')
+        expect(launches.launchState('greenhouse').repos).toEqual([{dir: '/code/greenhouse', picked_at: '2026-10-29T20:00:00.000Z'}, {dir: '/code/monorepo'}])
+        picked()
+        installed()
+        expect(launches.launchState('greenhouse').repos).toEqual([])
+        // Installed by hand there later, it isn't taken for picked up.
+        const again = launches.addLauncher('greenhouse', '/code/greenhouse')
+        expect(launches.launchState('greenhouse').repos).toEqual([{dir: '/code/greenhouse'}])
+        again()
+    })
+
+    it("isn't for the owner's answer that asks for no work, such as Allow on a schedule request (ORR-606)", async () => {
+        const done = launches.addLauncher('greenhouse')
+        const {startsNone} = await import('../server/utils/starts-none')
+        expect(await startsNone.run(true, () => launches.considerLaunch(signal(5)))).toBeNull()
+        expect(sent).toEqual([])
+        expect(launches.launchState('greenhouse').starting).toBe(0)
+        // Real work after it still starts one.
+        expect(await launches.considerLaunch(signal(6))).not.toBeNull()
+        done()
     })
 
     it("isn't for a signal aimed at one session, or one that's been delivered", async () => {
@@ -276,7 +304,7 @@ describe('the owner starting a session by hand', () => {
         launches.addLauncher('greenhouse')
         started = {greenhouse: 0, all: 2}
         await expect(launches.startLaunch('greenhouse')).rejects.toThrow('orrery already has its 2 sessions at once')
-        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], every: false, started: 0, starting: 0, total: 2})
+        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], repos: [], every: false, started: 0, starting: 0, total: 2})
     })
 
     it('starts one session hearing several projects only when their launchers share a folder', async () => {
@@ -395,6 +423,8 @@ describe('a session orrery started', () => {
         launches.addLauncher('greenhouse')
         launches.allowLaunch('greenhouse', 'abc')
         expect(sent).toEqual([{type: 'allow', project: 'greenhouse', id: 'abc'}])
+        // Answered: the tool it runs next is it going on (ORR-595).
+        expect(answered).toEqual(['greenhouse/abc'])
     })
 
     it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {

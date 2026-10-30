@@ -9,7 +9,7 @@ import {OWNER, hold, makeProject} from './support'
 let starts: unknown = null
 
 test.beforeAll(async ({request}) => {
-    await makeProject(request, {name: 'Larder', key: 'LAR'})
+    await makeProject(request, {name: 'Observatory', key: 'OBS'})
     // orrery isn't let start sessions: a chat needs only the launcher. The files after this one get it back as it was.
     starts = (await (await request.get('/api/settings')).json()).starts ?? null
     const off = await request.patch('/api/settings', {data: {starts: null}, headers: OWNER})
@@ -26,7 +26,7 @@ test.afterAll(async ({request}) => {
 })
 
 test('takes an image dropped anywhere on the pane, showing where it can go, and goes back to the message', async ({page}) => {
-    await page.goto('/p/larder')
+    await page.goto('/p/observatory')
     await page.getByRole('button', {name: 'Agent', exact: true}).click()
     const pane = page.getByRole('region', {name: 'Chat'})
     const drag = await page.evaluateHandle(() => {
@@ -36,7 +36,7 @@ test('takes an image dropped anywhere on the pane, showing where it can go, and 
         return transfer
     })
     // Over the greeting, far from the message box.
-    const greeting = pane.getByRole('heading', {name: 'Ask about Larder'})
+    const greeting = pane.getByRole('heading', {name: 'Ask about Observatory'})
     await greeting.dispatchEvent('dragenter', {dataTransfer: drag})
     await expect(pane.getByText('Drop image to add')).toBeVisible()
     await greeting.dispatchEvent('drop', {dataTransfer: drag})
@@ -48,15 +48,15 @@ test('takes an image dropped anywhere on the pane, showing where it can go, and 
 })
 
 test('chats with a session that answers on the page, and is listed nowhere', async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
     try {
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
-        await page.goto('/p/larder')
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // It opens ready to type into, on the project you're on, with things to ask.
-        await expect(pane.getByRole('heading', {name: 'Ask about Larder'})).toBeVisible()
+        await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
         await pane.getByRole('button', {name: 'How do schedules work?'}).click()
         await expect(pane.getByLabel('Message')).toHaveValue('How do schedules work?')
 
@@ -68,12 +68,12 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         const [chat] = await (await request.get('/api/chats')).json()
         // As its launcher starts it: catching up from the launch's `after`, so what was said before it connected reaches it.
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
-        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat&name=e2e-chat&started=${chat.id}&chat=yes&after=${after}&format=text`)
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat&name=e2e-chat&started=${chat.id}&chat=yes&after=${after}&format=text`)
         await expect.poll(() => session!.said.text).toContain('What is on the top shelf?')
         // With the page the owner is on, so it knows what "this" is.
-        expect(session.said.text).toContain('(The owner is on /p/larder')
+        expect(session.said.text).toContain('(The owner is on /p/observatory')
         // It takes the message up, as its hooks say.
-        await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'larder', event: 'UserPromptSubmit'}})
+        await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'observatory', event: 'UserPromptSubmit'}})
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
         // Its answer comes back through its channel's reply tool.
         const answered = await request.post(`/api/chats/${chat.id}/replies`, {
@@ -85,7 +85,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         // Answered partway through its turn, it's still working: the dots stay, after the reply, until the turn ends.
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
         expect(await pane.locator('ol > li').last().getAttribute('aria-label')).toBe('Thinking…')
-        await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'larder', event: 'Stop'}})
+        await request.post('/api/sessions', {data: {id: 'e2e-chat', project: 'observatory', event: 'Stop'}})
         await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
         // Copy under the reply takes its Markdown as written, not the page's text.
         await page.evaluate(() => {
@@ -97,21 +97,21 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         await expect(pane.getByRole('button', {name: 'Copy this reply'})).toHaveText('Copied')
         expect(await page.evaluate(() => (window as unknown as {copied: string[]}).copied)).toEqual(['Jars of **jam**.'])
         // Anything but making issues, commenting and answering is refused.
-        const moved = await request.post('/api/projects/larder/issues/LAR-1/focus', {data: {}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes'}})
+        const moved = await request.post('/api/projects/observatory/issues/OBS-1/focus', {data: {}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes'}})
         expect(moved.status()).toBe(403)
         // It changes an issue's fields when the owner asks, but never its state of work.
-        const shelf = await (await request.post('/api/projects/larder/issues', {data: {title: 'Label the shelf'}, headers: OWNER})).json()
-        const urgent = await request.patch(`/api/projects/larder/issues/${shelf.id}`, {data: {priority: 'P0'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}})
+        const shelf = await (await request.post('/api/projects/observatory/issues', {data: {title: 'Label the shelf'}, headers: OWNER})).json()
+        const urgent = await request.patch(`/api/projects/observatory/issues/${shelf.id}`, {data: {priority: 'P0'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}})
         expect(urgent.ok(), await urgent.text()).toBeTruthy()
         expect((await urgent.json()).priority).toBe('P0')
-        const finished = await request.patch(`/api/projects/larder/issues/${shelf.id}`, {data: {status: 'done'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}})
+        const finished = await request.patch(`/api/projects/observatory/issues/${shelf.id}`, {data: {status: 'done'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}})
         expect(finished.status()).toBe(403)
 
         // It isn't one of the sessions: not listed, and nothing for the limit. Leaving the page leaves it running.
         await page.goto('/sessions')
         await expect(page.getByRole('heading', {name: 'Sessions'}).first()).toBeVisible()
         await expect(page.locator('#session-e2e-chat')).toHaveCount(0)
-        expect((await (await request.get('/api/projects/larder/launches')).json()).total).toBe(0)
+        expect((await (await request.get('/api/projects/observatory/launches')).json()).total).toBe(0)
 
         // With a chat running, the button says so.
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
@@ -145,26 +145,26 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
 })
 
 test("asks before messaging other sessions, and sends only on the owner's Send, marked as through the chat", async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     const streams: ReturnType<typeof hold>[] = []
     try {
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         // The pane opens on the chat running, so this one alone.
         await endChats(request)
-        const opened = await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})
+        const opened = await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})
         expect(opened.ok(), await opened.text()).toBeTruthy()
         const chat = await opened.json()
-        const own = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat2&name=e2e-chat2&started=${chat.id}&chat=yes&format=text`)
-        const idle = hold(baseURL!, '/api/projects/larder/signals/stream?session=e2e-idle&name=e2e-idle&format=text')
-        const busy = hold(baseURL!, '/api/projects/larder/signals/stream?session=e2e-busy&name=e2e-busy&format=text')
+        const own = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat2&name=e2e-chat2&started=${chat.id}&chat=yes&format=text`)
+        const idle = hold(baseURL!, '/api/projects/observatory/signals/stream?session=e2e-idle&name=e2e-idle&format=text')
+        const busy = hold(baseURL!, '/api/projects/observatory/signals/stream?session=e2e-busy&name=e2e-busy&format=text')
         streams.push(own, idle, busy)
         // Both connected, then in their states, before the nudge: a state said before its stream connects can be lost.
         const listening = async () => (await (await request.get('/api/sessions')).json())
             .filter((s: {id: string, listening: boolean}) => ['e2e-idle', 'e2e-busy'].includes(s.id) && s.listening)
             .map((s: {id: string, state: string}) => `${s.id} ${s.state}`).sort()
         await expect.poll(async () => (await listening()).map(l => l.split(' ')[0])).toEqual(['e2e-busy', 'e2e-idle'])
-        await request.post('/api/sessions', {data: {id: 'e2e-idle', project: 'larder', event: 'Stop'}})
-        await request.post('/api/sessions', {data: {id: 'e2e-busy', project: 'larder', event: 'UserPromptSubmit'}})
+        await request.post('/api/sessions', {data: {id: 'e2e-idle', project: 'observatory', event: 'Stop'}})
+        await request.post('/api/sessions', {data: {id: 'e2e-busy', project: 'observatory', event: 'UserPromptSubmit'}})
         await expect.poll(listening).toEqual(['e2e-busy working', 'e2e-idle idle'])
         const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat2', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
         const ask = async (message: object) => {
@@ -175,14 +175,14 @@ test("asks before messaging other sessions, and sends only on the owner's Send, 
 
         // It can't message a session itself, by either route, whatever it says it is (ORR-416).
         expect((await request.post('/api/sessions/message', {data: {text: 'Hi'}, headers: asChat})).status()).toBe(403)
-        expect((await request.post('/api/projects/larder/sessions/e2e-idle/message', {data: {text: 'Hi'}, headers: asChat})).status()).toBe(403)
+        expect((await request.post('/api/projects/observatory/sessions/e2e-idle/message', {data: {text: 'Hi'}, headers: asChat})).status()).toBe(403)
         expect((await request.post('/api/sessions/message', {data: {text: 'Hi'}, headers: {...asChat, 'Orrery-Actor': OWNER['Orrery-Actor']}})).status()).toBe(403)
 
-        await page.goto('/p/larder')
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // Idle ones by default: shown with who it goes to, and sent only on Send.
-        expect((await ask({text: 'Pick up Todo.', projects: ['larder']})).to).toEqual(['e2e-idle'])
+        expect((await ask({text: 'Pick up Todo.', projects: ['observatory']})).to).toEqual(['e2e-idle'])
         const nudge = pane.getByRole('group', {name: 'Send a message to e2e-idle'}).last()
         await expect(nudge).toContainText('Pick up Todo.')
         expect(idle.said.text).not.toContain('Pick up Todo.')
@@ -217,14 +217,14 @@ test("asks before messaging other sessions, and sends only on the owner's Send, 
 })
 
 test('asks the owner to change a setting, and saves it only on their Allow', async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
     try {
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         // The pane opens on the chat running, so this one alone.
         await endChats(request)
-        const chat = await (await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})).json()
-        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat3&name=e2e-chat3&started=${chat.id}&chat=yes&format=text`)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat3&name=e2e-chat3&started=${chat.id}&chat=yes&format=text`)
         const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat3', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
         const tracker = async () => (await (await request.get('/api/settings')).json()).tracker
         const url = 'https://tracker.example.com/issue/{id}'
@@ -234,7 +234,7 @@ test('asks the owner to change a setting, and saves it only on their Allow', asy
             return (await asked.json()).id as number
         }
 
-        await page.goto('/p/larder')
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // Denied: nothing saved, and its session hears so.
@@ -269,14 +269,14 @@ test('asks the owner to change a setting, and saves it only on their Allow', asy
 })
 
 test('asks the owner to make or pause a schedule, and saves it as theirs only on their Allow', async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
-    const schedules = async () => (await (await request.get('/api/projects/larder/schedules')).json()) as {id: number, title: string, enabled: boolean, created_by: string}[]
+    const schedules = async () => (await (await request.get('/api/projects/observatory/schedules')).json()) as {id: number, title: string, enabled: boolean, created_by: string}[]
     try {
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         await endChats(request)
-        const chat = await (await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})).json()
-        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat-sched&name=e2e-chat-sched&started=${chat.id}&chat=yes&format=text`)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-sched&name=e2e-chat-sched&started=${chat.id}&chat=yes&format=text`)
         const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-sched', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
         const ask = async (data: object) => {
             const asked = await request.post(`/api/chats/${chat.id}/requests`, {data, headers: asChat})
@@ -284,13 +284,13 @@ test('asks the owner to make or pause a schedule, and saves it as theirs only on
             return (await asked.json()).id as number
         }
 
-        await page.goto('/p/larder')
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // What Schedules would refuse, or the chat may not set, fails as it asks; it can't make one itself.
         expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {schedule: {title: 'Bad', cron: 'often'}}, headers: asChat})).status()).toBe(400)
         expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {schedule: {title: 'Outsiders', untrusted: true}}, headers: asChat})).status()).toBe(403)
-        expect((await request.post('/api/projects/larder/schedules', {data: {title: 'Sneaky', cron: '0 9 * * 1'}, headers: asChat})).status()).toBe(403)
+        expect((await request.post('/api/projects/observatory/schedules', {data: {title: 'Sneaky', cron: '0 9 * * 1'}, headers: asChat})).status()).toBe(403)
 
         // Allowed: made, as the owner's.
         await ask({schedule: {title: 'Stock check', kind: 'message', notes: 'Count the jars.', cron: '0 9 * * 1', timezone: 'UTC'}})
@@ -313,33 +313,33 @@ test('asks the owner to make or pause a schedule, and saves it as theirs only on
         expect((await schedules())[0]!.enabled).toBe(true)
     } finally {
         await endChats(request)
-        for (const s of await schedules()) await request.delete(`/api/projects/larder/schedules/${s.id}`, {headers: OWNER})
+        for (const s of await schedules()) await request.delete(`/api/projects/observatory/schedules/${s.id}`, {headers: OWNER})
         session?.stop()
         launcher.stop()
     }
 })
 
 test('asks the owner to move or assign issues, and moves them as theirs only on their Allow', async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
     const made: string[] = []
-    const issue = async (id: string) => (await (await request.get(`/api/projects/larder/issues/${id}`)).json()) as {column: string, assignee?: string}
+    const issue = async (id: string) => (await (await request.get(`/api/projects/observatory/issues/${id}`)).json()) as {column: string, assignee?: string}
     try {
         for (const title of ['Label the jars', 'Fix the shelf']) {
-            const created = await request.post('/api/projects/larder/issues', {data: {title, status: 'todo'}, headers: OWNER})
+            const created = await request.post('/api/projects/observatory/issues', {data: {title, status: 'todo'}, headers: OWNER})
             made.push((await created.json()).id)
         }
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         await endChats(request)
-        const chat = await (await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})).json()
-        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat-move&name=e2e-chat-move&started=${chat.id}&chat=yes&format=text`)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-move&name=e2e-chat-move&started=${chat.id}&chat=yes&format=text`)
         const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-move', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
         // It can't move one itself, only ask.
-        expect((await request.patch(`/api/projects/larder/issues/${made[0]}`, {data: {status: 'done'}, headers: asChat})).status()).toBe(403)
+        expect((await request.patch(`/api/projects/observatory/issues/${made[0]}`, {data: {status: 'done'}, headers: asChat})).status()).toBe(403)
         const asked = await request.post(`/api/chats/${chat.id}/requests`, {data: {move: {ids: made, status: 'done', assignee: 'owner'}, why: 'Both are done.'}, headers: asChat})
         expect(asked.status(), await asked.text()).toBe(201)
 
-        await page.goto('/p/larder')
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         const card = page.getByRole('region', {name: 'Chat'}).getByRole('group', {name: `Move ${made.join(', ')}`})
         await expect(card).toContainText('Label the jars')
@@ -352,34 +352,34 @@ test('asks the owner to move or assign issues, and moves them as theirs only on 
         await expect.poll(() => session!.said.text).toContain('are now in done')
     } finally {
         await endChats(request)
-        for (const id of made) await request.delete(`/api/projects/larder/issues/${id}`, {headers: OWNER})
+        for (const id of made) await request.delete(`/api/projects/observatory/issues/${id}`, {headers: OWNER})
         session?.stop()
         launcher.stop()
     }
 })
 
 test('asks the owner to add or ship a release, and saves it only on their Allow', async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
-    const releases = async () => (await (await request.get('/api/projects/larder/releases')).json()) as {version: string, branch?: string, shipped_on?: string}[]
+    const releases = async () => (await (await request.get('/api/projects/observatory/releases')).json()) as {version: string, branch?: string, shipped_on?: string}[]
     try {
-        await request.patch('/api/projects/larder', {data: {release_mode: 'own'}, headers: OWNER})
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await request.patch('/api/projects/observatory', {data: {release_mode: 'own'}, headers: OWNER})
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         await endChats(request)
-        const chat = await (await request.post('/api/chats', {data: {project: 'larder'}, headers: OWNER})).json()
-        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-chat-rel&name=e2e-chat-rel&started=${chat.id}&chat=yes&format=text`)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-rel&name=e2e-chat-rel&started=${chat.id}&chat=yes&format=text`)
         const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-rel', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
         const ask = async (data: object) => {
             const asked = await request.post(`/api/chats/${chat.id}/requests`, {data, headers: asChat})
             expect(asked.status(), await asked.text()).toBe(201)
         }
 
-        await page.goto('/p/larder')
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // What Releases would refuse fails as it asks; it can't make one itself.
         expect((await request.post(`/api/chats/${chat.id}/requests`, {data: {release: {version: 'one two'}}, headers: asChat})).status()).toBe(400)
-        expect((await request.post('/api/projects/larder/releases', {data: {version: '0.1.0'}, headers: asChat})).status()).toBe(403)
+        expect((await request.post('/api/projects/observatory/releases', {data: {version: '0.1.0'}, headers: asChat})).status()).toBe(403)
 
         // Allowed: added.
         await ask({release: {version: '0.1.0', branch: 'v0.1.0'}})
@@ -400,8 +400,8 @@ test('asks the owner to add or ship a release, and saves it only on their Allow'
         expect((await releases())[0]!.shipped_on).toBeUndefined()
     } finally {
         await endChats(request)
-        for (const r of await releases()) await request.delete(`/api/projects/larder/releases/${r.version}`, {headers: OWNER})
-        await request.patch('/api/projects/larder', {data: {release_mode: 'none'}, headers: OWNER})
+        for (const r of await releases()) await request.delete(`/api/projects/observatory/releases/${r.version}`, {headers: OWNER})
+        await request.patch('/api/projects/observatory', {data: {release_mode: 'none'}, headers: OWNER})
         session?.stop()
         launcher.stop()
     }
@@ -411,12 +411,12 @@ test('asks the owner to add or ship a release, and saves it only on their Allow'
 // during it, and it's remembered for the next one. The server holds the chat to it, whatever status its session asks
 // for, and the session can't change it.
 test('lands the issues it makes in Todo or Backlog, as picked beside Send', async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     const chatSays = (chat: string) => ({'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat})
-    const statusOf = async (id: string) => (await (await request.get(`/api/projects/larder/issues/${id}`)).json()).status
+    const statusOf = async (id: string) => (await (await request.get(`/api/projects/observatory/issues/${id}`)).json()).status
     try {
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
-        await page.goto('/p/larder')
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         // Todo by default; Backlog picked before the first message, and kept through a reload.
@@ -431,14 +431,14 @@ test('lands the issues it makes in Todo or Backlog, as picked beside Send', asyn
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
         const [chat] = await (await request.get('/api/chats')).json()
         expect(chat.issues).toBe('backlog')
-        const jars = await (await request.post('/api/projects/larder/issues', {data: {title: 'Jam jars', status: 'todo'}, headers: chatSays(chat.id)})).json()
+        const jars = await (await request.post('/api/projects/observatory/issues', {data: {title: 'Jam jars', status: 'todo'}, headers: chatSays(chat.id)})).json()
         expect(await statusOf(jars.id)).toBe('backlog')
 
         // Switched to Todo while it runs: what it makes next lands there, whatever it asks for.
         await pane.getByRole('button', {name: 'New issues → Backlog'}).click()
         await page.getByRole('menuitem', {name: 'New issues → Todo'}).click()
         await expect.poll(async () => (await (await request.get('/api/chats')).json())[0].issues).toBe('todo')
-        const lids = await (await request.post('/api/projects/larder/issues', {data: {title: 'Jar lids', status: 'in-progress'}, headers: chatSays(chat.id)})).json()
+        const lids = await (await request.post('/api/projects/observatory/issues', {data: {title: 'Jar lids', status: 'in-progress'}, headers: chatSays(chat.id)})).json()
         expect(await statusOf(lids.id)).toBe('todo')
 
         // Its session can't pick for the owner.
@@ -452,12 +452,12 @@ test('lands the issues it makes in Todo or Backlog, as picked beside Send', asyn
 // `/clear` in the chat (ORR-497): it doesn't reach the session as words. Its launcher types `/clear` into it, and the
 // pane marks the cut, keeping what was said above it, greyed. Any other slash command goes as words.
 test("clears its session's context on /clear, marking the cut and keeping what was said", async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
     try {
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         await endChats(request)
-        await page.goto('/p/larder')
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         await pane.getByLabel('Message').fill('What is in the cellar?')
@@ -465,7 +465,7 @@ test("clears its session's context on /clear, marking the cut and keeping what w
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
         const [chat] = await (await request.get('/api/chats')).json()
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
-        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-clear&name=e2e-clear&started=${chat.id}&chat=yes&after=${after}&format=text`)
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-clear&name=e2e-clear&started=${chat.id}&chat=yes&after=${after}&format=text`)
         await expect.poll(() => session!.said.text).toContain('What is in the cellar?')
 
         await pane.getByLabel('Message').fill('/clear')
@@ -493,12 +493,12 @@ test("clears its session's context on /clear, marking the cut and keeping what w
 // A run of messages (ORR-517): Enter holds each under the box, and they go together, as one, once the owner stops
 // typing for a moment; ⌘/Ctrl-Enter sends at once, and ✕ takes one back.
 test('holds a run of messages and sends them together, at once on ⌘-Enter', async ({page, request, baseURL}) => {
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
     try {
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         await endChats(request)
-        await page.goto('/p/larder')
+        await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent', exact: true}).click()
         const pane = page.getByRole('region', {name: 'Chat'})
         const box = pane.getByLabel('Message')
@@ -524,7 +524,7 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         await expect.poll(() => launcher.said.text, {timeout: 8000}).toContain('"chat":true')
         const [chat] = await (await request.get('/api/chats')).json()
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
-        session = hold(baseURL!, `/api/projects/larder/signals/stream?session=e2e-run&name=e2e-run&started=${chat.id}&chat=yes&after=${after}&format=text`)
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-run&name=e2e-run&started=${chat.id}&chat=yes&after=${after}&format=text`)
         // One message (the text stream puts it on one line).
         await expect.poll(() => session!.said.text).toContain('(to you): what about the jam (The owner is on')
         expect(session.said.text).not.toContain('oops')
@@ -549,12 +549,12 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
 // holding shows, ORR-535) and waits for Retry, and a slash command waits behind it rather than going first.
 test("holds a run that couldn't go until the owner tries again, and keeps a slash command behind it", async ({page, request, baseURL}) => {
     await endChats(request)
-    await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(0)
+    await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(0)
     const starts: string[] = []
     page.on('request', r => {
         if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/chats') starts.push(r.url())
     })
-    await page.goto('/p/larder')
+    await page.goto('/p/observatory')
     await page.getByRole('button', {name: 'Agent', exact: true}).click()
     const pane = page.getByRole('region', {name: 'Chat'})
     const box = pane.getByLabel('Message')
@@ -563,6 +563,11 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     await expect(pane.getByText('what about the jam', {exact: true})).toBeVisible()
     await expect(pane.getByText('Not sent')).toBeVisible({timeout: 5000})
     await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
+    // It says how to install the launcher, the command to copy, rather than the server's error line (ORR-591).
+    await expect(pane.getByText('No launcher is running for Observatory.')).toBeVisible()
+    await expect(pane.getByText(/channel\/orrery-launcher\.mjs --install/)).toBeVisible()
+    await expect(pane.getByRole('button', {name: /Copy/})).toBeVisible()
+    await expect(pane.getByText('No launcher is running for observatory: install it once')).toHaveCount(0)
     // Tried once, not again every few seconds.
     await page.waitForTimeout(4500)
     expect(starts).toHaveLength(1)
@@ -574,12 +579,13 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     await box.fill('')
 
     // With a launcher, Retry sends the run.
-    const launcher = hold(baseURL!, '/api/projects/larder/launches/stream')
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     try {
-        await expect.poll(async () => (await (await request.get('/api/projects/larder/launches')).json()).launchers).toBe(1)
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         await pane.getByRole('button', {name: 'Retry'}).click()
         await expect.poll(() => launcher.said.text).toContain('"chat":true')
         await expect(pane.getByText('Not sent')).toHaveCount(0)
+        await expect(pane.getByText('No launcher is running for Observatory.')).toHaveCount(0)
         await endChats(request)
     } finally {
         launcher.stop()
@@ -589,7 +595,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
 // What's held never goes on its own once the pane is closed: it's back in the box, and no chat starts (ORR-523).
 test('closing the pane with messages held puts them back in the box, and starts no chat', async ({page, request}) => {
     await endChats(request)
-    await page.goto('/p/larder')
+    await page.goto('/p/observatory')
     const corner = page.getByRole('button', {name: 'Agent', exact: true})
     await corner.click()
     const pane = page.getByRole('region', {name: 'Chat'})
@@ -610,4 +616,35 @@ test('closing the pane with messages held puts them back in the box, and starts 
     await box.fill('')
     await pane.getByRole('button', {name: 'Close the chat'}).click()
     expect((await (await request.get('/api/chats')).json()).length).toBe(0)
+})
+
+test("follows the page's project until one is picked by hand, then stays pinned to it, saying when the page is elsewhere (ORR-588)", async ({page, request}) => {
+    await endChats(request)
+    await makeProject(request, {name: 'Belfry', key: 'BEL'})
+    await page.goto('/p/observatory')
+    const corner = page.getByRole('button', {name: 'Agent', exact: true})
+    const pane = page.getByRole('region', {name: 'Chat'})
+    const pin = pane.getByRole('button', {name: /^Pin the project/})
+    await corner.click()
+    await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    await expect(pin).toHaveAttribute('aria-pressed', 'false')
+    // Unpinned, it follows the page.
+    await page.goto('/p/belfry')
+    await corner.click()
+    await expect(pane.getByRole('heading', {name: 'Ask about Belfry'})).toBeVisible()
+    await expect(pane.getByTestId('chat-away')).toHaveCount(0)
+    // Picked by hand, it's pinned: another page, even after a reload, leaves it there, and says where you are.
+    await pane.getByRole('button', {name: 'Project', exact: true}).click()
+    await pane.getByRole('option', {name: 'Observatory'}).click()
+    await expect(pane.getByRole('button', {name: /^Unpin the project/})).toHaveAttribute('aria-pressed', 'true')
+    await expect(pane.getByTestId('chat-away')).toHaveText("You're on Belfry; this chat is about Observatory")
+    await page.goto('/p/belfry/docs')
+    await corner.click()
+    await expect(pane.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    await expect(pane.getByTestId('chat-away')).toHaveText("You're on Belfry; this chat is about Observatory")
+    // Unpinned, it's back on the page's.
+    await pane.getByRole('button', {name: /^Unpin the project/}).click()
+    await expect(pane.getByRole('heading', {name: 'Ask about Belfry'})).toBeVisible()
+    await expect(pane.getByTestId('chat-away')).toHaveCount(0)
+    await pane.getByRole('button', {name: 'Close the chat'}).click()
 })

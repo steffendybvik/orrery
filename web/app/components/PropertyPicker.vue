@@ -4,6 +4,7 @@ import {Combobox, ComboboxButton, ComboboxInput, ComboboxOption, ComboboxOptions
 
 // A property as a button with a menu to type in: the options narrow as you type, ↑↓ choose, ↵ picks,
 // Esc closes. One value (a status, a chunk) closes on a pick; `multiple` (labels) toggles and stays open.
+// `disabled` shuts an open menu (Headless UI does), so a `multiple` one stays enabled while a pick saves (ORR-602).
 // `creatable` offers what was typed when nothing has that name (a new label, someone not assigned yet).
 // `field` draws the button as a text field, sized to what it shows, for a row of them in a form (New issue);
 // with `small` too, a toolbar's size (h-7, as the buttons beside it).

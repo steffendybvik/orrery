@@ -2,7 +2,9 @@
 // project `greenhouse` (store-setup.ts).
 import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
-import type {Actor,Store} from '../server/utils/store'
+import {Store, type Actor} from '../server/utils/store'
+import {startsNone} from '../server/utils/starts-none'
+import {testDb} from './db'
 import {failure, storeSetup} from './store-setup'
 
 let store: Store
@@ -34,6 +36,21 @@ describe('proposals', () => {
         expect((await store.updateIssue('greenhouse', id, {proposal: 'pending'}, claude)).decided_by).toBeUndefined()
         const work = (await store.createIssue('greenhouse', {title: 'Work'})).id
         expect((await failure(() => store.decide('greenhouse', work, {decision: 'approved'}, owner))).status).toBe(400)
+    })
+
+    it('start no session when rejected, as approving or asking for changes may (ORR-606)', async () => {
+        const said: {note?: string, quiet: boolean}[] = []
+        const own = new Store(testDb(), () => {}, signal => said.push({note: signal.note, quiet: !!startsNone.getStore()}))
+        await own.createProject({name: 'greenhouse', key: 'GRE'})
+        for (const decision of ['rejected', 'changes', 'approved']) {
+            const {id} = await own.createIssue('greenhouse', {title: decision, proposal: 'pending'}, claude)
+            await own.decide('greenhouse', id, {decision}, owner)
+        }
+        expect(said.filter(s => s.note?.endsWith('this proposal.'))).toEqual([
+            {note: 'Rejected this proposal.', quiet: true},
+            {note: 'Asked for changes to this proposal.', quiet: false},
+            {note: 'Approved this proposal.', quiet: false},
+        ])
     })
 
     it('go on the roadmap in Todo when approved, keeping the decision, or are committed by the owner', async () => {

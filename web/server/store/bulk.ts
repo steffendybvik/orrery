@@ -1,14 +1,16 @@
 // Many issues at once, and what moves or deletes an issue with its sub-issues.
 import type {Choice, Decision, Picks} from '#shared/roadmap'
+import {linkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput} from '../utils/input'
 import {describePicks, resolvePicks} from '../utils/choices'
 import {UPSERT_ISSUE_ALIAS} from '../utils/renumber'
 import type {BulkResult, IssueDetail, Actor} from './schema'
 import {BULK_FIELDS, AGENT, DECISION_FIELDS, DECIDED, stamp} from './schema'
-import {CommentStore} from './comments'
+import {CommentStore, ORRERY} from './comments'
 import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
+import {startsNone} from '../utils/starts-none'
 
 export abstract class BulkStore extends CommentStore {
     /** Runs `work` for each issue on its own, so one refusal doesn't stop the rest, and says each one's outcome. */
@@ -87,6 +89,17 @@ export abstract class BulkStore extends CommentStore {
         })
     }
 
+    /** The issues depending on `id`, which is going (with the others in `going`), each without it in its activity as a
+     * `depends` change (ORR-601): the dispatch reads that, and hands one out that it freed. Run by `deleteIssue`. */
+    private async dropBlocker(project: string, id: string, going: Set<string>) {
+        for (const dependent of await this.all<{project: string, issue: string}>('SELECT project, issue FROM issue_links WHERE on_project = ? AND on_issue = ?', project, id)) {
+            if (dependent.project === project && going.has(dependent.issue)) continue
+            const before = await this.all<{project: string, id: string}>('SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue', dependent.project, dependent.issue)
+            const refs = (list: {project: string, id: string}[]) => list.length ? JSON.stringify(list.map(l => linkRef(dependent.project, l.project, l.id))) : null
+            await this.record(dependent.project, dependent.issue, ORRERY, [['depends', refs(before), refs(before.filter(l => l.project !== project || l.id !== id))]])
+        }
+    }
+
     /** Deletes its sub-issues and comments too. */
     async deleteIssue(project: string, id: string, actor = AGENT) {
         id = await this.issueId(project, id)
@@ -139,7 +152,9 @@ export abstract class BulkStore extends CommentStore {
         const said = picks ? `Approved this proposal with:\n${describePicks(choices, picks)}`
             : explored ? `Asked to explore ${explored.key} (${explored.title}) further: add a choice that goes down it, then put the proposal up again.`
             : DECIDED[decision]
-        await this.createComment(project, id, {body: note ? `${said}\n\n${note}` : said}, actor)
+        // Approving, or asking for changes, is work; a rejection is said to the session but starts none (ORR-606).
+        const comment = () => this.createComment(project, id, {body: note ? `${said}\n\n${note}` : said}, actor)
+        await (decision === 'rejected' ? startsNone.run(true, comment) : comment())
         // Approving is the owner saying it's work, so it goes on the roadmap now, keeping who decided and the picks:
         // into Todo while it's still in the backlog, else where its work already took it (started, done).
         if (decision === 'approved') {
@@ -198,12 +213,17 @@ export abstract class BulkStore extends CommentStore {
     /** What names an issue by id without a foreign key to it, after the issues in `names` moved from
      * `project` to `to` (under their new id) or went (null): their signals follow them, so a session
      * catching up is told about the issue where it is now, or not at all; a schedule's runs let go of
-     * one that went. So no id there comes to mean another issue. */
+     * one that went; its dependency links (ORR-601) follow it, or go with it. So no id there comes to mean another issue. */
     protected async issuesMoved(project: string, names: Map<string, string | null>, to = project) {
         for (const [old, next] of names) {
-            if (next) await this.run('UPDATE signals SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, project, old)
-            else {
+            if (next) {
+                await this.run('UPDATE signals SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, project, old)
+                await this.run('UPDATE issue_links SET project = ?, issue = ? WHERE project = ? AND issue = ?', to, next, project, old)
+                await this.run('UPDATE issue_links SET on_project = ?, on_issue = ? WHERE on_project = ? AND on_issue = ?', to, next, project, old)
+            } else {
                 await this.run('DELETE FROM signals WHERE project = ? AND issue = ?', project, old)
+                await this.dropBlocker(project, old, new Set([...names.keys()].filter(k => !names.get(k))))
+                await this.run('DELETE FROM issue_links WHERE (project = ? AND issue = ?) OR (on_project = ? AND on_issue = ?)', project, old, project, old)
                 await this.run('UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)', old, project)
             }
         }

@@ -6,6 +6,21 @@ import {nameBesideProject} from '#shared/roadmap'
 const {projects, ready, live} = useRoadmaps()
 const route = useRoute()
 const {byProject: schedulesByProject} = useSchedules()
+const {settings: appSettings} = useAppSettings()
+const {newErrors} = useLoggedEvents()
+// Events, Context and Pull requests sit under Schedules while Advanced is on (ORR-578), each also linked from App settings →
+// Advanced. Pull requests counts those that need someone, asked every two minutes while Advanced is on.
+const {pulls, load: loadPulls} = useOpenPulls()
+let pullsTimer: ReturnType<typeof setInterval> | undefined
+watch(() => appSettings.value.advanced, on => {
+    clearInterval(pullsTimer)
+    if (!on || import.meta.server) return
+    void loadPulls()
+    pullsTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') void loadPulls()
+    }, 120_000)
+}, {immediate: true})
+onBeforeUnmount(() => clearInterval(pullsTimer))
 // Open pull requests on the projects' GitHub repos, asked every two minutes: the entry shows once a repo is there,
 // with how many need someone (ORR-491).
 /** Every project's schedules still set to run, for the Schedules entry. */
@@ -162,6 +177,38 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
       </NuxtLink>
 
+      <template v-if="appSettings.advanced">
+        <NuxtLink
+            to="/events"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/events' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
+          <span class="flex-1">Events</span>
+          <span v-if="newErrors.length" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`">{{ newErrors.length }}</span>
+        </NuxtLink>
+
+        <NuxtLink
+            to="/context"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
+          <span class="flex-1">Context</span>
+        </NuxtLink>
+
+        <NuxtLink
+            to="/pulls"
+            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+            :class="route.path === '/pulls' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
+          <span class="flex-1">Pull requests</span>
+          <span v-if="pulls?.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
+          <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
+        </NuxtLink>
+      </template>
+
       <div class="label mt-4 mb-1 flex items-center gap-1 px-2">
         <span class="flex-1">Projects</span>
         <span v-if="projects.length" class="font-mono normal-case tabular-nums">{{ projects.length }}</span>
@@ -273,22 +320,37 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
     </div>
 
     <div class="shrink-0 border-t border-line p-2">
-      <a
-          href="https://github.com/steffendybvik/orrery"
-          target="_blank"
-          rel="noopener"
-          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg"
-          title="orrery's code, issues and releases on GitHub"
-      >
-        <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
-        <span class="flex-1">GitHub</span>
-        <svg class="size-3 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8" /></svg>
-      </a>
+      <!-- GitHub keeps the row; Releases sits small at its right (ORR-609). -->
+      <div class="flex items-center gap-0.5">
+        <a
+            href="https://github.com/steffendybvik/orrery"
+            target="_blank"
+            rel="noopener"
+            class="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted transition-colors hover:bg-hover hover:text-fg"
+            title="orrery's code and issues on GitHub"
+        >
+          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>
+          <span class="flex-1">GitHub</span>
+          <svg class="size-3 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8" /></svg>
+        </a>
+        <a
+            href="https://github.com/steffendybvik/orrery/releases"
+            target="_blank"
+            rel="noopener"
+            class="flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
+            title="orrery's releases on GitHub"
+        >
+          <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L3 13V3h10l7.59 7.59a2 2 0 0 1 0 2.82Z" /><circle cx="7.5" cy="7.5" r="1.5" /></svg>
+          <span>Releases</span>
+          <svg class="size-3 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8" /></svg>
+        </a>
+      </div>
       <div class="mt-1 hidden items-center justify-between px-1 text-[11px] text-faint md:flex">
         <span><KeyHint>j</KeyHint> <KeyHint>k</KeyHint> move</span>
         <span><KeyHint>↵</KeyHint> open</span>
         <span><KeyHint>g</KeyHint> <KeyHint>m</KeyHint> home</span>
       </div>
+      <NewVersionNotice />
       <p class="mt-1.5 px-2 font-mono text-[10px] text-faint">
         <a v-if="!dev" :href="`https://github.com/steffendybvik/orrery/blob/v${version}/CHANGELOG.md`" target="_blank" rel="noopener" class="hover:text-fg hover:underline" title="What's in this version">v{{ version }}</a>
         <span v-else title="The dev server: whatever branch is checked out">v{{ version }} · dev</span>

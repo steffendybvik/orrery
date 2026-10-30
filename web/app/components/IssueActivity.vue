@@ -23,7 +23,7 @@ watch(() => [props.project.id, props.issue.id, props.issue.updated_at] as const,
 const {look} = useStatuses()
 const PROPOSAL_SAID: Record<string, string> = {pending: 'put it up as a proposal', approved: 'approved the proposal', changes: 'asked for changes to the proposal', rejected: 'rejected the proposal'}
 
-const list = (value?: string) => JSON.parse(value ?? '[]') as string[]
+const list = (value?: string) => (JSON.parse(value ?? '[]') ?? []) as string[]
 
 /** One change as words: "moved it to In progress", "assigned Claude". */
 function said(event: IssueEvent): string[] {
@@ -52,6 +52,13 @@ function said(event: IssueEvent): string[] {
         return [
             ...now.filter(t => !was.includes(t)).map(t => `linked the team task ${t}`),
             ...was.filter(t => !now.includes(t)).map(t => `unlinked the team task ${t}`),
+        ]
+    }
+    if (field === 'depends') {
+        const [was, now] = [list(before), list(after)]
+        return [
+            ...now.filter(d => !was.includes(d)).map(d => `made it depend on ${d}`),
+            ...was.filter(d => !now.includes(d)).map(d => `took off its dependency on ${d}`),
         ]
     }
     return []
@@ -98,6 +105,23 @@ watch(() => props.issue.id, () => {
 function edited(comment: Comment) {
     comments.value = comments.value.map(c => c.id === comment.id ? comment : c)
     editingComment.value = null
+}
+// A working session's request for a schedule, answered here (ORR-458): the answer is the owner's comment too, which
+// comes in with the issue's next change.
+const answeringSchedule = ref<number | null>(null)
+const scheduleFailed = ref<{id: number, message: string} | null>(null)
+async function answerSchedule(id: number, allow: boolean) {
+    answeringSchedule.value = id
+    scheduleFailed.value = null
+    try {
+        const comment = await $fetch<Comment>(`/api/projects/${encodeURIComponent(props.project.id)}/issues/${encodeURIComponent(props.issue.id)}/schedule-requests/${id}`,
+            {method: 'POST', body: {allow}, headers: {'Orrery-Actor': await load()}})
+        comments.value = comments.value.map(c => c.id === comment.id ? comment : c)
+    } catch (error) {
+        scheduleFailed.value = {id, message: errorMessage(error, allow ? 'allow it' : 'deny it')}
+    } finally {
+        answeringSchedule.value = null
+    }
 }
 async function removeComment(id: number) {
     removingComment.value = {id, busy: true}
@@ -182,6 +206,14 @@ async function removeComment(id: number) {
               @cancel="editingComment = null"
           />
           <div v-else class="rounded-xl bg-well px-4 py-3 ring-1 ring-line"><MarkdownView :source="entry.comment.body" class="text-[14px] leading-6" /></div>
+          <ScheduleRequestCard
+              v-if="entry.comment.schedule"
+              :request="entry.comment.schedule"
+              :busy="answeringSchedule === entry.comment.id"
+              expired="Expired: asked again since"
+              @answer="allow => answerSchedule(entry.comment!.id, allow)"
+          />
+          <p v-if="scheduleFailed?.id === entry.comment.id" class="text-xs text-rose-600 dark:text-rose-400">{{ scheduleFailed.message }}</p>
         </li>
       </template>
     </ol>

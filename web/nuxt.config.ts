@@ -19,9 +19,9 @@ export default defineNuxtConfig({
     },
 
     runtimeConfig: {
-        // Where the projects, chunks, issues and comments live: a SQLite file (from web/, so in the repo's own
-        // .data), or a postgres:// URL. Override with NUXT_DATABASE.
-        database: '../.data/orrery.db',
+        // Where the projects, chunks, issues and comments live: a SQLite file (the repo's own .data, wherever the server
+        // starts: ORR-596), or a postgres:// URL. Override with NUXT_DATABASE.
+        database: fileURLToPath(new URL('../.data/orrery.db', import.meta.url)),
         // A folder to keep a copy of the database in (e.g. in iCloud Drive). Override with NUXT_BACKUP_DIR.
         backupDir: '',
         // Under Docker, what /data and /backup are on the computer: a folder (ORRERY_DATA, ORRERY_BACKUP) or a volume's
@@ -43,6 +43,9 @@ export default defineNuxtConfig({
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',
+        // Asks GitHub for orrery's releases at start and every 12 hours, for the sidebar's notice of a newer one
+        // (ORR-608). Override with NUXT_UPDATE_CHECK=false (ORRERY_UPDATE_CHECK in compose).
+        updateCheck: true,
         public: {
             // Where this repo is on the machine, for the channel setup the Connect page hands out.
             // Override with NUXT_PUBLIC_REPO_DIR (compose sets it).

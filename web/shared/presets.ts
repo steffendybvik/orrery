@@ -1,7 +1,8 @@
 // The presets orrery ships (ORR-343): the orrery's own, for sessions on any project, seeded once into each orrery,
 // new or upgraded, by their `key`. The owner can change or remove them; Reset to default brings back what's here,
-// and Restore defaults the ones removed. A new one added here is seeded on the next start.
-export interface DefaultPreset { key: string, name: string, text: string, icon: string, color: string }
+// and Restore defaults the ones removed. A new one added here is seeded on the next start. When a text changes, the
+// one it replaces goes in `was`: a saved preset still as it shipped then takes the new text on the next start.
+export interface DefaultPreset { key: string, name: string, text: string, icon: string, color: string, was?: string[] }
 
 export const DEFAULT_PRESETS: DefaultPreset[] = [
     {
@@ -32,7 +33,14 @@ Rank what you find by how bad it would be and how likely it is, each with where 
 
 Look for bugs first: wrong behaviour, edge cases, errors swallowed, data that could be lost; then tests that don't test what they claim. Leave style alone unless it hides a bug.
 
-Comment on the pull request with what you found, most serious first, each with its file and line. Don't change the code or push to its branch. Say plainly when it's ready to merge.`,
+Comment on the pull request with what you found, most serious first, each with its file and line, and say the same in a comment on its issue, which the session on the issue hears. Say plainly when it's ready to merge.
+
+You only review. Never start an issue, write the fix or push to its branch: the session on the issue fixes what you found. Once the pull request has merged, file what's still to fix as a sub-issue of the reviewed issue (its parent), left in Todo, so it's handed out once like any other.`,
+        was: [`You're reviewing a pull request. Read its diff and the issue it's for, and check it does what the issue asks.
+
+Look for bugs first: wrong behaviour, edge cases, errors swallowed, data that could be lost; then tests that don't test what they claim. Leave style alone unless it hides a bug.
+
+Comment on the pull request with what you found, most serious first, each with its file and line. Don't change the code or push to its branch. Say plainly when it's ready to merge.`],
     },
     {
         key: 'debug-error', name: 'Debug an error', icon: 'bug-ant', color: 'amber',

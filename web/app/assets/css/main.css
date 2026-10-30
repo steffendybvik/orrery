@@ -157,9 +157,10 @@ body {
         @apply text-[16px] leading-[1.75] text-zinc-700 dark:text-zinc-300;
 
         & > * + * { @apply mt-5; }
-        & h1, & h2, & h3, & h4 { @apply font-semibold tracking-tight text-fg; }
-        & h1 { @apply mt-12 text-2xl; }
+        & h2, & h3, & h4 { @apply font-semibold tracking-tight text-fg; }
         & h2 { @apply mt-12 border-b border-line pb-2 text-xl; }
+        /* A `#` heading, an h2 so the page keeps one h1 (ORR-623), looks as an h1 did. */
+        & h2[data-h1] { @apply border-b-0 pb-0 text-2xl; }
         & h3 { @apply mt-9 text-lg; }
         & h4 { @apply mt-7 text-base; }
         & > :first-child { @apply mt-0; }

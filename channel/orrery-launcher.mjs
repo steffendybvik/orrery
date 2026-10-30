@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // orrery's launcher: starts Claude sessions for a project when orrery asks, so work gets done without
-// anyone opening a terminal. Install it once in each project's repo (where .mcp.json registers the channel),
-// as a background service that starts at login and serves every project installed:
-//   node /path/to/orrery/channel/orrery-launcher.mjs --install      (--uninstall takes the repo's projects off;
+// anyone opening a terminal. Install it once, as a background service that starts at login and serves every project
+// on its list: run in a project's repo (where .mcp.json registers the channel) it adds the repo's projects, and run
+// anywhere else it installs the service with none yet (ORR-598). Either way it turns repo pick-up on in the list (--no-pick-up
+// keeps it off), for a repo's channel to add the repo as it connects (ORR-599). Connect the repo first (orrery's Connect an
+// agent page puts the channel in its .mcp.json): a project with no channel there isn't installed (ORR-604). --help lists
+// the flags:
+//   node /path/to/orrery/channel/orrery-launcher.mjs --install      (--uninstall in a repo takes its projects off and
+//                                                                    keeps them off, elsewhere removes the service;
 //                                                                    --list shows which they'd be, changing nothing)
 // or run it in a terminal for the repo's project alone, for as long as the terminal stays open:
 //   ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs
@@ -27,17 +32,18 @@
 // stop time (or `never`) and its launcher's pid in tmux, and tells orrery which it runs whenever it connects. A
 // second launcher leaves alone the sessions of one that's still running, so stopping it can't stop them. As the
 // service, once an orrery it serves runs other code and its checkout has been updated, it restarts itself on the new
-// code when it has no session running. It
+// code when it has no session running. As the service it also follows its list while running (ORR-597): a project
+// added there is served within a few seconds, and one taken off is let go, its sessions stopped, while the others' go on. It
 // answers the warning Claude Code shows for the channel flag on every start (the channel is the repo's own); run
 // the channel command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, writeFileSync} from 'node:fs'
+import {mkdirSync, unwatchFile, watchFile, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {adoptable, configFile, inWsl, install, readConfig, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
+import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
-import {channelFor, projectsIn, servesEvery} from './repo-channels.mjs'
+import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
 import {CODE, VERSION, codeOnDisk, launcherMove, versionOnDisk} from './version.mjs'
@@ -65,12 +71,45 @@ function tmuxProblem() {
     return null
 }
 
+/** Throws what to do when the service couldn't start sessions here: no tmux, or no claude, on this PATH. */
+function needsTmuxAndClaude() {
+    const problem = tmuxProblem()
+    if (problem) throw new Error(problem)
+    try {
+        execFileSync('claude', ['--version'], {stdio: 'ignore'})
+    } catch {
+        throw new Error('claude isn\'t on your PATH: install Claude Code, then run this again from the same shell')
+    }
+}
+
+const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, in their repos.
+
+  node orrery-launcher.mjs --install      install the service once; in a repo connected to orrery (its .mcp.json
+                                          registers orrery's channel), add the repo's projects too
+                       --no-pick-up       with --install: don't let a Claude session add its repo
+  node orrery-launcher.mjs --uninstall    in a repo, take its projects off and keep them off; elsewhere, remove the service
+  node orrery-launcher.mjs --list         which projects this repo would add, and with which channel
+  node orrery-launcher.mjs                run in this terminal for this repo's projects, until stopped
+
+Connect the repo first (orrery's Connect an agent page), so its .mcp.json has the channel.`
+const FLAGS = ['--install', '--uninstall', '--no-pick-up', '--list', '--service', '--help', '-h']
+
 const args = process.argv.slice(2)
 const script = fileURLToPath(import.meta.url)
+if (args.includes('--help') || args.includes('-h')) {
+    console.log(USAGE)
+    process.exit(0)
+}
+// An unknown flag isn't taken for running in the foreground (ORR-604).
+const unknown = args.filter(arg => !FLAGS.includes(arg))
+if (unknown.length) {
+    console.error(`[orrery launcher] doesn't know ${unknown.join(' ')}\n\n${USAGE}`)
+    process.exit(1)
+}
 if (args.includes('--list')) {
     const served = readConfig().projects
     for (const {url, project, dir} of here()) {
-        const elsewhere = served.find(p => p.url === url && p.project === project && p.dir !== dir)
+        const elsewhere = servedElsewhere(served, {url, project, dir})
         console.log(`${project} (${url}): sessions load ${channelFor(dir, url, project)?.name ?? 'no channel'}${elsewhere ? `; served from ${elsewhere.dir}, so --install leaves it there` : ''}`)
     }
     process.exit(0)
@@ -80,40 +119,56 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         // Before tmux and claude are looked for: on Windows itself, neither is the problem.
         const unserved = serviceProblem()
         if (unserved) throw new Error(unserved)
+        const pickUp = !args.includes('--no-pick-up')
+        // Not in a repo whose .mcp.json registers the channel: the service alone, with no project of its own to add.
+        if (!channelsIn(process.cwd()).length && !process.env.ORRERY_PROJECT) {
+            if (args.includes('--uninstall')) {
+                removeService()
+                console.log(`Removed the launcher service. Its list stays in ${configFile()}, for the next --install.`)
+                process.exit(0)
+            }
+            needsTmuxAndClaude()
+            const {config, logs, restarted} = install([], {script, pickUp})
+            console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
+            console.log(pickUp
+                ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
+                : "Pick-up is off: run this with --install in a project's repo to put its projects on it.")
+            console.log(`Its log: ${logs}`)
+            process.exit(0)
+        }
         // Several channels can name a project served from its own repo (a monorepo's channel to the personal
         // orrery): it's left there unless ORRERY_PROJECT names it.
         const served = readConfig().projects
         const entries = here().filter(entry => {
-            const elsewhere = served.find(p => p.url === entry.url && p.project === entry.project && p.dir !== entry.dir)
+            const elsewhere = servedElsewhere(served, entry)
             if (elsewhere && !process.env.ORRERY_PROJECT) console.log(`Left ${entry.project} (${entry.url}) as it is, served from ${elsewhere.dir}; ORRERY_PROJECT=${entry.project} acts on it from here.`)
             return !elsewhere || process.env.ORRERY_PROJECT
         })
         if (!entries.length) process.exit(0)
-        // All of the repo's projects at once, so the service restarts (stopping the sessions it runs) only once.
+        // All of the repo's projects at once. The running service follows the list; it restarts (stopping the sessions
+        // it runs) only when its file changed, at most once.
         if (args.includes('--uninstall')) {
-            const {config} = uninstall(entries, {script})
-            console.log(`Took ${entries.map(e => `${e.project} (${e.url})`).join(', ')} off the launcher.`)
-            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : 'Nothing was left on it, so the service is removed.')
+            const {config} = uninstall(entries, {script, dir: process.cwd()})
+            console.log(`Took ${entries.map(e => `${e.project} (${e.url})`).join(', ')} off the launcher${config.pickUp ? ', and pick-up leaves this repo off until --install here' : ''}.`)
+            console.log(config.projects.length ? `It still serves ${config.projects.map(p => p.project).join(', ')}.` : config.pickUp ? 'It serves no project now, and waits for pick-up to put one on; --uninstall outside a repo removes it.' : 'Nothing was left on it, so the service is removed.')
             process.exit(0)
         }
-        const problem = tmuxProblem()
-        if (problem) throw new Error(problem)
-        try {
-            execFileSync('claude', ['--version'], {stdio: 'ignore'})
-        } catch {
-            throw new Error('claude isn\'t on your PATH: install Claude Code, then run this again from the same shell')
+        needsTmuxAndClaude()
+        for (const entry of entries) {
+            // Without the channel its sessions couldn't hear orrery, and its address and project may be guesses
+            // (localhost:9000, the folder's name): connecting the repo comes first (ORR-604).
+            if (!channelFor(entry.dir, entry.url, entry.project)) throw new Error(`no .mcp.json here registers orrery's channel, so nothing was installed: connect this repo first, from orrery's Connect an agent page (or have a Claude session here read ${entry.url}/connect/${entry.project}.md), then run this again`)
         }
         for (const entry of entries) {
             const found = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`).then(r => r.status).catch(() => 0)
             if (found === 404) throw new Error(`${entry.url} has no project ${entry.project}: set ORRERY_PROJECT (and ORRERY_URL) to the one to serve`)
             if (!found) log(`can't reach ${entry.url} now; the launcher keeps trying once it's installed${inWsl() && wslLocalhost(entry.url) ? `. ${WSL_LOCALHOST}` : ''}`)
-            if (!channelFor(entry.dir, entry.url, entry.project)) log(`no .mcp.json here registers orrery-channel.mjs, so ${entry.project}'s sessions won't hear orrery: run this in the project's repo`)
         }
-        const {config, logs} = install(entries, {script})
+        const {config, logs, restarted} = install(entries, {script, dir: process.cwd(), pickUp})
         for (const {url, project, dir} of entries) {
             console.log(`The launcher now starts sessions for ${project} (${url}) in ${dir}, with ${channelFor(dir, url, project)?.name ?? 'no channel'}, from login on.`)
         }
-        console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.`)
+        console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.${restarted ? '' : ' The running service picks the change up itself, so its sessions go on.'}`)
         console.log(`Let orrery start sessions on its Sessions page, if it doesn't yet. Its log: ${logs}`)
         console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
         if (inWsl()) console.log('Inside WSL it runs while the distro does: Windows starts the distro when you open it, and can stop it a while after its last window closes.')
@@ -361,9 +416,13 @@ async function getPast(id, dir) {
     log(`${name}: didn't see the channel's warning; if it's stuck on a prompt, answer it with: tmux attach -t ${name}`)
 }
 
-/** Serves one project: listens for its launches, and for the owner stopping or extending the sessions it started. */
-function serve({url, project, dir}) {
-    const api = `${url}/api/projects/${encodeURIComponent(project)}`
+/** Where a project's launches are, on its orrery. */
+const apiOf = ({url, project}) => `${url}/api/projects/${encodeURIComponent(project)}`
+
+/** Serves one project: listens for its launches, and for the owner stopping or extending the sessions it started,
+ * until `signal` lets it go. */
+function serve({url, project, dir, picked_at: picked}, signal) {
+    const api = apiOf({url, project})
     adopt(project, api)
     /** The token this connection's stream gave it (`ready`), which its claims send, so orrery knows they're a
      * launcher's (ORR-443). A new one comes with each reconnect. */
@@ -394,7 +453,8 @@ function serve({url, project, dir}) {
     return follow({
         // The folder it serves from, so orrery knows which projects share one and can share a session, and whether its
         // channel serves every project, so a session started here hearing no one project hears them all.
-        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}`,
+        // And when its channel picked the repo up (ORR-605), for Sessions → Setup.
+        url: () => `${api}/launches/stream?dir=${encodeURIComponent(dir)}${servesEvery(dir, url, project) ? '&every=1' : ''}&version=${encodeURIComponent(VERSION)}${picked ? `&picked=${encodeURIComponent(picked)}` : ''}`,
         onEvent: async ({event, data}) => {
             if (event === 'ready') {
                 const {starts, version, token: given} = JSON.parse(data)
@@ -426,20 +486,68 @@ function serve({url, project, dir}) {
             }
         },
         log: (...parts) => log(`${project}:`, ...parts),
+        // A project on the list nothing answers for (an orrery gone, or a project it doesn't have): said once (ORR-604).
+        down: (since, error) => log(`${project}: nothing at ${url} for it since ${since.toLocaleString()} (${error.message}); still trying every 30s, quietly. --uninstall in ${dir} takes it off`),
+        signal,
     })
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, async () => {
+        unwatchFile(configFile())
         await Promise.all([...running.keys()].map(id => stop(id, 'the launcher stopped')))
         process.exit(0)
     })
 }
 
-// As the service, every project on the list; in a terminal, the repo's.
-const projects = args.includes('--service') ? readConfig().projects : here()
-if (!projects.length) {
+/** The projects it serves, by orrery and project: each one's entry, and what lets it go. */
+const serving = new Map()
+const servingKey = ({url, project}) => `${url} ${project}`
+
+function begin(entry) {
+    const abort = new AbortController()
+    serving.set(servingKey(entry), {entry, abort})
+    serve(entry, abort.signal).catch(error => log(`${entry.project}: ${error.message}`))
+}
+
+/** Lets go of a project taken off the list: stops following it, and stops the sessions it started for it, as taking it
+ * off with --uninstall means. One that only moved to another repo keeps its sessions, served from there next. */
+async function letGo(entry, {moved}) {
+    serving.get(servingKey(entry))?.abort.abort()
+    serving.delete(servingKey(entry))
+    if (![...serving.values()].some(s => s.entry.url === entry.url)) orreryVersions.delete(entry.url)
+    if (moved) return
+    const api = apiOf(entry)
+    await Promise.all([...running].filter(([, s]) => s.api === api).map(([id]) => stop(id, `${entry.project} was taken off the launcher`)))
+}
+
+/** Brings what it serves in line with the list, one change at a time. */
+let following = Promise.resolve()
+function follows() {
+    following = following.then(async () => {
+        const list = listIn()
+        if (!list) return log(`${configFile()} can't be read as a list; it serves what it did until it can`)
+        const {added, removed} = listChanges([...serving.values()].map(s => s.entry), list.projects)
+        for (const entry of removed) {
+            const moved = added.some(a => servingKey(a) === servingKey(entry))
+            await letGo(entry, {moved})
+            log(moved ? `${entry.project} (${entry.url}) moved to ${added.find(a => servingKey(a) === servingKey(entry)).dir}` : `let go of ${entry.project} (${entry.url}): it's off the list`)
+        }
+        for (const entry of added) {
+            if (!removed.some(r => servingKey(r) === servingKey(entry))) log(`now serving ${entry.project} (${entry.url}) in ${entry.dir}: it's on the list`)
+            begin(entry)
+        }
+    }).catch(error => log(`couldn't follow ${configFile()}: ${error.message}`))
+}
+
+// As the service, every project on the list, following it as it changes; in a terminal, the repo's.
+const service = args.includes('--service')
+const projects = service ? readConfig().projects : here()
+// The service waits on an empty list (installed from no repo, ORR-598) for a project to be put on it.
+if (!projects.length && !service) {
     log(`no project is on ${configFile()}: run this with --install in a project's repo`)
     process.exit(0)
 }
-await Promise.all(projects.map(serve))
+if (!projects.length) log(`no project is on ${configFile()} yet: it serves each one put there`)
+for (const entry of projects) begin(entry)
+if (service) watchFile(configFile(), {interval: 2000}, follows)

@@ -3,7 +3,8 @@ import type {Chunk, Column, Issue, Project, Session} from '#shared/roadmap'
 import {isFrozen, taskUrl} from '#shared/roadmap'
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
-// chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once.
+// chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once. The issues it
+// depends on are picked the same way (ORR-601); those that depend on it, read the other way, only show.
 /** `sub`: it's a sub-issue, in its parent's chunk. `worker`: the session working it, which an agent's assignee names. */
 const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean, worker?: Session}>()
 const {who, name: owner} = useOwner()
@@ -36,24 +37,43 @@ const releaseOptions = computed(() => [{value: '', label: 'No release'}, ...prop
 // Only a heads-up: a frozen release still takes the issue.
 const frozen = computed(() => isFrozen(props.project.releases.find(r => r.version === props.issue.release)))
 
+// A list picked from a menu that stays open (labels, team tasks, depends on): a pick shows at once and the menu stays
+// up while it saves (ORR-602). Each pick sends the whole list, after the one before has gone, so a quick second pick
+// keeps the first, and the page's own list takes over once it says the same (or a save is refused, said below).
+function pickedList(field: 'labels' | 'external' | 'depends_on', current: () => string[]) {
+    const picked = ref<string[] | null>(null)
+    let queue = Promise.resolve()
+    const same = (a: string[], b: string[]) => a.length === b.length && a.every(v => b.includes(v))
+    watch(current, now => {
+        if (picked.value && same(now, picked.value)) picked.value = null
+    })
+    watch(() => props.issue.id, () => picked.value = null)
+    return computed({
+        get: () => picked.value ?? current(),
+        set: (next: string[]) => {
+            picked.value = next
+            queue = queue.then(async () => {
+                if (!await save({[field]: next}) && picked.value === next) picked.value = null
+            })
+        },
+    })
+}
+
 // Labels: any the project uses, or a new one.
 const known = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.labels))])
-const labels = computed({
-    get: () => props.issue.labels,
-    set: (next: string[]) => save({labels: next}),
-})
+const labels = pickedList('labels', () => props.issue.labels)
 
-const labelOptions = computed(() => [...new Set([...known.value, ...props.issue.labels])].sort((a, b) => a.localeCompare(b)).map(l => ({value: l, label: l})))
+const labelOptions = computed(() => [...new Set([...known.value, ...labels.value])].sort((a, b) => a.localeCompare(b)).map(l => ({value: l, label: l})))
 
 // Its tasks on the team's tracker: any the project links, or a new id; each opens through the tracker's pattern.
 const {settings} = useAppSettings()
 const knownTasks = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.external))])
-const tasks = computed({
-    get: () => props.issue.external,
-    set: (next: string[]) => save({external: next}),
-})
-const taskOptions = computed(() => [...new Set([...knownTasks.value, ...props.issue.external])].sort((a, b) => a.localeCompare(b)).map(t => ({value: t, label: t})))
-const taskLinks = computed(() => props.issue.external.map(t => ({task: t, url: taskUrl(settings.value.tracker, t)})))
+const tasks = pickedList('external', () => props.issue.external)
+const taskOptions = computed(() => [...new Set([...knownTasks.value, ...tasks.value])].sort((a, b) => a.localeCompare(b)).map(t => ({value: t, label: t})))
+const taskLinks = computed(() => tasks.value.map(t => ({task: t, url: taskUrl(settings.value.tracker, t)})))
+
+// The issues it depends on, the whole list sent each time (a cycle or an unknown one is refused, and says why below).
+const dependsOn = pickedList('depends_on', () => props.issue.depends_on ?? [])
 
 // The assignee: the owner, an agent, anyone already assigned in the project, or a new name.
 const people = computed(() => [...new Set([owner.value, 'claude', ...allIssues(props.project).map(({issue}) => issue.assignee)].filter((n): n is string => !!n))])
@@ -112,9 +132,9 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
 
     <dt class="label">Labels</dt>
     <dd class="flex min-w-0">
-      <PropertyPicker v-model="labels" :options="labelOptions" label="Labels" placeholder="Find or add a label…" multiple creatable :disabled="saving">
-        <span v-if="issue.labels.length" class="flex min-w-0 flex-wrap items-center gap-1">
-          <LabelChip v-for="l in issue.labels" :key="l" :label="l" />
+      <PropertyPicker v-model="labels" :options="labelOptions" label="Labels" placeholder="Find or add a label…" multiple creatable>
+        <span v-if="labels.length" class="flex min-w-0 flex-wrap items-center gap-1">
+          <LabelChip v-for="l in labels" :key="l" :label="l" />
         </span>
         <span v-else class="text-faint">No labels</span>
         <template #option="{option}"><LabelChip :label="option.value" /></template>
@@ -136,8 +156,8 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
             :title="link.url ? `Open ${link.task} on the team's tracker` : 'Set the tracker in App settings to link it'"
         >{{ link.task }}</component>
       </span>
-      <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. ENG-1567…" multiple creatable :disabled="saving">
-        <span class="text-faint">{{ issue.external.length ? 'Edit' : 'None' }}</span>
+      <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. ENG-1567…" multiple creatable>
+        <span class="text-faint">{{ tasks.length ? 'Edit' : 'None' }}</span>
       </PropertyPicker>
     </dd>
 
@@ -166,6 +186,18 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         </UiButton>
       </dd>
       <dd v-if="frozen" class="col-start-2 -mt-1 text-xs text-faint">Frozen: fixes, tests and docs. A new feature fits the next release.</dd>
+    </template>
+
+    <dt class="label">Depends on</dt>
+    <dd class="flex min-w-0 flex-wrap items-center gap-1">
+      <IssueRef v-for="link in dependsOn" :key="link" :link="link" :here="project.id" />
+      <DependsPicker v-model="dependsOn" :here="project.id" :self="issue.id" />
+    </dd>
+    <template v-if="issue.blocks?.length">
+      <dt class="label">Blocks</dt>
+      <dd class="flex min-h-7 min-w-0 flex-wrap items-center gap-1">
+        <IssueRef v-for="link in issue.blocks" :key="link" :link="link" :here="project.id" />
+      </dd>
     </template>
 
     <template v-if="hasSubs">

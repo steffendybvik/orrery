@@ -7,7 +7,9 @@ docker compose up -d --build        # http://localhost:9000
 That's the built app. On its first start it makes an empty SQLite database in the `orrery-data`
 volume, with nothing to set up. The first time you open it, it asks your name: you're its owner,
 and what you make no one else can delete. Your `Orrery-Actor` header is that name in lowercase snake
-case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → You.
+case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → You. It also asks whether
+you're a developer: a no turns **Advanced** off, so Events, Context and Pull requests stay out of the
+sidebar (App settings → Advanced turns it back on).
 
 ## Updating
 
@@ -21,8 +23,8 @@ case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → Yo
 3. **The channel and the launcher** run from this folder on your machine, not in the container, so they're as new as
    what it has checked out: keep it on the version you run (`git pull`). Sessions pick up the channel as they start.
    The launcher only when it restarts, which stops the sessions it started, so do it when nothing's mid-work:
-   `node channel/orrery-launcher.mjs --install` again, or `launchctl kickstart -k gui/$(id -u)/orrery.launcher` on
-   a Mac. A launcher older than the server says so in the event log (`launcher.outdated`) when it's refused a launch.
+   `launchctl kickstart -k gui/$(id -u)/orrery.launcher` on a Mac, `systemctl --user restart orrery-launcher` on Linux
+   (`--install` again restarts it only when its service file changed, such as a new `node` or `PATH`). A launcher older than the server says so in the event log (`launcher.outdated`) when it's refused a launch.
    Since 1.0.0-rc.10 the Sessions page marks a session whose channel is older than the server, and a launcher on older
    code. The launcher service restarts itself on the new code once this folder is pulled (a new version, or a change
    within one) and it has no session running.
@@ -40,8 +42,9 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_BACKUP_DATABASE` | a `postgres://` URL to back up into instead of the folder: an empty database, or this orrery's backup from before (see [Backups](#backups)) | none |
 | `ORRERY_ALLOWED_HOSTS` | host names it answers to besides `localhost` and IP addresses, comma-separated, e.g. `orrery.lan` (see [SECURITY.md](../SECURITY.md)) | none |
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
-| `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | none (no secrets) |
+| `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | made on first start, kept in `orrery.key` beside the database (`/data` in Docker; none outside Docker on Postgres, so set it there) |
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
+| `ORRERY_UPDATE_CHECK` | `false` stops orrery asking GitHub for its own releases (at start, then every 12 hours), which it does to show a notice above the version in the sidebar when a newer one is out. A pre-release is offered only to an orrery running one | on |
 | `ORRERY_ENVIRONMENT` | this orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
 ## Backups
@@ -89,7 +92,7 @@ only as orrery starts.
 
 ### Backing up into Postgres
 
-Either database can be backed up into a Postgres database instead of a folder: App settings → Database, **Postgres**
+Either database can be backed up into a Postgres database instead of a folder: App settings → This orrery → Database, **Postgres**
 under Back up this orrery, with its URL (**Back up there** backs up into it at once), or `ORRERY_BACKUP_DATABASE` as
 orrery starts. It's copied the way a move copies, a minute after a change, and each backup takes the place of the last
 in one go, so a backup that fails leaves the one before whole; there are no daily copies. It has to be an empty database
@@ -213,7 +216,7 @@ be connected when Docker starts the container, since that's when the address is 
 `http://<this machine's IP>:9010` on the phone. It only works at home, and anyone else on that
 Wi-Fi, guests included, can use orrery too.
 
-Either way, the database is still moved only from this machine: App settings → Database refuses a
+Either way, the database is still moved only from this machine: App settings → This orrery → Database refuses a
 move from any other address.
 
 ## Where each database is
@@ -233,14 +236,14 @@ database with them; plain `down` keeps them.
 
 ## Without Docker
 
-Node 24.22.1 and pnpm 10.14.0: `pnpm install && pnpm build`, then
+Node 24.22.1 and pnpm 10.14.0: `pnpm install && pnpm build`, then, in `web/`,
 
 ```sh
 NUXT_DATABASE=/path/to/orrery.db PORT=9000 node .output/server/index.mjs
 ```
 
-The database file is made if it isn't there (by default `.data/orrery.db`). A relative path is taken
-from the folder the server starts in, so give `NUXT_DATABASE` an absolute one. It can also be a
+The database file is made if it isn't there (by default the repo's `.data/orrery.db`, wherever the server starts). A
+relative `NUXT_DATABASE` is taken from the folder the server starts in, so give it an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): orrery lays down its tables on an empty
 database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
-`NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY` and `NUXT_PUBLIC_ENVIRONMENT`.
+`NUXT_BACKUP_DIR`, `NUXT_BACKUP_DATABASE`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY`, `NUXT_UPDATE_CHECK` and `NUXT_PUBLIC_ENVIRONMENT`.

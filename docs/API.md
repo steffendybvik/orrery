@@ -38,11 +38,11 @@ Docs the owner wrote can still be edited by agents (they keep them current), not
 | | |
 |---|---|
 | `GET /projects` | every project with its counts; `?expand=board` adds boards, and each project's `rev` for the events stream's patches; `&notes=0` leaves the issues' notes out (the page reads an issue's own from `GET …/issues/:issue`); `&closed=0` leaves out closed (done, canceled) issues with no open sub-issue, but for the projects in `&whole=` (comma-separated ids). The page loads that way, with the project it's on whole, and reads another project whole as one of its pages opens; a patch on the events stream for a project it has without them leaves out the closed issues it never had |
-| `POST /projects` | `{name, id?, key?, description?, repo?, release_mode?, releases_from?}`: `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
+| `POST /projects` | `{name, id?, key?, description?, repo?, release_mode?, releases_from?}`, and any other field `PATCH` takes (`icon`, `icon_color`, the owner's prompt fields): `id` defaults to the name as a slug, `key` (the prefix of its issue ids) to its first three letters |
 | `GET /projects/:project` | the project with its board, docs and releases, and its `rev`; `?notes=0` leaves the issues' notes out, and `?closed=0` its closed issues with no open sub-issue |
 | `PATCH /projects/:project` | `{name?, key?, description?, icon?, icon_color?, repo?, release_mode?, releases_from?, focus_prompt?, chunk_prompt?, instructions?, muted?}` (the last four the owner's; see [What sessions hear](#what-sessions-hear)): `icon` is a [Heroicon](https://heroicons.com)'s name (`shopping-cart`), shown in the sidebar; `icon_color` is its colour, `slate`, `blue`, `teal`, `green`, `amber`, `rose`, `violet` or a `#rrggbb` (none follows the text); `repo` is the web address of its code (`https://github.com/you/shop`), which links a release's branch and PRs; `release_mode` is whether it has releases, `none`, `own` or `shared`, and `releases_from` another project whose releases it ships in (see [Releases](#releases)); `null` clears any of them |
-| `DELETE /projects/:project` | with its chunks, issues and comments; a 409 while others take their releases from it |
-| `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; `?replace=true` to replace what's there (schedules that made issues in a chunk make them in none) |
+| `DELETE /projects/:project` | with everything in it: chunks, issues, comments, docs, releases, schedules, signals and its presets; a 409 while others take their releases from it |
+| `POST /projects/:project/import` | a roadmap in the `roadmap.json` format (chunks of tasks with `status` `todo`/`doing`/`done` and an optional `plan`); its ids become aliases; a 409 when the project already has chunks or issues, unless `?replace=true` replaces what's there (schedules that made issues in a chunk make them in none) |
 
 ## Chunks
 
@@ -91,8 +91,8 @@ until the release ships.
 
 | | |
 |---|---|
-| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?chunk= ?release= ?parent= ?proposal= ?q=` (`none` for unset; `status` and `column` take a status's id or a kind, or several comma-separated; `?proposal=none` is committed work only) |
-| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, notes?, proposal?, parent?, chunk?, release?, position?}`; gets the next `KEY-n` |
+| `GET /projects/:project/issues` | flat, sub-issues included; filter with `?status= ?priority= ?column= ?assignee= ?label= ?external= ?chunk= ?release= ?parent= ?proposal= ?blocked= ?q=` (`none` for unset; `?blocked=true` is what waits on an issue not done yet, `false` what doesn't; `status` and `column` take a status's id or a kind, or several comma-separated; `?proposal=none` is committed work only) |
+| `POST /projects/:project/issues` | `{title, status?, priority?, assignee?, labels?, external?, notes?, proposal?, choices?, parent?, chunk?, release?, depends_on?, position?}`; gets the next `KEY-n` |
 | `GET /projects/:project/issues/:issue` | with column, counts, sub-issues, parent and chunk |
 | `PATCH /projects/:project/issues/:issue` | any of the above, plus `project` to move it; `null` clears |
 | `PATCH /projects/:project/issues` | many at once: `{ids, set?: {status?, priority?, assignee?, chunk?, release?}, labels?: {add?, remove?}}` → `[{id, ok, error?}]`, each issue on its own, so one refused doesn't stop the rest; open pages hear the batch once |
@@ -110,6 +110,16 @@ until the release ships.
 - `parent: null` lifts a sub-issue to the top, into the chunk it was in
 - `release`: the version of a release of the project, or of the project it takes its releases from (see [Releases](#releases)); moving the issue to a project that doesn't share them takes it out
 - `project` moves the issue with its sub-issues and comments; they get that project's ids, their old ones kept as aliases
+- `depends_on`: the issues it waits on, all of them, replacing the list (`[]` or `null` for none): an id in its project,
+  `project/ID` in another. An issue itself, one not there, more than 50, a parent and its own sub-issue, and a loop are
+  a 400 (`ORR-3 already depends on ORR-1 (through ORR-2), so ORR-1 can't depend on it`). Read back with `blocked_by`
+  (those not Done yet: while there are any it's blocked, and nothing hands it out) and `blocks` (what depends on it),
+  each only when there are some. A session starting a blocked issue is a 409 naming its blockers, unless the owner
+  focused a session on it in the last day. So is a session starting a sub-issue while another session that's there has
+  started an issue above it (ORR-611): a follow-up filed under that issue is that session's, until it stops or the
+  issue is done or canceled, unless the owner focused this session on it in the last day. A focus aimed at no
+  session, the Todo hand-out and what an issue done unblocks send such a follow-up to that session (ORR-613), and
+  picking leaves it out
 - `notes` may use inline `` `code` `` and `**bold**`
 - `external`: its tasks on the team's tracker, a list of ids (`ENG-1567`) or full URLs; the orrery's
   `tracker` (`PATCH /settings {tracker}`, a task's web address with `{id}` where its id goes) links an id;
@@ -194,9 +204,9 @@ instead of `done` when it won't ship.
 | `POST /projects/:project/issues/:issue/comments` | `{body, asks?}`: `asks` is `decision` or `feedback` when it waits on the owner. It leads their bell (Clear read leaves it) until they comment on the issue after it; comments then read `answered: true`. An ask assigns the issue to the owner, and their answer gives it back to the agent who asked. Until then the issue reads `waiting: "decision"` or `"feedback"` (its latest open ask), and the app marks it on its row, card and page. An agent's proposal waiting on the owner (pending, not under another proposal) reads `waiting: "decision"` too, with no ask of its own open, until they decide it |
 | `GET` · `PATCH {body}` · `DELETE /projects/:project/issues/:issue/comments/:comment` | |
 | `GET /projects/:project/issues/:issue/pulls` | its open pull requests on the project's `repo`, when that's on GitHub: `{repo, pulls, error?, token, checked_at}`. A PR is the issue's when its body links the issue's page (`…/issues/ORR-12`) or its branch names the issue (`feat/orr-12-…`), by its id or one it had before. Each is `{number, title, url, branch, base, author, state, created_at, updated_at}`, `state` being `draft`, `conflicting`, `behind` (its base moved on), `failing` (checks), `blocked` (a review or required check), `ready` or `checking` (GitHub hasn't worked it out yet). orrery polls each repo in the background, once a minute with a `GITHUB_TOKEN` [secret](#secrets) that may go to `api.github.com` (`token: true`), and this is read off what the poll kept while it's fresh. Without a token the poll reads only whether PRs merged or closed, every ten minutes, so this asks GitHub itself at most every five minutes (public repos only, and GitHub's 60 an hour); in between, and when GitHub can't be read (`error` says why: its rate limit, a private repo without a token), it's what GitHub said last. `repo: null` for a project with no repo on GitHub, and nothing is asked |
-| `GET /pulls` | every open pull request on the projects' GitHub repos (the Pull requests page): `{pulls, needs, repos}`. Each pull is as an issue's (above) plus `repo` and `issue` `{project, id, title}` when one of the repo's projects has the issue it names (its body's link first, then its branch). Those `conflicting`, `failing` or `behind` come first, oldest first, then the rest, oldest first; `needs` counts the first. A repo several projects share is read once: `repos` is `[{repo, projects, token, checked_at, error?}]`. Without a token only each repo's list is read (GitHub allows 60 requests an hour then), so each PR not a draft is `checking` |
-| `POST /pulls/poll?repo=` | → `GET /pulls`'s answer, fresh: the owner's **Poll** (ORR-534). Every repo (or `repo`, `you/shop`) is polled at once, whenever it last was, and what changed is told as the background poll tells it. A repo GitHub is holding (its rate limit, a refused token), or without a token one polled now in the last five minutes or read at all in the last minute, isn't asked: its entry in `repos` has `held` saying why and when; a refused token is tried again once the secrets change. A second ask for the same while one runs gets the same answer. A `repo` no project is on is a 404. The owner's only (`pulls.poll`) |
-| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, session_name?, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release` or `project` (moved in from `before`) |
+| `GET /pulls?page=&limit=` | every open pull request on the projects' GitHub repos (the Pull requests page): `{pulls, open, needs, repos}`. Each pull is as an issue's (above) plus `repo` and `issue` `{project, id, title}` when one of the repo's projects has the issue it names (its body's link first, then its branch). Those `conflicting`, `failing` or `behind` come first, oldest first, then the rest, oldest first; `open` counts them all and `needs` the first. With `page` (from 1) or `limit` (50, at most 200), `pulls` is only that page, in the same order, with its `page` and `limit`; a page past the last is the last, and the counts stay totals. A repo several projects share is read once: `repos` is `[{repo, projects, token, checked_at, open, needs, cut?, error?}]`, its counts every page's. Up to 300 open PRs a repo are read, following GitHub's next pages; `cut` says how many were read when it had more. Without a token only each repo's list is read (GitHub allows 60 requests an hour then), so each PR not a draft is `checking` |
+| `POST /pulls/poll?repo=&page=&limit=` | → `GET /pulls`'s answer, fresh and paged as it pages: the owner's **Poll** (ORR-534). Every repo (or `repo`, `you/shop`) is polled at once, whenever it last was, and what changed is told as the background poll tells it. A repo GitHub is holding (its rate limit, a refused token), or without a token one polled now in the last five minutes or read at all in the last minute, isn't asked: its entry in `repos` has `held` saying why and when; a refused token is tried again once the secrets change. A second ask for the same while one runs gets the same answer. A `repo` no project is on is a 404. The owner's only (`pulls.poll`) |
+| `GET /projects/:project/issues/:issue/activity` | who changed what on it, oldest first: `{field, before?, after?, created_by, session_name?, created_at}`, where `field` is `created`, `title`, `status`, `priority`, `assignee`, `labels` and `external` (JSON lists), `notes` (no values), `chunk`, `parent`, `proposal`, `release`, `depends` (JSON lists of what it depends on; by `orrery` when a blocker was deleted) or `project` (moved in from `before`) |
 | `GET /notices` | agents' latest 30 comments across projects, those waiting on the owner first (the page's bell), led by agents' proposals waiting on the owner: `{id: 0, issue, title, body: <its notes>, asks: "decision", answered: false, proposal: {choices: <how many>}}`, there until the owner decides or clears it (clearing leaves it pending; put up again, it's back). `?list=waiting` is every one still waiting, proposals among them; `?list=inbox` (the rest) and `?list=cleared` (`cleared: true`, the cleared proposals still pending on its first page) come newest first, `limit` at a time (50, at most 200), older than the notice `?before=<id>` |
 | `POST /notices/clear` | `{ids, proposals}` or `{before}` → `{cleared}`: the owner takes them out of the bell: the comments by `ids`, agents' proposals by `proposals: [{project, issue}]`, or every comment made at or before `before` that isn't waiting on them. Comments stay on their issues, proposals stay pending |
 
@@ -243,7 +253,7 @@ A run that started one is `sent`. A preset a schedule names that's been deleted 
 
 **On an event.** Instead of `cron` or `at`, a schedule can run `on` something that happens. An event's type is
 `thing.what`. Every change to an issue is `issue.<field>` (`issue.created`, `issue.status`, `issue.labels`,
-`issue.release`, `issue.proposal`… and `issue.deleted`). Comments are `comment.added` and `comment.asks`, a session
+`issue.release`, `issue.proposal`, `issue.depends`… and `issue.deleted`). An issue whose blockers are all done, or whose last open one was unlinked, is `issue.unblocked`; one whose blocker was canceled `issue.blocker_canceled` (orrery asks the owner on it), or reopened while it's in progress `issue.blocker_reopened` (orrery tells its session). Comments are `comment.added` and `comment.asks`, a session
 asking the owner. Releases are `release.created`, `.frozen`, `.thawed`, `.shipped`, `.unshipped` and `.deleted`;
 chunks `chunk.created`; docs `doc.created`, `.changed` and `.deleted`. An issue's pull request, as orrery's poll finds it,
 is `pr.conflicting`, `pr.behind`, `pr.merged`, `pr.closed` (closed without merging), `pr.checks_failed` and
@@ -279,6 +289,8 @@ so an alert on `*.failed` hears a schedule fail, except when the run was itself 
 | `GET` · `PATCH` · `DELETE /projects/:project/schedules/:schedule` | `PATCH {enabled: false}` pauses it; deleting leaves its issues; the owner's can't be changed or deleted by agents (403) |
 | `POST /projects/:project/schedules/:schedule/run` | runs it now, even while the last run's issue is open → the run `{at, outcome, issue?, note?, subject?}`; the owner's, only by the owner. `{"instead": true}` runs it in place of its next run, which is skipped (a one-off is then done; 409 when it has none, as one on an event has none) |
 | `POST /projects/:project/schedules/:schedule/adopt` | `{seen?}` → the schedule: the owner making an agent's schedule theirs (Make it mine), so it runs as them and only they change it; `seen` is the `updated_at` they read it at, and one changed since is a 409. 403 for an agent; one already the owner's comes back as it is |
+| `POST /projects/:project/issues/:issue/schedule-requests` | `{schedule, id?, why?}` → 201 the comment asking: a working session asking the owner, on the issue it's working, to make a schedule or change schedule `id`. `schedule` holds the fields as above, less `untrusted`, checked as they'd be for the owner. The comment waits on their decision (`asks: "decision"`) and carries the request as `schedule` `{id?, title, changes, body, state}`; nothing is saved until they allow it. Asking again for the same schedule expires the earlier request. Not the chat (it asks in its chat) nor an untrusted session (403) |
+| `POST /projects/:project/issues/:issue/schedule-requests/:comment` | `{allow}` → the comment asking, answered: the owner's Allow saves the schedule as theirs, and it runs; Deny saves nothing. Either way their answer is a comment of theirs, which reaches the session. 403 for an agent; 409 once answered or expired |
 
 Each schedule carries `next_run` (none for one on an event), its `presets` and its latest `runs`: `made` (with the issue), `sent` (a message, or a session started), `skipped` or `failed` (with why), and an event run's `subject`.
 
@@ -287,20 +299,21 @@ Each schedule carries `next_run` (none for one on an event), its `presets` and i
 Keys for outside services (GitHub, Stripe, a deploy hook) that agents use without ever seeing them.
 The owner sets a secret; nothing gives its value back, not this API, the events or the guide. An agent
 asks orrery to make the request, with `{{secret:NAME}}` where the value goes, and orrery fills it in,
-sends it, and answers with the value scrubbed out. Secrets need `ORRERY_SECRET_KEY` (`NUXT_SECRET_KEY`
-without Docker), which encrypts them; without it these routes answer 503.
+sends it, and answers with the value scrubbed out. They're encrypted with
+`ORRERY_SECRET_KEY` (`NUXT_SECRET_KEY` without Docker) when it's set, else with a key orrery makes on its first start
+and keeps in `orrery.key` beside the database; only when it can't keep one there do these routes answer 503.
 
 | | |
 |---|---|
 | `GET /secrets` | every secret by name: `{name, last4, hosts, projects, last_used}`, never a value |
 | `GET /secrets/:name` | the secret with its latest `uses` |
-| `PUT /secrets/:name` | `{value, hosts, projects?}`, the owner only: sets it, new (201) or replacing. `name` is capitals, digits and `_` (`STRIPE_KEY`); `hosts` the host names it may go to (`api.stripe.com`, with a port if not 443); `projects` the projects that may use it (none: every one) |
+| `PUT /secrets/:name` | `{value, hosts, projects?}`, the owner only: sets it, new (201) or replacing. `name` is capitals, digits and `_` (`STRIPE_KEY`); `value` at least 8 characters; `hosts` the host names it may go to (`api.stripe.com`, with a port if not 443); `projects` the projects that may use it (none: every one) |
 | `PATCH /secrets/:name` | `{hosts?, projects?}`, the owner only: only narrows them. Letting it go somewhere new takes the value again (`PUT`), so whoever doesn't know it can't send it elsewhere |
 | `DELETE /secrets/:name` | the owner only; its uses go with it |
 | `POST /egress` | `{url, method?, headers?, body?, project?, issue?}` → `{status, headers, body, truncated?, secrets}`: the request made with each `{{secret:NAME}}` filled in (in the url, a header or the body) |
 
-- **Only to its hosts.** Every secret in a request must allow the url's host, and it must be https;
-  anything else is a 403 and nothing is sent. A secret kept to some `projects` needs the `project` it's for.
+- **Only to its hosts.** Every secret in a request must allow the url's host (else a 403), and the url must be
+  https (else a 400); either way nothing is sent. A secret kept to some `projects` needs the `project` it's for.
   That keeps a key from being used in the wrong project by mistake; it isn't a boundary, as any caller
   can name any project. The hosts are the boundary.
 - **Escaped where it goes.** In the url the value is percent-encoded; in a body sent as JSON it's
@@ -353,10 +366,15 @@ session's.
 |---|---|
 | `POST /projects/:project/issues/:issue/focus` | `{note?, instructions?, start?}` → `{signal, listeners}`: sends it, and says how many sessions heard; `start: true` (the owner's) starts a session for it when nobody's listening, even with `on_signal` off (see [Starting sessions](#starting-sessions)) |
 | `POST /projects/:project/chunks/:chunk/focus` | `{note?, status?, release?, instructions?, start?}` → `{signal, listeners}`: the same, for a chunk (`none`: the issues in no chunk; `all`: every chunk's); `status` (open statuses' ids, or `backlog`, `todo` or `started`, comma-separated) narrows it to those issues, and `release` (a version) to those set for it, at any depth |
-| `GET /projects/:project/signals?after=` | the signals after that id, oldest first; `?issue=` or `?chunk=` for the latest about one |
-| `GET /projects/:project/signals/stream` | server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up), and `name` `{name}`: what orrery calls the session, once it's known and again when it changes; a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
-| `GET /signals/stream?projects=hub,css` | the same for a session on several projects, on one stream: each `signal` says its `project`; `*` follows every project, and each one made later; `404` for a project that doesn't exist |
+| `GET /projects/:project/signals?after=` | the signals after that id, oldest first, 50 at most; `?issue=` or `?chunk=` for the latest about one |
+| `GET /projects/:project/signals/stream` | first `ready` (`{project, listeners}`), then server-sent `signal` events as they're sent (`?after=` or `Last-Event-ID` to catch up), `name` `{name}`: what orrery calls the session, once it's known and again when it changes, `stop` when the owner stops the session, and `ping` every 25 seconds; a schedule's message sent again with the same text comes once in a catch-up, and not again while the session hasn't finished a turn since the last copy (the copies count as delivered); `?format=text` gives one line each, for the Monitor tool |
+| `GET /signals/stream?projects=hub,css` | the same for a session on several projects, on one stream: `ready` is `{projects, listeners: {<project>: n}}` and each `signal` says its `project`; `*` follows every project, and each one made later; `404` for a project that doesn't exist |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
+
+`GET /version` → `{version, newer}`: the version running, and `newer` (`{version, url}`, the release's page on GitHub) when the
+last check of orrery's releases found a newer one; null when there's none, `ORRERY_UPDATE_CHECK=false` turned the check off, or it
+hasn't run yet. A pre-release counts only for an orrery running one. A failed check keeps the last answer and goes in the
+event log as `update.failed`.
 
 A session listens through orrery's channel (`channel/orrery-channel.mjs` in this repo, an MCP
 server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per orrery for all of the repo's
@@ -395,7 +413,7 @@ worked (400 when it can't be, or the folder holds the database); 409 for a folde
 when `ORRERY_DATABASE` names Postgres. `every` and `keep` (1 to 365) change only how often and how many, alone or with
 `on`; `folder` and `postgres` come with `on`. → `database`.
 
-The owner moves it from this machine (403 from any other, judged by where the connection comes from, not its `Host`; in Docker, 403 while `ORRERY_HOST` opens it to the network): `POST /database/check {kind: "sqlite", path}` or
+The owner moves it from this machine (403 from any other: it has to be reached by a name of this machine's, such as `localhost`, over a connection from this machine, and one a proxy passed on, with a `Forwarded` or `X-Forwarded-*` header, doesn't count; in Docker, 403 while `ORRERY_HOST` opens it to the network): `POST /database/check {kind: "sqlite", path}` or
 `{kind: "postgres", url}` says what's there without changing it, `{kind, where, state, projects?}`, `state` `empty`,
 `orrery` (an orrery's own, with its `projects`), `current` (the one it runs on) or `other` (something else's tables);
 400 when it can't be reached. A `path` without a leading `/` is in the data folder. `POST /database/move {kind, path |
@@ -429,7 +447,7 @@ and its old ids still find it.
 | `POST /sessions/message` | `{text, projects?, states?}` → 201 `{sent: [{project, session, name, signal}]}`: the owner's own words to every listening session at once, each a `message` with it as `target`, as above. Only `idle` ones unless `states` lists others (`working`, `waiting`); `projects` narrows it to sessions on or hearing any of them. A session hearing several projects gets it once; nobody listening is an empty `sent`, and starts no session. Never the owner's [chat](#chats)'s, as above |
 | `GET /projects/:project/sessions/work` | `{<session id>: {issues, signals}}`: what each is on, for its Sessions page: the open issues it worked last (newest first, each `{id, title, column, kind, priority, since}`, `since` being when it took the issue) and the last five signals that went to it |
 | `GET /sessions/work?projects=a,b` | `{<project>: {<session id>: {issues, signals}}}`: the same for every project with sessions (or those named), in one call |
-| `GET /projects/:project/context?kind=` | what orrery puts into a session's context on the project, part by part (ORR-549): `{kind, projects, parts, chars, tokens}`, each part `{id, group, title, text, chars, tokens}`: the channel's `instructions`, each of its `tools` as listed, and the `start` context a session was started with. `kind` is `work` (the default), `chat` or `untrusted`; `?session=<id>` gives a running one's, its kind and projects its own, with `sofar`: its latest 30 signals (each payload as its stream sent it) and tool answers, newest first, each `{at, kind, title, text, chars, tokens}`, `text` cut at 20,000 characters (an `egress` answer's left empty, its size kept: it's what an outside service sent back), kept in memory since orrery started. Like every read, it's open to anything that reaches orrery. Tokens are estimated as a quarter of the characters |
+| `GET /projects/:project/context?kind=` | what orrery puts into a session's context on the project, part by part (ORR-549): `{kind, projects, parts, chars, tokens}`, each part `{id, group, title, text, chars, tokens}`: the channel's `instructions`, each of its `tools` as listed, and the `start` context a session was started with. `kind` is `work` (the default), `chat` or `untrusted`; `?session=<id>` gives a running one's, its kind and projects its own, with `sofar`: its latest 30 signals (each payload as its stream sent it) and tool answers, newest first, each `{at, kind, title, text, chars, tokens, before?}` (`before`: given before its last `/clear` or compaction, so no longer in its context), `text` cut at 20,000 characters (an `egress` answer's left empty, its size kept: it's what an outside service sent back), kept in memory since orrery started. Like every read, it's open to anything that reaches orrery. Tokens are estimated as a quarter of the characters |
 | `POST /sessions/:session/calls` | `{tool, text}` → 204: the channel saying what one of its tool calls answered, for the Context page's `sofar` |
 | `POST /sessions` | `{id or pid, project, event, name?, cwd?, message?, command?, tool?, reason?, source?, started?, error?}`: what a hook sends. `tool` (`{name, detail?}`, on `PreToolUse` and `PermissionRequest`) is the tool it's about to use or asks for, with the command, file path, address or search cut to 300 characters (nothing from an MCP tool's input); a permission prompt the session then waits at is for it (`asking`), the `PermissionRequest`'s tool over a `PreToolUse` that lands after it until the prompt is answered. A `PermissionRequest` leaves the state to the `Notification` that comes with it. A `SessionEnd` with `reason: "clear"` keeps the session, and the next `SessionStart` with `source: "clear"` in its `cwd` takes it over when no pid ties them; a `SessionStart` with `source` `clear`, `compact` or `resume` answers with `brief` too, the issues it has in progress, for the hook to hand the fresh context; a session orrery started with context (`started`, its launch id, from `ORRERY_STARTED`) gets that context in `brief` on every `SessionStart`, its first included. A `Stop` from a listening session that a few seconds later is still idle, with no signal waiting, while an issue it has in progress has sub-issues in backlog or todo (it just split it, say), sends it alone a focus on the most urgent of them, as the owner's, so it carries on; not again for a sub-issue that hasn't changed, and never to a session an untrusted schedule's run started. A chunk or scope it was working through stays its run. A `StopFailure` (a turn an API error cut off, with Claude Code's `error`, `rate_limit` say) puts each issue the session has in progress back in Todo with no assignee, with a comment from `claude` saying why |
 
@@ -453,7 +471,7 @@ replaced, nor an untrusted schedule's run. A replacement waits, checked every 30
 launcher or the limit has no room. Waiting replacements are kept in memory, so an orrery that restarts forgets them. Several signals at once start one
 session, and with several launchers the first to claim a launch starts it. Its channel catches up from the
 signal it was started for. The owner can also start one by hand (`POST .../launches`, Start session on the
-Sessions page), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at?, context?, hears?}` (no `stops_at`: until stopped), and count toward
+Sessions page), which catches up from the project's latest signal. Those sessions list with `started: {launch, tmux, stops_at?, context?, hears?, untrusted?, chat?}` (no `stops_at`: until stopped), and count toward
 the limits while their channel is connected.
 
 One started by hand can be given more context: presets the owner picks (any number, the orrery's and the
@@ -466,9 +484,9 @@ with review instructions in it.
 
 | | |
 |---|---|
-| `GET /projects/:project/launches/stream?dir=&every=1&version=` | for the launcher, running in the folder `dir` (projects whose launchers share one are in one repo), with `every=1` where its channel serves every project (`*`), and `version` its code's: server-sent `ready` `{project, starts, version, token}` with the orrery's own version (a launcher on other code restarts on its checkout's once that has moved on and it has no session running) and the token its claims send, new on each connection, then a `launch` for each of the project's launches no launcher has taken yet (one an outdated launcher was refused waits for one to restart and take it: half an hour, a chat until it ends), `launch` `{id, project, after, minutes?, tmux, context?, hears?, untrusted?, chat?}` (claim it, then start it with `hears` as its session's `ORRERY_HEAR`, then start it; no `minutes`: until stopped), `stop` `{id}` (the owner stopped it, or it's done and past its time or idle too long), `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through (or the owner cleared their chat's context); `watch` `{id, terminal}`: the owner pressed Watch, so the launcher running that session opens a terminal on its machine attached to it, in that app; `allow` `{id}`: the owner pressed Allow on that session's permission prompt, so its launcher presses Enter, only if its pane still shows one with the cursor on "Yes"; and `view` `{id}`: the owner is viewing that session's screen, so its launcher sends it (`POST …/screen`) about once a second until told nobody is |
+| `GET /projects/:project/launches/stream?dir=&every=1&version=&picked=` | for the launcher, running in the folder `dir` (projects whose launchers share one are in one repo), with `every=1` where its channel serves every project (`*`), `version` its code's, and `picked` the time a session's channel picked the folder up, when it did (kept only as a time, for `GET …/launches`' `repos`): server-sent `ready` `{project, starts, version, token}` with the orrery's own version (a launcher on other code restarts on its checkout's once that has moved on and it has no session running) and the token its claims send, new on each connection, then a `launch` for each of the project's launches no launcher has taken yet (one an outdated launcher was refused waits for one to restart and take it: half an hour, a chat until it ends), `launch` `{id, project, after, minutes?, tmux, context?, hears?, untrusted?, chat?}` (claim it, then start it with `hears` as its session's `ORRERY_HEAR`, then start it; no `minutes`: until stopped), `stop` `{id}` (the owner stopped it, or it's done and past its time or idle too long), `extend` `{id, stops_at}`, and `clear` `{id}`: one of its sessions went idle with nothing in progress and no signal waiting, so it types `/clear` for a fresh context, and the brief after it hands the session what's left of the chunk or scope it was working through (or the owner cleared their chat's context); `watch` `{id, terminal}`: the owner pressed Watch, so the launcher running that session opens a terminal on its machine attached to it, in that app; `allow` `{id}`: the owner pressed Allow on that session's permission prompt, so its launcher presses Enter, only if its pane still shows one with the cursor on "Yes"; and `view` `{id}`: the owner is viewing that session's screen, so its launcher sends it (`POST …/screen`) about once a second until told nobody is |
 | `POST /projects/:project/launches` | `{issue?, statuses?, release?, presets?, instructions?, hears?}` → 201 the launch: the owner starting a session by hand, through its launcher, catching up from the latest signal; with `issue`, from a focus on it that only this session hears (aimed at `launch-<id>`, which the session takes as one of its ids when it connects); with `statuses` (ids or kinds; `todo` and `started` when only `release` is sent) and `release`, from a focus made the same way on the whole project's issues in them (chunk `all`); `presets` (ids, the orrery's or the project's) and `instructions` (text) give it context; `hears` (project ids) is what the session hears: the project alone, or it and others whose launchers run in the same folder, as one session (without it, what the repo's channel lists); 400 for another project's preset; 409 without the project's opt-in, a launcher or room under the limit, or for a project in `hears` not served from its folder |
-| `GET /projects/:project/launches` | `{launchers, versions, folders, every, started, starting, total}`: whether a launcher is there, the version each runs (`''` for one too old to say), the folders its launchers run in, whether one serves every project (so a launch without `hears` hears them all), the sessions it started and has on their way, and `total`, those on every project, which the limit counts |
+| `GET /projects/:project/launches` | `{launchers, versions, folders, repos, every, started, starting, total}`: how many launchers are connected (0: none to start one), the version each runs (`''` for one too old to say), the folders its launchers run in, the same as `repos` (`[{dir, picked_at?}]`, `picked_at` when a session's channel picked the folder up rather than `--install`, ORR-605), whether one serves every project (so a launch without `hears` hears them all), the sessions it started and has on their way, and `total`, those on every project, which the limit counts |
 | `POST /projects/:project/launches/:launch/claim` | `{claimed}`: a launcher taking the launch on; only the first gets `true`. It sends the token its stream's `ready` gave it as `Orrery-Launcher`: a claim without the token of a launcher connected for the project is refused (`false`, and a `launcher.outdated` warning, since a launcher running older code sends none; it's offered the launch again once restarted). An untrusted schedule's launch (`untrusted: true`) goes only to one that sends `?untrusted=no-bash`, saying it starts it locked down with no Bash (an older launcher's `?untrusted=yes` is refused), and a chat's (`chat: true`) only to one that sends `?chat=yes`, saying it starts it able only to read and answer |
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
 | `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at?, context?, untrusted?, chat?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted orrery counts them as started again, with the context they were given (a launch orrery still knows keeps its own) |
@@ -500,18 +518,19 @@ owner ends it, which closing its pane does. Each message says which page the own
 Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools but `start_issue`, `finish_issue`,
 `update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and its own: `reply`, its answer, the
 only way what it says reaches the page, `image`, which shows it an image the owner pasted, `edit_issue`, which changes
-an issue's title, notes, priority, labels, team tasks, chunk, release or parent when the owner asks, `message_sessions` and
-`message_session`, which ask the owner to message other sessions when they ask in the chat (below; never on its own),
-`update_settings`, which asks the owner to change one
-App setting (below), `create_schedule` and `update_schedule`, which ask them to make a schedule in its project or
-change one (pause and resume included), `create_release` and `update_release`, which ask them to add a release or
-change one (freezing and shipping included), and `move_issues`, which asks them to move issues to another status or
-assign them. It hears only its chat's messages: no focus, no message to
+an issue's title, notes, priority, labels, team tasks, chunk, release or parent when the owner asks, `move_issues`, which
+asks them to move issues to another status or assign them, and `request`, which asks them for the rest: `start_session`,
+`stop_session` and `extend_session`; `message_sessions` and `message_session`, to message other sessions (below);
+`update_settings`, one App setting (below); `create_schedule` and `update_schedule` (pause and resume included);
+`create_release` and `update_release` (freezing and shipping included); and `create_chunk` and `update_chunk`. Those
+actions aren't listed as tools of their own, so they don't sit in its context until it needs one (ORR-624):
+`request_fields {action}` says what an action does and takes, and `request {action, fields, why}` asks. Each asks
+only when the owner asked in the chat, never on its own, and nothing happens until they allow it. It hears only its chat's messages: no focus, no message to
 every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
 or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), changing an issue's
-`title`, `notes`, `priority`, `labels`, `external`, `chunk`, `release` and `parent` (`PATCH` with anything else, `status`
+`title`, `notes`, `priority`, `labels`, `external`, `chunk`, `release`, `parent` and `depends_on` (`PATCH` with anything else, `status`
 or `assignee` say, is a 403, and no other session's claim on it holds it back), commenting, replying, messaging
-asking to message sessions, and asking to change a setting or a schedule or to move or assign issues; it can't message a session itself (both
+asking to message sessions, and asking to change a setting, a schedule, a release or a chunk, to start, stop or extend a session, or to move or assign issues; it can't message a session itself (both
 message routes are a 403 to it). A message the owner sends from its request goes as theirs,
 with `via: "chat"` on the signal; the session hears it ending `(Sent by the owner through their chat.)`, and the
 Sessions page and the event log (`session.messaged`) say it came through the chat. A chat is kept in memory
@@ -523,7 +542,7 @@ while it runs, so it's gone after orrery restarts.
 | `POST /chats` | `{project, issues?}` → 201 the chat: the owner starting one, its session on its way (its `id` is its launch's), its issues landing in `issues` (`todo` by default, or `backlog`); 409 without a launcher for the project |
 | `GET /chats/:chat` | the chat; 404 once it has ended |
 | `PATCH /chats/:chat` | `{issues}` → the chat: the owner choosing where the issues it makes land from now on, `todo` or `backlog`; its own session can't (403) |
-| `POST /chats/:chat/messages` | `{text, images?, page?}` (or `parts` in place of `text`: a run of messages the pane held and sends together, which the session gets as one, joined by blank lines, and the message keeps as `parts`) → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted and the page they're on, `{path, title?}` (a path on this orrery, starting with `/`; 400 otherwise); it goes to the chat's session alone, ending `(The owner is on <path>: <title>.)` |
+| `POST /chats/:chat/messages` | `{text, images?, page?}` (or `parts` in place of `text`: a run of messages the pane held and sends together, which the session gets as one, joined by blank lines, and the message keeps as `parts`) → 201 the message: the owner writing in it, with the ids of [uploads](#images) pasted and the page they're on, `{path, title?}` (a path on this orrery, starting with `/`; 400 otherwise); it goes to the chat's session alone, ending `(The owner is on <path>: <title>.)`, plus `That page is on <project>, not this chat's project, <chat's>.` when the path is another project's (`/p/<project>/…`) |
 | `POST /chats/:chat/replies` | `{text}` → 201 the message: the chat's session answering, in Markdown; only that session's (`Orrery-Chat: yes` and `Orrery-Launch: <the chat's id>`) |
 | `POST /chats/:chat/requests` | `{setting, value, why?}` → 201 the message: the chat's session asking to change one App setting, `tracker`, `tint`, `restrict_proposals`, `handle` or `advanced` (any other is a 400, as is a value the settings wouldn't take), shown in the chat as `request: {setting, from, to, state: "asked"}` with Allow and Deny. Nothing is saved yet; asking again for the same setting expires the one before. Only that session's |
 | `POST /chats/:chat/requests` | `{schedule, id?, why?}` → 201 the message: the chat's session asking to make a [schedule](#schedules) in its project, or to change schedule `id` there. `schedule` holds the fields as Schedules takes them: `kind`, `title`, `notes`, `cron`, `at`, `on`, `on_filter`, `timezone`, `presets`, `column`, `chunk`, `priority`, `labels`, `ask`, `skip_open`, `only_if_changed` and `enabled` (any other, `untrusted` say, is a 403). It's checked as Schedules would check it for the owner (a bad cron, a preset that isn't there or an unknown schedule fails here, not on Allow), and shown in the chat as `schedule: {id?, title, changes: [{field, from?, to}], body, state: "asked"}` with Allow and Deny (a change has `from`, the schedule as it is). Nothing is saved yet; asking again about the same schedule expires the one before. Only that session's |
@@ -541,7 +560,7 @@ while it runs, so it's gone after orrery restarts.
 A focus reaches a session as its `prompt`: a template filled in, with standing instructions after it.
 The owner sets them (an agent gets a 403):
 
-- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, starts?, terminal?, restrict_proposals?, advanced?, pick_next?}`: the orrery's (`terminal`: the app Watch opens; `restrict_proposals`: see [Proposals](#proposals); `advanced`: see [Event log](#event-log); `starts`: see [Starting sessions](#starting-sessions); `pick_next`, false by default: a listening session out of work, with nothing in progress, no run left and nothing waiting on the owner, is sent a message, alone and as the owner's, listing the issues it may start (Todo, or Backlog once Todo is empty, most urgent first, at most 10, from the projects it hears; no proposals, nothing assigned to anyone but `claude` or waiting on the owner, no parents) to pick one; never the same list twice, and nothing with nothing to pick. One orrery started is sent it after its `/clear`. The idle sessions are tried again a few seconds after the board changes, one at a time). A template is text with
+- `PATCH /settings {focus_prompt?, chunk_prompt?, instructions?, handle?, tracker?, tint?, starts?, terminal?, restrict_proposals?, advanced?, pick_next?}`: the orrery's (`tint`: a tint's name, `#rrggbb`, or null for none; `terminal`: the app Watch opens; `restrict_proposals`: see [Proposals](#proposals); `advanced`: see [Event log](#event-log); `starts`: see [Starting sessions](#starting-sessions); `pick_next`, false by default: a listening session out of work, with nothing in progress, no run left and nothing waiting on the owner, is sent a message, alone and as the owner's, listing the issues it may start (Todo, or Backlog once Todo is empty, most urgent first, at most 10, from the projects it hears; no proposals, nothing assigned to anyone but `claude` or waiting on the owner, no parents) to pick one; never the same list twice, and nothing with nothing to pick. One orrery started is sent it after its `/clear`. The idle sessions are tried again a few seconds after the board changes, one at a time). A template is text with
   placeholders (`{issue}`, `{title}`, `{status}`, `{priority}`, `{chunk}`, `{where}`, `{note}`, `{url}`,
   `{actor}`; a chunk's also `{issues}`), and a line whose placeholders all come out empty is left out.
   `null` or `""` goes back to the default. `instructions` is a list of `{text, on?, id?}`, lines such as
@@ -561,7 +580,9 @@ Saved pieces of context, `{id, project, name, text, icon, color}`, the owner giv
 for its sessions only. Each reads as a role: a badge with `icon` (a Heroicon's name, e.g. `shield-check`) in
 `color` (a tint's name or `#rrggbb`), or its initials without an icon. orrery ships a few of its own (Release,
 Security audit, Review, Debug an error), added once to each orrery as it starts, new or upgraded; each has `default`
-`{key, changed}`. An upgrade never changes one, and one the owner removed isn't added again. Only the owner makes, changes or removes them (an agent gets a 403); the owner's chat reads them
+`{key, changed}`. An upgrade changes one only while its text is still one orrery shipped before, word for word,
+taking the new text; one the owner changed stays theirs (Reset to default takes the new text), and one the owner
+removed isn't added again. Only the owner makes, changes or removes them (an agent gets a 403); the owner's chat reads them
 (the `presets` and `preset` tools) to help the owner write one.
 
 | | |
@@ -578,6 +599,8 @@ Security audit, Review, Debug an error), added once to each orrery as it starts,
 ## For agents
 
 `/llms.txt` says how to use orrery and lists the projects; `/llms-full.txt` adds this reference;
+`/connect/<project>.md?session=` is the brief for a Claude session in that project's repo (how to set it up), and
+for a project that doesn't exist yet `?name=` names it and the brief has the agent make it;
 `/api/guide` is this reference alone, and `/api/guide/using` how orrery works, page by page (docs/using.md), which the
 channel's `guide` tool answers with. A Claude session with orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
@@ -586,8 +609,10 @@ make these calls for it. An untrusted schedule's session (its launcher sets `ORR
 commenting on them, whether or not orrery knows its launch. A chat's session (`ORRERY_CHAT=yes`) sends `Orrery-Chat: yes`
 and `Orrery-Launch: <its chat>` on every call and `chat=yes` on its streams, and is held to what a [chat](#chats) does. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
 to the issue, so the owner's comments on it go to that session. Such a write to an issue another session has
-started (in progress or in review), while that session is still listening, is refused with a 409: starting it, a
-comment or an edit alike, so pick another issue. Closing it (done, canceled) is any session's, and the owner's
+started (in progress or in review), while that session is still listening, is refused with a 409: starting it or
+an edit alike (a comment's edit too), so pick another issue. A comment isn't (ORR-613): it neither starts nor changes
+the issue, and it's how a reviewer's findings reach the session on it. Nor does it tie the commenting session to the
+issue (ORR-627): no write moves a started issue off a session that's still listening. Closing it (done, canceled) is any session's, and the owner's
 writes are never refused. A chunk's list marks such an issue `(another session is on it: skip it)` for the
 other sessions. Two sessions starting the same issue at once are taken one after the other, so only the first
 gets it.
@@ -615,7 +640,7 @@ handle with `PATCH /settings {handle}` (their GitHub login, say; `null` uses the
 What orrery did and what went wrong, kept in its own database and never sent anywhere, for looking into a
 problem. **Errors** are recorded always: a 5xx the server answers with (`server.error`), an error in the page
 (`page.error`; an unknown URL isn't one, it only shows Not found), a schedule run or backup that failed (`schedule.failed`, `backup.failed`). **What orrery did** is
-recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → Advanced):
+recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}`, App settings → Advanced; on in an orrery that never set it):
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
 launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
@@ -632,7 +657,7 @@ type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.cr
 `doc.deleted` and `release.<what>` (`release.created`, `release.frozen`, `release.shipped`…). Its message says who did
 what (`claude moved ORR-12: todo → done`), and its details hold `by`, `owner`, `from`, `to`, `untrusted` and the
 `schedule` whose run made it. No titles, notes or comment text are kept. Advanced also counts each new kind of error in the
-bell. The Events page is reached from App settings → Advanced either way.
+bell and shows Events, Context and Pull requests in the sidebar under Schedules. The Events page is also reached from App settings → Advanced either way.
 
 Each event is `{id, level, kind, project?, subject?, message, details?, count, first_seen, last_seen, resolved_at?, resolved_by?}`,
 with `level` one of `error`, `warn`, `info`. Each is a line of its own (`count` 1, `last_seen` its `first_seen`); a
@@ -648,7 +673,7 @@ and 5000 of the rest, each the oldest going first.
 - `POST /events/log/:id/resolve`: it's dealt with, and so are its repeats not resolved yet; the next one like it is news.
   Resolved by anyone but the owner, it keeps their name as `resolved_by`, and the bell still counts it until the owner
   has looked, so a session can't hide an error it caused.
-- `POST /events/log {message, stack?, page?, build?, kind?}` → 201: the page reporting its own error (`page.error`, or
+- `POST /events/log {message, stack?, page?, build?, kind?}` → 201, or 204 when it isn't kept: the page reporting its own error (`page.error`, or
   another `kind` under `page.`). Anyone can send one, so it's kept with `details.reported: true`, which the `events`
   tool shows as unchecked, and at most 5 of a kind and 20 in all a minute are taken from each sender (where it comes from, and whether it sends an `Orrery-Actor`: the page sends none, and every name from one place counts as one), and 100 from all of them: a 429 past that.
 
@@ -667,7 +692,12 @@ is done out of backlog, todo, started and done: proposals and canceled leaves ar
 ## Errors
 
 `{statusCode, message}`: 400 for a bad body, with `data: {problems: […]}` listing what's wrong (unknown
-fields are refused, so typos show); 403 for the owner's things; 404; 409 for a taken id.
+fields are refused, so typos show); 403 for the owner's things; 404; 409 when the state is in the way (a taken id,
+an issue another session is on, a request already answered); 415 for a write whose body isn't
+`Content-Type: application/json`. Creating answers 201 and deleting 204.
+
+orrery answers only to `localhost`, IP addresses and the names in `NUXT_ALLOWED_HOSTS` (`ORRERY_ALLOWED_HOSTS` in
+Docker), and takes writes only from its own page or a client with no `Origin`: anything else is a 403.
 
 ## Live updates
 

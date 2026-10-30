@@ -21,7 +21,7 @@ export default defineConfig({
     ],
     webServer: {
         command: `${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-* .data/e2e.db.backups.json .data/e2e-moved-*.db'} && nuxt dev --port ${port}`,
-        env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_BACKUP_DIR: ''},
+        env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false'},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
         timeout: 180_000,

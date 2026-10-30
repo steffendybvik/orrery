@@ -10,21 +10,11 @@ import {promisify} from 'node:util'
 
 const STATUS = {type: 'string', description: 'A status id (todo, in-progress, in-review, done…) or kind (started…)'}
 const PRIORITY = {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null], description: 'P0 is urgent; null clears it'}
+// Said in a line rather than as a schema: it rides on two tools, and orrery says what's wrong with one it can't take.
 const CHOICES = {
     type: 'array',
-    description: "A proposal's questions for the owner, each answered by picking options",
-    items: {
-        type: 'object',
-        required: ['key', 'question', 'options'],
-        properties: {
-            key: {type: 'string'},
-            question: {type: 'string'},
-            pick: {type: 'string', enum: ['one', 'any']},
-            options: {type: 'array', items: {type: 'object', required: ['key', 'title'], properties: {key: {type: 'string'}, title: {type: 'string'}, body: {type: 'string'}}}},
-            recommended: {type: 'array', items: {type: 'string'}},
-            from: {type: 'object', properties: {choice: {type: 'string'}, option: {type: 'string'}}, description: 'Follows on from an earlier choice’s option'},
-        },
-    },
+    items: {type: 'object'},
+    description: "A proposal's questions for the owner: {key, question, options: [{key, title, body?}], pick?: one|any, recommended?: [option keys], from?: {choice, option} (follows on from one)}",
 }
 const FIELDS = {
     title: {type: 'string'},
@@ -37,8 +27,12 @@ const FIELDS = {
     chunk: {type: ['string', 'null'], description: "A chunk's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
     release: {type: ['string', 'null'], description: 'The release version it ships in'},
+    depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
     choices: CHOICES,
 }
+
+/** The fields without their descriptions: update_issue takes create_issue's, said there once. */
+const BARE_FIELDS = Object.fromEntries(Object.entries(FIELDS).map(([key, {description, ...field}]) => [key, field]))
 
 export const TOOLS = [
     {
@@ -52,6 +46,7 @@ export const TOOLS = [
             label: {type: 'string'},
             external: {type: 'string', description: 'A team task id'},
             q: {type: 'string', description: 'Text in the id or title'},
+            blocked: {type: 'boolean'},
             open: {type: 'boolean', description: 'Leave out done and canceled (default true); false lists every status'},
         }},
     },
@@ -67,8 +62,8 @@ export const TOOLS = [
     },
     {
         name: 'update_issue',
-        description: 'Changes an issue\'s fields; proposal "pending" puts it (back) to the owner.',
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...FIELDS, proposal: {type: ['string', 'null'], enum: ['pending', null]}}},
+        description: 'Changes an issue\'s fields, as create_issue takes them; proposal "pending" puts it (back) to the owner.',
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...BARE_FIELDS, proposal: {type: ['string', 'null'], enum: ['pending', null]}}},
     },
     {
         name: 'start_issue',
@@ -173,33 +168,14 @@ const CHUNK_FIELDS = {
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
 }
 
-/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
- * issue's fields when they ask, and asking them to start, stop or extend a session, move or assign issues, message
- * other sessions, change a setting, or make or change a schedule or a release. */
+/** Why the chat asks: a line for the owner, shown with the request. */
+const WHY = {type: 'string'}
+
+/** What the owner's chat session has besides, listed: answering in the chat, seeing what the owner pasted in it,
+ * changing an issue's fields when they ask, asking to move or assign issues, and asking for the rest (`CHAT_REQUESTS`)
+ * through `request`. Each request shows the owner what would happen with Allow and Deny (Send and Don't send for a
+ * message), and the chat hears which they pressed; the chat's instructions say so once (ORR-624). */
 export const CHAT_TOOLS = [
-    {
-        name: 'start_session',
-        description: "Asks the owner to start a Claude session, as Start session on the Sessions page does, only when they asked you to in this chat: it shows them what would start with Allow and Deny, and you hear which they pressed. Nothing starts until they allow it; then it's theirs, under the project's limits. On this project unless you name another; focused on an issue, or working through statuses and a release, or neither; with preset ids (the presets tool) and their own words.",
-        inputSchema: {type: 'object', properties: {
-            project: {type: 'string'},
-            issue: {type: 'string'},
-            statuses: {type: 'array', items: {type: 'string'}, description: 'Status ids or kinds to work through, e.g. ["todo"]'},
-            release: {type: 'string', description: 'A release version to work through'},
-            presets: {type: 'array', items: {type: 'number'}},
-            instructions: {type: 'string', description: "The owner's own words for the session"},
-            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
-        }},
-    },
-    {
-        name: 'stop_session',
-        description: "Asks the owner to stop a session (by its name or id; the sessions tool lists them), only when they asked you to in this chat: it shows them which with Allow and Deny, and you hear which they pressed. Nothing stops until they allow it.",
-        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
-    },
-    {
-        name: 'extend_session',
-        description: "Asks the owner to give a session orrery started more time (by its name or id; 30 minutes unless you say), only when they asked you to in this chat: it shows them with Allow and Deny, and you hear which they pressed.",
-        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}, minutes: {type: 'integer', minimum: 1, maximum: 1440}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
-    },
     {
         name: 'reply',
         description: "Answers the owner in the chat, in Markdown: the only way what you say reaches them. Say an issue you made by its id.",
@@ -207,73 +183,135 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release or parent, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent'].map(f => [f, FIELDS[f]]))}},
+        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
         name: 'move_issues',
-        description: "Asks the owner to move issues in this project to another status, or assign them, only when they asked you to in this chat: it shows them each issue's from → to with Allow and Deny, and you hear which they pressed. Nothing moves until they allow it; then it's their move, as if made on the page. status is a status's id or a kind (todo, started, done, canceled…); assignee is a name, owner, or null for nobody. Not a proposal waiting on the owner: that stays theirs to decide.",
+        description: "Asks the owner to move issues in this project to another status (an id or a kind: todo, done, canceled…), or assign them (a name, owner, or null for nobody). Not a proposal waiting on the owner: that's theirs to decide.",
         inputSchema: {type: 'object', required: ['ids'], properties: {
             ids: {type: 'array', items: {type: 'string'}, description: 'The issues, e.g. ["ORR-12", "ORR-14"]'},
             status: {type: 'string'},
             assignee: {type: ['string', 'null']},
-            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
+            why: WHY,
         }},
     },
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
+        name: 'request',
+        description: 'Asks the owner for one of the actions request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release or chunk. Read its fields with request_fields first.',
+        inputSchema: {type: 'object', required: ['action'], properties: {
+            action: {type: 'string', enum: []},
+            fields: {type: 'object', description: 'As request_fields gives them for the action'},
+            why: WHY,
+        }},
+    },
+    {
+        name: 'request_fields',
+        description: 'What an action of request does and the fields it takes.',
+        inputSchema: {type: 'object', required: ['action'], properties: {action: {type: 'string', enum: []}}},
+    },
+]
+
+/** What the chat asks the owner for through `request`, read with `request_fields`: not listed, so they don't sit in
+ * the chat's context until it needs one (ORR-624). */
+export const CHAT_REQUESTS = [
+    {
+        name: 'start_session',
+        description: "Starts a Claude session, as Start session on the Sessions page does, under the project's limits: on this project unless you name another; focused on an issue, or working through statuses and a release, or neither; with preset ids (the presets tool) and the owner's own words.",
+        inputSchema: {type: 'object', properties: {
+            project: {type: 'string'},
+            issue: {type: 'string'},
+            statuses: {type: 'array', items: {type: 'string'}, description: 'Status ids or kinds to work through, e.g. ["todo"]'},
+            release: {type: 'string', description: 'A release version to work through'},
+            presets: {type: 'array', items: {type: 'number'}},
+            instructions: {type: 'string', description: "The owner's own words for the session"},
+        }},
+    },
+    {
+        name: 'stop_session',
+        description: 'Stops a session, by its name or id (the sessions tool lists them).',
+        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}}},
+    },
+    {
+        name: 'extend_session',
+        description: 'Gives a session orrery started more time, by its name or id: 30 minutes unless you say.',
+        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}, minutes: {type: 'integer', minimum: 1, maximum: 1440}}},
+    },
+    {
         name: 'message_sessions',
-        description: "Asks the owner to send a message to every listening session, as theirs, only when they asked for it in this chat: it shows them the text and who it goes to with Send and Don't send, and you hear which they pressed. Nothing is sent until they press Send. Idle sessions only unless states says otherwise, so it interrupts no work.",
+        description: 'Sends a message to every listening session, as the owner\'s: idle ones only unless states says otherwise, so it interrupts no work.',
         inputSchema: {type: 'object', required: ['text'], properties: {
             text: {type: 'string'},
             projects: {type: 'array', items: {type: 'string'}, description: 'Only sessions on (or hearing) these projects'},
             states: {type: 'array', items: {type: 'string', enum: ['idle', 'working', 'waiting', 'starting']}, description: 'idle by default'},
-            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
         }},
     },
     {
+        name: 'message_session',
+        description: "Sends a message to one session, by its name or id (the sessions tool lists them), as the owner's.",
+        inputSchema: {type: 'object', required: ['session', 'text'], properties: {session: {type: 'string'}, text: {type: 'string'}}},
+    },
+    {
         name: 'update_settings',
-        description: "Asks the owner to change one App setting, only when they asked you to in this chat: it shows them the change (from → to) with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. tracker is the address of a task on the team's tracker with {id} where its id goes; tint a colour name or #rrggbb; restrict_proposals and advanced true or false; handle their login. null clears one.",
+        description: "Changes one App setting. tracker is the address of a task on the team's tracker with {id} where its id goes; tint a colour name or #rrggbb; restrict_proposals and advanced true or false; handle their login. null clears one.",
         inputSchema: {type: 'object', required: ['setting', 'value'], properties: {
             setting: {type: 'string', enum: ['tracker', 'tint', 'restrict_proposals', 'handle', 'advanced']},
             value: {type: ['string', 'boolean', 'null']},
-            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
         }},
     },
     {
         name: 'create_schedule',
-        description: "Asks the owner to make a schedule in this project, only when they asked you to in this chat: it shows them the schedule with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it; then it's theirs. Give a title and one of cron, at or on. The presets tool lists preset ids.",
-        inputSchema: {type: 'object', required: ['title'], properties: {...SCHEDULE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: "Makes a schedule in this project, the owner's once allowed. Give a title and one of cron, at or on. The presets tool lists preset ids.",
+        inputSchema: {type: 'object', required: ['title'], properties: SCHEDULE_FIELDS},
     },
     {
         name: 'update_schedule',
-        description: "Asks the owner to change one of this project's schedules (by its id; the schedules tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes; enabled false pauses it, true resumes it. Setting one of cron, at or on lets go of the others.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}, ...SCHEDULE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: "Changes one of this project's schedules, by its id (the schedules tool lists them). Send only what changes; enabled false pauses it, true resumes it. Setting one of cron, at or on lets go of the others. Never deletes one: that's the owner's, on the Schedules page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}, ...SCHEDULE_FIELDS}},
     },
     {
         name: 'create_release',
-        description: "Asks the owner to add a release to this project, only when they asked you to in this chat: it shows them the release with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.",
-        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: 'Adds a release to this project. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.',
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
     },
     {
         name: 'update_release',
-        description: "Asks the owner to change one of this project's releases (by its version; the releases tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes. Its version can't change.",
-        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: "Changes one of this project's releases, by its version (the releases tool lists them): send only what changes. Its version can't change, and removing one is the owner's, on the Releases page.",
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
     },
     {
         name: 'create_chunk',
-        description: "Asks the owner to make a chunk (a group of issues) in this project, only when they asked you to in this chat: it shows them the chunk with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it; then put issues in it with edit_issue.",
-        inputSchema: {type: 'object', required: ['title'], properties: {...CHUNK_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: 'Makes a chunk (a group of issues) in this project; once allowed, put issues in it with edit_issue.',
+        inputSchema: {type: 'object', required: ['title'], properties: CHUNK_FIELDS},
     },
     {
         name: 'update_chunk',
-        description: "Asks the owner to change one of this project's chunks (by its id; the chunks tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes. Removing a chunk stays the owner's, on its page.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...CHUNK_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: "Changes one of this project's chunks, by its id (the chunks tool lists them): send only what changes. Removing one is the owner's, on its page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...CHUNK_FIELDS}},
+    },
+]
+
+const REQUESTS = CHAT_REQUESTS.map(r => r.name)
+for (const tool of CHAT_TOOLS.filter(t => t.name.startsWith('request'))) tool.inputSchema.properties.action.enum = REQUESTS
+
+/** What a working session asks the owner for on the issue it's working (ORR-458), named as the chat's tools that ask in
+ * the chat: a comment waiting on the owner's decision, with Allow and Deny. The schedule is one object, its fields as the
+ * chat's take them, to keep a working session's tool list small. An untrusted session goes without. */
+export const ASK_TOOLS = [
+    {
+        name: 'create_schedule',
+        description: "Asks the owner, on the issue you're working, to make a schedule, when they asked for one: they get it with Allow and Deny, and answer in a comment. Saved, as theirs, only on Allow.",
+        inputSchema: {type: 'object', required: ['id', 'schedule'], properties: {
+            id: {type: 'string', description: 'Your issue'},
+            schedule: {type: 'object', description: 'title, and cron ("0 9 * * 1-5"), at (ISO) or on (an event: "issue.status"); kind (issue, message, session), notes, presets, timezone…'},
+            why: {type: 'string'},
+        }},
     },
     {
-        name: 'message_session',
-        description: "Asks the owner to send a message to one session (by its name or id; the sessions tool lists them), as theirs, only when they asked for it in this chat: it shows them the text with Send and Don't send, and you hear which they pressed. Nothing is sent until they press Send.",
-        inputSchema: {type: 'object', required: ['session', 'text'], properties: {session: {type: 'string'}, text: {type: 'string'}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        name: 'update_schedule',
+        description: 'As create_schedule, to change schedule schedule_id: send only what changes (enabled false pauses it).',
+        inputSchema: {type: 'object', required: ['id', 'schedule_id', 'schedule'], properties: {id: {type: 'string'}, schedule_id: {type: 'number'}, schedule: {type: 'object'}, why: {type: 'string'}}},
     },
 ]
 
@@ -292,6 +330,24 @@ export const UNTRUSTED_TOOLS = [
         }},
     },
 ]
+
+/** The tools a work session rarely needs, listed only once it asks for them by group with `more_tools` (ORR-625), so
+ * their definitions don't ride on its every turn. Called by name, they work before that too. */
+export const ON_DEMAND = {
+    schedules: ['create_schedule', 'update_schedule'],
+    secrets: ['secrets', 'egress'],
+    debug: ['events', 'resolve_event'],
+}
+
+const MORE_TOOLS = {
+    name: 'more_tools',
+    description: "Adds orrery tools to your list: schedules (ask the owner on your issue for a schedule), secrets (egress: call an outside service with a key) or debug (orrery's event log).",
+    inputSchema: {type: 'object', required: ['group'], properties: {group: {type: 'string', enum: Object.keys(ON_DEMAND)}}},
+}
+
+/** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
+ * only raises proposals and comments on them), and orrery's own log. */
+export const NOT_FOR_UNTRUSTED = ['update_issue', 'start_issue', 'finish_issue', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
 /** The tools a chat goes without: those that take up, move or finish work, write docs, reach outside services or deal
  * with the event log (its launcher refuses them too, `chatOnly`). */
@@ -317,11 +373,15 @@ const LOGIN = /^[\w-]+$/
 const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
- * (`chat`) are its own; a work session's leave out the chat's reads, and an untrusted schedule's session (`untrusted`)
- * also reads GitHub issues. */
-export function toolsFor(projects, {chat = false, untrusted = false} = {}) {
+ * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with
+ * the groups of `ON_DEMAND` it hasn't `loaded` behind `more_tools`; an untrusted schedule's session (`untrusted`) has
+ * what it's allowed, and reads GitHub issues. */
+export function toolsFor(projects, {chat = false, untrusted = false, loaded = []} = {}) {
     const work = TOOLS.filter(t => !CHAT_READS.includes(t.name))
-    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS] : untrusted ? [...work, ...UNTRUSTED_TOOLS] : work
+    const later = Object.entries(ON_DEMAND).filter(([group]) => !loaded.includes(group)).flatMap(([, names]) => names)
+    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS]
+        : untrusted ? [...work.filter(t => !NOT_FOR_UNTRUSTED.includes(t.name)), ...UNTRUSTED_TOOLS]
+            : [...[...work, ...ASK_TOOLS].filter(t => !later.includes(t.name)), ...later.length ? [MORE_TOOLS] : []]
     if (projects.length < 2) return tools
     const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}`}
     return tools.map(tool => SCOPED.includes(tool.name)
@@ -335,8 +395,8 @@ export function toolsFor(projects, {chat = false, untrusted = false} = {}) {
  * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). `untrusted` for an untrusted
  * schedule's session, which says so on every call and reads GitHub issues through `gh` (its arguments; run in the
  * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. `report` hears each call's
- * tool and the text it answered, for the Context page (ORR-549). */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}}) {
+ * tool and the text it answered, for the Context page (ORR-549); `load` a group of `ON_DEMAND` a work session asked for. */
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
     const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
         ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
@@ -373,12 +433,23 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         return project
     }
     const issuePath = id => `/issues/${encodeURIComponent(id)}`
-    const pick = (args, keys) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]))
-    const line = i => `${i.id} [${[i.status, i.priority, i.assignee].filter(Boolean).join(', ')}] ${i.title}${i.proposal ? ` (proposal: ${i.proposal})` : ''}`
+    /** A working session's create_schedule or update_schedule (`schedule_id`): asked on its issue `id` (ORR-458). */
+    async function askOnIssue({id, schedule_id, schedule, why}) {
+        const asked = await call('POST', `${issuePath(id)}/schedule-requests`, {schedule, ...schedule_id === undefined ? {} : {id: schedule_id}, ...why ? {why} : {}}, at(await projectOf({id})))
+        return `Asked on ${id} (comment ${asked.id}): the owner sees the ${schedule_id === undefined ? 'schedule' : 'change'} with Allow and Deny, and their answer comes back as a comment. Nothing is saved until they allow it.`
+    }
+    const pick =(args, keys) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]))
+    const line = i => `${i.id} [${[i.status, i.priority, i.assignee].filter(Boolean).join(', ')}] ${i.title}${i.proposal ? ` (proposal: ${i.proposal})` : ''}${i.blocked_by?.length ? ` (blocked by ${i.blocked_by.join(', ')})` : ''}`
 
     const run = {
+        async more_tools({group}) {
+            const names = ON_DEMAND[group]
+            if (!names) throw new Error(`group is ${Object.keys(ON_DEMAND).join(', ')}`)
+            await load(group)
+            return `Added ${names.join(', ')} to your tools.`
+        },
         async issues(args) {
-            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'q']))
+            const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'blocked', 'q']))
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             // A work session lists only what it could take up: backlog is mostly proposals and research (ORR-545). The chat keeps it.
@@ -547,11 +618,15 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {setting, value, ...why ? {why} : {}}, root)
             return "Asked: the owner sees it with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async create_schedule({why, ...schedule}) {
+        async create_schedule(args) {
+            if (!chat) return await askOnIssue(args)
+            const {why, ...schedule} = args
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {schedule, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the schedule with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        async update_schedule({id, why, ...schedule}) {
+        async update_schedule(args) {
+            if (!chat) return await askOnIssue(args)
+            const {id, why, ...schedule} = args
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, schedule, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
@@ -605,9 +680,21 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
 
     /** Runs a tool; an MCP result, an error result when orrery refuses or can't be reached. */
     return async function callTool(name, args = {}) {
-        const chatOnly = CHAT_TOOLS.some(t => t.name === name) || CHAT_READS.includes(name)
+        // The chat's requests, read and made through two tools so they aren't all listed (ORR-624).
+        if (chat && (name === 'request' || name === 'request_fields')) {
+            const action = CHAT_REQUESTS.find(r => r.name === args.action)
+            if (!action) return {isError: true, content: [{type: 'text', text: `No action "${args.action}": one of ${REQUESTS.join(', ')}`}]}
+            if (name === 'request') return await callTool(action.name, {...isPlain(args.fields) ? args.fields : {}, ...args.why ? {why: args.why} : {}})
+            const text = `${action.name}: ${action.description}\n\nfields: ${JSON.stringify(action.inputSchema)}`
+            report(name, text)
+            return {content: [{type: 'text', text}]}
+        }
+        const asks = ASK_TOOLS.some(t => t.name === name)
+        const chatOnly = !asks && [...CHAT_TOOLS, ...CHAT_REQUESTS].some(t => t.name === name) || CHAT_READS.includes(name)
         const untrustedOnly = UNTRUSTED_TOOLS.some(t => t.name === name)
-        if (!run[name] || chatOnly && !chat || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
+        const workOnly = name === 'more_tools'
+        if (!run[name] || chatOnly && !chat || asks && untrusted || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)
+            || untrusted && NOT_FOR_UNTRUSTED.includes(name) || workOnly && (chat || untrusted)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
         let answer
         try {
             const result = await run[name](args)
@@ -620,6 +707,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         return answer
     }
 }
+
+const isPlain = value => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** gh with these arguments, in this folder: its output, or its complaint as the error. */
 async function runGh(args) {

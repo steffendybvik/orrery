@@ -5,7 +5,7 @@ import type {ContextEntry, ContextKind, ContextPart, ContextView} from '#shared/
 // instructions, each tool it lists and the context the session was started with, biggest first, each part's text
 // folded under it. For a kind of session on a project (`?project=&kind=`), or a running one (`?session=`, from its
 // card on the Sessions page), which also lists what it's been given so far: each signal and tool answer, newest first.
-// It's reached from App settings → Advanced (ORR-561).
+// It's in the sidebar while Advanced is on (ORR-578), and on App settings → Advanced (ORR-561).
 useHead({title: 'Context · orrery'})
 const route = useRoute()
 const router = useRouter()
@@ -54,8 +54,10 @@ const groups = computed(() => {
 })
 /** Biggest first, across the groups. */
 const parts = computed(() => view.value?.parts.toSorted((a, b) => b.chars - a.chars) ?? [])
-/** What a running session has been given so far, in all. */
-const sofarChars = computed(() => view.value?.sofar?.reduce((sum, e) => sum + e.chars, 0) ?? 0)
+/** What a running session has been given so far and still holds, in all: not what came before its last clear (ORR-575). */
+const sofarChars = computed(() => view.value?.sofar?.reduce((sum, e) => e.before ? sum : sum + e.chars, 0) ?? 0)
+/** Where its entries from before the last clear or compaction start, in the list (newest first). */
+const firstBefore = computed(() => view.value?.sofar?.findIndex(e => e.before) ?? -1)
 const SOFAR: Record<ContextEntry['kind'], {label: string, bar: string}> = {signal: {label: 'Signal', bar: 'bg-emerald-500'}, tool: {label: 'Tool answer', bar: 'bg-rose-500'}}
 const time = (at: string) => new Date(at).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
 const pct = (share: number) => `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`
@@ -119,15 +121,15 @@ const n = (value: number) => value.toLocaleString('en')
       <ul v-if="view" aria-label="Parts" class="flex flex-col divide-y divide-line rounded-lg ring-1 ring-line">
         <li v-for="p in parts" :key="p.id">
           <details class="group">
-            <summary class="flex cursor-pointer list-none items-center gap-3 px-3 py-2 text-[13px] hover:bg-hover">
+            <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[13px] hover:bg-hover sm:gap-3">
               <svg class="size-3 shrink-0 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>
               <span class="size-2 shrink-0 rounded-full" :class="GROUPS[p.group].bar" :title="GROUPS[p.group].label" />
               <span class="min-w-0 flex-1 truncate" :class="p.group === 'tools' && 'font-mono text-xs'">{{ p.title }}</span>
-              <span class="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted">{{ n(p.chars) }}</span>
-              <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">~{{ n(p.tokens) }} tok</span>
-              <span class="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-faint">{{ pct(view.chars ? p.chars / view.chars : 0) }}</span>
+              <span class="hidden w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted sm:block">{{ n(p.chars) }}</span>
+              <span class="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-faint sm:w-20">~{{ n(p.tokens) }} tok</span>
+              <span class="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-faint sm:w-14">{{ pct(view.chars ? p.chars / view.chars : 0) }}</span>
             </summary>
-            <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted">{{ p.text }}</pre>
+            <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted">{{ p.group === 'tools' ? JSON.stringify(JSON.parse(p.text), null, 2) : p.text }}</pre>
           </details>
         </li>
       </ul>
@@ -136,21 +138,22 @@ const n = (value: number) => value.toLocaleString('en')
         <h2 class="text-sm font-medium">So far</h2>
         <p class="text-xs text-muted">
           <template v-if="view.sofar.length">
-            Its latest {{ view.sofar.length }} signals and tool answers: <span data-testid="context-sofar-total">{{ n(sofarChars) }} characters</span>, about {{ n(Math.ceil(sofarChars / 4)) }} tokens.
-            Each stays in its context once given. Kept since orrery last started.
+            Its latest {{ view.sofar.length }} signals and tool answers. In its context now: <span data-testid="context-sofar-total">{{ n(sofarChars) }} characters</span>, about {{ n(Math.ceil(sofarChars / 4)) }} tokens.
+            Each stays in its context once given, until a /clear or a compaction. Kept since orrery last started.
           </template>
           <template v-else>Nothing yet: its signals and tool answers show here as it's given them.</template>
         </p>
         <ul v-if="view.sofar.length" class="flex flex-col divide-y divide-line rounded-lg ring-1 ring-line">
-          <li v-for="(e, i) in view.sofar" :key="`${e.at}-${i}`">
+          <li v-for="(e, i) in view.sofar" :key="`${e.at}-${i}`" :class="e.before ? 'opacity-60' : ''">
+            <p v-if="i === firstBefore" class="border-b border-line bg-well px-3 py-1.5 text-xs text-muted" data-testid="context-sofar-before">Before its last /clear or compaction: no longer in its context, and not in the total</p>
             <details class="group">
-              <summary class="flex cursor-pointer list-none items-center gap-3 px-3 py-2 text-[13px] hover:bg-hover">
+              <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[13px] hover:bg-hover sm:gap-3">
                 <svg class="size-3 shrink-0 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>
                 <span class="size-2 shrink-0 rounded-full" :class="SOFAR[e.kind].bar" :title="SOFAR[e.kind].label" />
                 <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ e.title }}</span>
-                <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">{{ time(e.at) }}</span>
-                <span class="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted">{{ n(e.chars) }}</span>
-                <span class="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-faint">~{{ n(e.tokens) }} tok</span>
+                <span class="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-faint sm:w-20">{{ time(e.at) }}</span>
+                <span class="hidden w-24 shrink-0 text-right font-mono text-xs tabular-nums text-muted sm:block">{{ n(e.chars) }}</span>
+                <span class="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-faint sm:w-20">~{{ n(e.tokens) }} tok</span>
               </summary>
               <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-well px-3 py-2 font-mono text-[11px] leading-4 text-muted"><template v-if="!e.text && e.chars">(not kept: it's what an outside service sent back)</template><template v-else>{{ e.text }}<template v-if="e.text.length < e.chars">
 …(cut, {{ n(e.chars - e.text.length) }} more characters)</template></template></pre>

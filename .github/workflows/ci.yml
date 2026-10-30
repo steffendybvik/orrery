@@ -1,6 +1,7 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
 # tag has to pass before `release.yml` publishes anything. The e2e flows and the performance run, on SQLite and on Postgres,
-# run on every pull request that isn't a draft (so before it merges), on a release tag, and by hand (Run workflow).
+# run on a pull request into `main` that isn't a draft (a release's), on a release tag, and by hand (Run workflow);
+# pull requests into a release branch run the unit tests alone.
 name: CI
 
 on:
@@ -40,28 +41,41 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:coverage
+      # Every test on SQLite, then every unit test again on Postgres: the store's, the schema parity and upgrades, the
+      # moves and backups into it. Each keeps its coverage, and the two are counted together, so code only the Postgres
+      # run reaches (backing up into Postgres, moving to it) counts as tested (ORR-585).
+      - run: pnpm --dir web exec vitest run --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/sqlite.json
+      - run: pnpm --dir web exec vitest run --project unit --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/postgres.json
+        env:
+          TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
+      - run: pnpm --dir web exec vitest --merge-reports=.vitest-reports --coverage --reporter=dot
+      # The total, then each area on its own, so one no test runs (the routes, say) shows rather than hiding in the total (ORR-584).
       - name: Coverage summary
         run: |
           node >> "$GITHUB_STEP_SUMMARY" <<'EOF'
-          const {total} = require('./web/coverage/coverage-summary.json')
-          const row = k => `| ${k} | ${total[k].pct}% | ${total[k].covered} / ${total[k].total} |`
-          console.log(['### Coverage (server/utils, shared)', '', '| | % | covered |', '|---|---|---|',
-            ...['lines', 'statements', 'functions', 'branches'].map(row)].join('\n'))
+          const summary = require('./web/coverage/coverage-summary.json')
+          const AREAS = [['server/api', /\/web\/server\/api\//], ['server/middleware', /\/web\/server\/middleware\//], ['server/utils', /\/web\/server\/utils\//],
+            ['server/store', /\/web\/server\/store\//], ['shared', /\/web\/shared\//], ['app', /\/web\/app\//], ['channel', /\/channel\/[^/]+\.mjs$/]]
+          const files = Object.entries(summary).filter(([file]) => file !== 'total').map(([file, f]) => ({...f, area: AREAS.find(([, path]) => path.test(file))?.[0]}))
+          const pct = ([covered, total]) => total ? `${(100 * covered / total).toFixed(1)}%` : '–'
+          const rows = AREAS.map(([area]) => {
+            const ours = files.filter(f => f.area === area)
+            const sum = k => ours.reduce(([c, t], f) => [c + f[k].covered, t + f[k].total], [0, 0])
+            return `| ${area} | ${ours.length} | ${ours.filter(f => f.lines.total && !f.lines.covered).length} | ${pct(sum('lines'))} | ${pct(sum('branches'))} |`
+          })
+          const {total} = summary
+          console.log(['### Coverage', '', `Lines ${total.lines.pct}%, branches ${total.branches.pct}%, functions ${total.functions.pct}%.`, '',
+            '| Area | Files | Run by no test | Lines | Branches |', '|---|---|---|---|---|', ...rows].join('\n'))
           EOF
-      # Every unit test again, on Postgres: the store's, the schema parity and upgrades, the moves and backups into it.
-      - run: pnpm --dir web exec vitest run --project unit
-        env:
-          TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
       - run: pnpm typecheck
       - run: pnpm lint
 
-  # The main flows in a real browser, against `nuxt dev` with a fresh database: on every pull request
-  # that isn't a draft, each push to it included, so nothing merges without them; on a release tag; and
-  # by hand. Pushes to a branch with no pull request run the unit tests alone.
+  # The main flows in a real browser, against `nuxt dev` with a fresh database: on a pull request into
+  # `main` that isn't a draft, each push to it included, so no release merges without them; on a release
+  # tag; and by hand. Pull requests into a release branch, and pushes, run the unit tests alone.
   # The Playwright version web/ pins, for the e2e job's image.
   playwright:
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && !github.event.pull_request.draft) }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main' && !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}

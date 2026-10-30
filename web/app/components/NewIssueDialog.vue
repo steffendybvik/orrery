@@ -2,7 +2,7 @@
 import type {Column, Priority} from '#shared/roadmap'
 
 // Writing a new issue, as the owner (so agents can't delete it); orrery hands out its id. Its labels say
-// what kind it is (bug, feature request, …), and it can go straight to the listening Claude sessions to
+// what kind it is (bug, feature request, …), it can depend on others (ORR-601), and it can go straight to the listening Claude sessions to
 // pick up. An image pasted or dropped anywhere on the dialog, or picked, goes into the description as Markdown. ⌘↵ creates it and
 // opens its page, Esc closes.
 const {target, close} = useNewIssue()
@@ -17,6 +17,7 @@ const notes = ref('')
 const chunk = ref('')
 const priority = ref<Priority | ''>('')
 const labels = ref<string[]>([])
+const dependsOn = ref<string[]>([])
 const column = ref<Column>('backlog')
 const ask = ref(false)
 // The kinds of issue, always offered, and the labels already in the project
@@ -41,6 +42,7 @@ watch(target, now => {
     chunk.value = now.chunk ?? ''
     priority.value = ''
     labels.value = []
+    dependsOn.value = []
     column.value = WHERE.value.find(w => w.kind === 'backlog')?.id ?? 'backlog'
     ask.value = false
     failed.value = ''
@@ -63,6 +65,7 @@ async function create() {
                 ...notes.value.trim() ? {notes: notes.value.trim()} : {},
                 ...chunk.value ? {chunk: chunk.value} : {},
                 ...priority.value ? {priority: priority.value} : {},
+                ...dependsOn.value.length ? {depends_on: dependsOn.value} : {},
                 ...columnPatch(column.value),
             },
         })
@@ -128,6 +131,7 @@ async function create() {
           <span class="truncate" :class="!chunk && 'text-faint'">{{ chunks.find(c => c.id === chunk)?.title ?? 'No chunk' }}</span>
         </PropertyPicker>
         <LabelPicker v-model="labels" :labels="known" />
+        <DependsPicker v-model="dependsOn" :here="project.id" field />
         <label class="flex items-center gap-1.5 text-xs text-muted">
           <input v-model="ask" type="checkbox" class="accent-accent-500">
           Ask a session to pick it up

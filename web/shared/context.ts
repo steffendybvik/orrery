@@ -23,6 +23,8 @@ export interface ContextEntry {
     text: string
     chars: number
     tokens: number
+    /** Given before the session's context was last cleared or compacted, so no longer in it (ORR-575). */
+    before?: boolean
 }
 
 /** How many of a session's latest entries are kept, and how much of each one's text. */

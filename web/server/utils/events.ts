@@ -16,6 +16,9 @@ import {commentOnPull} from './pull-comments'
 import {PullPoll} from './pull-poll'
 import {Schedules, scheduleRunning} from './schedules'
 import {Secrets} from './secrets'
+import {UpdateCheck} from './update-check'
+import {secretKey, secretKeyFile} from './secret-key'
+import {inDocker} from './backup-choice'
 import {Store} from './store'
 
 export const projectEvents = new EventEmitter()
@@ -84,10 +87,17 @@ export function useStore(): Store {
 
 let secrets: Secrets | null = null
 
-/** The secrets, sealed with ORRERY_SECRET_KEY (NUXT_SECRET_KEY); `secrets` (the list) goes out when they change, and
- * `secret-used` when one is used, which changes nothing a backup or the event log keeps (ORR-526). */
+/** The key the secrets are sealed with: ORRERY_SECRET_KEY (NUXT_SECRET_KEY), else the one orrery made (ORR-614). */
+let key: string | undefined
+
+/** The secrets, sealed with ORRERY_SECRET_KEY (NUXT_SECRET_KEY) or the key orrery made for them; `secrets` (the list)
+ * goes out when they change, and `secret-used` when one is used, which changes nothing a backup or the event log keeps
+ * (ORR-526). */
 export function useSecrets(): Secrets {
-    secrets ??= new Secrets(useStore(), () => String(useRuntimeConfig().secretKey ?? ''), (list, used) => projectEvents.emit(used ? 'secret-used' : 'secrets', list), undefined,
+    secrets ??= new Secrets(useStore(), () => {
+        const config = useRuntimeConfig()
+        return key ||= secretKey(String(config.secretKey ?? ''), secretKeyFile(String(config.database), inDocker()))
+    }, (list, used) => projectEvents.emit(used ? 'secret-used' : 'secrets', list), undefined,
         entry => useEventLog().note(entry))
     return secrets
 }
@@ -239,4 +249,13 @@ export function created<T>(event: H3Event, value: T): T {
 export function deleted(event: H3Event): null {
     setResponseStatus(event, 204)
     return null
+}
+
+let updates: UpdateCheck | null = null
+
+/** Whether a newer orrery is out (ORR-608), as last read from GitHub. */
+export function useUpdateCheck(): UpdateCheck {
+    updates ??= new UpdateCheck(String(useRuntimeConfig().public.version), url => fetch(url, {headers: {'Accept': 'application/vnd.github+json', 'User-Agent': 'orrery'}}),
+        entry => useEventLog().note(entry))
+    return updates
 }

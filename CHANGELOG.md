@@ -7,6 +7,111 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.13 (2026-10-30)
+
+### Features
+
+- **Events, Context and Pull requests back in the sidebar:** they sit under Schedules while Advanced is on, and
+  Advanced now starts on. App settings → Advanced still links all three when it's off.
+- **Drag cards on the board:** drag a card to another column to move it, as the menu does; a ticked card takes every
+  ticked one with it. The column it would land in lights up, one it can't go to dims, and Done and Canceled show as
+  places to drop while you drag. `[` and `]` move the focused or ticked cards a column left or right.
+- **First open asks if you're a developer:** the name dialog asks too, and No turns Advanced off, so Events, Context
+  and Pull requests stay out of the sidebar.
+- **Install the launcher once:** `--install` run outside a repo puts the launcher service in place with no projects
+  yet. With pick-up on (the default), a Claude session you open in a connected repo puts that repo's projects on the
+  launcher's list, and says so once; `--uninstall` in a repo takes it off and keeps it off. Sessions → Setup lists the
+  repos the launcher serves, each marked picked up or installed by hand, and the install hints say to install once.
+- **The launcher follows its list while running:** it serves a project added to `~/.config/orrery/launcher.json`
+  and lets a removed one go, without a restart, so `--install` in another repo no longer stops every session it runs.
+- **Issues depend on others:** set **Depends on** on an issue's page, in New issue, or with **Chain in order** on the
+  ticked issues, in its project or another. A blocked issue has a lock chip and a **Blocked** filter, and nothing
+  hands it out until each issue it waits on is Done. Then it goes to the session that did the last one, told what each
+  was. A canceled blocker keeps it blocked and asks you; a reopened one tells the session working on it.
+- **Focus a session on a pull request:** on the Pull requests page, a pull request that names an issue has **Focus on
+  this**. It opens the note a session gets, written from where the pull request stands (conflicts, behind, failing
+  checks, a review, a draft), for you to add a line to, and **Send** hands it to the session on the issue, or one
+  orrery picks or starts. Each repo's name has a copy button.
+- **Releases beside GitHub:** a small **Releases** link sits next to GitHub at the foot of the sidebar and opens
+  orrery's releases on GitHub.
+- **A notice when a newer orrery is out:** the foot of the sidebar says so above the version, with its release notes
+  and how to update, and × hides it until the next one. orrery reads its releases on GitHub a few seconds after start
+  and every 12 hours; `ORRERY_UPDATE_CHECK=false` turns that off.
+- **Secrets with nothing to set up:** with no `ORRERY_SECRET_KEY`, orrery makes a key on its first start and keeps it
+  as `orrery.key` beside the database (`/data/orrery.key` in Docker), out of the backups. A key you set still wins;
+  Postgres outside Docker still needs one.
+- **Pull requests past the first 100:** the Pull requests page shows 50 at a time, with Previous and Next, and orrery
+  reads up to 300 open pull requests a repo where it read GitHub's first 100. A repo cut short says so.
+- **Review GitHub issues, a suggested schedule:** Schedules → Suggested offers an issue every three hours to sort the
+  project's GitHub issues, for projects whose repo is on GitHub.
+
+### Changes
+
+- **Sessions ask you for a schedule:** a working session asked to set up or change a schedule asks on its issue, with
+  the schedule (or each field, from → to) and **Allow** and **Deny**, as the chat does. Allowed, it's saved as yours
+  and runs; before, the session made it as an agent's, so a message schedule never ran.
+- **Pin the chat's project:** picking the chat pane's project pins it, remembered in this browser, so it stays put as
+  you browse and ⌘K doesn't move it; the pin beside it lets go. A line under the header says when the page is another
+  project's, and the chat files in its own.
+- **The chat shows how to install the launcher:** with no launcher running for its project, the pane shows the
+  install command to copy, in place of a red error line, and it goes once a launcher connects.
+- **Pull requests grouped by repository:** the Pull requests page gives each repo its own card, in the sidebar's
+  project order, with its projects and open count in the header. A repo that couldn't be read says why.
+- **One session per piece of work:** a sub-issue filed under an issue another session is working on is that session's
+  to start, so a follow-up isn't taken up by two. The **Review** preset only reviews: it comments what it found on the
+  pull request and its issue, for the session on it to fix, and files what's left after the merge as a sub-issue. A
+  Review preset you haven't changed takes the new wording. A session may comment on another session's issue, but not
+  edit or start it, and the issue stays with the session on it.
+- **Less context for every session:** the chat is given less than half of what it was at connect, its asking tools
+  behind `request_fields` and `request`. A work session carries about a third less, its rarer tools loaded on demand
+  with `more_tools`, and an untrusted run is offered only what it may do. The Context page counts tools as they're
+  sent, so its numbers drop too.
+- **Proposals first in App settings → Issues:** the tab opens on Proposals, then the team tracker and the statuses.
+
+### Fixes
+
+- **Security, no forms in rendered Markdown:** a comment or description could draw a form on the issue page that
+  posts anywhere ("paste your token again"). Forms and their controls are dropped now; task-list checkboxes stay.
+- **Your answers don't start sessions:** allowing or denying a session's schedule request, or rejecting a proposal,
+  posts your comment, and with nobody listening that comment started a session, taking a place under the limit. It
+  still reaches a listening session but starts none; an event schedule it sets off can still start one.
+- **The launcher refuses a repo with no channel:** `--install` in a repo that isn't connected yet stops and says to
+  connect it first, instead of serving a project nothing answers for. `--help` prints its usage, an unknown flag is
+  refused, and a project nothing answers for is logged once rather than every 30 seconds.
+- **Issues assigned to `Claude` are handed out:** picking and the Todo hand-out held back an issue assigned to
+  `Claude` with a capital C, though the board shows that name as the agent.
+- **The permission popup stays up:** a parallel tool's hook landing just after a permission prompt opened set the
+  session back to working, hiding the popup while the prompt was still on screen. Your **Allow** still sends the
+  session on at once.
+- **The default database is the repo's:** started without `NUXT_DATABASE`, the server made its database relative to
+  the folder it started in, so from the repo root it landed in the folder above. It's now always the repo's own
+  `.data/orrery.db`; a relative `NUXT_DATABASE` is still taken from the working folder.
+- **Context after a `/clear`:** **So far** went on listing and counting what a session had been given before a
+  `/clear` or compaction. Those entries now sit greyed under a line of their own, out of the total.
+- **Pick several labels in a row:** on an issue's page, the Labels and Team tasks pickers shut while a pick saved, so
+  the next Esc left the page. They stay open now, show each pick at once and keep a quick second one.
+- **Three pages on a phone:** Events wraps its lines, with the message on a line of its own, Context gives tool names
+  room, and a schedule's badge wraps under its name, where each was cut off at the screen's edge.
+- **One `<h1>` a page:** Getting started, Connect and a doc's page had two, so a screen reader listed two top-level
+  headings. A Markdown `#` heading is now an h2 that looks the same.
+
+### Docs
+
+- The README's screenshots are retaken on this release, and the docs caught up where they had drifted: where App
+  settings keeps the database and proposals, which tools are the chat's, running without Docker, and `tint` in the API.
+
+### Internal
+
+- **Code:** `shared/roadmap.ts` is split into a file per area under `shared/roadmap/`, still imported as before.
+- **CI:** the browser tests run only on pull requests into `main`, the release's, so a release branch's pull requests
+  run the unit tests, typecheck and lint alone.
+- **Tests:** every page, sidebar entry and palette go-to is walked in the browser tests. New unit tests cover the hook
+  route's untrusted guard and caps, how a feed's signals reach a session's stream, how `events.ts` wires the store,
+  and the chat, bell, keys and unseen composables. Coverage counts the routes, middleware and channel, and the
+  Postgres run's with SQLite's. The sidebar's Advanced test runs again, and the channel's pick-up has tests of what it
+  puts on the launcher's list.
+- **Dependencies:** `vue-tsc` 3.3.14.
+
 ## 1.0.0-rc.12 (2026-10-29)
 
 ### Features

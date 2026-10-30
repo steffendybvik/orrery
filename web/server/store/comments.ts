@@ -1,19 +1,40 @@
 // Comments on an issue, and its activity.
-import type {Comment, IssueEvent} from '#shared/roadmap'
+import type {ChatScheduleRequest, Comment, IssueEvent} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
-import {checkInput} from '../utils/input'
+import {checkInput, notFound} from '../utils/input'
 import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
 import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, commentOf, eventOf, signalOf, nullable, stamp} from './schema'
 import {SignalStore} from './signals'
 
 /** orrery itself, speaking on an issue. */
-const ORRERY: Actor = {name: 'orrery', owner: false}
+export const ORRERY: Actor = {name: 'orrery', owner: false}
+
+interface ScheduleRequestRow {
+    comment: number
+    schedule: number | null
+    title: string
+    changes: string
+    body: string
+    state: ChatScheduleRequest['state']
+}
+
+const scheduleRequestOf = (row: ScheduleRequestRow): ChatScheduleRequest => ({
+    ...row.schedule === null ? {} : {id: row.schedule}, title: row.title, changes: JSON.parse(row.changes), body: JSON.parse(row.body), state: row.state,
+})
 
 export abstract class CommentStore extends SignalStore {
     async listComments(project: string, issue: string): Promise<Comment[]> {
         issue = await this.issueId(project, issue)
         await this.issueRow(project, issue)
-        return (await this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue = ? ORDER BY created_at, id`, project, issue)).map(commentOf)
+        return await this.withScheduleRequests((await this.all<CommentRow>(`SELECT c.*, ${ANSWERED} FROM comments c WHERE project = ? AND issue = ? ORDER BY created_at, id`, project, issue)).map(commentOf))
+    }
+
+    /** The comments, each that asks for a schedule with its request (ORR-458). */
+    private async withScheduleRequests(comments: Comment[]): Promise<Comment[]> {
+        if (!comments.length) return comments
+        const rows = await this.all<ScheduleRequestRow>(`SELECT * FROM schedule_requests WHERE comment IN (${comments.map(() => '?').join(', ')})`, ...comments.map(c => c.id))
+        const requests = new Map(rows.map(r => [r.comment, scheduleRequestOf(r)]))
+        return comments.map(c => requests.has(c.id) ? {...c, schedule: requests.get(c.id)} : c)
     }
 
     /** Who changed what on the issue, and when, oldest first. */
@@ -25,7 +46,39 @@ export abstract class CommentStore extends SignalStore {
 
     async comment(project: string, issue: string, id: number): Promise<Comment> {
         issue = await this.issueId(project, issue)
-        return commentOf(await this.commentRow(project, issue, id))
+        return (await this.withScheduleRequests([commentOf(await this.commentRow(project, issue, id))]))[0] as Comment
+    }
+
+    /** A working session asking the owner on its issue to make or change a schedule (ORR-458): `body` as a comment
+     * waiting on their decision, and `request` (checked already) kept beside it until they answer. One asked before for
+     * the same schedule, still unanswered, expires: a change by the schedule's id anywhere in the project, a new one by
+     * its title on this issue. */
+    async askForSchedule(project: string, issue: string, body: string, request: ChatScheduleRequest, actor: Actor): Promise<Comment> {
+        issue = await this.issueId(project, issue)
+        await this.run(`UPDATE schedule_requests SET state = 'expired' WHERE state = 'asked' AND ${request.id === undefined
+            ? 'schedule IS NULL AND title = ? AND comment IN (SELECT id FROM comments WHERE project = ? AND issue = ?)'
+            : 'schedule = ? AND comment IN (SELECT id FROM comments WHERE project = ?)'}`,
+        ...request.id === undefined ? [request.title, project, issue] : [request.id, project])
+        const {id} = await this.createComment(project, issue, {body, asks: 'decision'}, actor)
+        await this.run('INSERT INTO schedule_requests (comment, schedule, title, changes, body, state) VALUES (?, ?, ?, ?, ?, ?)',
+            id, request.id ?? null, request.title, JSON.stringify(request.changes), JSON.stringify(request.body), 'asked')
+        this.changed(project)
+        return await this.comment(project, issue, id)
+    }
+
+    /** The schedule request comment `id` on the issue holds. */
+    async scheduleRequest(project: string, issue: string, id: number): Promise<ChatScheduleRequest> {
+        issue = await this.issueId(project, issue)
+        await this.commentRow(project, issue, id)
+        const row = await this.get<ScheduleRequestRow>('SELECT * FROM schedule_requests WHERE comment = ?', id)
+        if (!row) throw notFound(`Comment ${id} on ${issue} asks for no schedule`)
+        return scheduleRequestOf(row)
+    }
+
+    /** The owner's answer to the schedule request comment `id` holds: `schedule`, the one their Allow made or changed. */
+    async answerScheduleRequest(project: string, id: number, state: 'allowed' | 'denied', schedule: number | undefined, actor: Actor) {
+        await this.run('UPDATE schedule_requests SET state = ?, schedule = COALESCE(?, schedule), answered_by = ?, answered_at = ? WHERE comment = ?', state, schedule ?? null, actor.name, stamp(), id)
+        this.changed(project)
     }
 
     /** An agent's ask assigns the issue to the owner; the owner's answer gives it back to the agent who asked. */
@@ -56,10 +109,10 @@ export abstract class CommentStore extends SignalStore {
         return await this.comment(project, issue, id)
     }
 
-    /** orrery asking the owner on an issue (`asks: feedback`, ORR-508): to the bell, as an agent's ask, and assigned to
-     * them; not to a session. `type` is what happened, for the schedules. */
-    async systemAsk(project: string, issue: string, body: string, type: string): Promise<Comment> {
-        const comment = await this.createComment(project, issue, {body, asks: 'feedback'}, ORRERY)
+    /** orrery asking the owner on an issue (`asks: feedback`, ORR-508, or a `decision`): to the bell, as an agent's ask,
+     * and assigned to them; not to a session. `type` is what happened, for the schedules. */
+    async systemAsk(project: string, issue: string, body: string, type: string, asks: 'feedback' | 'decision' = 'feedback'): Promise<Comment> {
+        const comment = await this.createComment(project, issue, {body, asks}, ORRERY)
         this.tell(type, project, await this.issueId(project, issue), ORRERY)
         return comment
     }

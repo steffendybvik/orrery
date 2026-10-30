@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {LockClosedIcon} from '@heroicons/vue/16/solid'
 import type {Issue} from '#shared/roadmap'
 import {issueRef, total} from '#shared/roadmap'
 
@@ -7,8 +8,8 @@ import {issueRef, total} from '#shared/roadmap'
 // and previous issue in the project, Esc goes back.
 const route = useRoute()
 const router = useRouter()
-const {byId, ready, reload} = useRoadmaps()
-const {open, last} = useIssueLink()
+const {projects, byId, ready, reload} = useRoadmaps()
+const {open, last, pathOf} = useIssueLink()
 const {load} = useOwner()
 const {of: schedulesOf, edit: editSchedule} = useSchedules()
 /** The schedule that made it, if one did (and still exists). */
@@ -135,6 +136,12 @@ watch(issueId, () => {
     resetUploads()
 })
 
+// While it waits on issues not closed yet (ORR-601), a line under the title names them, each to its page.
+const blockers = computed(() => {
+    const here = project.value?.id
+    return here ? (issue.value?.blocked_by ?? []).map(link => ({link, ...linkedIssue(projects.value, here, link)})) : []
+})
+
 const under = (tasks: Issue[]): number => tasks.reduce((n, t) => n + 1 + under(t.tasks), 0)
 const subCount = computed(() => issue.value ? under(issue.value.tasks) : 0)
 
@@ -242,6 +249,11 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               title="Click to edit"
               @click="editTitle"
           ><InlineText :text="issue.title" /></h1>
+          <p v-if="blockers.length" class="flex flex-wrap items-center gap-x-1 text-xs text-muted">
+            <LockClosedIcon class="mr-0.5 size-3 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+            Waiting on
+            <span v-for="(b, i) in blockers" :key="b.link"><NuxtLink :to="pathOf(b.project, b.id)" class="font-mono text-fg hover:underline" :title="b.issue?.title">{{ b.link }}</NuxtLink>{{ i < blockers.length - 1 ? ',' : '' }}</span>
+          </p>
           <p v-if="saveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</p>
         </header>
 
@@ -251,7 +263,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
         <ProposalPanel :project="project.id" :issue="issue" />
 
-        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" :worker="worker?.id" />
+        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" :worker="worker?.id" :blocked-by="issue.blocked_by" />
 
         <IssuePulls :project="project.id" :issue="issue.id" :updated="issue.updated_at" />
 

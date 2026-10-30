@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {CHAT_READS, NOT_FOR_CHAT, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
+import {ASK_TOOLS, CHAT_READS, CHAT_REQUESTS, NOT_FOR_CHAT, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
@@ -23,6 +23,10 @@ function harness(answers: Record<string, {status?: number, body?: unknown, raw?:
 }
 
 const issue = (fields: object = {}) => ({id: 'GRE-1', title: 'Shelves', status: 'todo', kind: 'todo', tasks: [], counts: {}, kinds: {}, ...fields})
+
+/** What the chat's request tool may ask for (ORR-624): its actions aren't tools of their own any more. */
+const requestActions = () => (toolsFor(['greenhouse'], {chat: true}) as {name: string, inputSchema: {properties: {action?: {enum: string[]}}}}[])
+    .find(t => t.name === 'request')!.inputSchema.properties.action!.enum
 
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
@@ -137,17 +141,17 @@ describe("the channel's tools", () => {
             return {ok: answer.status < 400, status: answer.status, statusText: '', text: async () => JSON.stringify(answer.body)}
         }
         const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
-        expect((await call('message_sessions', {text: 'Pick up Todo.'})).content[0]!.text).toMatch(/^Asked: the owner sees it, to Nordre, with Send and Don't send/)
+        expect((await call('request', {action: 'message_sessions', fields: {text: 'Pick up Todo.'}})).content[0]!.text).toMatch(/^Asked: the owner sees it, to Nordre, with Send and Don't send/)
         expect(calls[0]).toEqual({url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {message: {text: 'Pick up Todo.'}}})
-        expect((await call('message_sessions', {text: 'Wrap up.', states: ['idle', 'working'], why: 'They are all on rc.10.'})).content[0]!.text).toMatch(/to Nordre, Sudri,/)
+        expect((await call('request', {action: 'message_sessions', fields: {text: 'Wrap up.', states: ['idle', 'working']}, why: 'They are all on rc.10.'})).content[0]!.text).toMatch(/to Nordre, Sudri,/)
         expect(calls.at(-1)!.body).toEqual({message: {text: 'Wrap up.', states: ['idle', 'working']}, why: 'They are all on rc.10.'})
-        expect((await call('message_session', {session: 'sudri', text: 'Look at PAN-2.'})).content[0]!.text).toMatch(/to Sudri,/)
+        expect((await call('request', {action: 'message_session', fields: {session: 'sudri', text: 'Look at PAN-2.'}})).content[0]!.text).toMatch(/to Sudri,/)
         expect(calls.at(-1)).toEqual({url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {message: {text: 'Look at PAN-2.', session: 'sudri'}}})
         expect((await call('message_session', {session: 'Austri', text: 'Hi'})).isError).toBe(true)
         // It never sends a session a message itself.
         expect(calls.filter(c => c.url.endsWith('/message'))).toEqual([])
-        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['message_sessions', 'message_session']))
-        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('message_sessions')
+        expect(requestActions()).toEqual(expect.arrayContaining(['message_sessions', 'message_session']))
+        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('request')
     })
 
     it("in the owner's chat, ask the owner to change a setting, saving nothing itself", async () => {
@@ -174,25 +178,63 @@ describe("the channel's tools", () => {
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('move_issues')
     })
 
-    it("in the owner's chat, ask them to make or change a schedule, which no other session can", async () => {
+    it("in the owner's chat, ask them to make or change a schedule in the chat", async () => {
         const calls: {url: string, method: string, body?: unknown}[] = []
         const fetch = async (url: string, init: {method: string, body?: string}) => {
             calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
             return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 7})}
         }
         const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
-        expect((await call('create_schedule', {title: 'Weekly review', cron: '0 9 * * 1', why: 'As asked'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
-        expect((await call('update_schedule', {id: 3, enabled: false})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect((await call('request', {action: 'create_schedule', fields: {title: 'Weekly review', cron: '0 9 * * 1'}, why: 'As asked'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect((await call('request', {action: 'update_schedule', fields: {id: 3, enabled: false}})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
         expect(calls).toEqual([
             {url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {schedule: {title: 'Weekly review', cron: '0 9 * * 1'}, why: 'As asked'}},
             {url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {id: 3, schedule: {enabled: false}}},
         ])
-        const names = toolsFor(['greenhouse']).map((t: {name: string}) => t.name)
-        expect(names).not.toContain('create_schedule')
-        expect(names).not.toContain('update_schedule')
-        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['create_schedule', 'update_schedule']))
-        const other = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
-        expect((await other('create_schedule', {title: 'X'})).isError).toBe(true)
+        expect(requestActions()).toEqual(expect.arrayContaining(['create_schedule', 'update_schedule']))
+    })
+
+    it('in a working session, ask the owner for a schedule on its issue, which an untrusted session can\'t (ORR-458)', async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 9})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 's', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('create_schedule', {id: 'GRE-1', schedule: {title: 'Weekly review', cron: '0 9 * * 1'}, why: 'As asked'})).content[0]!.text).toMatch(/Asked on GRE-1 \(comment 9\).*Nothing is saved until they allow it/)
+        expect((await call('update_schedule', {id: 'GRE-1', schedule_id: 3, schedule: {enabled: false}})).content[0]!.text).toMatch(/the change with Allow and Deny/)
+        expect(calls).toEqual([
+            {url: 'http://o/api/projects/greenhouse/issues/GRE-1/schedule-requests', method: 'POST', body: {schedule: {title: 'Weekly review', cron: '0 9 * * 1'}, why: 'As asked'}},
+            {url: 'http://o/api/projects/greenhouse/issues/GRE-1/schedule-requests', method: 'POST', body: {id: 3, schedule: {enabled: false}}},
+        ])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules']}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['create_schedule', 'update_schedule']))
+        expect(toolsFor(['greenhouse'], {untrusted: true}).map((t: {name: string}) => t.name)).not.toContain('create_schedule')
+        const untrusted = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'u', untrusted: true, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
+        expect((await untrusted('create_schedule', {id: 'GRE-1', schedule: {title: 'X'}})).isError).toBe(true)
+    })
+
+    it("in the owner's chat, lists the requests behind two tools, and says what each takes when asked (ORR-624)", async () => {
+        const calls: {url: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, body: init.body ? JSON.parse(init.body) : undefined})
+            return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({id: 7})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        const listed = toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)
+        expect(listed).toEqual(expect.arrayContaining(['request', 'request_fields']))
+        for (const request of CHAT_REQUESTS as {name: string}[]) expect(listed, request.name).not.toContain(request.name)
+        expect(requestActions()).toEqual((CHAT_REQUESTS as {name: string}[]).map(r => r.name))
+        const fields = (await call('request_fields', {action: 'create_chunk'})).content[0]!.text
+        expect(fields).toMatch(/^create_chunk: Makes a chunk/)
+        expect(fields).toContain('"required":["title"]')
+        expect(calls).toEqual([])
+        expect((await call('request', {action: 'delete_everything'})).isError).toBe(true)
+        expect((await call('request_fields', {action: 'nope'})).content[0]!.text).toMatch(/No action "nope": one of start_session/)
+        // A work session has neither.
+        const work = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'w', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
+        expect((await work('request', {action: 'create_chunk', fields: {title: 'X'}})).isError).toBe(true)
+        expect((await work('request_fields', {action: 'create_chunk'})).isError).toBe(true)
+        expect(calls).toEqual([])
     })
 
     it("in the owner's chat, ask them to add or change a release, which no other session can", async () => {
@@ -203,13 +245,13 @@ describe("the channel's tools", () => {
         }
         const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', chat: 'c1c2c3c4c5c6', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
         expect((await call('create_release', {version: '1.1.0', branch: 'v1.1.0', why: 'As asked'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
-        expect((await call('update_release', {version: '1.0.0', shipped_on: '2026-10-29'})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
+        expect((await call('request', {action: 'update_release', fields: {version: '1.0.0', shipped_on: '2026-10-29'}})).content[0]!.text).toMatch(/Nothing is saved until they allow it/)
         expect(calls).toEqual([
             {url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {release: {version: '1.1.0', branch: 'v1.1.0'}, why: 'As asked'}},
             {url: 'http://o/api/chats/c1c2c3c4c5c6/requests', method: 'POST', body: {version: '1.0.0', release: {shipped_on: '2026-10-29'}}},
         ])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('create_release')
-        expect(toolsFor(['greenhouse'], {chat: true}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['create_release', 'update_release']))
+        expect(requestActions()).toEqual(expect.arrayContaining(['create_release', 'update_release']))
         const other = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
         expect((await other('update_release', {version: '1.0.0', notes: 'X'})).isError).toBe(true)
     })
@@ -224,7 +266,7 @@ describe("the channel's tools", () => {
         expect((await call('edit_issue', {id: 'GRE-4', priority: 'P0'})).content[0]!.text).toMatch(/^Now GRE-4/)
         expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/greenhouse/issues/GRE-4', method: 'PATCH', body: {priority: 'P0'}})
         const edit = toolsFor(['greenhouse'], {chat: true}).find((t: {name: string}) => t.name === 'edit_issue')
-        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent'])
+        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on'])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('edit_issue')
     })
 
@@ -473,6 +515,36 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'])).toEqual(TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)))
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+    })
+})
+
+// A work session's rarer tools wait behind more_tools (ORR-625); an untrusted run goes without what orrery refuses it.
+describe('tools loaded on demand', () => {
+    const tools = (options: object = {}) => (toolsFor(['greenhouse'], options) as {name: string}[]).map(t => t.name)
+
+    it('adds a group to the list once a work session asks for it, and works by name before that', async () => {
+        const loaded: string[] = []
+        const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => JSON.stringify([{id: 1, name: 'STRIPE_KEY', hosts: ['api.stripe.com']}])})
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', fetch, load: (group: string) => { loaded.push(group) }}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect(tools()).not.toContain('egress')
+        expect((await call('more_tools', {group: 'secrets'})).content[0]!.text).toBe('Added secrets, egress to your tools.')
+        expect(loaded).toEqual(['secrets'])
+        expect(tools({loaded})).toEqual(expect.arrayContaining(['secrets', 'egress']))
+        expect(tools({loaded})).not.toContain('events')
+        expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
+        // Not listed yet, it still answers when called by its name.
+        expect(await call('secrets')).not.toMatchObject({isError: true})
+        expect(tools({loaded: ['schedules', 'secrets', 'debug']})).not.toContain('more_tools')
+    })
+
+    it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {
+        expect(tools({chat: true})).not.toContain('more_tools')
+        expect(tools({untrusted: true})).not.toContain('more_tools')
+        const fetch = async () => ({ok: true, status: 200, statusText: '', text: async () => '[]'})
+        const untrusted = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', untrusted: true, fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        for (const name of ['more_tools', 'update_issue', 'finish_issue', 'write_doc', 'egress', 'events']) {
+            expect(await untrusted(name, {id: 'GRE-1'}), name).toMatchObject({isError: true, content: [{text: `No tool "${name}"`}]})
+        }
     })
 })

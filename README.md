@@ -37,12 +37,12 @@ through the `guide` tool.
 
 <table>
 <tr>
-<td width="50%"><img alt="An issue's page: its sub-issues, the session working on it beside its id and first in the Claude sessions panel, and a question waiting on the owner's decision" src="docs/images/issue-light.png"></td>
+<td width="50%"><img alt="An issue's page: a banner naming the session working on it, that session first in its Sessions panel, its sub-issues, and a question waiting on the owner's decision" src="docs/images/issue-light.png"></td>
 <td width="50%"><img alt="The Sessions page: each project's Claude sessions with their state, folder and a message box, and what the working one is on now" src="docs/images/sessions-light.png"></td>
 </tr>
 <tr>
 <td><img alt="The chat pane open over a project's issue list, ready for a first question, with suggestions and new issues going to Todo" src="docs/images/chat-light.png"></td>
-<td><img alt="The Events page: the event log read like a console, a line each for settings changes, new issues, comments and channels connecting" src="docs/images/events-light.png"></td>
+<td><img alt="The Events page: the event log read like a console, a line each for new issues, backups, and sessions' channels and launchers connecting" src="docs/images/events-light.png"></td>
 </tr>
 </table>
 
@@ -60,7 +60,7 @@ through the `guide` tool.
 - **To move to a new computer:** set it up the same way, point `ORRERY_BACKUP` at the same folder, and choose the
   backup to restore when it first opens.
 - **If your data looks gone after an update:** run `docker volume ls`. The volume is named after the folder, so a clone
-  in a folder with another name has another one. App settings → Database → **Restore a backup…** brings back any backup
+  in a folder with another name has another one. App settings → This orrery → Database → **Restore a backup…** brings back any backup
   in the folder.
 
 ## Quick start
@@ -105,8 +105,8 @@ You need:
   exposing it.
 - **Channels are a Claude Code research preview**, hence the long flag in step 5. Without it a session still
   has the tools and can read and update the roadmap, but orrery can't send it work.
-- **Starting sessions** needs tmux 3.2 or newer, and the launcher installed once per repo
-  (`node /path/to/orrery/channel/orrery-launcher.mjs --install`). On Windows it runs inside WSL
+- **Starting sessions** needs tmux 3.2 or newer, and the launcher installed once
+  (`node /path/to/orrery/channel/orrery-launcher.mjs --install`); a Claude session opened in a repo then adds it. On Windows it runs inside WSL
   ([On Windows](docs/connect.md#on-windows)).
 
 ## Documentation

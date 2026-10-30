@@ -1,0 +1,371 @@
+// An issue board: statuses and their kinds, issues, proposals, chunks, releases, docs, comments and what they
+// changed, and the helpers that name and link them.
+import type {Instruction} from '../prompt'
+import type {ChatScheduleRequest} from './chats'
+import type {Starts} from './settings'
+
+/** What a status means, whatever it's called: orrery's counts, progress and pages reason about kinds,
+ * never names. In board order. */
+export const KINDS = ['backlog', 'todo', 'started', 'done', 'canceled'] as const
+export type Kind = (typeof KINDS)[number]
+/** The kinds an issue is closed in: out of the open counts. Canceled is also out of progress. */
+export const CLOSED: readonly Kind[] = ['done', 'canceled']
+
+/** An issue's status, one list for the whole orrery: its id (`in-review`) is what an issue stores, its
+ * name and colour are what the board shows, and its kind is what it means. */
+export interface IssueStatus {
+    id: string
+    name: string
+    kind: Kind
+    /** A tint's name (`teal`) or a `#rrggbb`. */
+    color: string
+    position: number
+}
+
+/** The statuses a new orrery starts with. */
+export const DEFAULT_STATUSES: Omit<IssueStatus, 'position'>[] = [
+    {id: 'backlog', name: 'Backlog', kind: 'backlog', color: 'slate'},
+    {id: 'todo', name: 'Todo', kind: 'todo', color: 'blue'},
+    {id: 'in-progress', name: 'In progress', kind: 'started', color: 'amber'},
+    {id: 'in-review', name: 'In review', kind: 'started', color: 'violet'},
+    {id: 'done', name: 'Done', kind: 'done', color: 'green'},
+    {id: 'canceled', name: 'Canceled', kind: 'canceled', color: 'slate'},
+]
+
+/** Where an issue sits on the board: a status's id, or `proposed` while it's a proposal (not work yet). */
+export type Column = string
+/** What a column means: a status's kind, or `proposed`. */
+export type Place = Kind | 'proposed'
+
+/** Where a proposal stands: waiting on the owner (`pending`), or as they decided. */
+export type Proposal = 'pending' | 'approved' | 'changes' | 'rejected'
+/** What the owner can decide on a proposal. */
+export const DECISIONS = ['approved', 'changes', 'rejected'] as const
+export type Decision = (typeof DECISIONS)[number]
+
+/** One option of a choice: `A`, `B`, … or a word, with a title and (Markdown) more about it. */
+interface ChoiceOption {
+    key: string
+    title: string
+    body?: string
+}
+
+/** A question on a proposal, answered by picking one option or any of them. The agent ticks what it
+ * recommends. A choice `from` an option goes further down that option (asked for when the owner explored
+ * it), and counts only if that option is picked. */
+export interface Choice {
+    key: string
+    question: string
+    pick: 'one' | 'any'
+    options: ChoiceOption[]
+    recommended: string[]
+    from?: {choice: string, option: string}
+}
+
+/** The owner's picks: for each choice, the options they ticked. */
+export type Picks = Record<string, string[]>
+
+/** The choices that count for these picks: those at the top, and those going further down a picked option. */
+export function liveChoices(choices: Choice[], picks: Picks): Choice[] {
+    const live: Choice[] = []
+    for (const choice of choices) {
+        const from = choice.from
+        if (!from || (live.some(c => c.key === from.choice) && (picks[from.choice] ?? []).includes(from.option))) live.push(choice)
+    }
+    return live
+}
+
+/** P0 is urgent. */
+export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
+export type Priority = (typeof PRIORITIES)[number]
+
+/** Most urgent first, those with no priority last: a sort's compare. */
+export const byPriority = (a: {priority?: Priority}, b: {priority?: Priority}) => (a.priority ?? 'P9').localeCompare(b.priority ?? 'P9')
+
+/** How many leaf issues sit in each column (a status id, or `proposed`). */
+export type Counts = Record<Column, number>
+/** The same leaves by what their column means. Proposed ones aren't work yet: they're left out of `total`. */
+export type Kinds = Record<Place, number>
+
+export interface Issue {
+    id: string
+    title: string
+    priority?: Priority
+    /** Who's on it: a person, or `claude`. */
+    assignee?: string
+    labels: string[]
+    /** Its tasks on the team's tracker: ids (`ENG-1567`), linked through the orrery's `tracker`, or full URLs. */
+    external: string[]
+    /** A status's id, as written; a parent's own status is ignored, its issues decide its column. */
+    status: string
+    notes?: string
+    /** Set when it's a proposal (with its sub-issues): not work until the owner commits it. */
+    proposal?: Proposal
+    /** Who last decided on the proposal, when, and what they said. */
+    decided_by?: string
+    decided_at?: string
+    decision_note?: string
+    /** A proposal's choices: what the owner decides, the agent's recommendation ticked. */
+    choices: Choice[]
+    /** The owner's picks when they approved it, choice → options. */
+    picks?: Picks
+    /** The option the owner asked to explore further when they asked for changes. */
+    explore?: {choice: string, option: string}
+    column: Column
+    /** What its column means. */
+    kind: Place
+    /** Its sub-issues' columns; an issue without any counts as one. */
+    counts: Counts
+    kinds: Kinds
+    comments: number
+    /** An agent's question on it the owner hasn't answered yet (no comment of theirs after it): what it waits for. */
+    waiting?: Asks
+    /** Ids it had before (e.g. `MOT-5`), which still find it. */
+    aliases: string[]
+    /** The schedule that made it, if one did. */
+    schedule?: number
+    /** The version it ships in (a release's), if it's set for one. */
+    release?: string
+    created_by: string
+    /** The name of the session that made it, as it was then (ORR-466). */
+    session_name?: string
+    /** Made by the owner: no one else can delete it. */
+    protected: boolean
+    /** The issues it builds on (ORR-601), as `linkRef`s: work on it waits until each is done. Only with some. */
+    depends_on?: string[]
+    /** Those of them not done yet (a canceled one too, until the owner decides): while there are any it's blocked, and nothing hands it out. Only with some. */
+    blocked_by?: string[]
+    /** The issues that depend on it, read the other way. Only with some. */
+    blocks?: string[]
+    created_at: string
+    updated_at: string
+    tasks: Issue[]
+}
+
+/** Whether an issue waits on another that isn't done yet (ORR-601): nothing hands it out until it's free. */
+export const isBlocked = (issue: {blocked_by?: string[]}) => !!issue.blocked_by?.length
+
+/** How an issue names another it's linked to (ORR-601): its id in the same project, `project/ID` in another. */
+export const linkRef = (here: string, project: string, id: string) => project === here ? id : `${project}/${id}`
+
+/** The project and id a `linkRef` names, read from `here`. */
+export function parseLinkRef(here: string, ref: string): {project: string, id: string} {
+    const slash = ref.indexOf('/')
+    return slash < 0 ? {project: here, id: ref.trim()} : {project: ref.slice(0, slash).trim(), id: ref.slice(slash + 1).trim()}
+}
+
+/** A group of issues: a milestone. The one with an empty id holds the issues in none. */
+export interface Chunk {
+    id: string
+    title: string
+    summary?: string
+    /** How much it matters, P0 being urgent. */
+    priority?: Priority
+    column: Column
+    kind: Place
+    counts: Counts
+    kinds: Kinds
+    /** Names it had before (e.g. `joints`), which still find it. */
+    aliases: string[]
+    created_by: string
+    protected: boolean
+    tasks: Issue[]
+}
+
+export interface Board {
+    chunks: Chunk[]
+    counts: Counts
+    kinds: Kinds
+}
+
+/** A version the project ships (`1.0.0-rc.2`) and how far the issues going out in it are. */
+export interface Release {
+    version: string
+    /** The branch its work gathers on before it ships, e.g. `v1.0.0-rc.2`. */
+    branch?: string
+    /** What it's about, in Markdown. */
+    notes?: string
+    /** The day its features froze (`YYYY-MM-DD`): from then on it takes fixes, tests and docs, by preference. */
+    frozen_on?: string
+    /** The day it shipped (`YYYY-MM-DD`); none while it's being prepared. */
+    shipped_on?: string
+    /** Its issues: those set for it, each with its sub-issues (in every project drawing on it, on its source). */
+    issues: number
+    kinds: Kinds
+    created_by: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+}
+
+/** Whether the release is in feature freeze: frozen, and not shipped yet. */
+export const isFrozen = (release: Pick<Release, 'frozen_on' | 'shipped_on'> | undefined) => !!release?.frozen_on && !release.shipped_on
+
+/** What a session hears about an issue set for a release in feature freeze: a preference, never a refusal. */
+export function freezeNote(release: Pick<Release, 'version' | 'frozen_on' | 'shipped_on'> | undefined): string | null {
+    if (!release || !isFrozen(release)) return null
+    return `${release.version} is in feature freeze (since ${release.frozen_on}): it takes fixes, tests and docs. Put a new feature on the next release instead, so this one can go out.`
+}
+
+/** A doc without its text, as a project lists it. */
+export interface DocSummary {
+    id: string
+    title: string
+    /** Its first paragraph as plain text, cut to about 160 characters: enough to tell whether to open it. */
+    summary: string
+    /** With a search (`?q=`): the text around its first hit, empty when only the title has it. */
+    match?: string
+    /** The group it's listed under (Decisions, How it works); none lists it first, on its own. */
+    section?: string
+    created_by: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+}
+
+/** A page of Markdown about the project: an overview, a decision, how to run it. */
+export interface Doc extends DocSummary {
+    project: string
+    body: string
+}
+
+/** One app: its details, its board and its docs. */
+export interface Project {
+    id: string
+    name: string
+    /** The prefix of the issue ids the server hands out, e.g. `GRE` for `GRE-12`. */
+    key: string
+    description?: string
+    /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
+    icon?: string
+    /** Its icon's colour: a tint's name (`teal`) or a `#rrggbb`; none follows the text. */
+    icon_color?: string
+    /** What its sessions hear when asked to focus on an issue or a chunk, when not the orrery's (`Settings`). */
+    focus_prompt?: string
+    chunk_prompt?: string
+    /** Its own standing instructions, and the ids of the orrery's it switches off. */
+    instructions: Instruction[]
+    muted: string[]
+    /** Whether orrery may start sessions for it itself, when the owner's signal finds nobody listening, and
+     * within what: the orrery's setting (`Settings.starts`), the same for every project; none while the owner hasn't let it. */
+    starts?: Starts
+    /** Where its code is (`https://github.com/you/shop`), to link a release's branch and PRs, and read an issue's open PRs off GitHub. */
+    repo?: string
+    /** Whether it has releases: `none` (not everything ships), its `own`, or `shared`, another project's. */
+    release_mode: ReleaseMode
+    /** The project whose releases it ships in, when it's `shared` (a monorepo's apps going out together); its
+     * `releases` are then that project's, counting its own issues. */
+    releases_from?: string
+    created_by: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+    board: Board
+    docs: DocSummary[]
+    /** Its docs' sections, A–Z: each one a doc is filed under, and the ones made empty (`POST …/doc-sections`). */
+    doc_sections: string[]
+    /** In the order they're arranged in, a new one on top. */
+    releases: Release[]
+}
+
+/** What an agent's comment waits on the owner for. */
+export const ASKS = ['decision', 'feedback'] as const
+export type Asks = (typeof ASKS)[number]
+
+/** An image kept for Markdown to show (`POST /api/uploads`). */
+export interface Upload {
+    id: string
+    type: string
+    size: number
+    /** Where it's served: /api/uploads/<id>. */
+    url: string
+    /** `![name](url)`, to put in a comment. */
+    markdown: string
+}
+
+export interface Comment {
+    id: number
+    issue: string
+    body: string
+    /** It waits on the owner for this, until they comment on the issue after it (`answered`). */
+    asks?: Asks
+    answered?: boolean
+    /** A working session asking on its issue to make or change a schedule (ORR-458): shown with Allow and Deny, and saved
+     * as the owner's only once they allow it. */
+    schedule?: ChatScheduleRequest
+    created_by: string
+    /** The name of the session that wrote it, as it was then (ORR-466); none for the owner's, older ones and API writes. */
+    session_name?: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+}
+
+/** What an issue's activity records: a field that changed, `created` when it was made, `project` when it
+ * moved in from another project. */
+/** Whether a project has releases: none, its own, or another project's (`releases_from`). */
+export const RELEASE_MODES = ['none', 'own', 'shared'] as const
+export type ReleaseMode = typeof RELEASE_MODES[number]
+
+export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
+
+/** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
+ * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */
+export interface IssueEvent {
+    id: number
+    issue: string
+    field: ActivityField
+    before?: string
+    after?: string
+    created_by: string
+    /** The name of the session that made the change (ORR-466), as on a comment. */
+    session_name?: string
+    protected: boolean
+    created_at: string
+}
+
+export const emptyKinds = (): Kinds => ({proposed: 0, backlog: 0, todo: 0, started: 0, done: 0, canceled: 0})
+
+/** The committed issues: every kind but proposed and canceled (what progress is out of). */
+export const total = (kinds: Kinds) => kinds.backlog + kinds.todo + kinds.started + kinds.done
+
+/** The open issues: committed and not closed. */
+export const open = (kinds: Kinds) => kinds.backlog + kinds.todo + kinds.started
+
+/** Where a team task opens: a full URL as it is, an id through the tracker's pattern; none without one. */
+export function taskUrl(tracker: string | null, task: string): string | undefined {
+    if (/^https?:\/\//.test(task)) return task
+    return tracker ? tracker.replace('{id}', encodeURIComponent(task)) : undefined
+}
+
+/** A tracker link as `tracker` keeps it (ORR-404): one with `{id}` as it is; a link into a known tracker's workspace
+ * (a team, project, view or a task of it, as an owner pastes one) as that workspace's task link; null for any other
+ * link without `{id}`, which would open the same page for every task. */
+export function trackerLinkOf(sent: string): string | null {
+    const link = sent.trim()
+    if (link.includes('{id}')) return link
+    let url: URL
+    try {
+        url = new URL(link)
+    } catch {
+        return null
+    }
+    const workspace = url.pathname.split('/').filter(Boolean)[0]
+    // linear.app/<workspace>/…: its tasks are at /<workspace>/issue/<id>.
+    if (url.hostname === 'linear.app' && workspace) return `https://linear.app/${workspace}/issue/{id}`
+    return null
+}
+
+/** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-ada: DOC-132`. */
+export const issueRef = (handle: string, id: string) => `orrery-${handle.toLowerCase()}: ${id}`
+
+/** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */
+export function slugify(text: string): string {
+    return text.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
+}
+
+/** Three capitals from the name, e.g. `GRE` for Greenhouse. */
+export function keyFor(name: string): string {
+    const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^[0-9]+/, '')
+    return letters.slice(0, 3) || 'ISS'
+}

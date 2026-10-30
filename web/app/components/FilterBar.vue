@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import {LockClosedIcon} from '@heroicons/vue/16/solid'
 import type {Column} from '#shared/roadmap'
 import {PRIORITIES} from '#shared/roadmap'
 
 // Search (`/`; Esc clears it, as the browser does a search field, which only says so with `search`),
-// then the priority, column, assignee and label filters, shared by every view, and off a project's pages the
+// then the priority, column, assignee, label and blocked (or ready) filters, shared by every view, and off a project's pages the
 // project. The assignees and labels to pick from are the ones on this project's issues (every project's off a
 // project's pages).
 const {filters, changed, clear} = useFilters()
@@ -23,6 +24,7 @@ const assignees = computed(() => [
 ])
 const labels = computed(() => sorted(issues.value.flatMap(i => i.labels)).map(label => ({value: label, label})))
 const priorities = [...PRIORITIES.map(p => ({value: p as string, label: `${p} · ${PRIORITY_LABEL[p]}`})), {value: 'none', label: 'No priority'}]
+const blocked = [{value: 'blocked' as const, label: 'Blocked'}, {value: 'ready' as const, label: 'Ready'}]
 const {columns: order} = useStatuses()
 const columns = computed(() => order.value.map(c => ({value: c.id as Column, label: c.label})))
 </script>
@@ -56,6 +58,9 @@ const columns = computed(() => order.value.map(c => ({value: c.id as Column, lab
       <template #option="{value}"><PersonAvatar v-if="value !== 'none'" :name="value" :size="14" /><span v-else class="size-3.5 rounded-full border border-dashed border-faint" /></template>
     </FilterMenu>
     <FilterMenu v-if="labels.length" v-model="filters.labels" label="Label" :options="labels" class="hidden sm:block" />
+    <FilterMenu v-model="filters.blocked" label="Blocked" :options="blocked" class="hidden sm:block">
+      <template #option="{value}"><LockClosedIcon v-if="value === 'blocked'" class="size-3.5 text-amber-600 dark:text-amber-400" /><span v-else class="size-3.5" /></template>
+    </FilterMenu>
     <UiButton v-if="changed || (!here && filters.projects.length)" variant="ghost" class="shrink-0" title="Back to the open issues" @click="clear">Clear</UiButton>
   </div>
 </template>

@@ -18,7 +18,8 @@ const part = (id: string, group: ContextPart['group'], title: string, text: stri
 export function contextView(kind: ContextKind, projects: string[], base: string, start?: string, session?: string): ContextView {
     const chat = kind === 'chat'
     const tools = (toolsFor(projects, {chat, untrusted: kind === 'untrusted'}) as {name: string}[])
-        .map(tool => part(`tool:${tool.name}`, 'tools', tool.name, JSON.stringify(tool, null, 2)))
+        // As the channel sends it, compact (ORR-625): the page lays it out for reading.
+        .map(tool => part(`tool:${tool.name}`, 'tools', tool.name, JSON.stringify(tool)))
         .sort((a, b) => b.chars - a.chars)
     const parts = [
         part('instructions', 'instructions', 'Server instructions', instructionsFor({base, serves: servesLine(projects), chat, several: projects.length > 1})),

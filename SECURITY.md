@@ -53,7 +53,8 @@ planted issue is a prompt injection, and an ordinary session runs with your perm
 schedule's run never goes to your sessions. Instead:
 
 - **It gets a session of its own**, which the launcher starts with none of Claude Code's own tools (no
-  Bash, no file reads), only the orrery tools except `egress` and `secrets`. It reads GitHub issues with
+  Bash, no file reads), only the orrery tools for reading the roadmap, raising proposals and commenting on them: none
+  that start, change or finish issues, write docs, reach `egress` or `secrets`, or read the event log. It reads GitHub issues with
   the channel's `github_issues`, which runs `gh` itself on the repo the folder's git remote names, with
   arguments the session can't turn into another host (`-R`) or a browser (`--web`). Everything else is refused,
   not asked (`dontAsk`), and your own and the repo's settings, with their allow lists, are left out
@@ -79,12 +80,12 @@ So it has no way to send what it reads anywhere but to orrery, as proposals you 
 The chat (the button in the corner) is a session started for you to talk to on the page. Its launcher starts it with
 `Read`, `Grep` and `Glob` and no Bash or edits, so it can't change the code or run anything, and without `egress`,
 `secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
-unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release or parent (any other
+unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release, parent or what it depends on (any other
 change is refused), commenting, and
 answering you. It changes those fields even on an issue another session is working: the check that refuses one
 session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
 
-Three more go further, and you should know how far:
+Four more go further, and you should know how far:
 
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
   Secrets, the database, statuses and how sessions start aren't among them.
@@ -92,6 +93,9 @@ Three more go further, and you should know how far:
   Nothing is saved until you press **Allow**, and then a new one is yours, so a schedule that starts sessions starts
   them as you. A change to an agent's schedule leaves it the agent's: only **Make it mine** makes it yours. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
   the Schedules page.
+- **Sessions, releases, chunks and moves** it can only ask for as well: starting, stopping or giving more time to a
+  session, adding or changing a release or a chunk, and moving issues to another status or assigning them. Each shows
+  what it would do, and nothing happens until you press **Allow**.
 - **Messages to your sessions** it can only ask for as well: you see the text and who it goes to, and nothing is sent
   until you press **Send**. orrery refuses the chat on both message routes, so this holds whatever it was talked into.
   Once sent, a message goes out as yours, the owner's instructions in the sense below, marked as sent through the chat
@@ -137,6 +141,12 @@ orrery didn't start it with. A launcher's claim on a session waiting to start co
 was given as it connected (ORR-443), so a program posting claims can't take a launch and keep it from starting. Anything
 that can open a launcher stream is a launcher, though, and gets a token like any other.
 
+The launcher starts sessions only in folders on its list (`~/.config/orrery/launcher.json`), and only something running
+on your machine puts a folder there: `--install` in it, or, with pick-up on (ORR-599), orrery's channel in a Claude
+session you opened in it, which is the folder trust Claude Code asked you for. orrery never names a folder for the
+launcher, so whoever can reach orrery can't make it start sessions somewhere new. `--no-pick-up` leaves it to
+`--install` alone, and `--uninstall` in a repo keeps it off.
+
 **Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
 there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the
 cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". The pop-up shows the
@@ -156,6 +166,8 @@ and each is only ever asked:
 - **Starting, stopping or extending a session:** you see what would start (its project, focus, presets and words) or
   which session, and nothing happens until you press **Allow**. A session started this way is yours, with the context
   shown, so read it. The launch routes refuse the chat itself, and watching one (a window on your machine) stays yours.
+- **Adding or changing a release or a chunk, or moving or assigning issues:** you see what would change, and nothing
+  is saved until you press **Allow**.
 - **Messaging your other sessions:** you see the text and who it goes to, and nothing is sent until you press
   **Send**. Then it goes as you, marked as sent through the chat. The message routes refuse the chat itself, so a
   chat talked into it by something it read can't reach your sessions without you reading it first (ORR-416).
@@ -176,7 +188,10 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 [Secrets](docs/API.md#secrets) let your agents call outside services without the key ever reaching
 them: orrery fills it into the request and sends it.
 
-orrery itself calls one outside service: GitHub, at `api.github.com`, to show the open pull requests on
+orrery itself calls one outside service, GitHub at `api.github.com`, for two things. First, it asks for orrery's own
+releases (`steffendybvik/orrery`, public, no token) a few seconds after it starts and then every 12 hours, to say in the
+sidebar when a newer version is out. That request carries nothing of yours, and `ORRERY_UPDATE_CHECK=false` turns it
+off. Second, it shows the open pull requests on
 projects whose repo is there and to notice when one conflicts, merges or closes. It reads, never writes:
 each repo is polled in the background, once a minute with a token and every ten minutes without (a page
 open may also ask, no more than that), and it sends the `GITHUB_TOKEN` secret only when you've set one that
@@ -199,8 +214,12 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
 - **Scrubbing is a backstop.** orrery takes the value out of what comes back, but a service that
   echoes it in another form could still show it. The hosts you allow are what keep it safe, so allow
   only the service's own.
-- **Encrypted at rest** with `ORRERY_SECRET_KEY`, which isn't in the database: a backup holds the secrets
-  only in ciphertext. Lose the key and they're gone; set them again.
+- **Encrypted at rest** with a key that isn't in the database: `ORRERY_SECRET_KEY` when you set one, else one
+  orrery made on its first start, in `orrery.key` beside the database (`/data/orrery.key` in the container),
+  readable by its owner alone. Backups and `orrery:copy` take the database only, so a backup holds the secrets
+  only in ciphertext. Lose the key and they're gone; set them again. Keep a copy of `orrery.key` apart from the
+  backups, and take it along when you move orrery to another machine. Don't point backups at the database's own folder,
+  or the key goes with them.
 
 ## Your data
 
@@ -210,7 +229,8 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
 - The backups are copies of it. If `ORRERY_BACKUP` is a synced folder (iCloud Drive, Dropbox, …), your
   roadmaps leave the machine for that service.
 - The session hooks send orrery each session's id, its name, its working folder, what it's doing and
-  Claude Code's notification text. They go to the orrery at `ORRERY_URL`, nowhere else.
+  Claude Code's notification text, and, before each tool it uses, the tool's name with its command, file, address or
+  search (each Bash command in full, up to 4000 characters). They go to the orrery at `ORRERY_URL`, nowhere else.
 - **Context** (Advanced → Context) shows what each running session has been given since orrery started: the signals
   sent to it and its orrery tools' answers, kept in memory only. Like every page, it's open to whatever can reach
   orrery, sessions included, so an `egress` answer is kept by its size alone, never what the service sent back

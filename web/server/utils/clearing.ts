@@ -8,7 +8,7 @@
 // by an API error (the network, a rate limit) lets go of what it had in progress (`letGo`), so none of it sits there
 // in progress with nobody on it.
 import type {Signal} from '#shared/roadmap'
-import {byPriority} from '#shared/roadmap'
+import {byPriority, isBlocked} from '#shared/roadmap'
 
 /** How long a session stays idle before it's cleared: a signal its channel has just handed Claude Code starts
  * another turn in that time, and then it isn't cleared. */
@@ -128,7 +128,7 @@ export function carryOn(project: string, id: string) {
             const parents = new Set((await store.workingOn(now.project, ids)).map(i => i.id))
             if (!parents.size) return
             const next = (await store.listIssues(now.project))
-                .filter(i => i.parent && parents.has(i.parent) && (i.kind === 'backlog' || i.kind === 'todo'))
+                .filter(i => i.parent && parents.has(i.parent) && (i.kind === 'backlog' || i.kind === 'todo') && !isBlocked(i))
                 .sort(byPriority)[0]
             if (!next) return
             for (const session of carried.keys()) {

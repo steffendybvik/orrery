@@ -17,15 +17,17 @@ function blocksOf(root: ParentNode): {element: Element, key: string}[] {
         .map(element => ({element, key: `${element.tagName}:${element.textContent?.replace(/\s+/g, ' ').trim()}`}))
 }
 
-/** Markdown as HTML, cleaned of anything that could run, with links to the web opening in a new tab
- * and the h2/h3 headings given ids (listed in `headings`, for a table of contents). A leading
+/** Markdown as HTML, cleaned of anything that could run, with links to the web opening in a new tab,
+ * `#` headings as h2s (marked `data-h1`), and the h2/h3 headings given ids (listed in `headings`, for a table of contents). A leading
  * `# Heading` that repeats `title` is left out, as the page already shows it. Given `before` (the
  * Markdown as last read), each block that's new or different since gets the `changed` class; `changed`
  * counts them. */
 export function renderMarkdown(source: string, title?: string, before?: string): {html: string, headings: Heading[], changed: number} {
     const [heading, text] = /^\s*#\s+(.+)\n/.exec(source) ?? []
     const body = heading && text && text.trim().toLowerCase() === title?.trim().toLowerCase() ? source.slice(heading.length) : source
-    const clean = DOMPurify.sanitize(marked.parse(body, {async: false, gfm: true}), {USE_PROFILES: {html: true}})
+    // No forms either: written by an agent or an outsider, one could ask the owner for a key and post it anywhere
+    // (ORR-589). A task list's checkboxes stay, as an input outside a form sends nothing.
+    const clean = DOMPurify.sanitize(marked.parse(body, {async: false, gfm: true}), {USE_PROFILES: {html: true}, FORBID_TAGS: ['form', 'button', 'textarea', 'select', 'option']})
 
     const page = new DOMParser().parseFromString(`<div>${clean}</div>`, 'text/html')
     const headings: Heading[] = []
@@ -39,6 +41,14 @@ export function renderMarkdown(source: string, title?: string, before?: string):
         taken.add(id)
         element.id = id
         headings.push({id, text, level: element.tagName === 'H2' ? 2 : 3})
+    })
+    // A `# Heading` is an h2 that looks like an h1 (ORR-623): the page around it has its own h1, and a screen reader's
+    // list of headings should show one. Done after the table of contents, which keeps to `##` and `###`.
+    page.querySelectorAll('h1').forEach(element => {
+        const h2 = page.createElement('h2')
+        h2.dataset.h1 = ''
+        h2.append(...element.childNodes)
+        element.replaceWith(h2)
     })
     page.querySelectorAll<HTMLAnchorElement>('a[href^="http://"], a[href^="https://"]').forEach(link => {
         link.target = '_blank'

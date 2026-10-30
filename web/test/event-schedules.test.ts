@@ -66,8 +66,8 @@ describe('event types', () => {
     })
 
     it('come out of the event log: each new one, and every one it doesn\'t keep, never with its message', async () => {
-        const db = testDb()
-        const log = new EventLog(db)
+        await store.updateSettings({advanced: false}, me)
+        const log = new EventLog(store.db)
         const said: OrreryEvent[] = []
         log.happened = event => said.push(event)
         await log.record({level: 'error', kind: 'server.error', message: 'Bearer secret broke it'})
@@ -203,6 +203,25 @@ describe('a schedule on an event', () => {
         // The alert fails too, with no launcher; that outcome is told as its run's, so nothing hears it.
         await vi.waitFor(() => expect(heard.map(h => [h.event.type, h.cause])).toEqual([['schedule.failed', alert.id]]))
         expect(await pass(later(2))).toBe(0)
+    })
+
+    it("runs as its own work when an owner's answer that starts no session set it off (ORR-606)", async () => {
+        const {startsNone} = await import('../server/utils/starts-none')
+        // Whether each signal was made where it starts no session, as considerLaunch reads it.
+        const quiet: boolean[] = []
+        store = new Store(testDb(), () => {}, () => quiet.push(!!startsNone.getStore()))
+        store.happened = event => heard.push({event, cause: scheduleRunning.getStore()})
+        await store.createProject({name: 'greenhouse', key: 'GRE'})
+        schedules = new Schedules(store)
+        await schedules.create('greenhouse', {title: 'On comments', kind: 'message', notes: 'Look', on: 'comment.added'}, me)
+        const issue = await store.createIssue('greenhouse', {title: 'Shelf labels'}, me)
+        // The answer and what it sets off are heard inside the context, as the server's emit carries it there.
+        await startsNone.run(true, async () => {
+            await store.createComment('greenhouse', issue.id, {body: 'Allowed: schedule 1 is saved as mine.'}, me)
+            expect(await pass()).toBe(1)
+        })
+        // The comment's own signal starts none; the schedule's message may.
+        expect(quiet).toEqual([true, false])
     })
 
     it('runs once for events heard at the same moment, as each waits for the one before', async () => {

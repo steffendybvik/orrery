@@ -10,13 +10,16 @@
 // name by default. ORRERY_HEAR narrows that to the ones named (the launcher sets it for a session started for some of
 // the repo's projects); one it doesn't serve is let go. ORRERY_URL is where orrery runs (http://localhost:9000 by default), and ORRERY_ID the orrery
 // it must be (its id, on its Connect page): another one at that address is refused, so a repo set up for one
-// orrery never writes to another. Only stderr is for logs: stdout is the MCP connection.
+// orrery never writes to another. Opened in a repo by hand, it puts the repo on the launcher's list when the launcher's
+// pick-up is on (ORR-599). Only stderr is for logs: stdout is the MCP connection.
 import {readdirSync, readFileSync, statSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {basename, join} from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
+import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
 import {narrowed} from './repo-channels.mjs'
 import {serverName} from './server-name.mjs'
 import {claudeWindow} from './session.mjs'
@@ -54,14 +57,20 @@ let refused = ''
 const serves = every ? 'every project on it' : projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
 const server = new Server({name: 'orrery', version: VERSION}, {
     capabilities: {experimental: {'claude/channel': {}}, tools: {listChanged: true}},
-    instructions: instructionsFor({base, serves, chat: !!chat, several: every || projects.length > 1}),
+    instructions: instructionsFor({base, serves, chat: !!chat, untrusted, several: every || projects.length > 1}),
 })
 // Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
 // untrusted session's guards don't take it for one of their writes.
 const reportCall = (tool, text) => window.id && fetch(`${base}/api/sessions/${encodeURIComponent(window.id)}/calls`,
     {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tool, text})}).catch(() => {})
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat, report: reportCall})
-server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted})}))
+// The groups of tools this session asked for with more_tools (ORR-625): listed from then on.
+const loaded = new Set()
+const loadTools = async group => {
+    loaded.add(group)
+    await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
+}
+const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat, report: reportCall, load: loadTools})
+server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted, loaded: [...loaded]})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
     if (why) return {isError: true, content: [{type: 'text', text: why}]}
@@ -147,6 +156,17 @@ const {channel, server: registeredAs} = registered()
 log(`registered as a channel: ${channel}${registeredAs ? ` (as ${registeredAs})` : ''}`)
 who.set('channel', channel)
 if (registeredAs) who.set('server', registeredAs)
+
+/** Pick-up (ORR-599, pick-up.mjs): puts this repo's projects on the launcher's list, as `--install` there would, so
+ * orrery can start sessions here too, and says so once. */
+async function pickUpHere() {
+    const added = await pickUpRepo(process.cwd())
+    const content = pickedUpMessage(added, fileURLToPath(new URL('./orrery-launcher.mjs', import.meta.url)))
+    if (!content) return
+    log(`put ${added.map(entry => entry.project).join(', ')} on the launcher's list (pick-up)`)
+    await server.notification({method: 'notifications/claude/channel', params: {content, meta: {kind: 'pick-up'}}})
+}
+await pickUpHere().catch(error => log(`couldn't put this repo on the launcher's list: ${error.message}`))
 
 /** Tells the session about a signal on one of its projects. A chat hears only the owner's messages in it. */
 async function deliver(project, signal, query) {

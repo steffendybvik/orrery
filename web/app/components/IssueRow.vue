@@ -3,7 +3,8 @@ import type {Issue} from '#shared/roadmap'
 import {total} from '#shared/roadmap'
 
 // One issue as a row (id, title, labels, status, priority, assignee); a parent shows its
-// sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines.
+// sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines. One waiting on others not
+// closed yet has a Blocked chip (ORR-601).
 // Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`). Its tick
 // (SelectBox) takes the priority's place on hover, for changing many at once; with any ticked, a shift- or ⌘-click ticks.
 //
@@ -72,6 +73,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
         <!-- On a phone the title needs the room: the chip's dot alone, the row tinted as ever. -->
         <span class="size-2 shrink-0 rounded-full bg-violet-500 sm:hidden" role="img" :aria-label="issue.waiting === 'decision' ? 'Decision needed' : 'Feedback needed'" :title="issue.waiting === 'decision' ? 'Decision needed' : 'Feedback needed'" />
       </template>
+      <BlockedChip v-if="issue.blocked_by?.length" :blockers="issue.blocked_by" class="max-sm:hidden" />
       <span v-if="issue.schedule" class="shrink-0 text-faint" title="Made by a schedule"><SectionIcon section="schedules" class="size-3" /></span>
       <span v-if="isParent" class="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 ring-1 ring-line max-sm:hidden" :title="`${issue.kinds.done} of ${total(issue.kinds)} sub-issues done`"><ProgressRing :kinds="issue.kinds" :size="13" /></span>
     </span>

@@ -62,12 +62,14 @@ Then `source ~/.zshrc` and start the session with `shop`.
 
 The same server gives the session **tools** for its projects' roadmaps, so it works without curl:
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
-`create_issue` (a proposal too, with choices), `update_issue`, `chunks`, `releases`, `docs`, `doc` and
-`write_doc`; `presets` and `preset`, to read the context sessions can start with; `schedules` and `sessions`, to read
-the project's schedules and who's working on what; `secrets` and `egress`, to call an outside service with a [secret](API.md#secrets) it
-never sees; `events` and `resolve_event`, to debug orrery from its [event log](API.md#event-log); and `guide`, how orrery
-itself works ([Using orrery](using.md), from the orrery it's connected to), so a session in any repo can answer "how do
-schedules work?". They write as `claude`, from that session, so your comments on an issue it worked go back
+`create_issue` (a proposal too, with choices), `update_issue`, `releases`, `docs`, `doc` and
+`write_doc`; `sessions`, to read who's working on what; and `guide`, how orrery itself works ([Using orrery](using.md),
+from the orrery it's connected to), so a session in any repo can answer "how do schedules work?". Those it needs less
+often wait behind `more_tools`, so they don't take up its context until it asks for them: `create_schedule` and
+`update_schedule`, to ask you on its issue for a schedule (saved only once you allow it); `secrets` and `egress`, to
+call an outside service with a [secret](API.md#secrets) it never sees; and `events` and `resolve_event`, to debug
+orrery from its [event log](API.md#event-log). `chunks`, `presets`, `preset` and `schedules`, which read the project's chunks, presets and schedules,
+are the [chat](API.md#chats)'s. They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
 
@@ -102,7 +104,8 @@ back to Todo with nobody on it, and a comment says why.
 ```
 
 The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
-project; without one, it's `shop`. With a server serving several projects, it's the one a session is filed
+project; without one, it's `shop`. (Connect writes the project plainly, `ORRERY_PROJECT=shop`; the `:-` form is for
+when you want an alias to pick.) With a server serving several projects, it's the one a session is filed
 under; it shows under the others on the Sessions page too.
 
 With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
@@ -115,7 +118,7 @@ orrery can start a session itself when you send the project work and nobody is l
 press **Start session** on the Sessions page, or **New session on this** on an issue, so nobody has to open a terminal.
 Turn it on once, for every project, under Starting sessions on the Sessions page's **Setup** tab (how many at once, how
 many minutes each), then install the
-launcher once, in the repo:
+launcher once, from the repo or anywhere:
 
 ```bash
 node /path/to/orrery/channel/orrery-launcher.mjs --install
@@ -124,14 +127,27 @@ node /path/to/orrery/channel/orrery-launcher.mjs --install
 It runs in the background from then on (launchd on macOS, systemd on Linux; on Windows, inside WSL, see
 [On Windows](#on-windows)), starts at login, and serves
 every project installed this way; run `--install` again in another repo to add its projects, and
-`--uninstall` to take them off. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
+`--uninstall` to take them off. Run outside a repo whose `.mcp.json` registers the channel, `--install` installs the
+service with no project yet, and `--uninstall` removes the service, keeping its projects on the list for the next `--install`.
+`--install` also turns on **pick-up** (`--no-pick-up` leaves it off): from then on, a Claude session you open in a repo
+whose `.mcp.json` registers the channel puts that repo's projects on the list, by the same rules as `--install` there, and
+the session is told once. Only the channel, running in that folder on your machine, does this; orrery itself never
+names a folder for the launcher. A project orrery doesn't have, or one already served from another repo, is left
+off, and `--uninstall` in a repo keeps it off until you `--install` there again. Connect the repo first (steps 1 and 2):
+with no channel in its `.mcp.json`, `--install` there with `ORRERY_PROJECT` set refuses, rather than adding a project
+whose sessions couldn't hear orrery, at an address it would have to guess. `--help` lists the flags, and an unknown one
+is refused. A project on the list nothing answers for (its orrery gone, or a project it doesn't have) is logged once,
+with the `--uninstall` that takes it off, and tried again quietly every 30 seconds. It finds the projects and their Orrerys in the repo's `.mcp.json`: every
 channel there, each with the projects in its `ORRERY_PROJECTS` (or its `ORRERY_PROJECT`), so a monorepo with a
 channel per project gets all of them, and each project's sessions load the channel that serves it. With `*`, or to
 pick one, name it with `ORRERY_PROJECT`. `ORRERY_URL` stands in for a channel's address only where `.mcp.json` doesn't write
 one out (`${ORRERY_URL:-…}`); a written address wins, so a session's own `ORRERY_URL` can't send a monorepo's projects to
 another orrery. A project no channel names goes on `ORRERY_URL`, else the first channel's orrery. A project already served from another repo (a monorepo's channel to your
 personal orrery) is left there unless `ORRERY_PROJECT` names it. `--list` shows what a repo would register, and
-with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`. Its log is
+with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`, which the
+running launcher follows: a project added there is served within a few seconds, and one taken off is let go, with its
+sessions, while every other project's sessions go on. `--install` restarts the service only the first time, or when its
+service file changes (a new `node` or `PATH`). Its log is
 `~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
 stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
 terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`. Next to the installed one, it leaves

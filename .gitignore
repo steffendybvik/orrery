@@ -9,6 +9,7 @@ dist
 *.log
 .DS_Store
 coverage
+.vitest-reports
 .idea
 
 # Playwright
