@@ -107,6 +107,57 @@ describe('on an unclaimed server', () => {
     })
 })
 
+describe('--move-issuer', () => {
+    const OLD = 'https://old.example'
+    const NEW = 'https://new.example'
+    const seed = (issuer: string, subject: string, person: string) => opened.prepare('INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?)').run(issuer, subject, person)
+    const rows = () => opened.prepare('SELECT issuer, subject, person FROM identities ORDER BY subject').all()
+
+    beforeEach(async () => {
+        await store.nameOwner({name: 'Skoll'})
+        await store.addPerson({name: 'Hati'})
+    })
+
+    it('moves the logins, which the store then finds at the new address, and prints no key', async () => {
+        seed(OLD, 'a', 'skoll')
+        seed(OLD, 'b', 'hati')
+        seed('https://other.example', 'c', 'hati')
+        const {code, out} = await claim(['--move-issuer', `${OLD}/`, `${NEW}/`])
+        expect(code).toBe(0)
+        expect(out).toContain('Moved 2 logins')
+        expect(out).toContain(`ORRERY_OIDC_ISSUER to ${NEW}`)
+        expect(out).not.toMatch(KEY)
+        expect(rows()).toEqual([{issuer: NEW, subject: 'a', person: 'skoll'}, {issuer: NEW, subject: 'b', person: 'hati'}, {issuer: 'https://other.example', subject: 'c', person: 'hati'}])
+        expect(keyRows()).toEqual([])
+        expect(await store.identity(NEW, 'b')).toBe('hati')
+        expect(await store.identity(OLD, 'b')).toBeUndefined()
+    })
+
+    it('leaves keys working', async () => {
+        const key = await claimed()
+        seed(OLD, 'a', 'skoll')
+        expect((await claim(['--move-issuer', OLD, NEW])).code).toBe(0)
+        expect(await store.keyHolder(key)).toMatchObject({person: 'skoll'})
+    })
+
+    it('refuses a mistyped address, a missing one and a login already at the new one, changing nothing', async () => {
+        seed(OLD, 'a', 'skoll')
+        seed(NEW, 'a', 'hati')
+        const before = rows()
+        for (const [args, says] of [
+            [['--move-issuer', 'https://typo.example', NEW], 'No logins are from'],
+            [['--move-issuer', OLD], 'Give both addresses'],
+            [['--move-issuer'], 'Give both addresses'],
+            [['--move-issuer', OLD, NEW], 'already logged in'],
+        ] as const) {
+            const {code, err} = await claim([...args])
+            expect(code).toBe(1)
+            expect(err).toContain(says)
+        }
+        expect(rows()).toEqual(before)
+    })
+})
+
 describe('on a claimed server', () => {
     let first: string
 

@@ -204,6 +204,12 @@ describe("the provider's address", () => {
         expect((await failure(() => startOidc(request() as never))).status).toBe(502)
     })
 
+    it('gives a provider that writes its issuer with a trailing slash the same one, so a moved login is found', async () => {
+        provider.discover({issuer: `${provider.url}/`})
+        provider.issued.token = {claims: {iss: `${provider.url}/`}}
+        expect(await back()).toEqual({issuer: provider.url, subject: 'account-1'})
+    })
+
     it('takes an issuer set with a trailing slash as the same one', async () => {
         config.oidc.issuer = `${provider.url}/`
         expect(await back()).toEqual({issuer: provider.url, subject: 'account-1'})

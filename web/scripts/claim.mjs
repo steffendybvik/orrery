@@ -2,7 +2,8 @@
 // `pnpm orrery:claim [--name "Your Name"] [--replace]`, or in the container `node /app/server/claim.mjs`: claims this server
 // for whoever has a shell on it (ORR-664), and prints the owner a person key, once. It writes to the database directly, so
 // nothing on the network can race for it. On a server already claimed it refuses, unless `--replace`, which revokes the
-// owner's person keys first, for someone who has lost theirs. Plain Node, as the image has no build tools.
+// owner's person keys first, for someone who has lost theirs. `--move-issuer <old> <new>` moves the logins to the same
+// provider's new address instead (ORR-706), printing no key. Plain Node, as the image has no build tools.
 import {createHash, randomBytes} from 'node:crypto'
 import {existsSync, readFileSync} from 'node:fs'
 import {dirname, join, resolve} from 'node:path'
@@ -55,8 +56,32 @@ async function open(where) {
     }
 }
 
+/** Moves the logins of a provider whose address changed, so nobody needs a new invite. Only the same provider keeps the
+ * same subjects: on another, a subject could be someone else's. */
+async function moveIssuer(db, [old, to]) {
+    const from = old?.replace(/\/+$/, '')
+    const target = to?.replace(/\/+$/, '')
+    if (!from || !target || from.startsWith('--') || target.startsWith('--')) throw new Error('Give both addresses: --move-issuer <old issuer> <new issuer>')
+    await db.begin()
+    const {n} = await db.get('SELECT count(*) AS n FROM identities WHERE issuer = ?', from)
+    if (!Number(n)) throw new Error(`No logins are from ${from}, so nothing moved. Check the old address: it's what ORRERY_OIDC_ISSUER was set to`)
+    if (await db.get('SELECT 1 AS yes FROM identities a JOIN identities b ON b.subject = a.subject WHERE a.issuer = ? AND b.issuer = ?', from, target)) {
+        throw new Error(`Someone has already logged in through ${target} with an account from ${from}, so nothing moved`)
+    }
+    await db.run('UPDATE identities SET issuer = ? WHERE issuer = ?', target, from)
+    await db.commit()
+    await db.close()
+    console.log(`Moved ${n} login${Number(n) === 1 ? '' : 's'} from ${from} to ${target}. Set ORRERY_OIDC_ISSUER to ${target} and restart orrery.`)
+}
+
 async function main() {
     const db = await open(database())
+    if (args.includes('--move-issuer')) {
+        if (!await db.get("SELECT 1 AS yes FROM information_schema.tables WHERE table_name = 'identities'").catch(() => db.get("SELECT 1 AS yes FROM sqlite_master WHERE name = 'identities'"))) {
+            throw new Error('This database is from before logins: start this version of orrery once first')
+        }
+        return await moveIssuer(db, args.slice(args.indexOf('--move-issuer') + 1))
+    }
     if (!await db.get("SELECT 1 AS yes FROM information_schema.tables WHERE table_name = 'keys'").catch(() => db.get("SELECT 1 AS yes FROM sqlite_master WHERE name = 'keys'"))) {
         throw new Error('This database is from before keys: start this version of orrery once first')
     }
