@@ -375,6 +375,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         :aria-label="sends === 'issue' ? 'Instructions' : sends === 'action' ? 'Its comment' : sends === 'session' ? 'Your own instructions' : 'Message'"
         class="resize-y bg-transparent text-[14px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
     />
+    <p v-if="sends === 'issue'" class="text-xs text-faint">Each <code>- [ ]</code> line becomes a sub-issue: a bold lead is its title, and the rest of the line its notes.</p>
 
     <div v-if="sends !== 'issue' && sends !== 'action' && presets.length" class="grid grid-cols-1 gap-1.5 sm:grid-cols-2" role="group" aria-label="Presets">
       <button
