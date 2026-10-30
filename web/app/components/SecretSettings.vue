@@ -30,11 +30,29 @@ async function call(name: string, method: 'PUT' | 'PATCH' | 'DELETE', body?: Rec
 // The form sets a new secret, or replaces one (its name fixed, the value typed again).
 const editing = ref<string | null>(null)
 const form = reactive({name: '', value: '', hosts: '', projects: [] as string[]})
+/** The ready-made GITHUB_TOKEN's form: its name and host fixed, only the token to paste. */
+const preset = ref(false)
 function open(secret?: Secret) {
     editing.value = secret?.name ?? ''
+    preset.value = false
     Object.assign(form, {name: secret?.name ?? '', value: '', hosts: secret?.hosts.join(', ') ?? '', projects: [...secret?.projects ?? []]})
 }
 const list = (text: string) => text.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
+// orrery reads pull requests with a GITHUB_TOKEN only when it may go to api.github.com (ORR-632): one saved without that
+// host would be ignored, so the form says so while the value is still in it, and adds the host on a click.
+const GITHUB = 'GITHUB_TOKEN'
+const GITHUB_HOST = 'api.github.com'
+const githubForm = computed(() => form.name.trim().toUpperCase() === GITHUB)
+const githubUnused = computed(() => githubForm.value && !list(form.hosts).includes(GITHUB_HOST))
+const addGithubHost = () => form.hosts = [...list(form.hosts), GITHUB_HOST].join(', ')
+// Until one is set, GITHUB_TOKEN is listed ready-made, Not set, so it's plain what it's for and Set needs only the
+// token; once set, its last use says whether GitHub took it.
+const githubSet = computed(() => secrets.value.some(s => s.name === GITHUB))
+function openGithub() {
+    open()
+    preset.value = true
+    Object.assign(form, {name: GITHUB, hosts: GITHUB_HOST})
+}
 async function save() {
     const name = form.name.trim().toUpperCase()
     if (await call(name, 'PUT', {value: form.value, hosts: list(form.hosts), projects: form.projects.length ? form.projects : null})) {
@@ -56,7 +74,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
 
 <template>
   <div class="flex flex-col gap-3">
-    <div v-if="secrets.length" class="flex flex-col rounded-xl bg-well/50 p-2 ring-1 ring-line">
+    <div class="flex flex-col rounded-xl bg-well/50 p-2 ring-1 ring-line">
       <div v-for="secret in secrets" :key="secret.name" class="flex flex-col">
         <div class="group flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-1.5 py-1 hover:bg-hover/60">
           <span class="font-mono text-[13px] text-fg">{{ secret.name }}</span>
@@ -81,7 +99,10 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
                 class="text-xs text-faint"
                 :title="secret.last_used ? `${secret.last_used.method} ${secret.last_used.host}${secret.last_used.path} by ${who(secret.last_used.created_by)}: ${secret.last_used.status ?? secret.last_used.error}` : undefined"
             >
-              <template v-if="secret.last_used">
+              <template v-if="secret.name === GITHUB && secret.last_used?.status === 401">
+                <span class="text-rose-600 dark:text-rose-400">GitHub turned it down {{ ago(secret.last_used.created_at) }}: replace it with one that works</span>
+              </template>
+              <template v-else-if="secret.last_used">
                 used {{ ago(secret.last_used.created_at) }}
                 <span :class="secret.last_used.status && secret.last_used.status < 400 ? '' : 'text-rose-600 dark:text-rose-400'">· {{ secret.last_used.status ?? 'failed' }}</span>
               </template>
@@ -99,13 +120,18 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
           <UiButton @click="removing = null">Cancel</UiButton>
         </div>
       </div>
+      <div v-if="!githubSet" class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-1.5 py-1">
+        <span class="font-mono text-[13px] text-muted">{{ GITHUB }}</span>
+        <span class="text-xs text-faint">Not set: orrery uses it to read pull requests on private repos, and where each stands</span>
+        <UiButton size="xs" class="ml-auto" @click="openGithub">Set</UiButton>
+      </div>
     </div>
 
     <form v-if="editing !== null" class="flex flex-col gap-2 rounded-xl bg-well/50 p-3 ring-1 ring-line" @submit.prevent="save">
       <div class="flex flex-wrap items-center gap-2">
         <input
             v-model="form.name"
-            :disabled="!!editing"
+            :disabled="!!editing || preset"
             placeholder="API_KEY"
             aria-label="Name"
             maxlength="64"
@@ -121,7 +147,15 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
             :class="[input, 'w-72 max-w-full font-mono']"
         >
       </div>
-      <input v-model="form.hosts" placeholder="Hosts it may go to: api.example.com, …" aria-label="Hosts" autocomplete="off" :class="[input, 'w-full font-mono']">
+      <input v-model="form.hosts" placeholder="Hosts it may go to: api.example.com, …" aria-label="Hosts" autocomplete="off" :readonly="preset" :class="[input, 'w-full font-mono read-only:opacity-60']">
+      <p v-if="githubForm" class="text-xs text-muted">
+        A fine-grained token with <i>Pull requests: Read-only</i> on the repos, or a classic one with <span class="font-mono">repo</span>.
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" class="text-accent-600 hover:underline dark:text-accent-400">Make one on GitHub</a>
+      </p>
+      <p v-if="githubUnused" class="flex flex-wrap items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+        <span>orrery reads pull requests with a GITHUB_TOKEN only when it may go to <span class="font-mono">{{ GITHUB_HOST }}</span>, so without it this one won't be used there.</span>
+        <UiButton size="xs" @click="addGithubHost">Add {{ GITHUB_HOST }}</UiButton>
+      </p>
       <div class="flex flex-wrap items-center gap-1.5 text-xs text-muted">
         For
         <button

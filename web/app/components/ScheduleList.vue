@@ -14,6 +14,9 @@ const {scheduleUnseen} = useUnseen()
 const {who} = useOwner()
 /** An agent's: a message or session one doesn't run until the owner makes it theirs. */
 const byAgent = (s: Schedule) => s.protected ? '' : `by ${who(s.created_by)}${s.kind === 'issue' ? '' : ' · not running until you make it yours'}`
+const {places} = useStatuses()
+/** The status an action schedule moves issues to, by its name. */
+const movesTo = (s: Schedule) => places.value.find(p => p.id === s.column)?.label ?? s.column
 const {open: openIssue} = useIssueLink()
 
 // Ticks once a minute, so "in 5m" stays right.
@@ -105,21 +108,22 @@ const OUTCOME = {
           <span class="max-w-full truncate text-fg" :class="scheduleUnseen(s) ? 'font-semibold' : 'font-medium'">{{ s.title }}</span>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
-              :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
-          >{{ s.kind === 'message' ? s.untrusted ? 'Own locked-down session' : 'Messages sessions' : s.kind === 'session' ? 'Starts a session' : 'Makes an issue' }}</span>
+              :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : s.kind === 'action' ? 'bg-amber-500/12 text-amber-700 dark:text-amber-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
+          >{{ s.kind === 'message' ? s.untrusted ? 'Own locked-down session' : 'Messages sessions' : s.kind === 'session' ? 'Starts a session' : s.kind === 'action' ? 'Moves issues' : 'Makes an issue' }}</span>
         </div>
+        <span v-if="s.across" class="truncate text-xs text-muted">Across projects: edit it here, or leave this project out from its ⋯</span>
         <span v-if="byAgent(s)" class="truncate text-xs text-amber-700 dark:text-amber-300">{{ byAgent(s) }}</span>
         <span v-if="gist(s)" class="truncate text-xs text-muted">{{ gist(s) }}</span>
         <span class="truncate text-xs text-faint">
-          {{ describe(s) }}<template v-if="s.kind === 'issue' && s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template><template v-if="s.kind === 'issue' && s.labels.length"> · {{ s.labels.join(', ') }}</template>
+          {{ describe(s) }}<template v-if="s.kind === 'action'"> · moves to {{ movesTo(s) }}</template><template v-if="s.held"> · {{ s.held }} waiting their turn</template><template v-if="s.kind === 'issue' && s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template><template v-if="s.kind === 'issue' && s.labels.length"> · {{ s.labels.join(', ') }}</template>
         </span>
       </div>
       <span v-if="s.runs[0]" class="hidden shrink-0 items-center gap-1 self-start pt-0.5 text-xs md:flex" :class="[OUTCOME[s.runs[0].outcome], !s.enabled && 'opacity-60']" :title="s.runs[0].note ?? ''">
-        <template v-if="s.runs[0].outcome === 'made'">
-          ✓ made
+        <template v-if="s.runs[0].outcome === 'made' && s.runs[0].issue">
+          ✓ {{ s.kind === 'action' ? 'moved' : 'made' }}
           <button type="button" class="font-mono hover:underline" @click.stop="openIssue(s.project, s.runs[0].issue!)">{{ s.runs[0].issue }}</button>
         </template>
-        <template v-else>{{ {sent: '✉ sent', skipped: '⤼ skipped', failed: '✗ failed'}[s.runs[0].outcome] }}</template>
+        <template v-else>{{ {made: '✓ moved', sent: '✉ sent', skipped: '⤼ skipped', failed: '✗ failed'}[s.runs[0].outcome] }}</template>
         <span class="text-faint">· {{ ago(s.runs[0].at) }}</span>
       </span>
       <span class="shrink-0 self-start pt-0.5 text-right text-xs sm:w-36" :title="s.next_run ? when(s.next_run) : ''">

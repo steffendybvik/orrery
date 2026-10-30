@@ -1,13 +1,15 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
-import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
+import type {Chat, ChatRequestDrift, ChatChunkField, ChatChunkRequest, ChatDocRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
+import {CHAT_CHUNK_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
+import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
-import {CHUNK_FIELDS, SETTINGS_FIELDS} from '../store/schema'
+import {CHUNK_FIELDS, DOC_FIELDS, SETTINGS_FIELDS} from '../store/schema'
+import {sectionOf} from '../store/docs'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {sessionHeader} from './actor'
-import {scheduleAsk, scheduleRequest} from './schedule-requests'
+import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -18,7 +20,7 @@ import {scheduleAsk, scheduleRequest} from './schedule-requests'
 /** What the chat's session on `project` is told it is, with every message. */
 export const chatBrief = (project: string) => `This session is the owner's chat in orrery, on ${project}. Its tools and their asking
 are in the server's instructions; what's left: a proposal waiting on the owner stays theirs to decide. Deleting a
-schedule, removing a release or a chunk stays theirs too, on its page. Write an issue as a link to its page,
+schedule, removing a release, a chunk or a doc, and renaming or deleting a doc section stay theirs too, on its page. Write an issue as a link to its page,
 \`[<id>](/p/${project}/issues/<id>)\`. A page the owner has open on another project says so: there, "this" and "here"
 aren't ${project}, and what you file still goes in ${project} unless they name the other, and say which (ORR-588).`
 
@@ -112,13 +114,14 @@ export const ASK_FOR = 30 * 60_000
 /** The chat's session asking the owner for something in its chat: a message sent to sessions (`{message, why?}`,
  * `askSend`), a schedule made or changed (`{schedule, id?, why?}`, `askSchedule`), a release made or changed
  * (`{release, version?, why?}`, `askRelease`), a session started, stopped or given more time (`{session, why?}`,
- * `askSession`), a chunk made or changed (`{chunk, id?, why?}`, `askChunk`), issues moved or assigned (`{move, why?}`,
- * `askMove`), or else an App setting changed (`askSetting`). */
+ * `askSession`), a chunk made or changed (`{chunk, id?, why?}`, `askChunk`), a doc made or changed (`{doc, id?, why?}`,
+ * `askDoc`), issues moved or assigned (`{move, why?}`, `askMove`), or else an App setting changed (`askSetting`). */
 export async function ask(id: string, body: unknown): Promise<ChatMessage> {
     if (isObject(body) && 'session' in body) return await askSession(id, body)
     if (isObject(body) && 'message' in body) return await askSend(id, body)
     if (isObject(body) && 'release' in body) return await askRelease(id, body)
     if (isObject(body) && 'chunk' in body) return await askChunk(id, body)
+    if (isObject(body) && 'doc' in body) return await askDoc(id, body)
     if (isObject(body) && 'move' in body) return await askMove(id, body)
     return isObject(body) && 'schedule' in body ? await askSchedule(id, body) : await askSetting(id, body)
 }
@@ -222,11 +225,64 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
     if (!changes.length) throw conflict(`${issues.length === 1 ? `${issues.map(i => i.id).join('')} is` : 'They are'} like that already: nothing would change`)
     const asking = issues.map(i => i.id)
     for (const m of chat.messages) if (m.move?.state === 'asked' && m.move.body.ids.some(i => asking.includes(i))) m.move.state = 'expired'
-    const request: ChatMoveRequest = {changes, body: {ids: [...new Set(changes.map(c => c.issue))], ...to}, state: 'asked'}
+    const moving = [...new Set(changes.map(c => c.issue))]
+    const was = Object.fromEntries(issues.filter(i => moving.includes(i.id)).map(i => [i.id, {status: i.column, assignee: i.assignee ?? null}]))
+    const request: ChatMoveRequest = {changes, was, body: {ids: moving, ...to}, state: 'asked'}
     const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], move: request})
     useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${moveAsk(request)}`, details: {issues: request.body.ids, ...to}})
     return said
 }
+
+/** What has changed on a move request's issues since it was asked (ORR-644), leaving out those it moved already. */
+async function driftOf(chat: Chat, request: ChatMoveRequest): Promise<NonNullable<ChatMoveRequest['drifted']>> {
+    const drifted: NonNullable<ChatMoveRequest['drifted']> = []
+    for (const id of request.body.ids) {
+        const was = request.was?.[id]
+        if (!was || request.moved?.includes(id)) continue
+        const issue = await useStore().issue(chat.project, id).catch(() => null)
+        // Gone, or a proposal waiting on the owner now: Allow refuses it as it stands, with no warning needed.
+        if (!issue || undecided(issue.proposal)) continue
+        if (issue.column !== was.status) drifted.push({issue: id, field: 'status', from: was.status, to: issue.column})
+        if ((issue.assignee ?? null) !== was.assignee) drifted.push({issue: id, field: 'assignee', from: was.assignee, to: issue.assignee ?? null})
+    }
+    return drifted
+}
+
+const sameDrift = (a: NonNullable<ChatMoveRequest['drifted']>[number], b: typeof a) => a.issue === b.issue && a.field === b.field && a.from === b.from && a.to === b.to
+
+/** Keeps what has changed on the request as it is now, for the page to show. */
+function noteDrift(chat: Chat, request: ChatMoveRequest, drifted: NonNullable<ChatMoveRequest['drifted']>) {
+    const before = request.drifted ?? []
+    if (before.length === drifted.length && drifted.every(d => before.some(b => sameDrift(b, d)))) return
+    if (drifted.length) request.drifted = drifted
+    else delete request.drifted
+    changed(chat)
+}
+
+/** What the store said happened: an issue's status or assignee changing shows on any request still asking to move it,
+ * so the owner sees it before they answer. A parent's column follows its sub-issues with no event of its own: that
+ * shows when they answer. Not while they're answering: `answerMove` has read what changed, and what it hears then is
+ * its own move, which isn't a change since it asked. */
+export function heardForMoves({event}: {event: OrreryEvent}) {
+    if (event.type !== 'issue.status' && event.type !== 'issue.assignee') return
+    for (const chat of chats.values()) {
+        if (chat.project !== event.project) continue
+        for (const {id, move} of chat.messages) {
+            if (move?.state !== 'asked' || !move.body.ids.includes(event.subject as string)) continue
+            const open = () => move.state === 'asked' && !answering.has(`${chat.id}:${id}`)
+            if (!open()) continue
+            void driftOf(chat, move).then(drifted => {
+                if (open()) noteDrift(chat, move, drifted)
+            }).catch(() => {})
+        }
+    }
+}
+
+/** What has changed on a move request's issues, as a sentence for the chat's session: "GRE-1 was in todo when you
+ * asked and is in done now." */
+const driftSaid = (drifted: ChatMoveRequest['drifted'] = []) => drifted.map(d => d.field === 'status'
+    ? `${d.issue} was in ${d.from} when you asked and is in ${d.to} now.`
+    : `${d.issue} was assigned to ${d.from ?? 'nobody'} when you asked and is assigned to ${d.to ?? 'nobody'} now.`).join(' ')
 
 /** Where a move request puts its issues, as a phrase: "in done, assigned to claude". */
 const moveTo = ({body: {status, assignee}}: ChatMoveRequest) => [
@@ -263,6 +319,40 @@ async function askChunk(id: string, body: Record<string, unknown>): Promise<Chat
 const chunkAsk = (request: ChatChunkRequest) => request.id === undefined
     ? `make the chunk "${request.title}"`
     : `change chunk ${request.id} ("${request.title}"): ${request.changes.map(c => `${CHAT_CHUNK_FIELDS[c.field]} to ${settingValue(c.to)}`).join(', ')}`
+
+/** The chat's session asking to make a doc in its project, or change doc `id` there (its `create_doc` and `update_doc`
+ * tools): `doc` holds the fields (`CHAT_DOC_FIELDS`), checked as the doc routes check them, and a change keeps only what
+ * differs. A request in the chat, which saves nothing until the owner allows it: what it read could have talked it into
+ * this, and docs are what later sessions read (ORR-661). One it asked before for the same doc, still unanswered, expires. */
+async function askDoc(id: string, body: Record<string, unknown>): Promise<ChatMessage> {
+    const chat = chatOf(id)
+    const {doc: fields, id: target, why} = body as {doc?: unknown, id?: unknown, why?: unknown}
+    if (!isObject(fields) || !Object.keys(fields).length) throw badRequest(`Send {doc: {…}, id?}: the fields to set, any of ${Object.keys(CHAT_DOC_FIELDS).join(', ')}, and the doc's id to change one`)
+    const refused = Object.keys(fields).filter(key => !Object.hasOwn(CHAT_DOC_FIELDS, key))
+    if (refused.length) throw forbidden(`The owner's chat sets a doc's ${Object.keys(CHAT_DOC_FIELDS).join(', ')}, not its ${refused.join(', ')}`)
+    if (target !== undefined && target !== null && typeof target !== 'string') throw badRequest('Send "id" as the doc to change, or leave it out to make one')
+    const current = typeof target === 'string' ? await useStore().doc(chat.project, target) : undefined
+    const input = checkInput(fields, DOC_FIELDS, !!current)
+    const title = input.title === undefined ? undefined : String(input.title).trim()
+    if (title === '') throw badRequest('A doc needs a title')
+    const was = current && {title: current.title, section: current.section ?? null, body: current.body}
+    const wanted: ChatDocRequest['body'] = {
+        ...title === undefined || title === was?.title ? {} : {title},
+        ...input.section === undefined || (sectionOf(input.section) ?? null) === was?.section ? {} : {section: sectionOf(input.section) ?? null},
+        ...input.body === undefined || input.body === was?.body ? {} : {body: String(input.body)},
+    }
+    if (was && !Object.keys(wanted).length) throw conflict(`Doc ${target} is like that already: nothing would change`)
+    for (const m of chat.messages) if (current && m.doc?.state === 'asked' && m.doc.id === current.id) m.doc.state = 'expired'
+    const request: ChatDocRequest = {...current ? {id: current.id, was} : {}, title: title ?? current?.title ?? '', body: wanted, state: 'asked'}
+    const said = add(chat, {from: 'claude', text: typeof why === 'string' ? why.trim() : '', images: [], doc: request})
+    useEventLog().note({level: 'info', kind: 'chat.asked', project: chat.project, message: `The chat asked to ${docAsk(request)}`, details: {doc: request.id ?? null, fields: Object.keys(wanted)}})
+    return said
+}
+
+/** What a doc request asks, as a line: "make the doc X", "change doc x: Title, Text". */
+const docAsk = (request: ChatDocRequest) => request.was
+    ? `change doc ${request.id}: ${(Object.keys(request.body) as (keyof ChatDocRequest['body'])[]).map(field => CHAT_DOC_FIELDS[field]).join(', ')}`
+    : `make the doc "${request.title}"`
 
 /** The chat's session asking to make a release in its project, or change release `version` there (its `create_release`
  * and `update_release` tools): `release` holds the fields, as Releases takes them (`CHAT_RELEASE_FIELDS`). A request in
@@ -320,16 +410,39 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
     return said
 }
 
+/** What has changed on what a setting, chunk, release or schedule request would change since it was asked (ORR-645). What
+ * has gone since has nothing to compare: Allow fails on it as its page would. */
+async function requestDrift(chat: Chat, asked: ChatMessage): Promise<ChatRequestDrift[]> {
+    const store = useStore()
+    const drift = (label: string, was: unknown, now: unknown) => JSON.stringify(was) === JSON.stringify(now) ? [] : [{label, from: settingValue(was), to: settingValue(now)}]
+    if (asked.request) return drift(CHAT_SETTINGS[asked.request.setting], asked.request.from, (await store.settings())[asked.request.setting] ?? null)
+    if (asked.schedule) return await scheduleDrift(chat.project, asked.schedule)
+    if (asked.chunk?.id !== undefined) {
+        const current = await store.chunk(chat.project, asked.chunk.id).catch(() => null)
+        return current ? asked.chunk.changes.flatMap(c => c.from === undefined ? [] : drift(CHAT_CHUNK_FIELDS[c.field], c.from, current[c.field] ?? null)) : []
+    }
+    if (asked.release?.change) {
+        const {version} = asked.release
+        const releases = await store.listReleases(chat.project)
+        const at = releases.findIndex(r => r.version === version)
+        const current = releases[at]
+        if (!current) return []
+        return asked.release.changes.flatMap(c => c.from === undefined ? []
+            : drift(CHAT_RELEASE_FIELDS[c.field], c.from, c.field === 'position' ? place(at) : current[c.field as keyof Release] ?? null))
+    }
+    return []
+}
+
 /** The requests being answered right now, by chat and message: a second answer while the first is under way (a
  * double-click, another tab) is refused, rather than saving the schedule or sending the message twice (ORR-455). */
 const answering = new Set<string>()
 
 /** The owner's answer to a request (`allow`): allowed, the setting or the schedule is saved as asked; either way the
  * chat's session hears it. Only the owner's, from the page: the route refuses the chat's own session. */
-export async function answer(id: string, message: number, allow: boolean, actor: Actor): Promise<ChatMessage> {
+export async function answer(id: string, message: number, allow: boolean, actor: Actor, anyway = false): Promise<ChatMessage> {
     const chat = chatOf(id)
-    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.chunk || m.move))
-    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.chunk ?? asked?.move
+    const asked = chat.messages.find(m => m.id === message && (m.request || m.schedule || m.send || m.release || m.session || m.chunk || m.doc || m.move))
+    const request = asked?.request ?? asked?.schedule ?? asked?.send ?? asked?.release ?? asked?.session ?? asked?.chunk ?? asked?.doc ?? asked?.move
     if (!asked || !request) throw notFound(`No request ${message} in this chat`)
     if (request.state === 'asked' && Date.now() - Date.parse(asked.at) > ASK_FOR) {
         request.state = 'expired'
@@ -340,13 +453,28 @@ export async function answer(id: string, message: number, allow: boolean, actor:
     if (answering.has(key)) throw conflict('That request is being answered already')
     answering.add(key)
     try {
+        const saves = asked.request ?? asked.schedule ?? asked.release ?? asked.chunk
+        if (saves) {
+            const drifted = await requestDrift(chat, asked)
+            const unseen = drifted.some(d => !saves.drifted?.some(s => JSON.stringify(s) === JSON.stringify(d)))
+            if (JSON.stringify(drifted) !== JSON.stringify(saves.drifted ?? [])) {
+                if (drifted.length) saves.drifted = drifted
+                else delete saves.drifted
+                changed(chat)
+            }
+            if (allow && drifted.length && (unseen || !anyway)) return asked
+        }
         if (asked.session) await answerSession(chat, asked.session, allow, actor)
         else if (asked.send) await answerSend(chat, asked.send, allow, actor)
         else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
         else if (asked.release) await answerRelease(chat, asked.release, allow, actor)
         else if (asked.chunk) await answerChunk(chat, asked.chunk, allow, actor)
-        else if (asked.move) await answerMove(chat, asked.move, allow, actor)
+        else if (asked.doc) await answerDoc(chat, asked.doc, allow, actor)
+        else if (asked.move) await answerMove(chat, asked.move, allow, actor, anyway)
         else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
+        if (saves?.drifted?.length) {
+            await useStore().messageSession(chat.project, launchTarget(chat.id), `(That had changed since you asked: ${saves.drifted.map(d => `${d.label} was ${d.from} and is ${d.to} now`).join('; ')}.)`, actor)
+        }
     } finally {
         answering.delete(key)
     }
@@ -393,8 +521,14 @@ async function answerRelease(chat: Chat, request: ChatReleaseRequest, allow: boo
 /** The owner allowing or denying the chat's request to move or assign issues: allowed, each is changed as theirs, through
  * their chat, as their own move on the page would be (the session on one hears it the same way). One that became a
  * proposal waiting on them since, or can't be moved now, fails as their move would, still asked; those moved before it
- * stay in `moved`, so Allow again moves only the rest. */
-async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, actor: Actor) {
+ * stay in `moved`, so Allow again moves only the rest. If an issue has changed since it was asked (ORR-644), Allow moves
+ * nothing until the owner has seen that and allowed it `anyway`: one that has changed further shows, and waits again.
+ * Either way the session hears what had changed. */
+async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, actor: Actor, anyway: boolean) {
+    const drifted = await driftOf(chat, request)
+    const unseen = drifted.some(d => !request.drifted?.some(b => sameDrift(b, d)))
+    noteDrift(chat, request, drifted)
+    if (allow && drifted.length && (unseen || !anyway)) return
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
         const {ids, ...to} = request.body
@@ -420,9 +554,10 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
     changed(chat)
     useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${moveAsk(request)}`,
         details: {issues: request.body.ids, allowed: allow}})
+    const since = driftSaid(request.drifted)
     await useStore().messageSession(chat.project, launchTarget(chat.id), allow
-        ? `(I allowed your request: ${request.body.ids.join(', ')} ${request.body.ids.length === 1 ? 'is' : 'are'} now ${moveTo(request)}, saved.)`
-        : `(I denied your request to ${moveAsk(request)}: nothing changed.)`, actor)
+        ? `(I allowed your request: ${request.body.ids.join(', ')} ${request.body.ids.length === 1 ? 'is' : 'are'} now ${moveTo(request)}, saved.${since && ` Before that, ${since}`})`
+        : `(I denied your request to ${moveAsk(request)}: nothing changed.${since && ` ${since}`})`, actor)
 }
 
 /** The owner allowing or denying the chat's request for a chunk: allowed, it's made or changed as theirs, through their
@@ -442,6 +577,43 @@ async function answerChunk(chat: Chat, request: ChatChunkRequest, allow: boolean
     await useStore().messageSession(chat.project, launchTarget(chat.id), made
         ? `(I allowed your request: chunk ${made.id} ("${made.title}") is saved.)`
         : `(I denied your request to ${chunkAsk(request)}: nothing changed.)`, actor)
+}
+
+/** The owner allowing or denying the chat's request for a doc: allowed, it's made or changed as theirs, through their
+ * chat. A change is refused, for good, if the doc isn't what they were shown any more (changed or removed since): no
+ * "allow anyway" here, since what they'd approve is a diff against text that's gone. The session hears it, to read the
+ * doc and ask again. */
+async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, actor: Actor) {
+    let made: {id: string, title: string} | undefined
+    if (allow) {
+        const as: Actor = {...actor, via: 'chat'}
+        try {
+            made = request.was
+                ? await useStore().updateDoc(chat.project, known(request.id, 'the doc a change is to'), request.body, as, request.was)
+                : await useStore().createDoc(chat.project, request.body, as)
+        } catch (error) {
+            const {statusCode} = error as {statusCode?: number}
+            if (!request.was || (statusCode !== 409 && statusCode !== 404)) throw error
+            request.state = 'expired'
+            request.stale = true
+            changed(chat)
+            useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} allowed the chat's request to ${docAsk(request)}, refused: the doc changed after it asked`,
+                details: {doc: request.id ?? null, fields: Object.keys(request.body), allowed: false, stale: true}})
+            await useStore().messageSession(chat.project, launchTarget(chat.id), `(I pressed Allow, but doc ${request.id} changed after you asked, so nothing was saved. Read it again and ask again if it's still wanted.)`, actor)
+            throw conflict(`Doc ${request.id} changed after the chat asked, so nothing was saved: ask the chat again`)
+        }
+    }
+    request.state = allow ? 'allowed' : 'denied'
+    if (made) {
+        request.id = made.id
+        request.title = made.title
+    }
+    changed(chat)
+    useEventLog().note({level: 'info', kind: 'chat.answered', project: chat.project, message: `${actor.name} ${request.state} the chat's request to ${docAsk(request)}`,
+        details: {doc: request.id ?? null, fields: Object.keys(request.body), allowed: allow}})
+    await useStore().messageSession(chat.project, launchTarget(chat.id), made
+        ? `(I allowed your request: doc ${made.id} ("${made.title}") is saved.)`
+        : `(I denied your request to ${docAsk(request)}: nothing changed.)`, actor)
 }
 
 /** The owner sending or not sending the message the chat asked to: sent, it goes as theirs, through their chat, to the
@@ -660,7 +832,7 @@ export function asChatIssue(body: unknown, chat?: string): unknown {
 }
 
 /** What the chat may change on an issue when the owner asks: what it says and where it sits, never its state of work. */
-const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on']
+const CHAT_EDITS = ['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on']
 
 /** An edit to an issue from the chat, as it asks for it: refused (403) when it would change anything but `CHAT_EDITS`,
  * so a chat never moves or assigns an issue on its own (only through a request the owner allows, `askMove`), puts up a

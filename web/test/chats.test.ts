@@ -522,6 +522,197 @@ describe("the owner's chat moving issues", () => {
         await expect(chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-9'], status: 'done'}})).rejects.toMatchObject({statusCode: 404})
     })
 
+    it("shows no change on a request whose issues haven't moved", async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'done'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {priority: 'P1'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        expect(asked.move).toMatchObject({state: 'allowed'})
+        expect(asked.move!.drifted).toBeUndefined()
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: GRE-1 is now in done, saved.)')
+    })
+
+    it('moves an issue that changed while it waited only once the owner has seen it and goes ahead anyway', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-2'], status: 'todo', assignee: 'claude'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'done'}, {name: 'skoll', owner: true})
+        const told = messages.length
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        expect(asked.move).toMatchObject({state: 'asked', drifted: [{issue: 'GRE-1', field: 'status', from: 'todo', to: 'done'}]})
+        expect(await state('GRE-1')).toEqual(['done', null])
+        expect(await state('GRE-2')).toEqual(['todo', null])
+        expect(messages.length).toBe(told)
+        // Changed further since it was shown: it shows that, and still waits.
+        await store.updateIssue('greenhouse', 'GRE-2', {assignee: 'freya'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true}, true)
+        expect(asked.move).toMatchObject({state: 'asked', drifted: [{issue: 'GRE-1', field: 'status'}, {issue: 'GRE-2', field: 'assignee', from: null, to: 'freya'}]})
+        expect(await state('GRE-2')).toEqual(['todo', 'freya'])
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true}, true)
+        expect(asked.move!.state).toBe('allowed')
+        expect([await state('GRE-1'), await state('GRE-2')]).toEqual([['todo', 'claude'], ['todo', 'claude']])
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: GRE-1, GRE-2 are now in todo, assigned to claude, saved. Before that, GRE-1 was in todo when you asked and is in done now. GRE-2 was assigned to nobody when you asked and is assigned to freya now.)')
+    })
+
+    it('tells the session what had changed when the owner denies it, and shows the change as it happens', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'done'}, {name: 'skoll', owner: true})
+        chats.heardForMoves({event: {type: 'issue.status', project: 'greenhouse', subject: 'GRE-1'} as never})
+        await vi.waitFor(() => expect(asked.move!.drifted).toEqual([{issue: 'GRE-1', field: 'status', from: 'todo', to: 'done'}]))
+        await chats.answer('c1c2c3c4c5c6', asked.id, false, {name: 'skoll', owner: true})
+        expect(asked.move!.state).toBe('denied')
+        expect(messages.at(-1)!.text).toBe('(I denied your request to put GRE-1 in backlog: nothing changed. GRE-1 was in todo when you asked and is in done now.)')
+    })
+
+    it('still denies a request whose issue has been deleted', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await store.deleteIssue('greenhouse', 'GRE-1', {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, false, {name: 'skoll', owner: true})
+        expect(asked.move!.state).toBe('denied')
+    })
+
+    it('takes the warning away when the issue goes back as it was', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'done'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'todo'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        expect(asked.move!.drifted).toBeUndefined()
+        expect(asked.move!.state).toBe('allowed')
+    })
+
+    it("doesn't take its own Allow moving an issue for a change since it asked", async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'done'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        // The store tells of the move while it's being made, and the check reads the issue as moved.
+        const moving = store.updateIssue.bind(store)
+        vi.spyOn(store, 'updateIssue').mockImplementationOnce(async (...args: Parameters<typeof moving>) => {
+            const moved = await moving(...args)
+            chats.heardForMoves({event: {type: 'issue.status', project: 'greenhouse', subject: 'GRE-1'} as never})
+            await new Promise(resolve => setTimeout(resolve, 20))
+            return moved
+        })
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true}, true)
+        expect(asked.move).toMatchObject({state: 'allowed', drifted: [{issue: 'GRE-1', field: 'status', from: 'todo', to: 'done'}]})
+        expect(messages.at(-1)!.text).toContain('GRE-1 was in todo when you asked and is in done now.')
+    })
+
+    const skoll = {name: 'skoll', owner: true}
+    const chatId = 'c1c2c3c4c5c6'
+
+    it('holds a setting that changed while it waited until the owner goes ahead anyway', async () => {
+        const asked = await chats.ask(chatId, {setting: 'tint', value: 'teal'})
+        await store.updateSettings({tint: 'rose'}, skoll)
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.request).toMatchObject({state: 'asked', drifted: [{label: 'Background tint', from: '(none)', to: 'rose'}]})
+        expect((await store.settings()).tint).toBe('rose')
+        await chats.answer(chatId, asked.id, true, skoll, true)
+        expect(asked.request!.state).toBe('allowed')
+        expect((await store.settings()).tint).toBe('teal')
+        expect(messages.at(-1)!.text).toBe('(That had changed since you asked: Background tint was (none) and is rose now.)')
+    })
+
+    it('holds a chunk change the same way, and tells the session on Deny too', async () => {
+        const {id} = await store.createChunk('greenhouse', {title: 'Shelves'}, skoll)
+        const asked = await chats.ask(chatId, {id, chunk: {title: 'Racks'}})
+        await store.updateChunk('greenhouse', id, {title: 'Benches'})
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.chunk).toMatchObject({state: 'asked', drifted: [{label: 'Name', from: 'Shelves', to: 'Benches'}]})
+        expect((await store.chunk('greenhouse', id)).title).toBe('Benches')
+        await chats.answer(chatId, asked.id, false, skoll)
+        expect(asked.chunk!.state).toBe('denied')
+        expect(messages.at(-1)!.text).toBe('(That had changed since you asked: Name was Shelves and is Benches now.)')
+    })
+
+    it('saves a doc the chat asks to make as the owner\'s, and only on Allow (ORR-661)', async () => {
+        const asked = await chats.ask(chatId, {doc: {title: 'Watering', section: 'How it works', body: 'Twice a week.'}, why: 'As you asked.'})
+        expect(asked).toMatchObject({text: 'As you asked.', doc: {title: 'Watering', state: 'asked', body: {title: 'Watering', section: 'How it works', body: 'Twice a week.'}}})
+        expect(await store.listDocs('greenhouse')).toEqual([])
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.doc).toMatchObject({id: 'watering', state: 'allowed'})
+        expect(await store.doc('greenhouse', 'watering')).toMatchObject({title: 'Watering', section: 'How it works', body: 'Twice a week.', created_by: 'skoll', protected: true})
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: doc watering ("Watering") is saved.)')
+    })
+
+    it('shows a doc change as what differs, and saves nothing on Deny (ORR-661)', async () => {
+        await store.createDoc('greenhouse', {title: 'Watering', body: 'Twice a week.', section: 'Upkeep'}, skoll)
+        const asked = await chats.ask(chatId, {id: 'watering', doc: {title: 'Watering', body: 'Daily.', section: 'Care'}})
+        expect(asked.doc).toMatchObject({id: 'watering', state: 'asked', body: {body: 'Daily.', section: 'Care'}, was: {title: 'Watering', section: 'Upkeep', body: 'Twice a week.'}})
+        expect(asked.doc!.body.title).toBeUndefined()
+        await chats.answer(chatId, asked.id, false, skoll)
+        expect(asked.doc!.state).toBe('denied')
+        expect(await store.doc('greenhouse', 'watering')).toMatchObject({body: 'Twice a week.', section: 'Upkeep'})
+        expect(messages.at(-1)!.text).toBe('(I denied your request to change doc watering: Section, Text: nothing changed.)')
+    })
+
+    it('refuses a doc change once the doc has changed since it asked, for good, and tells the session (ORR-661)', async () => {
+        await store.createDoc('greenhouse', {title: 'Watering', body: 'Twice a week.'}, skoll)
+        const asked = await chats.ask(chatId, {id: 'watering', doc: {body: 'Daily.'}})
+        await store.updateDoc('greenhouse', 'watering', {body: 'Weekly.'})
+        await expect(chats.answer(chatId, asked.id, true, skoll, true)).rejects.toMatchObject({statusCode: 409})
+        expect(asked.doc).toMatchObject({state: 'expired', stale: true})
+        expect((await store.doc('greenhouse', 'watering')).body).toBe('Weekly.')
+        expect(messages.at(-1)!.text).toMatch(/doc watering changed after you asked, so nothing was saved/)
+        await expect(chats.answer(chatId, asked.id, true, skoll)).rejects.toMatchObject({statusCode: 409})
+        // The same for a move to another section, which doesn't count as a change to read, and for a doc removed.
+        const moved = await chats.ask(chatId, {id: 'watering', doc: {body: 'Daily.'}})
+        await store.updateDoc('greenhouse', 'watering', {section: 'Care'})
+        await expect(chats.answer(chatId, moved.id, true, skoll)).rejects.toMatchObject({statusCode: 409})
+        const removed = await chats.ask(chatId, {id: 'watering', doc: {body: 'Daily.'}})
+        await store.deleteDoc('greenhouse', 'watering', skoll)
+        await expect(chats.answer(chatId, removed.id, true, skoll)).rejects.toMatchObject({statusCode: 409})
+        expect(removed.doc).toMatchObject({state: 'expired', stale: true})
+    })
+
+    it('asks only for what a doc may have, lets the one asked before go, and asks nothing that would change nothing (ORR-661)', async () => {
+        await store.createDoc('greenhouse', {title: 'Watering', body: 'Twice a week.'}, skoll)
+        for (const [body, status] of [[{doc: {}}, 400], [{doc: {body: 'No title'}}, 400], [{doc: {title: '  '}}, 400], [{doc: {title: 'X', position: 2}}, 403], [{doc: {title: 'X', id: 'x'}}, 403],
+            [{id: 'nope', doc: {body: 'X'}}, 404], [{id: 'watering', doc: {body: 'Twice a week.'}}, 409]] as const)
+            await expect(chats.ask(chatId, body)).rejects.toMatchObject({statusCode: status})
+        const first = await chats.ask(chatId, {id: 'watering', doc: {body: 'Daily.'}})
+        const second = await chats.ask(chatId, {id: 'watering', doc: {body: 'Weekly.'}})
+        expect(first.doc!.state).toBe('expired')
+        expect(second.doc!.state).toBe('asked')
+    })
+
+    it('holds a release change the same way, and asks nothing of one that is new', async () => {
+        await store.updateProject('greenhouse', {release_mode: 'own'}, skoll)
+        await store.createRelease('greenhouse', {version: '1.0.0'}, skoll)
+        const asked = await chats.ask(chatId, {version: '1.0.0', release: {branch: 'v1'}})
+        await store.updateRelease('greenhouse', '1.0.0', {branch: 'v2'}, skoll)
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.release).toMatchObject({state: 'asked', drifted: [{label: 'Branch', from: '(none)', to: 'v2'}]})
+        await chats.answer(chatId, asked.id, true, skoll, true)
+        expect((await store.listReleases('greenhouse')).find(r => r.version === '1.0.0')!.branch).toBe('v1')
+        const fresh = await chats.ask(chatId, {release: {version: '2.0.0'}})
+        await chats.answer(chatId, fresh.id, true, skoll)
+        expect(fresh.release).toMatchObject({state: 'allowed'})
+        expect(fresh.release!.drifted).toBeUndefined()
+    })
+
+    it('holds a schedule change the same way', async () => {
+        const nightly = {id: 3, title: 'Nightly', cron: '0 2 * * *', presets: []}
+        const updated: unknown[] = []
+        vi.stubGlobal('useScheduler', () => ({
+            get: async () => nightly,
+            check: async () => {},
+            update: async (_project: string, _id: number, body: unknown) => (updated.push(body), {...nightly, ...body as object, enabled: true}),
+        }))
+        const asked = await chats.ask(chatId, {id: 3, schedule: {cron: '0 3 * * *'}})
+        nightly.cron = '0 4 * * *'
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.schedule).toMatchObject({state: 'asked', drifted: [{label: 'Cron', from: '0 2 * * *', to: '0 4 * * *'}]})
+        expect(updated).toEqual([])
+        await chats.answer(chatId, asked.id, true, skoll, true)
+        expect(updated).toEqual([{cron: '0 3 * * *'}])
+    })
+
+    it('saves a request as before when nothing has changed', async () => {
+        const asked = await chats.ask(chatId, {setting: 'tint', value: 'teal'})
+        await chats.answer(chatId, asked.id, true, skoll)
+        expect(asked.request!.state).toBe('allowed')
+        expect(asked.request!.drifted).toBeUndefined()
+        expect(messages.at(-1)!.text).not.toContain('changed since')
+    })
+
     it('keeps those moved when one fails on Allow, and moves only the rest when allowed again', async () => {
         const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-3'], assignee: 'claude'}})
         // Asking again for one of them lets the one before go.
@@ -532,7 +723,10 @@ describe("the owner's chat moving issues", () => {
         expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.move).toMatchObject({state: 'asked', moved: ['GRE-1']})
         expect(await state('GRE-1')).toEqual(['todo', 'claude'])
         await store.updateIssue('greenhouse', 'GRE-3', {proposal: null}, {name: 'skoll', owner: true})
+        // Putting it up as a proposal assigned it to the owner, so that's shown first; GRE-1, moved already, isn't.
         await chats.answer('c1c2c3c4c5c6', again.id, true, {name: 'skoll', owner: true})
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.move!.drifted).toEqual([{issue: 'GRE-3', field: 'assignee', from: null, to: 'skoll'}])
+        await chats.answer('c1c2c3c4c5c6', again.id, true, {name: 'skoll', owner: true}, true)
         expect(await state('GRE-3')).toEqual(['todo', 'claude'])
     })
 })
@@ -569,6 +763,13 @@ describe("a chat session's writes", () => {
         // A chunk only through the owner's Allow (ORR-510), never made or changed straight.
         expect(await refused('POST', '/api/projects/greenhouse/chunks')).toBe(403)
         expect(await refused('PATCH', '/api/projects/greenhouse/chunks/3')).toBe(403)
+        // A doc only through the owner's Allow (ORR-661), and sections never.
+        expect(await refused('PUT', '/api/projects/greenhouse/docs/watering')).toBe(403)
+        expect(await refused('POST', '/api/projects/greenhouse/docs')).toBe(403)
+        expect(await refused('PATCH', '/api/projects/greenhouse/docs/watering')).toBe(403)
+        expect(await refused('DELETE', '/api/projects/greenhouse/docs/watering')).toBe(403)
+        expect(await refused('PATCH', '/api/projects/greenhouse/doc-sections/Care')).toBe(403)
+        expect(await refused('DELETE', '/api/projects/greenhouse/doc-sections/Care')).toBe(403)
         // It asks to change a setting or send a message; the owner's answer, and the settings themselves, aren't its.
         expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/requests')).toBeUndefined()
         expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/requests/4')).toBe(403)

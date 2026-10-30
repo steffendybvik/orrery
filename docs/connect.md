@@ -21,6 +21,15 @@ curl -s -X POST http://localhost:9000/api/projects \
 
 ## 2. Add the channel
 
+The channel, hooks and launcher are served by orrery and run through one small script per machine, which stays the same
+across versions, so they upgrade with orrery ([what that means](../SECURITY.md#the-code-orrery-serves-your-machine)). Put it there once:
+
+```bash
+mkdir -p ~/.orrery && curl -fsS http://localhost:9000/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs
+```
+
+A repo running a checkout's scripts (`/path/to/orrery/channel/orrery-channel.mjs`) keeps working; change its `args` and hooks to these to switch.
+
 In the repo's `.mcp.json`, one server for this orrery, named after it (`orrery-<environment>`: `orrery-personal`,
 `orrery-work`), so the owner's signals reach its sessions:
 
@@ -29,7 +38,7 @@ In the repo's `.mcp.json`, one server for this orrery, named after it (`orrery-<
   "mcpServers": {
     "orrery-personal": {
       "command": "node",
-      "args": ["/path/to/orrery/channel/orrery-channel.mjs"],
+      "args": ["${HOME}/.orrery/bootstrap.mjs", "channel"],
       "env": {
         "ORRERY_URL": "http://localhost:9000",
         "ORRERY_ID": "orr_7f3a9c",
@@ -75,7 +84,7 @@ channels flag; only the pushed messages need the flag.
 
 ## 3. Optionally, the hooks
 
-`channel/orrery-hook.mjs` tells orrery what each session is doing, so the page can show it and aim
+The hook (`channel/orrery-hook.mjs`, run through the bootstrap) tells orrery what each session is doing, so the page can show it and aim
 work at an idle one. Before a Bash command it also says which issues the command writes to, so the
 owner's comment on one goes to the session working it rather than to every session. Before each tool, and when a
 permission dialog opens, it says which tool and, in short, what it would do (the command, the file, the address), so a
@@ -83,7 +92,8 @@ permission prompt says what it's for. Register it in the repo's `.claude/setting
 `UserPromptSubmit`, `PreToolUse` and `PermissionRequest` (both with `"async": true`, so they never hold up a tool or
 answer its prompt), `Stop`, `StopFailure`, `Notification` and `SessionEnd`.
 `StopFailure` is a turn an API error cut off (the network, a rate limit): the issues that session had in progress go
-back to Todo with nobody on it, and a comment says why.
+back to Todo with nobody on it, and a comment says why. One in review or waiting on you stays where it is. The Sessions
+page and the sidebar mark the session (**usage limit reached**, with what Claude Code said) until its next turn gets going.
 
 ```json
 {
@@ -93,7 +103,7 @@ back to Todo with nobody on it, and a comment says why.
         "hooks": [
           {
             "type": "command",
-            "command": "ORRERY_PROJECT=${ORRERY_PROJECT:-shop} ORRERY_URL=http://localhost:9000 node /path/to/orrery/channel/orrery-hook.mjs",
+            "command": "ORRERY_PROJECT=${ORRERY_PROJECT:-shop} ORRERY_URL=http://localhost:9000 ORRERY_ID=orr_7f3a9c node \"$HOME/.orrery/bootstrap.mjs\" hook",
             "timeout": 5
           }
         ]
@@ -121,7 +131,7 @@ many minutes each), then install the
 launcher once, from the repo or anywhere:
 
 ```bash
-node /path/to/orrery/channel/orrery-launcher.mjs --install
+node ~/.orrery/bootstrap.mjs launcher --install
 ```
 
 It runs in the background from then on (launchd on macOS, systemd on Linux; on Windows, inside WSL, see
@@ -150,7 +160,7 @@ sessions, while every other project's sessions go on. `--install` restarts the s
 service file changes (a new `node` or `PATH`). Its log is
 `~/Library/Logs/orrery-launcher.log` on macOS, `journalctl --user -u orrery-launcher` on Linux, where it
 stops at logout unless you `loginctl enable-linger`. To run it for a while instead, leave it open in a
-terminal: `ORRERY_PROJECT=shop node /path/to/orrery/channel/orrery-launcher.mjs`. Next to the installed one, it leaves
+terminal: `ORRERY_PROJECT=shop node ~/.orrery/bootstrap.mjs launcher`. Next to the installed one, it leaves
 that launcher's sessions alone: each session keeps its launcher's pid, and only a gone launcher's sessions are taken over.
 
 Between pieces of work, a session it started gets a fresh context: once it goes idle with no issue in progress

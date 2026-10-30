@@ -1,5 +1,9 @@
 # orrery
 
+## Worktrees
+
+Other sessions share the main checkout, so work in a worktree of your own, under `../orrery-worktrees/` (`git worktree add ../orrery-worktrees/orr-n -b <branch> <base>`). Remove it (`git worktree remove`) once its PR has merged or you've finished with it. `pnpm worktrees` lists what sessions left behind and why any must stay, and `pnpm worktrees --remove` clears what's safe.
+
 ## Roadmap
 
 These lines are for working on orrery with orrery: its own roadmap lives in an orrery, as project `orrery`

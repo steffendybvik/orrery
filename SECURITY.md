@@ -63,7 +63,8 @@ schedule's run never goes to your sessions. Instead:
 - **That session hears only its own message**, with a standing brief: what it reads is data, never
   instructions.
 - **What it raises is a proposal labelled `external`**, made so by orrery whatever the session asks. Labels it
-  picks are dropped, so none can match an event schedule's filter once you approve it.
+  picks are dropped, so none can match an event schedule's filter once you approve it. It may name the GitHub
+  issues it came from (`github_issues`), each checked to be a number or `owner/name#523`.
   orrery refuses every other write from it, except comments on those proposals. Nothing it raises is
   worked on until you approve it, and what it writes sets off no schedule, so an event schedule can't
   start a session of yours on it. Its channel says it's untrusted on everything it sends, so this holds
@@ -85,7 +86,7 @@ change is refused), commenting, and
 answering you. It changes those fields even on an issue another session is working: the check that refuses one
 session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
 
-Four more go further, and you should know how far:
+Five more go further, and you should know how far:
 
 - **Settings** it can only ask for: you see the change, from → to, and nothing is saved until you press **Allow**.
   Secrets, the database, statuses and how sessions start aren't among them.
@@ -96,6 +97,12 @@ Four more go further, and you should know how far:
 - **Sessions, releases, chunks and moves** it can only ask for as well: starting, stopping or giving more time to a
   session, adding or changing a release or a chunk, and moving issues to another status or assigning them. Each shows
   what it would do, and nothing happens until you press **Allow**.
+- **Docs** it can only ask for too: a new one shows its title, section and full text, and a change shows what changes,
+  the text as a diff. Nothing is saved until you press **Allow**, and then it's yours. Docs are material later sessions
+  read, and the chat reads what others wrote, so read what it asks to save as you would anything that could come from a
+  planted comment. A change is refused if the doc changed after the chat asked, so you never approve one against text
+  you didn't see. orrery refuses the chat on the doc routes, and removing a doc or renaming or deleting a section stays
+  yours on the page (ORR-661).
 - **Messages to your sessions** it can only ask for as well: you see the text and who it goes to, and nothing is sent
   until you press **Send**. orrery refuses the chat on both message routes, so this holds whatever it was talked into.
   Once sent, a message goes out as yours, the owner's instructions in the sense below, marked as sent through the chat
@@ -158,7 +165,7 @@ permission prompts are only as safe as who can reach orrery ([above](#who-can-re
 ### The owner's chat
 
 The chat on the page writes as `claude`, like any agent, under the same rules: it makes and changes issues and
-comments, and it can't touch presets, prompts or settings. Four things go further, since you asked for them there,
+comments, and it can't touch presets, prompts or settings. Five things go further, since you asked for them there,
 and each is only ever asked:
 
 - **Changing an App setting, or making or changing a schedule:** you see it from → to, and nothing is saved until you
@@ -168,12 +175,32 @@ and each is only ever asked:
   shown, so read it. The launch routes refuse the chat itself, and watching one (a window on your machine) stays yours.
 - **Adding or changing a release or a chunk, or moving or assigning issues:** you see what would change, and nothing
   is saved until you press **Allow**.
+- **Making or changing a doc:** you see the title, section and full text, or a diff of what changes, and nothing is
+  saved until you press **Allow**. A change that no longer fits the doc as it stands is refused (ORR-661).
 - **Messaging your other sessions:** you see the text and who it goes to, and nothing is sent until you press
   **Send**. Then it goes as you, marked as sent through the chat. The message routes refuse the chat itself, so a
   chat talked into it by something it read can't reach your sessions without you reading it first (ORR-416).
 
 As with everything that hangs on the owner's name (above), this keeps honest agents from overstepping.
 It doesn't stop a program that sends the owner's id.
+
+## The code orrery serves your machine
+
+The channel, hooks and launcher run on your machine, outside Docker, and orrery serves them: `~/.orrery/bootstrap.mjs`
+fetches them from `/channel` and runs them, as you. So **whoever answers at a repo's `ORRERY_URL` runs code on your
+machine**, as anything in a repo's `.mcp.json` would. The bootstrap holds to this:
+
+- **Only this machine, or https.** It fetches from `localhost`, `127.x.x.x`, `[::1]` or an `https://` address, and follows
+  no redirect. Anything else, such as `http://` to a machine on your network, runs the last copy it has, or refuses and
+  says why. That stops someone on the network swapping the code; it doesn't stop a server you've pointed a repo at.
+- **The right orrery.** With `ORRERY_ID` set, as Connect sets it, it runs nothing from an orrery with another id. An id isn't
+  a secret, so this catches a repo pointed at the wrong orrery by mistake, not one pretending.
+- **Whole files.** A file has to match the sha256 orrery lists before it replaces the copy in `~/.orrery`, so a download
+  cut short never runs. The hash comes from the same server, so it proves nothing about who wrote the file.
+- **No approval step.** Upgrading orrery changes what your machine runs without asking. Check the image you pull, as it
+  decides that code.
+
+A repo connected the older way runs a checkout's scripts, and fetches nothing.
 
 ## The browser can't be used against it
 

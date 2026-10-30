@@ -1,4 +1,4 @@
-import type {Chat, ChatIssues, Session, Upload} from '#shared/roadmap'
+import type {Chat, ChatIssues, ChatMessage, Session, Upload} from '#shared/roadmap'
 
 // The owner's chat (server/utils/chats.ts): a session started for it alone that they talk to here, with no terminal.
 // The pane is open or not (`open`), large or not (`large`, remembered in this browser), on a chat (`current`) or, with
@@ -119,13 +119,16 @@ export function useChat() {
     }
 
     /** The owner allowing or denying a setting, a schedule or a message the chat asked for: allowed, it's saved or sent. */
-    async function answer(message: number, allow: boolean) {
-        if (!chat.value || chat.value.ended) return
+    async function answer(message: number, allow: boolean, anyway = false): Promise<boolean> {
+        if (!chat.value || chat.value.ended) return false
         failed.value = ''
         try {
-            await $fetch(`/api/chats/${chat.value.id}/requests/${message}`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {allow}})
+            const asked = await $fetch<ChatMessage>(`/api/chats/${chat.value.id}/requests/${message}`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {allow, ...anyway ? {anyway} : {}}})
+            const request = asked.request ?? asked.schedule ?? asked.release ?? asked.chunk ?? asked.move
+            return allow && request?.state === 'asked'
         } catch (error) {
             failed.value = errorMessage(error, allow ? 'allow' : 'deny')
+            return false
         }
     }
 

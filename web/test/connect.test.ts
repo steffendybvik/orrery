@@ -4,14 +4,14 @@ import {connectPieces, idsFor} from '#shared/connect'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
-const greenhouse: ConnectTarget = {origin: 'http://localhost:9000', repoDir: '/src/orrery', id: 'greenhouse', name: 'Greenhouse', key: 'GRE', isNew: false}
+const greenhouse: ConnectTarget = {origin: 'http://localhost:9000', id: 'greenhouse', name: 'Greenhouse', key: 'GRE', isNew: false}
 
 describe('connecting a repo', () => {
     it('registers one channel for the orrery, pinned to its id, serving the project', () => {
         const {mcpJson, server, launch, brief} = connectPieces({...greenhouse, orrery: {id: 'orr_7f3a9c', environment: 'Work'}})
         expect(server).toBe('orrery-work')
         expect(JSON.parse(mcpJson)).toEqual({mcpServers: {'orrery-work': {
-            command: 'node', args: ['/src/orrery/channel/orrery-channel.mjs'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'greenhouse'},
+            command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'greenhouse'},
         }}})
         expect(launch).toBe('claude --dangerously-load-development-channels server:orrery-work')
         expect(brief).toContain("add `greenhouse` to that entry's `ORRERY_PROJECTS`")
@@ -29,7 +29,7 @@ describe('connecting a repo', () => {
         expect(hooks.PreToolUse![0].hooks[0].async).toBe(true)
         expect(hooks.PermissionRequest![0].hooks[0].async).toBe(true)
         expect(hooks.Stop![0].hooks[0]).not.toHaveProperty('async')
-        expect(hooks.Stop![0].hooks[0].command).toBe('ORRERY_PROJECT=greenhouse ORRERY_URL=http://localhost:9000 node /src/orrery/channel/orrery-hook.mjs')
+        expect(hooks.Stop![0].hooks[0].command).toBe('ORRERY_PROJECT=greenhouse ORRERY_URL=http://localhost:9000 node "$HOME/.orrery/bootstrap.mjs" hook')
     })
 
     it('has a new project created first, and asks for it by name', () => {

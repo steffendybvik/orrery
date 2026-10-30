@@ -45,6 +45,8 @@ export interface ChatMessage {
     release?: ChatReleaseRequest
     /** The session asking to make or change a chunk, which waits on the owner's Allow (ORR-510). */
     chunk?: ChatChunkRequest
+    /** The session asking to make or change a doc, which waits on the owner's Allow (ORR-661). */
+    doc?: ChatDocRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -58,12 +60,21 @@ export const CHAT_SETTINGS = {
 } as const
 export type ChatSetting = keyof typeof CHAT_SETTINGS
 
+/** What has changed on what a request would change since it was asked, shown as it reads (ORR-645): Allow then saves
+ * nothing until the owner has seen it and allowed it anyway. */
+export interface ChatRequestDrift {
+    label: string
+    from: string
+    to: string
+}
+
 /** One setting the chat asked to change, from what to what: saved only once the owner allows it, and `expired` when
  * they didn't answer in time or it asked again. */
 export interface ChatRequest {
     setting: ChatSetting
     from: unknown
     to: unknown
+    drifted?: ChatRequestDrift[]
     state: 'asked' | 'allowed' | 'denied' | 'expired'
 }
 
@@ -82,7 +93,8 @@ export const CHAT_SCHEDULE_FIELDS = {
     on_filter: 'Event filter',
     timezone: 'Timezone',
     presets: 'Presets',
-    column: 'Issues start in',
+    column: 'Issues start in, or an action moves them to',
+    move_from: 'An action moves them from',
     chunk: 'Chunk',
     priority: 'Priority',
     labels: 'Labels',
@@ -100,6 +112,7 @@ export interface ChatScheduleRequest {
     title: string
     changes: {field: ChatScheduleField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatScheduleField, unknown>>
+    drifted?: ChatRequestDrift[]
     state: ChatRequest['state']
 }
 
@@ -122,6 +135,7 @@ export interface ChatReleaseRequest {
     change: boolean
     changes: {field: ChatReleaseField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatReleaseField, unknown>>
+    drifted?: ChatRequestDrift[]
     state: ChatRequest['state']
 }
 
@@ -141,6 +155,29 @@ export interface ChatChunkRequest {
     title: string
     changes: {field: ChatChunkField, from?: unknown, to: unknown}[]
     body: Partial<Record<ChatChunkField, unknown>>
+    drifted?: ChatRequestDrift[]
+    state: ChatRequest['state']
+}
+
+/** What of a doc the owner's chat may ask to set (ORR-661), by what the doc's page calls it. Removing a doc, and renaming
+ * or deleting a section, stay the owner's, on the page. */
+export const CHAT_DOC_FIELDS = {
+    title: 'Title',
+    section: 'Section',
+    body: 'Text',
+} as const
+export type ChatDocField = keyof typeof CHAT_DOC_FIELDS
+
+/** A doc the chat asked to make (no `was`) or change (`id`): `body` holds only what it would change, and `was` the doc as
+ * it stood when asked, for the page's diff. Saved as the owner's only once they allow it. A change is refused if the doc
+ * no longer matches `was`, so they never approve one against text they didn't see: that leaves it `expired` and `stale`.
+ * `expired` otherwise as a setting's request is. */
+export interface ChatDocRequest {
+    id?: string
+    title: string
+    body: {title?: string, section?: string | null, body?: string}
+    was?: {title: string, section: string | null, body: string}
+    stale?: boolean
     state: ChatRequest['state']
 }
 
@@ -160,9 +197,13 @@ export interface ChatSendRequest {
 
 /** Issues the chat asked to move to another status or assign (`body.status`, `body.assignee`; null unassigns): each one's
  * from → to in `changes`, with its title. Made as the owner's, as if they'd moved them on the page, only once they allow
- * it; `moved` names those done, so Allow again after one failed moves the rest. `expired` as a setting's request is. */
+ * it; `moved` names those done, so Allow again after one failed moves the rest. `was` is each one's status and assignee
+ * when it was asked, and `drifted` what has changed on them since: Allow then moves nothing until it's allowed anyway
+ * (ORR-644). `expired` as a setting's request is. */
 export interface ChatMoveRequest {
     changes: {issue: string, title: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
+    was?: Record<string, {status: string, assignee: string | null}>
+    drifted?: {issue: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
     body: {ids: string[], status?: string, assignee?: string | null}
     moved?: string[]
     state: ChatRequest['state']

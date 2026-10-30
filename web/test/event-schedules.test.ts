@@ -231,6 +231,73 @@ describe('a schedule on an event', () => {
         expect((await schedules.get('greenhouse', s.id)).runs).toHaveLength(1)
     })
 
+    describe('what the minute holds back (ORR-357)', () => {
+        const event = (n: number) => ({type: 'issue.status', project: 'greenhouse', subject: `GRE-${n}`, to: 'in-review'})
+        const at = (seconds: number) => new Date(Date.parse('2026-10-30T10:00:00Z') + seconds * 1000)
+        const review = () => schedules.create('greenhouse', {title: 'Review', kind: 'message', notes: 'Review it', on: 'issue.status', on_filter: {to: 'in-review'}}, me)
+        const subjects = async (id: number) => (await schedules.get('greenhouse', id)).runs.map(r => r.subject).reverse()
+        async function inReview(...titles: string[]) {
+            for (const title of titles) {
+                const {id} = await store.createIssue('greenhouse', {title}, me)
+                await store.updateIssue('greenhouse', id, {status: 'in-review'}, me)
+            }
+            heard.splice(0)
+        }
+
+        it('runs a second subject once the minute is up, and each once', async () => {
+            const s = await review()
+            await inReview('One', 'Two')
+            expect(await schedules.hear(event(1), undefined, at(0))).toBe(1)
+            expect(await schedules.hear(event(2), undefined, at(30))).toBe(0)
+            expect((await schedules.get('greenhouse', s.id)).held).toBe(1)
+            expect(await schedules.runDue(at(45))).toBe(0)
+            expect(await schedules.runDue(at(61))).toBe(1)
+            expect(await subjects(s.id)).toEqual(['GRE-1', 'GRE-2'])
+            expect((await schedules.get('greenhouse', s.id)).held).toBeUndefined()
+            expect(await schedules.runDue(at(200))).toBe(0)
+        })
+
+        it('lets a burst through at one a minute, oldest first, however often it is heard', async () => {
+            const s = await review()
+            await inReview('One', 'Two', 'Three')
+            expect(await Promise.all([1, 2, 3, 3].map(n => schedules.hear(event(n), undefined, at(0))))).toEqual([1, 0, 0, 0])
+            expect((await schedules.get('greenhouse', s.id)).held).toBe(2)
+            expect(await schedules.runDue(at(61))).toBe(1)
+            expect(await schedules.runDue(at(91))).toBe(0)
+            expect(await schedules.runDue(at(122))).toBe(1)
+            expect(await subjects(s.id)).toEqual(['GRE-1', 'GRE-2', 'GRE-3'])
+        })
+
+        it("drops one that no longer fits, or whose issue has gone, and runs the next in that turn", async () => {
+            const s = await review()
+            await inReview('One', 'Two', 'Three', 'Four')
+            await schedules.hear(event(1), undefined, at(0))
+            for (const n of [2, 3, 4]) await schedules.hear(event(n), undefined, at(10 + n))
+            await store.updateIssue('greenhouse', 'GRE-2', {status: 'todo'}, me)
+            await store.deleteIssue('greenhouse', 'GRE-3', me)
+            heard.splice(0)
+            expect(await schedules.runDue(at(61))).toBe(1)
+            expect(await subjects(s.id)).toEqual(['GRE-1', 'GRE-4'])
+            expect((await schedules.get('greenhouse', s.id)).held).toBeUndefined()
+        })
+
+        it('holds nothing for an event with no subject, and lets go of what it held when switched off', async () => {
+            const quiet = await schedules.create('greenhouse', {title: 'Errors', kind: 'message', notes: 'Look', on: 'server.error'}, me)
+            expect(await schedules.hear({type: 'server.error', project: 'greenhouse'}, undefined, at(0))).toBe(1)
+            expect(await schedules.hear({type: 'server.error', project: 'greenhouse'}, undefined, at(10))).toBe(0)
+            expect((await schedules.get('greenhouse', quiet.id)).held).toBeUndefined()
+            const s = await review()
+            await inReview('One', 'Two')
+            await schedules.hear(event(1), undefined, at(0))
+            await schedules.hear(event(2), undefined, at(10))
+            await schedules.update('greenhouse', s.id, {enabled: false}, me)
+            expect(await schedules.runDue(at(61))).toBe(0)
+            await schedules.update('greenhouse', s.id, {enabled: true}, me)
+            expect((await schedules.get('greenhouse', s.id)).held).toBeUndefined()
+            expect(await subjects(s.id)).toEqual(['GRE-1'])
+        })
+    })
+
     it("runs for a subject again when its run there was skipped", async () => {
         const s = await schedules.create('greenhouse', {title: 'Review', on: 'issue.status', on_filter: {to: 'in-review'}}, me)
         const one = await store.createIssue('greenhouse', {title: 'One'}, me)

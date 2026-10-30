@@ -7,8 +7,8 @@ cp .env.example .env    # optional: every setting has a default
 docker compose up -d    # http://localhost:9000
 ```
 
-The first time you open it, it asks your name: you're its owner. To connect Claude sessions, clone the repo
-(https://github.com/steffendybvik/orrery) and follow its README's Quick start from step 4.
+The first time you open it, it asks your name: you're its owner. To connect Claude sessions you need Node 24 on this
+machine, then follow the steps in [the README's Quick start](https://github.com/steffendybvik/orrery#quick-start) from step 2.
 
 ## Keep your data safe
 

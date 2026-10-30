@@ -765,4 +765,79 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         PRIMARY KEY (project, issue, on_project, on_issue)
     );
     CREATE INDEX issue_links_on ON issue_links(on_project, on_issue);
+`, `
+    -- The GitHub issues an issue came from (ORR-635): a JSON list of \`owner/name#523\`. Those kept until now as links in
+    -- \`external\`, which is for the team's tracker, move here.
+    ALTER TABLE issues ADD COLUMN github_issues TEXT NOT NULL DEFAULT '[]';
+    UPDATE issues SET
+        github_issues = (SELECT json_group_array(replace(substr(value, 20), '/issues/', '#')) FROM json_each(issues.external)
+                         WHERE value GLOB 'https://github.com/?*/?*/issues/[1-9]*' AND NOT value GLOB 'https://github.com/*/*/*/issues/*'
+                             AND NOT value GLOB '*/issues/*[^0-9]*'),
+        external = (SELECT json_group_array(value) FROM json_each(issues.external)
+                    WHERE NOT (value GLOB 'https://github.com/?*/?*/issues/[1-9]*' AND NOT value GLOB 'https://github.com/*/*/*/issues/*'
+                                   AND NOT value GLOB '*/issues/*[^0-9]*'))
+    WHERE external GLOB '*https://github.com/*';
+`, `
+    -- What an event schedule's minute held back (ORR-357): the event that would have run it for this subject, as JSON,
+    -- run in its turn if it still fits. One for each schedule and subject, the latest.
+    CREATE TABLE schedule_held (
+        schedule INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+        subject TEXT NOT NULL,
+        event TEXT NOT NULL,
+        at TEXT NOT NULL,
+        PRIMARY KEY (schedule, subject)
+    );
+`, `
+    -- A schedule that moves issues itself (ORR-636), and the statuses (ids or kinds, JSON) it moves them out of. Rebuilt
+    -- for its kind's check.
+    CREATE TABLE schedules_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        notes TEXT,
+        cron TEXT,
+        at TEXT,
+        timezone TEXT NOT NULL,
+        place TEXT NOT NULL DEFAULT 'todo' REFERENCES statuses(id),
+        chunk TEXT,
+        priority TEXT CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+        labels TEXT NOT NULL DEFAULT '[]',
+        ask INTEGER NOT NULL DEFAULT 0,
+        skip_open INTEGER NOT NULL DEFAULT 1,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        next_run TEXT,
+        created_by TEXT NOT NULL,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'issue' CHECK (kind IN ('issue', 'message', 'session', 'action')),
+        only_if_changed INTEGER NOT NULL DEFAULT 0,
+        untrusted INTEGER NOT NULL DEFAULT 0,
+        on_event TEXT,
+        on_filter TEXT,
+        presets TEXT NOT NULL DEFAULT '[]',
+        move_from TEXT NOT NULL DEFAULT '[]',
+        CHECK ((cron IS NOT NULL) + (at IS NOT NULL) + (on_event IS NOT NULL) = 1)
+    );
+    INSERT INTO schedules_new (id, project, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled, next_run,
+        created_by, owned, created_at, updated_at, kind, only_if_changed, untrusted, on_event, on_filter, presets)
+        SELECT id, project, title, notes, cron, at, timezone, place, chunk, priority, labels, ask, skip_open, enabled, next_run,
+        created_by, owned, created_at, updated_at, kind, only_if_changed, untrusted, on_event, on_filter, presets FROM schedules;
+    DROP TABLE schedules;
+    ALTER TABLE schedules_new RENAME TO schedules;
+    CREATE INDEX schedules_due ON schedules(enabled, next_run);
+`, `
+    -- A schedule across projects (ORR-638): what it says (\`body\`), and which projects it's for: \`*\`, or a JSON list, with
+    -- \`skip\` those that opted out of \`*\`. Each of them has an ordinary schedule made from it, pointing back here.
+    CREATE TABLE schedules_across (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        projects TEXT NOT NULL,
+        skip TEXT NOT NULL DEFAULT '[]',
+        body TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    ALTER TABLE schedules ADD COLUMN across INTEGER REFERENCES schedules_across(id) ON DELETE CASCADE;
+    CREATE UNIQUE INDEX schedules_across_project ON schedules(across, project) WHERE across IS NOT NULL;
 `]

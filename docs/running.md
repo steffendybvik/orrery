@@ -1,10 +1,13 @@
 # Running orrery
 
+In a folder of its own:
+
 ```sh
-docker compose up -d --build        # http://localhost:9000
+curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.14/compose.yml
+docker compose up -d        # http://localhost:9000
 ```
 
-That's the built app. On its first start it makes an empty SQLite database in the `orrery-data`
+That's the published image. On its first start it makes an empty SQLite database in the `orrery-data`
 volume, with nothing to set up. The first time you open it, it asks your name: you're its owner,
 and what you make no one else can delete. Your `Orrery-Actor` header is that name in lowercase snake
 case (`Sköll Fenrisson` is `skoll_fenrisson`); change it in App settings → You. It also asks whether
@@ -15,19 +18,33 @@ sidebar (App settings → Advanced turns it back on).
 
 1. **Back it up**: App settings → This orrery → **Back up now**, and keep a copy of that backup under a name of its own
    until you're happy with the new version.
-2. **Rebuild**: `git pull` in this folder (or nothing, when `ORRERY_BUILD_CONTEXT` names a branch on GitHub), then
-   `docker compose up -d --build` again. The database moves to the new schema by itself. On SQLite it keeps a copy
+2. **Pull the new image**: change the version in `compose.yml`'s `image:`, then
+   `docker compose pull && docker compose up -d`. The database moves to the new schema by itself. On SQLite it keeps a copy
    as it was first, `orrery-pre-<version>-step<n>.db` (`<n>` the schema step it was at, so each step taken under one version gets its own), in the backup folder (beside the database when backups are off).
    An older version won't open a database a newer one has moved on: it stops and says so. To go back, restore that
    copy.
-3. **The channel and the launcher** run from this folder on your machine, not in the container, so they're as new as
-   what it has checked out: keep it on the version you run (`git pull`). Sessions pick up the channel as they start.
-   The launcher only when it restarts, which stops the sessions it started, so do it when nothing's mid-work:
-   `launchctl kickstart -k gui/$(id -u)/orrery.launcher` on a Mac, `systemctl --user restart orrery-launcher` on Linux
-   (`--install` again restarts it only when its service file changed, such as a new `node` or `PATH`). A launcher older than the server says so in the event log (`launcher.outdated`) when it's refused a launch.
-   Since 1.0.0-rc.10 the Sessions page marks a session whose channel is older than the server, and a launcher on older
-   code. The launcher service restarts itself on the new code once this folder is pulled (a new version, or a change
-   within one) and it has no session running.
+3. **Everything else follows.** Each connected repo's channel and hooks, and the launcher, run on your machine through
+   `~/.orrery/bootstrap.mjs`, which fetches what orrery serves (`/channel`) and keeps it in `~/.orrery`. A session gets the
+   new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code once it has no
+   session running, which the Sessions page shows until it has. A session already open keeps its channel until it
+   restarts, and the Sessions page marks it. It fetches only from this machine or over https: see
+   [what running served code means](../SECURITY.md#the-code-orrery-serves-your-machine).
+
+   **A repo connected before 1.0.0-rc.14** runs them from a checkout (`/path/to/orrery/channel/…`), which keeps working
+   and stays as new as that checkout (`git pull`). To switch it, paste the line from **Connect an agent** into a session in
+   that repo, and run the launcher's install line from the Sessions page's **Setup** tab once.
+
+## Building from source
+
+For working on orrery, or running a branch. `docker-compose.yml` builds the image instead of pulling it. Name it when
+there's a `compose.yml` beside it, which Compose would use first:
+
+```sh
+docker compose -f docker-compose.yml up -d --build
+```
+
+To update, `git pull` in this folder (or nothing, when `ORRERY_BUILD_CONTEXT` names a branch on GitHub), then run it
+again.
 
 ## Settings
 
@@ -45,7 +62,22 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | made on first start, kept in `orrery.key` beside the database (`/data` in Docker; none outside Docker on Postgres, so set it there) |
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
 | `ORRERY_UPDATE_CHECK` | `false` stops orrery asking GitHub for its own releases (at start, then every 12 hours), which it does to show a notice above the version in the sidebar when a newer one is out. A pre-release is offered only to an orrery running one | on |
+| `ORRERY_REPO_DIR` | the folder a relative `ORRERY_DATA` or `ORRERY_BACKUP` is under, as App settings shows it, when `compose.yml` runs from another one | the folder orrery starts in |
 | `ORRERY_ENVIRONMENT` | this orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
+
+## A GitHub token
+
+orrery reads each project's pull requests off GitHub (the Pull requests page, an issue's PRs, and the comments it
+leaves when one conflicts, fails or merges). A public repo works without a token, but only its list, every ten
+minutes. With a token, a private repo works too, and orrery reads where each pull request stands every minute.
+
+1. On GitHub, [make a fine-grained token](https://github.com/settings/personal-access-tokens/new) with
+   *Pull requests: Read-only* on the repos your projects point at (a classic token needs `repo`).
+2. In **App settings → This orrery → Secrets**, `GITHUB_TOKEN` is listed as *Not set*. Press **Set** and paste the
+   token: its name and its host, `api.github.com`, are filled in.
+
+orrery polls straight away. The row then shows when it was last used, or that GitHub turned it down. A token saved
+some other way is only used when its hosts include `api.github.com`; the Pull requests page says so when they don't.
 
 ## Backups
 

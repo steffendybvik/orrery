@@ -228,6 +228,7 @@ describe("the channel's tools", () => {
         expect(fields).toMatch(/^create_chunk: Makes a chunk/)
         expect(fields).toContain('"required":["title"]')
         expect(calls).toEqual([])
+        expect((await call('request_fields', {action: 'update_doc'})).content[0]!.text).toMatch(/^update_doc: Changes one of this project's docs/)
         expect((await call('request', {action: 'delete_everything'})).isError).toBe(true)
         expect((await call('request_fields', {action: 'nope'})).content[0]!.text).toMatch(/No action "nope": one of start_session/)
         // A work session has neither.
@@ -266,7 +267,7 @@ describe("the channel's tools", () => {
         expect((await call('edit_issue', {id: 'GRE-4', priority: 'P0'})).content[0]!.text).toMatch(/^Now GRE-4/)
         expect(calls.at(-1)).toEqual({url: 'http://o/api/projects/greenhouse/issues/GRE-4', method: 'PATCH', body: {priority: 'P0'}})
         const edit = toolsFor(['greenhouse'], {chat: true}).find((t: {name: string}) => t.name === 'edit_issue')
-        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on'])
+        expect(Object.keys(edit.inputSchema.properties)).toEqual(['id', 'title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on'])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('edit_issue')
     })
 
@@ -354,7 +355,17 @@ describe("the channel's tools", () => {
         const {call, calls} = harness({'GET /issues': {body: [issue(), issue({id: 'GRE-2', title: 'Old', status: 'done', kind: 'done'})]}})
         expect((await call('issues')).text).toBe('GRE-1 [todo] Shelves')
         expect((await call('issues', {status: 'done', q: 'old'})).text).toContain('GRE-2')
-        expect(calls[1]!.url).toBe('/issues?status=done&q=old')
+        expect(calls[1]!.url).toBe('/issues?status=done&q=old&in=all')
+    })
+
+    it("say where a search's hit in the text is and quote it, but never to an untrusted session (ORR-641)", async () => {
+        const hits = [issue(), issue({id: 'GRE-2', title: 'Pots', match_in: 'comment', match: '…the terracotta ones…'}), issue({id: 'GRE-3', title: 'Raised', match_in: 'description'})]
+        expect((await harness({'GET /issues': {body: hits}}).call('issues', {q: 'terracotta'})).text)
+            .toBe('GRE-1 [todo] Shelves\nGRE-2 [todo] Pots\n    in its comment: …the terracotta ones…\nGRE-3 [todo] Raised\n    in its description')
+        const untrusted = orreryTools({api: 'http://o/api/projects/greenhouse', untrusted: true, fetch: async () => new Response(JSON.stringify(hits))}) as (name: string, args: object) => Promise<{content: {text: string}[]}>
+        const {content} = await untrusted('issues', {q: 'terracotta'})
+        expect(content[0]!.text).toContain('GRE-2 [todo] Pots\n    in its comment')
+        expect(content[0]!.text).not.toContain('terracotta')
     })
 
     it("leave backlog out of a work session's list, and say how much (ORR-545)", async () => {
@@ -398,6 +409,30 @@ describe("the channel's tools", () => {
             {number: 10, state: 'ready', base: 'main', url: 'https://github.com/o/r/pull/10'},
         ])
         expect(text).not.toMatch(/ignore-your-rules|ignore your rules|Cupboards/i)
+    })
+
+    it("give a decided proposal's picks in place of its options, and a pending one's options whole (ORR-643)", async () => {
+        const choices = [
+            {key: 'volume', question: 'Which volume?', pick: 'one', options: [{key: 'a', title: 'Named', body: 'A long reason'}, {key: 'b', title: 'Unnamed', body: 'Another long reason'}]},
+            {key: 'more', question: 'More?', pick: 'any', options: [{key: 'x', title: 'X'}]},
+        ]
+        const shown = async (fields: object, args: object = {}) => {
+            const {call} = harness({
+                'GET /issues/GRE-1': {body: issue({choices, ...fields})},
+                'GET /issues/GRE-1/comments': {body: []},
+                'GET /issues/GRE-1/pulls': {body: {pulls: []}},
+            })
+            return (await call('issue', {id: 'GRE-1', ...args})).text
+        }
+        const decided = {decided_by: 'skoll', picks: {volume: ['a'], more: []}}
+        const text = await shown(decided)
+        expect(JSON.parse(text)).toMatchObject({picks: [{question: 'Which volume?', picked: ['Named']}], choices_left_out: 'comments: "all" gives every option'})
+        expect(JSON.parse(text).choices).toBeUndefined()
+        expect(text).not.toMatch(/Unnamed|long reason|More\?/)
+        // Every option when asked; and one still waiting, or sent back, needs them to discuss.
+        expect(JSON.parse(await shown(decided, {comments: 'all'}))).toMatchObject({choices, picks: decided.picks})
+        expect(JSON.parse(await shown({proposal: 'pending'})).choices).toEqual(choices)
+        expect(JSON.parse(await shown({...decided, proposal: 'changes'})).choices).toEqual(choices)
     })
 
     it("give an issue's open sub-issues, a count of the finished, and only its latest comments and open questions in full (ORR-547)", async () => {

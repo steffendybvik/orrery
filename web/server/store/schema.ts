@@ -24,6 +24,9 @@ export interface ReleaseDetail extends Release {
 /** An issue on its own: where it sits, and its sub-issues by id. */
 export interface IssueRecord extends Omit<Issue, 'tasks'> {
     project: string
+    /** Found by a search `in: all` in its text (ORR-641): where, and the text around it unless an outsider's session raised it. */
+    match_in?: 'description' | 'comment'
+    match?: string
     /** What says whose board it's on, for commit bodies and PR descriptions: `orrery-<handle>: <id>`. */
     ref?: string
     parent: string | null
@@ -74,6 +77,8 @@ export interface Actor {
 export const AGENT: Actor = {name: 'agent', owner: false}
 
 export interface IssueFilter {
+    /** `all`: `q` is words, in the id and title, the description or a comment; else it's text in the id or title. */
+    in?: string
     /** A status's id, or a kind (`started`): what the issue says. */
     status?: string
     priority?: string
@@ -84,6 +89,8 @@ export interface IssueFilter {
     label?: string
     /** A team task's id or URL: the issues linked to it. */
     external?: string
+    /** A GitHub issue (`523` on the project's repo, `owner/name#523`, or its link): the issues that came from it (ORR-635). */
+    github_issue?: string
     chunk?: string
     /** A release's version, or `none` for issues set for none. */
     release?: string
@@ -106,7 +113,7 @@ export interface ProjectRow extends Made {
 export interface ChunkRow extends Made { project: string, id: string, title: string, summary: string | null, priority: Priority | null, position: number }
 export interface IssueRow extends Made {
     project: string, id: string, title: string, status: string, priority: Priority | null,
-    assignee: string | null, labels: string, external: string, notes: string | null,
+    assignee: string | null, labels: string, external: string, github_issues: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
     choices: string, picks: string | null, explore: string | null, ships_in: string | null, session_name: string | null
@@ -181,6 +188,8 @@ export const ISSUE_FIELDS: Record<string, Field> = {
     labels: {type: 'strings', nullable: true},
     /** Its tasks on the team's tracker: ids (`ENG-1567`) or full URLs. */
     external: {type: 'strings', nullable: true},
+    /** The GitHub issues it came from (ORR-635): numbers on the project's repo, `owner/name#523`, or their links. */
+    github_issues: {type: 'json', nullable: true, parse: parseGithubIssues},
     notes: {type: 'string', nullable: true},
     /** `pending` makes it a proposal (or puts one up again); `null` commits it, the owner's to do. The owner
      * decides on it with `decide`, and approving commits it. */
@@ -453,6 +462,15 @@ export function docOf(row: DocRow): Doc {
     }
 }
 
+/** GitHub issues as sent, each a number or a string, kept as strings to read against the project's repo
+ * (`githubIssuesOf`). */
+function parseGithubIssues(value: unknown): string {
+    if (!Array.isArray(value) || !value.every(v => (Number.isInteger(v) && v > 0) || (typeof v === 'string' && v.trim()))) {
+        throw new Error(`should be a list of GitHub issues, each a number on the project's repo, owner/name#523 or a link to one, not ${JSON.stringify(value)}`)
+    }
+    return JSON.stringify(value.map(v => String(v).trim()))
+}
+
 /** Team tasks as stored: trimmed, each once, none empty. */
 export function tasksOf(value: Input[string]): string[] {
     return [...new Set(((value ?? []) as string[]).map(t => t.trim()).filter(Boolean))]
@@ -477,3 +495,6 @@ export function presetInput(input: Input): {name?: string, text?: string} {
 export function stamp() {
     return new Date().toISOString()
 }
+
+/** Who orrery's own comments and changes are by. */
+export const ORRERY: Actor = {name: 'orrery', owner: false}

@@ -7,8 +7,9 @@
 // (ORR-491), asks. While the poll (pull-poll.ts) has just read the repo with a token, they're read off what it keeps;
 // otherwise GitHub is asked, and the answers kept for a minute (five without a token, as GitHub allows 60 requests an
 // hour then), so many pages and issues cost one list per repo.
+import type {H3Event} from 'h3'
 import type {AllPulls, IssuePulls, OpenPull, PullRequest, PullState} from '#shared/roadmap'
-import {PULL_NEEDS} from '#shared/roadmap'
+import {PULL_NEEDS, githubRepo} from '#shared/roadmap'
 import {notFound} from './input'
 import type {Store} from './store'
 
@@ -81,11 +82,8 @@ interface Read<T> {
     secret: boolean
 }
 
-/** The repo's `owner/name` on GitHub, from its web address; null for anywhere else. */
-export function githubRepo(repo: string | null | undefined): string | null {
-    const match = repo?.trim().match(/^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i)
-    return match ? `${match[1]}/${match[2]}` : null
-}
+// The repo's `owner/name` on GitHub lives with the issue's GitHub references (ORR-635).
+export {githubRepo}
 
 /** Whether a PR names one of the issue's ids: a link to its page in the body, or the id in its branch. */
 export function namesIssue(pull: Pick<ListedPull, 'body' | 'head'>, ids: string[]): boolean {
@@ -133,6 +131,8 @@ export class Pulls {
         private readonly store: Store,
         private readonly get: GitHubGet,
         private readonly now: () => number = Date.now,
+        /** Why a GITHUB_TOKEN that's set isn't sent for the project (ORR-632), said in place of "set one". */
+        private readonly tokenProblem: (project: string) => Promise<string | undefined> = async () => undefined,
     ) {}
 
     /** The issue's open PRs on its project's repo. */
@@ -160,7 +160,8 @@ export class Pulls {
             pulls.push(this.shown(pull, state.value ?? (pull.draft ? 'draft' : 'checking')))
         }
         this.forgetOld()
-        return {repo, pulls, ...error ? {error} : {}, token: list.secret, checked_at: list.at ? new Date(list.at).toISOString() : null}
+        const problem = list.secret ? undefined : await this.tokenProblem(project)
+        return {repo, pulls, ...error ? {error} : {}, token: list.secret, ...problem ? {token_problem: problem} : {}, checked_at: list.at ? new Date(list.at).toISOString() : null}
     }
 
     /** Every open PR on the projects' GitHub repos, each repo read once however many projects share it, with the issue
@@ -178,7 +179,7 @@ export class Pulls {
                     const shown = kept.token ? keptShown(pull) : {...keptShown(pull), state: pull.draft ? 'draft' as const : 'checking' as const}
                     pulls.push({...shown, repo, ...issue ? {issue} : {}})
                 }
-                repos.push({repo, projects, token: kept.token, checked_at: kept.checked_at, open: 0, needs: 0, ...kept.error ? {error: kept.error} : {}, ...this.cutAt(repo)})
+                repos.push({repo, projects, token: kept.token, ...await this.problemOf(kept.token, projects), checked_at: kept.checked_at, open: 0, needs: 0, ...kept.error ? {error: kept.error} : {}, ...this.cutAt(repo)})
                 continue
             }
             // Asked as the first project's: the token's projects are checked against it.
@@ -195,7 +196,7 @@ export class Pulls {
                 const issue = await this.issueOf(projects, issueIdsIn(pull))
                 pulls.push({...this.shown(pull, state), repo, ...issue ? {issue} : {}})
             }
-            repos.push({repo, projects, token: list.secret, checked_at: list.at ? new Date(list.at).toISOString() : null, open: 0, needs: 0, ...error ? {error} : {}, ...this.cutAt(repo)})
+            repos.push({repo, projects, token: list.secret, ...await this.problemOf(list.secret, projects), checked_at: list.at ? new Date(list.at).toISOString() : null, open: 0, needs: 0, ...error ? {error} : {}, ...this.cutAt(repo)})
         }
         this.forgetOld()
         const needs = (pull: OpenPull) => PULL_NEEDS.includes(pull.state)
@@ -206,6 +207,12 @@ export class Pulls {
             repo.needs = own.filter(needs).length
         }
         return {pulls, open: pulls.length, needs: pulls.filter(needs).length, repos}
+    }
+
+    /** Why no token went for a repo read without one, asked as its first project's, as the read was. */
+    private async problemOf(token: boolean, projects: string[]): Promise<{token_problem?: string}> {
+        const problem = token ? undefined : await this.tokenProblem(projects[0] ?? '')
+        return problem ? {token_problem: problem} : {}
     }
 
     /** The poll read the repo's open PRs: cut short after `read` of them, or (undefined) all of them. */
@@ -378,7 +385,9 @@ export class Pulls {
         }
         if (response.status === 401) throw new Error(`GitHub turned down the ${GITHUB_SECRET} secret: set it again with a token that works`)
         if (response.status === 404) {
-            throw new Error(secret ? `GitHub has no ${repo} that the ${GITHUB_SECRET} secret can read`
+            if (secret) throw new Error(`GitHub has no ${repo} that the ${GITHUB_SECRET} secret can read`)
+            const problem = await this.tokenProblem(project)
+            throw new Error(problem ? `GitHub has no public ${repo}, and ${problem}`
                 : `GitHub has no public ${repo}: for a private repo, set a ${GITHUB_SECRET} secret that may go to api.github.com`)
         }
         throw new Error(`GitHub answered ${response.status} for ${repo}`)
@@ -416,6 +425,23 @@ function limitMessage(until: number, secret?: boolean): string {
 /** How many pull requests a page of `GET /api/pulls` holds unless asked otherwise, and at most (ORR-615). */
 export const PULLS_PAGE = 50
 const PULLS_PAGE_MOST = 200
+
+/** A GitHub login as it can only be: letters, digits, `_` and `-`. */
+const LOGIN = /^[\w-]+$/
+
+/** A PR as anyone but the owner reads it (ORR-532): never its title or head branch, which an outsider may have written,
+ * as sessions read what they're given as the owner's; its author only when it's a plain login, so a session can tell
+ * its own PR from an outsider's. */
+export function pullForSession<T extends PullRequest>({title: _title, branch: _branch, author, ...pull}: T) {
+    return {...pull, ...LOGIN.test(author) ? {author} : {}}
+}
+
+/** The answer to a read of PRs, for whoever's asking: in full for the owner, as their pages send their name, and each
+ * PR as `pullForSession` gives it for anyone else, a chat naming the owner included. */
+export async function pullsForAsker<T extends {pulls: PullRequest[]}>(event: H3Event, answer: T) {
+    if (kindOf(event, await actorOf(event)) === 'owner') return answer
+    return {...answer, pulls: answer.pulls.map(pullForSession)}
+}
 
 /** `all` as `?page=&limit=` asks (ORR-615): every one when neither is given, else page `page` (from 1), `limit` to a
  * page, in the same order. The counts, the repos' included, stay totals. A page past the last is the last, so a

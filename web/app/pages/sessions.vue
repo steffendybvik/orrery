@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {SessionWork} from '#shared/roadmap'
+import {launcherInstall} from '#shared/connect'
 import {TERMINALS} from '#shared/roadmap'
 import {areaId, permissionAreas} from '#shared/permissions'
 import type {Heading} from '~/utils/markdown'
@@ -25,7 +26,7 @@ const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
 const scopeOptions = computed(() => [{value: '', label: 'Every project'}, ...ordered.value.map(p => ({value: p.id, label: p.name}))])
 const terminalOptions = Object.entries(TERMINALS).map(([value, label]) => ({value, label}))
-const install = `node ${String(useRuntimeConfig().public.repoDir || '/path/to/orrery')}/channel/orrery-launcher.mjs --install`
+const install = launcherInstall(useRequestURL().origin)
 
 // A session that hears several projects spans them (heardBy): it's listed once, on top under Across projects, and in
 // each project it hears that has sessions of its own as a line saying so (`via`).

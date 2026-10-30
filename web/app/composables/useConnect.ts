@@ -12,7 +12,6 @@ export function useConnect(project: Ref<Project | undefined>, options: {name?: R
         const name = project.value?.name ?? (options.name?.value.trim() || 'my-app')
         return connectPieces({
             origin,
-            repoDir: String(config.public.repoDir || '/path/to/orrery'),
             id: project.value?.id ?? idsFor(name).id,
             name,
             key: project.value?.key ?? idsFor(name).key,

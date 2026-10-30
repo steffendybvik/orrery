@@ -23,6 +23,7 @@ const FIELDS = {
     priority: PRIORITY,
     labels: {type: 'array', items: {type: 'string'}},
     external: {type: 'array', items: {type: 'string'}, description: "Team tracker task ids or URLs"},
+    github_issues: {type: 'array', items: {type: 'string'}, description: 'GitHub issues it came from: 523, owner/name#523'},
     assignee: {type: ['string', 'null'], description: '"claude", or "owner" for the owner'},
     chunk: {type: ['string', 'null'], description: "A chunk's id"},
     parent: {type: ['string', 'null'], description: 'Makes it a sub-issue of this issue'},
@@ -45,7 +46,7 @@ export const TOOLS = [
             release: {type: 'string', description: 'A release\'s version, or "none"'},
             label: {type: 'string'},
             external: {type: 'string', description: 'A team task id'},
-            q: {type: 'string', description: 'Text in the id or title'},
+            q: {type: 'string', description: 'In the id, title, notes or comments'},
             blocked: {type: 'boolean'},
             open: {type: 'boolean', description: 'Leave out done and canceled (default true); false lists every status'},
         }},
@@ -133,7 +134,7 @@ export const TOOLS = [
 
 /** A schedule's fields as the chat asks for them (`CHAT_SCHEDULE_FIELDS`, web/shared/roadmap.ts). */
 const SCHEDULE_FIELDS = {
-    kind: {type: 'string', enum: ['issue', 'message', 'session'], description: 'issue makes an issue each run (the default), message sends notes to a session, session starts one with presets and notes'},
+    kind: {type: 'string', enum: ['issue', 'message', 'session', 'action'], description: 'issue makes an issue each run (the default), message sends notes to a session, session starts one with presets and notes, action moves what its event is about to column'},
     title: {type: 'string'},
     notes: {type: ['string', 'null'], description: "The issue's description, or the message"},
     cron: {type: ['string', 'null'], description: 'Five fields, minute hour day month weekday: "0 9 * * 1-5"'},
@@ -142,7 +143,8 @@ const SCHEDULE_FIELDS = {
     on_filter: {type: ['object', 'null'], description: 'What the event must also say: {"to": "in-review"}, {"by": "owner"}, {"level": "error"}'},
     timezone: {type: 'string', description: "An IANA zone, e.g. Europe/Oslo; the server's when left out"},
     presets: {type: 'array', items: {type: 'number'}, description: 'Preset ids for a message or session schedule, before notes'},
-    column: {type: 'string', description: "Where its issues start: an open status's id, or a kind (todo)"},
+    column: {type: 'string', description: "Where its issues start: an open status's id, or a kind (todo). An action schedule's: the status it moves them to"},
+    move_from: {type: 'array', items: {type: 'string'}, description: 'The statuses (ids or kinds) an action schedule moves issues out of; none, any open one'},
     chunk: {type: ['string', 'null']},
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
     labels: {type: 'array', items: {type: 'string'}},
@@ -168,6 +170,12 @@ const CHUNK_FIELDS = {
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
 }
 
+const DOC_FIELDS = {
+    title: {type: 'string'},
+    section: {type: ['string', 'null'], description: 'The group it is listed under; null for none'},
+    body: {type: 'string', description: 'Markdown'},
+}
+
 /** Why the chat asks: a line for the owner, shown with the request. */
 const WHY = {type: 'string'}
 
@@ -183,8 +191,8 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'edit_issue',
-        description: "Changes an issue's title, notes, priority, labels, team tasks, chunk, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'chunk', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
+        description: "Changes an issue's title, notes, priority, labels, team tasks, GitHub issues, chunk, release, parent or what it depends on, when the owner asks in this chat. To move one to another status or assign it, ask with move_issues.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
         name: 'move_issues',
@@ -199,16 +207,16 @@ export const CHAT_TOOLS = [
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'request',
-        description: 'Asks the owner for one of the actions request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release or chunk. Read its fields with request_fields first.',
+        description: 'Asks the owner for an action request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release, chunk or doc. Read its fields first.',
         inputSchema: {type: 'object', required: ['action'], properties: {
             action: {type: 'string', enum: []},
-            fields: {type: 'object', description: 'As request_fields gives them for the action'},
+            fields: {type: 'object', description: 'As request_fields gives them'},
             why: WHY,
         }},
     },
     {
         name: 'request_fields',
-        description: 'What an action of request does and the fields it takes.',
+        description: 'What a request action does and takes.',
         inputSchema: {type: 'object', required: ['action'], properties: {action: {type: 'string', enum: []}}},
     },
 ]
@@ -290,6 +298,16 @@ export const CHAT_REQUESTS = [
         description: "Changes one of this project's chunks, by its id (the chunks tool lists them): send only what changes. Removing one is the owner's, on its page.",
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...CHUNK_FIELDS}},
     },
+    {
+        name: 'create_doc',
+        description: 'Makes a doc in this project: a decision and why, or how something works. Its id comes from its title. The owner sees the title, section and full text.',
+        inputSchema: {type: 'object', required: ['title'], properties: DOC_FIELDS},
+    },
+    {
+        name: 'update_doc',
+        description: "Changes one of this project's docs, by its id (the docs tool lists them): send only what changes, with body the whole new text. The owner sees a diff. If the doc changes after you ask, their Allow is refused: read it again and ask again. Removing a doc, and renaming or deleting a section, are the owner's, on the page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...DOC_FIELDS}},
+    },
 ]
 
 const REQUESTS = CHAT_REQUESTS.map(r => r.name)
@@ -357,6 +375,9 @@ export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'wri
  * don't ride on its every turn (ORR-544). */
 export const CHAT_READS = ['chunks', 'presets', 'preset', 'schedules']
 
+/** How many of a search's hits in the text the `issues` tool quotes (ORR-641), so a common word stays small. */
+const MATCHES_SHOWN = 15
+
 /** How many of an issue's latest comments the `issue` tool gives in full (ORR-547). */
 const LATEST_COMMENTS = 5
 
@@ -364,6 +385,13 @@ const LATEST_COMMENTS = 5
 function firstLine(body) {
     const first = body.split('\n').map(l => l.trim()).find(Boolean) ?? ''
     return first.length > 140 ? `${first.slice(0, 139)}…` : first
+}
+
+/** An approved proposal's choices as what still matters, each question with the titles picked (ORR-643). A choice left
+ * unanswered stays out; a pending proposal, or one sent back or rejected, has no such thing and keeps them all. */
+function pickedOf({decided_by, proposal, picks, choices}) {
+    if (!decided_by || proposal || !picks || !choices?.length) return null
+    return choices.filter(c => picks[c.key]?.length).map(c => ({question: c.question, picked: picks[c.key].map(key => c.options.find(o => o.key === key)?.title ?? key)}))
 }
 
 /** A GitHub login as it can only be: letters, digits, `_` and `-` (ORR-532). */
@@ -450,13 +478,21 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async issues(args) {
             const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'blocked', 'q']))
+            if (args.q) query.set('in', 'all')
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             // A work session lists only what it could take up: backlog is mostly proposals and research (ORR-545). The chat keeps it.
             const backlog = chat || args.open === false || args.status ? 0 : issues.filter(i => i.kind === 'backlog').length
             if (backlog) issues = issues.filter(i => i.kind !== 'backlog')
             const hidden = backlog ? `${backlog} in backlog not shown: status: backlog lists them` : ''
-            return [issues.length ? issues.map(line).join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
+            // Where a hit in the text is, and the words around it for the first few. Never to an untrusted session, whose
+            // words those aren't to take in (ORR-641): it opens the issue to read them, as what they are.
+            let shown = 0
+            const said = issues.map(i => {
+                if (!i.match_in) return line(i)
+                return `${line(i)}\n    in its ${i.match_in}${i.match && !untrusted && ++shown <= MATCHES_SHOWN ? `: ${i.match}` : ''}`
+            })
+            return [said.length ? said.join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
         },
         async issue({id, comments: which}) {
             const base = at(await projectOf({id}))
@@ -473,12 +509,18 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const counted = Object.entries(Object.groupBy(finished, t => t.status)).map(([status, of]) => `${of.length} ${status}`).join(', ')
             const subIssues = {sub_issues: tasks.filter(t => !finished.includes(t)).map(line), ...counted ? {finished_sub_issues: counted} : {}}
             const all = which === 'all'
+            const picked = all ? null : pickedOf(rest)
+            if (picked) {
+                delete rest.choices
+                rest.picks = picked
+            }
             const said = comments.map((c, i) => all || i >= comments.length - LATEST_COMMENTS || (c.asks && !c.answered)
                 ? {by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}
                 : {by: c.created_by, at: c.created_at, first_line: firstLine(c.body)})
             const older = said.filter(c => 'first_line' in c).length
             return JSON.stringify({...rest, ...subIssues, ...open.length ? {pull_requests: open} : {}, comments: said,
-                ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {}})
+                ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {},
+                ...picked ? {choices_left_out: 'comments: "all" gives every option'} : {}})
         },
         async create_issue(args) {
             const {proposal, project, ...fields} = args
@@ -644,6 +686,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async update_chunk({id, why, ...chunk}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, chunk, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async create_doc({why, ...doc}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {doc, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the doc with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async update_doc({id, why, ...doc}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, doc, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async message_sessions({text, projects, states, why}) {

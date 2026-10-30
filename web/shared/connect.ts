@@ -8,7 +8,6 @@ export interface ConnectTarget {
     /** Where orrery runs, as the agent should reach it. */
     origin: string
     /** Where the orrery repo is on the machine (for the channel and hook scripts). */
-    repoDir: string
     id: string
     name: string
     key: string
@@ -22,6 +21,7 @@ export interface ConnectTarget {
 }
 
 export interface ConnectPieces {
+    bootstrap: string
     brief: string
     claudeMd: string
     mcpJson: string
@@ -42,18 +42,23 @@ const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Permissi
 /** The ones that run in the background: Claude Code doesn't wait on them, so they never hold up a tool or answer its prompt. */
 const ASYNC_EVENTS = ['PreToolUse', 'PermissionRequest']
 
+/** Puts the bootstrap on this machine: it stays the same across versions, and runs what the orrery at `origin` serves. */
+export const bootstrapInstall = (origin: string) => `mkdir -p ~/.orrery && curl -fsS ${origin}/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs`
+/** Puts the bootstrap on this machine, and the launcher service with it. */
+export const launcherInstall = (origin: string) => `${bootstrapInstall(origin)} && ORRERY_URL=${origin} node ~/.orrery/bootstrap.mjs launcher --install`
+
 export function connectPieces(target: ConnectTarget): ConnectPieces {
-    const {origin, repoDir, id, key, isNew} = target
+    const {origin, id, key, isNew} = target
     const name = target.name.replace(/\s+/g, ' ').trim()
     const session = sessionName(target.session ?? '') || undefined
     const server = target.orrery ? serverName(target.orrery.environment) : id
 
     const mcpJson = JSON.stringify({
-        mcpServers: {[server]: {command: 'node', args: [`${repoDir}/channel/orrery-channel.mjs`], env: {
+        mcpServers: {[server]: {command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {
             ORRERY_URL: origin, ...target.orrery ? {ORRERY_ID: target.orrery.id} : {}, ORRERY_PROJECTS: id,
         }}},
     }, null, 2)
-    const command = `ORRERY_PROJECT=${id} ORRERY_URL=${origin} node ${repoDir}/channel/orrery-hook.mjs`
+    const command = `ORRERY_PROJECT=${id} ORRERY_URL=${origin}${target.orrery ? ` ORRERY_ID=${target.orrery.id}` : ''} node "$HOME/.orrery/bootstrap.mjs" hook`
     const hook = (event: string) => [{hooks: [{type: 'command', command, timeout: 5, ...ASYNC_EVENTS.includes(event) ? {async: true} : {}}]}]
     const settingsJson = JSON.stringify({hooks: Object.fromEntries(HOOK_EVENTS.map(event => [event, hook(event)]))}, null, 2)
     const launch = `${session ? `ORRERY_SESSION=${session} ` : ''}claude --dangerously-load-development-channels server:${server}`
@@ -93,6 +98,10 @@ The project doesn't exist yet. Create it:
 
 Merge with what's already in each file.
 
+0. Put orrery's bootstrap on this machine, which runs the channel and hooks as this orrery serves them, so they upgrade with it:
+
+    ${bootstrapInstall(origin)}
+
 1. Add this section to \`CLAUDE.md\`:
 
 ${claudeMd.split('\n').map(line => line ? `    ${line}` : '').join('\n')}
@@ -101,7 +110,7 @@ ${claudeMd.split('\n').map(line => line ? `    ${line}` : '').join('\n')}
 
 ${mcpJson.split('\n').map(line => `    ${line}`).join('\n')}
 
-   One entry serves all of the repo's projects on this orrery: if \`.mcp.json\` already runs \`orrery-channel.mjs\` for it (the same \`ORRERY_ID\`, or the same \`ORRERY_URL\`), add \`${id}\` to that entry's \`ORRERY_PROJECTS\` (comma-separated, or \`*\` for every project on it) instead, and fold any entry that serves one project (\`ORRERY_PROJECT\`) into it.
+   One entry serves all of the repo's projects on this orrery: if \`.mcp.json\` already runs orrery's channel for it (\`bootstrap.mjs channel\`, or an older \`orrery-channel.mjs\` from a checkout, which you switch to the command above, and its hooks with it) (the same \`ORRERY_ID\`, or the same \`ORRERY_URL\`), add \`${id}\` to that entry's \`ORRERY_PROJECTS\` (comma-separated, or \`*\` for every project on it) instead, and fold any entry that serves one project (\`ORRERY_PROJECT\`) into it.
 
 3. Add these hooks to \`.claude/settings.json\`, so orrery sees this session's name and whether it's idle, working or needs the owner:
 
@@ -117,7 +126,7 @@ Tell the owner what's in progress and what's urgent, and ask them to restart you
     const query = session ? `?session=${encodeURIComponent(session)}` : isNew ? `?name=${encodeURIComponent(name)}` : ''
     const url = `${origin}/connect/${id}.md${query}`
     const prompt = `Set this repo up for orrery: read ${url} (curl -s '${url}') and follow it.`
-    return {brief, claudeMd, mcpJson, settingsJson, server, launch, monitor, prompt, url}
+    return {brief, bootstrap: bootstrapInstall(origin), claudeMd, mcpJson, settingsJson, server, launch, monitor, prompt, url}
 }
 
 /** A name's id and prefix, as orrery would make them (`app` for an id when the name makes none). */

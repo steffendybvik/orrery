@@ -155,10 +155,11 @@ const CUT_OFF: Record<string, string> = {
 }
 
 /** The session's turn ended on an API error (`error`, from Claude Code's StopFailure): each issue it has in progress
- * goes back to Todo with nobody on it, with a comment saying why, for it or anyone to pick up again. Says which. */
+ * goes back to Todo with nobody on it, with a comment saying why, for it or anyone to pick up again. Says which. One in
+ * review or waiting on the owner stays: its work is done, and it isn't the session's turn (ORR-646). */
 export async function letGo(project: string, id: string, error?: string): Promise<string[]> {
     const store = useStore()
-    const issues = await store.workingOn(project, sessionIds(id))
+    const issues = (await store.workingOn(project, sessionIds(id))).filter(issue => issue.status !== 'in-review' && !issue.waiting)
     const why = error ? CUT_OFF[error] ?? `an API error (${error})` : 'an API error'
     const actor = {name: 'claude', owner: false}
     for (const issue of issues) {

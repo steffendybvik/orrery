@@ -106,7 +106,8 @@ let pulls: Pulls | null = null
 
 /** Issues' open pull requests, read from GitHub with the GITHUB_TOKEN secret when there's one that may go there. */
 export function usePulls(): Pulls {
-    pulls ??= new Pulls(useStore(), (url, project, headers, init) => useSecrets().own(url, GITHUB_SECRET, project, headers, init))
+    pulls ??= new Pulls(useStore(), (url, project, headers, init) => useSecrets().own(url, GITHUB_SECRET, project, headers, init), Date.now,
+        project => useSecrets().ownProblem('https://api.github.com/graphql', GITHUB_SECRET, project))
     return pulls
 }
 
@@ -122,7 +123,7 @@ export function usePullPoll(): PullPoll {
                 void commentOnPull(useStore(), change)
             }, entry => useEventLog().note(entry))
         // A token set again is tried at the next poll, not an hour after GitHub turned the last one down.
-        projectEvents.on('secrets', () => made.secretsChanged())
+        projectEvents.on('secrets', () => void made.secretsChanged())
         pullPoll = made
     }
     return pullPoll

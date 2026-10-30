@@ -2,7 +2,7 @@ import {expect, test} from '@playwright/test'
 import {AGENT, makeProject, projectApi} from './support'
 
 // Pictures and comments: an image picked into a new issue and a comment, the owner editing and deleting their own
-// comment but not an agent's, and a Before and After pair as a slider.
+// comment but not an agent's, a Before and After pair as a slider, and copying the whole issue with its comments.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('studio')
@@ -124,4 +124,47 @@ test('turns a Before and an After picture into a slider between them', async ({p
     await range.focus()
     await page.keyboard.press('ArrowRight')
     await expect(slider).toHaveAttribute('style', /--split: 51%/)
+})
+
+test('copies the whole issue, with every comment or none, and no description', async ({page, request}) => {
+    const copy = page.getByRole('button', {name: 'Copy the whole issue'})
+    const copied = async () => {
+        await copy.click()
+        await expect(copy).toHaveText('Copied')
+        return page.evaluate(() => (window as unknown as {copied: string[]}).copied.at(-1))
+    }
+    const open = async (id: string) => {
+        await page.goto(`/p/studio/issues/${id}`)
+        await page.evaluate(() => {
+            const list: string[] = (window as unknown as {copied: string[]}).copied = []
+            navigator.clipboard.writeText = async text => { list.push(text) }
+        })
+    }
+
+    const bare = await api(request, 'post', '/issues', {title: 'Sweep the floor'})
+    await open(bare.id)
+    await expect(copy).toBeVisible()
+    expect(await copied()).toMatch(new RegExp(`^orrery-[^:]+: ${bare.id}\\n\\n# Sweep the floor$`))
+
+    const full = await api(request, 'post', '/issues', {title: 'Paint the door', notes: 'Two coats of green'})
+    const first = await api(request, 'post', `/issues/${full.id}/comments`, {body: 'Bought the paint'})
+    const second = await api(request, 'post', `/issues/${full.id}/comments`, {body: 'First coat is on'})
+    await open(full.id)
+    await expect(page.getByText('First coat is on')).toBeVisible()
+    const when = (at: string) => `${at.slice(0, 16).replace('T', ' ')} UTC`
+    const whole = await copied()
+    expect(whole).toMatch(new RegExp(`^orrery-[^:]+: ${full.id}\\n\\n`))
+    expect(whole!.split('\n\n').slice(1)).toEqual([
+        '# Paint the door',
+        'Two coats of green',
+        '---', `**Agent**, ${when(first.created_at)}`, 'Bought the paint',
+        '---', `**Agent**, ${when(second.created_at)}`, 'First coat is on',
+    ])
+
+    // A comment added from the page is in the next copy.
+    await page.getByRole('textbox', {name: /comment/i}).first().fill('Second coat tomorrow')
+    await page.getByRole('button', {name: 'Comment', exact: true}).click()
+    await expect(page.getByText('Second coat tomorrow')).toBeVisible()
+    await expect(copy).toHaveText('Copy issue')
+    expect(await copied()).toContain('Second coat tomorrow')
 })

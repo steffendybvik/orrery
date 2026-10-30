@@ -49,18 +49,19 @@ through the `guide` tool.
 ## Keep your data safe
 
 - **Your data is in Docker; your backups are in `ORRERY_BACKUP`.** The database lives in a Docker volume
-  (`<folder>_orrery-data`). A checked copy goes to the backup folder a few seconds after each change, plus one a day for
+  (`orrery_orrery-data`). A checked copy goes to the backup folder a few seconds after each change, plus one a day for
   two weeks.
 - **Put `ORRERY_BACKUP` somewhere that leaves this computer:** iCloud Drive, Dropbox, or a folder Time Machine covers.
   Without it the backups sit in a Docker volume on the same disk, and App settings says so.
 - **Never `docker compose down -v`**, and don't clear Docker Desktop's data, without a recent backup: both delete the
   database. Plain `docker compose down` keeps it.
-- **To update:** `git pull`, then `docker compose up -d --build` (see [Running orrery](docs/running.md)). orrery takes a
-  copy before it upgrades the database.
+- **To update:** change the version in `compose.yml`'s `image:` and run `docker compose pull && docker compose up -d`
+  (see [Running orrery](docs/running.md#updating)). orrery takes a copy before it upgrades the database, and the
+  channel, hooks and launcher follow.
 - **To move to a new computer:** set it up the same way, point `ORRERY_BACKUP` at the same folder, and choose the
   backup to restore when it first opens.
-- **If your data looks gone after an update:** run `docker volume ls`. The volume is named after the folder, so a clone
-  in a folder with another name has another one. App settings → This orrery → Database → **Restore a backup…** brings back any backup
+- **If your data looks gone after an update:** run `docker volume ls`. A volume with another name (from an older setup
+  in a folder with another name) may hold it. App settings → This orrery → Database → **Restore a backup…** brings back any backup
   in the folder.
 
 ## Quick start
@@ -68,29 +69,26 @@ through the `guide` tool.
 You need:
 
 - **Docker**, which runs orrery itself
-- **Node 24 and pnpm**: the channel, hooks and launcher that connect Claude sessions run from this repo on your
-  machine, outside Docker
+- **Node 24**: the channel, hooks and launcher that connect Claude sessions run on your machine, outside Docker. orrery
+  serves them itself, so they upgrade with it
 - **Claude Code**
 - **tmux 3.2+**, only if orrery should start sessions itself
 
-1. Get the repo and its packages (the connected repos run the channel from here, so keep it where it is):
+1. Start orrery from the published image, in a folder of its own:
 
    ```sh
-   git clone https://github.com/steffendybvik/orrery.git && cd orrery
-   pnpm install
+   mkdir orrery && cd orrery
+   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.14/compose.yml
+   docker compose up -d        # http://localhost:9000
    ```
 
-2. Start orrery:
+   To [build from source](docs/running.md#building-from-source) instead, clone this repo.
 
-   ```sh
-   docker compose up -d --build        # http://localhost:9000
-   ```
-
-3. Open it and give your name (that makes you the owner). It opens on **Getting started**, which ticks off the
+2. Open it and give your name (that makes you the owner). It opens on **Getting started**, which ticks off the
    steps below as they happen. Create a project there or from the sidebar (`+`).
-4. Paste the line Getting started (or **Connect an agent**) gives you into a Claude session in that
+3. Paste the line Getting started (or **Connect an agent**) gives you into a Claude session in that
    project's repo. The session writes the repo's `.mcp.json`, hooks and `CLAUDE.md` section itself.
-5. From then on, start Claude in that repo with the channel, so orrery can send it work:
+4. From then on, start Claude in that repo with the channel, so orrery can send it work:
 
    ```sh
    claude --dangerously-load-development-channels server:orrery-personal
@@ -103,10 +101,10 @@ You need:
 
 - **Local by default.** Only this machine can reach it. Read [SECURITY.md](SECURITY.md) before
   exposing it.
-- **Channels are a Claude Code research preview**, hence the long flag in step 5. Without it a session still
+- **Channels are a Claude Code research preview**, hence the long flag in step 4. Without it a session still
   has the tools and can read and update the roadmap, but orrery can't send it work.
 - **Starting sessions** needs tmux 3.2 or newer, and the launcher installed once
-  (`node /path/to/orrery/channel/orrery-launcher.mjs --install`); a Claude session opened in a repo then adds it. On Windows it runs inside WSL
+  (Connect and the Sessions page give the line); a Claude session opened in a repo then adds it. On Windows it runs inside WSL
   ([On Windows](docs/connect.md#on-windows)).
 
 ## Documentation

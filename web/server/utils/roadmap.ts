@@ -221,8 +221,8 @@ class Rules {
             kinds = {...emptyKinds(), [this.kindOf(column)]: 1}
         }
         const column = this.columnOf(counts, kinds)
-        const {tasks: _tasks, external = [], choices = [], comments = 0, aliases = [], created_by = '', protected: owned = false, created_at = '', updated_at = '', ...own} = task
-        return {...own, external, choices, comments, aliases, created_by, protected: owned, created_at, updated_at, column, kind: this.kindOf(column), counts, kinds, tasks}
+        const {tasks: _tasks, external = [], github_issues = [], choices = [], comments = 0, aliases = [], created_by = '', protected: owned = false, created_at = '', updated_at = '', ...own} = task
+        return {...own, external, github_issues, choices, comments, aliases, created_by, protected: owned, created_at, updated_at, column, kind: this.kindOf(column), counts, kinds, tasks}
     }
 
     /** Closed when every committed leaf is: its first done status with leaves, or canceled when none was done.

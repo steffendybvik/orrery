@@ -68,14 +68,14 @@ function editIt() {
     <template v-if="s">
       <div class="truncate px-2 pt-1.5 pb-1 text-xs text-muted">{{ s.title }}</div>
       <div v-if="!confirming" class="flex flex-col border-t border-line pt-1">
-        <UiMenuItem :disabled="busy" @click="runNow()">▶ Run now</UiMenuItem>
+        <UiMenuItem v-if="s.kind !== 'action'" :disabled="busy" @click="runNow()">▶ Run now</UiMenuItem>
         <UiMenuItem v-if="skips" :disabled="busy" :title="`Runs it now and skips the run at ${skips.full}`" @click="runNow(true)">⏭ Run now instead of {{ skips.short }}</UiMenuItem>
         <UiMenuItem :disabled="busy" @click="toggle">{{ s.enabled ? '❙❙ Pause' : '▶ Resume' }}</UiMenuItem>
         <UiMenuItem @click="editIt">✎ Edit</UiMenuItem>
-        <UiMenuItem danger :disabled="busy" @click="confirming = true">Remove…</UiMenuItem>
+        <UiMenuItem danger :disabled="busy" @click="confirming = true">{{ s.across ? 'Leave this project out…' : 'Remove…' }}</UiMenuItem>
       </div>
       <UiConfirm v-else class="border-t border-line p-2" :busy="busy" @confirm="remove" @cancel="confirming = false">
-        Remove this schedule? The issues it made stay.
+        {{ s.across ? 'Leave this project out of it? The issues it made stay.' : 'Remove this schedule? The issues it made stay.' }}
       </UiConfirm>
       <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
     </template>

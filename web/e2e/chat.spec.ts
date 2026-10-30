@@ -350,6 +350,20 @@ test('asks the owner to move or assign issues, and moves them as theirs only on 
         await expect(card).toContainText('Allowed and saved')
         for (const id of made) await expect.poll(async () => [(await issue(id)).column, (await issue(id)).assignee]).toEqual(['done', OWNER['Orrery-Actor']])
         await expect.poll(() => session!.said.text).toContain('are now in done')
+
+        // One that changes while the request waits says so, and moves only on Move anyway (ORR-644).
+        const again = await request.post(`/api/chats/${chat.id}/requests`, {data: {move: {ids: [made[0]], status: 'todo'}}, headers: asChat})
+        expect(again.status(), await again.text()).toBe(201)
+        const waiting = page.getByRole('region', {name: 'Chat'}).getByRole('group', {name: `Move ${made[0]}`, exact: true})
+        await expect(waiting.getByRole('button', {name: 'Allow'})).toBeVisible()
+        await expect(waiting.getByTestId('move-drifted')).toHaveCount(0)
+        await request.patch(`/api/projects/observatory/issues/${made[0]}`, {data: {status: 'in-review'}, headers: OWNER})
+        await expect(waiting.getByTestId('move-drifted')).toContainText(`${made[0]} is now In review (was Done)`)
+        expect((await issue(made[0]!)).column).toBe('in-review')
+        await waiting.getByRole('button', {name: 'Move anyway'}).click()
+        await expect(waiting).toContainText('Allowed and saved')
+        await expect.poll(async () => (await issue(made[0]!)).column).toBe('todo')
+        await expect.poll(() => session!.said.text).toContain('was in done when you asked and is in in-review now')
     } finally {
         await endChats(request)
         for (const id of made) await request.delete(`/api/projects/observatory/issues/${id}`, {headers: OWNER})
@@ -402,6 +416,68 @@ test('asks the owner to add or ship a release, and saves it only on their Allow'
         await endChats(request)
         for (const r of await releases()) await request.delete(`/api/projects/observatory/releases/${r.version}`, {headers: OWNER})
         await request.patch('/api/projects/observatory', {data: {release_mode: 'none'}, headers: OWNER})
+        session?.stop()
+        launcher.stop()
+    }
+})
+
+test('asks the owner to make or change a doc, and saves it as theirs only on their Allow', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    const read = async (id: string) => (await (await request.get(`/api/projects/observatory/docs/${id}`)).json()) as {title: string, body: string, section?: string, protected: boolean}
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-doc&name=e2e-chat-doc&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-doc', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const ask = async (data: object) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+        }
+
+        // It can't write one itself, by any route, whatever it says it is.
+        expect((await request.put('/api/projects/observatory/docs/lenses', {data: {title: 'Lenses'}, headers: asChat})).status()).toBe(403)
+        expect((await request.post('/api/projects/observatory/docs', {data: {title: 'Lenses'}, headers: asChat})).status()).toBe(403)
+        expect((await request.put('/api/projects/observatory/docs/lenses', {data: {title: 'Lenses'}, headers: {...asChat, 'Orrery-Actor': OWNER['Orrery-Actor']}})).status()).toBe(403)
+
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+
+        // Made: the title, section and full text, saved as the owner's on Allow.
+        await ask({doc: {title: 'Lenses', section: 'How it works', body: 'Clean **them** weekly.\nWith a cloth.'}})
+        const fresh = pane.getByRole('group', {name: 'Make doc Lenses'})
+        await expect(fresh).toContainText('How it works')
+        await expect(fresh.getByTestId('doc-text')).toContainText('Clean **them** weekly.')
+        expect((await request.get('/api/projects/observatory/docs/lenses')).status()).toBe(404)
+        await fresh.getByRole('button', {name: 'Allow'}).click()
+        await expect(fresh).toContainText('Allowed and saved')
+        expect(await read('lenses')).toMatchObject({title: 'Lenses', section: 'How it works', protected: true})
+        await expect.poll(() => session!.said.text).toContain('doc lenses ("Lenses") is saved')
+
+        // Changed, denied: a diff of the lines that change, and nothing saved.
+        await ask({id: 'lenses', doc: {body: 'Clean **them** daily.\nWith a cloth.'}})
+        const change = pane.getByRole('group', {name: 'Change doc Lenses'})
+        const diff = change.getByTestId('doc-diff')
+        await expect(diff.locator('[data-diff="removed"]')).toHaveText(/weekly/)
+        await expect(diff.locator('[data-diff="added"]')).toHaveText(/daily/)
+        await expect(diff.locator('[data-diff="same"]')).toHaveText(/With a cloth/)
+        await change.getByRole('button', {name: 'Deny'}).click()
+        await expect(change).toContainText('Denied')
+        expect((await read('lenses')).body).toContain('weekly')
+
+        // Changed again, and the doc changes while it waits: Allow is refused and saves nothing.
+        await ask({id: 'lenses', doc: {title: 'Lens care', body: 'Never.'}})
+        const stale = pane.getByRole('group', {name: 'Change doc Lens care'})
+        await request.patch('/api/projects/observatory/docs/lenses', {data: {body: 'Changed under it.'}, headers: OWNER})
+        await stale.getByRole('button', {name: 'Allow'}).click()
+        await expect(stale).toContainText('Refused: the doc changed after it asked')
+        expect(await read('lenses')).toMatchObject({title: 'Lenses', body: 'Changed under it.'})
+        await expect.poll(() => session!.said.text).toContain('changed after you asked')
+    } finally {
+        await endChats(request)
+        await request.delete('/api/projects/observatory/docs/lenses', {headers: OWNER})
         session?.stop()
         launcher.stop()
     }
@@ -565,7 +641,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
     // It says how to install the launcher, the command to copy, rather than the server's error line (ORR-591).
     await expect(pane.getByText('No launcher is running for Observatory.')).toBeVisible()
-    await expect(pane.getByText(/channel\/orrery-launcher\.mjs --install/)).toBeVisible()
+    await expect(pane.getByText(/bootstrap\.mjs launcher --install/)).toBeVisible()
     await expect(pane.getByRole('button', {name: /Copy/})).toBeVisible()
     await expect(pane.getByText('No launcher is running for observatory: install it once')).toHaveCount(0)
     // Tried once, not again every few seconds.
@@ -647,4 +723,49 @@ test("follows the page's project until one is picked by hand, then stays pinned 
     await expect(pane.getByRole('heading', {name: 'Ask about Belfry'})).toBeVisible()
     await expect(pane.getByTestId('chat-away')).toHaveCount(0)
     await pane.getByRole('button', {name: 'Close the chat'}).click()
+})
+
+test('writes a code block in the box: Enter after ``` closes it, and inside it is a new line, not a send', async ({page}) => {
+    await page.goto('/p/observatory')
+    await page.getByRole('button', {name: /^Agent/}).click()
+    const box = page.getByRole('textbox', {name: 'Message'})
+    await box.pressSequentially('```ts')
+    await box.press('Enter')
+    await box.pressSequentially('one')
+    await box.press('Enter')
+    await box.pressSequentially('two')
+    await expect(box).toHaveValue('```ts\none\ntwo\n```')
+    await box.press('ControlOrMeta+z')
+    await expect(box).not.toHaveValue('```ts\none\ntwo\n```')
+})
+
+test('holds a setting that changed while the request waited until Allow anyway', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await request.patch('/api/settings', {data: {tint: null}, headers: OWNER})
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-drift&name=e2e-chat-drift&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-drift', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const asked = await request.post(`/api/chats/${chat.id}/requests`, {data: {setting: 'tint', value: 'teal'}, headers: asChat})
+        expect(asked.status(), await asked.text()).toBe(201)
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const card = page.getByRole('region', {name: 'Chat'}).getByRole('group', {name: /Change /})
+        await request.patch('/api/settings', {data: {tint: 'rose'}, headers: OWNER})
+        await card.getByRole('button', {name: 'Allow', exact: true}).click()
+        await expect(card.getByTestId('request-drifted')).toContainText('is now rose (was (none))')
+        expect((await (await request.get('/api/settings')).json()).tint).toBe('rose')
+        await card.getByRole('button', {name: 'Allow anyway'}).click()
+        await expect(card).toContainText('Allowed and saved')
+        expect((await (await request.get('/api/settings')).json()).tint).toBe('teal')
+        await expect.poll(() => session!.said.text).toContain('had changed since you asked')
+    } finally {
+        await request.patch('/api/settings', {data: {tint: null}, headers: OWNER})
+        await endChats(request)
+        session?.stop()
+        launcher.stop()
+    }
 })

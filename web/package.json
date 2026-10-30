@@ -1,6 +1,6 @@
 {
   "name": "orrery",
-  "version": "1.0.0-rc.13",
+  "version": "1.0.0-rc.14",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -40,6 +40,7 @@
     "@types/pg": "8.23.1",
     "@vitest/coverage-v8": "5.0.5",
     "@vue/test-utils": "2.5.1",
+    "esbuild": "0.28.2",
     "eslint": "^10.13.0",
     "happy-dom": "21.0.4",
     "jiti": "2.7.0",

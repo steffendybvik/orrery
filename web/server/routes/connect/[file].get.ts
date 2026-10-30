@@ -12,7 +12,6 @@ export default defineEventHandler(async event => {
     const name = project?.name ?? (typeof query.name === 'string' && query.name.trim() ? query.name.slice(0, 100) : id)
     const {brief} = connectPieces({
         origin: originOf(event),
-        repoDir: String(useRuntimeConfig().public.repoDir || '/path/to/orrery'),
         id: project?.id ?? idsFor(name).id,
         name,
         key: project?.key ?? idsFor(name).key,

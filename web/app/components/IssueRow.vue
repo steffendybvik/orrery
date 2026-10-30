@@ -11,6 +11,7 @@ import {total} from '#shared/roadmap'
 // The tree: each level is INDENT further in, and a sub-issue's line comes down from under its
 // parent's first icon (RAIL from the row's edge) and turns into it. `rails` says, for each level
 // above the parent, whether that level's line carries on past this row; `last` whether this one does.
+const {byId} = useRoadmaps()
 const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: number, chunk?: {id: string, title: string}, nested?: boolean, rails?: boolean[], last?: boolean}>(),
     {depth: 0, chunk: undefined, nested: false, rails: () => [], last: true})
 const INDENT = 24
@@ -90,6 +91,7 @@ const shown = computed(() => isParent.value ? props.issue.column : props.issue.s
         :class="{approved: 'text-emerald-700 ring-emerald-500/30 dark:text-emerald-300', changes: 'text-sky-700 ring-sky-500/30 dark:text-sky-300', rejected: 'text-rose-700 ring-rose-500/30 dark:text-rose-300'}[issue.proposal]"
     >{{ {approved: 'Approved', changes: 'Changes asked', rejected: 'Rejected'}[issue.proposal] }}</span>
     <span class="hidden shrink-0 items-center gap-1 lg:flex">
+      <GithubIssueChip v-for="github in issue.github_issues.slice(0, 1)" :key="github" :issue="github" :repo="byId(project)?.repo" />
       <LabelChip v-for="label in issue.labels.slice(0, 2)" :key="label" :label="label" />
       <span v-if="issue.labels.length > 2" class="text-[11px] text-faint">+{{ issue.labels.length - 2 }}</span>
     </span>

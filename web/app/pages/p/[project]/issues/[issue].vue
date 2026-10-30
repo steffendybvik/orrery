@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {LockClosedIcon} from '@heroicons/vue/16/solid'
-import type {Issue} from '#shared/roadmap'
+import type {Comment, Issue} from '#shared/roadmap'
 import {issueRef, total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, its open pull requests, sub-issues and activity, with its
@@ -42,7 +42,7 @@ watch([ready, issueId, found], async ([now, id, f]) => {
 }, {immediate: true})
 // What says whose board it's on, to put in a commit body or PR description.
 const {settings} = useAppSettings()
-const {owner} = useOwner()
+const {owner, who} = useOwner()
 const ref_ = computed(() => issue.value ? issueRef(settings.value.handle ?? owner.value?.name ?? 'owner', issue.value.id) : '')
 // Open, it's seen, and stays seen as it changes in front of you.
 const {seeIssue} = useUnseen()
@@ -125,15 +125,28 @@ function editNotes() {
     editingNotes.value = true
     nextTick(() => notesInput.value?.focus())
 }
+/** A double-click on the text opens the editor. A link, picture or button keeps its own click, and a double-click that
+ * dragged out more than a word was selecting. */
+function editNotesFromText(event: MouseEvent) {
+    if ((event.target as HTMLElement).closest('a, button, img, input')) return
+    if (/\s/.test(getSelection()?.toString().trim() ?? '')) return
+    editNotes()
+}
 async function saveNotes() {
     if (uploading.value) return
     const next = notes.value.trim()
     if (next !== (issueNotes.value ?? '') && !await save({notes: next || null})) return
     editingNotes.value = false
 }
+// The whole issue, to paste elsewhere: there once its description and every comment have been read.
+const comments = ref<Comment[]>()
+const wholeIssue = computed(() => issue.value && issueNotes.value !== undefined && comments.value
+    ? issueAsMarkdown({ref: ref_.value, title: issue.value.title, notes: issueNotes.value, comments: comments.value, who})
+    : undefined)
 watch(issueId, () => {
     editingTitle.value = editingNotes.value = false
     resetUploads()
+    comments.value = undefined
 })
 
 // While it waits on issues not closed yet (ORR-601), a line under the title names them, each to its page.
@@ -199,14 +212,17 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />
+    <!-- One sticky block, so the bar sits right under the banner however many lines the banner wraps to (ORR-649). -->
+    <div class="sticky top-0 z-20">
+      <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />
+      <div v-if="issue && found && project" class="border-b border-line bg-panel px-4 py-1 sm:px-8 lg:hidden" data-testid="issue-id-bar">
+        <IssueIdRow :id="issue.id" :reference="ref_" />
+      </div>
+    </div>
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
       <article class="flex min-w-0 flex-1 flex-col gap-8 px-4 py-6 sm:px-8 sm:py-10">
         <header class="flex flex-col gap-2">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="font-mono text-xs whitespace-nowrap text-faint">{{ issue.id }}</span>
-            <CopyButton :text="issue.id" compact />
-            <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" compact />
             <a v-if="issue.waiting" href="#waiting" title="Go to the question"><WaitingChip :asks="issue.waiting" /></a>
             <button
                 v-if="madeBy"
@@ -301,8 +317,11 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               class="absolute -top-1 right-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               @click="editNotes"
           >Edit</UiButton>
-          <MarkdownView v-if="issueNotes" :source="issueNotes" />
+          <MarkdownView v-if="issueNotes" :source="issueNotes" @dblclick="editNotesFromText" />
           <button v-else-if="issueNotes !== undefined" type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No description. Add one</button>
+          <div v-if="wholeIssue" class="mt-4 flex">
+            <CopyButton :text="wholeIssue" label="Copy issue" name="the whole issue" />
+          </div>
         </section>
 
         <section v-if="issue.tasks.length" class="flex flex-col gap-2">
@@ -312,14 +331,15 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           </div>
         </section>
 
-        <IssueActivity :project="project" :issue="issue" />
+        <IssueActivity :project="project" :issue="issue" @comments="comments = $event" />
 
         <p class="rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PATCH /api/projects/{{ project.id }}/issues/{{ issue.id }}</p>
       </article>
 
       <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block dark:bg-panel">
         <!-- Clear of the worker's banner, which sticks above it, on one line at this width. -->
-        <div class="sticky" :class="worker && !isClosed(issue.kind) ? 'top-16' : 'top-6'">
+        <div class="sticky flex flex-col gap-4" :class="worker && !isClosed(issue.kind) ? 'top-16' : 'top-6'">
+          <IssueIdRow :id="issue.id" :reference="ref_" />
           <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
       </aside>

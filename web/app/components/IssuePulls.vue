@@ -10,11 +10,15 @@ import {sendBackNote} from '#shared/roadmap'
 // orrery picks, or starts when nobody's listening), as the owner's (ORR-492).
 const props = defineProps<{project: string, issue: string, updated?: string}>()
 
+const {load: owner} = useOwner()
 const got = ref<IssuePulls>()
 const key = computed(() => `${props.project}/${props.issue}`)
 async function load() {
     const at = key.value
-    const answer = await $fetch<IssuePulls>(`/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/pulls`).catch(() => undefined)
+    // Naming the owner: anyone else gets a PR without its title or branch (ORR-532).
+    const answer = await owner()
+        .then(actor => $fetch<IssuePulls>(`/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/pulls`, {headers: {'Orrery-Actor': actor}}))
+        .catch(() => undefined)
     if (answer && at === key.value) got.value = answer
 }
 watch(key, () => got.value = undefined)
@@ -25,7 +29,6 @@ onMounted(() => timer = setInterval(() => {
 }, 60_000))
 onBeforeUnmount(() => clearInterval(timer))
 
-const {load: owner} = useOwner()
 /** Per PR: sending, sent, or why it couldn't. */
 const sent = ref<Record<number, {busy?: boolean, sent?: boolean, failed?: string}>>({})
 watch(key, () => sent.value = {})
