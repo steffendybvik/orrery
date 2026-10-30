@@ -3,7 +3,7 @@
 In a folder of its own:
 
 ```sh
-curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.15/compose.yml
+curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.16/compose.yml
 docker compose up -d        # http://localhost:9000
 ```
 
