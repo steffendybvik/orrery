@@ -1,6 +1,6 @@
 import type {APIRequestContext, Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
-import {OWNER} from './support'
+import {makeProject, OWNER} from './support'
 
 // What the board and an issue's page look like, against images kept in `visual.spec.ts-snapshots/`, so a change
 // that moves them without meaning to shows up. The images are Linux's, made in CI's Playwright image, so a plain
@@ -28,7 +28,7 @@ test.beforeAll(async ({request}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
     starts = (await api(request, 'get', '/settings')).starts ?? null
     await api(request, 'patch', '/settings', {starts: null}, OWNER)
-    await api(request, 'post', '/projects', {name: 'Gallery', key: 'GAL'})
+    await makeProject(request, {name: 'Gallery', key: 'GAL'})
     const {id: chunk} = await api(request, 'post', '/projects/gallery/chunks', {title: 'Hanging'})
     const issues = [
         {title: 'Hang the portraits in the east wing', status: 'in-progress', priority: 'P1', labels: ['bug']},
