@@ -90,5 +90,6 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
         throw refused("The provider's ID token doesn't check out")
     })
     if (payload.nonce !== asked.nonce || !payload.sub) throw refused("The provider's ID token doesn't check out")
-    return {issuer, subject: payload.sub, ...asked.invite ? {invite: asked.invite} : {}}
+    // With no trailing slash, as the setting's read, so a login is found the same way whichever the provider writes.
+    return {issuer: issuer.replace(/\/+$/, ''), subject: payload.sub, ...asked.invite ? {invite: asked.invite} : {}}
 }

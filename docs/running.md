@@ -252,6 +252,15 @@ no provider, give them a person key (`POST /api/keys` with `kind: "person"`, `na
 
 **A login provider** is any standard OIDC one: set the three `ORRERY_OIDC_…` settings, with `<orrery>/api/auth/oidc/callback` as its redirect address. Its address has to be https unless it's on this machine. Your own account attaches the way anyone's does: claim it, sign in with the key, and invite yourself.
 
+**If the provider's address changes,** move the logins, and nobody needs a new invite:
+
+```sh
+pnpm orrery:claim --move-issuer https://old.example https://new.example                                      # from a checkout
+docker compose exec orrery node /app/server/claim.mjs --move-issuer https://old.example https://new.example  # in Docker
+```
+
+Then set `ORRERY_OIDC_ISSUER` to the new address and restart orrery. It's only for the same provider at a new address. **For a different provider, don't:** its accounts can have the same subjects as someone else's on the old one, so a stranger could log in as that person. Just change the setting and invite everyone again. Keys carry on working either way.
+
 ## Reach it from your phone
 
 Compose publishes orrery on `127.0.0.1`, so only this machine can open it. Anything else
