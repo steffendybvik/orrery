@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright'
 import type {Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 import {OWNER, makeProject, projectApi} from './support'
@@ -46,6 +47,10 @@ const ROUTES = (): Route[] => [
     {path: '/p/atlas/settings', heading: 'Atlas', sidebar: 'Settings', palette: 'Atlas settings'},
     {path: `/p/atlas/issues/${made.issue}`, heading: 'Chart the fjords', sidebar: 'Issues', palette: 'Chart the fjords'},
 ]
+
+// What the page walk already finds, for ORR-724 to fix: each comes off this list as it's fixed, and until then a new
+// case of one of these isn't caught. Any other rule fails the walk.
+const A11Y_KNOWN = ['color-contrast', 'label-content-name-mismatch', 'link-in-text-block', 'nested-interactive', 'aria-prohibited-attr']
 
 let advanced = false
 
@@ -104,6 +109,19 @@ test('every page renders its heading, with no page or console error', async ({pa
             await expect(heading(page, route.heading)).toBeVisible()
             await expect(page.getByRole('heading', {name: /^Nothing at /})).toHaveCount(0)
             expect(errors, route.path).toEqual([])
+        })
+    }
+})
+
+test('no page breaks a WCAG A or AA rule, beyond those the UI/UX audit has (ORR-735)', async ({page}) => {
+    test.setTimeout(120_000)
+    await setAdvanced(page, true)
+    for (const route of ROUTES()) {
+        await test.step(route.path, async () => {
+            await page.goto(route.path)
+            await expect(heading(page, route.heading)).toBeVisible()
+            const {violations} = await new AxeBuilder({page}).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).disableRules(A11Y_KNOWN).analyze()
+            expect(violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), route.path).toEqual([])
         })
     }
 })

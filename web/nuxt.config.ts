@@ -90,6 +90,7 @@ export default defineNuxtConfig({
 
     app: {
         head: {
+            htmlAttrs: {lang: 'en'},
             title: 'orrery',
             meta: [{name: 'description', content: 'Where every app project stands'}],
             link: [
