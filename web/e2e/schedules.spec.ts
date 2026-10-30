@@ -71,6 +71,24 @@ test("a suggested schedule opens filled in, and leaves the list once it's made",
     await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(3)
 })
 
+test('offers Review GitHub issues to a project on GitHub, every three hours (ORR-629)', async ({page, request}) => {
+    await makeProject(request, {name: 'Orchard', key: 'ORC', repo: 'https://github.com/you/orchard.git'})
+    await page.goto('/schedules?project=orchard')
+    const suggested = page.locator('section', {has: page.getByRole('heading', {name: 'Suggested for Orchard'})})
+    await expect(suggested).toContainText('Makes an issue')
+    await expect(suggested).toContainText('Every 3 hours')
+    await suggested.getByRole('button', {name: 'Add Review GitHub issues'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await expect(dialog.getByLabel('Title')).toHaveValue('Review GitHub issues')
+    await expect(dialog.getByLabel('Instructions')).toHaveValue(/https:\/\/github\.com\/you\/orchard\/issues/)
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    await expect(dialog).toBeHidden()
+
+    const [made] = await projectApi('orchard')(request, 'get', '/schedules')
+    expect(made).toMatchObject({kind: 'issue', title: 'Review GitHub issues', cron: '0 */3 * * *', skip_open: true, enabled: true})
+    await expect(suggested.getByRole('button', {name: 'Add Review GitHub issues'})).toBeHidden()
+})
+
 test("says an agent's schedule is the agent's, and runs it only once the owner makes it theirs (ORR-456)", async ({page, request}) => {
     // Open first: what was there before the first visit counts as seen. `api` sends as an agent.
     await page.goto('/schedules?project=vineyard')
