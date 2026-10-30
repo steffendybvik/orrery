@@ -99,7 +99,7 @@ with the reason instead of upgrading a database it has no copy of.
 A new orrery whose database is empty (no projects, no owner yet) never starts from a backup by itself. When its backup
 folder has backups, the first page asks: **Found backups. Restore one?** It lists them with their date, size, projects
 and the orrery each is a copy of (its name, `ORRERY_ENVIRONMENT`, and id), and marks one from another orrery. Pick one,
-or **Start fresh**. Until you've chosen, the empty one isn't backed up over them. In Docker, an orrery that starts
+or **Start fresh**. A new orrery isn't backed up until it has an owner or a project, so it never offers a copy of itself. In Docker, an orrery that starts
 empty with no backups says (on that page and in the log) that its data may be in another volume: a folder with
 another name gives another one, see `docker volume ls`.
 

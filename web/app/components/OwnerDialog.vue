@@ -19,13 +19,15 @@ const backups = ref<Backups | null>(null)
 watch(named, async now => {
     if (!now && !backups.value) backups.value = await apiFetch<Backups>('/backups').catch(() => null)
 }, {immediate: true})
-const asksRestore = computed(() => !!backups.value?.fresh && !!backups.value.snapshots.length)
+// A copy of an empty orrery has nothing to restore (ORR-741); one that can't say how many projects it holds may.
+const restorable = computed(() => backups.value?.snapshots.filter(s => s.projects !== 0) ?? [])
+const asksRestore = computed(() => !!backups.value?.fresh && !!restorable.value.length)
 const showing = computed(() => {
     if (step.value === 'restore' && asksRestore.value) return 'restore'
     return asksData.value ? step.value === 'restore' ? 'data' : step.value : 'name'
 })
 /** In Docker, a new one with no backups may have had its data in a volume of another name. */
-const otherVolume = computed(() => !!backups.value?.fresh && backups.value.docker && !backups.value.snapshots.length)
+const otherVolume = computed(() => !!backups.value?.fresh && backups.value.docker && !restorable.value.length)
 const display = ref('')
 const developer = ref(true)
 const saving = ref(false)

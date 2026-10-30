@@ -60,7 +60,7 @@ export function listSnapshots(dir: string): Snapshot[] {
 export async function isFresh(db: Db): Promise<boolean> {
     const projects = await db.get<{n: number}>('SELECT count(*) AS n FROM projects')
     if (Number(projects?.n ?? 0)) return false
-    return !await db.get('SELECT 1 AS found FROM settings WHERE key = \'owner\'')
+    return !await db.get('SELECT 1 AS found FROM people WHERE role = \'owner\'')
 }
 
 /** Keeps the name this orrery runs under in its own settings, so its backups say which orrery they're a copy of. */
