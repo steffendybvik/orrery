@@ -1,5 +1,5 @@
 import type {H3Event} from 'h3'
-import type {Chat, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
+import type {Chat, ChatRequestDrift, ChatChunkField, ChatChunkRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_CHUNK_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
@@ -8,7 +8,7 @@ import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {sessionHeader} from './actor'
-import {scheduleAsk, scheduleRequest} from './schedule-requests'
+import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
 // page instead of in a terminal. It answers questions about the project and makes issues and comments when asked;
@@ -369,6 +369,29 @@ export async function askSetting(id: string, body: unknown): Promise<ChatMessage
     return said
 }
 
+/** What has changed on what a setting, chunk, release or schedule request would change since it was asked (ORR-645). What
+ * has gone since has nothing to compare: Allow fails on it as its page would. */
+async function requestDrift(chat: Chat, asked: ChatMessage): Promise<ChatRequestDrift[]> {
+    const store = useStore()
+    const drift = (label: string, was: unknown, now: unknown) => JSON.stringify(was) === JSON.stringify(now) ? [] : [{label, from: settingValue(was), to: settingValue(now)}]
+    if (asked.request) return drift(CHAT_SETTINGS[asked.request.setting], asked.request.from, (await store.settings())[asked.request.setting] ?? null)
+    if (asked.schedule) return await scheduleDrift(chat.project, asked.schedule)
+    if (asked.chunk?.id !== undefined) {
+        const current = await store.chunk(chat.project, asked.chunk.id).catch(() => null)
+        return current ? asked.chunk.changes.flatMap(c => c.from === undefined ? [] : drift(CHAT_CHUNK_FIELDS[c.field], c.from, current[c.field] ?? null)) : []
+    }
+    if (asked.release?.change) {
+        const {version} = asked.release
+        const releases = await store.listReleases(chat.project)
+        const at = releases.findIndex(r => r.version === version)
+        const current = releases[at]
+        if (!current) return []
+        return asked.release.changes.flatMap(c => c.from === undefined ? []
+            : drift(CHAT_RELEASE_FIELDS[c.field], c.from, c.field === 'position' ? place(at) : current[c.field as keyof Release] ?? null))
+    }
+    return []
+}
+
 /** The requests being answered right now, by chat and message: a second answer while the first is under way (a
  * double-click, another tab) is refused, rather than saving the schedule or sending the message twice (ORR-455). */
 const answering = new Set<string>()
@@ -389,6 +412,17 @@ export async function answer(id: string, message: number, allow: boolean, actor:
     if (answering.has(key)) throw conflict('That request is being answered already')
     answering.add(key)
     try {
+        const saves = asked.request ?? asked.schedule ?? asked.release ?? asked.chunk
+        if (saves) {
+            const drifted = await requestDrift(chat, asked)
+            const unseen = drifted.some(d => !saves.drifted?.some(s => JSON.stringify(s) === JSON.stringify(d)))
+            if (JSON.stringify(drifted) !== JSON.stringify(saves.drifted ?? [])) {
+                if (drifted.length) saves.drifted = drifted
+                else delete saves.drifted
+                changed(chat)
+            }
+            if (allow && drifted.length && (unseen || !anyway)) return asked
+        }
         if (asked.session) await answerSession(chat, asked.session, allow, actor)
         else if (asked.send) await answerSend(chat, asked.send, allow, actor)
         else if (asked.schedule) await answerSchedule(chat, asked.schedule, allow, actor)
@@ -396,6 +430,9 @@ export async function answer(id: string, message: number, allow: boolean, actor:
         else if (asked.chunk) await answerChunk(chat, asked.chunk, allow, actor)
         else if (asked.move) await answerMove(chat, asked.move, allow, actor, anyway)
         else if (asked.request) await answerSetting(chat, asked.request, allow, actor)
+        if (saves?.drifted?.length) {
+            await useStore().messageSession(chat.project, launchTarget(chat.id), `(That had changed since you asked: ${saves.drifted.map(d => `${d.label} was ${d.from} and is ${d.to} now`).join('; ')}.)`, actor)
+        }
     } finally {
         answering.delete(key)
     }
