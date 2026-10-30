@@ -111,3 +111,25 @@ test("says an agent's schedule is the agent's, and runs it only once the owner m
     await expect(row).not.toContainText('not running')
     await expect(row.locator('.unseen-dot')).toBeHidden()
 })
+
+test('makes a schedule that moves issues, which runs on an event and has no Run now', async ({page, request}) => {
+    await page.goto('/schedules?project=vineyard')
+    await page.getByRole('button', {name: 'New schedule in Vineyard'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await dialog.getByRole('radio', {name: 'Moves issues'}).click()
+    await dialog.getByLabel('Title').fill('Merged PR closes its issue')
+    // On an event, with no clock to pick.
+    await expect(dialog.getByRole('radio', {name: 'Time', exact: true})).toBeHidden()
+    await dialog.getByRole('button', {name: 'Event', exact: true}).click()
+    await dialog.getByRole('option', {name: "An issue's pull request is merged"}).click()
+    await dialog.getByRole('group', {name: 'Moves it from'}).getByRole('button', {name: 'In review'}).click()
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    await expect(dialog).toBeHidden()
+    const made = (await api(request, 'get', '/schedules')).find((s: {title: string}) => s.title === 'Merged PR closes its issue')
+    expect(made).toMatchObject({kind: 'action', on: 'pr.merged', column: 'done', move_from: ['in-review'], protected: true})
+    await expect(page.getByText('moves to Done')).toBeVisible()
+
+    await page.getByText('Merged PR closes its issue').click({button: 'right'})
+    await expect(page.getByRole('menu').getByRole('button', {name: /Remove/})).toBeVisible()
+    await expect(page.getByRole('menu').getByRole('button', {name: /Run now/})).toBeHidden()
+})

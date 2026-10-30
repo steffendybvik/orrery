@@ -68,7 +68,7 @@ function editIt() {
     <template v-if="s">
       <div class="truncate px-2 pt-1.5 pb-1 text-xs text-muted">{{ s.title }}</div>
       <div v-if="!confirming" class="flex flex-col border-t border-line pt-1">
-        <UiMenuItem :disabled="busy" @click="runNow()">▶ Run now</UiMenuItem>
+        <UiMenuItem v-if="s.kind !== 'action'" :disabled="busy" @click="runNow()">▶ Run now</UiMenuItem>
         <UiMenuItem v-if="skips" :disabled="busy" :title="`Runs it now and skips the run at ${skips.full}`" @click="runNow(true)">⏭ Run now instead of {{ skips.short }}</UiMenuItem>
         <UiMenuItem :disabled="busy" @click="toggle">{{ s.enabled ? '❙❙ Pause' : '▶ Resume' }}</UiMenuItem>
         <UiMenuItem @click="editIt">✎ Edit</UiMenuItem>

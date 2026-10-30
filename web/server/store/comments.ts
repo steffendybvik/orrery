@@ -145,6 +145,21 @@ export abstract class CommentStore extends SignalStore {
         return await this.comment(project, issue, id)
     }
 
+    /** orrery's own word on an issue that wakes nobody, as `orrery`: why an action schedule moved it (ORR-636), which was
+     * done so that no session need be. */
+    async systemNote(project: string, issue: string, body: string): Promise<Comment> {
+        const now = stamp()
+        const id = await this.db.transaction(async () => {
+            const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?) RETURNING id',
+                project, issue, body, ORRERY.name, now, now)
+            await this.touchIssue(project, issue)
+            return id
+        })
+        this.changed(project)
+        this.tell('comment.added', project, issue, ORRERY)
+        return await this.comment(project, issue, id)
+    }
+
     /** The owner's comments in the project that no agent has answered and no session has had yet, nor waits in the pool
      * for one to take (from the last day, as `pooledWaiting`), sent to `session` (just connected) to catch up on. Says
      * how many. orrery's own word after one (a pull request's news) answers nothing (ORR-528). */

@@ -134,7 +134,7 @@ export const TOOLS = [
 
 /** A schedule's fields as the chat asks for them (`CHAT_SCHEDULE_FIELDS`, web/shared/roadmap.ts). */
 const SCHEDULE_FIELDS = {
-    kind: {type: 'string', enum: ['issue', 'message', 'session'], description: 'issue makes an issue each run (the default), message sends notes to a session, session starts one with presets and notes'},
+    kind: {type: 'string', enum: ['issue', 'message', 'session', 'action'], description: 'issue makes an issue each run (the default), message sends notes to a session, session starts one with presets and notes, action moves what its event is about to column'},
     title: {type: 'string'},
     notes: {type: ['string', 'null'], description: "The issue's description, or the message"},
     cron: {type: ['string', 'null'], description: 'Five fields, minute hour day month weekday: "0 9 * * 1-5"'},
@@ -143,7 +143,8 @@ const SCHEDULE_FIELDS = {
     on_filter: {type: ['object', 'null'], description: 'What the event must also say: {"to": "in-review"}, {"by": "owner"}, {"level": "error"}'},
     timezone: {type: 'string', description: "An IANA zone, e.g. Europe/Oslo; the server's when left out"},
     presets: {type: 'array', items: {type: 'number'}, description: 'Preset ids for a message or session schedule, before notes'},
-    column: {type: 'string', description: "Where its issues start: an open status's id, or a kind (todo)"},
+    column: {type: 'string', description: "Where its issues start: an open status's id, or a kind (todo). An action schedule's: the status it moves them to"},
+    move_from: {type: 'array', items: {type: 'string'}, description: 'The statuses (ids or kinds) an action schedule moves issues out of; none, any open one'},
     chunk: {type: ['string', 'null']},
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
     labels: {type: 'array', items: {type: 'string'}},

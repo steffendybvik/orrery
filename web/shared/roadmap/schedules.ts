@@ -5,7 +5,7 @@ import type {Priority} from './board'
 /** One time a schedule ran: the issue it made, or why it didn't. */
 export interface ScheduleRun {
     at: string
-    /** `made` an issue, `sent` a message, or `skipped` / `failed` (with why). */
+    /** `made` an issue (or an action schedule's move), `sent` a message, or `skipped` / `failed` (with why). */
     outcome: 'made' | 'sent' | 'skipped' | 'failed'
     issue?: string
     note?: string
@@ -19,7 +19,7 @@ export interface ScheduleRun {
 export interface Schedule {
     id: number
     project: string
-    kind: 'issue' | 'message' | 'session'
+    kind: 'issue' | 'message' | 'session' | 'action'
     title: string
     /** The issue's description, or the message. */
     notes?: string
@@ -32,8 +32,10 @@ export interface Schedule {
     /** Preset ids a message or session schedule is given, their text before `notes`; none for an issue schedule. */
     presets: number[]
     timezone: string
-    /** Where its issues start: a status's id (not a closed one). */
+    /** Where its issues start: a status's id (not a closed one). An action schedule's: the status it moves them to. */
     column: string
+    /** The statuses (ids or kinds) an action schedule moves issues out of; none, any open one. */
+    move_from: string[]
     chunk?: string
     priority?: Priority
     labels: string[]
