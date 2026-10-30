@@ -400,6 +400,30 @@ describe("the channel's tools", () => {
         expect(text).not.toMatch(/ignore-your-rules|ignore your rules|Cupboards/i)
     })
 
+    it("give a decided proposal's picks in place of its options, and a pending one's options whole (ORR-643)", async () => {
+        const choices = [
+            {key: 'volume', question: 'Which volume?', pick: 'one', options: [{key: 'a', title: 'Named', body: 'A long reason'}, {key: 'b', title: 'Unnamed', body: 'Another long reason'}]},
+            {key: 'more', question: 'More?', pick: 'any', options: [{key: 'x', title: 'X'}]},
+        ]
+        const shown = async (fields: object, args: object = {}) => {
+            const {call} = harness({
+                'GET /issues/GRE-1': {body: issue({choices, ...fields})},
+                'GET /issues/GRE-1/comments': {body: []},
+                'GET /issues/GRE-1/pulls': {body: {pulls: []}},
+            })
+            return (await call('issue', {id: 'GRE-1', ...args})).text
+        }
+        const decided = {decided_by: 'skoll', picks: {volume: ['a'], more: []}}
+        const text = await shown(decided)
+        expect(JSON.parse(text)).toMatchObject({picks: [{question: 'Which volume?', picked: ['Named']}], choices_left_out: 'comments: "all" gives every option'})
+        expect(JSON.parse(text).choices).toBeUndefined()
+        expect(text).not.toMatch(/Unnamed|long reason|More\?/)
+        // Every option when asked; and one still waiting, or sent back, needs them to discuss.
+        expect(JSON.parse(await shown(decided, {comments: 'all'}))).toMatchObject({choices, picks: decided.picks})
+        expect(JSON.parse(await shown({proposal: 'pending'})).choices).toEqual(choices)
+        expect(JSON.parse(await shown({...decided, proposal: 'changes'})).choices).toEqual(choices)
+    })
+
     it("give an issue's open sub-issues, a count of the finished, and only its latest comments and open questions in full (ORR-547)", async () => {
         const task = (n: number, status: string, kind = status) => ({id: `GRE-${n}`, title: `Task ${n}`, status, kind})
         const comment = (n: number, more: object = {}) => ({created_by: 'claude', created_at: `2026-10-29T08:${String(n).padStart(2, '0')}:00Z`, body: `\nComment ${n}\nand more of it`, ...more})
