@@ -1,8 +1,7 @@
 // The flags an untrusted schedule's session starts with (orrery-launcher.mjs). That session reads what people outside
 // the project wrote (GitHub issues), which may try to steer it, so it can do little beyond reading them and raising
 // proposals; orrery holds its writes to that too (web/server/middleware/untrusted.ts). And those the owner's chat
-// starts with: it reads the repo and the roadmap and answers, making issues and comments when asked
-// (web/server/middleware/chat.ts).
+// starts with: the owner's own settings, less the channel tools orrery keeps from it (web/server/middleware/chat.ts).
 import {readFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {NOT_FOR_CHAT, NOT_FOR_UNTRUSTED} from './tools.mjs'
@@ -20,13 +19,11 @@ export function lockedDown(dir, server) {
         '--disallowedTools', ...[...NOT_FOR_UNTRUSTED, 'more_tools'].map(tool => `mcp__${server}__${tool}`)]
 }
 
-/** How the owner's chat session is started: it reads the repo (`Read`, `Grep`, `Glob`, no Bash or edits), the roadmap
- * and, through the channel's own gh, the repo's GitHub issues and pull requests (ORR-748), and has the channel's tools but `NOT_FOR_CHAT` (tools.mjs); everything else is refused, not asked. `--restricted` as
- * for `lockedDown`. */
+/** How the owner's chat session is started: with the Claude Code settings of the machine it runs on, as a terminal there
+ * (ORR-750), so what they allow it may do, what they deny it may not, and what they'd ask about it asks. orrery holds it
+ * only to its own rules: the channel but its tools that take up work (its GitHub reads among what it keeps, ORR-748). */
 export function chatOnly(dir, server) {
-    return ['--restricted', '--tools', 'Read,Grep,Glob', '--permission-mode', 'dontAsk', '--settings', JSON.stringify({hooks: hooksOf(dir)}),
-        '--strict-mcp-config', '--mcp-config', join(dir, '.mcp.json'),
-        '--allowedTools', 'Read', 'Grep', 'Glob', `mcp__${server}`,
+    return ['--allowedTools', `mcp__${server}`,
         '--disallowedTools', ...NOT_FOR_CHAT.map(tool => `mcp__${server}__${tool}`)]
 }
 

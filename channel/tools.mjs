@@ -195,6 +195,11 @@ export const CHAT_TOOLS = [
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...Object.fromEntries(['title', 'notes', 'priority', 'labels', 'external', 'github_issues', 'chunk', 'release', 'parent', 'depends_on'].map(f => [f, FIELDS[f]]))}},
     },
     {
+        name: 'delegate_issue',
+        description: "Starts a session on an issue, at once, with no Allow, when the owner asks in this chat for work on it to be done: the chat stays free. It gets the issue alone, no words of yours. For any other session, request start_session.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string', description: 'The issue'}}},
+    },
+    {
         name: 'move_issues',
         description: "Asks the owner to move issues in this project to another status (an id or a kind: todo, done, canceled…), or assign them (a name, owner, or null for nobody). Not a proposal waiting on the owner: that's theirs to decide.",
         inputSchema: {type: 'object', required: ['ids'], properties: {
@@ -386,9 +391,9 @@ const MORE_TOOLS = {
  * only raises proposals and comments on them), and orrery's own log. */
 export const NOT_FOR_UNTRUSTED = ['update_issue', 'start_issue', 'finish_issue', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
-/** The tools a chat goes without: those that take up, move or finish work, write docs, reach outside services or deal
- * with the event log (its launcher refuses them too, `chatOnly`). */
-export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'write_doc', 'egress', 'secrets', 'resolve_event']
+/** The tools a chat goes without: those that take up or finish work, its one rule (ORR-750), `update_issue` among them as
+ * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). */
+export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue']
 
 /** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
  * don't ride on its every turn (ORR-544). */
@@ -684,6 +689,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async reply({text}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/replies`, {text}, root)
             return 'Sent.'
+        },
+        async delegate_issue({id}) {
+            const message = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {delegate: {issue: id}}, root)
+            return message.text
         },
         async move_issues({ids, status, assignee, why}) {
             const {move} = await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {move: {ids, ...status !== undefined ? {status} : {}, ...assignee !== undefined ? {assignee} : {}}, ...why ? {why} : {}}, root)
