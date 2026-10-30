@@ -675,6 +675,7 @@ test('writes a code block in the box: Enter after ``` closes it, and inside it i
     await expect(box).toHaveValue('```ts\none\ntwo\n```')
     await box.press('ControlOrMeta+z')
     await expect(box).not.toHaveValue('```ts\none\ntwo\n```')
+})
 
 test('holds a setting that changed while the request waited until Allow anyway', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
