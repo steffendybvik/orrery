@@ -387,6 +387,45 @@ describe("the owner's chat", () => {
         expect(notes.map(n => n.kind)).toEqual(['chat.asked', 'chat.answered', 'chat.asked', 'chat.asked', 'chat.answered'])
     })
 
+    it("offers an issue, filing it as the owner's only when they press File issue (ORR-711)", async () => {
+        const made: {body: Record<string, unknown>, actor: {via?: string, name: string}}[] = []
+        vi.stubGlobal('useStore', () => ({
+            messageSession: async (project: string, target: string, text: string) => void messages.push({project, target, text}),
+            createIssue: async (_project: string, body: Record<string, unknown>, actor: {via?: string, name: string}) => {
+                made.push({body, actor})
+                return {id: 'GRE-9', title: body.title}
+            },
+        }))
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('forbidden', (message: string) => Object.assign(new Error(message), {statusCode: 403}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+        await chats.openChat('greenhouse')
+        const owner = {name: 'ada', owner: true, asked: true}
+
+        await expect(chats.ask('c1c2c3c4c5c6', {issue: {title: 'Fix it', status: 'done'}})).rejects.toMatchObject({statusCode: 403})
+        await expect(chats.ask('c1c2c3c4c5c6', {issue: {title: 'Fix it', assignee: 'claude'}})).rejects.toMatchObject({statusCode: 403})
+        await expect(chats.ask('c1c2c3c4c5c6', {issue: {title: '  '}})).rejects.toMatchObject({statusCode: 400})
+
+        const offer = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug']}, why: 'I found this.'})
+        expect(offer).toMatchObject({from: 'claude', text: 'I found this.', issue: {title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug'], state: 'asked'}})
+        expect(made).toEqual([])
+
+        const answered = await chats.answer('c1c2c3c4c5c6', offer.id, true, owner)
+        expect(answered.issue).toMatchObject({state: 'allowed', id: 'GRE-9'})
+        expect(made[0]!.body).toEqual({title: 'Fix the vent', notes: 'It sticks.', priority: 'P2', labels: ['bug'], status: 'todo'})
+        expect(made[0]!.actor).toMatchObject({name: 'ada', via: 'chat'})
+        expect(messages.at(-1)!.text).toContain("it's GRE-9")
+        await expect(chats.answer('c1c2c3c4c5c6', offer.id, true, owner)).rejects.toMatchObject({statusCode: 409})
+        expect(made).toHaveLength(1)
+
+        const second = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Oil the hinge'}})
+        const again = await chats.ask('c1c2c3c4c5c6', {issue: {title: 'Oil the hinge', notes: 'Both of them.'}})
+        expect(second.issue!.state).toBe('expired')
+        expect((await chats.answer('c1c2c3c4c5c6', again.id, false, owner)).issue!.state).toBe('denied')
+        expect(made).toHaveLength(1)
+        expect(messages.at(-1)!.text).toContain('nothing was filed')
+    })
+
     it('asks to make a chunk or change one, and saves it as the owner\'s only once they allow it (ORR-510)', async () => {
         const notes: {kind: string}[] = []
         const made: unknown[][] = []

@@ -260,6 +260,7 @@ describe("the channel's tools", () => {
         // A work session has neither.
         const work = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'w', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
         expect((await work('request', {action: 'create_chunk', fields: {title: 'X'}})).isError).toBe(true)
+        expect((await work('request', {action: 'offer_issue', fields: {title: 'X'}})).isError).toBe(true)
         expect((await work('request_fields', {action: 'create_chunk'})).isError).toBe(true)
         expect(calls).toEqual([])
     })
