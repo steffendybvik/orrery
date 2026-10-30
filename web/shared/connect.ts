@@ -43,7 +43,7 @@ const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Permissi
 const ASYNC_EVENTS = ['PreToolUse', 'PermissionRequest']
 
 /** Puts the bootstrap on this machine: it stays the same across versions, and runs what the orrery at `origin` serves. */
-export const bootstrapInstall = (origin: string) => `mkdir -p ~/.orrery && curl -fsS ${origin}/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs`
+const bootstrapInstall = (origin: string) => `mkdir -p ~/.orrery && curl -fsS ${origin}/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs`
 /** Puts the bootstrap on this machine, and the launcher service with it. */
 export const launcherInstall = (origin: string) => `${bootstrapInstall(origin)} && ORRERY_URL=${origin} node ~/.orrery/bootstrap.mjs launcher --install`
 

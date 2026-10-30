@@ -10,7 +10,7 @@ import {Combobox, ComboboxButton, ComboboxInput, ComboboxOption, ComboboxOptions
 // with `small` too, a toolbar's size (h-7, as the buttons beside it).
 // Headless UI's Combobox does the keys, focus and outside-click; this only draws it. The menu opens from the
 // button's left edge, or from its right when the window has no room for it that way.
-export interface PickerOption { value: string, label: string }
+interface PickerOption { value: string, label: string }
 
 const props = defineProps<{
     options: PickerOption[]

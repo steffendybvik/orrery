@@ -423,7 +423,7 @@ function limitMessage(until: number, secret?: boolean): string {
 }
 
 /** How many pull requests a page of `GET /api/pulls` holds unless asked otherwise, and at most (ORR-615). */
-export const PULLS_PAGE = 50
+const PULLS_PAGE = 50
 const PULLS_PAGE_MOST = 200
 
 /** A GitHub login as it can only be: letters, digits, `_` and `-`. */
@@ -432,7 +432,7 @@ const LOGIN = /^[\w-]+$/
 /** A PR as anyone but the owner reads it (ORR-532): never its title or head branch, which an outsider may have written,
  * as sessions read what they're given as the owner's; its author only when it's a plain login, so a session can tell
  * its own PR from an outsider's. */
-export function pullForSession<T extends PullRequest>({title: _title, branch: _branch, author, ...pull}: T) {
+function pullForSession<T extends PullRequest>({title: _title, branch: _branch, author, ...pull}: T) {
     return {...pull, ...LOGIN.test(author) ? {author} : {}}
 }
 

@@ -8,12 +8,12 @@ import {CLOSED} from './roadmap'
 // behind `base` missed one, and reads the project again.
 
 /** An issue's place in its chunk: its id and its sub-issues'. */
-export interface Shape {
+interface Shape {
     id: string
     tasks: Shape[]
 }
 
-export type IssueFields = Omit<Issue, 'tasks'>
+type IssueFields = Omit<Issue, 'tasks'>
 type ChunkFields = Omit<Chunk, 'tasks'>
 
 export interface ProjectPatch {

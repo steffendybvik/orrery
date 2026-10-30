@@ -35,7 +35,7 @@ function routeOf(route: string): Route {
 }
 
 /** The request's parameters if it's `route` (as they came, still escaped), else null. */
-export function matchRoute(route: string, method: string, path: string): Record<string, string> | null {
+function matchRoute(route: string, method: string, path: string): Record<string, string> | null {
     const {method: wanted, pattern, names} = routeOf(route)
     if (method !== wanted) return null
     const found = pattern.exec(path)
