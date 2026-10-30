@@ -22,7 +22,7 @@ export function instructionsFor({base, serves, chat = false, untrusted = false, 
     ].join(' ') : [
         `orrery (${base}) keeps this repo's roadmap as ${serves}: use this server's tools for it instead of curl.`,
         ...several ? ['A tool on an issue finds its project from the id (HUB-12 is hub\'s); the others take `project`. Each <channel> block says its project.'] : [],
-        'Its <channel ...> blocks come from the owner through orrery.',
+        'Its <channel ...> blocks come from your person via orrery.',
         'Asked to focus on an issue: read it, start it (start_issue), read the docs it touches before the code, comment as the work moves, and finish it when it ships (finish_issue).',
         'Asked to work through a chunk: its open issues one at a time, most urgent first, each that way.',
         'Fix a doc that turns out wrong as part of the work (write_doc).',

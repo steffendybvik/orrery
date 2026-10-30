@@ -319,14 +319,14 @@ export abstract class IssueStore extends ClaimStore {
             UNION SELECT project FROM issue_links WHERE on_project = ? AND on_issue = ?`, project, id, project, id)).map(r => r.project)
     }
 
-    /** An issue the owner's write just made urgent open work (P0, and committed, not closed and not blocked, which it wasn't
+    /** An issue the owner's or a member's write (which goes to their own sessions) just made urgent open work (P0, and committed, not closed and not blocked, which it wasn't
      * before) goes to the sessions as a focus, without their asking: to the session working it while it can hear,
      * else to one session orrery picks (pool.ts). The write is saved by now, so a push that fails is only logged. */
     protected async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
         try {
             const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal
                 && !CLOSED.includes((await this.statuses()).find(s => s.id === row.status)?.kind as Kind)
-            if (!actor.owner || !await urgentWork(after) || (before && await urgentWork(before))) return
+            if (!(actor.owner || actor.person) || !await urgentWork(after) || (before && await urgentWork(before))) return
             // One blocked (ORR-601) waits for what it depends on, urgent or not: it's handed out once that's done.
             if ((await this.blockers(project, after.id)).length) return
             await this.sendFocus(project, after.id, {note: 'It was just made urgent (P0).', session: await this.listeningWorker(project, after.id)}, actor)

@@ -59,7 +59,7 @@ export async function resumeRun(project: string, session: string): Promise<boole
     if (resumed.get(run) === left) return false
     resumed.set(run, left)
     await store.focusChunk(project, run.chunk, {session, status: run.status ?? null, release: run.release ?? null, note: "Carry on with what's left of it after the clear."},
-        {name: run.created_by, owner: run.protected})
+        {name: run.created_by, owner: run.protected, ...run.person ? {person: run.person} : {}})
     return true
 }
 

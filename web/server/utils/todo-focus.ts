@@ -26,9 +26,12 @@ export const TODO_NOTE = 'It just landed in Todo.'
 /** The note an unblocked issue's focus goes with, after the blockers it waited on. */
 export const UNBLOCKED_NOTE = 'What it was waiting on is done now, so it can start:'
 
+/** Who moved an issue, and, when that's a member (ORR-658), that it goes only to their own sessions. */
+type TodoMove = {from?: string, by: string, member?: string}
+
 /** The issues the owner moved into (or made in) Todo since the last hand-out, by project: each with the status it
  * left (none when it was made), and who moved it. */
-const moved = new Map<string, Map<string, {from?: string, by: string}>>()
+const moved = new Map<string, Map<string, TodoMove>>()
 /** What may have changed what's blocked since the last hand-out, by project: issues that moved status (from and to),
  * which may free, hold or reopen what depends on them, and ones whose links were dropped, which may free themselves. */
 const relinked = new Map<string, Map<string, {from?: string, to?: string, links?: true}>>()
@@ -44,8 +47,8 @@ export function heardTodo({event, cause}: {event: OrreryEvent, cause?: unknown})
     const change = {...event.from ? {from: event.from} : {}, ...event.to ? {to: event.to} : {}}
     if (event.type === 'issue.status') keep(relinked, event.project, event.subject, change)
     if (event.type === 'issue.depends' && dropped(event.from, event.to)) keep(relinked, event.project, event.subject, {links: true})
-    if (event.by?.owner && (event.type === 'issue.status' || event.type === 'issue.created')) {
-        keep(moved, event.project, event.subject, {...event.type === 'issue.status' && event.from ? {from: event.from} : {}, by: event.by.name})
+    if ((event.by?.owner || event.by?.person) && (event.type === 'issue.status' || event.type === 'issue.created')) {
+        keep(moved, event.project, event.subject, {...event.type === 'issue.status' && event.from ? {from: event.from} : {}, by: event.by.name, ...event.by.person ? {member: event.by.person} : {}})
     }
     if (!moved.size && !relinked.size) return
     timer ??= setTimeout(() => {
@@ -93,8 +96,8 @@ const hears = (session: {project: string, also?: string[]}, project: string) => 
 
 /** Whether an issue on the board is free to hand out: open in Todo, not a proposal, a parent, someone else's
  * (`forSessions`), blocked (ORR-601) or waiting on the owner. */
-const handable = (issue: IssueRecord, parents: Set<string | null>) => issue.kind === 'todo' && !issue.proposal && !issue.waiting
-    && forSessions(issue) && !isBlocked(issue) && !parents.has(issue.id)
+const handable = (issue: IssueRecord, parents: Set<string | null>, member?: string) => issue.kind === 'todo' && !issue.proposal && !issue.waiting
+    && (member ? issue.assignee?.toLowerCase() === member : forSessions(issue)) && !isBlocked(issue) && !parents.has(issue.id)
 
 /** What the issues in `project` that just changed did to what depends on them (ORR-601). One done frees each issue
  * waiting on it whose other blockers are done too; one with a link dropped may be free itself. Each freed is told
@@ -162,7 +165,7 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
  * this, a P0's push), most urgent first, each to its own idle session out of work, the project's own before one
  * spanning projects. A follow-up under an issue another session is on goes to that session instead (ORR-613). Says
  * how many went. */
-export async function handTodo(project: string, issues: Map<string, {from?: string, by: string}>): Promise<number> {
+export async function handTodo(project: string, issues: Map<string, TodoMove>): Promise<number> {
     const store = useStore()
     const kinds = new Map((await store.statuses()).map(s => [s.id, s.kind]))
     const idle = await idleSessions(project)
@@ -172,23 +175,25 @@ export async function handTodo(project: string, issues: Map<string, {from?: stri
     const work = []
     for (const issue of board) {
         const move = issues.get(issue.id)
-        if (!move || !handable(issue, parents) || (move.from && kinds.get(move.from) === 'todo')) continue
+        if (!move || !handable(issue, parents, move.member) || (move.from && kinds.get(move.from) === 'todo')) continue
         if (await store.focusOnItsWay(project, issue.id)) continue
-        work.push({issue, by: move.by})
+        work.push({issue, by: move.by, member: move.member})
     }
     work.sort((a, b) => (a.issue.priority ? RANK[a.issue.priority] : 4) - (b.issue.priority ? RANK[b.issue.priority] : 4)
         || a.issue.created_at.localeCompare(b.issue.created_at))
 
     let sent = 0
-    let next = 0
-    for (const {issue, by} of work) {
+    const given = new Set<string>()
+    for (const {issue, by, member} of work) {
         // A follow-up under an issue another session is on goes to that session (ORR-613), busy or not: any other would
         // be refused its start.
         const held = (await store.heldAbove(project, issue.id))?.holder
-        const free = held ? undefined : idle[next++]
+        if (held && member && sessionNow(held)?.person !== member) continue
+        const free = held ? undefined : idle.find(s => !given.has(s.id) && (!member || s.person === member))
+        if (free) given.add(free.id)
         const session = held ?? (free && currentId(free.id))
         if (!session) continue
-        await store.focus(project, issue.id, {note: TODO_NOTE, session}, {name: by, owner: true})
+        await store.focus(project, issue.id, {note: TODO_NOTE, session}, member ? {name: by, owner: false, person: member} : {name: by, owner: true})
         sent++
     }
     return sent

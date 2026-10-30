@@ -51,6 +51,11 @@ const LIMITS: Record<NonNullable<PermissionCell['check']>, (params: Record<strin
     },
     /** Only the person holding the board the route names (ORR-654). */
     boardHolder: async ({project}, person) => !!project && !!person && await useStore().holdsBoard(decoded(project), person),
+    /** Only a session of the person asking (ORR-658), by the session or the launch the route names. */
+    ownSession: async ({session, launch}, person) => {
+        const found = session ? sessionNow(decoded(session)) : listSessions().find(s => s.started?.launch === decoded(launch ?? ''))
+        return !!person && found?.person === person
+    },
 }
 
 /** Whether `kind` may make this write: a row its cell allows, on a route the cell allows, past its check (`person`

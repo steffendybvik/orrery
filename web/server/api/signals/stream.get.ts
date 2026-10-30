@@ -25,13 +25,14 @@ export default defineEventHandler(async event => {
     const origin = getRequestURL(event).origin
     const startedFor = text('started') ? text('started_for') ?? projects[0] : undefined
 
+    const person = await personOf(event)
     const feeds: Feed[] = []
     const stream = createEventStream(event)
     let closed = false
     let unnamed: (() => void) | undefined
     let left = () => {}
     const add = async (project: string, catchUp: number | undefined) => {
-        const feed = await openFeed(project, listenerOf(text, project === startedFor), catchUp, origin)
+        const feed = await openFeed(project, listenerOf(text, project === startedFor, person), catchUp, origin)
         if (closed) return feed.close()
         feeds.push(feed)
         // Its name before anything it catches up on.
