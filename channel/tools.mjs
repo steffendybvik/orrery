@@ -170,6 +170,12 @@ const CHUNK_FIELDS = {
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
 }
 
+const DOC_FIELDS = {
+    title: {type: 'string'},
+    section: {type: ['string', 'null'], description: 'The group it is listed under; null for none'},
+    body: {type: 'string', description: 'Markdown'},
+}
+
 /** Why the chat asks: a line for the owner, shown with the request. */
 const WHY = {type: 'string'}
 
@@ -201,16 +207,16 @@ export const CHAT_TOOLS = [
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
         name: 'request',
-        description: 'Asks the owner for one of the actions request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release or chunk. Read its fields with request_fields first.',
+        description: 'Asks the owner for an action request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release, chunk or doc. Read its fields first.',
         inputSchema: {type: 'object', required: ['action'], properties: {
             action: {type: 'string', enum: []},
-            fields: {type: 'object', description: 'As request_fields gives them for the action'},
+            fields: {type: 'object', description: 'As request_fields gives them'},
             why: WHY,
         }},
     },
     {
         name: 'request_fields',
-        description: 'What an action of request does and the fields it takes.',
+        description: 'What a request action does and takes.',
         inputSchema: {type: 'object', required: ['action'], properties: {action: {type: 'string', enum: []}}},
     },
 ]
@@ -291,6 +297,16 @@ export const CHAT_REQUESTS = [
         name: 'update_chunk',
         description: "Changes one of this project's chunks, by its id (the chunks tool lists them): send only what changes. Removing one is the owner's, on its page.",
         inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...CHUNK_FIELDS}},
+    },
+    {
+        name: 'create_doc',
+        description: 'Makes a doc in this project: a decision and why, or how something works. Its id comes from its title. The owner sees the title, section and full text.',
+        inputSchema: {type: 'object', required: ['title'], properties: DOC_FIELDS},
+    },
+    {
+        name: 'update_doc',
+        description: "Changes one of this project's docs, by its id (the docs tool lists them): send only what changes, with body the whole new text. The owner sees a diff. If the doc changes after you ask, their Allow is refused: read it again and ask again. Removing a doc, and renaming or deleting a section, are the owner's, on the page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...DOC_FIELDS}},
     },
 ]
 
@@ -670,6 +686,14 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async update_chunk({id, why, ...chunk}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, chunk, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async create_doc({why, ...doc}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {doc, ...why ? {why} : {}}, root)
+            return "Asked: the owner sees the doc with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
+        },
+        async update_doc({id, why, ...doc}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, doc, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async message_sessions({text, projects, states, why}) {

@@ -8,7 +8,7 @@ import {ChunkStore} from './chunks'
 import {readDocSections, readDocSummaries} from './reads'
 
 /** A doc's section as sent: trimmed, and none for an empty one; undefined leaves it as it is. */
-function sectionOf(value: Input[string]): string | null | undefined {
+export function sectionOf(value: Input[string]): string | null | undefined {
     if (value === undefined) return undefined
     const section = value === null ? '' : String(value).trim().slice(0, 60)
     return section || null
@@ -65,13 +65,19 @@ export abstract class DocStore extends ChunkStore {
         return {doc: await this.updateDoc(project, id, {title: input.title, body: input.body ?? '', position: input.position, section: input.section}, actor), created: false}
     }
 
-    async updateDoc(project: string, id: string, body: unknown, actor = AGENT): Promise<Doc> {
+    /** Changes a doc; with `was`, only if it's still as that says, or it's a 409: a change the owner read against that text
+     * doesn't land on any other (the chat's request, ORR-661). */
+    async updateDoc(project: string, id: string, body: unknown, actor = AGENT, was?: {title: string, section: string | null, body: string}): Promise<Doc> {
         await this.docRow(project, id)
         const input = checkInput(body, DOC_FIELDS, true)
         if (input.id !== undefined && input.id !== id) throw badRequest("A doc's id can't change")
         const fields = {title: input.title === undefined ? undefined : String(input.title).trim(), body: input.body, position: input.position}
         const section = sectionOf(input.section)
         await this.db.transaction(async () => {
+            if (was) {
+                const now = await this.docRow(project, id)
+                if (now.title !== was.title || now.body !== was.body || (now.section ?? null) !== was.section) throw conflict(`Doc "${id}" has changed since then`)
+            }
             if (Object.values(fields).some(value => value !== undefined)) await this.update('docs', 'project = ? AND id = ?', [project, id], fields)
             // Filing it elsewhere isn't a change to read, so it doesn't count as one (`updated_at`, what's unseen).
             if (section !== undefined) await this.run('UPDATE docs SET section = ? WHERE project = ? AND id = ?', section, project, id)

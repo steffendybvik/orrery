@@ -529,7 +529,8 @@ an issue's title, notes, priority, labels, team tasks, chunk, release or parent 
 asks them to move issues to another status or assign them, and `request`, which asks them for the rest: `start_session`,
 `stop_session` and `extend_session`; `message_sessions` and `message_session`, to message other sessions (below);
 `update_settings`, one App setting (below); `create_schedule` and `update_schedule` (pause and resume included);
-`create_release` and `update_release` (freezing and shipping included); and `create_chunk` and `update_chunk`. Those
+`create_release` and `update_release` (freezing and shipping included); `create_chunk` and `update_chunk`; and
+`create_doc` and `update_doc` (below). Those
 actions aren't listed as tools of their own, so they don't sit in its context until it needs one (ORR-624):
 `request_fields {action}` says what an action does and takes, and `request {action, fields, why}` asks. Each asks
 only when the owner asked in the chat, never on its own, and nothing happens until they allow it. It hears only its chat's messages: no focus, no message to
@@ -537,8 +538,11 @@ every session, and nobody listening never wakes it. Its writes are held to makin
 or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), changing an issue's
 `title`, `notes`, `priority`, `labels`, `external`, `github_issues`, `chunk`, `release`, `parent` and `depends_on` (`PATCH` with anything else, `status`
 or `assignee` say, is a 403, and no other session's claim on it holds it back), commenting, replying, messaging
-asking to message sessions, and asking to change a setting, a schedule, a release or a chunk, to start, stop or extend a session, or to move or assign issues; it can't message a session itself (both
-message routes are a 403 to it). A message the owner sends from its request goes as theirs,
+asking to message sessions, and asking to change a setting, a schedule, a release, a chunk or a doc, to start, stop or extend a session, or to move or assign issues; it can't message a session itself (both
+message routes are a 403 to it), nor write a doc itself (the doc routes are a 403 to it too). A doc it asks to make or
+change (`POST /api/chats/:id/requests` with `{doc: {title?, section?, body?}, id?, why?}`, `id` for a change) is saved as
+the owner's on their Allow; a change shows as a diff, and is a 409, saving nothing, if the doc changed after it asked.
+Removing a doc, and renaming or deleting a section, stay the owner's. A message the owner sends from its request goes as theirs,
 with `via: "chat"` on the signal; the session hears it ending `(Sent by the owner through their chat.)`, and the
 Sessions page and the event log (`session.messaged`) say it came through the chat. A chat is kept in memory
 while it runs, so it's gone after orrery restarts.

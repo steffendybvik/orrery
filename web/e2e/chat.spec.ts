@@ -421,6 +421,68 @@ test('asks the owner to add or ship a release, and saves it only on their Allow'
     }
 })
 
+test('asks the owner to make or change a doc, and saves it as theirs only on their Allow', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    const read = async (id: string) => (await (await request.get(`/api/projects/observatory/docs/${id}`)).json()) as {title: string, body: string, section?: string, protected: boolean}
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        await endChats(request)
+        const chat = await (await request.post('/api/chats', {data: {project: 'observatory'}, headers: OWNER})).json()
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-chat-doc&name=e2e-chat-doc&started=${chat.id}&chat=yes&format=text`)
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Session': 'e2e-chat-doc', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const ask = async (data: object) => {
+            const asked = await request.post(`/api/chats/${chat.id}/requests`, {data, headers: asChat})
+            expect(asked.status(), await asked.text()).toBe(201)
+        }
+
+        // It can't write one itself, by any route, whatever it says it is.
+        expect((await request.put('/api/projects/observatory/docs/lenses', {data: {title: 'Lenses'}, headers: asChat})).status()).toBe(403)
+        expect((await request.post('/api/projects/observatory/docs', {data: {title: 'Lenses'}, headers: asChat})).status()).toBe(403)
+        expect((await request.put('/api/projects/observatory/docs/lenses', {data: {title: 'Lenses'}, headers: {...asChat, 'Orrery-Actor': OWNER['Orrery-Actor']}})).status()).toBe(403)
+
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+
+        // Made: the title, section and full text, saved as the owner's on Allow.
+        await ask({doc: {title: 'Lenses', section: 'How it works', body: 'Clean **them** weekly.\nWith a cloth.'}})
+        const fresh = pane.getByRole('group', {name: 'Make doc Lenses'})
+        await expect(fresh).toContainText('How it works')
+        await expect(fresh.getByTestId('doc-text')).toContainText('Clean **them** weekly.')
+        expect((await request.get('/api/projects/observatory/docs/lenses')).status()).toBe(404)
+        await fresh.getByRole('button', {name: 'Allow'}).click()
+        await expect(fresh).toContainText('Allowed and saved')
+        expect(await read('lenses')).toMatchObject({title: 'Lenses', section: 'How it works', protected: true})
+        await expect.poll(() => session!.said.text).toContain('doc lenses ("Lenses") is saved')
+
+        // Changed, denied: a diff of the lines that change, and nothing saved.
+        await ask({id: 'lenses', doc: {body: 'Clean **them** daily.\nWith a cloth.'}})
+        const change = pane.getByRole('group', {name: 'Change doc Lenses'})
+        const diff = change.getByTestId('doc-diff')
+        await expect(diff.locator('[data-diff="removed"]')).toHaveText(/weekly/)
+        await expect(diff.locator('[data-diff="added"]')).toHaveText(/daily/)
+        await expect(diff.locator('[data-diff="same"]')).toHaveText(/With a cloth/)
+        await change.getByRole('button', {name: 'Deny'}).click()
+        await expect(change).toContainText('Denied')
+        expect((await read('lenses')).body).toContain('weekly')
+
+        // Changed again, and the doc changes while it waits: Allow is refused and saves nothing.
+        await ask({id: 'lenses', doc: {title: 'Lens care', body: 'Never.'}})
+        const stale = pane.getByRole('group', {name: 'Change doc Lens care'})
+        await request.patch('/api/projects/observatory/docs/lenses', {data: {body: 'Changed under it.'}, headers: OWNER})
+        await stale.getByRole('button', {name: 'Allow'}).click()
+        await expect(stale).toContainText('Refused: the doc changed after it asked')
+        expect(await read('lenses')).toMatchObject({title: 'Lenses', body: 'Changed under it.'})
+        await expect.poll(() => session!.said.text).toContain('changed after you asked')
+    } finally {
+        await endChats(request)
+        await request.delete('/api/projects/observatory/docs/lenses', {headers: OWNER})
+        session?.stop()
+        launcher.stop()
+    }
+})
+
 // Where the chat's issues land (ORR-408): the owner picks Todo or Backlog beside Send, before the chat starts or
 // during it, and it's remembered for the next one. The server holds the chat to it, whatever status its session asks
 // for, and the session can't change it.
