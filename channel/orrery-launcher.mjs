@@ -23,7 +23,7 @@
 // this launcher open a terminal on it; the Sessions page's live view has it send the screen while it's open; the owner's
 // Allow on a permission prompt has it press Enter on "Yes"), with the channel, in
 // ORRERY_PERMISSION_MODE (`auto` by default, as nobody is there to answer a prompt; an untrusted schedule's session
-// locked down instead, see `lockedDown`, and the owner's chat with the owner's own settings but no edits, see `chatOnly`), and runs
+// locked down instead, see `lockedDown`, and the owner's chat with the owner's own settings, see `chatOnly`), and runs
 // until orrery asks
 // for it to be stopped: the owner stopping it, or, once it's idle with nothing open, its time being up or its having
 // sat idle too long (when the project sets those). Between pieces of work orrery has it `/clear`ed, for a
@@ -459,7 +459,7 @@ function serve({url, project, dir, picked_at: picked}, signal) {
 
     /** Starts the launch's session, once this launcher has claimed it (another may have first). */
     async function start(launch) {
-        // It says it locks an untrusted launch down with no Bash, and starts a chat with no edits: orrery
+        // It says it locks an untrusted launch down with no Bash, and starts a chat as `chatOnly` says: orrery
         // gives either only to a launcher that does.
         const claim = await fetch(`${api}/launches/${launch.id}/claim?untrusted=no-bash&chat=yes`, {method: 'POST', headers: {'Orrery-Launcher': token, ...authHeaders(api)}}).then(r => r.json()).catch(() => ({claimed: false}))
         if (!claim.claimed) return

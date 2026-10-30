@@ -139,7 +139,7 @@ Code settings of its machine, as a terminal there gets (ORR-750): what your allo
 refuses it may not, and what a terminal would ask about, it asks. **So it has your own permissions, and it reads what others wrote**:
 a planted comment can try to talk it into whatever your settings allow, such as fetching a page. With Bash allowed, it can also
 reach orrery without its channel's mark, and the guards below don't hold there. They're orrery's own rules, not a boundary.
-It has no edits, as it doesn't change code, and goes without `egress`,
+So it can edit files and run commands where your settings let it. It goes without `egress`,
 `secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
 unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release, parent or what it depends on (any other
 change is refused), commenting, and

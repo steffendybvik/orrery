@@ -38,11 +38,10 @@ describe("the owner's chat", () => {
         for (const flag of ['--restricted', '--tools', '--permission-mode', '--settings', '--strict-mcp-config', '--mcp-config']) expect(args).not.toContain(flag)
     })
 
-    it('has the channel without asking, and no edits nor the channel\'s tools that take up work', () => {
+    it('has the channel without asking, and leaves Claude Code\'s own tools to the owner\'s settings, but not the channel\'s tools that take up work', () => {
         const args: string[] = chatOnly('/repo', 'orrery-shop')
         expect(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))).toEqual(['mcp__orrery-shop'])
         const refused = args.slice(args.indexOf('--disallowedTools') + 1)
-        expect(refused).toEqual(expect.arrayContaining(['Edit', 'Write', 'NotebookEdit', ...NOT_FOR_CHAT.map((tool: string) => `mcp__orrery-shop__${tool}`)]))
-        expect(refused).not.toContain('Bash')
+        expect(refused).toEqual(NOT_FOR_CHAT.map((tool: string) => `mcp__orrery-shop__${tool}`))
     })
 })
