@@ -9,7 +9,6 @@ import type {DocSummary, Project} from '#shared/roadmap'
 const props = defineProps<{project: Project}>()
 const route = useRoute()
 const {docUnseen} = useUnseen()
-const {load} = useOwner()
 
 const loose = computed(() => props.project.docs.filter(doc => !doc.section))
 const sections = computed(() => {
@@ -39,7 +38,7 @@ const failed = ref('')
 async function save(path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: object): Promise<boolean> {
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.project.id)}/${path}`, {method, headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(`/projects/${encodeURIComponent(props.project.id)}/${path}`, {method, body})
         return true
     } catch (error) {
         failed.value = errorMessage(error)

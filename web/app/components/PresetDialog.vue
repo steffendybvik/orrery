@@ -6,7 +6,6 @@ import type {Preset, Project} from '#shared/roadmap'
 // button. ⌘↵ saves, Esc closes. One orrery ships, once changed, can be reset to what it ships.
 const props = defineProps<{open: Preset | 'new' | null, project?: Project}>()
 const emit = defineEmits<{close: [], saved: []}>()
-const {load} = useOwner()
 
 const editing = computed(() => props.open && props.open !== 'new' ? props.open : null)
 const draft = reactive({name: '', text: '', icon: null as string | null, color: null as string | null})
@@ -25,13 +24,13 @@ watch(() => props.open, now => {
 watch(textInput, el => el?.focus())
 
 const ready = computed(() => !!draft.name.trim() && !!draft.text.trim() && !saving.value)
-const list = computed(() => props.project ? `/api/projects/${encodeURIComponent(props.project.id)}/presets` : '/api/presets')
+const list = computed(() => props.project ? `/projects/${encodeURIComponent(props.project.id)}/presets` : '/presets')
 
 async function send(url: string, method: 'POST' | 'PATCH' | 'DELETE', body?: object) {
     saving.value = true
     failed.value = ''
     try {
-        await $fetch(url, {method, headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(url, {method, body})
         emit('saved')
         emit('close')
     } catch (error) {
@@ -43,10 +42,10 @@ async function send(url: string, method: 'POST' | 'PATCH' | 'DELETE', body?: obj
 function save() {
     if (!ready.value) return
     const body = {name: draft.name.trim(), text: draft.text.trim(), icon: draft.icon, color: draft.color}
-    send(editing.value ? `/api/presets/${editing.value.id}` : list.value, editing.value ? 'PATCH' : 'POST', body)
+    send(editing.value ? `/presets/${editing.value.id}` : list.value, editing.value ? 'PATCH' : 'POST', body)
 }
-const remove = () => editing.value && send(`/api/presets/${editing.value.id}`, 'DELETE')
-const reset = () => editing.value && send(`/api/presets/${editing.value.id}/reset`, 'POST')
+const remove = () => editing.value && send(`/presets/${editing.value.id}`, 'DELETE')
+const reset = () => editing.value && send(`/presets/${editing.value.id}/reset`, 'POST')
 </script>
 
 <template>

@@ -8,7 +8,7 @@ import {isFrozen, linkRef} from '#shared/roadmap'
 // Each project's ticked issues go in one call, and each issue on its own: what was refused is listed.
 const route = useRoute()
 const {byId} = useRoadmaps()
-const {load, who, name: owner} = useOwner()
+const {who, name: owner} = useOwner()
 const {selected, key, byProject, inPageOrder, clear} = useSelection()
 const {places} = useStatuses()
 
@@ -41,13 +41,12 @@ async function run(method: 'PATCH' | 'POST' | 'DELETE', path: string, body: Reco
     busy.value = true
     said.value = ''
     failed.value = []
-    const actor = await load()
     const refused: string[] = []
     const why: string[] = []
     let done = 0
     for (const [project, ids] of byProject.value) {
         try {
-            const results = await $fetch<{id: string, ok: boolean, error?: string}[]>(`/api/projects/${encodeURIComponent(project)}/issues${path}`, {method, headers: {'Orrery-Actor': actor}, body: {ids, ...body}})
+            const results = await apiFetch<{id: string, ok: boolean, error?: string}[]>(`/projects/${encodeURIComponent(project)}/issues${path}`, {method, body: {ids, ...body}})
             for (const r of results) {
                 if (r.ok) done++
                 else {
@@ -81,7 +80,6 @@ async function chain() {
     busy.value = true
     said.value = ''
     failed.value = []
-    const actor = await load()
     const refused: string[] = []
     const why: string[] = []
     for (const [at, {project, issue}] of order.entries()) {
@@ -91,7 +89,7 @@ async function chain() {
         const now = issue.depends_on ?? []
         if (now.includes(link)) continue
         try {
-            await $fetch(`/api/projects/${encodeURIComponent(project.id)}/issues/${encodeURIComponent(issue.id)}`, {method: 'PATCH', headers: {'Orrery-Actor': actor}, body: {depends_on: [...now, link]}})
+            await apiFetch(`/projects/${encodeURIComponent(project.id)}/issues/${encodeURIComponent(issue.id)}`, {method: 'PATCH', body: {depends_on: [...now, link]}})
         } catch (error) {
             refused.push(key(above.project.id, above.issue.id), key(project.id, issue.id))
             why.push(`${issue.id}: ${errorMessage(error)}`)

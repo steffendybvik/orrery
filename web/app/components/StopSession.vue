@@ -4,7 +4,6 @@ import type {Session} from '#shared/roadmap'
 // The owner's Stop for a session opened in a terminal: its orrery channel ends it. It asks once more first,
 // as whatever the session was in the middle of goes with it.
 const props = defineProps<{session: Session}>()
-const {load} = useOwner()
 const sure = ref(false)
 const busy = ref(false)
 const failed = ref('')
@@ -21,8 +20,8 @@ async function stop() {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.session.project)}/sessions/${encodeURIComponent(props.session.id)}/stop`, {
-            method: 'POST', headers: {'Orrery-Actor': await load()},
+        await apiFetch(`/projects/${encodeURIComponent(props.session.project)}/sessions/${encodeURIComponent(props.session.id)}/stop`, {
+            method: 'POST',
         })
     } catch (error) {
         failed.value = errorMessage(error)

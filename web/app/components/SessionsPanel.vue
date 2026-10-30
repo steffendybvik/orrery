@@ -12,7 +12,7 @@ const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
 const {sessions: all, signals: live, byId} = useRoadmaps()
 const {settings} = useAppSettings()
-const {load, who} = useOwner()
+const {who} = useOwner()
 const {look} = useStatuses()
 
 const sessions = computed(() => [...all.value[props.project] ?? []].sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
@@ -31,7 +31,7 @@ const failed = ref<string | null>(null)
 
 
 async function loadSent() {
-    sent.value = await $fetch<Signal[]>(`/api/projects/${encodeURIComponent(props.project)}/signals`, {query: about.value}).catch(() => [])
+    sent.value = await apiFetch<Signal[]>(`/projects/${encodeURIComponent(props.project)}/signals`, {query: about.value}).catch(() => [])
 }
 watch(path, loadSent, {immediate: true})
 // Signals sent or delivered just now, from the live stream.
@@ -58,9 +58,8 @@ async function focus(session: Session | '*' | null, start = false) {
     sending.value = session === '*' ? 'all' : target ?? 'all'
     failed.value = null
     try {
-        const owner = await load()
-        const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...target ? {session: target} : {}, ...start ? {start} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
+        const {signal} = await apiFetch<{signal: Signal}>(`/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
+            method: 'POST', body: {...target ? {session: target} : {}, ...start ? {start} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
     } catch {
@@ -75,8 +74,7 @@ async function startOn() {
     sending.value = 'new'
     failed.value = null
     try {
-        const owner = await load()
-        await $fetch(`/api/projects/${encodeURIComponent(props.project)}/launches`, {method: 'POST', headers: {'Orrery-Actor': owner}, body: {issue: props.issue, hears: [props.project]}})
+        await apiFetch(`/projects/${encodeURIComponent(props.project)}/launches`, {method: 'POST', body: {issue: props.issue, hears: [props.project]}})
     } catch (error) {
         failed.value = errorMessage(error, 'start')
     } finally {

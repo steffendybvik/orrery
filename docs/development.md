@@ -51,6 +51,10 @@ Buttons, dialogs, menus and confirmations come from a small kit in `web/app/comp
 rest of the shared pieces (pickers, icons, chips) are one component each. [UI components](components.md)
 lists them and when to use which: reach for one before writing the markup again.
 
+The page reaches the API only through `web/app/utils/api.ts`: `apiFetch` by its path under `/api`, which sends a write as
+the owner unless the call gives its own `headers`, and `apiUrl` for an address that isn't a fetch. `test/api-client.test.ts`
+fails on a new `/api/` string or `$fetch` anywhere else in `web/app`.
+
 ## Checks
 
 `pnpm test` (the column rules, the store, schedules, and the components in a Nuxt environment) · `pnpm typecheck` ·

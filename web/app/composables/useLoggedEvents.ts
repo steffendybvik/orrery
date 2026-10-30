@@ -21,7 +21,7 @@ export function useLoggedEvents() {
     const newErrors = computed(() => settings.value.advanced ? fresh.value.filter(e => (!e.resolved_at || e.resolved_by) && e.first_seen > seenAt.value) : [])
 
     async function load() {
-        events.value = await $fetch<LoggedEvent[]>('/api/events/log', {query: {limit: 500}}).catch(() => events.value)
+        events.value = await apiFetch<LoggedEvent[]>('/events/log', {query: {limit: 500}}).catch(() => events.value)
         loaded.value = true
     }
 
@@ -29,7 +29,7 @@ export function useLoggedEvents() {
      * agent), for the bell after a reload. */
     async function loadNew() {
         if (!settings.value.advanced) return
-        fresh.value = await $fetch<LoggedEvent[]>('/api/events/log', {query: {level: 'error', since: seenAt.value}})
+        fresh.value = await apiFetch<LoggedEvent[]>('/events/log', {query: {level: 'error', since: seenAt.value}})
             .then(found => found.filter(e => (!e.resolved_at || e.resolved_by) && e.first_seen > seenAt.value)).catch(() => fresh.value)
     }
 
@@ -51,7 +51,7 @@ export function useLoggedEvents() {
     }
 
     async function resolve(id: number) {
-        const event = await $fetch<LoggedEvent>(`/api/events/log/${id}/resolve`, {method: 'POST', headers: {'Orrery-Actor': await useOwner().load()}})
+        const event = await apiFetch<LoggedEvent>(`/events/log/${id}/resolve`, {method: 'POST'})
         arrived(event, false)
     }
 

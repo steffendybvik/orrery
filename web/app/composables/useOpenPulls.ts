@@ -13,7 +13,7 @@ export function useOpenPulls(page?: Ref<number>) {
     const query = () => page ? {page: page.value} : {limit: 1}
     async function load() {
         pulls.value = await owner()
-            .then(actor => $fetch<AllPulls>('/api/pulls', {query: query(), headers: {'Orrery-Actor': actor}}))
+            .then(actor => apiFetch<AllPulls>('/pulls', {query: query(), headers: {'Orrery-Actor': actor}}))
             .catch(() => pulls.value)
     }
     const polling = ref(false)
@@ -24,7 +24,7 @@ export function useOpenPulls(page?: Ref<number>) {
         polling.value = true
         failed.value = ''
         try {
-            pulls.value = await $fetch<AllPulls>('/api/pulls/poll', {method: 'POST', query: query(), headers: {'Orrery-Actor': await owner()}})
+            pulls.value = await apiFetch<AllPulls>('/pulls/poll', {method: 'POST', query: query()})
         } catch (error) {
             failed.value = errorMessage(error, 'poll')
         } finally {

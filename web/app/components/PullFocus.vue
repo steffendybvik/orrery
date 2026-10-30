@@ -9,7 +9,6 @@ import {focusNote} from '#shared/roadmap'
 // line before Send. Only for a PR that names an issue: one that doesn't has no issue to focus.
 const props = defineProps<{pull: OpenPull, issue: NonNullable<OpenPull['issue']>}>()
 
-const {load: owner} = useOwner()
 const note = ref('')
 const busy = ref(false)
 const failed = ref('')
@@ -29,8 +28,8 @@ async function send(close: () => void) {
     failed.value = ''
     try {
         const {project, id} = props.issue
-        const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': await owner()}, body: {note: note.value.trim(), start: true},
+        const {signal} = await apiFetch<{signal: Signal}>(`/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}/focus`, {
+            method: 'POST', body: {note: note.value.trim(), start: true},
         })
         sent.value = signal.delivered_to
         note.value = ''

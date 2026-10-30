@@ -8,7 +8,6 @@ import {PRIORITIES, fullId} from '#shared/roadmap'
 // (`none`, the issues in none) isn't a chunk of its own, so it has no priority, id or removing.
 const {target, close} = useChunkMenu()
 const {byId, sessions} = useRoadmaps()
-const {load} = useOwner()
 const router = useRouter()
 
 const project = computed(() => byId(target.value?.project))
@@ -28,13 +27,13 @@ watch(target, () => {
 // Closed if the chunk goes away (removed elsewhere).
 watch(chunk, now => target.value && !now && close())
 
-const api = computed(() => target.value ? `/api/projects/${encodeURIComponent(target.value.project)}/chunks/${encodeURIComponent(target.value.chunk)}` : '')
+const api = computed(() => target.value ? `/projects/${encodeURIComponent(target.value.project)}/chunks/${encodeURIComponent(target.value.chunk)}` : '')
 
 async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Record<string, unknown>, then?: () => void) {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`${api.value}${path}`, {method, headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(`${api.value}${path}`, {method, body})
         if (then) then()
         else close()
     } catch (error) {

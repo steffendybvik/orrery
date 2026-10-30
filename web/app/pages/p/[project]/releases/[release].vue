@@ -12,7 +12,6 @@ import {CheckIcon, SunIcon} from '@heroicons/vue/16/solid'
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
-const {load} = useOwner()
 
 const project = computed(() => byId(route.params.project as string))
 // The project the release is made in: this one, or the one it takes its releases from.
@@ -48,12 +47,12 @@ const links = computed(() => {
 
 const saving = ref(false)
 const failed = ref('')
-const api = computed(() => source.value ? `/api/projects/${encodeURIComponent(source.value.id)}/releases/${encodeURIComponent(version.value)}` : '')
+const api = computed(() => source.value ? `/projects/${encodeURIComponent(source.value.id)}/releases/${encodeURIComponent(version.value)}` : '')
 async function save(body: Record<string, unknown>): Promise<boolean> {
     saving.value = true
     failed.value = ''
     try {
-        await $fetch(api.value, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(api.value, {method: 'PATCH', body})
         return true
     } catch (error) {
         failed.value = errorMessage(error)
@@ -108,7 +107,7 @@ async function remove() {
     saving.value = true
     failed.value = ''
     try {
-        await $fetch(api.value, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(api.value, {method: 'DELETE'})
         router.push(`/p/${project.value.id}/releases`)
     } catch (error) {
         failed.value = errorMessage(error, 'remove')

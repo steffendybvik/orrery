@@ -17,7 +17,7 @@ const asksData = computed(() => !!settings.value.database?.movable && !settings.
 const step = ref<'restore' | 'data' | 'postgres' | 'name'>('restore')
 const backups = ref<Backups | null>(null)
 watch(named, async now => {
-    if (!now && !backups.value) backups.value = await $fetch<Backups>('/api/backups').catch(() => null)
+    if (!now && !backups.value) backups.value = await apiFetch<Backups>('/backups').catch(() => null)
 }, {immediate: true})
 const asksRestore = computed(() => !!backups.value?.fresh && !!backups.value.snapshots.length)
 const showing = computed(() => {

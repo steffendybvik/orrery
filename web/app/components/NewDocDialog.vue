@@ -6,7 +6,6 @@ import type {Doc} from '#shared/roadmap'
 // as Markdown. ⌘↵ creates it and opens it, Esc closes.
 const {target, close} = useNewDoc()
 const {byId} = useRoadmaps()
-const {load} = useOwner()
 const router = useRouter()
 
 const project = computed(() => byId(target.value ?? undefined))
@@ -35,9 +34,8 @@ async function create() {
     failed.value = ''
     const at = target.value
     try {
-        const doc = await $fetch<Doc>(`/api/projects/${encodeURIComponent(at)}/docs`, {
+        const doc = await apiFetch<Doc>(`/projects/${encodeURIComponent(at)}/docs`, {
             method: 'POST',
-            headers: {'Orrery-Actor': await load()},
             body: {title: title.value.trim(), body: body.value.trim()},
         })
         close()

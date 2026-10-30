@@ -8,11 +8,11 @@ export function useSchedules() {
     const of = (project: string) => byProject.value[project] ?? []
     const across = useState<ScheduleAcross[]>('schedules-across', () => [])
     async function loadAcross() {
-        across.value = await $fetch<ScheduleAcross[]>('/api/schedules/across').catch(() => across.value)
+        across.value = await apiFetch<ScheduleAcross[]>('/schedules/across').catch(() => across.value)
     }
 
     async function load() {
-        const list = await $fetch<Schedule[]>('/api/schedules').catch(() => [] as Schedule[])
+        const list = await apiFetch<Schedule[]>('/schedules').catch(() => [] as Schedule[])
         byProject.value = Object.groupBy(list, s => s.project) as Record<string, Schedule[]>
         await loadAcross()
     }
@@ -32,15 +32,15 @@ export function useSchedules() {
 
     /** Pauses a schedule, or resumes it, as the owner; the list catches up from the events. Their own change isn't news. */
     async function pause(schedule: Schedule, paused: boolean) {
-        useUnseen().seeSchedule(await $fetch<Schedule>(`/api/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}`, {
-            method: 'PATCH', headers: {'Orrery-Actor': await useOwner().load()}, body: {enabled: !paused},
+        useUnseen().seeSchedule(await apiFetch<Schedule>(`/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}`, {
+            method: 'PATCH', body: {enabled: !paused},
         }))
     }
 
     /** Makes an agent's schedule the owner's, as they read it (`updated_at`): it runs as theirs from then on (ORR-456). */
     async function adopt(schedule: Schedule): Promise<Schedule> {
-        const mine = await $fetch<Schedule>(`/api/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}/adopt`, {
-            method: 'POST', headers: {'Orrery-Actor': await useOwner().load()}, body: {seen: schedule.updated_at},
+        const mine = await apiFetch<Schedule>(`/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}/adopt`, {
+            method: 'POST', body: {seen: schedule.updated_at},
         })
         useUnseen().seeSchedule(mine)
         return mine

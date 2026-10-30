@@ -3,7 +3,6 @@
 // skips), pause or resume it, edit or remove it, as the owner. The list updates live once a change is saved.
 // Esc or a click outside closes it.
 const {menu, edit} = useSchedules()
-const {load} = useOwner()
 const {open: openIssue} = useIssueLink()
 
 const busy = ref(false)
@@ -17,14 +16,14 @@ watch(menu, () => {
 })
 
 const s = computed(() => menu.value?.schedule)
-const api = computed(() => s.value ? `/api/projects/${encodeURIComponent(s.value.project)}/schedules/${s.value.id}` : '')
+const api = computed(() => s.value ? `/projects/${encodeURIComponent(s.value.project)}/schedules/${s.value.id}` : '')
 
 async function send<T>(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Record<string, unknown>): Promise<T | undefined> {
     busy.value = true
     failed.value = ''
     try {
         const url: string = `${api.value}${path}`
-        const data: unknown = await $fetch<unknown>(url, {method, headers: {'Orrery-Actor': await load()}, body})
+        const data: unknown = await apiFetch<unknown>(url, {method, body})
         return data as T
     } catch (error) {
         failed.value = errorMessage(error)

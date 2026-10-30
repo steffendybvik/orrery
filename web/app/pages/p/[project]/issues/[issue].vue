@@ -10,7 +10,6 @@ const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready, reload} = useRoadmaps()
 const {open, last, pathOf} = useIssueLink()
-const {load} = useOwner()
 const {of: schedulesOf, edit: editSchedule} = useSchedules()
 /** The schedule that made it, if one did (and still exists). */
 const madeBy = computed(() => {
@@ -77,7 +76,7 @@ async function remove() {
     removing.value = 'busy'
     removeFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`, {method: 'DELETE'})
         back()
     } catch (error) {
         removing.value = 'ask'
@@ -110,7 +109,7 @@ const readKey = computed(() => issueKey.value && `${issueKey.value}/${issue.valu
 watch(readKey, async key => {
     if (!key || !project.value || !issue.value) return
     const at = issueKey.value
-    const got = await $fetch<Issue>(`/api/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`).catch(() => undefined)
+    const got = await apiFetch<Issue>(`/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`).catch(() => undefined)
     if (got && readKey.value === key) read.value = {issue: at, notes: got.notes ?? ''}
 }, {immediate: true})
 /** The issue's notes as last read (kept while they're read again after a change); undefined until the first read. */

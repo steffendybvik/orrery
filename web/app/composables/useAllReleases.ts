@@ -11,7 +11,7 @@ export function useAllReleases() {
     async function load() {
         const asked = ++latest
         try {
-            const read = await $fetch<ProjectReleases[]>('/api/releases')
+            const read = await apiFetch<ProjectReleases[]>('/releases')
             if (asked !== latest) return
             cards.value = read
             failed.value = ''

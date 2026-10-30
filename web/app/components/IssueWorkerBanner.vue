@@ -8,7 +8,6 @@ import {TERMINALS} from '#shared/roadmap'
 // flow, it covers nothing and doesn't jump. `since` is when the session took the issue; without it (an issue it
 // took before orrery kept that), since when it's been in its state.
 const props = defineProps<{session: Session, since?: string}>()
-const {load} = useOwner()
 const {settings} = useAppSettings()
 const opening = ref(false)
 const failed = ref('')
@@ -19,8 +18,8 @@ async function watchIt() {
     opening.value = true
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.session.project)}/launches/${launch}/watch`, {
-            method: 'POST', headers: {'Orrery-Actor': await load()}, body: {},
+        await apiFetch(`/projects/${encodeURIComponent(props.session.project)}/launches/${launch}/watch`, {
+            method: 'POST', body: {},
         })
     } catch (error) {
         failed.value = errorMessage(error)
