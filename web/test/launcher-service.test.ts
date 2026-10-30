@@ -147,6 +147,10 @@ describe("the service's file", () => {
         const file = plist({...opts, path: '/a & b:/usr/bin'})
         expect(file).toContain('<string>/code/orrery/channel/orrery-launcher.mjs</string><string>--service</string>')
         expect(file).toContain('<string>/a &amp; b:/usr/bin</string>')
+        // Through the bootstrap, it names the script to run too.
+        const served = {...opts, script: ['/home/ada/.orrery/bootstrap.mjs', 'launcher']}
+        expect(plist(served)).toContain('<string>/home/ada/.orrery/bootstrap.mjs</string><string>launcher</string><string>--service</string>')
+        expect(systemdUnit(served)).toContain('"/home/ada/.orrery/bootstrap.mjs" "launcher" --service')
         expect(file).toContain('<key>SuccessfulExit</key><false/>')
         // Says it follows its list, so installing over a file without it restarts one that doesn't (ORR-597).
         expect(file).toContain(`<key>${RELOADS}</key><string>1</string>`)

@@ -383,7 +383,7 @@ last check of orrery's releases found a newer one; null when there's none, `ORRE
 hasn't run yet. A pre-release counts only for an orrery running one. A failed check keeps the last answer and goes in the
 event log as `update.failed`.
 
-A session listens through orrery's channel (`channel/orrery-channel.mjs` in this repo, an MCP
+A session listens through orrery's channel (`channel/orrery-channel.mjs` in this repo, served at `/channel`, an MCP
 server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per orrery for all of the repo's
 projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),
 or by watching the text stream with the Monitor tool. The Connect page at `/connect` hands out both.
@@ -611,7 +611,9 @@ removed isn't added again. Only the owner makes, changes or removes them (an age
 ## For agents
 
 `/llms.txt` says how to use orrery and lists the projects; `/llms-full.txt` adds this reference;
-`/connect/<project>.md?session=` is the brief for a Claude session in that project's repo (how to set it up), and
+`/connect/<project>.md?session=` is the brief for a Claude session in that project's repo (how to set it up);
+`/channel/bootstrap.mjs`, `/channel/orrery-channel.mjs`, `orrery-hook.mjs` and `orrery-launcher.mjs` are what a connected
+machine runs, with `/channel/manifest.json` (`{id, version, code, files: {<file>: <sha256>}}`) saying what's there; and
 for a project that doesn't exist yet `?name=` names it and the brief has the agent make it;
 `/api/guide` is this reference alone, and `/api/guide/using` how orrery works, page by page (docs/using.md), which the
 channel's `guide` tool answers with. A Claude session with orrery's server in its `.mcp.json` also

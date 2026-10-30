@@ -30,6 +30,9 @@ describe("a repo's channels", () => {
     it('are every server that runs the channel, in order', () => {
         expect(channelsIn(mono()).map((c: {name: string}) => c.name)).toEqual(['orrery-greenhouse', 'orrery-pantry', 'orrery-shelves', 'orrery'])
         expect(channelsIn(mkdtempSync(join(tmpdir(), 'orrery-none-')))).toEqual([])
+        // One run through the bootstrap counts, and another server that merely has one doesn't.
+        const served = repo({orrery: {command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {}}, other: {command: 'node', args: ['/x/bootstrap.mjs'], env: {}}})
+        expect(channelsIn(served).map((c: {name: string}) => c.name)).toEqual(['orrery'])
     })
 
     it('give every project they name, each on its own orrery', () => {

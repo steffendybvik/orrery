@@ -90,7 +90,8 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
         </summary>
         <div class="flex flex-col gap-6 px-5 pb-5">
           <CopyBlock title="CLAUDE.md section" :text="pieces.claudeMd" />
-          <CopyBlock title=".mcp.json" hint="Needs Node and the orrery repo's packages (pnpm install there)." :text="pieces.mcpJson" />
+          <CopyBlock title="Once on this machine" hint="Runs the channel and hooks as this orrery serves them, so they upgrade with it. Needs Node." :text="pieces.bootstrap" />
+          <CopyBlock title=".mcp.json" :text="pieces.mcpJson" />
           <CopyBlock title=".claude/settings.json" hint="Merge into the file if it exists." :text="pieces.settingsJson" />
           <CopyBlock title="Start the session with" :hint="`It asks once to approve the ${pieces.server} server; say yes.`" :text="pieces.launch" />
           <CopyBlock title="Without the preview: ask the session to watch" hint="Uses the Monitor tool; a watch lasts up to 30 minutes, then the session restarts it." :text="pieces.monitor" />

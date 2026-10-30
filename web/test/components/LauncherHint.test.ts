@@ -24,7 +24,7 @@ describe('LauncherHint', () => {
         const wrapper = await mountSuspended(LauncherHint, {props: {project: 'greenhouse'}})
         mounted.push(wrapper)
         await vi.waitFor(() => expect(wrapper.text()).toContain('No launcher is running for Greenhouse.'))
-        expect(wrapper.text()).toContain('orrery-launcher.mjs --install')
+        expect(wrapper.text()).toContain('bootstrap.mjs launcher --install')
         expect(wrapper.text()).toContain('tmux 3.2')
 
         launchers = 1
@@ -37,7 +37,7 @@ describe('LauncherHint', () => {
         mounted.push(wrapper)
         await vi.waitFor(() => expect(wrapper.text()).toMatch(/No launcher is running for Greenhouse\.\s+The chat starts its session through it/))
         expect(wrapper.text()).not.toContain('Start session')
-        expect(wrapper.text()).toContain('orrery-launcher.mjs --install')
+        expect(wrapper.text()).toContain('bootstrap.mjs launcher --install')
     })
 
     it('says nothing when a launcher is running', async () => {

@@ -1,6 +1,7 @@
 **/node_modules
 **/.nuxt
 **/.output
+**/.channel-bundle
 **/.data
 .git
 .env

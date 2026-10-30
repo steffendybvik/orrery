@@ -21,7 +21,7 @@ describe('the release compose file', () => {
         expect(quickStart).not.toContain('--build')
     })
 
-    it('points Connect at the clone, wherever it runs from when ORRERY_REPO_DIR says (ORR-119)', () => {
+    it('says which folder it runs from, or the one ORRERY_REPO_DIR names (ORR-119)', () => {
         expect(settings(release).NUXT_PUBLIC_REPO_DIR).toBe('${ORRERY_REPO_DIR:-${PWD}}')
     })
 

@@ -6,7 +6,7 @@ import {restartCommand} from '../app/utils/roadmap'
 describe("the channel's server name", () => {
     it('is the one the Connect page writes into .mcp.json, whatever the environment is called', () => {
         for (const environment of ['personal', 'Work', 'my laptop', 'Böker & Co.', '  ', 'x'.repeat(60)]) {
-            const target = {origin: 'http://localhost:9000', repoDir: '/orrery', id: 'greenhouse', name: 'Greenhouse', key: 'GRE', isNew: false, orrery: {id: 'orr_1', environment}}
+            const target = {origin: 'http://localhost:9000', id: 'greenhouse', name: 'Greenhouse', key: 'GRE', isNew: false, orrery: {id: 'orr_1', environment}}
             expect(serverName(environment)).toBe(connectPieces(target).server)
         }
     })
