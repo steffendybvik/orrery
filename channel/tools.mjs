@@ -175,33 +175,14 @@ const CHUNK_FIELDS = {
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
 }
 
-/** What the owner's chat session has besides: answering in the chat, seeing what the owner pasted in it, changing an
- * issue's fields when they ask, and asking them to start, stop or extend a session, move or assign issues, message
- * other sessions, change a setting, or make or change a schedule or a release. */
+/** Why the chat asks: a line for the owner, shown with the request. */
+const WHY = {type: 'string'}
+
+/** What the owner's chat session has besides, listed: answering in the chat, seeing what the owner pasted in it,
+ * changing an issue's fields when they ask, asking to move or assign issues, and asking for the rest (`CHAT_REQUESTS`)
+ * through `request`. Each request shows the owner what would happen with Allow and Deny (Send and Don't send for a
+ * message), and the chat hears which they pressed; the chat's instructions say so once (ORR-624). */
 export const CHAT_TOOLS = [
-    {
-        name: 'start_session',
-        description: "Asks the owner to start a Claude session, as Start session on the Sessions page does, only when they asked you to in this chat: it shows them what would start with Allow and Deny, and you hear which they pressed. Nothing starts until they allow it; then it's theirs, under the project's limits. On this project unless you name another; focused on an issue, or working through statuses and a release, or neither; with preset ids (the presets tool) and their own words.",
-        inputSchema: {type: 'object', properties: {
-            project: {type: 'string'},
-            issue: {type: 'string'},
-            statuses: {type: 'array', items: {type: 'string'}, description: 'Status ids or kinds to work through, e.g. ["todo"]'},
-            release: {type: 'string', description: 'A release version to work through'},
-            presets: {type: 'array', items: {type: 'number'}},
-            instructions: {type: 'string', description: "The owner's own words for the session"},
-            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
-        }},
-    },
-    {
-        name: 'stop_session',
-        description: "Asks the owner to stop a session (by its name or id; the sessions tool lists them), only when they asked you to in this chat: it shows them which with Allow and Deny, and you hear which they pressed. Nothing stops until they allow it.",
-        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
-    },
-    {
-        name: 'extend_session',
-        description: "Asks the owner to give a session orrery started more time (by its name or id; 30 minutes unless you say), only when they asked you to in this chat: it shows them with Allow and Deny, and you hear which they pressed.",
-        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}, minutes: {type: 'integer', minimum: 1, maximum: 1440}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
-    },
     {
         name: 'reply',
         description: "Answers the owner in the chat, in Markdown: the only way what you say reaches them. Say an issue you made by its id.",
@@ -214,70 +195,112 @@ export const CHAT_TOOLS = [
     },
     {
         name: 'move_issues',
-        description: "Asks the owner to move issues in this project to another status, or assign them, only when they asked you to in this chat: it shows them each issue's from → to with Allow and Deny, and you hear which they pressed. Nothing moves until they allow it; then it's their move, as if made on the page. status is a status's id or a kind (todo, started, done, canceled…); assignee is a name, owner, or null for nobody. Not a proposal waiting on the owner: that stays theirs to decide.",
+        description: "Asks the owner to move issues in this project to another status (an id or a kind: todo, done, canceled…), or assign them (a name, owner, or null for nobody). Not a proposal waiting on the owner: that's theirs to decide.",
         inputSchema: {type: 'object', required: ['ids'], properties: {
             ids: {type: 'array', items: {type: 'string'}, description: 'The issues, e.g. ["ORR-12", "ORR-14"]'},
             status: {type: 'string'},
             assignee: {type: ['string', 'null']},
-            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
+            why: WHY,
         }},
     },
     {name: 'image', description: 'An image the owner pasted in the chat, by the id its message names, to look at.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
     {
+        name: 'request',
+        description: 'Asks the owner for one of the actions request_fields describes: start, stop or extend a session; message sessions; change an App setting; make or change a schedule, release or chunk. Read its fields with request_fields first.',
+        inputSchema: {type: 'object', required: ['action'], properties: {
+            action: {type: 'string', enum: []},
+            fields: {type: 'object', description: 'As request_fields gives them for the action'},
+            why: WHY,
+        }},
+    },
+    {
+        name: 'request_fields',
+        description: 'What an action of request does and the fields it takes.',
+        inputSchema: {type: 'object', required: ['action'], properties: {action: {type: 'string', enum: []}}},
+    },
+]
+
+/** What the chat asks the owner for through `request`, read with `request_fields`: not listed, so they don't sit in
+ * the chat's context until it needs one (ORR-624). */
+export const CHAT_REQUESTS = [
+    {
+        name: 'start_session',
+        description: "Starts a Claude session, as Start session on the Sessions page does, under the project's limits: on this project unless you name another; focused on an issue, or working through statuses and a release, or neither; with preset ids (the presets tool) and the owner's own words.",
+        inputSchema: {type: 'object', properties: {
+            project: {type: 'string'},
+            issue: {type: 'string'},
+            statuses: {type: 'array', items: {type: 'string'}, description: 'Status ids or kinds to work through, e.g. ["todo"]'},
+            release: {type: 'string', description: 'A release version to work through'},
+            presets: {type: 'array', items: {type: 'number'}},
+            instructions: {type: 'string', description: "The owner's own words for the session"},
+        }},
+    },
+    {
+        name: 'stop_session',
+        description: 'Stops a session, by its name or id (the sessions tool lists them).',
+        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}}},
+    },
+    {
+        name: 'extend_session',
+        description: 'Gives a session orrery started more time, by its name or id: 30 minutes unless you say.',
+        inputSchema: {type: 'object', required: ['name'], properties: {name: {type: 'string'}, minutes: {type: 'integer', minimum: 1, maximum: 1440}}},
+    },
+    {
         name: 'message_sessions',
-        description: "Asks the owner to send a message to every listening session, as theirs, only when they asked for it in this chat: it shows them the text and who it goes to with Send and Don't send, and you hear which they pressed. Nothing is sent until they press Send. Idle sessions only unless states says otherwise, so it interrupts no work.",
+        description: 'Sends a message to every listening session, as the owner\'s: idle ones only unless states says otherwise, so it interrupts no work.',
         inputSchema: {type: 'object', required: ['text'], properties: {
             text: {type: 'string'},
             projects: {type: 'array', items: {type: 'string'}, description: 'Only sessions on (or hearing) these projects'},
             states: {type: 'array', items: {type: 'string', enum: ['idle', 'working', 'waiting', 'starting']}, description: 'idle by default'},
-            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
         }},
     },
     {
+        name: 'message_session',
+        description: "Sends a message to one session, by its name or id (the sessions tool lists them), as the owner's.",
+        inputSchema: {type: 'object', required: ['session', 'text'], properties: {session: {type: 'string'}, text: {type: 'string'}}},
+    },
+    {
         name: 'update_settings',
-        description: "Asks the owner to change one App setting, only when they asked you to in this chat: it shows them the change (from → to) with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. tracker is the address of a task on the team's tracker with {id} where its id goes; tint a colour name or #rrggbb; restrict_proposals and advanced true or false; handle their login. null clears one.",
+        description: "Changes one App setting. tracker is the address of a task on the team's tracker with {id} where its id goes; tint a colour name or #rrggbb; restrict_proposals and advanced true or false; handle their login. null clears one.",
         inputSchema: {type: 'object', required: ['setting', 'value'], properties: {
             setting: {type: 'string', enum: ['tracker', 'tint', 'restrict_proposals', 'handle', 'advanced']},
             value: {type: ['string', 'boolean', 'null']},
-            why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'},
         }},
     },
     {
         name: 'create_schedule',
-        description: "Asks the owner to make a schedule in this project, only when they asked you to in this chat: it shows them the schedule with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it; then it's theirs. Give a title and one of cron, at or on. The presets tool lists preset ids.",
-        inputSchema: {type: 'object', required: ['title'], properties: {...SCHEDULE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: "Makes a schedule in this project, the owner's once allowed. Give a title and one of cron, at or on. The presets tool lists preset ids.",
+        inputSchema: {type: 'object', required: ['title'], properties: SCHEDULE_FIELDS},
     },
     {
         name: 'update_schedule',
-        description: "Asks the owner to change one of this project's schedules (by its id; the schedules tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes; enabled false pauses it, true resumes it. Setting one of cron, at or on lets go of the others.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}, ...SCHEDULE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: "Changes one of this project's schedules, by its id (the schedules tool lists them). Send only what changes; enabled false pauses it, true resumes it. Setting one of cron, at or on lets go of the others. Never deletes one: that's the owner's, on the Schedules page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}, ...SCHEDULE_FIELDS}},
     },
     {
         name: 'create_release',
-        description: "Asks the owner to add a release to this project, only when they asked you to in this chat: it shows them the release with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.",
-        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: 'Adds a release to this project. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.',
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
     },
     {
         name: 'update_release',
-        description: "Asks the owner to change one of this project's releases (by its version; the releases tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes. Its version can't change.",
-        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: "Changes one of this project's releases, by its version (the releases tool lists them): send only what changes. Its version can't change, and removing one is the owner's, on the Releases page.",
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
     },
     {
         name: 'create_chunk',
-        description: "Asks the owner to make a chunk (a group of issues) in this project, only when they asked you to in this chat: it shows them the chunk with Allow and Deny, and you hear which they pressed. Nothing is saved until they allow it; then put issues in it with edit_issue.",
-        inputSchema: {type: 'object', required: ['title'], properties: {...CHUNK_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: 'Makes a chunk (a group of issues) in this project; once allowed, put issues in it with edit_issue.',
+        inputSchema: {type: 'object', required: ['title'], properties: CHUNK_FIELDS},
     },
     {
         name: 'update_chunk',
-        description: "Asks the owner to change one of this project's chunks (by its id; the chunks tool lists them), only when they asked you to in this chat: it shows them each field from → to with Allow and Deny, and you hear which they pressed. Send only what changes. Removing a chunk stays the owner's, on its page.",
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...CHUNK_FIELDS, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
-    },
-    {
-        name: 'message_session',
-        description: "Asks the owner to send a message to one session (by its name or id; the sessions tool lists them), as theirs, only when they asked for it in this chat: it shows them the text with Send and Don't send, and you hear which they pressed. Nothing is sent until they press Send.",
-        inputSchema: {type: 'object', required: ['session', 'text'], properties: {session: {type: 'string'}, text: {type: 'string'}, why: {type: 'string', description: 'A line for the owner on what it does, shown with the request'}}},
+        description: "Changes one of this project's chunks, by its id (the chunks tool lists them): send only what changes. Removing one is the owner's, on its page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...CHUNK_FIELDS}},
     },
 ]
+
+const REQUESTS = CHAT_REQUESTS.map(r => r.name)
+for (const tool of CHAT_TOOLS.filter(t => t.name.startsWith('request'))) tool.inputSchema.properties.action.enum = REQUESTS
 
 /** What a working session asks the owner for on the issue it's working (ORR-458), named as the chat's tools that ask in
  * the chat: a comment waiting on the owner's decision, with Allow and Deny. The schedule is one object, its fields as the
@@ -636,8 +659,17 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
 
     /** Runs a tool; an MCP result, an error result when orrery refuses or can't be reached. */
     return async function callTool(name, args = {}) {
+        // The chat's requests, read and made through two tools so they aren't all listed (ORR-624).
+        if (chat && (name === 'request' || name === 'request_fields')) {
+            const action = CHAT_REQUESTS.find(r => r.name === args.action)
+            if (!action) return {isError: true, content: [{type: 'text', text: `No action "${args.action}": one of ${REQUESTS.join(', ')}`}]}
+            if (name === 'request') return await callTool(action.name, {...isPlain(args.fields) ? args.fields : {}, ...args.why ? {why: args.why} : {}})
+            const text = `${action.name}: ${action.description}\n\nfields: ${JSON.stringify(action.inputSchema)}`
+            report(name, text)
+            return {content: [{type: 'text', text}]}
+        }
         const asks = ASK_TOOLS.some(t => t.name === name)
-        const chatOnly = !asks && CHAT_TOOLS.some(t => t.name === name) || CHAT_READS.includes(name)
+        const chatOnly = !asks && [...CHAT_TOOLS, ...CHAT_REQUESTS].some(t => t.name === name) || CHAT_READS.includes(name)
         const untrustedOnly = UNTRUSTED_TOOLS.some(t => t.name === name)
         if (!run[name] || chatOnly && !chat || asks && untrusted || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
         let answer
@@ -652,6 +684,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         return answer
     }
 }
+
+const isPlain = value => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** gh with these arguments, in this folder: its output, or its complaint as the error. */
 async function runGh(args) {

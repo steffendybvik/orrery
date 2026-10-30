@@ -513,13 +513,14 @@ owner ends it, which closing its pane does. Each message says which page the own
 Its launcher starts it with `Read`, `Grep` and `Glob` and the channel's tools but `start_issue`, `finish_issue`,
 `update_issue`, `write_doc`, `egress`, `secrets` and `resolve_event`, and its own: `reply`, its answer, the
 only way what it says reaches the page, `image`, which shows it an image the owner pasted, `edit_issue`, which changes
-an issue's title, notes, priority, labels, team tasks, chunk, release or parent when the owner asks, `message_sessions` and
-`message_session`, which ask the owner to message other sessions when they ask in the chat (below; never on its own),
-`update_settings`, which asks the owner to change one
-App setting (below), `create_schedule` and `update_schedule`, which ask them to make a schedule in its project or
-change one (pause and resume included), `create_release` and `update_release`, which ask them to add a release or
-change one (freezing and shipping included), and `move_issues`, which asks them to move issues to another status or
-assign them. It hears only its chat's messages: no focus, no message to
+an issue's title, notes, priority, labels, team tasks, chunk, release or parent when the owner asks, `move_issues`, which
+asks them to move issues to another status or assign them, and `request`, which asks them for the rest: `start_session`,
+`stop_session` and `extend_session`; `message_sessions` and `message_session`, to message other sessions (below);
+`update_settings`, one App setting (below); `create_schedule` and `update_schedule` (pause and resume included);
+`create_release` and `update_release` (freezing and shipping included); and `create_chunk` and `update_chunk`. Those
+actions aren't listed as tools of their own, so they don't sit in its context until it needs one (ORR-624):
+`request_fields {action}` says what an action does and takes, and `request {action, fields, why}` asks. Each asks
+only when the owner asked in the chat, never on its own, and nothing happens until they allow it. It hears only its chat's messages: no focus, no message to
 every session, and nobody listening never wakes it. Its writes are held to making issues (with nobody on them, in Todo
 or Backlog as the owner picked beside Send, whatever status it asks for; a proposal stays one), changing an issue's
 `title`, `notes`, `priority`, `labels`, `external`, `chunk`, `release`, `parent` and `depends_on` (`PATCH` with anything else, `status`

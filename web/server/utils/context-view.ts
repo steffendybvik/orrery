@@ -10,15 +10,16 @@ import type {ContextKind, ContextPart, ContextView} from '#shared/context'
 const tokens = (chars: number) => Math.ceil(chars / 4)
 /** What the channel says it serves, as orrery-channel.mjs words it. */
 const servesLine = (projects: string[]) => projects.length === 1 ? `project "${projects[0]}"` : `projects ${projects.map(p => `"${p}"`).join(', ')}`
-const part = (id: string, group: ContextPart['group'], title: string, text: string): ContextPart =>
-    ({id, group, title, text, chars: text.length, tokens: tokens(text.length)})
+const part = (id: string, group: ContextPart['group'], title: string, text: string, chars = text.length): ContextPart =>
+    ({id, group, title, text, chars, tokens: tokens(chars)})
 
 /** What a session of `kind` hearing `projects` on the orrery at `base` is given, with `start` (its start context as
  * it's told it) when it has one; biggest first within each group. */
 export function contextView(kind: ContextKind, projects: string[], base: string, start?: string, session?: string): ContextView {
     const chat = kind === 'chat'
     const tools = (toolsFor(projects, {chat, untrusted: kind === 'untrusted'}) as {name: string}[])
-        .map(tool => part(`tool:${tool.name}`, 'tools', tool.name, JSON.stringify(tool, null, 2)))
+        // Shown laid out to read, and counted as it's sent, without the layout's spaces (ORR-624).
+        .map(tool => part(`tool:${tool.name}`, 'tools', tool.name, JSON.stringify(tool, null, 2), JSON.stringify(tool).length))
         .sort((a, b) => b.chars - a.chars)
     const parts = [
         part('instructions', 'instructions', 'Server instructions', instructionsFor({base, serves: servesLine(projects), chat, several: projects.length > 1})),
