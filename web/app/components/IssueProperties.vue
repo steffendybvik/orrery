@@ -4,7 +4,7 @@ import {githubIssueLabel, githubIssueOf, githubRepo, isFrozen, taskUrl} from '#s
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once. The issues it
-// depends on are picked the same way (ORR-601); those that depend on it, read the other way, only show.
+// waits on (Blocked by, ORR-601) and those waiting on it (Blocks, ORR-680) are picked the same way, each with a × to let it go.
 /** `sub`: it's a sub-issue, in its parent's chunk. `worker`: the session working it, which an agent's assignee names. */
 const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean, worker?: Session}>()
 const {who, name: owner} = useOwner()
@@ -40,7 +40,7 @@ const frozen = computed(() => isFrozen(props.project.releases.find(r => r.versio
 // A list picked from a menu that stays open (labels, team tasks, depends on): a pick shows at once and the menu stays
 // up while it saves (ORR-602). Each pick sends the whole list, after the one before has gone, so a quick second pick
 // keeps the first, and the page's own list takes over once it says the same (or a save is refused, said below).
-function pickedList(field: 'labels' | 'external' | 'github_issues' | 'depends_on', current: () => string[]) {
+function pickedList(current: () => string[], write: (next: string[], before: string[]) => Promise<boolean>) {
     const picked = ref<string[] | null>(null)
     let queue = Promise.resolve()
     const same = (a: string[], b: string[]) => a.length === b.length && a.every(v => b.includes(v))
@@ -51,9 +51,10 @@ function pickedList(field: 'labels' | 'external' | 'github_issues' | 'depends_on
     return computed({
         get: () => picked.value ?? current(),
         set: (next: string[]) => {
+            const before = picked.value ?? current()
             picked.value = next
             queue = queue.then(async () => {
-                if (!await save({[field]: next}) && picked.value === next) picked.value = null
+                if (!await write(next, before) && picked.value === next) picked.value = null
             })
         },
     })
@@ -61,21 +62,21 @@ function pickedList(field: 'labels' | 'external' | 'github_issues' | 'depends_on
 
 // Labels: any the project uses, or a new one.
 const known = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.labels))])
-const labels = pickedList('labels', () => props.issue.labels)
+const labels = pickedList(() => props.issue.labels, next => save({labels: next}))
 
 const labelOptions = computed(() => [...new Set([...known.value, ...labels.value])].sort((a, b) => a.localeCompare(b)).map(l => ({value: l, label: l})))
 
 // Its tasks on the team's tracker: any the project links, or a new id; each opens through the tracker's pattern.
 const {settings} = useAppSettings()
 const knownTasks = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.external))])
-const tasks = pickedList('external', () => props.issue.external)
+const tasks = pickedList(() => props.issue.external, next => save({external: next}))
 const taskOptions = computed(() => [...new Set([...knownTasks.value, ...tasks.value])].sort((a, b) => a.localeCompare(b)).map(t => ({value: t, label: t})))
 const taskLinks = computed(() => tasks.value.map(t => ({task: t, url: taskUrl(settings.value.tracker, t)})))
 
 // The GitHub issues it came from (ORR-635): any the project names, or a new one, typed as `523` on the project's repo,
 // `owner/name#523` or its link, and sent as kept (`owner/name#523`), so the page's list takes over once saved.
 const repo = computed(() => githubRepo(props.project.repo))
-const githubPicked = pickedList('github_issues', () => props.issue.github_issues)
+const githubPicked = pickedList(() => props.issue.github_issues, next => save({github_issues: next}))
 const githubIssues = computed({
     get: () => githubPicked.value,
     set: (next: string[]) => githubPicked.value = [...new Set(next.map(issue => githubIssueOf(issue, repo.value) ?? issue))],
@@ -86,7 +87,14 @@ const githubOptions = computed(() => [...new Set([...knownGithub.value, ...githu
     .sort((a, b) => a.label.localeCompare(b.label, undefined, {numeric: true})))
 
 // The issues it depends on, the whole list sent each time (a cycle or an unknown one is refused, and says why below).
-const dependsOn = pickedList('depends_on', () => props.issue.depends_on ?? [])
+const dependsOn = pickedList(() => props.issue.depends_on ?? [], next => save({depends_on: next}))
+const {change: changeBlocks, failed: blocksFailed} = useIssueBlocks(() => props.project.id, () => props.issue.id)
+const blocks = pickedList(() => props.issue.blocks ?? [], async (next, before) => {
+    let changed = true
+    for (const link of next.filter(l => !before.includes(l))) changed = await changeBlocks(link, true) && changed
+    for (const link of before.filter(l => !next.includes(l))) changed = await changeBlocks(link, false) && changed
+    return changed
+})
 
 // The assignee: the owner, an agent, anyone already assigned in the project, or a new name.
 const people = computed(() => [...new Set([owner.value, 'claude', ...allIssues(props.project).map(({issue}) => issue.assignee)].filter((n): n is string => !!n))])
@@ -211,17 +219,17 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
       <dd v-if="frozen" class="col-start-2 -mt-1 text-xs text-faint">Frozen: fixes, tests and docs. A new feature fits the next release.</dd>
     </template>
 
-    <dt class="label">Depends on</dt>
+    <dt class="label">Blocked by</dt>
     <dd class="flex min-w-0 flex-wrap items-center gap-1">
-      <IssueRef v-for="link in dependsOn" :key="link" :link="link" :here="project.id" />
+      <IssueRef v-for="link in dependsOn" :key="link" :link="link" :here="project.id" :remove-label="`Stop waiting on ${link}`" @remove="dependsOn = dependsOn.filter(l => l !== link)" />
       <DependsPicker v-model="dependsOn" :here="project.id" :self="issue.id" />
     </dd>
-    <template v-if="issue.blocks?.length">
-      <dt class="label">Blocks</dt>
-      <dd class="flex min-h-7 min-w-0 flex-wrap items-center gap-1">
-        <IssueRef v-for="link in issue.blocks" :key="link" :link="link" :here="project.id" />
-      </dd>
-    </template>
+    <dt class="label">Blocks</dt>
+    <dd class="flex min-w-0 flex-wrap items-center gap-1">
+      <IssueRef v-for="link in blocks" :key="link" :link="link" :here="project.id" :remove-label="`Stop blocking ${link}`" @remove="blocks = blocks.filter(l => l !== link)" />
+      <DependsPicker v-model="blocks" :here="project.id" :self="issue.id" label="Blocks" />
+    </dd>
+    <dd v-if="blocksFailed" class="col-span-2 text-xs text-rose-600 dark:text-rose-400">{{ blocksFailed }}</dd>
 
     <template v-if="hasSubs">
       <dt class="label">Progress</dt>

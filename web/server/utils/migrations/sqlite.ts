@@ -890,6 +890,13 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
         SELECT project, id, title, body, created_by, owned, updated_at FROM docs ORDER BY updated_at, project, id;
     ALTER TABLE releases ADD COLUMN doc_mark INTEGER;
 `, `
+    -- Who holds an issue (ORR-655): the person who took it up and when, and the session on it, each taken with a
+    -- conditional write; and whose agent made it.
+    ALTER TABLE issues ADD COLUMN claimed_by TEXT;
+    ALTER TABLE issues ADD COLUMN claimed_at TEXT;
+    ALTER TABLE issues ADD COLUMN claimed_session TEXT;
+    ALTER TABLE issues ADD COLUMN created_person TEXT;
+`, `
     -- A board's holder and members (ORR-654). Each board has one holder, the owner for those already here. The server's
     -- owner is on every board without a row.
     CREATE TABLE project_members (

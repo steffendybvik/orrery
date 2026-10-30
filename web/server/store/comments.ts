@@ -91,7 +91,10 @@ export abstract class CommentStore extends SignalStore {
             ? (await this.get<{created_by: string}>(`SELECT c.created_by FROM comments c WHERE c.project = ? AND c.issue = ? AND ${OPEN_ASK}
                 ORDER BY c.id DESC LIMIT 1`, project, issue))?.created_by
             : undefined
-        const assignee = !actor.owner && input.asks ? (await this.ownerId()) : asker
+        // With people, an agent's ask waits on its own person, and only on an issue that's theirs: it can't take one by asking.
+        const rails = input.asks ? await this.railsFor(actor) : null
+        const assignee = rails ? rails.person && rails.person === await this.holderOf(row.assignee) ? rails.person : undefined
+            : !actor.owner && input.asks ? (await this.ownerId()) : asker
         const id = await this.db.transaction(async () => {
             const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, asks, created_by, session_name, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
                 project, issue, String(input.body), nullable(input.asks), actor.name, actor.session ?? null, Number(actor.owner), now, now)

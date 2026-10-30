@@ -77,20 +77,15 @@ export abstract class PeopleStore extends OwnerStore {
         return here.find(person => person.id === id)?.id
     }
 
-    /** Whether there's more than one person: with one, boards keep nobody out (ORR-654). */
-    async severalPeople(): Promise<boolean> {
-        return Number((await this.get<{n: number}>('SELECT COUNT(*) AS n FROM people WHERE removed_at IS NULL'))?.n) > 1
-    }
-
     /** Whether `person` may write on the board: with one person, anyone; else the owner, and those on it. */
     async onBoard(project: string, person: string): Promise<boolean> {
-        if (!await this.severalPeople() || person === (await this.ownerOf()).name) return true
+        if (!await this.shared() || person === (await this.ownerOf()).name) return true
         return !!await this.get('SELECT 1 FROM project_members WHERE project = ? AND person = ?', project, person)
     }
 
     /** Those of `projects` that `person` is on. */
     async boardsOf(person: string, projects: string[]): Promise<string[]> {
-        if (!await this.severalPeople() || person === (await this.ownerOf()).name) return projects
+        if (!await this.shared() || person === (await this.ownerOf()).name) return projects
         const on = new Set((await this.all<{project: string}>('SELECT project FROM project_members WHERE person = ?', person)).map(row => row.project))
         return projects.filter(project => on.has(project))
     }
@@ -133,6 +128,24 @@ export abstract class PeopleStore extends OwnerStore {
         if (!actor.owner && !await this.holdsBoard(project, actorId(actor.name))) {
             throw refusedFor('members.write', `Only ${project}'s holder or the owner says who's on it, and an agent never does (members.write)`)
         }
+    }
+
+    /** `shared`, for what orrery does outside the store. */
+    async isShared(): Promise<boolean> {
+        return await this.shared()
+    }
+
+    /** Whether more than one person is here: only then do the rails between people hold. */
+    protected async shared(): Promise<boolean> {
+        return (await this.one<{n: number}>('SELECT count(*) AS n FROM people WHERE removed_at IS NULL')).n > 1
+    }
+
+    /** The person an issue is assigned to: `claude` counts as the owner's, and an assignee who isn't a person is nobody. */
+    protected async holderOf(assignee: string | null | undefined): Promise<string | null> {
+        const id = assignee?.toLowerCase()
+        if (!id) return null
+        if (id === 'claude') return await this.ownerId()
+        return await this.get('SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL', id) ? id : null
     }
 
     private async person(id: string): Promise<Person> {

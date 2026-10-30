@@ -21,7 +21,7 @@ export async function checkBoards(event: H3Event) {
     const path = event.path.replace(/\/{2,}/g, '/')
     if (!path.startsWith('/api/') || untrustedWrite(event) || chatWrite(event)) return
     const store = useStore()
-    if (!await store.severalPeople()) return
+    if (!await store.isShared()) return
     const person = await personOf(event)
     if (person === (await store.ownerOf()).name) return
     const matches = PERMISSIONS.flatMap(row => row.routes.flatMap(route => {

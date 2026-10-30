@@ -97,6 +97,7 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         release: row.ships_in ?? undefined,
         created_by: row.created_by,
         ...row.session_name ? {session_name: row.session_name} : {},
+        ...row.claimed_by ? {claimed_by: row.claimed_by} : {},
         protected: !!row.owned,
         ...links.dependsOn.has(row.id) ? {depends_on: links.dependsOn.get(row.id)} : {},
         ...links.blockedBy.has(row.id) ? {blocked_by: links.blockedBy.get(row.id)} : {},

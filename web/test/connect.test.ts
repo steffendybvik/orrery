@@ -118,7 +118,8 @@ describe('who is asking', () => {
         let session: string | undefined
         let untrusted = false
         vi.stubGlobal('useStore', () => store)
-        vi.stubGlobal('getHeader', (_event: unknown, name: string) => name === 'orrery-session' ? session : header)
+        vi.stubGlobal('getHeader', (_event: unknown, name: string) => name === 'orrery-session' ? session : name === 'orrery-actor' ? header : undefined)
+        vi.stubGlobal('chatWrite', () => false)
         vi.stubGlobal('untrustedWrite', () => untrusted)
         vi.stubGlobal('sessionName', (id?: string) => id === 'abc' ? 'orrery · Frøya' : undefined)
         const {actorOf} = await import('../server/utils/actor')
@@ -126,20 +127,20 @@ describe('who is asking', () => {
             header = value
             return actorOf({} as never)
         }
-        expect(await asking('claude')).toEqual({name: 'claude', owner: false})
-        expect(await asking(' Skoll_Fenrisson ')).toEqual({name: 'Skoll_Fenrisson', owner: true})
-        expect(await asking(undefined)).toEqual({name: 'agent', owner: false})
-        expect(await asking('   ')).toEqual({name: 'agent', owner: false})
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, asked: true})
+        expect(await asking(' Skoll_Fenrisson ')).toEqual({name: 'Skoll_Fenrisson', owner: true, asked: true})
+        expect(await asking(undefined)).toEqual({name: 'agent', owner: false, asked: true})
+        expect(await asking('   ')).toEqual({name: 'agent', owner: false, asked: true})
         expect((await asking('x'.repeat(80))).name).toHaveLength(60)
         // An untrusted schedule's session is marked so, so its writes set off no schedule.
         untrusted = true
-        expect(await asking('claude')).toEqual({name: 'claude', owner: false, untrusted: true})
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, asked: true, untrusted: true})
         untrusted = false
         // A session's write carries its name (ORR-466); one orrery doesn't know, and the owner's, don't.
         session = 'abc'
-        expect(await asking('claude')).toEqual({name: 'claude', owner: false, session: 'orrery · Frøya'})
-        expect(await asking('Skoll_Fenrisson')).toEqual({name: 'Skoll_Fenrisson', owner: true})
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, asked: true, session: 'orrery · Frøya'})
+        expect(await asking('Skoll_Fenrisson')).toEqual({name: 'Skoll_Fenrisson', owner: true, asked: true})
         session = 'gone'
-        expect(await asking('claude')).toEqual({name: 'claude', owner: false})
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, asked: true})
     })
 })
