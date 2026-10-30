@@ -129,10 +129,8 @@ test('each sidebar entry goes to its page and shows as active there', async ({pa
     }
 })
 
-// The pages ORR-561 and ORR-565 moved to App settings → Advanced go back in the sidebar under Schedules with ORR-578.
-// Until it lands this is fixme; drop the fixme with it.
+// The pages ORR-561 and ORR-565 moved to App settings → Advanced are back in the sidebar under Schedules (ORR-578).
 test('Events, Context and Pull requests are in the sidebar only while Advanced is on', async ({page}) => {
-    test.fixme(true, 'ORR-578 brings the entries back')
     const entries = ROUTES().filter(r => r.advanced)
     await setAdvanced(page, true)
     for (const route of entries) {
