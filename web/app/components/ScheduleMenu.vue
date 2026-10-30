@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // Right-clicking a schedule: run it now (on top of its timetable, or instead of its next run, which it then
 // skips), pause or resume it, edit or remove it, as the owner. The list updates live once a change is saved.
-// Esc or a click outside closes it.
-const {menu, edit} = useSchedules()
-const {open: openIssue} = useIssueLink()
+// Esc or a click outside closes it. A run stays on the page and confirms itself here (ORR-688), wherever it was run from,
+// as this is always on the page.
+const {menu, edit, ran, run} = useSchedules()
 
 const busy = ref(false)
 const failed = ref('')
@@ -42,11 +42,11 @@ const skips = computed(() => {
 })
 
 async function runNow(instead = false) {
-    const schedule = s.value
-    const run = await send<{issue?: string}>('/run', 'POST', instead ? {instead: true} : undefined)
-    if (!run || !schedule) return
-    close()
-    if (run.issue) openIssue(schedule.project, run.issue)
+    if (!s.value) return
+    busy.value = true
+    failed.value = await run(s.value, instead) ?? ''
+    busy.value = false
+    if (!failed.value) close()
 }
 async function toggle() {
     if (await send('', 'PATCH', {enabled: !s.value?.enabled}) !== undefined) close()
@@ -79,4 +79,12 @@ function editIt() {
       <p v-if="failed" class="px-2 pb-1.5 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
     </template>
   </UiContextMenu>
+  <Teleport to="body">
+    <div role="status">
+      <div v-if="ran" class="glass fixed bottom-4 left-1/2 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-fade-up rounded-full px-4 py-2 text-xs text-fg">
+        <NuxtLink v-if="ran.issue" :to="`/p/${ran.project}/issues/${encodeURIComponent(ran.issue)}`" class="hover:underline">{{ ran.text }}</NuxtLink>
+        <template v-else>{{ ran.text }}</template>
+      </div>
+    </div>
+  </Teleport>
 </template>

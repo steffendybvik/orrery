@@ -1,7 +1,7 @@
 import {Cron} from 'croner'
 import type {OnFilter} from '#shared/happenings'
 import {COMMON_EVENTS} from '#shared/happenings'
-import type {Schedule} from '#shared/roadmap'
+import type {Schedule, ScheduleRun} from '#shared/roadmap'
 
 // When a schedule runs, as the dialog's presets and in words. The presets are crons of a known shape:
 // every day, weekdays, some days of the week, a day of the month (each at a time), or every N minutes or hours. Or it
@@ -107,4 +107,16 @@ function describeEvent(on: string, filter: OnFilter = {}): string {
     const by = filter.by ? `, by ${filter.by === 'owner' ? 'you' : 'a session'}` : ''
     const level = filter.level ? ` (${filter.level})` : ''
     return `${on === 'issue.status' && to ? 'An issue moves to' : label}${to}${from}${level}${by}`
+}
+
+/** What a run did, in the few words that confirm it, from what the run returned (ORR-688); none for one that failed,
+ * which isn't a confirmation. */
+export function ranSaid({outcome, issue, note}: ScheduleRun): string | null {
+    if (outcome === 'failed') return null
+    if (outcome === 'skipped') return note ? `Skipped: ${note}` : 'Skipped'
+    if (issue) return `Issue created: ${issue}`
+    if (note?.startsWith('started')) return 'Session started'
+    if (note?.startsWith('sent')) return `Message ${note}`
+    if (outcome === 'made') return 'Issues moved'
+    return note ? `Message sent: ${note}` : 'Message sent'
 }

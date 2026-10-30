@@ -47,9 +47,34 @@ test('runs a schedule now instead of its next run, which it skips', async ({page
     await page.getByRole('menu').getByRole('button', {name: /Run now instead of/}).click()
     await expect(page.getByRole('menu')).toBeHidden()
     await expect.poll(async () => (await api(request, 'get', `/schedules/${made.id}`)).runs[0]?.outcome).toBe('made')
+    // It stays on the page, and says what it did (ORR-688).
+    await expect(page.getByRole('status').getByText(/^Issue created: /)).toBeVisible()
+    await expect(page).toHaveURL(/\/schedules\?project=vineyard/)
     const after = await api(request, 'get', `/schedules/${made.id}`)
     expect(new Date(after.next_run).getTime() - new Date(made.next_run).getTime()).toBe(86_400_000)
     expect(after.runs[0].note).toMatch(/^instead of \w{3} \d+ \w{3} 09:00$/)
+})
+
+test('runs a schedule from the issues page, and has no button with none to run (ORR-687)', async ({page, request}) => {
+    const empty = await makeProject(request, {name: 'Orchard'})
+    await page.goto(`/p/${empty.id}`)
+    await expect(page.getByRole('button', {name: 'New issue'})).toBeVisible()
+    await expect(page.getByRole('button', {name: 'Run schedule'})).toBeHidden()
+
+    await api(request, 'post', '/schedules', {title: 'Prune the vines', cron: '0 9 * * *', timezone: 'UTC'})
+    await api(request, 'post', '/schedules', {title: 'Rest the vines', cron: '0 9 * * *', timezone: 'UTC', enabled: false})
+    for (const view of ['board', 'list']) {
+        await page.goto(`/p/vineyard?view=${view}`)
+        await page.getByRole('button', {name: 'Run schedule'}).click()
+        await expect(page.getByRole('button', {name: /Rest the vines.*Paused/})).toBeVisible()
+        await expect(page.getByRole('button', {name: /Prune the vines.*Next /})).toBeVisible()
+    }
+    await page.getByRole('button', {name: /Prune the vines/}).click()
+    const said = page.getByRole('status').getByRole('link', {name: /^Issue created: /})
+    await expect(said).toBeVisible()
+    await expect(page).toHaveURL(/\/p\/vineyard\?view=list/)
+    await said.click()
+    await expect(page).toHaveURL(/\/p\/vineyard\/issues\//)
 })
 
 test("a suggested schedule opens filled in, and leaves the list once it's made", async ({page, request}) => {

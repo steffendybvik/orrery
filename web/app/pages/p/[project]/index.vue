@@ -71,6 +71,7 @@ onMounted(() => nextTick(() => {
           @click="seeAll(project)"
       ><span class="unseen-dot" />Mark {{ unseenIn(project) }} seen</UiButton>
       <FilterBar />
+      <ScheduleRunButton :project="project.id" />
       <UiButton variant="primary" class="shrink-0" title="New issue (c)" @click="useNewIssue().open(project.id)">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         New issue
