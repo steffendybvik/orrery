@@ -24,6 +24,8 @@ const beforeLast = ['free', 'sessions', 'settings']
 
 export default defineConfig({
     testDir: 'e2e',
+    // Named for the browser, not the group a spec runs in, so the visual spec finds its images on the whole suite too.
+    snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}-chromium-{platform}{ext}',
     // What `pnpm test:report` keeps with a run's numbers, so a change to how this runs isn't taken for a speedup.
     metadata: {server: 'dev'},
     // One orrery for every file. first-run.spec.ts opens it fresh, with an owner who has no name yet, so it runs first,
