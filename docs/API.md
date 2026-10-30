@@ -371,6 +371,11 @@ session's.
 | `GET /signals/stream?projects=hub,css` | the same for a session on several projects, on one stream: `ready` is `{projects, listeners: {<project>: n}}` and each `signal` says its `project`; `*` follows every project, and each one made later; `404` for a project that doesn't exist |
 | `GET /projects/:project/listeners` | `{count}` of sessions listening |
 
+`GET /version` → `{version, newer}`: the version running, and `newer` (`{version, url}`, the release's page on GitHub) when the
+last check of orrery's releases found a newer one; null when there's none, `ORRERY_UPDATE_CHECK=false` turned the check off, or it
+hasn't run yet. A pre-release counts only for an orrery running one. A failed check keeps the last answer and goes in the
+event log as `update.failed`.
+
 A session listens through orrery's channel (`channel/orrery-channel.mjs` in this repo, an MCP
 server registered in the repo's `.mcp.json` as `orrery-<environment>`, one per orrery for all of the repo's
 projects in `ORRERY_PROJECTS`, followed on one stream; start Claude with `--dangerously-load-development-channels server:orrery-<environment>`),

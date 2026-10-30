@@ -187,7 +187,10 @@ at all, not even as a picture in orrery's own page; only the channel, the launch
 [Secrets](docs/API.md#secrets) let your agents call outside services without the key ever reaching
 them: orrery fills it into the request and sends it.
 
-orrery itself calls one outside service: GitHub, at `api.github.com`, to show the open pull requests on
+orrery itself calls one outside service, GitHub at `api.github.com`, for two things. First, it asks for orrery's own
+releases (`steffendybvik/orrery`, public, no token) a few seconds after it starts and then every 12 hours, to say in the
+sidebar when a newer version is out. That request carries nothing of yours, and `ORRERY_UPDATE_CHECK=false` turns it
+off. Second, it shows the open pull requests on
 projects whose repo is there and to notice when one conflicts, merges or closes. It reads, never writes:
 each repo is polled in the background, once a minute with a token and every ten minutes without (a page
 open may also ask, no more than that), and it sends the `GITHUB_TOKEN` secret only when you've set one that
