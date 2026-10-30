@@ -6,7 +6,7 @@
 //   pnpm test:report --vitest vitest.json --e2e e2e.json --coverage coverage/coverage-summary.json --source ci
 //
 // `--source` says where the run was, as times from a laptop and from CI can't be compared; `--out page.html` writes the
-// file instead of the doc. ORRERY_URL says which orrery (http://localhost:9000), ORRERY_KEY its key if it asks for one.
+// file instead of the doc. How the numbers are kept comparable is in Working on orrery, under Benchmarking the browser suite. ORRERY_URL says which orrery (http://localhost:9000), ORRERY_KEY its key if it asks for one.
 import {execFileSync} from 'node:child_process'
 import {readFileSync, writeFileSync} from 'node:fs'
 import {relative, resolve} from 'node:path'
@@ -24,6 +24,19 @@ const slowestFirst = list => [...list].sort((a, b) => b.seconds - a.seconds).sli
 /** The path from the repo's root, wherever the run was. */
 const short = path => path.replace(/^.*?\/(web|channel)\//, '$1/')
 const pct = (covered, total) => total ? Math.round(1000 * covered / total) / 10 : null
+
+/** Why two versions' numbers for a suite can't be set side by side, or null when they can. Runs from before `setup` was
+ * kept all ran on one worker against `nuxt dev`. In the page's script too, so it may only use what's in here. */
+export function notCompared(run, before, count, setup) {
+    if (before.source !== run.source) return 'one is local, one on CI'
+    if (count && (count(run).failed || count(before).failed)) return 'tests failed in one, so it may not have run whole'
+    if (!setup) return null
+    const said = r => {
+        const {workers = 1, server = 'dev'} = setup(r) ?? {}
+        return workers + (workers === 1 ? ' worker' : ' workers') + ' on ' + server
+    }
+    return said(run) === said(before) ? null : 'one ran ' + said(run) + ', the other ' + said(before)
+}
 
 /** Vitest's JSON reporter: the wall clock of the run, and the slowest files and tests. */
 export function unitNumbers(json) {
@@ -56,7 +69,15 @@ export function e2eNumbers(json) {
         seconds: seconds(json.stats.duration),
         tests: tests.length, failed: json.stats.unexpected + (json.stats.flaky ?? 0), skipped: json.stats.skipped,
         files: slowestFirst([...byFile.values()]), slowest: slowestFirst(tests),
+        ...setupOf(json),
     }
+}
+
+/** How the browser suite ran, from what its config and Playwright say, so a later change to it isn't taken for a speedup. */
+function setupOf(json) {
+    const workers = json.config?.metadata?.actualWorkers ?? json.config?.workers
+    const server = json.config?.metadata?.server
+    return workers || server ? {setup: {...workers ? {workers} : {}, ...server ? {server} : {}}} : {}
 }
 
 /** The coverage summary: the totals, each area, and the files least covered, the largest first among equals. */
@@ -136,16 +157,19 @@ const time = s => s >= 60 ? Math.floor(s / 60) + 'm ' + String(Math.round(s % 60
 const percent = n => n === null || n === undefined ? '–' : n.toFixed(1) + '%'
 const card = (title, body, hint) => '<div class="bg-panel rounded-lg ring-1 ring-line p-3 flex flex-col gap-2 min-w-0"><h2 class="font-medium">' + title + (hint ? ' <span class="font-normal text-muted">' + hint + '</span>' : '') + '</h2>' + body + '</div>'
 
+const notCompared = ${notCompared}
+
 const MEASURES = [
   {title: 'Unit tests', of: r => r.unit.seconds, say: time, more: 'slower', less: 'faster', count: r => r.unit},
-  {title: 'E2E tests', of: r => r.e2e.seconds, say: time, more: 'slower', less: 'faster', count: r => r.e2e},
+  {title: 'E2E tests', of: r => r.e2e.seconds, say: time, more: 'slower', less: 'faster', count: r => r.e2e, setup: r => r.e2e.setup},
   {title: 'Coverage, lines', of: r => r.coverage.lines, say: percent, by: n => n.toFixed(1) + ' points', more: 'up', less: 'down', fixed: 100},
 ]
 
 function tile(measure, run, before) {
   const value = measure.of(run)
   let change = 'The first version here'
-  if (before && before.source !== run.source) change = 'Not compared with ' + esc(before.version) + ': one is local, one on CI'
+  const apart = before && notCompared(run, before, measure.count, measure.setup)
+  if (apart) change = 'Not compared with ' + esc(before.version) + ': ' + esc(apart)
   else if (before) {
     const by = value - measure.of(before)
     change = Math.abs(by) < 0.05 ? 'Level with ' + esc(before.version)

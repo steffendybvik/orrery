@@ -9,6 +9,8 @@ const postgres = process.env.E2E_POSTGRES_URL
 
 export default defineConfig({
     testDir: 'e2e',
+    // What `pnpm test:report` keeps with a run's numbers, so a change to how this runs isn't taken for a speedup.
+    metadata: {server: 'dev'},
     // One orrery for every file, one at a time. first-run.spec.ts opens it fresh, with an owner who has no name yet,
     // so it runs first, as a Playwright project the rest depend on; each of them then makes an orrery project of its own.
     workers: 1,

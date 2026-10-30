@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {coverageNumbers, e2eNumbers, page, runsIn, unitNumbers, withRun} from '../scripts/test-report.mjs'
+import {coverageNumbers, e2eNumbers, notCompared, page, runsIn, unitNumbers, withRun} from '../scripts/test-report.mjs'
 
 // The Test speed and coverage artifact (ORR-678): what it reads from a run's results, and the versions it carries.
 const test = (fullName: string, duration: number) => ({fullName, duration})
@@ -48,6 +48,44 @@ describe('reading a run', () => {
         expect(summary.areas.find((a: {area: string}) => a.area === 'server/api')).toEqual({area: 'server/api', files: 2, untested: 1, lines: 80, branches: 80})
         expect(summary.areas.find((a: {area: string}) => a.area === 'shared')).toEqual({area: 'shared', files: 0, untested: 0, lines: null, branches: null})
         expect(summary.least.map((f: {file: string}) => f.file)).toEqual(['channel/tools.mjs', 'web/server/api/a.get.ts', 'web/server/api/b.get.ts'])
+    })
+})
+
+describe('comparing two versions', () => {
+    const count = (r: {e2e: {failed: number}}) => r.e2e
+    const setup = (r: {e2e: {setup?: {workers?: number, server?: string}}}) => r.e2e.setup
+    const run = (failed = 0, setup?: {workers?: number, server?: string}, source = 'ci') => ({source, e2e: {failed, setup}})
+
+    it('sets two runs of the same kind side by side', () => {
+        expect(notCompared(run(0, {workers: 1, server: 'dev'}), run(), count, setup)).toBeNull()
+    })
+
+    it('doesn\'t compare a local run with one on CI', () => {
+        expect(notCompared(run(), run(0, undefined, 'local'), count, setup)).toBe('one is local, one on CI')
+    })
+
+    it('doesn\'t compare a run in which tests failed', () => {
+        expect(notCompared(run(1), run(), count, setup)).toMatch(/^tests failed/)
+        expect(notCompared(run(), run(2), count, setup)).toMatch(/^tests failed/)
+    })
+
+    it('doesn\'t take a change to how the suite runs for a speedup, and a run from before it was kept as one worker on dev', () => {
+        expect(notCompared(run(0, {workers: 4, server: 'dev'}), run(), count, setup)).toBe('one ran 4 workers on dev, the other 1 worker on dev')
+        expect(notCompared(run(0, {workers: 1, server: 'built'}), run(), count, setup)).toBe('one ran 1 worker on built, the other 1 worker on dev')
+    })
+
+    it('leaves out the setup for a suite that has none', () => {
+        expect(notCompared(run(0, {workers: 4}), run(), count, undefined)).toBeNull()
+    })
+
+    it('keeps what Playwright says about how it ran', () => {
+        const ran = {...playwright, config: {workers: 2, metadata: {actualWorkers: 4, server: 'built'}}}
+        expect(e2eNumbers(ran).setup).toEqual({workers: 4, server: 'built'})
+        expect(e2eNumbers(playwright).setup).toBeUndefined()
+    })
+
+    it('puts the same check in the page\'s own script', () => {
+        expect(page([])).toContain('const notCompared = function notCompared(')
     })
 })
 
