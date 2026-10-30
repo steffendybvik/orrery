@@ -19,8 +19,8 @@ import {fileURLToPath} from 'node:url'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
-import {pickUp} from './launcher-service.mjs'
-import {channelsIn, narrowed, projectsIn} from './repo-channels.mjs'
+import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
+import {narrowed} from './repo-channels.mjs'
 import {serverName} from './server-name.mjs'
 import {claudeWindow} from './session.mjs'
 import {instructionsFor} from './instructions.mjs'
@@ -151,29 +151,16 @@ log(`registered as a channel: ${channel}${registeredAs ? ` (as ${registeredAs})`
 who.set('channel', channel)
 if (registeredAs) who.set('server', registeredAs)
 
-/** Pick-up (ORR-599): a session opened in a repo whose .mcp.json registers this channel puts the repo's projects on the
- * launcher's list, as `--install` there would, so orrery can start sessions here too, and says so once. Only this
- * channel, running in the folder on this machine, writes the list: orrery never names a folder for the launcher. Not
- * for a session orrery started (it's served already), and only projects its orrery has. */
-async function pickUpRepo() {
-    const dir = process.cwd()
-    if (!channelsIn(dir).length) return
-    const known = []
-    for (const entry of projectsIn(dir, {url: process.env.ORRERY_URL})) {
-        const status = await fetch(`${entry.url}/api/projects/${encodeURIComponent(entry.project)}/launches`).then(r => r.status, () => 0)
-        if (status && status !== 404) known.push(entry)
-    }
-    const added = pickUp(known, dir)
-    if (!added.length) return
-    const names = added.map(entry => entry.project).join(', ')
-    log(`put ${names} on the launcher's list (pick-up)`)
-    const launcher = fileURLToPath(new URL('./orrery-launcher.mjs', import.meta.url))
-    await server.notification({method: 'notifications/claude/channel', params: {
-        content: `orrery's launcher now serves this repo (${names}), so orrery can start sessions in it. To take it off, run this here: node ${launcher} --uninstall`,
-        meta: {kind: 'pick-up'},
-    }})
+/** Pick-up (ORR-599, pick-up.mjs): puts this repo's projects on the launcher's list, as `--install` there would, so
+ * orrery can start sessions here too, and says so once. */
+async function pickUpHere() {
+    const added = await pickUpRepo(process.cwd())
+    const content = pickedUpMessage(added, fileURLToPath(new URL('./orrery-launcher.mjs', import.meta.url)))
+    if (!content) return
+    log(`put ${added.map(entry => entry.project).join(', ')} on the launcher's list (pick-up)`)
+    await server.notification({method: 'notifications/claude/channel', params: {content, meta: {kind: 'pick-up'}}})
 }
-if (!process.env.ORRERY_STARTED) await pickUpRepo().catch(error => log(`couldn't put this repo on the launcher's list: ${error.message}`))
+await pickUpHere().catch(error => log(`couldn't put this repo on the launcher's list: ${error.message}`))
 
 /** Tells the session about a signal on one of its projects. A chat hears only the owner's messages in it. */
 async function deliver(project, signal, query) {
