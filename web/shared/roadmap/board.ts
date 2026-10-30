@@ -242,9 +242,14 @@ export function freezeNote(release: Pick<Release, 'version' | 'frozen_on' | 'shi
 }
 
 /** A doc without its text, as a project lists it. */
+export const DOC_KINDS = ['markdown', 'artifact'] as const
+export type DocKind = (typeof DOC_KINDS)[number]
+
 export interface DocSummary {
     id: string
     title: string
+    /** `artifact`: its text is HTML, only ever drawn in a sandboxed frame (ORR-677). Fixed when it's made. */
+    kind: DocKind
     /** Its first paragraph as plain text, cut to about 160 characters: enough to tell whether to open it. */
     summary: string
     /** With a search (`?q=`): the text around its first hit, empty when only the title has it. */
@@ -269,6 +274,7 @@ export interface Doc extends DocSummary {
 export interface DocRevisionSummary {
     id: number
     title: string
+    kind: DocKind
     /** The doc being removed here: this holds its last text. */
     deleted: boolean
     created_by: string
@@ -287,6 +293,7 @@ export interface DocRevision extends DocRevisionSummary {
 export interface DeletedDoc {
     id: string
     title: string
+    kind: DocKind
     summary: string
     /** The revision that says it was removed. */
     revision: number

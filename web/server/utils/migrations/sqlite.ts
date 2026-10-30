@@ -909,4 +909,9 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     CREATE UNIQUE INDEX project_members_one_holder ON project_members(project) WHERE role = 'owner';
     INSERT INTO project_members (project, person, role, created_at)
         SELECT projects.id, people.id, 'owner', projects.created_at FROM projects, people WHERE people.role = 'owner';
+`, `
+    -- A doc's kind (ORR-677): Markdown, or an artifact, its text HTML that's only ever served locked down and drawn in a
+    -- sandboxed frame. Its revisions keep it too, so a deleted artifact comes back as one.
+    ALTER TABLE docs ADD COLUMN kind TEXT NOT NULL DEFAULT 'markdown' CHECK (kind IN ('markdown', 'artifact'));
+    ALTER TABLE doc_revisions ADD COLUMN kind TEXT NOT NULL DEFAULT 'markdown' CHECK (kind IN ('markdown', 'artifact'));
 `]
