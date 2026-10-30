@@ -769,7 +769,7 @@ recorded only while the owner has Advanced on (`PATCH /settings {advanced: true}
 sessions started, stopped and refused (`session.started`, `session.stopping`, `session.stopped`,
 `session.refused`), any session's channel joining and leaving the feed (`channel.connected`, `channel.left`),
 launchers coming and going (`launcher.connected`, `launcher.gone`) or refused a launch because
-their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), GitHub turning down the `GITHUB_TOKEN` secret as pull requests are polled (`github.refused`, a warning, once until it works again), schedule runs and skips
+their code is older than it (`launcher.outdated`, a warning: one from before chats offered a chat), GitHub turning down the `GITHUB_TOKEN` secret as pull requests are polled (`github.refused`, a warning, once until it works again), a session whose `Orrery-Person` disagrees with its agent key (`auth.person_mismatch`, a warning, once per session), schedule runs and skips
 (`schedule.ran`, `schedule.skipped`), backups, migrations, moves and server starts (`backup.made`, `backup.set`, `migration.ran`,
 `database.created` when a move copies into a new one, `database.moved`, `server.started`), calls through egress
 (`egress.called`: who, which secrets, the method, host and status, never a value or path), and who changed what

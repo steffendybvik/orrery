@@ -67,7 +67,7 @@ with no project ticked gets none, so where the channel lists `*` it hears every 
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
 `ORRERY_PERSON` says whose the session is, on an orrery with more than one person and login off (`ORRERY_AUTH=off`): your
-id from `GET /api/people`, set in your own environment. With login on, the agent key says whose it is, and this is ignored. It's written as `${ORRERY_PERSON:-}` because this file is committed, and a name in it would
+id from `GET /api/people`, set in your own environment. With login on, the agent key says whose it is, and this is ignored, with a warning in the event log if it disagrees. It's written as `${ORRERY_PERSON:-}` because this file is committed, and a name in it would
 make every clone that person. With one person, there's nothing to set.
 
 Channels are a Claude Code research preview, so a session only shows the channel's messages when it
