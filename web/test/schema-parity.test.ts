@@ -10,11 +10,9 @@ import {COPIED_TABLES} from '../server/utils/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
-import {BASELINE, STEPS} from '../server/utils/migrations/postgres'
 import {Store} from '../server/utils/store'
 
 const url = process.env.TEST_POSTGRES_URL!
-const POSTGRES_STEPS = BASELINE + STEPS.length
 
 /** A table as both databases can describe it: its columns (NOT NULL, default without Postgres's casts), its indexes
  * other than the primary key (columns, unique), and how many CHECKs it has. Column order isn't part of it: an added
@@ -118,13 +116,13 @@ describe.runIf(url)('upgrading Postgres with data in it', () => {
     })
 
     it('moves a named owner from settings to people (ORR-653)', async () => {
-        const store = await upgraded(POSTGRES_STEPS - 2, `INSERT INTO settings (key, value) VALUES ('owner', '"Sköll Fenrisson"');`)
+        const store = await upgraded(62, `INSERT INTO settings (key, value) VALUES ('owner', '"Sköll Fenrisson"');`)
         expect(await store.ownerOf()).toEqual({name: 'skoll_fenrisson', display: 'Sköll Fenrisson', named: true})
         expect(await store.people()).toMatchObject([{id: 'skoll_fenrisson', role: 'owner'}])
     })
 
     it('gives each board and the server a random id (ORR-674)', async () => {
-        const store = await upgraded(POSTGRES_STEPS - 1, `${PROJECT}
+        const store = await upgraded(63, `${PROJECT}
             INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('pantry', 'pantry', 'PAN', 'agent', 'x', 'x');`)
         const [a, b] = [(await store.project('greenhouse')).uid, (await store.project('pantry')).uid]
         expect(a).toMatch(/^[a-z2-7]{8}$/)
@@ -174,7 +172,29 @@ describe.runIf(url)('upgrading Postgres with data in it', () => {
         expect(await store.issue('greenhouse', 'GRE-2')).toMatchObject({external: ['https://github.com/you/greenhouse/issues/12#issuecomment-1', 'https://github.com/you/greenhouse/pull/9'], github_issues: []})
         expect(await store.issue('greenhouse', 'GRE-3')).toMatchObject({external: ['ENG-2'], github_issues: []})
     })
+
+    it("starts each doc's history from its text, and marks no release shipped before (ORR-675)", async () => {
+        await expectDocHistoryStarted(await upgraded(DOC_REVISIONS_STEP, DOCS_BEFORE_REVISIONS))
+    })
 })
+
+/** The step before ORR-675's. */
+const DOC_REVISIONS_STEP = 64
+const DOCS_BEFORE_REVISIONS = `INSERT INTO projects (id, name, key, release_mode, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'own', 'agent', 'x', 'x');
+            INSERT INTO releases (project, version, shipped_on, created_by, created_at, updated_at) VALUES ('greenhouse', '1.0', '2026-01-01', 'agent', 'x', 'x');
+            INSERT INTO docs (project, id, title, body, position, created_by, owned, created_at, updated_at) VALUES
+            ('greenhouse', 'later', 'Later', 'b', 0, 'skoll', 1, 'c1', 'u2'),
+            ('greenhouse', 'first', 'First', 'a', 1, 'agent', 0, 'c2', 'u1');`
+
+async function expectDocHistoryStarted(store: Store) {
+    const [first] = await store.docRevisions('greenhouse', 'first')
+    const [later] = await store.docRevisions('greenhouse', 'later')
+    expect(first).toMatchObject({title: 'First', created_by: 'agent', created_at: 'u1', deleted: false})
+    expect(later).toMatchObject({title: 'Later', created_by: 'skoll', created_at: 'u2'})
+    expect(first!.id).toBeLessThan(later!.id)
+    expect((await store.docRevision('greenhouse', 'later', later!.id)).body).toBe('b')
+    expect((await store.release('greenhouse', '1.0')).doc_mark).toBeUndefined()
+}
 
 /** The step before ORR-635's. */
 const GITHUB_LINKS_STEP = 58
@@ -196,6 +216,10 @@ function upgradedSqlite(step: number, rows: string) {
 
 // SQLite's twins of the steps above that had no test on either database.
 describe('upgrading SQLite with data in it', () => {
+    it("starts each doc's history from its text, and marks no release shipped before (ORR-675)", async () => {
+        await expectDocHistoryStarted(upgradedSqlite(DOC_REVISIONS_STEP, DOCS_BEFORE_REVISIONS))
+    })
+
     it('gives each project its release mode from the releases it had (step 32)', async () => {
         const store = upgradedSqlite(31, `INSERT INTO projects (id, name, key, releases_from, created_by, created_at, updated_at) VALUES
             ('greenhouse', 'greenhouse', 'GRE', NULL, 'agent', '1', '1'), ('pantry', 'pantry', 'PAN', 'greenhouse', 'agent', '2', '2'),

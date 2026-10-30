@@ -34,6 +34,40 @@ test('writes a doc, edits it in place and removes it', async ({page}) => {
     await expect(page.getByText('Archive has no docs yet.')).toBeVisible()
 })
 
+test("shows a doc's history, restores a version, and brings a removed doc back (ORR-675)", async ({page, request}) => {
+    const url = '/api/projects/library/docs/ledger'
+    await request.put(url, {data: {title: 'Ledger', body: 'Count the jars.\n\nWrite it down.'}, headers: AGENT}).then(r => expect(r.ok()).toBeTruthy())
+    await request.put(url, {data: {title: 'Ledger', body: 'Count the jars weekly.\n\nWrite it down.'}, headers: AGENT}).then(r => expect(r.ok()).toBeTruthy())
+
+    await page.goto('/p/library/docs/ledger')
+    await page.getByRole('button', {name: 'History'}).click()
+    const history = page.getByRole('region', {name: 'History'})
+    await expect(history.locator('[data-diff="added"]')).toHaveText(/Count the jars weekly\./)
+    await expect(history.locator('[data-diff="removed"]')).toHaveText(/Count the jars\./)
+    // The newest is what the doc already says, so there's nothing to restore there.
+    await expect(history.getByRole('button', {name: 'Restore this version'})).toHaveCount(0)
+
+    await history.getByRole('button', {name: /First version/}).click()
+    await history.getByRole('button', {name: 'Restore this version'}).click()
+    await history.getByRole('button', {name: 'Restore', exact: true}).click()
+    await expect(page.locator('.doc')).toContainText('Count the jars.')
+    await expect(page.locator('.doc')).not.toContainText('weekly')
+
+    await page.getByRole('button', {name: 'History'}).click()
+    await expect(history.getByRole('listitem')).toHaveCount(3)
+    await page.getByRole('button', {name: 'Back to the doc'}).click()
+
+    await page.getByRole('button', {name: 'Remove'}).click()
+    await page.getByRole('button', {name: 'Remove'}).click()
+    await page.goto('/p/library/docs/ledger')
+    await expect(page.getByText('Its past is kept')).toBeVisible()
+    await page.getByRole('button', {name: 'Bring it back'}).click()
+    await page.getByRole('button', {name: 'Bring back', exact: true}).click()
+    await expect(page.locator('.doc')).toContainText('Count the jars.')
+    await expect(page.getByRole('heading', {level: 1, name: 'Ledger'})).toBeVisible()
+    await request.delete(url, {headers: AGENT})
+})
+
 test("tints a doc an agent changed, and in it the parts that changed since the owner read it", async ({page, request}) => {
     const put = (id: string, body: string) => request.put(`/api/projects/library/docs/${id}`, {data: {title: id === 'pantry' ? 'Pantry' : 'Shelves', body}, headers: AGENT})
         .then(r => expect(r.ok()).toBeTruthy())
