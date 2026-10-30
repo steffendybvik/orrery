@@ -189,6 +189,6 @@ export interface Settings {
     /** Shows what's for looking into problems: the Events page, and a notice in the bell for each new kind of error.
      * Off by default; errors are recorded either way, what orrery did only while it's on. */
     advanced: boolean
-    /** A listening session out of work is handed the issues it may start, Todo then Backlog, to pick one (ORR-452). */
+    /** A listening session out of work is handed the issues it may start, in Todo, to pick one (ORR-452, ORR-759). */
     pick_next: boolean
 }
