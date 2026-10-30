@@ -100,9 +100,9 @@ const OUTCOME = {
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
       </span>
       <div class="flex min-w-0 flex-1 flex-col gap-0.5" :class="!s.enabled && 'opacity-60'">
-        <div class="flex min-w-0 items-center gap-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 sm:flex-nowrap">
           <span v-if="scheduleUnseen(s)" class="unseen-dot" title="An agent made or changed it since you last opened it" />
-          <span class="truncate text-fg" :class="scheduleUnseen(s) ? 'font-semibold' : 'font-medium'">{{ s.title }}</span>
+          <span class="max-w-full truncate text-fg" :class="scheduleUnseen(s) ? 'font-semibold' : 'font-medium'">{{ s.title }}</span>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
               :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"

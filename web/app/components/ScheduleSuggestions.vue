@@ -42,8 +42,8 @@ function add(s: ScheduleSuggestion) {
         <span v-if="!shipped(s).length" class="grid size-6 place-items-center rounded-md text-sky-600 ring-1 ring-inset ring-line dark:text-sky-400">✉</span>
       </span>
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div class="flex min-w-0 items-center gap-2">
-          <span class="truncate font-medium text-fg">{{ s.title }}</span>
+        <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 sm:flex-nowrap">
+          <span class="max-w-full truncate font-medium text-fg">{{ s.title }}</span>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
               :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : 'bg-violet-500/12 text-violet-700 dark:text-violet-300'"
