@@ -23,7 +23,8 @@ protection against a person or program that wants to pretend: anyone who can rea
 the owner's id.
 
 The same goes for the people an owner adds, and for `Orrery-Person`, which says whose a session is: with no login yet,
-anyone who can reach orrery can send any of them. Adding people keeps honest sessions apart. It doesn't stop anyone.
+anyone who can reach orrery can send any of them. Adding people, and keeping a board to its members, keeps honest
+sessions apart. It doesn't stop anyone, and reads aren't kept to a board at all yet.
 
 Moving the database (App settings → Database → Move…) repoints orrery at a database the mover picks, and setting
 the backups chooses where a copy of everything goes, so both are kept to the machine orrery runs on, from where

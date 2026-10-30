@@ -41,6 +41,10 @@ export abstract class OwnerStore extends StatusStore {
         await this.db.transaction(async () => {
             const renamed = await this.run("UPDATE people SET id = ?, name = ? WHERE role = 'owner'", name, display)
             if (!Number(renamed.changes)) await this.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)", name, display, stamp())
+            await this.run('UPDATE project_members SET person = ? WHERE person = ?', name, before.name)
+            // Boards made before there was anyone to hold them are the owner's.
+            await this.run(`INSERT INTO project_members (project, person, role, created_at) SELECT id, ?, 'owner', created_at FROM projects
+                WHERE NOT EXISTS (SELECT 1 FROM project_members WHERE project = projects.id AND role = 'owner')`, name)
             if (name === before.name) return
             for (const table of ['projects', 'chunks', 'issues', 'docs', 'doc_revisions', 'comments', 'signals', 'schedules', 'issue_events', 'secrets', 'uploads', 'releases', 'presets', 'issue_links'])
                 await this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)

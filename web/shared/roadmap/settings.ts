@@ -16,6 +16,14 @@ export interface Person {
     removed_at?: string
 }
 
+/** Someone on a board (ORR-654): its one holder (`owner`), who says who else is on it, or a `member`. */
+export interface BoardMember {
+    person: string
+    name: string
+    role: 'owner' | 'member'
+    created_at: string
+}
+
 /** Whose orrery it is: their name as the page shows it, and the `Orrery-Actor` id it makes. */
 export interface Owner {
     /** The id: the name in lowercase snake case (`skoll_fenrisson`); `owner` until they give one. */

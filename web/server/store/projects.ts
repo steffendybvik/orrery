@@ -35,7 +35,8 @@ export abstract class ProjectStore extends PeopleStore {
         return (await this.projectRow(id)).id
     }
 
-    async createProject(body: unknown, actor = AGENT): Promise<Project> {
+    /** Makes a project, held by `holder` (the owner when it doesn't say), who can then say who else is on it. */
+    async createProject(body: unknown, actor = AGENT, holder?: string): Promise<Project> {
         const input = checkInput(body, PROJECT_FIELDS)
         this.promptsAreTheOwners(input, actor)
         const name = String(input.name).trim()
@@ -50,6 +51,7 @@ export abstract class ProjectStore extends PeopleStore {
         await this.run('INSERT INTO projects (id, name, key, uid, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             id, name, key, randomUid(), nullable(input.description), nullable(input.icon), nullable(input.icon_color), nullable(input.repo), mode, from, actor.name, Number(actor.owner), now, now)
         await this.update('projects', 'id = ?', [id], this.promptColumns(input))
+        await this.run("INSERT INTO project_members (project, person, role, created_at) SELECT ?, id, 'owner', ? FROM people WHERE id = ?", id, now, holder ?? (await this.ownerOf()).name)
         this.changed(id)
         return await this.project(id)
     }

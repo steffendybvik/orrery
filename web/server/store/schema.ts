@@ -314,6 +314,10 @@ export const PRESET_FIELDS: Record<string, Field> = {
     color: TINT,
 }
 
+export const MEMBER_FIELDS: Record<string, Field> = {
+    person: {type: 'string', required: true},
+}
+
 export const OWNER_FIELDS: Record<string, Field> = {
     name: {type: 'string', required: true},
 }

@@ -3,6 +3,8 @@
 export default defineEventHandler(async event => {
     const {tool, text} = await readBody<{tool?: unknown, text?: unknown}>(event) ?? {}
     if (typeof tool !== 'string' || !tool || typeof text !== 'string') throw badRequest('Send {tool, text}')
+    const session = listSessions().find(s => s.id === param(event, 'session'))
+    if (session) await needsBoard(event, session.project)
     noteContext(param(event, 'session'), 'tool', tool, text)
     setResponseStatus(event, 204)
     return null
