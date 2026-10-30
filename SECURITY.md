@@ -29,6 +29,8 @@ are open, as are `/healthz`, the page's files and the channel's, which hold no d
 projects' names and keys (`/llms*` their progress too). With it on, what `Orrery-Actor` and
 `Orrery-Person` say doesn't decide who anyone is.
 
+**With login off,** as on one machine with `ORRERY_AUTH=off`, people and the rules between them only stop honest agents and mistakes: `Orrery-Actor`, `Orrery-Person` and the page's **Acting as** are names, and anyone who can reach orrery can send someone else's.
+
 **Agent keys and person keys.** An agent with Bash can read its own environment, so a key has a kind. An **agent key** goes
 in a session's environment (`ORRERY_KEY`) and acts as an agent of its person: it can never be that person, sign in to the
 page, make a key, or do what only the owner may, even when its person is the owner. A **person key** signs in to the page

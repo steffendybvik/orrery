@@ -86,6 +86,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'limited', note: 'On their boards, within what a session may'},
     },
     {
+        id: 'issues.claim', area: 'Roadmap', action: 'Claim an issue, let it go or take it over',
+        why: 'Whoever holds an issue says so, and only the owner takes one from someone else.',
+        routes: ['POST /api/projects/:project/issues/:issue/claim', 'DELETE /api/projects/:project/issues/:issue/claim'],
+        session: {level: 'limited', note: 'Only what’s assigned to its person, with more than one person'},
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'limited', note: 'Their own, or one unassigned, on their boards'},
+    },
+    {
         id: 'issues.delete', area: 'Roadmap', action: 'Remove issues, chunks, releases or docs',
         why: 'Taking away what the owner made is their call.',
         routes: ['DELETE /api/projects/:project/issues/:issue', 'DELETE /api/projects/:project/chunks/:chunk', 'DELETE /api/projects/:project/docs/:doc', 'DELETE /api/projects/:project/issues', 'DELETE /api/projects/:project/releases/:release'],

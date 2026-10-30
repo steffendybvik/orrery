@@ -1,4 +1,4 @@
-// There are no accounts, so orrery guards against the browser being used against it. Any website open
+// Alone on one machine there are no accounts, so orrery guards against the browser being used against it. Any website open
 // in the owner's browser could otherwise post a form here and plant issues or comments for the sessions
 // to read, or point its own domain at this machine (DNS rebinding) to read the board and write to it.
 //

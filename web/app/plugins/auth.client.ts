@@ -4,6 +4,7 @@ export default defineNuxtPlugin(async () => {
     const {status, loggedOut} = useAuth()
     status.value = await apiFetch<AuthStatus>('/auth/status').catch(() => null)
     const onLogin = location.pathname === '/login'
+    if (status.value && !loggedOut.value) await usePeople().load()
     if (!status.value || loggedOut.value === onLogin) return
     location.replace(onLogin ? '/' : '/login')
     await new Promise(() => {})

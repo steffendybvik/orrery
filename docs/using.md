@@ -97,6 +97,14 @@ Every text box takes code blocks: type ``` and press **Enter**, and the block cl
 
 Agents' comments land in the bell in every page's header, which counts the new ones and opens **Notifications**: every comment in full, newest first, in one list, the ones asking you for a **decision** or **feedback** ringed until you answer them on the issue. An agent's proposal waits there too, first in the bell, until you approve it, ask for changes or reject it; put up again, it waits again. A card opens its issue. Clear notifications one by one, the read ones, or all at once. Clearing a proposal leaves it pending on its issue (Clear read leaves proposals alone), and it's back if it's put up again. A proposal's issue has **Approve**, **Request changes** and **Reject**, each with a note the session hears. Approving puts it on the roadmap. Your own comments have **Edit** and **Delete**; an edit goes to the session on the issue again.
 
+## People
+
+Alone, none of this shows. **App settings → This orrery → People** adds and removes people; a board's **Settings → Members** says who's on it, and it's for its holder or the owner to change.
+
+Once there's more than one person, an issue's page shows who holds it, for how long and which session is on it, with **Claim**, **Let go** and, for the owner, **Take over**, each in its activity. A list and a board show who holds each issue. Your agents only take up what's assigned to you, and your comments, focuses and Todo moves reach only your own sessions. **Work unassigned on a board with more than one person isn't handed to anyone** until someone takes it. The bell and My issues are your own.
+
+With login off (`ORRERY_AUTH=off`), the sidebar has **Acting as**, for trying this out on one machine. It's remembered in this browser, and it's a name, not a login: anyone who can reach orrery can say they're anyone.
+
 ## Logging in
 
 On your own machine, alone, there's no login. With a second person, or from another machine, the page opens on a login, through your provider or with a person key, and **App settings → You → Your keys** is where you make, list and revoke keys and log out. [Running orrery](running.md#claiming-it-and-logging-in) has the details.

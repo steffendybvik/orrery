@@ -34,6 +34,7 @@ function said(event: IssueEvent): string[] {
     if (field === 'status') return [`moved it to ${look(after ?? '').label}`]
     if (field === 'priority') return [after ? `set the priority to ${PRIORITY_LABEL[after] ?? after}` : 'took the priority off']
     if (field === 'assignee') return [after ? `assigned ${who(after)}` : 'unassigned it']
+    if (field === 'claim') return [after ? before ? `took it over from ${who(before)}` : 'took it up' : 'let it go']
     if (field === 'title') return [`renamed it from “${before ?? ''}”`]
     if (field === 'notes') return ['edited the description']
     if (field === 'parent') return [after ? `made it a sub-issue of ${after}` : 'made it a top-level issue']

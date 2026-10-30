@@ -10,6 +10,7 @@ import {githubIssueLabel, githubIssueOf, githubRepo, isFrozen, taskUrl} from '#s
 const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean, worker?: Session, fold?: boolean}>()
 const more = ref(false)
 const {who, name: owner} = useOwner()
+const {shared} = usePeople()
 const {save, saving, failed} = useIssueSave(() => props.project.id, () => props.issue.id)
 
 // A parent's status follows its sub-issues, and a sub-issue is in its parent's chunk.
@@ -152,6 +153,11 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
         </template>
       </PropertyPicker>
     </dd>
+
+    <template v-if="shared">
+      <dt class="label">Claim</dt>
+      <dd class="flex min-w-0"><IssueClaim :issue="issue" :project="project.id" :worker="worker" /></dd>
+    </template>
 
     <dd v-if="fold" class="col-span-2 flex">
       <UiButton variant="ghost" size="xs" class="-ml-1.5" :aria-expanded="more" @click="more = !more">

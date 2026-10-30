@@ -128,6 +128,10 @@ describe("a working session's column", () => {
     // Each row the store or the schedules hold, tried as an agent: the level its column says, and what makes it so.
     const PROBES: Record<string, () => Promise<unknown>> = {
         'issues.create': async () => expect(await status(() => store.createIssue('greenhouse', {title: 'Shelves'}, agent))).toBe(200),
+        'issues.claim': async () => {
+            const {id} = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
+            expect(await status(() => store.claimIssue('greenhouse', id, agent))).toBe(200)
+        },
         'issues.edit': async () => {
             const plain = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
             expect(await status(() => store.updateIssue('greenhouse', plain.id, {status: 'done'}, agent))).toBe(200)

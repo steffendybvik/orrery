@@ -28,6 +28,7 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
     ]},
     {value: 'orrery', label: 'This orrery', scope: 'This orrery as a whole: how it looks, the keys its agents use and where it keeps its data. How sessions start is under Sessions → Setup.', sections: [
         {id: 'tint', text: 'Background tint', level: 2},
+        {id: 'people', text: 'People', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
         {id: 'database', text: 'Database', level: 2},
     ]},
@@ -406,7 +407,17 @@ async function pick(tint: string | null) {
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       </section>
 
-      <section v-if="tab === 'orrery'" id="secrets" class="scroll-mt-6 flex flex-col gap-3">
+<section v-if="tab === 'orrery'" id="people" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.people }}</h2>
+          <p class="text-xs text-muted">
+            Who works on this orrery, each with their own agents. Alone, you need do nothing here.
+          </p>
+        </header>
+        <PeopleSettings />
+      </section>
+
+            <section v-if="tab === 'orrery'" id="secrets" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.secrets }}</h2>
           <p class="text-xs text-muted">

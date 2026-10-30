@@ -9,9 +9,11 @@ export const apiUrl = (path: string) => `${API_BASE}${path}`
 
 type ApiOptions = NitroFetchOptions<NitroFetchRequest>
 
-/** Asks the API at `path`. A write goes as the owner (`Orrery-Actor`), unless the call says otherwise with `headers`. */
+/** Asks the API at `path`. A write goes as the owner (`Orrery-Actor`), or who this browser is acting as (ORR-657), which
+ * a read says too, so the bell is theirs. A call says otherwise with `headers`. */
 export async function apiFetch<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
     const write = (options.method ?? 'GET').toUpperCase() !== 'GET'
-    const headers = options.headers ?? (write ? {'Orrery-Actor': await useOwner().load()} : undefined)
+    const acting = useState<string | null>('acting', () => null).value
+    const headers = options.headers ?? (acting ? {'Orrery-Actor': acting} : write ? {'Orrery-Actor': await useOwner().load()} : undefined)
     return await $fetch<T>(apiUrl(path), {...options, ...headers ? {headers} : {}} as ApiOptions) as T
 }

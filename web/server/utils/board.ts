@@ -2,8 +2,8 @@
 // says what a member and their agents may do, and that they're on the board the route names. `authorize` can't do this:
 // only the owner-only routes call it. A route the table doesn't name is refused, so a new one can't slip past, and a
 // session that names nobody gets only the routes a row says it may (`unnamed`). The owner and their agents go through
-// here untouched, and with one person nothing does: what else they're held to is the rest of the table. With no login
-// yet these are names, so this keeps honest sessions apart until ORR-664 makes them verified. Reads stay open;
+// here untouched, and with one person nothing does: what else they're held to is the rest of the table. With login off
+// these are names, which keeps honest sessions apart; with it on, the credential decides who's asking (ORR-664). Reads stay open;
 // `needsBoard` is what a read route would call when they don't.
 import {createError} from 'h3'
 import type {H3Event} from 'h3'
