@@ -49,18 +49,18 @@ through the `guide` tool.
 ## Keep your data safe
 
 - **Your data is in Docker; your backups are in `ORRERY_BACKUP`.** The database lives in a Docker volume
-  (`<folder>_orrery-data`). A checked copy goes to the backup folder a few seconds after each change, plus one a day for
+  (`orrery_orrery-data`). A checked copy goes to the backup folder a few seconds after each change, plus one a day for
   two weeks.
 - **Put `ORRERY_BACKUP` somewhere that leaves this computer:** iCloud Drive, Dropbox, or a folder Time Machine covers.
   Without it the backups sit in a Docker volume on the same disk, and App settings says so.
 - **Never `docker compose down -v`**, and don't clear Docker Desktop's data, without a recent backup: both delete the
   database. Plain `docker compose down` keeps it.
-- **To update:** `git pull`, then `docker compose up -d --build` (see [Running orrery](docs/running.md)). orrery takes a
-  copy before it upgrades the database.
+- **To update:** change the version in `compose.yml`'s `image:`, run `docker compose pull && docker compose up -d`, and
+  `git pull` (see [Running orrery](docs/running.md#updating)). orrery takes a copy before it upgrades the database.
 - **To move to a new computer:** set it up the same way, point `ORRERY_BACKUP` at the same folder, and choose the
   backup to restore when it first opens.
-- **If your data looks gone after an update:** run `docker volume ls`. The volume is named after the folder, so a clone
-  in a folder with another name has another one. App settings → This orrery → Database → **Restore a backup…** brings back any backup
+- **If your data looks gone after an update:** run `docker volume ls`. A volume with another name (from an older setup
+  in a folder with another name) may hold it. App settings → This orrery → Database → **Restore a backup…** brings back any backup
   in the folder.
 
 ## Quick start
@@ -80,11 +80,15 @@ You need:
    pnpm install
    ```
 
-2. Start orrery:
+2. Start orrery from the published image, in that same folder:
 
    ```sh
-   docker compose up -d --build        # http://localhost:9000
+   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.14/compose.yml
+   docker compose up -d        # http://localhost:9000
    ```
+
+   Compose says it found two config files and is using `compose.yml`: that's the one you want. The other,
+   `docker-compose.yml`, [builds from source](docs/running.md#building-from-source).
 
 3. Open it and give your name (that makes you the owner). It opens on **Getting started**, which ticks off the
    steps below as they happen. Create a project there or from the sidebar (`+`).

@@ -8,7 +8,8 @@ docker compose up -d    # http://localhost:9000
 ```
 
 The first time you open it, it asks your name: you're its owner. To connect Claude sessions, clone the repo
-(https://github.com/steffendybvik/orrery) and follow its README's Quick start from step 4.
+(https://github.com/steffendybvik/orrery) and run `pnpm install` there, set `ORRERY_REPO_DIR` in `.env` to where it is,
+run `docker compose up -d` again, and follow its README's Quick start from step 3.
 
 ## Keep your data safe
 

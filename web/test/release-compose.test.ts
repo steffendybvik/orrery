@@ -12,6 +12,19 @@ const release = read('release/compose.yml')
 const settings = (compose: string) => Object.fromEntries([...compose.matchAll(/^ {6}(NUXT_\w+): (.*)$/gm)].map(m => [m[1], m[2]]))
 
 describe('the release compose file', () => {
+    it("is what Quick start downloads, for the version in package.json, so a new release can't leave it old (ORR-119)", () => {
+        const {version} = JSON.parse(read('web/package.json')) as {version: string}
+        for (const doc of ['README.md', 'docs/running.md']) {
+            expect(read(doc)).toContain(`https://github.com/steffendybvik/orrery/releases/download/v${version}/compose.yml`)
+        }
+        const quickStart = read('README.md').split('## Quick start')[1]!.split('\n## ')[0]!
+        expect(quickStart).not.toContain('--build')
+    })
+
+    it('points Connect at the clone, wherever it runs from when ORRERY_REPO_DIR says (ORR-119)', () => {
+        expect(settings(release).NUXT_PUBLIC_REPO_DIR).toBe('${ORRERY_REPO_DIR:-${PWD}}')
+    })
+
     it('passes orrery the same settings as the repo\'s', () => {
         expect(Object.keys(settings(release)).sort()).toEqual(Object.keys(settings(repo)).sort())
     })
