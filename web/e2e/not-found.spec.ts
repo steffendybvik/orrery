@@ -36,7 +36,8 @@ test('an unknown project and an unknown issue say what was missing', async ({pag
     await expect(page).toHaveTitle(/Not found · orrery$/)
 
     await page.goto('/p/quarry/issues/QRY-999')
-    await expect(page.getByRole('heading', {name: 'No issue QRY-999 in Quarry'})).toBeVisible()
+    await expect(page.getByRole('heading', {name: 'No issue QRY-999 in Quarry', level: 1})).toBeVisible()
+    await expect(page.locator('h1')).toHaveCount(1)
     await expect(page).toHaveTitle(/Not found · orrery$/)
     await page.getByRole('link', {name: 'Back to Quarry'}).click()
     await expect(page).toHaveURL(/\/p\/quarry$/)
