@@ -178,44 +178,47 @@ async function makeSection() {
           @contextmenu.prevent="openMenu($event, doc)"
       />
     </section>
-    <button
-        type="button"
-        class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:mt-1 md:shrink"
-        @click="useNewDoc().open(project.id)"
-    >
-      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-      New doc
-    </button>
-    <button
-        type="button"
-        class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:shrink"
-        title="A page of HTML, drawn in a locked-down frame"
-        @click="useNewDoc().open(project.id, 'artifact')"
-    >
-      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-      New artifact
-    </button>
-    <button
-        v-if="!making"
-        type="button"
-        class="hidden shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:flex"
-        @click="making = true"
-    >
-      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
-      New section
-    </button>
-    <form v-else class="hidden px-1 py-0.5 md:block" @submit.prevent="makeSection">
-      <input
-          v-model="madeName"
-          class="h-7 w-full rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
-          placeholder="Section name"
-          aria-label="New section"
-          maxlength="60"
-          autofocus
-          @keydown.esc="making = false; madeName = ''"
-          @blur="!madeName.trim() && (making = false)"
+    <!-- Actions, not sections: a rule above them, and the stronger colour. -->
+    <div class="contents md:mt-3 md:flex md:flex-col md:gap-0.5 md:border-t md:border-line md:pt-3">
+      <button
+          type="button"
+          class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:shrink"
+          @click="useNewDoc().open(project.id)"
       >
-    </form>
+        <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New doc
+      </button>
+      <button
+          type="button"
+          class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:shrink"
+          title="A page of HTML, drawn in a locked-down frame"
+          @click="useNewDoc().open(project.id, 'artifact')"
+      >
+        <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New artifact
+      </button>
+      <button
+          v-if="!making"
+          type="button"
+          class="hidden shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:flex"
+          @click="making = true"
+      >
+        <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New section
+      </button>
+      <form v-else class="hidden px-1 py-0.5 md:block" @submit.prevent="makeSection">
+        <input
+            v-model="madeName"
+            class="h-7 w-full rounded-md bg-well px-2 text-xs text-fg ring-1 ring-line placeholder:text-faint focus:ring-accent-500/50 focus:outline-none"
+            placeholder="Section name"
+            aria-label="New section"
+            maxlength="60"
+            autofocus
+            @keydown.esc="making = false; madeName = ''"
+            @blur="!madeName.trim() && (making = false)"
+        >
+      </form>
+    </div>
     <p v-if="failed" class="px-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
     <DeletedDocs :project="project.id" :docs="project.docs.length" class="hidden md:block md:mt-3" />
 
