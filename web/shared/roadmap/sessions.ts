@@ -68,7 +68,13 @@ export interface Session {
     started?: StartedSession
     /** The version of the code its channel runs, as it says (one from before 1.0.0-rc.10 doesn't). */
     version?: string
+    /** Its last turn was cut off by an API error (Claude Code's StopFailure), until its next turn gets going (ORR-646):
+     * the `error` it named (`rate_limit`…), and what Claude Code told it, cut short. */
+    cut_off?: {error?: string, text?: string, at: string}
 }
+
+/** What a session's cut-off says on the page, in a few words (ORR-646). */
+export const cutOffLabel = ({error}: {error?: string}) => ({rate_limit: 'usage limit reached', billing_error: 'billing error'} as Record<string, string>)[error ?? ''] ?? 'cut off by an API error'
 
 /** A tool a session uses, as its hook says it: Claude Code's name for it (`Bash`, `Edit`, `mcp__orrery__comment`…),
  * and for some what it would do. */

@@ -5,6 +5,7 @@
 // on, for the hook to hand the fresh context so the work carries on. A session orrery started (`started`, its launch)
 // with context gets that in the brief on every `SessionStart`, its first included. `tool` ({name, detail?}, on
 // `PreToolUse` and `PermissionRequest`) is what a permission prompt it waits at is for.
+import {cutOffLabel} from '#shared/roadmap'
 export default defineEventHandler(async event => {
     const body = await readBody(event).catch(() => null) as Record<string, unknown> | null
     if (!body || typeof body.project !== 'string' || typeof body.event !== 'string' || (!body.id && !body.pid)) {
@@ -20,6 +21,7 @@ export default defineEventHandler(async event => {
     const session = report({
         id: text('id'), pid: Number(body.pid) || undefined, project: body.project, name: text('name'),
         cwd: text('cwd'), event: body.event, message: text('message'), command: untrusted ? undefined : text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
+        error: text('error'), errorText: text('error_text')?.slice(0, 300),
         tool: tool && typeof tool.name === 'string' && tool.name ? {
             name: tool.name.slice(0, 200), ...typeof tool.detail === 'string' && tool.detail ? {detail: tool.detail.slice(0, 300)} : {},
         } : undefined,
@@ -31,6 +33,7 @@ export default defineEventHandler(async event => {
     }
     // Cut off by an API error: what it had in progress isn't being worked any more.
     if (session && body.event === 'StopFailure') {
+        useEventLog().note({level: 'warn', kind: 'session.cut_off', project: session.project, message: `${session.name}: ${cutOffLabel(session.cut_off ?? {})}`, details: {session: session.id, error: session.cut_off?.error ?? null}})
         await letGo(session.project, session.id, text('error')).catch(error => console.error(`[orrery] letting go of ${session.id}'s work:`, error))
         considerClear(session.project, session.id)
     }

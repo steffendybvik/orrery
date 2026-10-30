@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
-import {nameBesideProject} from '#shared/roadmap'
+import {nameBesideProject, cutOffLabel} from '#shared/roadmap'
 
 // Every project with its progress and how many issues are started; My issues on top.
 const {projects, ready, live} = useRoadmaps()
@@ -316,7 +316,8 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
               <span class="max-w-[75%] shrink-0 truncate">{{ spanLabel(session) ?? project.name }}</span>
               <span class="min-w-0 truncate text-[11px] text-faint">{{ nameBesideProject(session) }}</span>
             </span>
-            <span class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
+            <span v-if="session.cut_off" class="shrink-0 text-[11px] text-amber-700 dark:text-amber-400" :title="session.cut_off.text">{{ cutOffLabel(session.cut_off) }}</span>
+            <span v-else class="shrink-0 text-[11px]" :class="session.state === 'waiting' ? 'text-rose-600 dark:text-rose-400' : 'text-faint'">{{ SESSION_STATE[session.state] }}</span>
           </NuxtLink>
           <NuxtLink
               v-for="issue in onIssue(session).slice(0, 1)"

@@ -28,6 +28,15 @@ afterEach(() => {
 })
 
 describe('a session', () => {
+    it('says it was cut off until its next turn gets going, or one ends as it should (ORR-646)', () => {
+        sessions.report({id: 'cut', project: 'hub', event: 'SessionStart'})
+        expect(sessions.report({id: 'cut', project: 'hub', event: 'StopFailure', error: 'rate_limit', errorText: 'resets 10:20am'})).toMatchObject({state: 'idle', cut_off: {error: 'rate_limit', text: 'resets 10:20am'}})
+        expect(sessions.report({id: 'cut', project: 'hub', event: 'Notification', message: 'waiting for input'})?.cut_off).toMatchObject({error: 'rate_limit'})
+        expect(sessions.report({id: 'cut', project: 'hub', event: 'UserPromptSubmit'})?.cut_off).toBeUndefined()
+        sessions.report({id: 'cut', project: 'hub', event: 'StopFailure'})
+        expect(sessions.report({id: 'cut', project: 'hub', event: 'Stop'})?.cut_off).toBeUndefined()
+    })
+
     it('takes the Norse names in a scattered order, every one once, then on with II', () => {
         expect(sessions.NAME_ORDER.slice(0, 4)).toEqual(['Odin', 'Njord', 'Brokk', 'Idun'])
         expect([...sessions.NAME_ORDER].sort()).toEqual([...SESSION_NAMES].sort())

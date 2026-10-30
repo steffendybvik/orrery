@@ -43,6 +43,14 @@ describe('a session cut off mid-turn', () => {
         expect((await store.issue('greenhouse', 'GRE-3')).status).toBe('in-progress')
     })
 
+    it('leaves what is in review or waiting on the owner where it is', async () => {
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'in-review'})
+        await store.createComment('greenhouse', 'GRE-2', {body: 'Which?', asks: 'decision'}, {name: 'claude', owner: false})
+        expect(await clearing.letGo('greenhouse', 'w', 'rate_limit')).toEqual([])
+        expect((await store.issue('greenhouse', 'GRE-1')).status).toBe('in-review')
+        expect((await store.issue('greenhouse', 'GRE-2')).status).toBe('in-progress')
+    })
+
     it('names an error it has no words for as it came', async () => {
         await clearing.letGo('greenhouse', 'w', 'cloud_credential_error')
         expect((await store.listComments('greenhouse', 'GRE-1'))[0]!.body).toContain('cut off by an API error (cloud_credential_error)')
