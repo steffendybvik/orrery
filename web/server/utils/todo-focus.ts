@@ -137,6 +137,13 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
         if (!blocker && !issues.get(id)?.links) continue
         await store.systemEvent(on, id, 'issue.unblocked')
         if (!handable(issue, new Set(board.map(i => i.parent))) || await store.focusOnItsWay(on, id)) continue
+        // A follow-up under an issue another session is on goes to that session (ORR-613), busy or not: it's its to start.
+        const held = (await store.heldAbove(on, id))?.holder
+        if (held) {
+            await store.focus(on, id, {note: `${UNBLOCKED_NOTE} ${(issue.depends_on ?? []).join(', ')}.`, session: held}, owner)
+            sent++
+            continue
+        }
         const worker = blocker ? await store.workerOf(blocker.project, blocker.id) : null
         const finisher = worker ? listSessions().find(s => s.id === worker || sessionIds(s.id).includes(worker)) : undefined
         let session = finisher && finisher.listening && hears(finisher, on) && !chatSession(finisher.id) && !untrustedSession(finisher.id)
@@ -153,12 +160,12 @@ export async function handUnblocked(project: string, issues: Map<string, {from?:
 /** Hands the issues the owner moved into Todo to idle sessions: those still in a todo-kind status (and not moved there
  * from one), not proposals, parents, assigned to someone (`forSessions`), blocked by an issue not done yet (ORR-601) or waiting on the owner, and with no focus already on its way (Focus on
  * this, a P0's push), most urgent first, each to its own idle session out of work, the project's own before one
- * spanning projects. Says how many went. */
+ * spanning projects. A follow-up under an issue another session is on goes to that session instead (ORR-613). Says
+ * how many went. */
 export async function handTodo(project: string, issues: Map<string, {from?: string, by: string}>): Promise<number> {
     const store = useStore()
     const kinds = new Map((await store.statuses()).map(s => [s.id, s.kind]))
     const idle = await idleSessions(project)
-    if (!idle.length) return 0
 
     const board = await store.listIssues(project)
     const parents = new Set(board.map(i => i.parent).filter(Boolean))
@@ -172,9 +179,17 @@ export async function handTodo(project: string, issues: Map<string, {from?: stri
     work.sort((a, b) => (a.issue.priority ? RANK[a.issue.priority] : 4) - (b.issue.priority ? RANK[b.issue.priority] : 4)
         || a.issue.created_at.localeCompare(b.issue.created_at))
 
-    const pairs = work.slice(0, idle.length).map((w, i) => ({...w, session: idle[i]}))
-    for (const {issue, by, session} of pairs) {
-        if (session) await store.focus(project, issue.id, {note: TODO_NOTE, session: currentId(session.id)}, {name: by, owner: true})
+    let sent = 0
+    let next = 0
+    for (const {issue, by} of work) {
+        // A follow-up under an issue another session is on goes to that session (ORR-613), busy or not: any other would
+        // be refused its start.
+        const held = (await store.heldAbove(project, issue.id))?.holder
+        const free = held ? undefined : idle[next++]
+        const session = held ?? (free && currentId(free.id))
+        if (!session) continue
+        await store.focus(project, issue.id, {note: TODO_NOTE, session}, {name: by, owner: true})
+        sent++
     }
-    return pairs.length
+    return sent
 }

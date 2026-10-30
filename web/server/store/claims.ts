@@ -54,9 +54,10 @@ export abstract class ClaimStore extends ReleaseStore {
     }
 
     /** Refuses `session` a write to an issue another session has started, while that one is there to hear: starting
-     * it, and a comment or an edit too (`status` undefined), as every session is `claude` and two that heard the same
-     * message would otherwise both take it up. Closing it (`status` a closed one) is any session's, and one no session
-     * is on any more is free to take over. */
+     * it, and an edit too (`status` undefined), as every session is `claude` and two that heard the same message
+     * would otherwise both take it up. A comment isn't a write here (ORR-613): it neither starts nor changes the issue,
+     * and a reviewer's findings go to the session on it that way. Closing it (`status` a closed one) is any session's,
+     * and one no session is on any more is free to take over. */
     async claim(project: string, issue: string, status: Input[string], session: string) {
         issue = await this.issueId(project, issue)
         if (status !== undefined) {
@@ -69,10 +70,11 @@ export abstract class ClaimStore extends ReleaseStore {
                     throw conflict(`${issue} is blocked by ${blockers.join(', ')}, which ${blockers.length === 1 ? "isn't" : "aren't"} done yet; pick another issue`)
                 }
                 // A follow-up filed under an issue another session has started is that session's too (ORR-611): a new
-                // id would otherwise be a lock of its own, and two sessions fix the same thing.
-                for (let parent = (await this.issueRow(project, issue)).parent; parent; parent = (await this.issueRow(project, parent)).parent) {
-                    const holder = await this.takenFrom(project, parent, session)
-                    if (holder) throw conflict(`${issue} is a sub-issue of ${parent}, which another session (${holder}) is working on; it's that session's to start; pick another issue`)
+                // id would otherwise be a lock of its own, and two sessions fix the same thing. The owner's focus aimed
+                // at this session gets past it (ORR-613), as it gets past blockers.
+                const held = await this.heldAbove(project, issue, session)
+                if (held && !await this.focusedOn(project, issue, session)) {
+                    throw conflict(`${issue} is a sub-issue of ${held.parent}, which another session (${held.holder}) is working on; it's that session's to start; pick another issue`)
                 }
             }
         }
@@ -89,10 +91,22 @@ export abstract class ClaimStore extends ReleaseStore {
         return links.filter(l => !done.get(l.on_project)?.has(l.on_issue)).map(l => linkRef(project, l.on_project, l.on_issue))
     }
 
-    /** Whether the owner pointed a session at this issue in the last day: their explicit focus starts it, blocked or not. */
-    private async focusedOn(project: string, issue: string): Promise<boolean> {
+    /** Whether the owner pointed a session (`session`, when given) at this issue in the last day: their explicit focus
+     * starts it, blocked or not. */
+    private async focusedOn(project: string, issue: string, session?: string): Promise<boolean> {
         const since = new Date(Date.now() - 86_400_000).toISOString()
-        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1 AND created_at >= ? LIMIT 1`, project, issue, since)
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1 AND created_at >= ?${session ? ' AND target = ?' : ''} LIMIT 1`,
+            project, issue, since, ...session ? [session] : [])
+    }
+
+    /** The issue above this one (its parent, or one further up) that another session than `session` has started and is
+     * there to hear, with that session (ORR-611): a follow-up under it is that session's to start. Null when none is. */
+    async heldAbove(project: string, issue: string, session?: string): Promise<{parent: string, holder: string} | null> {
+        for (let parent = (await this.issueRow(project, issue)).parent; parent; parent = (await this.issueRow(project, parent)).parent) {
+            const holder = await this.takenFrom(project, parent, session)
+            if (holder) return {parent, holder}
+        }
+        return null
     }
 
     /** The session that last worked the issue, while it's listening (ORR-601: the one that closed a blocker carries

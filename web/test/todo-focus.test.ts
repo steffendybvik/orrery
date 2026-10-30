@@ -8,6 +8,7 @@ let sessions: Listed[]
 let board: {id: string, kind: string, priority?: string, parent?: string, proposal?: string, waiting?: string, assignee?: string, created_at: string, depends_on?: string[], blocked_by?: string[]}[]
 let links: {id: string, on: string}[]
 let workers: Record<string, string>
+let held: Record<string, string>
 let said: {issue: string, type: string, asks?: string}[]
 let busy: string[]
 let queued: string[]
@@ -30,6 +31,7 @@ beforeEach(async () => {
     sent = []
     links = []
     workers = {}
+    held = {}
     said = []
     vi.stubGlobal('listSessions', () => sessions)
     vi.stubGlobal('sessionIds', (id: string) => [id])
@@ -49,6 +51,7 @@ beforeEach(async () => {
         dependentsOf: async (_project: string, id: string) => links.filter(l => l.on === id).map(l => ({project: 'orrery', id: l.id})),
         issue: async (_project: string, id: string) => board.find(i => i.id === id),
         workerOf: async (_project: string, id: string) => workers[id] ?? null,
+        heldAbove: async (_project: string, id: string) => held[id] ? {parent: 'ORR-9', holder: held[id]} : null,
         systemEvent: async (_project: string, issue: string, type: string) => void said.push({issue, type}),
         systemAsk: async (_project: string, issue: string, _body: string, type: string, asks: string) => void said.push({issue, type, asks}),
         systemComment: async (_project: string, issue: string, _body: string, type: string) => void said.push({issue, type}),
@@ -136,6 +139,25 @@ describe('an issue the owner moves into Todo', () => {
     })
 })
 
+describe('a follow-up the owner moves into Todo (ORR-613)', () => {
+    it("goes to the session on its parent, busy or not, and doesn't take an idle session from the rest", async () => {
+        sessions.push({id: 'builder', project: 'orrery', state: 'working', listening: true})
+        busy = ['builder']
+        board = [issue('ORR-1', 'todo', {parent: 'ORR-9'}), issue('ORR-2', 'todo', {priority: 'P2'})]
+        held = {'ORR-1': 'builder'}
+        await hear(moved('ORR-1'), moved('ORR-2'))
+        expect(sent.map(s => [s.issue, s.session])).toEqual([['ORR-2', 'a'], ['ORR-1', 'builder']])
+    })
+
+    it('goes to the session on its parent with nobody idle', async () => {
+        sessions = []
+        board = [issue('ORR-1', 'todo', {parent: 'ORR-9'})]
+        held = {'ORR-1': 'builder'}
+        await hear(moved('ORR-1'))
+        expect(sent.map(s => [s.issue, s.session])).toEqual([['ORR-1', 'builder']])
+    })
+})
+
 describe('an issue waiting on others (ORR-601)', () => {
     const status = (id: string, from: string, to: string, by = {name: 'claude', owner: false}) => ({event: {type: 'issue.status', project: 'orrery', subject: id, by, from, to}})
     /** ORR-3 waits on ORR-1 (done now) and on `also`, if any. */
@@ -169,6 +191,15 @@ describe('an issue waiting on others (ORR-601)', () => {
         busy = ['finisher']
         await hear(status('ORR-1', 'in-progress', 'done'))
         expect(sent.map(s => s.session)).toEqual(['a'])
+    })
+
+    it('goes to the session on its parent when it is a follow-up (ORR-613)', async () => {
+        sessions.push({id: 'finisher', project: 'orrery', state: 'idle', listening: true})
+        workers = {'ORR-1': 'finisher'}
+        waiting([], {parent: 'ORR-9'})
+        held = {'ORR-3': 'builder'}
+        await hear(status('ORR-1', 'in-progress', 'done'))
+        expect(sent.map(s => [s.issue, s.session])).toEqual([['ORR-3', 'builder']])
     })
 
     it('waits while another blocker is open (fan-in)', async () => {

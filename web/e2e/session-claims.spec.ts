@@ -1,8 +1,9 @@
 import type {APIRequestContext} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 
-// An issue one listening session has started is that session's (ORR-287): another session's comment or edit on it is
-// refused, not only starting it, while the owner's go through; and a chunk's list tells the other session to skip it.
+// An issue one listening session has started is that session's (ORR-287): another session's edit or start on it is
+// refused, while the owner's go through and anyone's comment does (ORR-613: a reviewer's findings reach it that way);
+// and a chunk's list tells the other session to skip it.
 // A project of its own; the owner named if no one has yet.
 const api = async (request: APIRequestContext, method: 'get' | 'post' | 'patch' | 'put', path: string, data?: object, headers?: Record<string, string>) => {
     const r = await request[method](`/api${path}`, {data, headers})
@@ -24,7 +25,7 @@ function hold(baseURL: string, path: string) {
     return {said, stop: () => controller.abort()}
 }
 
-test("keeps an issue to the session on it: another's comment and edit are refused, and its list says to skip it", async ({request, baseURL}) => {
+test("keeps an issue to the session on it: another's edit and start are refused, its comment isn't, and its list says to skip it", async ({request, baseURL}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
     const OWNER = {'Orrery-Actor': (await api(request, 'get', '/owner')).name}
     await api(request, 'post', '/projects', {name: 'Cellar', key: 'CEL'})
@@ -37,11 +38,12 @@ test("keeps an issue to the session on it: another's comment and edit are refuse
         const {id} = await api(request, 'post', '/projects/cellar/issues', {title: 'Rack the wine', status: 'todo'}, OWNER)
         await api(request, 'patch', `/projects/cellar/issues/${id}`, {status: 'in-review'}, as('e2e-c1'))
 
-        // The other session: no comment, no edit, no start.
-        const refused = await request.post(`/api/projects/cellar/issues/${id}/comments`, {data: {body: 'On it too'}, headers: as('e2e-c2')})
+        // The other session: no edit, no start, but it may comment, as a reviewer does with its findings.
+        const refused = await request.patch(`/api/projects/cellar/issues/${id}`, {data: {title: 'Mine now'}, headers: as('e2e-c2')})
         expect(refused.status()).toBe(409)
         expect(await refused.text()).toContain('already being worked on by another session (e2e-c1)')
-        expect((await request.patch(`/api/projects/cellar/issues/${id}`, {data: {title: 'Mine now'}, headers: as('e2e-c2')})).status()).toBe(409)
+        expect((await request.patch(`/api/projects/cellar/issues/${id}`, {data: {status: 'in-progress'}, headers: as('e2e-c2')})).status()).toBe(409)
+        await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Found two loose racks'}, as('e2e-c2'))
         // Its own session and the owner may.
         await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Racked the reds'}, as('e2e-c1'))
         await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Whites next'}, OWNER)
@@ -83,9 +85,9 @@ test('gives an issue to one session only when several start it at the same momen
             expect(statuses.filter(s => s === 200)).toHaveLength(1)
             expect(statuses.filter(s => s === 409)).toHaveLength(ids.length - 1)
             const winner = ids[statuses.indexOf(200)]!
-            // The others can't comment on it, as start_issue's comment would; the winner can.
+            // The others can't edit it either; the winner can. (start_issue comments only once its start went through.)
             for (const session of ids.filter(s => s !== winner)) {
-                expect((await request.post(`/api/projects/buttery/issues/${id}/comments`, {data: {body: 'Me too'}, headers: as(session)})).status()).toBe(409)
+                expect((await request.patch(`/api/projects/buttery/issues/${id}`, {data: {title: 'Me too'}, headers: as(session)})).status()).toBe(409)
             }
             await api(request, 'post', `/projects/buttery/issues/${id}/comments`, {body: 'On it'}, as(winner))
         }
