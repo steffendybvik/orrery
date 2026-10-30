@@ -354,7 +354,17 @@ describe("the channel's tools", () => {
         const {call, calls} = harness({'GET /issues': {body: [issue(), issue({id: 'GRE-2', title: 'Old', status: 'done', kind: 'done'})]}})
         expect((await call('issues')).text).toBe('GRE-1 [todo] Shelves')
         expect((await call('issues', {status: 'done', q: 'old'})).text).toContain('GRE-2')
-        expect(calls[1]!.url).toBe('/issues?status=done&q=old')
+        expect(calls[1]!.url).toBe('/issues?status=done&q=old&in=all')
+    })
+
+    it("say where a search's hit in the text is and quote it, but never to an untrusted session (ORR-641)", async () => {
+        const hits = [issue(), issue({id: 'GRE-2', title: 'Pots', match_in: 'comment', match: '…the terracotta ones…'}), issue({id: 'GRE-3', title: 'Raised', match_in: 'description'})]
+        expect((await harness({'GET /issues': {body: hits}}).call('issues', {q: 'terracotta'})).text)
+            .toBe('GRE-1 [todo] Shelves\nGRE-2 [todo] Pots\n    in its comment: …the terracotta ones…\nGRE-3 [todo] Raised\n    in its description')
+        const untrusted = orreryTools({api: 'http://o/api/projects/greenhouse', untrusted: true, fetch: async () => new Response(JSON.stringify(hits))}) as (name: string, args: object) => Promise<{content: {text: string}[]}>
+        const {content} = await untrusted('issues', {q: 'terracotta'})
+        expect(content[0]!.text).toContain('GRE-2 [todo] Pots\n    in its comment')
+        expect(content[0]!.text).not.toContain('terracotta')
     })
 
     it("leave backlog out of a work session's list, and say how much (ORR-545)", async () => {

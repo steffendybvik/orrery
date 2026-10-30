@@ -4,7 +4,7 @@ import {CLOSED, githubIssueOf, githubRepo, isBlocked, issueRef, linkRef, parseLi
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, notFound} from '../utils/input'
 import type {IssueRecord, IssueDetail, Actor, IssueFilter, IssueRow} from './schema'
-import {AGENT, ISSUE_FIELDS, tasksOf, nullable, stamp} from './schema'
+import {AGENT, ISSUE_FIELDS, ORRERY, matchOf, tasksOf, nullable, stamp} from './schema'
 import {ClaimStore} from './claims'
 import {findIssue, issueRecords} from './reads'
 import {refusedFor} from '../utils/permission'
@@ -28,7 +28,9 @@ export abstract class IssueStore extends ClaimStore {
         const assignee = filter.assignee && filter.assignee !== 'none' ? await this.assigneeOf(filter.assignee) : undefined
         const [github] = filter.github_issue ? (await this.githubIssuesOf(project, JSON.stringify([filter.github_issue])) ?? []).map(g => g.toLowerCase()) : []
         const handle = await this.handle()
-        return records.map(r => ({...r, ref: issueRef(handle, r.id)})).filter(r =>
+        // With `in: all`, every word in one place: the id and title, the description or a comment (ORR-641).
+        const words = filter.in === 'all' && q ? q.split(/\s+/).filter(Boolean) : null
+        const listed = records.map(r => ({...r, ref: issueRef(handle, r.id)})).filter(r =>
             (!filter.status || statuses.includes(r.status))
             && (!filter.priority || (filter.priority === 'none' ? !r.priority : r.priority === filter.priority))
             && (!filter.column || columns.includes(r.column))
@@ -41,7 +43,22 @@ export abstract class IssueStore extends ClaimStore {
             && (!filter.parent || (filter.parent === 'none' ? !r.parent : r.parent === filter.parent))
             && (!filter.proposal || (filter.proposal === 'none' ? r.column !== 'proposed' : r.proposal === filter.proposal))
             && (!filter.blocked || isBlocked(r) === (filter.blocked === 'true'))
-            && (!q || r.id.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)))
+            && (!q || words || r.id.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)))
+        return words ? await this.foundIn(project, listed, words) : listed
+    }
+
+    /** Those with every word in their id and title first, then those with them in the description or a comment, each saying
+     * where and the text around it. What an outsider's session raised (`external`) says only where, so its words go to a
+     * session only when it opens the issue. orrery's own comments (a pull request's news) don't count: they say little. */
+    private async foundIn(project: string, listed: IssueRecord[], words: string[]): Promise<IssueRecord[]> {
+        const has = (text: string) => words.every(word => text.toLowerCase().includes(word))
+        const comments = await this.all<{issue: string, body: string}>('SELECT issue, body FROM comments WHERE project = ? AND created_by != ? ORDER BY id DESC', project, ORRERY.name)
+        const inText = listed.filter(r => !has(`${r.id} ${r.title}`)).flatMap(r => {
+            const body = r.notes && has(r.notes) ? r.notes : comments.find(c => c.issue === r.id && has(c.body))?.body
+            if (!body) return []
+            return [{...r, match_in: body === r.notes ? 'description' as const : 'comment' as const, ...r.labels.includes('external') ? {} : {match: matchOf(body, words)}}]
+        })
+        return [...listed.filter(r => has(`${r.id} ${r.title}`)), ...inText]
     }
 
     async issue(project: string, id: string): Promise<IssueDetail> {

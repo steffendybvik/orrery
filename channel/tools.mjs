@@ -46,7 +46,7 @@ export const TOOLS = [
             release: {type: 'string', description: 'A release\'s version, or "none"'},
             label: {type: 'string'},
             external: {type: 'string', description: 'A team task id'},
-            q: {type: 'string', description: 'Text in the id or title'},
+            q: {type: 'string', description: 'In the id, title, notes or comments'},
             blocked: {type: 'boolean'},
             open: {type: 'boolean', description: 'Leave out done and canceled (default true); false lists every status'},
         }},
@@ -359,6 +359,9 @@ export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'wri
  * don't ride on its every turn (ORR-544). */
 export const CHAT_READS = ['chunks', 'presets', 'preset', 'schedules']
 
+/** How many of a search's hits in the text the `issues` tool quotes (ORR-641), so a common word stays small. */
+const MATCHES_SHOWN = 15
+
 /** How many of an issue's latest comments the `issue` tool gives in full (ORR-547). */
 const LATEST_COMMENTS = 5
 
@@ -459,13 +462,21 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async issues(args) {
             const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'blocked', 'q']))
+            if (args.q) query.set('in', 'all')
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             // A work session lists only what it could take up: backlog is mostly proposals and research (ORR-545). The chat keeps it.
             const backlog = chat || args.open === false || args.status ? 0 : issues.filter(i => i.kind === 'backlog').length
             if (backlog) issues = issues.filter(i => i.kind !== 'backlog')
             const hidden = backlog ? `${backlog} in backlog not shown: status: backlog lists them` : ''
-            return [issues.length ? issues.map(line).join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
+            // Where a hit in the text is, and the words around it for the first few. Never to an untrusted session, whose
+            // words those aren't to take in (ORR-641): it opens the issue to read them, as what they are.
+            let shown = 0
+            const said = issues.map(i => {
+                if (!i.match_in) return line(i)
+                return `${line(i)}\n    in its ${i.match_in}${i.match && !untrusted && ++shown <= MATCHES_SHOWN ? `: ${i.match}` : ''}`
+            })
+            return [said.length ? said.join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
         },
         async issue({id, comments: which}) {
             const base = at(await projectOf({id}))
