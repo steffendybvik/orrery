@@ -131,7 +131,9 @@ Where a class is all it takes, it's a utility rather than a component:
 | `field` | a text field, select or text box: on the well, a ring that lights on focus. Its size goes beside it (`h-8 w-full field`) |
 | `label` | the small uppercase heading over a group (PROPERTIES, WHEN) |
 | `doc` | Markdown drawn as a page (through `MarkdownView`) |
+| `tint` | the hover tint laid over a solid surface (`hover:tint`) |
 | `unseen-row`, `unseen-dot` | changed since the owner last looked |
+| `waiting-row` | an issue waiting on the owner's answer (violet; wins over `unseen-row`) |
 
 Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-panel` (sidebar, cards),
 `bg-raised` (popovers), `bg-well` (fields, segmented controls), `border-line`, `text-fg` / `text-muted` /
@@ -154,7 +156,8 @@ Already one component each; use them rather than drawing the same thing again.
 | `PropertyPicker` | a property as a button with a menu to type in (status, priority, chunk, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `chunkOptions(chunks)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on) |
 | `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message, a page's tabs): Headless UI's `RadioGroup`, one Tab stop with ←→ moving the choice |
 | `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any: Headless UI's `Listbox` (`multiple`) |
-| `LabelPicker` | a new issue's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
+| `LabelPicker` | a new issue's or a schedule's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
+| `FilterBar` | a list's filters: search on `/`, then priority, column, assignee, label and blocked (or ready), and off a project's pages the project |
 | `SelectBox` | the tick on an issue's row or card, for changing many at once |
 
 **Showing**
@@ -165,7 +168,11 @@ Already one component each; use them rather than drawing the same thing again.
 | `PriorityIcon` | P0…P3 as bars, or three dots for none |
 | `ProgressRing` | done of all, as a ring and `12/20` (`bare` for the ring alone) |
 | `LabelChip` | a label as a coloured dot and its name |
-| `PersonAvatar` | an assignee's initials on their colour; Claude gets the accent |
+| `PersonAvatar` | an assignee's initials on their colour; an agent gets the accent, and the owner shows as their name |
+| `PresetBadge` | a preset's icon (or initials) on a rounded square in its colour (`preset`, `size`) |
+| `WaitingChip` | an issue waiting on the owner: a question (`asks`), or a proposal (`proposal`) |
+| `BlockedChip` | an issue waiting on others not closed yet, its blockers in the hover (`blockers`) |
+| `ColumnBar` | a thin bar split by done, started, todo and backlog (`counts`) |
 | `ProjectIcon` | a project's Heroicon in its colour |
 | `SectionIcon` | the icon of a project's page (issues, roadmap, docs…) |
 | `SessionDot` | a Claude session's state as a dot |
@@ -190,9 +197,10 @@ Already one component each; use them rather than drawing the same thing again.
 | Component | For |
 |---|---|
 | `PageHeader` | a page's top bar: title, the page's controls, the bell, theme and settings |
-| `ViewToolbar` | an issue list's toolbar (view, grouping, filters) |
+| `ViewToolbar` | a page's own controls under its header: how it's shown on the left, filters on the right (`#end`) |
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
+| `EmptyProjects` | what a page shows before there are any projects: Getting started |
 | `GettingStarted` | a new orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
 | `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step, and in the chat), gone once one connects |
 | `NotificationBell` | the bell in the header: agents' comments, and those and their proposals waiting on the owner |
@@ -201,10 +209,11 @@ Already one component each; use them rather than drawing the same thing again.
 
 **Dialogs**
 
-The layout (`layouts/default.vue`) mounts the dialogs, each as `Lazy…` behind `openedOnce`: it loads the first
-time it opens, in its own chunk, and then stays. A dialog is opened through the state its composable shares
-(`useNewIssue`, `useNewChunk`, `useStartSession`, `useSchedules`), so any page or ⌘K can open it without
-holding it. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
+The layout (`layouts/default.vue`) mounts the dialogs any page can open, each as `Lazy…` behind `openedOnce`: it
+loads the first time it opens, in its own chunk, and then stays. A dialog is opened through the state its composable
+shares (`useNewIssue`, `useNewChunk`, `useNewDoc`, `useStartSession`, `useSchedules`, and `useState('new-project')`),
+so any page or ⌘K can open it without holding it. `OwnerDialog` is mounted from the start; a dialog that belongs to
+one page (`PresetDialog`, `MessageSessionsDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
 mounted from the start, as they listen for keys or show on a right-click.
 
 ## Shared behaviour (`composables/`, `utils/`)
@@ -241,7 +250,7 @@ being written again in each component:
 | `PropertyPicker`, `LabelPicker` | `Combobox` |
 | `FilterMenu` | `Listbox` |
 | `SegmentedControl` | `RadioGroup` |
-| `StatusFocus` | `Menu` |
+| `StatusFocus`, `ChatPane`, `SessionMessage`, `StartedSession` | `Menu` |
 | `PullFocus` | `Popover` |
 
 Something new that opens, picks or closes builds on the matching part and only draws it, in the classes above. Two

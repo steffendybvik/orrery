@@ -23,8 +23,8 @@ sidebar (App settings → Advanced turns it back on).
 3. **The channel and the launcher** run from this folder on your machine, not in the container, so they're as new as
    what it has checked out: keep it on the version you run (`git pull`). Sessions pick up the channel as they start.
    The launcher only when it restarts, which stops the sessions it started, so do it when nothing's mid-work:
-   `node channel/orrery-launcher.mjs --install` again, or `launchctl kickstart -k gui/$(id -u)/orrery.launcher` on
-   a Mac. A launcher older than the server says so in the event log (`launcher.outdated`) when it's refused a launch.
+   `launchctl kickstart -k gui/$(id -u)/orrery.launcher` on a Mac, `systemctl --user restart orrery-launcher` on Linux
+   (`--install` again restarts it only when its service file changed, such as a new `node` or `PATH`). A launcher older than the server says so in the event log (`launcher.outdated`) when it's refused a launch.
    Since 1.0.0-rc.10 the Sessions page marks a session whose channel is older than the server, and a launcher on older
    code. The launcher service restarts itself on the new code once this folder is pulled (a new version, or a change
    within one) and it has no session running.
@@ -245,4 +245,4 @@ The database file is made if it isn't there (by default the repo's `.data/orrery
 relative `NUXT_DATABASE` is taken from the folder the server starts in, so give it an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): orrery lays down its tables on an empty
 database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
-`NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY` and `NUXT_PUBLIC_ENVIRONMENT`.
+`NUXT_BACKUP_DIR`, `NUXT_BACKUP_DATABASE`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY` and `NUXT_PUBLIC_ENVIRONMENT`.

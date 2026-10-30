@@ -103,7 +103,8 @@ back to Todo with nobody on it, and a comment says why.
 ```
 
 The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
-project; without one, it's `shop`. With a server serving several projects, it's the one a session is filed
+project; without one, it's `shop`. (Connect writes the project plainly, `ORRERY_PROJECT=shop`; the `:-` form is for
+when you want an alias to pick.) With a server serving several projects, it's the one a session is filed
 under; it shows under the others on the Sessions page too.
 
 With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
