@@ -46,6 +46,7 @@ export type LaunchEvent =
     | {type: 'watch', project: string, id: string, terminal: TerminalApp}
     | {type: 'view', project: string, id: string}
     | {type: 'allow', project: string, id: string}
+    | {type: 'deny', project: string, id: string}
 
 /** The schedule whose run started each launch, while it runs: what its session does as it stops is that run's doing,
  * so a session schedule on `session.stopped` can't start itself again without end (ORR-422). */

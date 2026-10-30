@@ -50,6 +50,8 @@ test('a session orrery started pops up with its prompt, and Allow and Open tmux 
         await expect(popup.getByText('rm -rf web/.output', {exact: true})).toBeVisible()
         await popup.getByRole('button', {name: 'Open tmux'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: watch')
+        await popup.getByRole('button', {name: 'Deny'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: deny')
         await popup.getByRole('button', {name: 'Allow'}).click()
         await expect.poll(() => launcher.said.text).toContain('event: allow')
         // It carries on, and the popup goes.
