@@ -50,12 +50,30 @@ export interface Schedule {
     enabled: boolean
     /** When it runs next; none once it's paused or a one-off has run. */
     next_run?: string
+    /** The schedule across projects it's made from (ORR-638), which says what it does; it can only be paused here. */
+    across?: number
     /** The latest runs, newest first. */
     runs: ScheduleRun[]
     /** How many subjects its minute held back, waiting their turn at one a minute (ORR-357); none when none are. */
     held?: number
     created_by: string
     protected: boolean
+    created_at: string
+    updated_at: string
+}
+
+/** A schedule across projects (ORR-638): what it says, as a schedule's fields, and the projects it's for. Each has an
+ * ordinary schedule made from it (`across`), with its own runs and guards. */
+export interface ScheduleAcross extends Partial<Omit<Schedule, 'id' | 'project' | 'across' | 'runs' | 'next_run' | 'held'>> {
+    id: number
+    title: string
+    /** Every project (`*`), those added later too; or a list. */
+    projects: '*' | string[]
+    /** The projects that opted out of `*`. */
+    skip: string[]
+    /** The projects it has a schedule on now. */
+    on_projects: string[]
+    created_by: string
     created_at: string
     updated_at: string
 }

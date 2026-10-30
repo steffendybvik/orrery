@@ -228,6 +228,14 @@ export const PERMISSIONS: Permission[] = [
         untrusted: refused,
     },
     {
+        id: 'schedules.across', area: 'Schedules', action: 'Make, change or delete a schedule across projects',
+        why: 'It runs as the owner on every project it names, and on ones added later.',
+        routes: ['POST /api/schedules', 'PATCH /api/schedules/across/:across', 'DELETE /api/schedules/across/:across'],
+        session: {level: 'owner'},
+        chat: {level: 'owner'},
+        untrusted: refused,
+    },
+    {
         id: 'schedules.adopt', area: 'Schedules', action: 'Make an agent’s schedule the owner’s (Make it mine)',
         why: 'From then on its words reach sessions as the owner’s, so the owner reads them first: changing it, a pause or a rename, doesn’t make it theirs.',
         routes: ['POST /api/projects/:project/schedules/:schedule/adopt'],

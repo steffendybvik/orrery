@@ -127,6 +127,32 @@ test("says an agent's schedule is the agent's, and runs it only once the owner m
     await expect(row.locator('.unseen-dot')).toBeHidden()
 })
 
+test('makes a schedule across projects, leaves one out, and removes it (ORR-638)', async ({page, request}) => {
+    await page.goto('/schedules')
+    await page.getByRole('button', {name: 'New schedule', exact: true}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await dialog.getByRole('button', {name: 'Project', exact: true}).click()
+    await dialog.getByRole('option', {name: 'All projects'}).click()
+    await dialog.getByLabel('Title').fill('Weekly tidy everywhere')
+    await dialog.getByRole('group', {name: "Projects it's for"}).getByRole('button', {name: 'Cottage'}).click()
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    await expect(dialog).toBeHidden()
+
+    const across = page.getByRole('region', {name: 'Across projects'})
+    await expect(across.getByText('Weekly tidy everywhere')).toBeVisible()
+    await expect(across.getByText(/All projects, not Cottage/)).toBeVisible()
+    expect((await projectApi('vineyard')(request, 'get', '/schedules')).some((s: {title: string}) => s.title === 'Weekly tidy everywhere')).toBe(true)
+    expect((await projectApi('cottage')(request, 'get', '/schedules')).some((s: {title: string}) => s.title === 'Weekly tidy everywhere')).toBe(false)
+
+    await across.getByText('Weekly tidy everywhere').click()
+    const edit = page.getByRole('dialog', {name: 'Edit schedule'})
+    await edit.getByRole('button', {name: 'Remove', exact: true}).click()
+    await edit.getByRole('button', {name: /Remove|Yes|Confirm/}).last().click()
+    await expect(edit).toBeHidden()
+    await expect(across).toBeHidden()
+    expect((await projectApi('vineyard')(request, 'get', '/schedules')).some((s: {title: string}) => s.title === 'Weekly tidy everywhere')).toBe(false)
+})
+
 test('makes a schedule that moves issues, which runs on an event and has no Run now', async ({page, request}) => {
     await page.goto('/schedules?project=vineyard')
     await page.getByRole('button', {name: 'New schedule in Vineyard'}).click()
