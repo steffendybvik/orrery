@@ -10,21 +10,11 @@ import {promisify} from 'node:util'
 
 const STATUS = {type: 'string', description: 'A status id (todo, in-progress, in-review, done…) or kind (started…)'}
 const PRIORITY = {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null], description: 'P0 is urgent; null clears it'}
+// Said in a line rather than as a schema: it rides on two tools, and orrery says what's wrong with one it can't take.
 const CHOICES = {
     type: 'array',
-    description: "A proposal's questions for the owner, each answered by picking options",
-    items: {
-        type: 'object',
-        required: ['key', 'question', 'options'],
-        properties: {
-            key: {type: 'string'},
-            question: {type: 'string'},
-            pick: {type: 'string', enum: ['one', 'any']},
-            options: {type: 'array', items: {type: 'object', required: ['key', 'title'], properties: {key: {type: 'string'}, title: {type: 'string'}, body: {type: 'string'}}}},
-            recommended: {type: 'array', items: {type: 'string'}},
-            from: {type: 'object', properties: {choice: {type: 'string'}, option: {type: 'string'}}, description: 'Follows on from an earlier choice’s option'},
-        },
-    },
+    items: {type: 'object'},
+    description: "A proposal's questions for the owner: {key, question, options: [{key, title, body?}], pick?: one|any, recommended?: [option keys], from?: {choice, option} (follows on from one)}",
 }
 const FIELDS = {
     title: {type: 'string'},
@@ -40,6 +30,9 @@ const FIELDS = {
     depends_on: {type: 'array', items: {type: 'string'}, description: 'Issues it waits on (all); chain ordered follow-ups'},
     choices: CHOICES,
 }
+
+/** The fields without their descriptions: update_issue takes create_issue's, said there once. */
+const BARE_FIELDS = Object.fromEntries(Object.entries(FIELDS).map(([key, {description, ...field}]) => [key, field]))
 
 export const TOOLS = [
     {
@@ -69,8 +62,8 @@ export const TOOLS = [
     },
     {
         name: 'update_issue',
-        description: 'Changes an issue\'s fields; proposal "pending" puts it (back) to the owner.',
-        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...FIELDS, proposal: {type: ['string', 'null'], enum: ['pending', null]}}},
+        description: 'Changes an issue\'s fields, as create_issue takes them; proposal "pending" puts it (back) to the owner.',
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...BARE_FIELDS, proposal: {type: ['string', 'null'], enum: ['pending', null]}}},
     },
     {
         name: 'start_issue',
@@ -315,6 +308,24 @@ export const UNTRUSTED_TOOLS = [
     },
 ]
 
+/** The tools a work session rarely needs, listed only once it asks for them by group with `more_tools` (ORR-625), so
+ * their definitions don't ride on its every turn. Called by name, they work before that too. */
+export const ON_DEMAND = {
+    schedules: ['create_schedule', 'update_schedule'],
+    secrets: ['secrets', 'egress'],
+    debug: ['events', 'resolve_event'],
+}
+
+const MORE_TOOLS = {
+    name: 'more_tools',
+    description: "Adds orrery tools to your list: schedules (ask the owner on your issue for a schedule), secrets (egress: call an outside service with a key) or debug (orrery's event log).",
+    inputSchema: {type: 'object', required: ['group'], properties: {group: {type: 'string', enum: Object.keys(ON_DEMAND)}}},
+}
+
+/** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
+ * only raises proposals and comments on them), and orrery's own log. */
+export const NOT_FOR_UNTRUSTED = ['update_issue', 'start_issue', 'finish_issue', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
+
 /** The tools a chat goes without: those that take up, move or finish work, write docs, reach outside services or deal
  * with the event log (its launcher refuses them too, `chatOnly`). */
 export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'write_doc', 'egress', 'secrets', 'resolve_event']
@@ -339,11 +350,15 @@ const LOGIN = /^[\w-]+$/
 const SCOPED = ['issues', 'create_issue', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
- * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), and an
- * untrusted schedule's session (`untrusted`) reads GitHub issues instead. */
-export function toolsFor(projects, {chat = false, untrusted = false} = {}) {
+ * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with
+ * the groups of `ON_DEMAND` it hasn't `loaded` behind `more_tools`; an untrusted schedule's session (`untrusted`) has
+ * what it's allowed, and reads GitHub issues. */
+export function toolsFor(projects, {chat = false, untrusted = false, loaded = []} = {}) {
     const work = TOOLS.filter(t => !CHAT_READS.includes(t.name))
-    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS] : untrusted ? [...work, ...UNTRUSTED_TOOLS] : [...work, ...ASK_TOOLS]
+    const later = Object.entries(ON_DEMAND).filter(([group]) => !loaded.includes(group)).flatMap(([, names]) => names)
+    const tools = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS]
+        : untrusted ? [...work.filter(t => !NOT_FOR_UNTRUSTED.includes(t.name)), ...UNTRUSTED_TOOLS]
+            : [...[...work, ...ASK_TOOLS].filter(t => !later.includes(t.name)), ...later.length ? [MORE_TOOLS] : []]
     if (projects.length < 2) return tools
     const project = {type: 'string', enum: projects, description: `Which project: ${projects.join(', ')}`}
     return tools.map(tool => SCOPED.includes(tool.name)
@@ -357,8 +372,8 @@ export function toolsFor(projects, {chat = false, untrusted = false} = {}) {
  * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). `untrusted` for an untrusted
  * schedule's session, which says so on every call and reads GitHub issues through `gh` (its arguments; run in the
  * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. `report` hears each call's
- * tool and the text it answered, for the Context page (ORR-549). */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}}) {
+ * tool and the text it answered, for the Context page (ORR-549); `load` a group of `ON_DEMAND` a work session asked for. */
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
     const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
         ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
@@ -404,6 +419,12 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
     const line = i => `${i.id} [${[i.status, i.priority, i.assignee].filter(Boolean).join(', ')}] ${i.title}${i.proposal ? ` (proposal: ${i.proposal})` : ''}${i.blocked_by?.length ? ` (blocked by ${i.blocked_by.join(', ')})` : ''}`
 
     const run = {
+        async more_tools({group}) {
+            const names = ON_DEMAND[group]
+            if (!names) throw new Error(`group is ${Object.keys(ON_DEMAND).join(', ')}`)
+            await load(group)
+            return `Added ${names.join(', ')} to your tools.`
+        },
         async issues(args) {
             const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'blocked', 'q']))
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
@@ -639,7 +660,9 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         const asks = ASK_TOOLS.some(t => t.name === name)
         const chatOnly = !asks && CHAT_TOOLS.some(t => t.name === name) || CHAT_READS.includes(name)
         const untrustedOnly = UNTRUSTED_TOOLS.some(t => t.name === name)
-        if (!run[name] || chatOnly && !chat || asks && untrusted || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
+        const workOnly = name === 'more_tools'
+        if (!run[name] || chatOnly && !chat || asks && untrusted || untrustedOnly && !untrusted || chat && NOT_FOR_CHAT.includes(name)
+            || untrusted && NOT_FOR_UNTRUSTED.includes(name) || workOnly && (chat || untrusted)) return {isError: true, content: [{type: 'text', text: `No tool "${name}"`}]}
         let answer
         try {
             const result = await run[name](args)
