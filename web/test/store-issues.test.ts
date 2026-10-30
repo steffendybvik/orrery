@@ -350,6 +350,15 @@ describe('starting an issue', () => {
         expect(await store.takenFrom('greenhouse', shelves, 'reviewer')).toBe('first')
     })
 
+    it("goes to the session that starts it, though another commented on it while it sat in Todo (ORR-627)", async () => {
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'todo'})).id
+        await store.workedBy('greenhouse', shelves, 'commenter')
+        await store.claimed('greenhouse', shelves, 'in-progress', 'builder', () => store.updateIssue('greenhouse', shelves, {status: 'in-progress'}))
+        expect(await store.takenFrom('greenhouse', shelves, 'commenter')).toBe('builder')
+        expect(await store.takenFrom('greenhouse', shelves, 'builder')).toBeNull()
+        await store.claim('greenhouse', shelves, undefined, 'builder')
+    })
+
     it("is refused for a sub-issue while another session that's there has a parent above it started (ORR-611)", async () => {
         const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-review'})).id
         const brackets = (await store.createIssue('greenhouse', {title: 'Brackets', parent: shelves})).id

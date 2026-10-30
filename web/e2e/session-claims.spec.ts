@@ -36,6 +36,8 @@ test("keeps an issue to the session on it: another's edit and start are refused,
     try {
         await expect.poll(async () => (await api(request, 'get', '/projects/cellar/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
         const {id} = await api(request, 'post', '/projects/cellar/issues', {title: 'Rack the wine', status: 'todo'}, OWNER)
+        // The other session's comment while it's in Todo doesn't keep it from the one that starts it (ORR-627).
+        await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Mind the bottom rack'}, as('e2e-c2'))
         await api(request, 'patch', `/projects/cellar/issues/${id}`, {status: 'in-review'}, as('e2e-c1'))
 
         // The other session: no edit, no start, but it may comment, as a reviewer does with its findings.
