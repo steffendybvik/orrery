@@ -488,7 +488,7 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
             rows="1"
             aria-label="Message"
             placeholder="Ask anything…"
-            title="Enter sends (quick ones in a row go together); ⌘-Enter sends now; Shift-Enter for a new line"
+            title="Enter sends (quick ones in a row go together); ⌘-Enter sends now; Shift-Enter for a new line; ⌘E or ``` for a code block"
             class="field-sizing-content max-h-40 min-h-9 resize-none bg-transparent px-2 py-1.5 text-[13px] text-fg placeholder:text-faint focus:outline-none"
             @keydown="onKey"
         />
