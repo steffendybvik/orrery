@@ -34,6 +34,16 @@ overview, is one list.
   orrery picks or starts. Each repo's name has a copy button.
 - **Releases beside GitHub:** a small **Releases** link sits next to GitHub at the foot of the sidebar and opens
   orrery's releases on GitHub.
+- **A notice when a newer orrery is out:** the foot of the sidebar says so above the version, with its release notes
+  and how to update, and × hides it until the next one. orrery reads its releases on GitHub a few seconds after start
+  and every 12 hours; `ORRERY_UPDATE_CHECK=false` turns that off.
+- **Secrets with nothing to set up:** with no `ORRERY_SECRET_KEY`, orrery makes a key on its first start and keeps it
+  as `orrery.key` beside the database (`/data/orrery.key` in Docker), out of the backups. A key you set still wins;
+  Postgres outside Docker still needs one.
+- **Pull requests past the first 100:** the Pull requests page shows 50 at a time, with Previous and Next, and orrery
+  reads up to 300 open pull requests a repo where it read GitHub's first 100. A repo cut short says so.
+- **Review GitHub issues, a suggested schedule:** Schedules → Suggested offers an issue every three hours to sort the
+  project's GitHub issues, for projects whose repo is on GitHub.
 
 ### Changes
 
@@ -50,7 +60,12 @@ overview, is one list.
 - **One session per piece of work:** a sub-issue filed under an issue another session is working on is that session's
   to start, so a follow-up isn't taken up by two. The **Review** preset only reviews: it comments what it found on the
   pull request and its issue, for the session on it to fix, and files what's left after the merge as a sub-issue. A
-  Review preset you haven't changed takes the new wording.
+  Review preset you haven't changed takes the new wording. A session may comment on another session's issue, but not
+  edit or start it, and the issue stays with the session on it.
+- **Less context for every session:** the chat is given less than half of what it was at connect, its asking tools
+  behind `request_fields` and `request`. A work session carries about a third less, its rarer tools loaded on demand
+  with `more_tools`, and an untrusted run is offered only what it may do. The Context page counts tools as they're
+  sent, so its numbers drop too.
 - **Proposals first in App settings → Issues:** the tab opens on Proposals, then the team tracker and the statuses.
 
 ### Fixes
@@ -75,6 +90,10 @@ overview, is one list.
   `/clear` or compaction. Those entries now sit greyed under a line of their own, out of the total.
 - **Pick several labels in a row:** on an issue's page, the Labels and Team tasks pickers shut while a pick saved, so
   the next Esc left the page. They stay open now, show each pick at once and keep a quick second one.
+- **Three pages on a phone:** Events wraps its lines, with the message on a line of its own, Context gives tool names
+  room, and a schedule's badge wraps under its name, where each was cut off at the screen's edge.
+- **One `<h1>` a page:** Getting started, Connect and a doc's page had two, so a screen reader listed two top-level
+  headings. A Markdown `#` heading is now an h2 that looks the same.
 
 ### Docs
 
@@ -89,7 +108,9 @@ overview, is one list.
 - **Tests:** every page, sidebar entry and palette go-to is walked in the browser tests. New unit tests cover the hook
   route's untrusted guard and caps, how a feed's signals reach a session's stream, how `events.ts` wires the store,
   and the chat, bell, keys and unseen composables. Coverage counts the routes, middleware and channel, and the
-  Postgres run's with SQLite's.
+  Postgres run's with SQLite's. The sidebar's Advanced test runs again, and the channel's pick-up has tests of what it
+  puts on the launcher's list.
+- **Dependencies:** `vue-tsc` 3.3.14.
 
 ## 1.0.0-rc.12 (2026-10-29)
 
