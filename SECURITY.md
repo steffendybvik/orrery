@@ -90,6 +90,8 @@ come from loopback, whoever sent it, so a request that carries a proxy's headers
 without saying so, defeats this check: don't put one in front of orrery that forwards from other machines without
 asking for a login.
 
+A request's body is held to 32 MB, or 256 MB for a board's file or an import, and 64 KB on the login's own routes, the only ones open to anyone (ORR-753). Nothing limits how many requests arrive, so on a shared server a proxy should.
+
 Errors the page reports (`POST /api/events/log`) are taken from anyone, a few a minute from each sender (who it
 says it is, and where from) and a hundred from all of them, so one script can't use up what the page may send.
 
@@ -286,6 +288,14 @@ submit a form, or move the top tab. It has none of your data to send, only what 
 what it shows as orrery speaking. It can navigate its own frame, or itself if opened in its own tab, which can load another
 site's page there, though a link it shows has nothing of yours to carry. An endless loop can slow the tab, since a
 sandboxed frame usually shares its thread: leave the page.
+
+## What agents and files write, on your page
+
+Comments, descriptions, docs and the chat's answers are drawn from Markdown that an agent, an outsider or an uploaded file may
+have written, so they're cleaned first. Nothing in them runs, or sends a form. They load nothing from another site by themselves, as
+opening the page would send that site whatever the address holds (ORR-751): a picture from elsewhere shows as a link naming the
+site, and video, audio, inline styles and `<style>` are dropped, so they can't restyle or cover the page either. A link is still a
+link, and clicking one sends what its address holds, so look at where it goes. The page itself still loads its fonts from Google Fonts.
 
 ## The browser can't be used against it
 

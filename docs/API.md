@@ -824,7 +824,7 @@ is done out of backlog, todo, started and done: proposals and canceled leaves ar
 fields, so typos show); 401 with no credential where login is on; 503 while nobody could log in; 403 for the owner's
 things; 404, also for a board you're not on; 409 when the state is in the way (a taken id,
 an issue another session is on, a request already answered); 415 for a write whose body isn't
-`Content-Type: application/json`. Creating answers 201 and deleting 204.
+`Content-Type: application/json`; 413 for a body too big, over 32 MB (256 MB for a board's file or an import, 64 KB on the login's routes). Creating answers 201 and deleting 204.
 
 orrery answers only to `localhost`, IP addresses and the names in `NUXT_ALLOWED_HOSTS` (`ORRERY_ALLOWED_HOSTS` in
 Docker), and takes writes only from its own page or a client with no `Origin`: anything else is a 403.

@@ -27,7 +27,8 @@ export function renderMarkdown(source: string, title?: string, before?: string):
     const body = heading && text && text.trim().toLowerCase() === title?.trim().toLowerCase() ? source.slice(heading.length) : source
     // No forms either: written by an agent or an outsider, one could ask the owner for a key and post it anywhere
     // (ORR-589). A task list's checkboxes stay, as an input outside a form sends nothing.
-    const clean = DOMPurify.sanitize(marked.parse(body, {async: false, gfm: true}), {USE_PROFILES: {html: true}, FORBID_TAGS: ['form', 'button', 'textarea', 'select', 'option']})
+    // Nothing that loads from another site by itself, or that reaches past the text to the page around it (ORR-751).
+    const clean = DOMPurify.sanitize(marked.parse(body, {async: false, gfm: true}), {USE_PROFILES: {html: true}, FORBID_TAGS: ['form', 'button', 'textarea', 'select', 'option', 'style', 'video', 'audio', 'source', 'track', 'picture'], FORBID_ATTR: ['style', 'class', 'srcset', 'poster', 'background']})
 
     const page = new DOMParser().parseFromString(`<div>${clean}</div>`, 'text/html')
     const headings: Heading[] = []
@@ -49,6 +50,10 @@ export function renderMarkdown(source: string, title?: string, before?: string):
         h2.dataset.h1 = ''
         h2.append(...element.childNodes)
         element.replaceWith(h2)
+    })
+    page.querySelectorAll('input:not([type="checkbox"])').forEach(input => input.remove())
+    page.querySelectorAll('img').forEach(image => {
+        if (loadsFromAway(image)) image.replaceWith(awayImageOf(page, image))
     })
     page.querySelectorAll<HTMLAnchorElement>('a[href^="http://"], a[href^="https://"]').forEach(link => {
         link.target = '_blank'
@@ -82,6 +87,35 @@ export function renderMarkdown(source: string, title?: string, before?: string):
         }
     }
     return {html: page.body.firstElementChild?.innerHTML ?? '', headings, changed}
+}
+
+/** Where a picture's address points, read as the page would; nothing when it can't be read. */
+function whereFrom(image: HTMLImageElement): URL | undefined {
+    try {
+        return new URL(image.getAttribute('src') ?? '', location.href)
+    } catch {
+        return undefined
+    }
+}
+
+/** Whether a picture would be fetched from another site. Opening the page would send that site whatever its address
+ * holds, which an agent or a file wrote, so it isn't loaded (ORR-751). */
+function loadsFromAway(image: HTMLImageElement): boolean {
+    const source = image.getAttribute('src') ?? ''
+    if (source.startsWith('data:') || source.startsWith(apiUrl('/uploads/'))) return false
+    return whereFrom(image)?.origin !== location.origin
+}
+
+/** What shows for such a picture: a link naming the site, to open on purpose, or its words alone where it's in a link
+ * already. */
+function awayImageOf(page: Document, image: HTMLImageElement): Node {
+    const away = whereFrom(image)
+    const words = `${image.alt || 'Image'}${away?.host ? ` (${away.host})` : ''}`
+    if (image.closest('a') || !away || !/^https?:$/.test(away.protocol)) return page.createTextNode(words)
+    const link = page.createElement('a')
+    link.href = away.href
+    link.textContent = words
+    return link
 }
 
 /** Whether the node holds nothing to read: whitespace, or a line break. */
