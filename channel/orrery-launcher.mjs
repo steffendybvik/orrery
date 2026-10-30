@@ -39,10 +39,12 @@
 // the channel command once by hand in the repo first, to accept the folder's trust prompt, which it leaves to you.
 import {execFileSync} from 'node:child_process'
 import {mkdirSync, unwatchFile, watchFile, writeFileSync} from 'node:fs'
+import {hostname} from 'node:os'
 import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
+import {connector, pickerFor} from './connect-repo.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
-import {adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
+import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {chatOnly, lockedDown} from './locked-down.mjs'
 import {onYes} from './permission-prompt.mjs'
 import {channelFor, channelsIn, projectsIn, servesEvery} from './repo-channels.mjs'
@@ -131,7 +133,7 @@ if (args.includes('--install') || args.includes('--uninstall')) {
                 process.exit(0)
             }
             needsTmuxAndClaude()
-            const {config, logs, restarted} = install([], {script, pickUp})
+            const {config, logs, restarted} = install([], {script, pickUp, orrery: process.env.ORRERY_URL})
             console.log(`The launcher service is installed and starts at login. It serves ${config.projects.length ? config.projects.map(p => p.project).join(', ') : 'no project yet'}; the list is ${configFile()}.${restarted ? '' : ' It was running already, so its sessions go on.'}`)
             console.log(pickUp
                 ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
@@ -521,6 +523,56 @@ function serve({url, project, dir, picked_at: picked}, signal) {
     })
 }
 
+/** Follows one orrery for the owner's Connect a repo (ORR-708), whatever it serves: only a service does, as it's what
+ * follows its list, and only with a picker on this machine, which having the stream tells orrery. */
+function connectFor(url, signal) {
+    let token = ''
+    let handler
+    const tell = (id, body) => fetch(`${url}/api/connects/${encodeURIComponent(id)}/report`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Orrery-Launcher': token, ...authHeaders(url)}, body: JSON.stringify(body)})
+        .then(response => response.ok ? response.json() : {claimed: false}).catch(() => ({claimed: false}))
+    const serve = (dir, projects) => addToList(projects.map(project => ({url, project, dir})), dir)
+    return follow({
+        headers: authHeaders(url),
+        url: () => `${url}/api/connects/stream?host=${encodeURIComponent(hostname())}`,
+        onEvent: async ({event, data}) => {
+            if (event === 'ready') {
+                const ready = JSON.parse(data)
+                token = ready.token
+                handler ??= connector({url, orreryId: ready.orrery, picker: PICKER, tell, serve, log})
+            } else if (event === 'pick') {
+                // Not awaited: it waits on a person, and the stream goes on meanwhile. A restart waits for them.
+                midway(() => handler.pick(JSON.parse(data))).catch(error => log(`couldn't connect a repo: ${error.message}`))
+            } else if (event === 'write') {
+                midway(() => handler.write(JSON.parse(data))).catch(error => log(`couldn't connect a repo: ${error.message}`))
+            }
+        },
+        // Quiet: its project streams say when an orrery can't be reached, and an older one has no such stream.
+        log: () => {},
+        down: () => {},
+        signal,
+    })
+}
+
+const PICKER = pickerFor({wsl: inWsl()})
+/** The orreries it's following for Connect a repo. */
+const connecting = new Map()
+/** Follows each orrery on its list, and those it was installed for with nothing on the list yet. */
+function followConnects(list) {
+    if (!PICKER) return
+    const urls = new Set([...list.projects.map(entry => entry.url), ...list.orreries ?? []])
+    for (const [url, abort] of connecting) {
+        if (urls.has(url)) continue
+        abort.abort()
+        connecting.delete(url)
+    }
+    for (const url of urls) {
+        if (connecting.has(url)) continue
+        const abort = new AbortController()
+        connecting.set(url, abort)
+        connectFor(url, abort.signal).catch(error => log(`${url}: ${error.message}`))
+    }
+}
+
 for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, async () => {
         unwatchFile(configFile())
@@ -556,6 +608,7 @@ function follows() {
     following = following.then(async () => {
         const list = listIn()
         if (!list) return log(`${configFile()} can't be read as a list; it serves what it did until it can`)
+        followConnects(list)
         const {added, removed} = listChanges([...serving.values()].map(s => s.entry), list.projects)
         for (const entry of removed) {
             const moved = added.some(a => servingKey(a) === servingKey(entry))
@@ -579,4 +632,7 @@ if (!projects.length && !service) {
 }
 if (!projects.length) log(`no project is on ${configFile()} yet: it serves each one put there`)
 for (const entry of projects) begin(entry)
-if (service) watchFile(configFile(), {interval: 2000}, follows)
+if (service) {
+    followConnects(readConfig())
+    watchFile(configFile(), {interval: 2000}, follows)
+}
