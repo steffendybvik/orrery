@@ -134,8 +134,12 @@ So it has no way to send what it reads anywhere but to orrery, as proposals you 
 
 ### The chat
 
-The chat (the button in the corner) is a session started for you to talk to on the page. Its launcher starts it with
-`Read`, `Grep` and `Glob` and no Bash or edits, so it can't change the code or run anything, and without `egress`,
+The chat (the button in the corner) is a session started for you to talk to on the page. Its launcher starts it with the Claude
+Code settings of its machine, as a terminal there gets (ORR-750): what your allow list permits it may do, what your deny list
+refuses it may not, and what a terminal would ask about, it asks. **So it has your own permissions, and it reads what others wrote**:
+a planted comment can try to talk it into whatever your settings allow, such as fetching a page. With Bash allowed, it can also
+reach orrery without its channel's mark, and the guards below don't hold there. They're orrery's own rules, not a boundary.
+It has no edits, as it doesn't change code, and goes without `egress`,
 `secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
 unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release, parent or what it depends on (any other
 change is refused), commenting, and
