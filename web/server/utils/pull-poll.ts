@@ -222,10 +222,12 @@ export class PullPoll {
         return await asked
     }
 
-    /** The secrets changed: a token GitHub turned down may have been set again, so its repos are asked at the next poll. */
-    secretsChanged() {
+    /** The secrets changed: a token GitHub turned down may have been set again, and a repo read without one may have
+     * one now, so each repo whose token changed is polled at once rather than at its next turn (ORR-632). */
+    async secretsChanged(): Promise<void> {
         this.refused.clear()
         this.told401.clear()
+        if (!this.running) await this.pass(false).catch(() => undefined)
     }
 
     private async pass(force: boolean, only?: string): Promise<Map<string, string>> {

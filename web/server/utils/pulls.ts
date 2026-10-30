@@ -130,6 +130,8 @@ export class Pulls {
         private readonly store: Store,
         private readonly get: GitHubGet,
         private readonly now: () => number = Date.now,
+        /** Why a GITHUB_TOKEN that's set isn't sent for the project (ORR-632), said in place of "set one". */
+        private readonly tokenProblem: (project: string) => Promise<string | undefined> = async () => undefined,
     ) {}
 
     /** The issue's open PRs on its project's repo. */
@@ -157,7 +159,8 @@ export class Pulls {
             pulls.push(this.shown(pull, state.value ?? (pull.draft ? 'draft' : 'checking')))
         }
         this.forgetOld()
-        return {repo, pulls, ...error ? {error} : {}, token: list.secret, checked_at: list.at ? new Date(list.at).toISOString() : null}
+        const problem = list.secret ? undefined : await this.tokenProblem(project)
+        return {repo, pulls, ...error ? {error} : {}, token: list.secret, ...problem ? {token_problem: problem} : {}, checked_at: list.at ? new Date(list.at).toISOString() : null}
     }
 
     /** Every open PR on the projects' GitHub repos, each repo read once however many projects share it, with the issue
@@ -175,7 +178,7 @@ export class Pulls {
                     const shown = kept.token ? keptShown(pull) : {...keptShown(pull), state: pull.draft ? 'draft' as const : 'checking' as const}
                     pulls.push({...shown, repo, ...issue ? {issue} : {}})
                 }
-                repos.push({repo, projects, token: kept.token, checked_at: kept.checked_at, open: 0, needs: 0, ...kept.error ? {error: kept.error} : {}, ...this.cutAt(repo)})
+                repos.push({repo, projects, token: kept.token, ...await this.problemOf(kept.token, projects), checked_at: kept.checked_at, open: 0, needs: 0, ...kept.error ? {error: kept.error} : {}, ...this.cutAt(repo)})
                 continue
             }
             // Asked as the first project's: the token's projects are checked against it.
@@ -192,7 +195,7 @@ export class Pulls {
                 const issue = await this.issueOf(projects, issueIdsIn(pull))
                 pulls.push({...this.shown(pull, state), repo, ...issue ? {issue} : {}})
             }
-            repos.push({repo, projects, token: list.secret, checked_at: list.at ? new Date(list.at).toISOString() : null, open: 0, needs: 0, ...error ? {error} : {}, ...this.cutAt(repo)})
+            repos.push({repo, projects, token: list.secret, ...await this.problemOf(list.secret, projects), checked_at: list.at ? new Date(list.at).toISOString() : null, open: 0, needs: 0, ...error ? {error} : {}, ...this.cutAt(repo)})
         }
         this.forgetOld()
         const needs = (pull: OpenPull) => PULL_NEEDS.includes(pull.state)
@@ -203,6 +206,12 @@ export class Pulls {
             repo.needs = own.filter(needs).length
         }
         return {pulls, open: pulls.length, needs: pulls.filter(needs).length, repos}
+    }
+
+    /** Why no token went for a repo read without one, asked as its first project's, as the read was. */
+    private async problemOf(token: boolean, projects: string[]): Promise<{token_problem?: string}> {
+        const problem = token ? undefined : await this.tokenProblem(projects[0] ?? '')
+        return problem ? {token_problem: problem} : {}
     }
 
     /** The poll read the repo's open PRs: cut short after `read` of them, or (undefined) all of them. */
@@ -375,7 +384,9 @@ export class Pulls {
         }
         if (response.status === 401) throw new Error(`GitHub turned down the ${GITHUB_SECRET} secret: set it again with a token that works`)
         if (response.status === 404) {
-            throw new Error(secret ? `GitHub has no ${repo} that the ${GITHUB_SECRET} secret can read`
+            if (secret) throw new Error(`GitHub has no ${repo} that the ${GITHUB_SECRET} secret can read`)
+            const problem = await this.tokenProblem(project)
+            throw new Error(problem ? `GitHub has no public ${repo}, and ${problem}`
                 : `GitHub has no public ${repo}: for a private repo, set a ${GITHUB_SECRET} secret that may go to api.github.com`)
         }
         throw new Error(`GitHub answered ${response.status} for ${repo}`)
