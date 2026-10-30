@@ -78,6 +78,15 @@ describe('DependsPicker', () => {
         await wrapper.find('input').trigger('keydown', {key: 'Enter'})
         expect(updates.at(-1)).toEqual(['GRE-1', 'pantry/PAN-4'])
     })
+
+    it('gives a title its full length on hover, and a wider menu past a phone (ORR-694)', async () => {
+        const wrapper = await mountSuspended(DependsPicker, {props: {here: 'greenhouse', self: 'GRE-2', modelValue: []}, attachTo: document.body})
+        mounted.push(wrapper)
+        await wrapper.find('button').trigger('click')
+        await settled()
+        expect(wrapper.findAll('li span[title]').map(s => s.attributes('title'))).toContain('GRE-3 · Shelve the jars')
+        expect(wrapper.find('.sm\\:min-w-\\[28rem\\]').exists()).toBe(true)
+    })
 })
 
 describe('IssueProperties, folded for a small screen', () => {
