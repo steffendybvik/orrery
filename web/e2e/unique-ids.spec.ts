@@ -2,7 +2,7 @@ import {expect, test} from '@playwright/test'
 import {AGENT, OWNER, makeProject} from './support'
 
 // A full id over HTTP (ORR-674): found on its own board and server, a 404 anywhere else, and what the copy buttons give.
-test('a full id finds its own, and gets a 404 on any other board', async ({page, request, context}) => {
+test('a full id finds its own, and gets a 404 on any other board', async ({page, request}) => {
     await makeProject(request, {name: 'Tamarind', key: 'ORC'})
     await makeProject(request, {name: 'Loquat', key: 'ORC'})
     const made = await (await request.post('/api/projects/tamarind/issues', {data: {title: 'Prune'}, headers: AGENT})).json()
@@ -20,9 +20,14 @@ test('a full id finds its own, and gets a 404 on any other board', async ({page,
     expect((await request.patch(`/api/presets/pst-${preset.id}-aaaaaaaa`, {data: {name}, headers: OWNER})).status()).toBe(404)
 
     // The page's button gives the full form, and a pasted one opens the issue.
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    // Kept here, as only Chrome lets a test grant the clipboard.
+    await page.addInitScript(() => {
+        navigator.clipboard.writeText = async text => {
+            (window as {copied?: string}).copied = text
+        }
+    })
     await page.goto(`/p/tamarind/issues/${issue.full_id}`)
     await expect(page.getByRole('heading', {level: 1, name: 'Prune'})).toBeVisible()
     await page.getByRole('complementary').last().getByTestId('issue-id').getByRole('button').click()
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(issue.full_id)
+    expect(await page.evaluate(() => (window as {copied?: string}).copied)).toBe(issue.full_id)
 })

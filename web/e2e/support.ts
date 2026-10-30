@@ -30,6 +30,8 @@ export async function dragCard(page: Page, card: Locator, column: Locator) {
     await card.hover()
     await page.mouse.down()
     await page.mouse.move(10, 10, {steps: 2})
+    // Twice, as a browser may only send a dragover on the second move, and a drop needs one.
+    await column.hover()
     await column.hover()
     await page.mouse.up()
 }
