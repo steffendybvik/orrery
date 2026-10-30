@@ -28,6 +28,12 @@ overview, is one list.
   ticked issues, in its project or another. A blocked issue has a lock chip and a **Blocked** filter, and nothing
   hands it out until each issue it waits on is Done. Then it goes to the session that did the last one, told what each
   was. A canceled blocker keeps it blocked and asks you; a reopened one tells the session working on it.
+- **Focus a session on a pull request:** on the Pull requests page, a pull request that names an issue has **Focus on
+  this**. It opens the note a session gets, written from where the pull request stands (conflicts, behind, failing
+  checks, a review, a draft), for you to add a line to, and **Send** hands it to the session on the issue, or one
+  orrery picks or starts. Each repo's name has a copy button.
+- **Releases beside GitHub:** a small **Releases** link sits next to GitHub at the foot of the sidebar and opens
+  orrery's releases on GitHub.
 
 ### Changes
 
@@ -39,9 +45,13 @@ overview, is one list.
   project's, and the chat files in its own.
 - **The chat shows how to install the launcher:** with no launcher running for its project, the pane shows the
   install command to copy, in place of a red error line, and it goes once a launcher connects.
-- **Pull requests grouped by repository:** the Pull requests page gives each repo its own card, those with a pull
-  request that needs someone first, with its projects and open count in the header. A repo that couldn't be read says
-  why.
+- **Pull requests grouped by repository:** the Pull requests page gives each repo its own card, in the sidebar's
+  project order, with its projects and open count in the header. A repo that couldn't be read says why.
+- **One session per piece of work:** a sub-issue filed under an issue another session is working on is that session's
+  to start, so a follow-up isn't taken up by two. The **Review** preset only reviews: it comments what it found on the
+  pull request and its issue, for the session on it to fix, and files what's left after the merge as a sub-issue. A
+  Review preset you haven't changed takes the new wording.
+- **Proposals first in App settings → Issues:** the tab opens on Proposals, then the team tracker and the statuses.
 
 ### Fixes
 
@@ -73,6 +83,7 @@ overview, is one list.
 
 ### Internal
 
+- **Code:** `shared/roadmap.ts` is split into a file per area under `shared/roadmap/`, still imported as before.
 - **CI:** the browser tests run only on pull requests into `main`, the release's, so a release branch's pull requests
   run the unit tests, typecheck and lint alone.
 - **Tests:** every page, sidebar entry and palette go-to is walked in the browser tests. New unit tests cover the hook
