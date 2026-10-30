@@ -7,7 +7,7 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
-## 1.0.0-rc.13 (2026-10-29)
+## 1.0.0-rc.13 (2026-10-30)
 
 ### Features
 
@@ -18,6 +18,10 @@ overview, is one list.
   places to drop while you drag. `[` and `]` move the focused or ticked cards a column left or right.
 - **First open asks if you're a developer:** the name dialog asks too, and No turns Advanced off, so Events, Context
   and Pull requests stay out of the sidebar.
+- **Install the launcher once:** `--install` run outside a repo puts the launcher service in place with no projects
+  yet. With pick-up on (the default), a Claude session you open in a connected repo puts that repo's projects on the
+  launcher's list, and says so once; `--uninstall` in a repo takes it off and keeps it off. Sessions → Setup lists the
+  repos the launcher serves, each marked picked up or installed by hand, and the install hints say to install once.
 - **The launcher follows its list while running:** it serves a project added to `~/.config/orrery/launcher.json`
   and lets a removed one go, without a restart, so `--install` in another repo no longer stops every session it runs.
 - **Issues depend on others:** set **Depends on** on an issue's page, in New issue, or with **Chain in order** on the
@@ -35,11 +39,20 @@ overview, is one list.
   project's, and the chat files in its own.
 - **The chat shows how to install the launcher:** with no launcher running for its project, the pane shows the
   install command to copy, in place of a red error line, and it goes once a launcher connects.
+- **Pull requests grouped by repository:** the Pull requests page gives each repo its own card, those with a pull
+  request that needs someone first, with its projects and open count in the header. A repo that couldn't be read says
+  why.
 
 ### Fixes
 
 - **Security, no forms in rendered Markdown:** a comment or description could draw a form on the issue page that
   posts anywhere ("paste your token again"). Forms and their controls are dropped now; task-list checkboxes stay.
+- **Your answers don't start sessions:** allowing or denying a session's schedule request, or rejecting a proposal,
+  posts your comment, and with nobody listening that comment started a session, taking a place under the limit. It
+  still reaches a listening session but starts none; an event schedule it sets off can still start one.
+- **The launcher refuses a repo with no channel:** `--install` in a repo that isn't connected yet stops and says to
+  connect it first, instead of serving a project nothing answers for. `--help` prints its usage, an unknown flag is
+  refused, and a project nothing answers for is logged once rather than every 30 seconds.
 - **Issues assigned to `Claude` are handed out:** picking and the Todo hand-out held back an issue assigned to
   `Claude` with a capital C, though the board shows that name as the agent.
 - **The permission popup stays up:** a parallel tool's hook landing just after a permission prompt opened set the
