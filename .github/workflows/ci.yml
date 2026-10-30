@@ -146,9 +146,11 @@ jobs:
       # What the server behind the suite reached counts as covered (ORR-745).
       - run: pnpm test:e2e
         env:
-          NODE_V8_COVERAGE: ${{ matrix.database == 'sqlite' && format('{0}/.v8-e2e', github.workspace) || '' }}
+          # The image runs as root, and Firefox won't start with a home folder that's another user's.
+          HOME: /root
+          NODE_V8_COVERAGE: ${{ matrix.database == 'sqlite' && matrix.browser == 'chromium' && format('{0}/.v8-e2e', github.workspace) || '' }}
       - run: node web/scripts/coverage-lines.mjs --v8 .v8-e2e --out web/e2e-lines.json
-        if: matrix.database == 'sqlite'
+        if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
         continue-on-error: true
       - run: pnpm test:e2e:login
         if: matrix.database == 'sqlite' && matrix.browser == 'chromium'
