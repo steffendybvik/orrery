@@ -18,6 +18,8 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
     {value: 'you', label: 'You', scope: 'Who you are on this orrery, and how your issues are named outside it.', sections: [
         {id: 'name', text: 'Your name', level: 2},
         {id: 'handle', text: 'Your handle', level: 2},
+        // Only when this orrery asks for a login (ORR-664): alone on your own machine, none of it shows.
+        ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2 as const}] : [],
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
         {id: 'proposals', text: 'Proposals', level: 2},
@@ -26,6 +28,7 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
     ]},
     {value: 'orrery', label: 'This orrery', scope: 'This orrery as a whole: how it looks, the keys its agents use and where it keeps its data. How sessions start is under Sessions → Setup.', sections: [
         {id: 'tint', text: 'Background tint', level: 2},
+        {id: 'people', text: 'People', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
         {id: 'database', text: 'Database', level: 2},
     ]},
@@ -156,8 +159,7 @@ async function backUpNow() {
     backingUp.value = true
     backupFailed.value = ''
     try {
-        const actor = await loadOwner()
-        settings.value.database = await $fetch<DatabaseInfo>('/api/backups', {method: 'POST', headers: {'Orrery-Actor': actor}})
+        settings.value.database = await apiFetch<DatabaseInfo>('/backups', {method: 'POST'})
     } catch (error) {
         backupFailed.value = errorMessage(error)
     } finally {
@@ -168,7 +170,7 @@ async function backUpNow() {
 // The backups in the folder, to restore one (ORR-448): read when the page opens, and again after a backup.
 const backups = ref<Backups | null>(null)
 const loadBackups = async () => {
-    backups.value = await $fetch<Backups>('/api/backups').catch(() => backups.value)
+    backups.value = await apiFetch<Backups>('/backups').catch(() => backups.value)
 }
 onMounted(loadBackups)
 watch(() => settings.value.database?.backed_up_at, loadBackups)
@@ -199,8 +201,7 @@ async function putBackups(body: object) {
     settingBackups.value = true
     backupsFailed.value = ''
     try {
-        const actor = await loadOwner()
-        settings.value.database = await $fetch<DatabaseInfo>('/api/backups', {method: 'PUT', body, headers: {'Orrery-Actor': actor}})
+        settings.value.database = await apiFetch<DatabaseInfo>('/backups', {method: 'PUT', body})
     } catch (error) {
         backupsFailed.value = errorMessage(error)
     } finally {
@@ -303,6 +304,16 @@ async function pick(tint: string | null) {
         </form>
       </section>
 
+      <section v-if="tab === 'you' && useAuth().status.value?.mode === 'on'" id="keys" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.keys }}</h2>
+          <p class="text-xs text-muted">
+            What your sessions and browsers show to prove who they are, now this orrery asks for a login.
+          </p>
+        </header>
+        <KeySettings />
+      </section>
+
       <section v-if="tab === 'issues'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
@@ -396,7 +407,17 @@ async function pick(tint: string | null) {
         <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
       </section>
 
-      <section v-if="tab === 'orrery'" id="secrets" class="scroll-mt-6 flex flex-col gap-3">
+<section v-if="tab === 'orrery'" id="people" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.people }}</h2>
+          <p class="text-xs text-muted">
+            Who works on this orrery, each with their own agents. Alone, you need do nothing here.
+          </p>
+        </header>
+        <PeopleSettings />
+      </section>
+
+            <section v-if="tab === 'orrery'" id="secrets" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.secrets }}</h2>
           <p class="text-xs text-muted">

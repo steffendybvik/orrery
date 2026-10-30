@@ -12,11 +12,14 @@ dist
 *.log
 .DS_Store
 coverage
+vitest-results.json
+e2e-results.json
 .vitest-reports
 .idea
 
 # Playwright
 /web/test-results
+/web/test-results-login
 /web/playwright-report
 /web/perf-report
 

@@ -11,7 +11,7 @@ import {scopeOf} from './scope'
 import type {Store} from './store'
 
 /** The signal as session `me` on `project` is told it; `api` is the project's address as the session reaches it. */
-export async function signalPayload(store: Store, project: string, signal: Signal, {api, me}: {api: string, me?: string}) {
+export async function signalPayload(store: Store, project: string, signal: Signal, {api, me, person}: {api: string, me?: string, person?: string}) {
     const statuses = await store.statuses()
     // A release in feature freeze says so, after the standing instructions.
     const withFreeze = async (version: string | undefined) => {
@@ -34,7 +34,17 @@ export async function signalPayload(store: Store, project: string, signal: Signa
         return {...signal, title, column: null, priority: null, chunk: null}
     }
     if (!signal.issue) {
-        const {chunk, title, wanted, open: matching, held} = await scopeOf(store, project, signal)
+        const scope = await scopeOf(store, project, signal)
+        const {chunk, title, wanted} = scope
+        // Only what's this session's person's to start (ORR-656): the rest it would be refused.
+        const whole = async (list: typeof scope.open) => {
+            const flags = await Promise.all(list.map(async i => {
+                const whose = await store.whoseWork(project, i.assignee)
+                return whose === undefined || whose === person
+            }))
+            return list.filter((_, at) => flags[at])
+        }
+        const [matching, held] = [await whole(scope.open), await whole(scope.held)]
         const open = matching.map(t => ({id: t.id, title: t.title, column: t.column, priority: t.priority ?? null}))
         // Another session's, while it's there: refused to this one (Store.claim), so it's marked to skip.
         const taken = new Set(me ? (await Promise.all(open.map(async i => await store.takenFrom(project, i.id, me) ? i.id : null))).filter(Boolean) : [])

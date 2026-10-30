@@ -4,8 +4,8 @@
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
+const {shared} = usePeople()
 const {of} = useSchedules()
-const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 
 // Its name, saved on Enter or on leaving the field; Esc puts it back.
@@ -23,7 +23,7 @@ async function rename() {
     }
     nameFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {name: next}, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {name: next}})
     } catch (error) {
         nameFailed.value = errorMessage(error)
     }
@@ -41,7 +41,7 @@ async function saveRepo() {
     if (next === (project.value.repo ?? '')) return
     repoFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {repo: next || null}, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {repo: next || null}})
     } catch (error) {
         repoFailed.value = errorMessage(error)
     }
@@ -65,7 +65,7 @@ async function saveReleaseMode(next: string) {
     const body = next.startsWith('from:') ? {release_mode: 'shared', releases_from: next.slice(5)} : {release_mode: next}
     releasesFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body})
     } catch (error) {
         releasesFailed.value = errorMessage(error)
     }
@@ -78,7 +78,7 @@ async function saveIcon(change: {icon?: string | null, icon_color?: string | nul
     if (!project.value) return
     iconFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: change, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: change})
     } catch (error) {
         iconFailed.value = errorMessage(error)
     }
@@ -105,7 +105,7 @@ async function remove() {
     removing.value = true
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'DELETE'})
         router.push('/mine')
     } catch (error) {
         failed.value = errorMessage(error, 'delete')
@@ -205,6 +205,18 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
         <IconPicker :icon="project.icon ?? null" :color="project.icon_color ?? null" @change="change => saveIcon({icon: change.icon, icon_color: change.color})">
           <p v-if="iconFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ iconFailed }}</p>
         </IconPicker>
+      </section>
+
+      <BoardMembers v-if="shared" :project="project.id" />
+
+      <section id="export" class="flex flex-col gap-3 border-t border-line pt-8">
+        <div>
+          <h2 class="text-[15px] font-semibold text-fg">Export</h2>
+          <p class="mt-0.5 text-[13px] text-muted">The whole board as one file: its issues, comments, activity, docs and their history, images, schedules and presets. Secrets stay here, and the board stays as it is.</p>
+        </div>
+        <div>
+          <a :href="apiUrl(`/projects/${encodeURIComponent(project.id)}/export`)" download class="inline-flex items-center rounded-md px-3 py-1.5 text-[13px] font-medium ring-1 ring-line text-fg hover:bg-hover">Download the board</a>
+        </div>
       </section>
 
       <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">

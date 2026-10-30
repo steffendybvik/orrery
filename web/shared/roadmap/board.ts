@@ -131,6 +131,10 @@ export interface Issue {
     created_by: string
     /** The name of the session that made it, as it was then (ORR-466). */
     session_name?: string
+    /** The person who has taken it up (ORR-655), on an orrery with more than one person. */
+    claimed_by?: string
+    /** When they did. */
+    claimed_at?: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
     /** The issues it builds on (ORR-601), as `linkRef`s: work on it waits until each is done. Only with some. */
@@ -191,6 +195,9 @@ export interface Release {
     frozen_on?: string
     /** The day it shipped (`YYYY-MM-DD`); none while it's being prepared. */
     shipped_on?: string
+    /** The newest doc revision when it shipped, across the orrery: a doc as of this release is its newest revision at or
+     * below this. None while it's being prepared, and on one shipped before revisions were kept. */
+    doc_mark?: number
     /** Its issues: those set for it, each with its sub-issues (in every project drawing on it, on its source). */
     issues: number
     kinds: Kinds
@@ -198,6 +205,33 @@ export interface Release {
     protected: boolean
     created_at: string
     updated_at: string
+}
+
+/** A project's own issues in a release: all of it, or its part when several projects share the release. */
+interface ReleasePart {
+    project: string
+    issues: number
+    kinds: Kinds
+}
+
+/** A release on the Releases page across projects (ORR-671), without its notes, with each project's part. */
+export interface TrackedRelease extends Omit<Release, 'notes'> {
+    projects: ReleasePart[]
+}
+
+/** The releases made on one project, in the order they're arranged in, with the projects they cover: itself first,
+ * then those taking their releases from it. `GET /api/releases` lists one of these for each project with its own. */
+export interface ProjectReleases {
+    project: string
+    projects: string[]
+    releases: TrackedRelease[]
+}
+
+/** How a project's card on the Releases page has them: those being prepared as arranged, then its latest shipped one,
+ * with the older ones to fold away, latest first. */
+export function releasesToTrack<T extends Pick<Release, 'shipped_on'>>(releases: T[]): {preparing: T[], latest?: T, older: T[]} {
+    const shipped = releases.filter(r => r.shipped_on).sort((a, b) => (b.shipped_on ?? '').localeCompare(a.shipped_on ?? ''))
+    return {preparing: releases.filter(r => !r.shipped_on), latest: shipped[0], older: shipped.slice(1)}
 }
 
 /** Whether the release is in feature freeze: frozen, and not shipped yet. */
@@ -210,9 +244,14 @@ export function freezeNote(release: Pick<Release, 'version' | 'frozen_on' | 'shi
 }
 
 /** A doc without its text, as a project lists it. */
+export const DOC_KINDS = ['markdown', 'artifact'] as const
+export type DocKind = (typeof DOC_KINDS)[number]
+
 export interface DocSummary {
     id: string
     title: string
+    /** `artifact`: its text is HTML, only ever drawn in a sandboxed frame (ORR-677). Fixed when it's made. */
+    kind: DocKind
     /** Its first paragraph as plain text, cut to about 160 characters: enough to tell whether to open it. */
     summary: string
     /** With a search (`?q=`): the text around its first hit, empty when only the title has it. */
@@ -229,6 +268,39 @@ export interface DocSummary {
 export interface Doc extends DocSummary {
     project: string
     body: string
+    /** Its id to paste anywhere: `doc-ideas-x7k2m9qd`, which finds nothing on any other board. */
+    full_id?: string
+}
+
+/** One saved version of a doc, as a doc's history lists them (ORR-675). Ids run across the orrery. */
+export interface DocRevisionSummary {
+    id: number
+    title: string
+    kind: DocKind
+    /** The doc being removed here: this holds its last text. */
+    deleted: boolean
+    created_by: string
+    /** The name of the session that wrote it, as it was then. */
+    session_name?: string
+    created_at: string
+}
+
+export interface DocRevision extends DocRevisionSummary {
+    project: string
+    doc: string
+    body: string
+}
+
+/** A doc that's gone and can come back, from its last revision. */
+export interface DeletedDoc {
+    id: string
+    title: string
+    kind: DocKind
+    summary: string
+    /** The revision that says it was removed. */
+    revision: number
+    deleted_by: string
+    deleted_at: string
 }
 
 /** One app: its details, its board and its docs. */
@@ -237,6 +309,8 @@ export interface Project {
     name: string
     /** The prefix of the issue ids the server hands out, e.g. `GRE` for `GRE-12`. */
     key: string
+    /** Its random id, in the full form of the ids on it: `GRE-12-x7k2m9qd`. It goes with the board when it moves. */
+    uid: string
     description?: string
     /** Its icon in the sidebar: a Heroicon's name, e.g. `shopping-cart`. */
     icon?: string
@@ -309,7 +383,7 @@ export interface Comment {
 export const RELEASE_MODES = ['none', 'own', 'shared'] as const
 export type ReleaseMode = typeof RELEASE_MODES[number]
 
-export type ActivityField = 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
+export type ActivityField = 'claim' | 'created' | 'title' | 'status' | 'priority' | 'assignee' | 'labels' | 'external' | 'github_issues' | 'notes' | 'chunk' | 'parent' | 'proposal' | 'project' | 'release' | 'depends'
 
 /** One change to an issue: who set `field` from `before` to `after`, and when. Values are as stored (a
  * status's id, a chunk's id, labels as a JSON list); none means unset. Notes keep no values. */
@@ -388,6 +462,24 @@ export function trackerLinkOf(sent: string): string | null {
 }
 
 /** An issue's reference, saying whose board it's on, for commit bodies and PR descriptions: `orrery-ada: DOC-132`. */
+/** What each kind's full id starts with (ORR-674); an issue has the project's key already. */
+const FULL_PREFIX = {issue: '', doc: 'doc-', chunk: 'chk-', preset: 'pst-', schedule: 'sch-'}
+export type IdKind = keyof typeof FULL_PREFIX
+
+/** The form of an id to paste anywhere: `ORR-660-x7k2m9qd`. `uid` is the board's random id, or the server's for what
+ * belongs to the server, so on any other board or server it finds nothing. */
+export const fullId = (kind: IdKind, id: string | number, uid: string) => `${FULL_PREFIX[kind]}${id}-${uid}`
+
+/** The id inside a full one with this `uid`; null for anything else, a full id from another board included. */
+export function shortId(kind: IdKind, id: string, uid: string): string | null {
+    const [prefix, tail] = [FULL_PREFIX[kind], `-${uid}`]
+    return uid && id.startsWith(prefix) && id.endsWith(tail) && id.length > prefix.length + tail.length
+        ? id.slice(prefix.length, -tail.length) : null
+}
+
+/** Whether a doc's id reads as a full one, from any board: `doc-ideas-x7k2m9qd`. */
+export const looksFullDoc = (id: string) => /^doc-.+-[a-z2-7]{8}$/.test(id)
+
 export const issueRef = (handle: string, id: string) => `orrery-${handle.toLowerCase()}: ${id}`
 
 /** A name as an id: lowercase letters, digits and dashes, at most 40 (a project's, a doc's). */

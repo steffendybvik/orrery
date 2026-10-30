@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {Priority} from '#shared/roadmap'
+import {fullId, shortId} from '#shared/roadmap'
 
 // A chunk's page: its summary, priority and progress, the Claude sessions to point at it, and its issues
 // by status, each status with a button to point the sessions at just those. Its title and summary edit
@@ -10,7 +11,7 @@ const {byId, ready} = useRoadmaps()
 const {matches, active} = useFilters()
 
 const project = computed(() => byId(route.params.project as string))
-const chunkId = computed(() => route.params.chunk === 'none' ? '' : String(route.params.chunk))
+const chunkId = computed(() => route.params.chunk === 'none' ? '' : shortId('chunk', String(route.params.chunk), project.value?.uid ?? '') ?? String(route.params.chunk))
 const chunk = computed(() => project.value?.board.chunks.find(c => c.id === chunkId.value || c.aliases.includes(chunkId.value)))
 // A name it had before (/roadmap/joints) goes to its own address.
 watch(chunk, c => {
@@ -24,16 +25,15 @@ const share = computed(() => chunk.value ? progress(chunk.value.kinds) : null)
 const {look} = useStatuses()
 
 // Changes, as the owner; the page catches up live once they're saved. `failed` holds why the last didn't.
-const {load} = useOwner()
 const saving = ref(false)
 const failed = ref('')
-const api = computed(() => project.value && chunk.value?.id ? `/api/projects/${encodeURIComponent(project.value.id)}/chunks/${encodeURIComponent(chunk.value.id)}` : '')
+const api = computed(() => project.value && chunk.value?.id ? `/projects/${encodeURIComponent(project.value.id)}/chunks/${encodeURIComponent(chunk.value.id)}` : '')
 async function save(body: Record<string, unknown>): Promise<boolean> {
     if (!api.value) return false
     saving.value = true
     failed.value = ''
     try {
-        await $fetch(api.value, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(api.value, {method: 'PATCH', body})
         return true
     } catch (error) {
         failed.value = errorMessage(error)
@@ -86,7 +86,7 @@ async function remove() {
     saving.value = true
     failed.value = ''
     try {
-        await $fetch(api.value, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(api.value, {method: 'DELETE'})
         router.push(`/p/${project.value.id}/roadmap`)
     } catch (error) {
         failed.value = errorMessage(error, 'remove')
@@ -136,7 +136,7 @@ useHead(() => ({title: chunk.value ? `${chunk.value.title} · orrery` : 'orrery'
           </span>
           <span v-if="chunk.id" class="flex items-center gap-1.5">
             <span class="font-mono text-faint">{{ chunk.id }}</span>
-            <CopyButton :text="chunk.id" />
+            <CopyButton :text="fullId('chunk', chunk.id, project.uid)" />
           </span>
           <PropertyPicker
               v-if="chunk.id"

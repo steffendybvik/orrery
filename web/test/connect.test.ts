@@ -11,16 +11,28 @@ describe('connecting a repo', () => {
         const {mcpJson, server, launch, brief} = connectPieces({...greenhouse, orrery: {id: 'orr_7f3a9c', environment: 'Work'}})
         expect(server).toBe('orrery-work')
         expect(JSON.parse(mcpJson)).toEqual({mcpServers: {'orrery-work': {
-            command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'greenhouse'},
+            command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {ORRERY_URL: 'http://localhost:9000', ORRERY_ID: 'orr_7f3a9c', ORRERY_PROJECTS: 'greenhouse', ORRERY_PERSON: '${ORRERY_PERSON:-}'},
         }}})
         expect(launch).toBe('claude --dangerously-load-development-channels server:orrery-work')
         expect(brief).toContain("add `greenhouse` to that entry's `ORRERY_PROJECTS`")
     })
 
+    it('sends the key on its own requests only with login on (ORR-714)', () => {
+        const key = 'Authorization: Bearer $ORRERY_KEY'
+        const line = (brief: string, what: string) => brief.split('\n').find(l => l.includes(what)) ?? ''
+        const open = connectPieces({...greenhouse, isNew: true}).brief
+        const locked = connectPieces({...greenhouse, isNew: true, login: true}).brief
+        for (const what of ['-X POST http://localhost:9000/api/projects', '/llms-full.txt']) {
+            expect(line(open, what)).toContain('curl -s')
+            expect(line(open, what)).not.toContain(key)
+            expect(line(locked, what)).toContain(key)
+        }
+    })
+
     it('names the channel after the project when the orrery is not known', () => {
         const {mcpJson, server} = connectPieces(greenhouse)
         expect(server).toBe('greenhouse')
-        expect(JSON.parse(mcpJson).mcpServers.greenhouse.env).toEqual({ORRERY_URL: 'http://localhost:9000', ORRERY_PROJECTS: 'greenhouse'})
+        expect(JSON.parse(mcpJson).mcpServers.greenhouse.env).toEqual({ORRERY_URL: 'http://localhost:9000', ORRERY_PROJECTS: 'greenhouse', ORRERY_PERSON: '${ORRERY_PERSON:-}'})
     })
 
     it('hooks every event a session state needs, PreToolUse and PermissionRequest in the background', () => {
@@ -97,12 +109,15 @@ describe('the overview agents read', () => {
         const store = new Store(testDb())
         vi.stubGlobal('useStore', () => store)
         vi.stubGlobal('getRequestURL', () => new URL('http://orrery.lan:9000/llms.txt'))
+        vi.stubGlobal('useRuntimeConfig', () => ({}))
+        vi.stubGlobal('getHeader', () => undefined)
+        const alone = {node: {req: {headers: {}, socket: {remoteAddress: '127.0.0.1', server: {address: () => ({address: '127.0.0.1'})}}}}} as never
         const {overview} = await import('../server/utils/guide')
-        expect(await overview({} as never)).toContain('- none yet: create one with POST /api/projects')
+        expect(await overview(alone)).toContain('- none yet: create one with POST /api/projects')
         await store.createProject({name: 'greenhouse', key: 'GRE'})
         await store.createIssue('greenhouse', {title: 'Pantry', status: 'done'})
         await store.createIssue('greenhouse', {title: 'Shelves'})
-        const text = await overview({} as never)
+        const text = await overview(alone)
         expect(text).toContain('- greenhouse: id `greenhouse`, prefix `GRE`, 1/2 done (http://orrery.lan:9000/api/projects/greenhouse)')
         expect(text).toContain('[API reference](http://orrery.lan:9000/api/guide)')
     })
@@ -118,7 +133,8 @@ describe('who is asking', () => {
         let session: string | undefined
         let untrusted = false
         vi.stubGlobal('useStore', () => store)
-        vi.stubGlobal('getHeader', (_event: unknown, name: string) => name === 'orrery-session' ? session : header)
+        vi.stubGlobal('getHeader', (_event: unknown, name: string) => name === 'orrery-session' ? session : name === 'orrery-actor' ? header : undefined)
+        vi.stubGlobal('chatWrite', () => false)
         vi.stubGlobal('untrustedWrite', () => untrusted)
         vi.stubGlobal('sessionName', (id?: string) => id === 'abc' ? 'orrery · Frøya' : undefined)
         const {actorOf} = await import('../server/utils/actor')
@@ -126,20 +142,20 @@ describe('who is asking', () => {
             header = value
             return actorOf({} as never)
         }
-        expect(await asking('claude')).toEqual({name: 'claude', owner: false})
-        expect(await asking(' Skoll_Fenrisson ')).toEqual({name: 'Skoll_Fenrisson', owner: true})
-        expect(await asking(undefined)).toEqual({name: 'agent', owner: false})
-        expect(await asking('   ')).toEqual({name: 'agent', owner: false})
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, asked: true})
+        expect(await asking(' Skoll_Fenrisson ')).toEqual({name: 'Skoll_Fenrisson', owner: true, asked: true})
+        expect(await asking(undefined)).toEqual({name: 'agent', owner: false, asked: true})
+        expect(await asking('   ')).toEqual({name: 'agent', owner: false, asked: true})
         expect((await asking('x'.repeat(80))).name).toHaveLength(60)
         // An untrusted schedule's session is marked so, so its writes set off no schedule.
         untrusted = true
-        expect(await asking('claude')).toEqual({name: 'claude', owner: false, untrusted: true})
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, asked: true, untrusted: true})
         untrusted = false
         // A session's write carries its name (ORR-466); one orrery doesn't know, and the owner's, don't.
         session = 'abc'
-        expect(await asking('claude')).toEqual({name: 'claude', owner: false, session: 'orrery · Frøya'})
-        expect(await asking('Skoll_Fenrisson')).toEqual({name: 'Skoll_Fenrisson', owner: true})
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, asked: true, session: 'orrery · Frøya'})
+        expect(await asking('Skoll_Fenrisson')).toEqual({name: 'Skoll_Fenrisson', owner: true, asked: true})
         session = 'gone'
-        expect(await asking('claude')).toEqual({name: 'claude', owner: false})
+        expect(await asking('claude')).toEqual({name: 'claude', owner: false, asked: true})
     })
 })

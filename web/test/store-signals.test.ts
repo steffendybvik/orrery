@@ -103,6 +103,17 @@ describe('a signal reaching sessions', () => {
         expect(heard!.delivered_to).toEqual([])
     })
 })
+describe('a focus on every session', () => {
+    it('is refused on an issue, saying why, and goes through on a chunk (ORR-681)', async () => {
+        const owner = {name: 'skoll', owner: true}
+        const jars = (await store.createIssue('greenhouse', {title: 'Jars'})).id
+        const refused = store.focus('greenhouse', jars, {session: '*'}, owner)
+        await expect(refused).rejects.toMatchObject({statusCode: 400})
+        await expect(refused).rejects.toThrow('Only a chunk can go to every session')
+        expect(await store.listSignals('greenhouse', 0, 50, {issue: jars})).toEqual([])
+        expect((await store.focusChunk('greenhouse', 'all', {session: '*'}, owner)).target).toBe('*')
+    })
+})
 describe('a focus aimed at no session', () => {
     it("goes to the session already on its issue while it's listening, else to one orrery picks", async () => {
         const owner = {name: 'skoll', owner: true}
@@ -111,7 +122,6 @@ describe('a focus aimed at no session', () => {
         await store.workedBy('greenhouse', jars, 'a')
         store.hears = () => true
         expect((await store.focus('greenhouse', jars, {}, owner)).target).toBe('a')
-        expect((await store.focus('greenhouse', jars, {session: '*'}, owner)).target).toBe('*')
         store.hears = () => false
         expect((await store.focus('greenhouse', jars, {}, owner)).target).toBeUndefined()
     })
@@ -140,8 +150,9 @@ describe("what a project's sessions are on", () => {
         store.hears = (_project, session) => session !== 'a'
         await store.focus('greenhouse', shelves, {session: 'b'}, owner)
         store.hears = () => true
-        const everyone = await store.focus('greenhouse', jars, {session: '*'}, owner)
-        await store.delivered('greenhouse', everyone.id, 'pantry')
+        // One from before only a chunk could go to every session (ORR-681) still reads as it did.
+        const everyone = await store.db.get<{id: number}>("INSERT INTO signals (project, issue, kind, target, created_by, owned, created_at) VALUES ('greenhouse', ?, 'focus', '*', 'skoll', 1, 'x') RETURNING id", jars)
+        await store.delivered('greenhouse', everyone!.id, 'pantry')
         const work = await store.sessionWork('greenhouse', [{id: 'a', name: 'greenhouse 1'}, {id: 'b', name: 'pantry'}])
         expect(work.a!.issues.map(i => i.id)).toEqual([jars])
         expect(work.a!.signals).toEqual([])

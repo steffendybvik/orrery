@@ -28,6 +28,21 @@ const issue = (fields: object = {}) => ({id: 'GRE-1', title: 'Shelves', status: 
 const requestActions = () => (toolsFor(['greenhouse'], {chat: true}) as {name: string, inputSchema: {properties: {action?: {enum: string[]}}}}[])
     .find(t => t.name === 'request')!.inputSchema.properties.action!.enum
 
+describe('whose a session is', () => {
+    it('sends its person on every call, and nothing without one', async () => {
+        const sent: Record<string, string>[] = []
+        const fetch = async (_url: string, init: {headers: Record<string, string>}) => {
+            sent.push(init.headers)
+            return {ok: true, status: 200, statusText: '', text: async () => '[]'}
+        }
+        const tools = (person?: string) => orreryTools({api: 'http://o/api/projects/greenhouse', session: 'abc', person, fetch}) as (name: string, args?: object) => Promise<unknown>
+        await tools('hati')('issues')
+        expect(sent[0]).toMatchObject({'Orrery-Person': 'hati'})
+        await tools()('issues')
+        expect(sent[1]).not.toHaveProperty('Orrery-Person')
+    })
+})
+
 describe("the channel's tools", () => {
     it('each have a name, a description and an object schema', () => {
         expect(TOOLS.map((t: {name: string}) => t.name)).toEqual(['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'chunks', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event'])
@@ -53,6 +68,17 @@ describe("the channel's tools", () => {
             fetch: async () => ({ok: false, status: 409, statusText: '', text: async () => JSON.stringify({message: 'Taken'})})})
         await failing('issue', {id: 'GRE-1'})
         expect(reported.at(-1)).toEqual(['issue', 'orrery said no: Taken'])
+    })
+
+    it("read a doc as it is, and its past only when asked (ORR-675)", async () => {
+        const {call} = harness({
+            'GET /docs/joints': {body: {title: 'Joints', body: 'now'}},
+            'GET /docs/joints/revisions': {body: [{id: 9, title: 'Joints', deleted: true, created_by: 'skoll', created_at: 't2'}, {id: 4, title: 'Hinges', deleted: false, created_by: 'claude', session_name: 'orrery · Høne', created_at: 't1'}]},
+            'GET /docs/joints/revisions/4': {body: {title: 'Hinges', body: 'then'}},
+        })
+        expect((await call('doc', {id: 'joints'})).text).toBe('# Joints\n\nnow')
+        expect((await call('doc', {id: 'joints', revision: 4})).text).toBe('# Hinges\n\nthen')
+        expect((await call('doc', {id: 'joints', history: true})).text).toBe('9: removed (skoll, t2)\n4: Hinges (claude, orrery · Høne, t1)')
     })
 
     it('list docs with their section, and file one under a section only when asked (ORR-520)', async () => {
@@ -234,6 +260,7 @@ describe("the channel's tools", () => {
         // A work session has neither.
         const work = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'w', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
         expect((await work('request', {action: 'create_chunk', fields: {title: 'X'}})).isError).toBe(true)
+        expect((await work('request', {action: 'offer_issue', fields: {title: 'X'}})).isError).toBe(true)
         expect((await work('request_fields', {action: 'create_chunk'})).isError).toBe(true)
         expect(calls).toEqual([])
     })

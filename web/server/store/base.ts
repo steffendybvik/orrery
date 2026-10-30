@@ -1,6 +1,7 @@
 // What every part of the store stands on: the database, telling open pages of a change, reading rows and
 // records, the owner's protection, and writing.
 import type {ActivityField, Board, IssueStatus, Notice, Project, Settings, Signal, Starts} from '#shared/roadmap'
+import {shortId} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {badRequest, notFound} from '../utils/input'
 import type {Db, Value} from '../utils/database'
@@ -27,12 +28,18 @@ export abstract class StoreBase {
     /** Whether a session on the project is there to hear a signal now; the server sets it from its sessions. */
     hears: (project: string, session: string) => boolean = () => true
 
+    /** Whose a session is, as its stream said; the server sets it from its sessions. */
+    sessionPerson: (session: string) => string | undefined = () => undefined
+
+    /** See people.ts. */
+    abstract whoseWork(project: string, assignee: string | null | undefined): Promise<string | null | undefined>
+
     /** Hears what happens (`issue.status`, `release.frozen`…), for the schedules that run on it; the server sets it. */
     happened: (event: OrreryEvent) => void = () => {}
 
     /** Says what happened, as `actor` did it. */
     protected tell(type: string, project: string, subject: string, actor: Actor, change: {from?: string | null, to?: string | null} = {}) {
-        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner}, ...actor.untrusted ? {untrusted: true} : {},
+        this.happened({type, project, subject, by: {name: actor.name, owner: actor.owner, ...actor.person && !actor.owner ? {person: actor.person} : {}}, ...actor.untrusted ? {untrusted: true} : {},
             ...change.from == null ? {} : {from: change.from}, ...change.to == null ? {} : {to: change.to}})
     }
 
@@ -77,6 +84,7 @@ export abstract class StoreBase {
             id: row.id,
             name: row.name,
             key: row.key,
+            uid: row.uid,
             description: row.description ?? undefined,
             icon: row.icon ?? undefined,
             icon_color: row.icon_color ?? undefined,
@@ -106,16 +114,22 @@ export abstract class StoreBase {
         return await readBoard(this.db, project, await this.statuses())
     }
 
-    /** The issue's id, from its id or an id it had before (an alias). */
+    /** The issue's id, from its id, an id it had before (an alias), or the full form of either on this board. */
     protected async issueId(project: string, id: string): Promise<string> {
         if (await this.get('SELECT 1 FROM issues WHERE project = ? AND id = ?', project, id)) return id
-        return (await this.get<{issue: string}>('SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?', project, id))?.issue ?? id
+        const alias = (await this.get<{issue: string}>('SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?', project, id))?.issue
+        if (alias) return alias
+        const short = shortId('issue', id, (await this.projectRow(project)).uid)
+        return short === null ? id : await this.issueId(project, short)
     }
 
-    /** The chunk's id, from its number or a name it had before (an alias). */
+    /** The chunk's id, from its number, a name it had before (an alias), or the full form of either on this board. */
     protected async chunkId(project: string, id: string): Promise<string> {
         if (await this.get('SELECT 1 FROM chunks WHERE project = ? AND id = ?', project, id)) return id
-        return (await this.get<{chunk: string}>('SELECT chunk FROM chunk_aliases WHERE project = ? AND alias = ?', project, id))?.chunk ?? id
+        const alias = (await this.get<{chunk: string}>('SELECT chunk FROM chunk_aliases WHERE project = ? AND alias = ?', project, id))?.chunk
+        if (alias) return alias
+        const short = shortId('chunk', id, (await this.projectRow(project)).uid)
+        return short === null ? id : await this.chunkId(project, short)
     }
 
     /** Hands out the project's next id: KEY-n for an issue, n for a chunk. */

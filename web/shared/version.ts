@@ -1,10 +1,19 @@
-// Comparing orrery's versions (`1.0.0`, `1.0.0-rc.10`), for the Sessions page to mark a channel or a launcher running
-// code older than the orrery (ORR-434). A prerelease comes before its release, and `rc.9` before `rc.10`.
+// Comparing orrery's versions (`1.0.0`, `1.0.0-rc.10`), for the Sessions page to mark a channel running code older than
+// the orrery (ORR-434), or a launcher too old for it (ORR-686). A prerelease comes before its release, and `rc.9` before
+// `rc.10`.
 
 /** Whether `version` is older than `than`; one that's unknown (from a channel or launcher too old to say) is. */
 export function olderVersion(version: string | undefined, than: string): boolean {
     if (!version) return true
     return compare(version, than) < 0
+}
+
+/** The oldest launcher that does all this orrery asks of one (ORR-686), going by what changed for the launcher rather
+ * than the release: since 1.0.0-rc.10 it says its version, sends its token and can start a chat or a locked-down session.
+ * With several people, a session it starts also has to say whose it is, which came in 1.0.0-rc.15. Raise this when the
+ * server comes to need something new of a launcher. */
+export function launcherMinimum(people: number): string {
+    return people > 1 ? '1.0.0-rc.15' : '1.0.0-rc.10'
 }
 
 function compare(a: string, b: string): number {

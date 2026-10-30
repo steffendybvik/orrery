@@ -12,7 +12,9 @@ const UNTRUSTED = 'launch-untrusted'
 beforeEach(() => {
     reported = []
     calls = []
-    vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
+    vi.stubGlobal('needsBoard', async () => {})
+    vi.stubGlobal('holdSession', async () => {})
+        vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
     vi.stubGlobal('readBody', async (event: {body?: unknown}) => event.body)
     vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
     vi.stubGlobal('launchUntrusted', (project: string, launch: string) => project === 'greenhouse' && launch === UNTRUSTED)

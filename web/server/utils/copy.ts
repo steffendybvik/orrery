@@ -7,10 +7,10 @@ import type {Db} from './database'
 import {one} from './database'
 
 /** In an order every foreign key is satisfied in, the statuses first (issues point at them). */
-export const COPIED_TABLES = ['statuses', 'settings', 'projects', 'releases', 'chunks', 'issues', 'comments', 'schedule_requests', 'issue_events', 'issue_sessions',
-    'issue_aliases', 'issue_links', 'chunk_aliases', 'docs', 'doc_sections', 'schedules_across', 'schedules', 'schedule_runs', 'schedule_held', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets', 'preset_defaults', 'events', 'proposal_clears', 'pull_states', 'pull_repos'] as const
+export const COPIED_TABLES = ['statuses', 'settings', 'people', 'keys', 'logins', 'identities', 'invites', 'projects', 'project_members', 'releases', 'chunks', 'issues', 'comments', 'notice_clears', 'schedule_requests', 'issue_events', 'issue_sessions', 'session_people',
+    'issue_aliases', 'issue_links', 'chunk_aliases', 'docs', 'doc_sections', 'doc_revisions', 'schedules_across', 'schedules', 'schedule_runs', 'schedule_held', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets', 'preset_defaults', 'events', 'proposal_clears', 'pull_states', 'pull_repos'] as const
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
-const NUMBERED = ['comments', 'issue_events', 'schedules_across', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
+const NUMBERED = ['comments', 'issue_events', 'doc_revisions', 'schedules_across', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
 
 /** `mark` is written into the target's settings as `backup_of`: the id of the orrery it's a backup of. */
 export async function copyDatabase(source: Db, target: Db, {replace = false, mark}: {replace?: boolean, mark?: string} = {}): Promise<Record<string, number>> {
@@ -30,6 +30,7 @@ export async function copyDatabase(source: Db, target: Db, {replace = false, mar
         // A new database starts with the default statuses, and may have had the presets orrery ships seeded; the source's replace them.
         await target.run('DELETE FROM statuses')
         await target.run('DELETE FROM settings')
+        await target.run('DELETE FROM people')
         await target.run('DELETE FROM presets')
         await target.run('DELETE FROM preset_defaults')
         for (const table of COPIED_TABLES) {

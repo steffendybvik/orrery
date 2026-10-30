@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs'
 import {describe, expect, it} from 'vitest'
 import type {IssueStatus} from '#shared/roadmap'
-import {DEFAULT_STATUSES, freezeNote, nameBesideProject, total, trackerLinkOf} from '#shared/roadmap'
+import {DEFAULT_STATUSES, freezeNote, listable, nameBesideProject, total, trackerLinkOf, withoutChannel} from '#shared/roadmap'
 import type {BoardInput, IssueInput, TaskFile} from '../server/utils/roadmap'
 import {RoadmapError, buildBoard, checkRoadmap, issueLine, legacyStatus, readRoadmap} from '../server/utils/roadmap'
 
@@ -176,5 +176,24 @@ describe("the team tracker's link", () => {
         expect(trackerLinkOf('https://tracker.example.com/projects')).toBeNull()
         expect(trackerLinkOf('https://linear.app/')).toBeNull()
         expect(trackerLinkOf('not a link')).toBeNull()
+    })
+})
+
+describe('which sessions are listed (ORR-716)', () => {
+    const started = {launch: 'abc', tmux: 'orrery-abc'}
+    it('lists one that hears signals, one its channel can stop and one orrery started', () => {
+        expect(listable({listening: true})).toBe(true)
+        expect(listable({listening: false, reachable: true})).toBe(true)
+        expect(listable({listening: false, started})).toBe(true)
+    })
+
+    it('leaves out one known only from its hooks', () => {
+        expect(listable({listening: false})).toBe(false)
+    })
+
+    it('hints at those started by hand that can\'t hear the owner, listed or not', () => {
+        const hooks = {id: 'hooks', listening: false}
+        const stoppable = {id: 'stoppable', listening: false, reachable: true}
+        expect(withoutChannel([hooks, stoppable, {id: 'heard', listening: true}, {id: 'ours', listening: false, started}])).toEqual([hooks, stoppable])
     })
 })

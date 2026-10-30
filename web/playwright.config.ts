@@ -13,15 +13,15 @@ export default defineConfig({
     // so it runs first, as a Playwright project the rest depend on; each of them then makes an orrery project of its own.
     workers: 1,
     retries: process.env.CI ? 1 : 0,
-    reporter: process.env.CI ? [['list'], ['html', {open: 'never'}]] : 'list',
+    reporter: process.env.CI ? [['list'], ['html', {open: 'never'}], ['json', {outputFile: 'e2e-results.json'}]] : 'list',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure'},
     projects: [
         {name: 'first-run', testMatch: 'first-run.spec.ts', use: devices['Desktop Chrome']},
-        {name: 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**'], dependencies: ['first-run'], use: devices['Desktop Chrome']},
+        {name: 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**'], dependencies: ['first-run'], use: devices['Desktop Chrome']},
     ],
     webServer: {
         command: `${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-* .data/e2e.db.backups.json .data/e2e-moved-*.db'} && nuxt dev --port ${port}`,
-        env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false'},
+        env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off'},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
         timeout: 180_000,

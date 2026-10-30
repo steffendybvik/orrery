@@ -24,6 +24,7 @@ const ROUTES = (): Route[] => [
     {path: '/connect', heading: 'Connect an agent', sidebar: 'Connect an agent', palette: 'Connect an agent'},
     {path: '/sessions', heading: 'Sessions', sidebar: 'Sessions', palette: 'Sessions'},
     {path: '/schedules', heading: 'Schedules', sidebar: 'Schedules', palette: 'Schedules'},
+    {path: '/releases', heading: 'Releases', sidebar: 'Releases', palette: 'Releases'},
     {path: '/events', heading: 'Events', sidebar: 'Events', palette: 'Events', advanced: true},
     {path: '/context', heading: 'Context', sidebar: 'Context', palette: 'Context', advanced: true},
     {path: '/pulls', heading: 'Pull requests', sidebar: 'Pull requests', palette: 'Pull requests', advanced: true},

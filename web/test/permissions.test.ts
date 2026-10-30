@@ -128,6 +128,10 @@ describe("a working session's column", () => {
     // Each row the store or the schedules hold, tried as an agent: the level its column says, and what makes it so.
     const PROBES: Record<string, () => Promise<unknown>> = {
         'issues.create': async () => expect(await status(() => store.createIssue('greenhouse', {title: 'Shelves'}, agent))).toBe(200),
+        'issues.claim': async () => {
+            const {id} = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
+            expect(await status(() => store.claimIssue('greenhouse', id, agent))).toBe(200)
+        },
         'issues.edit': async () => {
             const plain = await store.createIssue('greenhouse', {title: 'Shelves'}, agent)
             expect(await status(() => store.updateIssue('greenhouse', plain.id, {status: 'done'}, agent))).toBe(200)
@@ -139,7 +143,11 @@ describe("a working session's column", () => {
             const mine = await store.createIssue('greenhouse', {title: 'Lights'}, agent)
             expect(await status(() => store.deleteIssue('greenhouse', theirs.id, agent))).toBe(403)
             expect(await status(() => store.deleteIssue('greenhouse', mine.id, agent))).toBe(200)
-            expect(await status(() => store.deleteProject('greenhouse', agent))).toBe(403)
+        },
+        'projects.delete': async () => expect(await status(() => store.deleteProject('greenhouse', agent))).toBe(403),
+        'owner.name': async () => {
+            await store.nameOwner({name: 'Skoll'}, agent)
+            expect(await status(() => store.nameOwner({name: 'Hati'}, agent))).toBe(403)
         },
         'proposals.decide': async () => {
             const proposal = await store.createIssue('greenhouse', {title: 'Taller shelves', proposal: 'pending'}, agent)
@@ -205,7 +213,7 @@ describe("a working session's column", () => {
     it('holds for every row', async () => {
         for (const p of PERMISSIONS) {
             const probe = PROBES[p.id]
-            expect(probe || held(p) || authorized(p), `${p.id} has nothing that checks it`).toBeTruthy()
+            expect(probe || held(p) || authorized(p) || p.session.level === 'free', `${p.id} has nothing that checks it`).toBeTruthy()
             if (probe) await probe()
         }
     })

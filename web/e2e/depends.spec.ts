@@ -16,7 +16,7 @@ test('links two issues on the page, and the waiting one is blocked until the oth
     const second = await api(request, 'post', '/issues', {title: 'Grind the wheat'})
     await page.goto(`/p/windmill/issues/${second.id}`)
     const side = page.locator('aside')
-    await side.getByRole('button', {name: 'Depends on'}).click()
+    await side.getByRole('button', {name: 'Blocked by'}).click()
     // No Esc to close it: the picker shuts by itself while the pick saves, and Esc on the page goes back to the list.
     await page.getByRole('option', {name: new RegExp(`${first.id} · Sharpen the millstone`)}).click()
     await expect(side.getByRole('link', {name: first.id})).toBeVisible()
@@ -38,6 +38,36 @@ test('links two issues on the page, and the waiting one is blocked until the oth
     await api(request, 'patch', `/issues/${first.id}`, {status: 'done'}, OWNER)
     await expect(chip).toBeHidden()
     await expect(page.locator(`[data-issue="${second.id}"]`)).toBeVisible()
+})
+
+test('blocks another from the page of the one in the way, and lets it go from either side (ORR-680)', async ({page, request}) => {
+    const first = await api(request, 'post', '/issues', {title: 'Oil the sails'})
+    const second = await api(request, 'post', '/issues', {title: 'Turn the cap'})
+    await page.goto(`/p/windmill/issues/${first.id}`)
+    const side = page.locator('aside')
+    await side.getByRole('button', {name: 'Blocks', exact: true}).click()
+    await page.getByRole('option', {name: new RegExp(`${second.id} · Turn the cap`)}).click()
+    await expect.poll(async () => (await api(request, 'get', `/issues/${second.id}`)).depends_on).toEqual([first.id])
+    await expect(side.getByRole('link', {name: second.id})).toBeVisible()
+
+    // The other way is refused, and says why.
+    await page.goto(`/p/windmill/issues/${second.id}`)
+    await page.locator('aside').getByRole('button', {name: 'Blocks', exact: true}).click()
+    await page.getByRole('option', {name: new RegExp(`${first.id} · Oil the sails`)}).click()
+    await expect(page.locator('aside').getByText(/already depends on/)).toBeVisible()
+    await page.reload()
+
+    // One click under the title unblocks it.
+    await page.locator('header p', {hasText: 'Waiting on'}).getByRole('button', {name: `Stop waiting on ${first.id}`}).click()
+    await expect(page.locator('header p', {hasText: 'Waiting on'})).toBeHidden()
+    expect((await api(request, 'get', `/issues/${second.id}`)).depends_on ?? []).toEqual([])
+
+    // And from the one in the way, without opening the picker.
+    await api(request, 'patch', `/issues/${second.id}`, {depends_on: [first.id]}, OWNER)
+    await page.goto(`/p/windmill/issues/${first.id}`)
+    await page.locator('aside').getByRole('button', {name: `Stop blocking ${second.id}`}).click()
+    await expect.poll(async () => (await api(request, 'get', `/issues/${second.id}`)).depends_on ?? []).toEqual([])
+    await expect(page.locator('aside').getByRole('link', {name: second.id})).toBeHidden()
 })
 
 test('ticks three issues and chains them in the order listed', async ({page, request}) => {

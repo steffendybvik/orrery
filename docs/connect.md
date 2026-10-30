@@ -1,8 +1,15 @@
 # Connecting a repo
 
-The easy way: open **Connect an agent** in orrery's sidebar, pick (or make) the repo's project, and
-hand the Claude session in that repo the line it gives you. It writes the repo's `CLAUDE.md` section,
-`.mcp.json` and hooks with this orrery's address and paths filled in. What follows is the same by hand.
+The easy way: open **Connect an agent** in orrery's sidebar and press **Connect a repo**. Your launcher opens this
+machine's folder picker; choose the repo, tick its projects (or make one) on the page, and press **Set it up**. The launcher
+writes the repo's `CLAUDE.md` section, `.mcp.json` and hooks, keeping what's in them and safe to run again, puts the repo on
+its list, and opens Claude there in a terminal, where Claude Code asks once about the folder and the server. Commit the
+files with the repo.
+
+It needs the launcher running as a service, once per machine; the page gives the line until it is. macOS has its picker. On
+Linux it needs a desktop with `zenity` or `kdialog`. In WSL, or with neither, use the other way: pick (or make) the repo's
+project on the same page, and hand the Claude session in that repo the line it gives you, which has it write the same
+files. What follows is the same by hand.
 
 The channel and hooks run on macOS and Linux, and on Windows inside WSL: the hook commands set their
 variables the POSIX shell way (`ORRERY_PROJECT=shop node …`), and the channel finds its Claude window
@@ -42,7 +49,8 @@ In the repo's `.mcp.json`, one server for this orrery, named after it (`orrery-<
       "env": {
         "ORRERY_URL": "http://localhost:9000",
         "ORRERY_ID": "orr_7f3a9c",
-        "ORRERY_PROJECTS": "shop"
+        "ORRERY_PROJECTS": "shop",
+        "ORRERY_PERSON": "${ORRERY_PERSON:-}"
       }
     }
   }
@@ -58,6 +66,9 @@ with no project ticked gets none, so where the channel lists `*` it hears every 
 `ORRERY_ID` is the orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
+`ORRERY_PERSON` says whose the session is, on an orrery with more than one person and login off (`ORRERY_AUTH=off`): your
+id from `GET /api/people`, set in your own environment. With login on, the agent key says whose it is, and this is ignored, with a warning in the event log if it disagrees. It's written as `${ORRERY_PERSON:-}` because this file is committed, and a name in it would
+make every clone that person. With one person, there's nothing to set.
 
 Channels are a Claude Code research preview, so a session only shows the channel's messages when it
 was started with it: `claude --dangerously-load-development-channels server:orrery-personal`. A terminal
@@ -81,6 +92,11 @@ orrery from its [event log](API.md#event-log). `chunks`, `presets`, `preset` and
 are the [chat](API.md#chats)'s. They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
+
+An orrery that asks for a login ([when it does](../SECURITY.md#login-and-keys)) needs an agent key from App settings → You → Your keys. Set `ORRERY_KEY`
+where you start Claude Code, or keep it in `~/.config/orrery/keys.json`, and never in `.mcp.json`, which is committed ([how](running.md#claiming-it-and-logging-in)). The
+channel, hooks and launcher all send it. A session on your own machine, alone, needs none. Without a key, the brief at
+`/connect` says only to get one and read it again, and `/llms.txt` leaves out the projects, so send `Authorization: Bearer $ORRERY_KEY` with those `curl`s.
 
 ## 3. Optionally, the hooks
 
@@ -171,7 +187,7 @@ focus on a single issue ends the chunk or scope it was working through.
 
 It needs [tmux](https://github.com/tmux/tmux) 3.2 or newer: each session runs detached (`tmux attach -t <name>` to
 watch it, as the launcher logs), with the channel and the hooks as usual, and is stopped once its minutes
-are up, when you press **Stop** beside it (on the Sessions page, with **+30 min** to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
+are up, when you press **Stop** beside it (on the Sessions page, with **+30 minutes** to give it longer), or when the launcher stops. With launchers on several machines, one of them starts each session. Nobody is there to answer a permission prompt, so it runs in `auto` mode
 (`ORRERY_PERMISSION_MODE` picks another). An untrusted schedule's session is the exception: it's locked down to
 the orrery tools, which read GitHub issues for it (see [SECURITY.md](../SECURITY.md#bringing-in-what-others-wrote)), so a
 launcher from before rc.10 needs restarting before it will take one. So is your [chat](API.md#chats): it gets `Read`,

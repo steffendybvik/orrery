@@ -2,14 +2,13 @@
 import type {DocSummary, Project} from '#shared/roadmap'
 
 // A project's docs down the side of the docs pages (a row of tabs on a phone), and New doc after them. Docs with no
-// section come first, then each section (ORR-520), A–Z, folding away; the one with the open doc stays open, and what's
+// section come first, then each section (ORR-520), A–Z, folding away; opening a doc unfolds its section, and what's
 // folded is kept per project in this browser. A doc goes to another section by dragging it onto one (onto Docs: none),
 // or by right-clicking it. A section is made at the foot (empty until a doc goes in), and renamed or deleted by
 // right-clicking its header (ORR-560).
 const props = defineProps<{project: Project}>()
 const route = useRoute()
 const {docUnseen} = useUnseen()
-const {load} = useOwner()
 
 const loose = computed(() => props.project.docs.filter(doc => !doc.section))
 const sections = computed(() => {
@@ -28,18 +27,23 @@ watch(foldKey, key => {
         folded.value = []
     }
 }, {immediate: true})
-const isFolded = (section: {name: string, docs: DocSummary[]}) => folded.value.includes(section.name) && !section.docs.some(d => d.id === route.params.doc)
+const isFolded = (section: {name: string}) => folded.value.includes(section.name)
 function fold(name: string) {
     folded.value = folded.value.includes(name) ? folded.value.filter(n => n !== name) : [...folded.value, name]
     localStorage.setItem(foldKey.value, JSON.stringify(folded.value))
 }
+// Opening a doc unfolds its section, so you land on a doc you can see; folding after that is up to you (ORR-712).
+watch(() => route.params.doc, id => {
+    const section = props.project.docs.find(d => d.id === id)?.section
+    if (section && folded.value.includes(section)) fold(section)
+}, {immediate: true})
 
 // Filing a doc, and making, renaming and deleting sections: saved as the owner; the project's patch redraws the list.
 const failed = ref('')
 async function save(path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: object): Promise<boolean> {
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.project.id)}/${path}`, {method, headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(`/projects/${encodeURIComponent(props.project.id)}/${path}`, {method, body})
         return true
     } catch (error) {
         failed.value = errorMessage(error)
@@ -183,6 +187,15 @@ async function makeSection() {
       New doc
     </button>
     <button
+        type="button"
+        class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:shrink"
+        title="A page of HTML, drawn in a locked-down frame"
+        @click="useNewDoc().open(project.id, 'artifact')"
+    >
+      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+      New artifact
+    </button>
+    <button
         v-if="!making"
         type="button"
         class="hidden shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-faint outline-none transition-colors hover:bg-hover hover:text-fg focus-visible:bg-active md:flex"
@@ -204,6 +217,7 @@ async function makeSection() {
       >
     </form>
     <p v-if="failed" class="px-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <DeletedDocs :project="project.id" :docs="project.docs.length" class="hidden md:block md:mt-3" />
 
     <UiContextMenu :at="menuDoc ? menu : null" :label="`Move ${menuDoc?.title}`" width="w-56" @close="closeMenu">
       <template v-if="menuDoc">

@@ -16,7 +16,7 @@ const {places} = useStatuses()
 // The presets its sessions can have, to find the shipped ones by key.
 const presets = ref<Preset[]>([])
 watch(() => props.project, async id => {
-    presets.value = id ? await $fetch<Preset[]>(`/api/projects/${encodeURIComponent(id)}/presets`).catch(() => []) : []
+    presets.value = id ? await apiFetch<Preset[]>(`/projects/${encodeURIComponent(id)}/presets`).catch(() => []) : []
 }, {immediate: true})
 const shipped = (s: ScheduleSuggestion) => s.presets.flatMap(key => presets.value.filter(p => p.default?.key === key && !p.project))
 

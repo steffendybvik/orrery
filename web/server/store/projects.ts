@@ -1,16 +1,20 @@
 // Projects: making, changing and deleting them, their prompts and where their releases come from.
 import type {Project, ReleaseMode, Starts} from '#shared/roadmap'
 import {keyFor, slugify} from '#shared/roadmap'
+import {randomUid} from '../utils/uid'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict} from '../utils/input'
 import type {Instruction} from '#shared/prompt'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
 import type {ProjectSummary, Actor, ProjectRow} from './schema'
 import {AGENT, SLUG, PROJECT_FIELDS, PROMPT_FIELDS, releaseModeOf, nullable, stamp} from './schema'
-import {OwnerStore} from './owner'
+import {KeyStore} from './keys'
 import {refusedFor} from '../utils/permission'
 
-export abstract class ProjectStore extends OwnerStore {
+/** Keys a new project can't take, as they read as the start of a full id (ORR-674); ones already in use keep working. */
+const FULL_ID_KEYS = ['DOC', 'CHK', 'PST', 'SCH']
+
+export abstract class ProjectStore extends KeyStore {
     async listProjects(): Promise<ProjectSummary[]> {
         return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY lower(name), name')).map(async row => {
             const {board, ...project} = await this.projectOf(row)
@@ -31,7 +35,8 @@ export abstract class ProjectStore extends OwnerStore {
         return (await this.projectRow(id)).id
     }
 
-    async createProject(body: unknown, actor = AGENT): Promise<Project> {
+    /** Makes a project, held by `holder` (the owner when it doesn't say), who can then say who else is on it. */
+    async createProject(body: unknown, actor = AGENT, holder?: string): Promise<Project> {
         const input = checkInput(body, PROJECT_FIELDS)
         this.promptsAreTheOwners(input, actor)
         const name = String(input.name).trim()
@@ -39,12 +44,14 @@ export abstract class ProjectStore extends OwnerStore {
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
+        if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a doc's, chunk's, preset's or schedule's full id starts; give another in "key"`)
         const {mode, from} = releaseModeOf(input, 'none', null)
         if (from) await this.checkReleasesFrom(id, from)
         const now = stamp()
-        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.icon_color), nullable(input.repo), mode, from, actor.name, Number(actor.owner), now, now)
+        await this.run('INSERT INTO projects (id, name, key, uid, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            id, name, key, randomUid(), nullable(input.description), nullable(input.icon), nullable(input.icon_color), nullable(input.repo), mode, from, actor.name, Number(actor.owner), now, now)
         await this.update('projects', 'id = ?', [id], this.promptColumns(input))
+        await this.run("INSERT INTO project_members (project, person, role, created_at) SELECT ?, id, 'owner', ? FROM people WHERE id = ?", id, now, holder ?? (await this.ownerOf()).name)
         this.changed(id)
         return await this.project(id)
     }
@@ -158,6 +165,7 @@ export abstract class ProjectStore extends OwnerStore {
             await this.run('DELETE FROM chunks WHERE project = ?', id)
             await this.run('DELETE FROM docs WHERE project = ?', id)
             await this.run('DELETE FROM doc_sections WHERE project = ?', id)
+            await this.run('DELETE FROM doc_revisions WHERE project = ?', id)
             await this.run('DELETE FROM releases WHERE project = ?', id)
             await this.run('DELETE FROM issue_aliases WHERE project = ?', id)
             await this.run('DELETE FROM issue_links WHERE project = ? OR on_project = ?', id, id)

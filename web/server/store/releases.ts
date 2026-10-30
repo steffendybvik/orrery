@@ -1,14 +1,42 @@
 // A project's releases, and the projects sharing them.
-import type {Issue, Release} from '#shared/roadmap'
+import type {Issue, ProjectReleases, Release} from '#shared/roadmap'
 import {badRequest, checkInput, conflict} from '../utils/input'
-import type {ReleaseDetail} from './schema'
-import {AGENT, RELEASE_FIELDS, tallyReleases, noReleases, nullable, stamp} from './schema'
+import type {ProjectRow, ReleaseDetail, ReleaseRow} from './schema'
+import {AGENT, RELEASE_FIELDS, releaseOf, tallyReleases, noReleases, nullable, stamp} from './schema'
 import {DocStore} from './docs'
+import {readReleaseBoard} from './reads'
 import {known} from '#shared/known'
 
 export abstract class ReleaseStore extends DocStore {
     async listReleases(project: string): Promise<Release[]> {
         return (await this.project(project)).releases
+    }
+
+    /** Every project with releases of its own, each with those it covers (ORR-671): a release several projects share
+     * is listed once, under the project it's made on, with each project's part. */
+    async allReleases(): Promise<ProjectReleases[]> {
+        const statuses = await this.statuses()
+        const shipping = await this.all<Pick<ProjectRow, 'id' | 'release_mode' | 'releases_from'>>("SELECT id, release_mode, releases_from FROM projects WHERE release_mode <> 'none' ORDER BY id")
+        return await Promise.all(shipping.filter(p => p.release_mode === 'own').map(async ({id}) => {
+            const projects = [id, ...shipping.filter(p => p.releases_from === id).map(p => p.id)]
+            const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY position, created_at DESC', id)
+            const versions = rows.map(row => row.version)
+            const boards = await Promise.all(projects.map(project => readReleaseBoard(this.db, project, statuses)))
+            const together = tallyReleases(versions, boards)
+            const parts = boards.map(board => tallyReleases(versions, [board]))
+            return {
+                project: id,
+                projects,
+                releases: rows.map(row => {
+                    const {notes: _, ...release} = releaseOf(row)
+                    return {
+                        ...release,
+                        ...known(together.get(row.version), `a tally for ${row.version}`),
+                        projects: projects.map((project, at) => ({project, ...known(parts[at]?.get(row.version), `${project}'s tally for ${row.version}`)})),
+                    }
+                }),
+            }
+        }))
     }
 
     /** The release with its issues: those set for it (a sub-issue's when its parent isn't), each with its sub-issues,
@@ -29,6 +57,11 @@ export abstract class ReleaseStore extends DocStore {
         return {...known(own.releases.find(r => r.version === version), `release ${version}`), project, tasks: mine.tasks, projects: [mine, ...drawing.map(part)]}
     }
 
+    /** The newest doc revision on this orrery, 0 with none yet: revision ids run across its projects, so it holds for a shared release too. */
+    private async docMark(): Promise<number> {
+        return (await this.one<{n: number | null}>('SELECT max(id) AS n FROM doc_revisions')).n ?? 0
+    }
+
     /** Refuses changing a release from a project that takes its releases from another. */
     protected async ownReleases(project: string, action: string) {
         const source = await this.releaseSource(project)
@@ -44,8 +77,8 @@ export abstract class ReleaseStore extends DocStore {
         const now = stamp()
         await this.db.transaction(async () => {
             const top = (await this.get<{n: number | null}>('SELECT min(position) AS n FROM releases WHERE project = ?', project))?.n ?? 0
-            await this.run('INSERT INTO releases (project, version, branch, notes, frozen_on, shipped_on, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.frozen_on), nullable(input.shipped_on), top - 1, actor.name, Number(actor.owner), now, now)
+            await this.run('INSERT INTO releases (project, version, branch, notes, frozen_on, shipped_on, doc_mark, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                project, version, nullable(input.branch)?.trim() || null, nullable(input.notes), nullable(input.frozen_on), nullable(input.shipped_on), input.shipped_on ? await this.docMark() : null, top - 1, actor.name, Number(actor.owner), now, now)
             if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)
         })
@@ -65,6 +98,9 @@ export abstract class ReleaseStore extends DocStore {
                 notes: input.notes,
                 frozen_on: input.frozen_on,
                 shipped_on: input.shipped_on,
+                // Shipping marks the docs as they are now, and shipping it again marks them anew: un-shipping lets go of the
+                // old mark, as what ships next isn't what shipped then. A new day on one already shipped keeps it.
+                doc_mark: input.shipped_on === undefined || !!input.shipped_on === !!before.shipped_on ? undefined : input.shipped_on ? await this.docMark() : null,
             })
             if (input.position !== undefined) await this.placeRelease(project, version, Number(input.position))
             await this.touchProject(project)

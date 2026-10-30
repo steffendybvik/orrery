@@ -9,7 +9,7 @@ const {ordered} = useProjectOrder()
 /** Whether any project has a launcher running, asked of each, and again as launchers come and go; null until known. */
 const running = ref<boolean | null>(null)
 async function ask() {
-    const states = await Promise.all(ordered.value.map(p => $fetch<LaunchState>(`/api/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)))
+    const states = await Promise.all(ordered.value.map(p => apiFetch<LaunchState>(`/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)))
     running.value = states.some(s => !!s?.launchers)
 }
 watch([() => ordered.value.length, launchers], ask, {immediate: true})

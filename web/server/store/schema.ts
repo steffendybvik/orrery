@@ -1,6 +1,6 @@
 // The store's records and rows, the fields each write takes, and turning rows into records.
-import type {ActivityField, Asks, Board, Chunk, Comment, Counts, Decision, Doc, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal} from '#shared/roadmap'
-import {ASKS, DECISIONS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Chunk, Comment, Counts, Decision, Doc, DocKind, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal} from '#shared/roadmap'
+import {ASKS, DECISIONS, DOC_KINDS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds} from '#shared/roadmap'
 import type {Field, Input} from '../utils/input'
 import {badRequest, isObject} from '../utils/input'
 import {parseChoices} from '../utils/choices'
@@ -29,6 +29,8 @@ export interface IssueRecord extends Omit<Issue, 'tasks'> {
     match?: string
     /** What says whose board it's on, for commit bodies and PR descriptions: `orrery-<handle>: <id>`. */
     ref?: string
+    /** Its id to paste anywhere: `GRE-12-x7k2m9qd`, which finds nothing on any other board. */
+    full_id?: string
     parent: string | null
     /** The chunk it's in, a sub-issue's being its top-level issue's. */
     chunk: string | null
@@ -49,11 +51,15 @@ export const BULK_FIELDS = ['status', 'priority', 'assignee', 'chunk', 'release'
 export interface IssueDetail extends Issue {
     project: string
     ref: string
+    /** Its id to paste anywhere: `GRE-12-x7k2m9qd`, which finds nothing on any other board. */
+    full_id: string
     parent: string | null
     chunk: string | null
 }
 
 export interface ChunkRecord extends Omit<Chunk, 'tasks'> {
+    /** Its id to paste anywhere: `chk-3-x7k2m9qd`, which finds nothing on any other board. */
+    full_id?: string
     project: string
     position: number
     created_at: string
@@ -72,6 +78,15 @@ export interface Actor {
     via?: 'chat'
     /** The name of the session that made the write (`Orrery-Session`), kept with what it wrote (ORR-466). */
     session?: string
+    /** From a request (`actorOf`), so the rails between people hold it (ORR-655); what orrery does itself isn't. */
+    asked?: boolean
+    /** Who it says it's working for (`Orrery-Person`): `personFor` says whether that's anyone. */
+    named?: string
+    /** The owner's chat, which is the owner's whatever it's called. */
+    chat?: boolean
+    /** The member acting themselves, never an agent of theirs (ORR-658). They aren't `owner`, which stays the owner's
+     * alone, and aren't an agent either: their words go to their own sessions. */
+    person?: string
 }
 
 export const AGENT: Actor = {name: 'agent', owner: false}
@@ -106,7 +121,7 @@ export interface IssueFilter {
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 export interface ProjectRow extends Made {
-    id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
+    id: string, name: string, key: string, uid: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
     focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
     release_mode: ReleaseMode, releases_from: string | null
 }
@@ -116,14 +131,15 @@ export interface IssueRow extends Made {
     assignee: string | null, labels: string, external: string, github_issues: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
-    choices: string, picks: string | null, explore: string | null, ships_in: string | null, session_name: string | null
+    choices: string, picks: string | null, explore: string | null, ships_in: string | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null
 }
-export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null }
+export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null, person: string | null, by_agent: number }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
-export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number, section: string | null }
-export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, position: number }
+export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number, section: string | null, kind: DocKind }
+export interface DocRevisionRow { id: number, project: string, doc: string, title: string, body: string, section: string | null, kind: DocKind, deleted: number, created_by: string, session_name: string | null, owned: number, created_at: string }
+export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, doc_mark: number | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
-export interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
+export interface SignalRow { person?: string | null, id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
@@ -224,6 +240,7 @@ export const DOC_FIELDS: Record<string, Field> = {
     body: {type: 'string'},
     position: {type: 'number'},
     section: {type: 'string', nullable: true},
+    kind: {type: 'string', values: DOC_KINDS},
 }
 
 export const DECISION_FIELDS: Record<string, Field> = {
@@ -255,7 +272,7 @@ export const DECIDED: Record<Decision, string> = {approved: 'Approved this propo
 
 export const SIGNAL_FIELDS: Record<string, Field> = {
     note: {type: 'string', nullable: true},
-    /** A session id, or `*` for every session on the project; left out, one session orrery picks gets it. */
+    /** A session id; left out, one session orrery picks gets it. A chunk's can be `*`, for every session on the project. */
     session: {type: 'string', nullable: true},
     /** The standing instructions to add, by id (the orrery's or the project's); left out, those ticked by default. */
     instructions: {type: 'strings', nullable: true},
@@ -307,6 +324,10 @@ export const PRESET_FIELDS: Record<string, Field> = {
     color: TINT,
 }
 
+export const MEMBER_FIELDS: Record<string, Field> = {
+    person: {type: 'string', required: true},
+}
+
 export const OWNER_FIELDS: Record<string, Field> = {
     name: {type: 'string', required: true},
 }
@@ -340,7 +361,9 @@ export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
 ]
 
 /** Whether the owner has commented on the issue since comment `c`. */
-export const SINCE = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)'
+/** What's a person's own words on a comment `c` is: the owner's, or a member's (ORR-658). */
+export const PERSONS_WORDS = (c: string) => `(${c}.owned = 1 OR (${c}.person IS NOT NULL AND ${c}.by_agent = 0))`
+export const SINCE = `EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND ${PERSONS_WORDS('o')} AND o.id > c.id)`
 export const ANSWERED = `${SINCE} AS answered`
 /** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. */
 export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`
@@ -363,7 +386,7 @@ export function eventOf(row: EventRow): IssueEvent {
 export function signalOf(row: SignalRow): Signal {
     return {
         id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
-        target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
+        target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], ...row.person ? {person: row.person} : {}, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
 }
 
@@ -389,7 +412,7 @@ export function tallyReleases(versions: string[], boards: Board[]): Map<string, 
 
 export function releaseOf(row: ReleaseRow): Omit<Release, 'issues' | 'kinds'> {
     return {
-        version: row.version, branch: row.branch ?? undefined, notes: row.notes ?? undefined, frozen_on: row.frozen_on ?? undefined, shipped_on: row.shipped_on ?? undefined,
+        version: row.version, branch: row.branch ?? undefined, notes: row.notes ?? undefined, frozen_on: row.frozen_on ?? undefined, shipped_on: row.shipped_on ?? undefined, doc_mark: row.doc_mark ?? undefined,
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
 }
@@ -455,11 +478,23 @@ export function matchOf(body: string, words: string[]): string {
     return `${start > 0 ? '…' : ''}${body.slice(start, end).replace(/\s+/g, ' ').trim()}${end < body.length ? '…' : ''}`
 }
 
+/** A doc's first paragraph as plain text; an artifact's text is HTML, which has none to show. */
+export const docSummaryOf = (row: {kind: DocKind, body: string}) => row.kind === 'artifact' ? '' : summaryOf(row.body)
+
 export function docOf(row: DocRow): Doc {
     return {
-        id: row.id, project: row.project, title: row.title, summary: summaryOf(row.body), body: row.body, ...row.section ? {section: row.section} : {},
+        id: row.id, project: row.project, title: row.title, kind: row.kind, summary: docSummaryOf(row), body: row.body, ...row.section ? {section: row.section} : {},
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
+}
+
+export function docRevisionOf(row: DocRevisionRow): DocRevision {
+    return {...docRevisionSummaryOf(row), project: row.project, doc: row.doc, body: row.body}
+}
+
+/** A revision without its text, as a doc's history lists them. */
+export function docRevisionSummaryOf(row: Omit<DocRevisionRow, 'body'>): DocRevisionSummary {
+    return {id: row.id, title: row.title, kind: row.kind, deleted: !!row.deleted, created_by: row.created_by, ...row.session_name ? {session_name: row.session_name} : {}, created_at: row.created_at}
 }
 
 /** GitHub issues as sent, each a number or a string, kept as strings to read against the project's repo

@@ -10,9 +10,9 @@ const props = defineProps<{project?: Project}>()
 const {forget} = usePresetBadges()
 
 const presets = ref<Preset[]>([])
-const list = computed(() => props.project ? `/api/projects/${encodeURIComponent(props.project.id)}/presets` : '/api/presets')
+const list = computed(() => props.project ? `/projects/${encodeURIComponent(props.project.id)}/presets` : '/presets')
 async function refresh() {
-    const all = await $fetch<Preset[]>(list.value).catch(() => null)
+    const all = await apiFetch<Preset[]>(list.value).catch(() => null)
     if (all) presets.value = all.filter(p => p.project === (props.project?.id ?? null))
 }
 watch(list, refresh, {immediate: true})
@@ -24,12 +24,11 @@ function saved() {
 
 // The orrery's presets that orrery ships and that were removed.
 const removed = computed(() => props.project ? [] : DEFAULT_PRESETS.filter(d => !presets.value.some(p => p.default?.key === d.key)))
-const {load} = useOwner()
 const restoring = ref(false)
 async function restore() {
     restoring.value = true
     try {
-        await $fetch('/api/presets/defaults', {method: 'POST', headers: {'Orrery-Actor': await load()}})
+        await apiFetch('/presets/defaults', {method: 'POST'})
         saved()
     } finally {
         restoring.value = false

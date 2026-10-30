@@ -4,7 +4,7 @@ import {AGENT, OWNER, hold, makeProject, projectApi} from './support'
 // The session side, with a fake channel and launcher on the API where Claude would be: starting sessions turned on,
 // a session's card and a message to it alone, a session across two projects, where a focus goes, several projects
 // on one stream, a message to every idle session, Focus on this starting one and New session on this another, Stop on
-// one orrery started, Forget on one that can't hear signals, the session on an issue shown on its page, the repos the
+// one orrery started, one with no channel left out of the lists, the session on an issue shown on its page, the repos the
 // launcher serves, and a preset.
 test.describe.configure({mode: 'serial'})
 
@@ -62,12 +62,24 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await expect(card).toContainText('kitchen shelves')
         await expect.poll(() => asked).toContain('/api/sessions/work')
         expect(asked.filter(path => path !== '/api/sessions/work')).toEqual([])
-        // Listening, so it says nothing about hearing signals.
-        await expect(card.getByText("can't hear signals")).toBeHidden()
         await card.getByLabel('Message kitchen shelves').fill('Use the oak hinges, not pine.')
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
         await expect(card.getByText(/message: Use the oak hinges/)).toBeVisible()
+        // ⌘K finds it by name, from any page, and sends the same way, closing once sent (ORR-679).
+        await page.goto('/mine')
+        await expect(page.getByRole('heading', {level: 1}).first()).toBeVisible()
+        await page.keyboard.press('ControlOrMeta+k')
+        const palette = page.getByRole('dialog', {name: 'Commands'})
+        await palette.getByRole('combobox').fill('>message kitchen')
+        await expect(palette.getByRole('option', {name: /Message kitchen shelves/})).toBeVisible()
+        await page.keyboard.press('Enter')
+        const dialog = page.getByRole('dialog', {name: 'Message a session'})
+        await dialog.getByLabel('Message kitchen shelves').fill('Palette says hello.')
+        await dialog.getByRole('button', {name: 'Send'}).click()
+        await expect.poll(() => channel.said.text).toContain('(to you): Palette says hello.')
+        await expect(dialog).toBeHidden()
+        await page.goto('/sessions')
         // ⌘/Ctrl-Enter sends as well, and Shift-Enter is a new line (ORR-514).
         const box = card.getByLabel('Message kitchen shelves')
         await box.fill('Sand first.')
@@ -82,17 +94,34 @@ test("shows a listening session on the Sessions page, and sends it a message onl
     }
 })
 
-test("forgets a session that can't hear signals, and its next hook brings it back", async ({page, request}) => {
+test('leaves a session with no channel out of the lists, with a line on restarting it, until its channel connects', async ({page, request, baseURL}) => {
+    // Those the tests before it left behind would count on the line too.
+    for (const {id} of await api(request, 'get', '/sessions')) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'SessionEnd'}})
+    const issue = await api(request, 'post', '/issues', {title: 'Oil the drawers', status: 'todo'})
     await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'Stop', name: 'kitchen drawers'}})
-    await page.goto('/sessions')
+    const hint = page.getByText('1 Claude session on Kitchen started without the channel')
     const card = page.locator('#session-e2e-gone')
-    await expect(card.getByText("can't hear signals")).toBeVisible()
-    await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
-    await card.getByRole('button', {name: 'Forget kitchen drawers'}).click()
-    await expect(card).toHaveCount(0)
-    await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'Stop', name: 'kitchen drawers'}})
-    await expect(card).toBeVisible()
-    await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'SessionEnd'}})
+    const row = page.getByRole('complementary').getByRole('link', {name: /kitchen drawers/})
+    try {
+        await page.goto('/sessions')
+        await expect(hint).toBeVisible()
+        await expect(card).toHaveCount(0)
+        await expect(row).toHaveCount(0)
+        const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-gone&name=kitchen%20drawers&format=text')
+        try {
+            await expect(card).toBeVisible()
+            await expect(row).toBeVisible()
+            await expect(hint).toBeHidden()
+        } finally {
+            channel.stop()
+        }
+        await expect(card).toHaveCount(0)
+        await page.goto(`/p/kitchen/issues/${issue.id}`)
+        await expect(page.getByText('1 Claude session here started without the channel')).toBeVisible()
+        await expect(page.getByRole('link', {name: 'kitchen drawers', exact: true})).toHaveCount(0)
+    } finally {
+        await request.post('/api/sessions', {data: {id: 'e2e-gone', project: 'kitchen', event: 'SessionEnd'}})
+    }
 })
 
 test('lists a session that hears two projects once, across them', async ({page, request, baseURL}) => {
@@ -129,8 +158,8 @@ test('sends a focus aimed at no session to one, the first free, and to every one
         await expect.poll(() => heard('Sort the spices').filter(Boolean).length).toBe(1)
         await quiet()
         expect(heard('Sort the spices').filter(Boolean)).toHaveLength(1)
-        // Aimed at every session: both do.
-        sent.push(await focus('Label the tins', {session: '*'}))
+        // A chunk's, aimed at every session: both do.
+        sent.push((await api(request, 'post', '/chunks/all/focus', {note: 'Label the tins', session: '*'}, OWNER)).signal.id as number)
         await expect.poll(() => heard('Label the tins')).toEqual([true, true])
         // With both busy it waits, and goes to the first to go idle.
         for (const id of ids) await request.post('/api/sessions', {data: {id, project: 'kitchen', event: 'UserPromptSubmit'}})
@@ -266,6 +295,34 @@ test("shows on an issue's page which session is on it, while it listens", async 
     }
 })
 
+test("a board card's status icon pulses only while its session works, and not with reduced motion", async ({page, request, baseURL}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Scrub the oven', status: 'todo'})
+    const report = (event: string) => request.post('/api/sessions', {data: {id: 'e2e-w3', project: 'kitchen', event, name: 'e2e-w3'}})
+    await report('SessionStart')
+    const stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-w3&name=e2e-w3&format=text')
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {id: string, listening: boolean}) => s.id === 'e2e-w3' && s.listening)).toBe(true)
+        await page.goto('/p/kitchen?view=board')
+        const card = page.locator('[draggable="true"]').filter({hasText: 'Scrub the oven'})
+        const icon = card.locator('svg[aria-label]').first()
+        const animation = () => icon.evaluate(el => getComputedStyle(el).animationName)
+        await expect.poll(animation).toBe('none')
+        await api(request, 'post', `/issues/${issue.id}/focus`, {session: 'e2e-w3'}, OWNER)
+        await report('UserPromptSubmit')
+        await expect.poll(animation).toBe('pulse')
+        await page.emulateMedia({reducedMotion: 'reduce'})
+        await expect.poll(animation).toBe('none')
+        await page.emulateMedia({reducedMotion: 'no-preference'})
+        await expect.poll(animation).toBe('pulse')
+        // The dot stays, as the session's still on it, but nothing's happening now.
+        await report('Stop')
+        await expect.poll(animation).toBe('none')
+        await expect(page.getByRole('img', {name: 'e2e-w3 is working on it'})).toHaveCount(1)
+    } finally {
+        stream.stop()
+    }
+})
+
 test('a session orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
@@ -383,7 +440,7 @@ test("keeps an issue's id and copy buttons in view: in the panel, or in a bar un
     await expect(bar).toBeHidden()
     await scroll()
     await expect(row).toBeInViewport()
-    await expect(row.getByText('Copy ref')).toBeVisible()
+    await expect(row.getByText('Copy', {exact: true})).toBeVisible()
     // Narrow, with nobody on it: a bar on top.
     await page.setViewportSize({width: 700, height: 600})
     await page.goto(`/p/kitchen/issues/${issue.id}`)
@@ -414,9 +471,10 @@ test("keeps an issue's id and copy buttons in view: in the panel, or in a bar un
     }
 })
 
-test('marks a session cut off by a usage limit until its next turn gets going', async ({page, request}) => {
+test('marks a session cut off by a usage limit until its next turn gets going', async ({page, request, baseURL}) => {
     const say = (data: object) => request.post('/api/sessions', {data: {id: 'e2e-cut', project: 'kitchen', ...data}})
     await say({event: 'SessionStart', name: 'kitchen · Cut'})
+    const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-cut&name=kitchen%20%C2%B7%20Cut&format=text')
     try {
         await page.goto('/sessions')
         const row = page.getByRole('complementary').getByRole('link', {name: /Cut/})
@@ -428,6 +486,7 @@ test('marks a session cut off by a usage limit until its next turn gets going', 
         await expect(row).toContainText('working')
         await expect(page.getByTestId('session-cut-off')).toHaveCount(0)
     } finally {
+        channel.stop()
         await say({event: 'SessionEnd'})
     }
 })

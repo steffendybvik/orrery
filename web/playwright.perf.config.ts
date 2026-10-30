@@ -1,7 +1,8 @@
 // How fast Orrery is with a lot in it (`pnpm test:e2e:perf`): e2e/perf/seed.ts fills a fresh database (a SQLite file,
 // or with E2E_POSTGRES_URL that Postgres, emptied first), then the built app runs on it, as a real Orrery does, and
-// e2e/perf/perf.spec.ts times its pages against their budgets. The report lands in perf-report/. The seed's sizes are
-// PERF_* variables (see seed.ts); PERF_NO_BUILD=1 runs the build already in .output, for trying again quickly.
+// e2e/perf/perf.spec.ts times its pages against their budgets. It listens on loopback, as an orrery on all addresses asks
+// for a login. The report lands in perf-report/. The seed's sizes are PERF_* variables (see seed.ts); PERF_NO_BUILD=1
+// runs the build already in .output, for trying again quickly.
 import {fileURLToPath} from 'node:url'
 import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
@@ -25,7 +26,7 @@ export default defineConfig({
             ...process.env.PERF_NO_BUILD ? [] : ['nuxt build'],
             'node .output/server/index.mjs',
         ].join(' && '),
-        env: {NUXT_DATABASE: database, NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', PORT: String(port), JITI_ALIAS: JSON.stringify({'#shared': shared})},
+        env: {NUXT_DATABASE: database, NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', PORT: String(port), NITRO_HOST: '127.0.0.1', JITI_ALIAS: JSON.stringify({'#shared': shared})},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
         timeout: 600_000,

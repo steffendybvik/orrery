@@ -1,5 +1,5 @@
 // `POST /api/projects/:project/issues/:issue/focus` {note?, session?, start?} → {signal, listeners}: asks the Claude
-// session (`*` for every session; without `session`, the one on the issue or one orrery picks) on the project to work on the issue now. `listeners`
+// session (without `session`, the one on the issue or one orrery picks; only a chunk can go to every session) on the project to work on the issue now. `listeners`
 // says how many sessions were listening to hear it. `start: true`, from the owner, starts a session for it when nobody's
 // listening, even when work alone doesn't start one (`starts.on_signal` off).
 export default defineEventHandler(async event => {

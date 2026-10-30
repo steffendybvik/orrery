@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Session} from '#shared/roadmap'
-import {nameBesideProject, cutOffLabel} from '#shared/roadmap'
+import {nameBesideProject, cutOffLabel, listable} from '#shared/roadmap'
 
 // Every project with its progress and how many issues are started; My issues on top.
 const {projects, ready, live} = useRoadmaps()
@@ -25,6 +25,8 @@ onBeforeUnmount(() => clearInterval(pullsTimer))
 // with how many need someone (ORR-491).
 /** Every project's schedules still set to run, for the Schedules entry. */
 const scheduleCount = computed(() => Object.values(schedulesByProject.value).flat().filter(s => s.enabled).length)
+/** Releases being prepared across the projects that make their own, for the Releases entry (ORR-671). */
+const preparingCount = computed(() => projects.value.filter(p => p.release_mode === 'own').flatMap(p => p.releases).filter(r => !r.shipped_on).length)
 const open = useState('sidebar-open', () => false)
 const palette = useState('palette-open', () => false)
 const {environment, version} = useRuntimeConfig().public
@@ -86,7 +88,7 @@ const canStart = computed(() => ordered.value.some(p => p.starts))
 const {issuesOf} = useWorkedIssues()
 const onIssue = (session: Session) => session.state === 'working' || session.state === 'waiting' ? issuesOf(session.id) : []
 const allSessions = computed(() => ordered.value
-    .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id).map(session => ({session, project})))
+    .flatMap(project => (sessions.value[project.id] ?? []).filter(s => s.project === project.id && listable(s)).map(session => ({session, project})))
     .sort((a, b) => Number(b.session.state === 'waiting') - Number(a.session.state === 'waiting')))
 
 /** The other projects a session hears, by name. */
@@ -178,6 +180,16 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <SectionIcon section="schedules" class="size-4 text-faint" />
         <span class="flex-1">Schedules</span>
         <span v-if="scheduleCount" class="font-mono text-[11px] text-faint tabular-nums">{{ scheduleCount }}</span>
+      </NuxtLink>
+
+      <NuxtLink
+          to="/releases"
+          class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
+          :class="route.path === '/releases' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
+      >
+        <SectionIcon section="releases" class="size-4 text-faint" />
+        <span class="flex-1">Releases</span>
+        <span v-if="preparingCount" class="font-mono text-[11px] text-faint tabular-nums" :title="`${preparingCount} being prepared`">{{ preparingCount }}</span>
       </NuxtLink>
 
       <template v-if="appSettings.advanced">
@@ -335,7 +347,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
     </div>
 
     <div class="shrink-0 border-t border-line p-2">
-      <!-- GitHub keeps the row; Releases sits small at its right (ORR-609). -->
+      <!-- GitHub keeps the row; orrery's own releases sit small at its right (ORR-609), apart from the Releases page above. -->
       <div class="flex items-center gap-0.5">
         <a
             href="https://github.com/steffendybvik/orrery"
@@ -356,7 +368,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
             title="orrery's releases on GitHub"
         >
           <svg class="size-3.5 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L3 13V3h10l7.59 7.59a2 2 0 0 1 0 2.82Z" /><circle cx="7.5" cy="7.5" r="1.5" /></svg>
-          <span>Releases</span>
+          <span>orrery releases</span>
           <svg class="size-3 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8" /></svg>
         </a>
       </div>
@@ -365,6 +377,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
         <span><KeyHint>↵</KeyHint> open</span>
         <span><KeyHint>g</KeyHint> <KeyHint>m</KeyHint> home</span>
       </div>
+      <ActingAs />
       <NewVersionNotice />
       <p class="mt-1.5 px-2 font-mono text-[10px] text-faint">
         <a v-if="!dev" :href="`https://github.com/steffendybvik/orrery/blob/v${version}/CHANGELOG.md`" target="_blank" rel="noopener" class="hover:text-fg hover:underline" title="What's in this version">v{{ version }}</a>

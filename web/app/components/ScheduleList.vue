@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import {BoltIcon} from '@heroicons/vue/16/solid'
 import type {Project, Schedule} from '#shared/roadmap'
 
-// A project's schedules as a card: the project at its head, with its own New schedule, then its schedules, soonest
-// first, paused (and one-offs that have run) last. A row says what it does (makes an issue, messages the
+// A project's schedules as a card: the project at its head, with its own New schedule, then its schedules: running event
+// ones first (they have no time to sort by and can fire at any moment, ORR-709), then soonest first, paused (and one-offs
+// that have run) last. A row says what it does (makes an issue, messages the
 // sessions or starts one) and what it says, when it repeats, when it runs next and how its last run went; clicking edits it,
 // right-clicking or its ⋯ opens its menu (run now, pause, edit, remove). Its play button leads the row and says
 // its state at a glance, like a music player's: a filled one with ❙❙ while it runs (press to pause), an outlined
@@ -25,7 +27,9 @@ let clock: ReturnType<typeof setInterval> | undefined
 onMounted(() => clock = setInterval(() => now.value = Date.now(), 60_000))
 onBeforeUnmount(() => clearInterval(clock))
 
-const sorted = computed(() => [...props.schedules].sort((a, b) => (a.enabled && a.next_run ? a.next_run : '~').localeCompare(b.enabled && b.next_run ? b.next_run : '~')))
+/** Where it sorts: `''` before any time, and `~` after them, by plain order, as `localeCompare` puts `~` before digits. */
+const place = (s: Schedule) => !s.enabled ? '~' : s.on ? '' : s.next_run ?? '~'
+const sorted = computed(() => [...props.schedules].sort((a, b) => place(a) < place(b) ? -1 : place(a) > place(b) ? 1 : 0))
 const active = computed(() => props.schedules.filter(s => s.enabled).length)
 /** How long until it runs, kept right by the clock. */
 function soon(at: string): string {
@@ -115,7 +119,7 @@ const OUTCOME = {
         <span v-if="byAgent(s)" class="truncate text-xs text-amber-700 dark:text-amber-300">{{ byAgent(s) }}</span>
         <span v-if="gist(s)" class="truncate text-xs text-muted">{{ gist(s) }}</span>
         <span class="truncate text-xs text-faint">
-          {{ describe(s) }}<template v-if="s.kind === 'action'"> · moves to {{ movesTo(s) }}</template><template v-if="s.held"> · {{ s.held }} waiting their turn</template><template v-if="s.kind === 'issue' && s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template><template v-if="s.kind === 'issue' && s.labels.length"> · {{ s.labels.join(', ') }}</template>
+          <BoltIcon v-if="s.on" class="mr-0.5 inline size-3 align-[-2px] text-teal-600 dark:text-teal-400" aria-hidden="true" />{{ describe(s) }}<template v-if="s.kind === 'action'"> · moves to {{ movesTo(s) }}</template><template v-if="s.held"> · {{ s.held }} waiting their turn</template><template v-if="s.kind === 'issue' && s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template><template v-if="s.kind === 'issue' && s.labels.length"> · {{ s.labels.join(', ') }}</template>
         </span>
       </div>
       <span v-if="s.runs[0]" class="hidden shrink-0 items-center gap-1 self-start pt-0.5 text-xs md:flex" :class="[OUTCOME[s.runs[0].outcome], !s.enabled && 'opacity-60']" :title="s.runs[0].note ?? ''">
@@ -127,7 +131,7 @@ const OUTCOME = {
         <span class="text-faint">· {{ ago(s.runs[0].at) }}</span>
       </span>
       <span class="shrink-0 self-start pt-0.5 text-right text-xs sm:w-36" :title="s.next_run ? when(s.next_run) : ''">
-        <span v-if="s.enabled && s.on" class="text-muted" :title="`Runs on ${s.on}, once per subject`">on event</span>
+        <span v-if="s.enabled && s.on" class="inline-flex items-center gap-1 font-medium text-teal-700 dark:text-teal-300" :title="`Runs on ${s.on}, once per subject`"><BoltIcon class="size-3" aria-hidden="true" />On event</span>
         <template v-else-if="s.enabled && s.next_run"><span class="text-fg">{{ soon(s.next_run) }}</span> <span class="hidden text-faint sm:inline">· {{ when(s.next_run).replace(/^\w+ \d+ \w+ /, '') }}</span></template>
         <span v-else-if="ran(s)" class="text-faint">ran</span>
         <span v-else class="rounded-full bg-well px-2 py-0.5 font-medium text-muted">Paused</span>

@@ -4,10 +4,13 @@ import {githubIssueLabel, githubIssueOf, githubRepo, isFrozen, taskUrl} from '#s
 
 // An issue's properties, as the right-hand column of its page: status, priority, assignee, labels and
 // chunk are menus to type in (`PropertyPicker`), and change in place, as the owner, saving at once. The issues it
-// depends on are picked the same way (ORR-601); those that depend on it, read the other way, only show.
-/** `sub`: it's a sub-issue, in its parent's chunk. `worker`: the session working it, which an agent's assignee names. */
-const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean, worker?: Session}>()
+// waits on (Blocked by, ORR-601) and those waiting on it (Blocks, ORR-680) are picked the same way, each with a × to let it go.
+/** `sub`: it's a sub-issue, in its parent's chunk. `worker`: the session working it, which an agent's assignee names.
+ *  `fold`: all but status, priority and assignee wait behind More, so a phone's first screen reaches the description (ORR-692). */
+const props = defineProps<{issue: Issue, project: Project, chunk: Chunk, sub?: boolean, worker?: Session, fold?: boolean}>()
+const more = ref(false)
 const {who, name: owner} = useOwner()
+const {shared} = usePeople()
 const {save, saving, failed} = useIssueSave(() => props.project.id, () => props.issue.id)
 
 // A parent's status follows its sub-issues, and a sub-issue is in its parent's chunk.
@@ -40,7 +43,7 @@ const frozen = computed(() => isFrozen(props.project.releases.find(r => r.versio
 // A list picked from a menu that stays open (labels, team tasks, depends on): a pick shows at once and the menu stays
 // up while it saves (ORR-602). Each pick sends the whole list, after the one before has gone, so a quick second pick
 // keeps the first, and the page's own list takes over once it says the same (or a save is refused, said below).
-function pickedList(field: 'labels' | 'external' | 'github_issues' | 'depends_on', current: () => string[]) {
+function pickedList(current: () => string[], write: (next: string[], before: string[]) => Promise<boolean>) {
     const picked = ref<string[] | null>(null)
     let queue = Promise.resolve()
     const same = (a: string[], b: string[]) => a.length === b.length && a.every(v => b.includes(v))
@@ -51,9 +54,10 @@ function pickedList(field: 'labels' | 'external' | 'github_issues' | 'depends_on
     return computed({
         get: () => picked.value ?? current(),
         set: (next: string[]) => {
+            const before = picked.value ?? current()
             picked.value = next
             queue = queue.then(async () => {
-                if (!await save({[field]: next}) && picked.value === next) picked.value = null
+                if (!await write(next, before) && picked.value === next) picked.value = null
             })
         },
     })
@@ -61,21 +65,21 @@ function pickedList(field: 'labels' | 'external' | 'github_issues' | 'depends_on
 
 // Labels: any the project uses, or a new one.
 const known = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.labels))])
-const labels = pickedList('labels', () => props.issue.labels)
+const labels = pickedList(() => props.issue.labels, next => save({labels: next}))
 
 const labelOptions = computed(() => [...new Set([...known.value, ...labels.value])].sort((a, b) => a.localeCompare(b)).map(l => ({value: l, label: l})))
 
 // Its tasks on the team's tracker: any the project links, or a new id; each opens through the tracker's pattern.
 const {settings} = useAppSettings()
 const knownTasks = computed(() => [...new Set(allIssues(props.project).flatMap(({issue}) => issue.external))])
-const tasks = pickedList('external', () => props.issue.external)
+const tasks = pickedList(() => props.issue.external, next => save({external: next}))
 const taskOptions = computed(() => [...new Set([...knownTasks.value, ...tasks.value])].sort((a, b) => a.localeCompare(b)).map(t => ({value: t, label: t})))
 const taskLinks = computed(() => tasks.value.map(t => ({task: t, url: taskUrl(settings.value.tracker, t)})))
 
 // The GitHub issues it came from (ORR-635): any the project names, or a new one, typed as `523` on the project's repo,
 // `owner/name#523` or its link, and sent as kept (`owner/name#523`), so the page's list takes over once saved.
 const repo = computed(() => githubRepo(props.project.repo))
-const githubPicked = pickedList('github_issues', () => props.issue.github_issues)
+const githubPicked = pickedList(() => props.issue.github_issues, next => save({github_issues: next}))
 const githubIssues = computed({
     get: () => githubPicked.value,
     set: (next: string[]) => githubPicked.value = [...new Set(next.map(issue => githubIssueOf(issue, repo.value) ?? issue))],
@@ -86,7 +90,14 @@ const githubOptions = computed(() => [...new Set([...knownGithub.value, ...githu
     .sort((a, b) => a.label.localeCompare(b.label, undefined, {numeric: true})))
 
 // The issues it depends on, the whole list sent each time (a cycle or an unknown one is refused, and says why below).
-const dependsOn = pickedList('depends_on', () => props.issue.depends_on ?? [])
+const dependsOn = pickedList(() => props.issue.depends_on ?? [], next => save({depends_on: next}))
+const {change: changeBlocks, failed: blocksFailed} = useIssueBlocks(() => props.project.id, () => props.issue.id)
+const blocks = pickedList(() => props.issue.blocks ?? [], async (next, before) => {
+    let changed = true
+    for (const link of next.filter(l => !before.includes(l))) changed = await changeBlocks(link, true) && changed
+    for (const link of before.filter(l => !next.includes(l))) changed = await changeBlocks(link, false) && changed
+    return changed
+})
 
 // The assignee: the owner, an agent, anyone already assigned in the project, or a new name.
 const people = computed(() => [...new Set([owner.value, 'claude', ...allIssues(props.project).map(({issue}) => issue.assignee)].filter((n): n is string => !!n))])
@@ -143,102 +154,115 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
       </PropertyPicker>
     </dd>
 
-    <dt class="label">Labels</dt>
-    <dd class="flex min-w-0">
-      <PropertyPicker v-model="labels" :options="labelOptions" label="Labels" placeholder="Find or add a label…" multiple creatable>
-        <span v-if="labels.length" class="flex min-w-0 flex-wrap items-center gap-1">
-          <LabelChip v-for="l in labels" :key="l" :label="l" />
-        </span>
-        <span v-else class="text-faint">No labels</span>
-        <template #option="{option}"><LabelChip :label="option.value" /></template>
-      </PropertyPicker>
-    </dd>
+    <template v-if="shared">
+      <dt class="label">Claim</dt>
+      <dd class="flex min-w-0"><IssueClaim :issue="issue" :project="project.id" :worker="worker" /></dd>
+    </template>
 
-    <dt class="label">Team tasks</dt>
-    <dd class="flex min-w-0 flex-wrap items-center gap-1">
-      <span v-if="taskLinks.length" class="flex min-w-0 flex-wrap gap-1">
-        <component
-            :is="link.url ? 'a' : 'span'"
-            v-for="link in taskLinks"
-            :key="link.task"
-            :href="link.url"
-            target="_blank"
-            rel="noopener"
-            class="max-w-full truncate rounded-md px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-line"
-            :class="link.url ? 'text-accent-600 hover:bg-hover dark:text-accent-400' : 'text-muted'"
-            :title="link.url ? `Open ${link.task} on the team's tracker` : 'Set the tracker in App settings to link it'"
-        >{{ link.task }}</component>
-      </span>
-      <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. ENG-1567…" multiple creatable>
-        <span class="text-faint">{{ tasks.length ? 'Edit' : 'None' }}</span>
-      </PropertyPicker>
-    </dd>
-
-    <dt class="label">GitHub issues</dt>
-    <dd class="flex min-w-0 flex-wrap items-center gap-1">
-      <span v-if="githubIssues.length" class="flex min-w-0 flex-wrap gap-1">
-        <GithubIssueChip v-for="github in githubIssues" :key="github" :issue="github" :repo="project.repo" />
-      </span>
-      <PropertyPicker v-model="githubIssues" :options="githubOptions" label="GitHub issues" :placeholder="repo ? 'Add an issue number, e.g. 523…' : 'Add owner/name#523…'" multiple creatable>
-        <span class="text-faint">{{ githubIssues.length ? 'Edit' : 'None' }}</span>
-      </PropertyPicker>
-    </dd>
-
-    <dt class="label">Project</dt>
-    <dd class="flex min-h-7 items-center"><NuxtLink :to="`/p/${project.id}`" class="hover:underline">{{ project.name }}</NuxtLink></dd>
-
-    <dt class="label">Chunk</dt>
-    <dd class="flex min-w-0 items-center gap-1">
-      <PropertyPicker v-if="!isSub" v-model="chunkId" :options="chunkOptions(project.board.chunks)" label="Chunk" :disabled="saving">
-        <span class="truncate" :class="!chunk.id && 'text-faint'">{{ chunk.id ? chunk.title : 'No chunk' }}</span>
-      </PropertyPicker>
-      <NuxtLink v-else :to="chunkPath(project.id, chunk.id)" class="truncate hover:underline" :class="!chunk.id && 'text-faint'" title="A sub-issue is in its parent's chunk">{{ chunk.title }}</NuxtLink>
-      <UiButton v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" variant="ghost" size="xs" square class="shrink-0" title="Open the chunk" aria-label="Open the chunk">
-        <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
+    <dd v-if="fold" class="col-span-2 flex">
+      <UiButton variant="ghost" size="xs" class="-ml-1.5" :aria-expanded="more" @click="more = !more">
+        <svg class="size-3 transition-transform" :class="more && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+        {{ more ? 'Less' : 'More' }}
       </UiButton>
     </dd>
-
-    <template v-if="project.releases.length || issue.release">
-      <dt class="label">Release</dt>
-      <dd class="flex min-w-0 items-center gap-1">
-        <PropertyPicker v-model="release" :options="releaseOptions" label="Release" :disabled="saving">
-          <span class="truncate font-mono text-xs" :class="!issue.release && 'font-sans text-faint'">{{ issue.release ?? 'No release' }}</span>
+    <template v-if="!fold || more">
+      <dt class="label">Labels</dt>
+      <dd class="flex min-w-0">
+        <PropertyPicker v-model="labels" :options="labelOptions" label="Labels" placeholder="Find or add a label…" multiple creatable>
+          <span v-if="labels.length" class="flex min-w-0 flex-wrap items-center gap-1">
+            <LabelChip v-for="l in labels" :key="l" :label="l" />
+          </span>
+          <span v-else class="text-faint">No labels</span>
+          <template #option="{option}"><LabelChip :label="option.value" /></template>
         </PropertyPicker>
-        <UiButton v-if="issue.release" :to="releasePath(project.id, issue.release)" variant="ghost" size="xs" square class="shrink-0" title="Open the release" aria-label="Open the release">
+      </dd>
+
+      <dt class="label">Team tasks</dt>
+      <dd class="flex min-w-0 flex-wrap items-center gap-1">
+        <span v-if="taskLinks.length" class="flex min-w-0 flex-wrap gap-1">
+          <component
+              :is="link.url ? 'a' : 'span'"
+              v-for="link in taskLinks"
+              :key="link.task"
+              :href="link.url"
+              target="_blank"
+              rel="noopener"
+              class="max-w-full truncate rounded-md px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-line"
+              :class="link.url ? 'text-accent-600 hover:bg-hover dark:text-accent-400' : 'text-muted'"
+              :title="link.url ? `Open ${link.task} on the team's tracker` : 'Set the tracker in App settings to link it'"
+          >{{ link.task }}</component>
+        </span>
+        <PropertyPicker v-model="tasks" :options="taskOptions" label="Team tasks" placeholder="Add a task id, e.g. ENG-1567…" multiple creatable>
+          <span class="text-faint">{{ tasks.length ? 'Edit' : 'None' }}</span>
+        </PropertyPicker>
+      </dd>
+
+      <dt class="label">GitHub issues</dt>
+      <dd class="flex min-w-0 flex-wrap items-center gap-1">
+        <span v-if="githubIssues.length" class="flex min-w-0 flex-wrap gap-1">
+          <GithubIssueChip v-for="github in githubIssues" :key="github" :issue="github" :repo="project.repo" />
+        </span>
+        <PropertyPicker v-model="githubIssues" :options="githubOptions" label="GitHub issues" :placeholder="repo ? 'Add an issue number, e.g. 523…' : 'Add owner/name#523…'" multiple creatable>
+          <span class="text-faint">{{ githubIssues.length ? 'Edit' : 'None' }}</span>
+        </PropertyPicker>
+      </dd>
+
+      <dt class="label">Project</dt>
+      <dd class="flex min-h-7 items-center"><NuxtLink :to="`/p/${project.id}`" class="hover:underline">{{ project.name }}</NuxtLink></dd>
+
+      <dt class="label">Chunk</dt>
+      <dd class="flex min-w-0 items-center gap-1">
+        <PropertyPicker v-if="!isSub" v-model="chunkId" :options="chunkOptions(project.board.chunks)" label="Chunk" :disabled="saving">
+          <span class="truncate" :class="!chunk.id && 'text-faint'">{{ chunk.id ? chunk.title : 'No chunk' }}</span>
+        </PropertyPicker>
+        <NuxtLink v-else :to="chunkPath(project.id, chunk.id)" class="truncate hover:underline" :class="!chunk.id && 'text-faint'" title="A sub-issue is in its parent's chunk">{{ chunk.title }}</NuxtLink>
+        <UiButton v-if="!isSub && chunk.id" :to="chunkPath(project.id, chunk.id)" variant="ghost" size="xs" square class="shrink-0" title="Open the chunk" aria-label="Open the chunk">
           <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
         </UiButton>
       </dd>
-      <dd v-if="frozen" class="col-start-2 -mt-1 text-xs text-faint">Frozen: fixes, tests and docs. A new feature fits the next release.</dd>
-    </template>
 
-    <dt class="label">Depends on</dt>
-    <dd class="flex min-w-0 flex-wrap items-center gap-1">
-      <IssueRef v-for="link in dependsOn" :key="link" :link="link" :here="project.id" />
-      <DependsPicker v-model="dependsOn" :here="project.id" :self="issue.id" />
-    </dd>
-    <template v-if="issue.blocks?.length">
-      <dt class="label">Blocks</dt>
-      <dd class="flex min-h-7 min-w-0 flex-wrap items-center gap-1">
-        <IssueRef v-for="link in issue.blocks" :key="link" :link="link" :here="project.id" />
+      <template v-if="project.releases.length || issue.release">
+        <dt class="label">Release</dt>
+        <dd class="flex min-w-0 items-center gap-1">
+          <PropertyPicker v-model="release" :options="releaseOptions" label="Release" :disabled="saving">
+            <span class="truncate font-mono text-xs" :class="!issue.release && 'font-sans text-faint'">{{ issue.release ?? 'No release' }}</span>
+          </PropertyPicker>
+          <UiButton v-if="issue.release" :to="releasePath(project.id, issue.release)" variant="ghost" size="xs" square class="shrink-0" title="Open the release" aria-label="Open the release">
+            <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
+          </UiButton>
+        </dd>
+        <dd v-if="frozen" class="col-start-2 -mt-1 text-xs text-faint">Frozen: fixes, tests and docs. A new feature fits the next release.</dd>
+      </template>
+
+      <dt class="label">Blocked by</dt>
+      <dd class="flex min-w-0 flex-wrap items-center gap-1">
+        <IssueRef v-for="link in dependsOn" :key="link" :link="link" :here="project.id" :remove-label="`Stop waiting on ${link}`" @remove="dependsOn = dependsOn.filter(l => l !== link)" />
+        <DependsPicker v-model="dependsOn" :here="project.id" :self="issue.id" />
       </dd>
-    </template>
+      <dt class="label">Blocks</dt>
+      <dd class="flex min-w-0 flex-wrap items-center gap-1">
+        <IssueRef v-for="link in blocks" :key="link" :link="link" :here="project.id" :remove-label="`Stop blocking ${link}`" @remove="blocks = blocks.filter(l => l !== link)" />
+        <DependsPicker v-model="blocks" :here="project.id" :self="issue.id" label="Blocks" />
+      </dd>
+      <dd v-if="blocksFailed" class="col-span-2 text-xs text-rose-600 dark:text-rose-400">{{ blocksFailed }}</dd>
 
-    <template v-if="hasSubs">
-      <dt class="label">Progress</dt>
-      <dd class="flex min-h-7 items-center gap-3"><ProgressRing :kinds="issue.kinds" /><ColumnBar :counts="issue.counts" class="max-w-32" /></dd>
+      <template v-if="hasSubs">
+        <dt class="label">Progress</dt>
+        <dd class="flex min-h-7 items-center gap-3"><ProgressRing :kinds="issue.kinds" /><ColumnBar :counts="issue.counts" class="max-w-32" /></dd>
+      </template>
+      <dt class="label">Created by</dt>
+      <dd class="flex min-h-7 flex-wrap items-center gap-x-2 text-muted">
+        {{ who(issue.created_by, issue.session_name) }}
+        <span v-if="issue.protected" class="flex items-center gap-1 text-xs text-faint" title="Only the owner can delete it">
+          <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+          protected
+        </span>
+      </dd>
+      <dt class="label">Created</dt>
+      <dd class="flex min-h-7 items-center text-muted" :title="issue.created_at">{{ ago(issue.created_at) }}</dd>
+      <dt class="label">Updated</dt>
+      <dd class="flex min-h-7 items-center text-muted" :title="issue.updated_at">{{ ago(issue.updated_at) }}</dd>
     </template>
-    <dt class="label">Created by</dt>
-    <dd class="flex min-h-7 flex-wrap items-center gap-x-2 text-muted">
-      {{ who(issue.created_by, issue.session_name) }}
-      <span v-if="issue.protected" class="flex items-center gap-1 text-xs text-faint" title="Only the owner can delete it">
-        <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
-        protected
-      </span>
-    </dd>
-    <dt class="label">Created</dt>
-    <dd class="flex min-h-7 items-center text-muted" :title="issue.created_at">{{ ago(issue.created_at) }}</dd>
-    <dt class="label">Updated</dt>
-    <dd class="flex min-h-7 items-center text-muted" :title="issue.updated_at">{{ ago(issue.updated_at) }}</dd>
     <dd v-if="failed" class="col-span-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</dd>
   </dl>
 </template>

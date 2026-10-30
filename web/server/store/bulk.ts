@@ -104,7 +104,9 @@ export abstract class BulkStore extends CommentStore {
     async deleteIssue(project: string, id: string, actor = AGENT) {
         id = await this.issueId(project, id)
         await this.issueRow(project, id)
+        const rails = await this.railsFor(actor)
         const subtree = await this.subtree(project, id)
+        if (rails) await this.mustHoldAll(rails, project, subtree, 'delete it')
         this.refuse(actor, `Deleting ${id}`, await this.ownedUnder(project, subtree))
         await this.db.transaction(async () => {
             await this.run(`DELETE FROM issue_aliases WHERE project = ? AND issue IN (${subtree.map(() => '?').join(', ')})`, project, ...subtree)
@@ -127,7 +129,8 @@ export abstract class BulkStore extends CommentStore {
         const input = checkInput(body ?? {}, DECISION_FIELDS)
         const decision = input.decision as Decision
         const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null
-        const assignee = row.owned ? row.assignee : row.created_by
+        // With people, the person whose agent proposed it.
+        const assignee = row.owned ? row.assignee : await this.shared() && row.created_person || row.created_by
         // With choices: approving takes the picks (the recommendation where none is sent), and asking for
         // changes can name an option to go further down.
         const choices = JSON.parse(row.choices) as Choice[]
@@ -174,6 +177,8 @@ export abstract class BulkStore extends CommentStore {
         if (parentId && chunkId) throw badRequest(`A sub-issue is in its parent's chunk; leave out "chunk" or "parent"`)
         if (chunkId) await this.chunkRow(to, chunkId)
         const subtree = await this.subtree(from, id)
+        const rails = await this.railsFor(actor)
+        if (rails) await this.mustHoldAll(rails, from, subtree, 'move it')
         const marks = subtree.map(() => '?').join(', ')
         // Releases are the source project's, so an issue keeps its release only between projects sharing them.
         const source = await this.releaseSource(from)

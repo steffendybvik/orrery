@@ -17,7 +17,7 @@ async function load() {
     const at = key.value
     // Naming the owner: anyone else gets a PR without its title or branch (ORR-532).
     const answer = await owner()
-        .then(actor => $fetch<IssuePulls>(`/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/pulls`, {headers: {'Orrery-Actor': actor}}))
+        .then(actor => apiFetch<IssuePulls>(`/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/pulls`, {headers: {'Orrery-Actor': actor}}))
         .catch(() => undefined)
     if (answer && at === key.value) got.value = answer
 }
@@ -37,8 +37,8 @@ async function sendBack(pull: PullRequest) {
     if (!note) return
     sent.value = {...sent.value, [pull.number]: {busy: true}}
     try {
-        await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': await owner()}, body: {note, start: true},
+        await apiFetch<{signal: Signal}>(`/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/focus`, {
+            method: 'POST', body: {note, start: true},
         })
         // The sessions panel above says who it reached, or that it waits for one.
         sent.value = {...sent.value, [pull.number]: {sent: true}}

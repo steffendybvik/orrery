@@ -66,24 +66,59 @@ export abstract class SignalStore extends IssueStore {
     /** Asks the sessions on the project to focus on the issue (`{note?}` says what for). */
     async focus(project: string, issue: string, body: unknown, actor = AGENT): Promise<Signal> {
         issue = await this.issueId(project, issue)
-        await this.issueRow(project, issue)
+        await this.pointAt(project, issue, await this.issueRow(project, issue), actor)
         return await this.sendFocus(project, issue, body, actor)
+    }
+
+    /** With people, pointing a session at an issue says whose it is (ORR-655): a person's own stays theirs, and an
+     * unassigned one becomes theirs. Someone else's is refused, unless it's the owner taking it over, which shows in the
+     * activity. An agent can't assign itself in this way. */
+    private async pointAt(project: string, issue: string, row: {assignee: string | null}, actor: Actor) {
+        if (!actor.asked || actor.chat || !await this.isShared()) return
+        const holder = await this.holderOf(row.assignee)
+        const rails = await this.railsFor(actor)
+        if (rails && (!rails.person || rails.person !== actor.name.toLowerCase())) return await this.mustHold(rails, issue, row.assignee, 'focus a session on it')
+        const person = rails?.person ?? await this.ownerId()
+        if (holder === person) return
+        if (holder && rails) await this.mustHold(rails, issue, row.assignee, 'focus a session on it')
+        await this.update('issues', 'project = ? AND id = ?', [project, issue], {assignee: person, claimed_by: null, claimed_at: null, claimed_session: null})
+        await this.record(project, issue, actor, [['assignee', row.assignee, person]])
+        this.changed(project)
     }
 
     /** `focus` for an issue id already resolved and checked. Aimed at no session, it goes to the one already on the
      * issue if that one is listening, else to the one on an issue above it (ORR-613: a follow-up is its to start), else
-     * to one orrery picks (pool.ts); `*` sends it to every session. */
+     * to one orrery picks (pool.ts). Only a chunk can go to every session (ORR-681). */
     protected async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
+        if (input.session === EVERY) throw badRequest(`Only a chunk can go to every session, not issue ${issue}: name one in "session", or leave it out for orrery to pick one`)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const target = nullable(input.session) ?? await this.listeningWorker(project, issue) ?? (await this.heldAbove(project, issue))?.holder ?? null
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'focus', nullable(input.note), target, instructions, actor.name, Number(actor.owner), stamp())
+        const member = this.memberAiming(actor, input.session)
+        // The owner's goes to the sessions of whoever has the issue, and on what's nobody's, to their own (ORR-656).
+        const whose = member ?? (actor.owner ? await this.whoseWork(project, (await this.issueRow(project, issue)).assignee) ?? (await this.isShared() ? await this.ownerId() : undefined) : undefined)
+        const named = input.session && input.session !== EVERY ? this.sessionPerson(String(input.session)) : undefined
+        if (!member && whose && named && named !== whose) throw conflict(`${issue} is ${whose}'s, and session ${String(input.session)} is ${named}'s, so it can't be sent this: assign the issue to them first`)
+        const theirs = (session: string | null | undefined) => {
+            if (!session) return null
+            const person = this.sessionPerson(session)
+            return !whose || person === whose || !member && !person ? session : null
+        }
+        const target = nullable(input.session) ?? theirs(await this.listeningWorker(project, issue)) ?? theirs((await this.heldAbove(project, issue))?.holder) ?? null
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, issue, 'focus', nullable(input.note), target, whose ?? null, instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
         if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
         return signal
+    }
+
+    /** The member behind a signal, if one is (ORR-658): it goes only to their own sessions, so naming someone else's is
+     * refused rather than sent nowhere. */
+    private memberAiming(actor: Actor, session: unknown): string | undefined {
+        const member = actor.owner ? undefined : actor.person
+        if (member && session && session !== EVERY && this.sessionPerson(String(session)) !== member) throw conflict(`Session ${String(session)} isn't ${member}'s, so it can't be sent this: comment on the issue instead`)
+        return member
     }
 
     /** Asks the sessions (or `session`) to work through the chunk's open issues now, or (`status`) its issues of
@@ -111,8 +146,8 @@ export abstract class SignalStore extends IssueStore {
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, person, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal
@@ -202,15 +237,15 @@ export abstract class SignalStore extends IssueStore {
      * it's on its way, so another isn't sent (ORR-515). */
     async focusOnItsWay(project: string, issue: string): Promise<boolean> {
         const since = new Date(Date.now() - 600_000).toISOString()
-        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND (owned = 1 OR person IS NOT NULL)
             AND delivered_to = '[]' AND created_at >= ? LIMIT 1`, project, issue, since)
     }
 
-    /** The owner's signals from the last day for one session orrery picks (pool.ts) that none has heard yet: the next
-     * session to go idle takes them. */
+    /** The owner's and members' signals from the last day for one session orrery picks (pool.ts) that none has heard
+     * yet: the next session to go idle that may hear them takes them. */
     async pooledWaiting(project: string): Promise<Signal[]> {
         const since = new Date(Date.now() - 86_400_000).toISOString()
-        return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
+        return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND (owned = 1 OR person IS NOT NULL) AND delivered_to = '[]'
             AND target IS NULL AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
     }
 

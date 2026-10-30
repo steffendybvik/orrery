@@ -3,7 +3,7 @@ import {expect, test} from '@playwright/test'
 
 // Every piece of the kit on /ui (dev only), from the mouse and the keyboard: the Headless UI parts (Dialog,
 // Combobox, Listbox, Menu, RadioGroup) and our own (UiButton, UiConfirm, UiContextMenu).
-const last = (page: Page) => page.getByRole('status')
+const last = (page: Page) => page.getByRole('status').filter({hasText: 'Last:'})
 // Headless UI lights an option a frame after a key; a person can't press ↵ inside one.
 const lit = (within: Locator | Page, name: RegExp) => expect(within.locator('[data-headlessui-state~=active]').filter({hasText: name})).toHaveCount(1)
 

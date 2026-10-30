@@ -17,12 +17,15 @@ const {target: newIssue} = useNewIssue()
 const {target: newChunk} = useNewChunk()
 const {target: newDoc} = useNewDoc()
 const {target: startSession} = useStartSession()
+const {all: messagingAll, one: messagingOne} = useMessageSessions()
 const {editing: schedule} = useSchedules()
 const newProject = useState('new-project', () => false)
 const issueDialog = openedOnce(() => newIssue.value)
 const chunkDialog = openedOnce(() => newChunk.value)
 const docDialog = openedOnce(() => newDoc.value)
 const sessionDialog = openedOnce(() => startSession.value)
+const messageAllDialog = openedOnce(() => messagingAll.value)
+const messageOneDialog = openedOnce(() => messagingOne.value)
 const scheduleDialog = openedOnce(() => schedule.value)
 const projectDialog = openedOnce(() => newProject.value)
 </script>
@@ -42,6 +45,8 @@ const projectDialog = openedOnce(() => newProject.value)
     <LazyNewChunkDialog v-if="chunkDialog" />
     <LazyNewDocDialog v-if="docDialog" />
     <LazyStartSessionDialog v-if="sessionDialog" />
+    <LazyMessageSessionsDialog v-if="messageAllDialog" :open="messagingAll" @close="messagingAll = false" />
+    <LazyMessageSessionDialog v-if="messageOneDialog" />
     <ScheduleMenu />
     <OwnerDialog />
     <BackupHint />

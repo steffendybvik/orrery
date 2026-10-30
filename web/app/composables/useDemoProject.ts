@@ -17,7 +17,7 @@ export function useDemoProject() {
             const claude = {'Orrery-Actor': 'claude'}
             const status = (kind: Place) => places.value.find(p => p.kind === kind)?.id
             const post = <T>(path: string, body: object, headers: Record<string, string> = owner) =>
-                $fetch<T>(`/api/projects${path}`, {method: 'POST', headers, body})
+                apiFetch<T>(`/projects${path}`, {method: 'POST', headers, body})
 
             const project = await post<{id: string}>('', {name: 'Demo', id: DEMO, key: 'DEM', description: 'A sample board to try orrery on: delete it from its Settings when you like'})
             const at = `/${encodeURIComponent(project.id)}`

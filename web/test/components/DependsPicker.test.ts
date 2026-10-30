@@ -11,6 +11,8 @@ import IssueProperties from '~/components/IssueProperties.vue'
 // issue's page each saves the whole list, a refusal (a loop) says why, and the ones it blocks show read the other way.
 let sent: {actor?: string, body: unknown}[] = []
 let refusing = ''
+let refusingOther = ''
+let others: {issue: string, actor?: string, body: unknown}[] = []
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 registerEndpoint('/api/projects/greenhouse/issues/GRE-2', {method: 'PATCH', handler: async event => {
     if (refusing) {
@@ -20,6 +22,18 @@ registerEndpoint('/api/projects/greenhouse/issues/GRE-2', {method: 'PATCH', hand
     sent.push({actor: getHeader(event, 'orrery-actor'), body: await readBody(event)})
     return {}
 }})
+
+for (const [id, url, waiting] of [['GRE-3', '/api/projects/greenhouse/issues/GRE-3', ['GRE-9']], ['PAN-4', '/api/projects/pantry/issues/PAN-4', ['PAN-1', 'greenhouse/GRE-2']]] as const) {
+    registerEndpoint(url, {method: 'GET', handler: () => ({depends_on: waiting})})
+    registerEndpoint(url, {method: 'PATCH', handler: async event => {
+        if (refusingOther) {
+            setResponseStatus(event, 400)
+            return {message: refusingOther}
+        }
+        others.push({issue: id, actor: getHeader(event, 'orrery-actor'), body: await readBody(event)})
+        return {}
+    }})
+}
 
 const issue = (id: string, title: string, more: Record<string, unknown> = {}) => ({id, title, aliases: [], labels: [], external: [], github_issues: [], tasks: [], column: 'todo', kind: 'todo', kinds: {done: 0}, created_by: 'skoll', ...more}) as unknown as Issue
 const STOCK = {id: 'stock', title: 'Stock', tasks: [
@@ -35,6 +49,8 @@ const mounted: VueWrapper[] = []
 beforeEach(() => {
     sent = []
     refusing = ''
+    refusingOther = ''
+    others = []
     useRoadmaps().projects.value = [PANTRY, GREENHOUSE]
     useAppSettings().settings.value.statuses = [
         {id: 'todo', name: 'Todo', kind: 'todo', color: 'blue'},
@@ -62,9 +78,32 @@ describe('DependsPicker', () => {
         await wrapper.find('input').trigger('keydown', {key: 'Enter'})
         expect(updates.at(-1)).toEqual(['GRE-1', 'pantry/PAN-4'])
     })
+
+    it('gives a title its full length on hover, and a wider menu past a phone (ORR-694)', async () => {
+        const wrapper = await mountSuspended(DependsPicker, {props: {here: 'greenhouse', self: 'GRE-2', modelValue: []}, attachTo: document.body})
+        mounted.push(wrapper)
+        await wrapper.find('button').trigger('click')
+        await settled()
+        expect(wrapper.findAll('li span[title]').map(s => s.attributes('title'))).toContain('GRE-3 · Shelve the jars')
+        expect(wrapper.find('.sm\\:min-w-\\[28rem\\]').exists()).toBe(true)
+    })
 })
 
-describe('IssueProperties, Depends on and Blocks', () => {
+describe('IssueProperties, folded for a small screen', () => {
+    it('keeps status, priority and assignee out, and the rest behind More (ORR-692)', async () => {
+        const wrapper = await mountSuspended(IssueProperties, {props: {issue: STOCK.tasks[1]!, project: GREENHOUSE, chunk: STOCK, fold: true}, attachTo: document.body})
+        mounted.push(wrapper)
+        const terms = () => wrapper.findAll('dt').map(dt => dt.text())
+        expect(terms()).toEqual(['Status', 'Priority', 'Assignee'])
+        const more = wrapper.findAll('button').find(b => b.text() === 'More')!
+        await more.trigger('click')
+        expect(more.text()).toBe('Less')
+        expect(more.attributes('aria-expanded')).toBe('true')
+        expect(terms()).toEqual(expect.arrayContaining(['Labels', 'Blocked by', 'Blocks', 'Updated']))
+    })
+})
+
+describe('IssueProperties, Blocked by and Blocks', () => {
     async function mount() {
         const wrapper = await mountSuspended(IssueProperties, {props: {issue: STOCK.tasks[1]!, project: GREENHOUSE, chunk: STOCK}, attachTo: document.body})
         mounted.push(wrapper)
@@ -80,7 +119,7 @@ describe('IssueProperties, Depends on and Blocks', () => {
 
     it('saves the whole list as the owner, and says why one is refused', async () => {
         const wrapper = await mount()
-        await wrapper.find('button[aria-label="Depends on"]').trigger('click')
+        await wrapper.find('button[aria-label="Blocked by"]').trigger('click')
         await settled()
         const option = (text: string) => wrapper.findAll('li').find(li => li.text().startsWith(text))!
         await option('GRE-3').trigger('mousedown', {button: 0})
@@ -88,5 +127,29 @@ describe('IssueProperties, Depends on and Blocks', () => {
         refusing = 'GRE-2 would wait on itself: pantry/PAN-4 already depends on it'
         await option('pantry/PAN-4').trigger('mousedown', {button: 0})
         await vi.waitFor(() => expect(wrapper.text()).toContain('GRE-2 would wait on itself'))
+    })
+
+    it('takes a blocker off in one click, without the picker (ORR-680)', async () => {
+        const wrapper = await mount()
+        await wrapper.find('button[aria-label="Stop waiting on GRE-1"]').trigger('click')
+        await vi.waitFor(() => expect(sent).toEqual([{actor: 'skoll', body: {depends_on: []}}]))
+    })
+
+    it("sets what it blocks on the other issue's list, read fresh, adding and dropping itself (ORR-680)", async () => {
+        const wrapper = await mount()
+        // In its own project, GRE-3 waits on nothing yet; in another, this issue is named with its project.
+        await wrapper.find('button[aria-label="Blocks"]').trigger('click')
+        await settled()
+        await wrapper.findAll('li').find(li => li.text().startsWith('GRE-3'))!.trigger('mousedown', {button: 0})
+        await vi.waitFor(() => expect(others).toContainEqual({issue: 'GRE-3', actor: 'skoll', body: {depends_on: ['GRE-9', 'GRE-2']}}))
+        await wrapper.find('button[aria-label="Stop blocking pantry/PAN-4"]').trigger('click')
+        await vi.waitFor(() => expect(others).toContainEqual({issue: 'PAN-4', actor: 'skoll', body: {depends_on: ['PAN-1']}}))
+    })
+
+    it("says why it can't block one (ORR-680)", async () => {
+        const wrapper = await mount()
+        refusingOther = 'GRE-3 already depends on GRE-2'
+        await wrapper.find('button[aria-label="Stop blocking pantry/PAN-4"]').trigger('click')
+        await vi.waitFor(() => expect(wrapper.text()).toContain('GRE-3 already depends on GRE-2'))
     })
 })

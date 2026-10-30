@@ -5,6 +5,8 @@
 import {keyFor, slugify} from './roadmap'
 
 export interface ConnectTarget {
+    /** This orrery asks for a login, so the brief's own requests send `ORRERY_KEY`. */
+    login?: boolean
     /** Where orrery runs, as the agent should reach it. */
     origin: string
     /** Where the orrery repo is on the machine (for the channel and hook scripts). */
@@ -43,12 +45,14 @@ const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Permissi
 const ASYNC_EVENTS = ['PreToolUse', 'PermissionRequest']
 
 /** Puts the bootstrap on this machine: it stays the same across versions, and runs what the orrery at `origin` serves. */
-export const bootstrapInstall = (origin: string) => `mkdir -p ~/.orrery && curl -fsS ${origin}/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs`
+const bootstrapInstall = (origin: string) => `mkdir -p ~/.orrery && curl -fsS ${origin}/channel/bootstrap.mjs -o ~/.orrery/bootstrap.mjs`
 /** Puts the bootstrap on this machine, and the launcher service with it. */
 export const launcherInstall = (origin: string) => `${bootstrapInstall(origin)} && ORRERY_URL=${origin} node ~/.orrery/bootstrap.mjs launcher --install`
 
 export function connectPieces(target: ConnectTarget): ConnectPieces {
     const {origin, id, key, isNew} = target
+    // With login on, these go with the session's key, as what asks for this brief does (ORR-714).
+    const withKey = target.login ? ' -H "Authorization: Bearer $ORRERY_KEY"' : ''
     const name = target.name.replace(/\s+/g, ' ').trim()
     const session = sessionName(target.session ?? '') || undefined
     const server = target.orrery ? serverName(target.orrery.environment) : id
@@ -56,6 +60,8 @@ export function connectPieces(target: ConnectTarget): ConnectPieces {
     const mcpJson = JSON.stringify({
         mcpServers: {[server]: {command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {
             ORRERY_URL: origin, ...target.orrery ? {ORRERY_ID: target.orrery.id} : {}, ORRERY_PROJECTS: id,
+            // From the user's environment: this file is committed, so a name in it would make every clone that person.
+            ORRERY_PERSON: '${ORRERY_PERSON:-}',
         }}},
     }, null, 2)
     const command = `ORRERY_PROJECT=${id} ORRERY_URL=${origin}${target.orrery ? ` ORRERY_ID=${target.orrery.id}` : ''} node "$HOME/.orrery/bootstrap.mjs" hook`
@@ -80,11 +86,11 @@ You're working in the ${name} repo. Its roadmap lives in orrery at ${origin}, as
 
 First read how to use it:
 
-    curl -s ${origin}/llms-full.txt
+    curl -s${withKey} ${origin}/llms-full.txt
 ${isNew ? `
 The project doesn't exist yet. Create it:
 
-    curl -s -X POST ${origin}/api/projects -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d ${shellQuote(JSON.stringify({name, id, key}))}
+    curl -s -X POST ${origin}/api/projects${withKey} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d ${shellQuote(JSON.stringify({name, id, key}))}
 ` : ''}
 ## While you work
 
@@ -127,6 +133,21 @@ Tell the owner what's in progress and what's urgent, and ask them to restart you
     const url = `${origin}/connect/${id}.md${query}`
     const prompt = `Set this repo up for orrery: read ${url} (curl -s '${url}') and follow it.`
     return {brief, bootstrap: bootstrapInstall(origin), claudeMd, mcpJson, settingsJson, server, launch, monitor, prompt, url}
+}
+
+/** The brief for a request with no credential on an orrery that asks for one: nothing about what's on it, and the same
+ * whether the project exists, so it can't be used to find out. */
+export function lockedBrief(url: string): string {
+    return `# Connect this repo to orrery
+
+This orrery asks for a login, and this request had no credential, so this brief can't say anything about its projects.
+
+1. Ask the owner to give you an agent key, or make one yourself on orrery's page: App settings → You → Your keys.
+2. Keep it in \`ORRERY_KEY\` where Claude Code starts, or in \`~/.config/orrery/keys.json\`. Never put it in \`.mcp.json\`, which is committed.
+3. Read this brief again with it, and follow that:
+
+    curl -s -H "Authorization: Bearer $ORRERY_KEY" '${url}'
+`
 }
 
 /** A name's id and prefix, as orrery would make them (`app` for an id when the name makes none). */

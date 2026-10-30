@@ -6,7 +6,6 @@ import type {Comment} from '#shared/roadmap'
 // box, or picked, goes in as Markdown where the cursor is.
 const props = defineProps<{project: string, issue: string, comment?: Comment}>()
 const emit = defineEmits<{posted: [comment: Comment], cancel: []}>()
-const {load} = useOwner()
 const body = ref(props.comment?.body ?? '')
 const posting = ref(false)
 const failed = ref(false)
@@ -19,9 +18,9 @@ async function post() {
     posting.value = true
     failed.value = false
     try {
-        const comments = `/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/comments`
-        const comment = await $fetch<Comment>(props.comment ? `${comments}/${props.comment.id}` : comments, {
-            method: props.comment ? 'PATCH' : 'POST', headers: {'Orrery-Actor': await load()}, body: {body: text},
+        const comments = `/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue)}/comments`
+        const comment = await apiFetch<Comment>(props.comment ? `${comments}/${props.comment.id}` : comments, {
+            method: props.comment ? 'PATCH' : 'POST', body: {body: text},
         })
         body.value = ''
         emit('posted', comment)

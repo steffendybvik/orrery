@@ -10,7 +10,7 @@ import {Combobox, ComboboxButton, ComboboxInput, ComboboxOption, ComboboxOptions
 // with `small` too, a toolbar's size (h-7, as the buttons beside it).
 // Headless UI's Combobox does the keys, focus and outside-click; this only draws it. The menu opens from the
 // button's left edge, or from its right when the window has no room for it that way.
-export interface PickerOption { value: string, label: string }
+interface PickerOption { value: string, label: string }
 
 const props = defineProps<{
     options: PickerOption[]
@@ -23,7 +23,7 @@ const props = defineProps<{
     disabled?: boolean
     /** Opens above the button, as in a bar at the bottom of the page. */
     up?: boolean
-    /** Its menu as wide as the button (at least the usual), for long options such as issue titles. */
+    /** Its menu as wide as the button, and on anything but a phone at least 28rem, for long options such as issue titles (ORR-694). */
     wide?: boolean
     /** A boxed button, as a field in a form, rather than a property's row. */
     field?: boolean
@@ -58,15 +58,17 @@ function pick(value: string | string[]) {
 // lit instead (its own Home key), so ↵ picks what was typed for.
 watch(query, () => nextTick(() => (input.value?.$el as HTMLElement | undefined)?.dispatchEvent(new KeyboardEvent('keydown', {key: 'Home'}))))
 
-/** How wide the menu is at least (`w-60`), and the room it keeps from the window's edge. */
+/** How wide the menu is at least (`w-60`), a `wide` one past `sm` (`sm:min-w-[28rem]`), and the room it keeps from the window's edge. */
 const MENU = 240
+const WIDE_MENU = 448
 const EDGE = 8
 const fromRight = ref(false)
 
 // Measured as it opens, from the button: the menu goes to the side it fits on.
 function placing() {
     const box = (trigger.value?.$el as HTMLElement | undefined)?.getBoundingClientRect()
-    fromRight.value = !!box && box.left + Math.max(MENU, box.width) > window.innerWidth - EDGE && box.right - MENU >= EDGE
+    const least = props.wide && window.innerWidth >= 640 ? WIDE_MENU : MENU
+    fromRight.value = !!box && box.left + Math.max(least, box.width) > window.innerWidth - EDGE && box.right - least >= EDGE
 }
 
 // Closed from inside (a pick, Esc), the focus goes back to the button, as the field it was in goes;
@@ -105,7 +107,7 @@ function closing(vnode: VNode) {
     <div
         v-if="open"
         class="glass absolute z-40 animate-fade-up rounded-xl p-1"
-        :class="[up ? 'bottom-full mb-1' : 'top-full mt-1', fromRight ? 'right-0' : 'left-0', wide ? 'w-full min-w-60' : 'w-60']"
+        :class="[up ? 'bottom-full mb-1' : 'top-full mt-1', fromRight ? 'right-0' : 'left-0', wide ? 'w-full min-w-60 sm:min-w-[28rem]' : 'w-60']"
         @vue:before-mount="placing"
         @vue:before-unmount="closing"
     >
@@ -125,7 +127,7 @@ function closing(vnode: VNode) {
             <span v-if="multiple" class="grid size-3.5 shrink-0 place-items-center rounded ring-1" :class="selected ? 'bg-accent-500 ring-accent-500' : 'ring-faint/60'">
               <svg v-if="selected" class="size-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
             </span>
-            <slot name="option" :option="option"><span class="min-w-0 flex-1 truncate">{{ option.label }}</span></slot>
+            <slot name="option" :option="option"><span class="min-w-0 flex-1 truncate" :title="option.label">{{ option.label }}</span></slot>
             <svg v-if="!multiple && selected" class="ml-auto size-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
           </li>
         </ComboboxOption>

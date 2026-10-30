@@ -4,14 +4,16 @@ import type {Told} from '../../../../utils/signal-feed'
 // sent: server-sent `signal` events, `name` (what orrery calls the session, and again when that changes) (each an id, so a reconnect with `Last-Event-ID` or `?after=` gets
 // what it missed), and `stop` when the owner stops the session; or with `?format=text` one plain line each, for Claude Code's Monitor tool. Each
 // open stream counts as a listening session. A channel on several projects can follow them all on one stream
-// instead (`/api/signals/stream`); both go through signal-feed.ts.
+// instead (`/api/signals/stream`); both go through signal-feed.ts. With more than one person, a session whose person isn't
+// on the board gets a 404, and one naming nobody a 409.
 export default defineEventHandler(async event => {
     const project = param(event, 'project')
+    if (!(await boardsHeard(event, [project])).length) throw notFound(`No project ${project}`)
     const query = getQuery(event)
     // An `after` of 0 is a catch-up too: from a project's first signal, as a session started for it asks.
     const from = query.after ?? getHeader(event, 'last-event-id')
     const text = (key: string) => typeof query[key] === 'string' && query[key] ? String(query[key]) : undefined
-    const who = listenerOf(text)
+    const who = listenerOf(text, true, await personOf(event))
     const feed = await openFeed(project, who, from !== undefined ? Number(from) || 0 : undefined, getRequestURL(event).origin)
     const left = noteChannel([project], false, who, () => feed.attended?.id)
 

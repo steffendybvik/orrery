@@ -9,17 +9,21 @@ const {projects, ready} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const {matches, shows} = useFilters()
 const {name: owner, load} = useOwner()
+// Whoever's logged in, or the owner with no login: a member sees what's theirs (ORR-658).
+const {me: person} = usePeople()
+const me = computed(() => person.value ?? owner.value)
+const member = computed(() => me.value !== owner.value)
 const gettingStarted = useGettingStarted()
 onMounted(load)
 
 const waiting = computed(() => ordered.value.filter(p => shows(p.id))
-    .map(project => ({project, issues: allIssues(project).filter(({issue}) => issue.waiting && matches(issue))}))
+    .map(project => ({project, issues: allIssues(project).filter(({issue}) => issue.waiting && matches(issue) && (!member.value || issue.assignee?.toLowerCase() === me.value))}))
     .filter(g => g.issues.length))
 const urgent = computed(() => ordered.value.filter(p => shows(p.id))
     .map(project => ({project, issues: urgentIssues(project).filter(({issue}) => !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
 const mine = computed(() => ordered.value.filter(p => shows(p.id))
-    .map(project => ({project, issues: myIssues(project, owner.value).filter(({issue}) => issue.priority !== 'P0' && !issue.waiting && matches(issue))}))
+    .map(project => ({project, issues: myIssues(project, me.value).filter(({issue}) => issue.priority !== 'P0' && !issue.waiting && matches(issue))}))
     .filter(g => g.issues.length))
 // Each list's hint goes beside its label, or under it on a phone so the label keeps to one line (ORR-556).
 const lists = computed(() => [

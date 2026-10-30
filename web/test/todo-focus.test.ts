@@ -20,6 +20,13 @@ const issue = (id: string, kind = 'todo', more: Record<string, unknown> = {}) =>
 const owner = {name: 'steffen', owner: true}
 const moved = (id: string, from = 'backlog') => ({event: {type: 'issue.status', project: 'orrery', subject: id, by: owner, from, to: 'todo'}})
 
+/** Whose an issue is, with more than one person (ORR-656); nothing to say with one. */
+let whoseWork: (assignee?: string | null) => string | null | undefined = () => undefined
+
+beforeEach(() => {
+    whoseWork = () => undefined
+})
+
 beforeEach(async () => {
     vi.useFakeTimers()
     sessions = [{id: 'a', project: 'orrery', state: 'idle', listening: true}]
@@ -35,10 +42,12 @@ beforeEach(async () => {
     said = []
     vi.stubGlobal('listSessions', () => sessions)
     vi.stubGlobal('sessionIds', (id: string) => [id])
+    vi.stubGlobal('sessionNow', (id: string) => sessions.find(s => s.id === id))
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('chatSession', (id: string) => chats.includes(id))
     vi.stubGlobal('untrustedSession', () => false)
     vi.stubGlobal('useStore', () => ({
+        whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         statuses: async () => [{id: 'backlog', kind: 'backlog'}, {id: 'todo', kind: 'todo'}, {id: 'ready', kind: 'todo'}, {id: 'in-progress', kind: 'started'}, {id: 'done', kind: 'done'}, {id: 'canceled', kind: 'canceled'}],
         ownerOf: async () => ({name: 'steffen'}),
         listIssues: async () => board,
@@ -71,6 +80,62 @@ async function hear(...events: Parameters<typeof todo.heardTodo>[0][]) {
     for (const event of events) todo.heardTodo(event)
     await vi.advanceTimersByTimeAsync(todo.TODO_AFTER)
 }
+
+describe('with more than one person (ORR-656)', () => {
+    const owners = {id: 'owners', project: 'orrery', state: 'idle', listening: true, person: 'steffen'} as Listed
+    const hatis = {id: 'hatis', project: 'orrery', state: 'idle', listening: true, person: 'hati'} as Listed
+
+    beforeEach(() => {
+        whoseWork = assignee => assignee === 'claude' ? 'steffen' : assignee ?? null
+        sessions = [owners, hatis]
+    })
+
+    it('hands the owner\'s move into Todo to the assignee\'s session, and leaves what\'s nobody\'s', async () => {
+        board = [issue('ORR-1', 'todo', {assignee: 'hati'}), issue('ORR-2'), issue('ORR-3', 'todo', {assignee: 'claude'})]
+        await hear(moved('ORR-1'), moved('ORR-2'), moved('ORR-3'))
+        expect(sent.map(s => [s.issue, s.session]).sort()).toEqual([['ORR-1', 'hatis'], ['ORR-3', 'owners']])
+    })
+
+    it('spreads one person\'s issues across their own sessions, and holds what they\'ve no room for', async () => {
+        sessions = [owners, hatis, {...hatis, id: 'hatis-2'}]
+        board = ['ORR-1', 'ORR-2', 'ORR-3'].map(id => issue(id, 'todo', {assignee: 'hati'}))
+        await hear(moved('ORR-1'), moved('ORR-2'), moved('ORR-3'))
+        expect(sent.map(s => s.session).sort()).toEqual(['hatis', 'hatis-2'])
+    })
+
+    it('doesn\'t send a follow-up to another person\'s session on its parent', async () => {
+        board = [issue('ORR-1', 'todo', {assignee: 'hati'})]
+        held = {'ORR-1': 'owners'}
+        await hear(moved('ORR-1'))
+        expect(sent).toEqual([])
+    })
+})
+
+describe('a member\'s move into Todo (ORR-658)', () => {
+    const hatis = {name: 'hati', owner: false, person: 'hati'}
+    const byHati = (id: string) => ({event: {type: 'issue.status', project: 'orrery', subject: id, by: hatis, from: 'backlog', to: 'todo'}})
+
+    beforeEach(() => {
+        whoseWork = assignee => assignee ?? null
+        sessions = [
+            {id: 'theirs', project: 'orrery', state: 'idle', listening: true, person: 'skoll'} as Listed,
+            {id: 'mine', project: 'orrery', state: 'idle', listening: true, person: 'hati'} as Listed,
+        ]
+    })
+
+    it('goes only to their own session, in their name, and only for what\'s assigned to them', async () => {
+        board = [issue('ORR-1', 'todo', {assignee: 'hati'}), issue('ORR-2'), issue('ORR-3', 'todo', {assignee: 'skoll'})]
+        await hear(byHati('ORR-1'), byHati('ORR-2'), byHati('ORR-3'))
+        expect(sent).toMatchObject([{issue: 'ORR-1', session: 'mine', by: {name: 'hati', owner: false, person: 'hati'}}])
+    })
+
+    it('waits when none of theirs is free', async () => {
+        sessions = sessions.filter(s => s.id === 'theirs')
+        board = [issue('ORR-1', 'todo', {assignee: 'hati'})]
+        await hear(byHati('ORR-1'))
+        expect(sent).toEqual([])
+    })
+})
 
 describe('an issue the owner moves into Todo', () => {
     it('goes to an idle session, as theirs, aimed at it', async () => {

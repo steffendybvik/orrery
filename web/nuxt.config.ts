@@ -50,6 +50,13 @@ export default defineNuxtConfig({
         // Encrypts the secrets agents use without seeing (a long random string; without it there are none).
         // Override with NUXT_SECRET_KEY (ORRERY_SECRET_KEY in compose).
         secretKey: '',
+        // Login and keys (ORR-664): `on` always asks for them; `off` never, for trying people out, and only on loopback.
+        // Unset, they're on when the server is reachable from other machines or has a second person. Override with
+        // NUXT_AUTH (ORRERY_AUTH in compose).
+        auth: '',
+        // Any standard OIDC provider, for logging in with no passwords in orrery. Override with NUXT_OIDC_ISSUER,
+        // NUXT_OIDC_CLIENT_ID and NUXT_OIDC_CLIENT_SECRET (ORRERY_OIDC_… in compose).
+        oidc: {issuer: '', clientId: '', clientSecret: ''},
         // Asks GitHub for orrery's releases at start and every 12 hours, for the sidebar's notice of a newer one
         // (ORR-608). Override with NUXT_UPDATE_CHECK=false (ORRERY_UPDATE_CHECK in compose).
         updateCheck: true,
@@ -74,6 +81,9 @@ export default defineNuxtConfig({
         serverAssets: [
             {baseName: 'docs', dir: fileURLToPath(new URL('../docs', import.meta.url))},
             {baseName: 'channel', dir: channelBundle},
+            // What an artifact is served with: Tailwind's browser build and the app's theme, one source for both (ORR-677).
+            {baseName: 'tailwind-browser', dir: fileURLToPath(new URL('./node_modules/@tailwindcss/browser/dist', import.meta.url))},
+            {baseName: 'app-css', dir: fileURLToPath(new URL('./app/assets/css', import.meta.url))},
         ],
         externals: {inline: [fileURLToPath(new URL('../channel', import.meta.url))]},
     },

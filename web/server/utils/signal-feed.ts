@@ -28,6 +28,8 @@ export interface Listener {
     version?: string
     /** Its channel says it's the owner's chat (`chat=yes`), the same way. */
     chat: boolean
+    /** Whose it is, by what its request says (`personOf`), so it hears only its own person's signals. */
+    person?: string
 }
 
 export type Feed = Awaited<ReturnType<typeof openFeed>>
@@ -38,7 +40,7 @@ export async function openFeed(project: string, who: Listener, from: number | un
     const store = useStore()
     await store.project(project)
     const {heard} = who
-    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server, who.untrusted, who.chat, who.version) : null
+    const attended = who.session || who.pid ? attend(project, who.session, who.pid, who.name, heard, who.started, who.stops, who.launch, who.server, who.untrusted, who.chat, who.version, who.person) : null
     // An untrusted run's session hears only its own message, and a chat only its chat, so neither is someone there to
     // hear the owner's signals.
     const narrow = who.untrusted || !!who.started?.untrusted || who.chat || !!who.started?.chat
@@ -51,10 +53,13 @@ export async function openFeed(project: string, who: Listener, from: number | un
     const api = `${origin}/api/projects/${encodeURIComponent(project)}`
 
     /** The signal with what the session needs to act on it (signal-payload.ts). */
-    const told = (signal: Signal) => signalPayload(store, project, signal, {api, me: who.session ? currentId(who.session) : undefined})
+    const told = (signal: Signal) => signalPayload(store, project, signal, {api, me: who.session ? currentId(who.session) : undefined, person: who.person})
     // The owner's signals for every session, for one orrery picks, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
-    const ours = (signal: Signal) => aimedAt(signal, attended?.id)
-    const wanted = (signal: Signal) => signal.project === project && signal.protected && !signal.delivered_to.length && ours(signal)
+    const ours = (signal: Signal) => aimedAt(signal, attended?.id) && (!signal.person || signal.person === who.person)
+    // A member's words reach only that member's sessions (ORR-658), at the receiver, so nothing that sends one can get past it.
+    // The owner's go the same way when they carry a person (ORR-656), and otherwise to every session.
+    const heardFrom = (signal: Signal) => signal.person ? signal.person === who.person : signal.protected
+    const wanted = (signal: Signal) => signal.project === project && heardFrom(signal) && !signal.delivered_to.length && ours(signal)
     // One aimed at no session goes to the one that takes it (pool.ts); a session that can't hear it takes none.
     const mine = (signal: Signal) => !pooled(signal) || heard && take(signal, project, attended?.id)
     // Live signals are heard from before the catch-up is read, and held until it has gone out, so one sent in
@@ -69,7 +74,7 @@ export async function openFeed(project: string, who: Listener, from: number | un
     }
     let missed: Signal[]
     try {
-        missed = from !== undefined ? (await store.listSignals(project, from)).filter(s => s.project === project && s.protected && ours(s)) : []
+        missed = from !== undefined ? (await store.listSignals(project, from)).filter(s => s.project === project && heardFrom(s) && ours(s)) : []
     } catch (error) {
         projectEvents.off('signal', hear)
         done()
@@ -97,7 +102,7 @@ export async function openFeed(project: string, who: Listener, from: number | un
 
     let open = true
     return {
-        project, attended, heard, missed, told, ours, wanted, mine, goLive, inOrder,
+        project, person: who.person, attended, heard, missed, told, ours, wanted, mine, goLive, inOrder,
         /** Whether the live feed has started (`goLive`). */
         get live() {
             return !!live
@@ -205,7 +210,7 @@ export async function streamFeed(say: (signal: Signal, told: Told) => unknown, f
         if (attended && heard) {
             const who = sessionName(attended.id) ?? name ?? 'a session'
             for (const s of repeats) await store.delivered(project, s.id, who)
-            await store.carryUnanswered(project, attended.id)
+            await store.carryUnanswered(project, attended.id, feed.person)
         }
     } catch (error) {
         console.error(`[orrery] catching ${project}'s stream up:`, error)
@@ -219,7 +224,7 @@ export async function streamFeed(say: (signal: Signal, told: Told) => unknown, f
 
 /** Who a stream's query says is listening. The launch a session orrery started says it's for (`started`) goes with
  * its project's feed only (`launchedHere`), and is looked up once. */
-export function listenerOf(text: (key: string) => string | undefined, launchedHere = true): Listener {
+export function listenerOf(text: (key: string) => string | undefined, launchedHere = true, person?: string): Listener {
     const launch = launchedHere ? text('started') : undefined
     return {
         session: text('session'), pid: Number(text('pid')) || undefined, name: text('name'), heard: text('channel') !== 'no',
@@ -227,6 +232,7 @@ export function listenerOf(text: (key: string) => string | undefined, launchedHe
         untrusted: text('untrusted') === 'yes',
         chat: text('chat') === 'yes',
         version: text('version')?.slice(0, 40),
+        ...person ? {person} : {},
     }
 }
 

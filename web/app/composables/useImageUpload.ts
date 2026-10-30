@@ -9,7 +9,6 @@ import type {Upload} from '#shared/roadmap'
 // their way, for a field opened afresh (another issue, a dialog opened again, an edit cancelled), so a late one
 // doesn't land in what's there now; leaving the component does the same.
 export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement | null | undefined>) {
-    const {load} = useOwner()
     const uploading = ref(0)
     const failed = ref('')
     /** Which opening of the field the uploads are for: one from an earlier one is dropped. */
@@ -46,8 +45,8 @@ export function useImageUpload(text: Ref<string>, field: Ref<HTMLTextAreaElement
         for (const file of files) {
             if (mine !== round) return
             try {
-                const image = await $fetch<Upload>('/api/uploads', {
-                    method: 'POST', headers: {'Orrery-Actor': await load()}, body: {data: await readAsDataUrl(file), name: file.name || null},
+                const image = await apiFetch<Upload>('/uploads', {
+                    method: 'POST', body: {data: await readAsDataUrl(file), name: file.name || null},
                 })
                 if (mine === round) insert(image.markdown)
             } catch (error) {

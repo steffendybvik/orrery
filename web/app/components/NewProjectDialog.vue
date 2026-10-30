@@ -3,7 +3,6 @@
 // with (GRE-1) and its id in addresses, both suggested from the name until changed, and a line about
 // it. ⌘↵ creates it and opens it, Esc closes.
 const shown = useState('new-project', () => false)
-const {load} = useOwner()
 const router = useRouter()
 
 const name = ref('')
@@ -41,9 +40,8 @@ async function create() {
     saving.value = true
     failed.value = ''
     try {
-        await $fetch('/api/projects', {
+        await apiFetch('/projects', {
             method: 'POST',
-            headers: {'Orrery-Actor': await load()},
             body: {name: name.value.trim(), key: key.value, id: id.value, ...description.value.trim() ? {description: description.value.trim()} : {}},
         })
         shown.value = false

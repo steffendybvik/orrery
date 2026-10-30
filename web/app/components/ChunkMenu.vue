@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Priority} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
+import {PRIORITIES, fullId} from '#shared/roadmap'
 
 // Right-clicking a chunk's card on the roadmap: set its priority, ask the Claude sessions to work through
 // it, start a new issue in it, copy its id, open or remove it (its issues stay, in no chunk), all as the
@@ -8,7 +8,6 @@ import {PRIORITIES} from '#shared/roadmap'
 // (`none`, the issues in none) isn't a chunk of its own, so it has no priority, id or removing.
 const {target, close} = useChunkMenu()
 const {byId, sessions} = useRoadmaps()
-const {load} = useOwner()
 const router = useRouter()
 
 const project = computed(() => byId(target.value?.project))
@@ -28,13 +27,13 @@ watch(target, () => {
 // Closed if the chunk goes away (removed elsewhere).
 watch(chunk, now => target.value && !now && close())
 
-const api = computed(() => target.value ? `/api/projects/${encodeURIComponent(target.value.project)}/chunks/${encodeURIComponent(target.value.chunk)}` : '')
+const api = computed(() => target.value ? `/projects/${encodeURIComponent(target.value.project)}/chunks/${encodeURIComponent(target.value.chunk)}` : '')
 
 async function send(path: string, method: 'PATCH' | 'POST' | 'DELETE', body?: Record<string, unknown>, then?: () => void) {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`${api.value}${path}`, {method, headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(`${api.value}${path}`, {method, body})
         if (then) then()
         else close()
     } catch (error) {
@@ -64,7 +63,9 @@ function openChunk() {
 }
 
 async function copyId() {
-    if (chunk.value && await copyText(chunk.value.id)) note.value = `Copied ${chunk.value.id}`
+    if (!chunk.value || !project.value) return
+    const full = fullId('chunk', chunk.value.id, project.value.uid)
+    if (await copyText(full)) note.value = `Copied ${full}`
 }
 
 

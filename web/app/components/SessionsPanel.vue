@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type {Session, Signal} from '#shared/roadmap'
+import {listable, withoutChannel} from '#shared/roadmap'
 
 // On an issue's (or a chunk's) page: the Claude sessions working on its project, what each is doing, and
-// a button to point one (or all) at this issue, or at working through this chunk. With nobody listening, when
+// a button to point one at this issue, or one or all at working through this chunk. With nobody listening, when
 // orrery may start sessions and the project's launcher is there, the same focus starts one; with some listening,
 // New session on this starts another, on this issue alone. Under them, the focus signals sent about it and who
 // got them. The session working the issue (`worker`) comes first, marked. A session's own controls (watch, stop, more time) live on its card on the Sessions page, which its name
@@ -12,11 +13,12 @@ const about = computed(() => props.issue ? {issue: props.issue} : {chunk: props.
 const path = computed(() => props.issue ? `issues/${encodeURIComponent(props.issue)}` : `chunks/${encodeURIComponent(props.chunk ?? '')}`)
 const {sessions: all, signals: live, byId} = useRoadmaps()
 const {settings} = useAppSettings()
-const {load, who} = useOwner()
+const {who} = useOwner()
 const {look} = useStatuses()
 
-const sessions = computed(() => [...all.value[props.project] ?? []].sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
+const sessions = computed(() => (all.value[props.project] ?? []).filter(listable).sort((a, b) => Number(b.id === props.worker) - Number(a.id === props.worker)))
 const listening = computed(() => sessions.value.filter(s => s.listening))
+const unheard = computed(() => withoutChannel(all.value[props.project] ?? []))
 // Whether a focus sent with nobody listening has a session started for it.
 const {state: launch} = useLaunchState(() => props.project)
 const canStart = computed(() => !listening.value.length && !!byId(props.project)?.starts && !!launch.value?.launchers)
@@ -31,7 +33,7 @@ const failed = ref<string | null>(null)
 
 
 async function loadSent() {
-    sent.value = await $fetch<Signal[]>(`/api/projects/${encodeURIComponent(props.project)}/signals`, {query: about.value}).catch(() => [])
+    sent.value = await apiFetch<Signal[]>(`/projects/${encodeURIComponent(props.project)}/signals`, {query: about.value}).catch(() => [])
 }
 watch(path, loadSent, {immediate: true})
 // Signals sent or delivered just now, from the live stream.
@@ -51,14 +53,15 @@ const offered = computed(() => {
 const ticked = ref<string[]>([])
 watch(() => offered.value.map(i => `${i.id}:${i.on}`).join(), () => ticked.value = offered.value.filter(i => i.on).map(i => i.id), {immediate: true})
 
-/** Sends the focus; `start` asks orrery to start a session for it, nobody being there to hear it. */
-async function focus(session: Session | null, start = false) {
-    sending.value = session?.id ?? 'all'
+/** Sends the focus, to a session, to every one (a chunk's alone, ORR-681) or to one orrery picks; `start` asks orrery
+ * to start a session for it, nobody being there to hear it. */
+async function focus(session: Session | '*' | null, start = false) {
+    const target = session === '*' ? '*' : session?.id
+    sending.value = session === '*' ? 'all' : target ?? 'all'
     failed.value = null
     try {
-        const owner = await load()
-        const {signal} = await $fetch<{signal: Signal}>(`/api/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
-            method: 'POST', headers: {'Orrery-Actor': owner}, body: {...session ? {session: session.id} : {}, ...start ? {start} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
+        const {signal} = await apiFetch<{signal: Signal}>(`/projects/${encodeURIComponent(props.project)}/${path.value}/focus`, {
+            method: 'POST', body: {...target ? {session: target} : {}, ...start ? {start} : {}, ...offered.value.length ? {instructions: ticked.value} : {}},
         })
         sent.value = [...sent.value.filter(s => s.id !== signal.id), signal]
     } catch {
@@ -73,8 +76,7 @@ async function startOn() {
     sending.value = 'new'
     failed.value = null
     try {
-        const owner = await load()
-        await $fetch(`/api/projects/${encodeURIComponent(props.project)}/launches`, {method: 'POST', headers: {'Orrery-Actor': owner}, body: {issue: props.issue, hears: [props.project]}})
+        await apiFetch(`/projects/${encodeURIComponent(props.project)}/launches`, {method: 'POST', body: {issue: props.issue, hears: [props.project]}})
     } catch (error) {
         failed.value = errorMessage(error, 'start')
     } finally {
@@ -82,14 +84,12 @@ async function startOn() {
     }
 }
 
-const nameOf = (id?: string) => sessions.value.find(s => s.id === id)?.name ?? 'a session'
+const nameOf = (id?: string) => all.value[props.project]?.find(s => s.id === id)?.name ?? 'a session'
 /** Who a signal was for: a session, every session, one started for it (aimed at `launch-<id>` until it connects),
  * or (a comment aside) the one orrery picks. */
 const aimed = (signal: Signal) => signal.target === '*' || !signal.target && signal.kind === 'comment' ? 'every session'
     : signal.target?.startsWith('launch-') && !sessions.value.some(s => s.id === signal.target) ? 'a new session'
         : signal.target ? nameOf(signal.target) : 'one session'
-const {environment} = useRuntimeConfig().public
-const restart = (session: Session) => restartCommand({name: session.name, project: props.project, server: session.server}, String(environment || 'personal'))
 </script>
 
 <template>
@@ -106,9 +106,9 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
             @click="startOn"
         >{{ sending === 'new' ? 'Starting…' : 'New session on this' }}</UiButton>
         <UiButton
-            v-if="listening.length > 1"
+            v-if="listening.length > 1 && !issue"
             :disabled="!!sending"
-            @click="focus(null)"
+            @click="focus('*')"
         >Focus all on this</UiButton>
       </span>
       <button
@@ -157,16 +157,12 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
         >
           {{ sending === session.id ? 'Sending…' : 'Focus on this' }}
         </button>
-        <span v-else class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-faint" :title="`${session.name} was started without the orrery channel, so a signal can't reach it`">
-          can't hear signals: restart it with
-          <CopyButton :text="restart(session)" label="Copy command" />
-        </span>
       </li>
     </ul>
     <p v-else-if="canStart" class="text-[13px] leading-relaxed text-muted">
       No session on {{ project }} yet. {{ issue ? 'Focus on this' : 'Work through this' }} has orrery start one, in its repo, through the launcher.
     </p>
-    <p v-else class="text-[13px] leading-relaxed text-muted">
+    <p v-else-if="!unheard.length" class="text-[13px] leading-relaxed text-muted">
       No session on {{ project }} has said hello yet.
       <NuxtLink :to="`/connect?project=${project}`" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">Connect one</NuxtLink>
       to point it at issues from here.
@@ -175,6 +171,7 @@ const restart = (session: Session) => restartCommand({name: session.name, projec
         <NuxtLink to="/sessions#starts" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">how to install it</NuxtLink>.
       </template>
     </p>
+    <NoChannelHint v-if="unheard.length" :sessions="unheard" :project="project" where="here" />
     <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
 
     <ol v-if="sent.length" class="flex flex-col gap-1 border-t border-line pt-3 text-xs text-faint">

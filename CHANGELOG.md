@@ -7,6 +7,105 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.15 (2026-10-30)
+
+### Features
+
+- **Breaking, a server off loopback needs a login:** a server on anything but loopback, or a plain `docker run`, now
+  refuses every `/api` route without a login or key, reads included, and answers nothing but its login page until
+  claimed with `orrery:claim`. That includes today's phone setup in Running. Its sessions need an agent key in
+  `ORRERY_KEY`. The release's `compose.yml` and `.env.example` change for login. One person on loopback sees no login
+  and no keys.
+- **Breaking, several people:** with more than one person, an agent can only start, change, close, move or delete an
+  issue assigned to its person, writes are held to a board's members, and unassigned work on a shared board isn't
+  handed to anyone until someone takes it. An agent can't move or delete an issue with a sub-issue that isn't its
+  person's. One person's orrery is unaffected. Reads aren't held to a board yet, so a member can read boards they
+  aren't on, and with `ORRERY_AUTH=off`, people are names that stop only honest agents and mistakes.
+- **Breaking, only chunks go to every session:** a single issue can no longer be sent to all sessions, and `POST
+  …/issues/:issue/focus` with `session: "*"` is a 400. A chunk's **Focus all on this** now really reaches them all.
+- **Ids you can paste anywhere:** copying an issue's, chunk's or doc's id now gives its full form
+  (`ORR-660-x7k2m9qd`), which finds nothing on another board or server. Short ids keep working. **Copy ref** is gone,
+  as **Copy** gives the full id, a new project can't take the key `DOC`, `CHK`, `PST` or `SCH`, and a moved project's
+  full ids get a 404 at their old address.
+- **People, boards and claims:** App settings adds people, and a board's Settings holds its members. An issue shows
+  who holds it and for how long, with **Claim**, **Let go** and **Take over** on its page. Each person's words,
+  hand-outs and bell reach only their own agents.
+- **Login and keys:** log in with any OIDC provider, with no passwords kept in orrery, or make person and agent keys
+  and invites in Settings. `orrery:claim` claims a new server, and `--move-issuer` moves logins when a provider
+  changes address.
+- **Keep a doc's past:** each change to a doc is a revision that can be read, diffed and restored, a removed doc can
+  come back, and a shipped release marks where its docs stood.
+- **Artifacts:** a new kind of doc, HTML with Tailwind and the app's theme, drawn in a locked-down frame.
+- **Test speed and coverage:** a page in the docs shows how slow the tests are and what's uncovered, for each release.
+- **Sessions in ⌘K:** start a session, message every listening one, or message one found by name, from any page.
+- **Block and unblock from an issue's page:** **Blocks** is a picker now, as **Blocked by** (was Depends on) is, and
+  every link has a × to let it go.
+- **Connect a repo with a click:** on Connect an agent, the launcher opens your machine's folder picker, you tick the
+  projects the folder holds, and it writes the setup files, puts the repo on its list and opens Claude there.
+- **A checklist makes sub-issues:** an issue schedule makes a sub-issue from each top-level `- [ ]` line in its notes,
+  so a run's steps can be claimed, moved and reported on alone. Pre-release and Post-release are written this way.
+- **The chat offers an issue with a button:** something worth an issue that you didn't ask it to file comes as a card
+  marked as not filed, with **File issue** and **Don't file**.
+- **A Releases page across projects:** every project that ships has a card, with its releases' state, branch and
+  progress, and a shared release listed once with each project's part.
+- **Copy a doc's URL:** a doc's page has **Copy URL** beside **Copy id**.
+- **Export a board:** download a project as one file from its Settings, with no secrets in it.
+- **Run a schedule from a project's issues:** **Run schedule** in the Board and List toolbar runs one, and a run now
+  stays on the page and confirms what it did, with a link to any issue it made.
+
+### Changes
+
+- **Sessions you can't act on are off the lists:** a session with no channel and no launch has no message box and no
+  Stop, so it no longer shows on the Sessions page, in the sidebar or on an issue. One line per project says how to
+  restart it with the channel.
+- **Launchers:** one that still works no longer shows a notice on Sessions, and the service updates itself without
+  waiting for its sessions to end. On systemd this needs `KillMode=process`, which a running launcher adds to an older
+  unit.
+- **Event schedules stand out:** a running one has a teal bolt and **On event**, and sorts first.
+- **A card being worked pulses:** a board card's status icon fades with its dot while its session is working, and
+  stays still with reduced motion.
+- **Schema:** new tables `people`, `project_members`, `keys`, `logins`, `identities`, `invites`, `doc_revisions`,
+  `notice_clears` and `session_people`, and new columns on `projects`, `issues`, `comments`, `signals`, `docs` and
+  `releases`, on both databases.
+
+### Fixes
+
+- **Agents can't touch another person's issue or words:** an agent could move or delete another person's issue, and
+  reword or delete what another person's agent said, including a question in their bell.
+- **Project names without a login:** with login on, `/llms.txt`, `/llms-full.txt` and `/connect` showed every
+  project's name, key and progress to anyone who could reach the server.
+- **A second launcher took over a live one:** a launcher run through the bootstrap counted as gone, so another took
+  its sessions and stopped them.
+- **The image build hanging:** arm64 builds on its own native runner rather than under emulation, and a stuck build
+  fails after 30 minutes rather than GitHub's 6 hours.
+- **A session's person is fixed at its first report:** a later write naming that session with another person's key is
+  a 409, and a key disagreeing with `ORRERY_PERSON` is logged.
+- **A proposal under an agent's issue** now waits on the owner, who's the one to decide it, rather than going to that
+  agent's person.
+- **Connect's brief with login on:** the curl that makes the project got a 401, and now sends `ORRERY_KEY`.
+- **On a phone:** a doc's title no longer wraps a word per line beside its buttons, and an issue's description comes
+  before its long properties, which wait behind **More**.
+- **An empty board** has a **New issue** button and a link to Connect, not a raw API path.
+- **The issue picker** is wide enough to tell titles apart, and shows the whole title on hover.
+- **An issue's not-found page** has a heading for a screen reader.
+- **A docs section** folds even with the open doc inside, and opening a doc in a folded section unfolds it.
+- **After a 401,** the page goes to the login rather than staying dead.
+- **A plain message** no longer reaches a session tagged `schedule="undefined"`.
+
+### Docs
+
+- **Corrected for this release:** API, Security, Using, Running, Connect, README, Development and Components say what
+  rc.15 does.
+
+### Internal
+
+- **Tests:** the attack tests between people and an upgrade from before people, on both databases, the launcher's loop
+  against a fake tmux, what the channel tells a session, who may handle keys, the OIDC checks, `orrery:claim`, the
+  login page in a browser, and context budgets for the brief, a chunk's focus and the guide.
+- **One API client:** every call from the page goes through `apiFetch`, and a test fails on a new `/api/` string or
+  `$fetch` in `web/app`.
+- **Maintenance:** exports only their own file uses are gone, and the browser suite is back to green.
+
 ## 1.0.0-rc.14 (2026-10-30)
 
 ### Features

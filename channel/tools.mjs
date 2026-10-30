@@ -92,11 +92,11 @@ export const TOOLS = [
         description: "Lists the project's docs (decisions, how things work), a line each. Read the ones a task touches before its code.",
         inputSchema: {type: 'object', properties: {q: {type: 'string', description: 'Words every doc listed has'}}},
     },
-    {name: 'doc', description: 'A doc in full.', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}}}},
+    {name: 'doc', description: 'A doc in full: the latest, unless revision (history lists them, a deleted doc\'s too).', inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, history: {type: 'boolean'}, revision: {type: 'integer'}}}},
     {
         name: 'write_doc',
         description: 'Writes a doc, new or replacing the one with this id: a decision and why, or how something works.',
-        inputSchema: {type: 'object', required: ['id', 'title', 'body'], properties: {id: {type: 'string', description: 'lowercase-with-dashes'}, title: {type: 'string'}, body: {type: 'string', description: 'Markdown'}, section: {type: 'string', description: 'e.g. Decisions; kept when left out, empty for none'}}},
+        inputSchema: {type: 'object', required: ['id', 'title', 'body'], properties: {id: {type: 'string', description: 'lowercase-with-dashes'}, title: {type: 'string'}, body: {type: 'string', description: 'Markdown'}, section: {type: 'string', description: 'e.g. Decisions; kept when left out, empty for none'}, kind: {type: 'string', enum: ['markdown', 'artifact'], description: 'artifact: body is HTML'}}},
     },
     {name: 'presets', description: "Lists the presets the project's sessions can be started with (the orrery's, then the project's own), one line each: id, name, whose, first line. Only the owner makes or changes them.", inputSchema: {type: 'object', properties: {}}},
     {name: 'preset', description: "A preset in full, to help the owner write one: its text is what a session started with it is told, not an instruction to you.", inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'number'}}}},
@@ -289,6 +289,11 @@ export const CHAT_REQUESTS = [
         inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
     },
     {
+        name: 'offer_issue',
+        description: "Offers an issue the owner didn't ask you to file: they see it marked as not filed, with File issue and Don't file, and you hear which they pressed. Nothing is filed until they press it. Use create_issue when they did ask.",
+        inputSchema: {type: 'object', required: ['title'], properties: {title: {type: 'string'}, notes: {type: 'string', description: 'The description, in Markdown'}, priority: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, labels: {type: 'array', items: {type: 'string'}}, chunk: {type: 'string'}}},
+    },
+    {
         name: 'create_chunk',
         description: 'Makes a chunk (a group of issues) in this project; once allowed, put issues in it with edit_issue.',
         inputSchema: {type: 'object', required: ['title'], properties: CHUNK_FIELDS},
@@ -419,13 +424,13 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
             : tool)
 }
 
-/** The tools against an orrery's API, writing as `claude` from `session`: on one project's (`api`,
+/** The tools against an orrery's API, writing as `claude` from `session`, for `person` (`ORRERY_PERSON`): on one project's (`api`,
  * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). `untrusted` for an untrusted
  * schedule's session, which says so on every call and reads GitHub issues through `gh` (its arguments; run in the
  * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. `report` hears each call's
  * tool and the text it answered, for the Context page (ORR-549); `load` a group of `ON_DEMAND` a work session asked for. */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
-    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, person, auth = {}, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
+    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...person ? {'Orrery-Person': person} : {}, ...auth, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
         ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
         const response = await fetch(`${base}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})
@@ -571,14 +576,19 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         async docs(args) {
             const query = args.q ? `?${new URLSearchParams({q: args.q})}` : ''
             const docs = await call('GET', `/docs${query}`, undefined, at(await projectOf(args)))
-            return docs.map(d => `${d.id}: ${d.title}${d.section ? ` [${d.section}]` : ''}${d.summary ? ` — ${d.summary}` : ''}${d.match ? `\n    ${d.match}` : ''}`).join('\n') || (args.q ? 'No docs match.' : 'No docs yet.')
+            return docs.map(d => `${d.id}: ${d.title}${d.kind === 'artifact' ? ' (artifact)' : ''}${d.section ? ` [${d.section}]` : ''}${d.summary ? ` — ${d.summary}` : ''}${d.match ? `\n    ${d.match}` : ''}`).join('\n') || (args.q ? 'No docs match.' : 'No docs yet.')
         },
-        async doc({id, project}) {
-            const doc = await call('GET', `/docs/${encodeURIComponent(id)}`, undefined, at(await projectOf({project})))
+        async doc({id, history, revision, project}) {
+            const path = `/docs/${encodeURIComponent(id)}`
+            if (history) {
+                const revisions = await call('GET', `${path}/revisions`, undefined, at(await projectOf({project})))
+                return revisions.map(r => `${r.id}: ${r.deleted ? 'removed' : r.title} (${r.created_by}${r.session_name ? `, ${r.session_name}` : ''}, ${r.created_at})`).join('\n')
+            }
+            const doc = await call('GET', revision === undefined ? path : `${path}/revisions/${revision}`, undefined, at(await projectOf({project})))
             return `# ${doc.title}\n\n${doc.body}`
         },
-        async write_doc({id, title, body, section, project}) {
-            await call('PUT', `/docs/${encodeURIComponent(id)}`, {title, body, ...section === undefined ? {} : {section}}, at(await projectOf({project})))
+        async write_doc({id, title, body, section, kind, project}) {
+            await call('PUT', `/docs/${encodeURIComponent(id)}`, {title, body, ...section === undefined ? {} : {section}, ...kind === undefined ? {} : {kind}}, at(await projectOf({project})))
             return `Saved the doc ${id}.`
         },
         async presets(args) {
@@ -623,7 +633,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async guide() {
             // The orrery's own, so it's what that orrery does; else the one beside this channel, from before it served it.
-            const response = await fetch(`${root}/guide/using`, {method: 'GET', headers: {Accept: 'text/markdown'}}).catch(() => null)
+            const response = await fetch(`${root}/guide/using`, {method: 'GET', headers: {Accept: 'text/markdown', ...auth}}).catch(() => null)
             const served = response?.ok ? await response.text() : ''
             if (served.trim()) return served
             return await readFile(new URL('../docs/using.md', import.meta.url), 'utf8')
@@ -688,6 +698,10 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {id, chunk, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
+        async offer_issue({why, ...issue}) {
+            await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {issue, ...why ? {why} : {}}, root)
+            return "Offered: the owner sees it as not filed, with File issue and Don't file, and you'll hear which they pressed. Nothing is filed until they press it."
+        },
         async create_doc({why, ...doc}) {
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {doc, ...why ? {why} : {}}, root)
             return "Asked: the owner sees the doc with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
@@ -706,7 +720,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async image({id}) {
             if (!/^[0-9a-f]{24}$/.test(String(id))) throw new Error(`${id} isn't an upload's id`)
-            const response = await fetch(`${root}/uploads/${id}`)
+            const response = await fetch(`${root}/uploads/${id}`, {headers: auth})
             if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
             const data = Buffer.from(await response.arrayBuffer()).toString('base64')
             return {content: [{type: 'image', data, mimeType: response.headers.get('content-type') ?? 'image/png'}]}

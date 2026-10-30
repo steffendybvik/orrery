@@ -19,9 +19,11 @@ import {fileURLToPath} from 'node:url'
 import {Server} from '@modelcontextprotocol/sdk/server/index.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
 import {CallToolRequestSchema, ListToolsRequestSchema} from '@modelcontextprotocol/sdk/types.js'
+import {authHeaders} from './credentials.mjs'
 import {pickedUpMessage, pickUpRepo} from './pick-up.mjs'
 import {narrowed} from './repo-channels.mjs'
 import {serverName} from './server-name.mjs'
+import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
 import {instructionsFor} from './instructions.mjs'
 import {follow} from './sse.mjs'
@@ -61,15 +63,20 @@ const server = new Server({name: 'orrery', version: VERSION}, {
 })
 // Each call's answer, for the Context page's "so far" (ORR-549): sent plain, as `delivered` is, so the chat's and an
 // untrusted session's guards don't take it for one of their writes.
+/** Whose this session is, from the user's environment (or the launcher's, for one it started): sent on every request, so
+ * it holds across an orrery restart and a `/clear`. */
+const person = process.env.ORRERY_PERSON?.trim() || undefined
+// With auth on, its agent key decides who it is, and a person key here stops it starting (ORR-664).
+const personHeaders = {...person ? {'Orrery-Person': person} : {}, ...authHeaders(base)}
 const reportCall = (tool, text) => window.id && fetch(`${base}/api/sessions/${encodeURIComponent(window.id)}/calls`,
-    {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tool, text})}).catch(() => {})
+    {method: 'POST', headers: {'Content-Type': 'application/json', ...personHeaders}, body: JSON.stringify({tool, text})}).catch(() => {})
 // The groups of tools this session asked for with more_tools (ORR-625): listed from then on.
 const loaded = new Set()
 const loadTools = async group => {
     loaded.add(group)
     await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
 }
-const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, untrusted, chat, report: reportCall, load: loadTools})
+const callTool = orreryTools({root: `${base}/api`, projects, session: window.id, person, auth: authHeaders(base), untrusted, chat, report: reportCall, load: loadTools})
 server.setRequestHandler(ListToolsRequestSchema, async () => ({tools: toolsFor(projects, {chat: !!chat, untrusted, loaded: [...loaded]})}))
 server.setRequestHandler(CallToolRequestSchema, async request => {
     const why = refused || (!projects.length && `orrery (${base}) hasn't been reached yet, so the projects it serves aren't known; try again shortly`)
@@ -126,7 +133,7 @@ const orrery = {}
 async function reach() {
     for (let wait = 1000; ; wait = Math.min(wait * 2, 30_000)) {
         try {
-            const settings = await fetch(`${base}/api/settings`).then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
+            const settings = await fetch(`${base}/api/settings`, {headers: personHeaders}).then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
             orrery.id = settings.id
             orrery.environment = settings.environment
             if (process.env.ORRERY_ID && settings.id && settings.id !== process.env.ORRERY_ID) {
@@ -134,7 +141,7 @@ async function reach() {
                 return
             }
             if (every) {
-                const all = await fetch(`${base}/api/projects`).then(r => r.json())
+                const all = await fetch(`${base}/api/projects`, {headers: personHeaders}).then(r => r.json())
                 projects.push(...all.map(p => p.id))
                 await server.notification({method: 'notifications/tools/list_changed'}).catch(() => {})
             }
@@ -172,65 +179,14 @@ await pickUpHere().catch(error => log(`couldn't put this repo on the launcher's 
 async function deliver(project, signal, query) {
     if (chat && signal.kind !== 'message') return
     const api = apiOf(project)
-    const where = [signal.column, signal.priority, signal.chunk].filter(Boolean).join(', ')
-    const issue = `${api}/issues/${encodeURIComponent(signal.issue)}`
-    // A focus comes with what to say (the owner's template, filled in); an older orrery's doesn't.
-    let content = chat
-        ? [
-            `${signal.created_by}, in the chat:`,
-            '',
-            signal.note.split('\n').map(line => `> ${line}`).join('\n'),
-            '',
-            'Answer with the reply tool.',
-        ].join('\n')
-        : signal.prompt
-        ? signal.prompt
-        : signal.kind === 'message' && !signal.schedule
-        ? [
-            `${signal.created_by} sends you a message, to you alone:`,
-            '',
-            signal.note.split('\n').map(line => `> ${line}`).join('\n'),
-            '',
-            'Answer or act on it as it asks. If it turns into work worth tracking, put it in an issue as usual.',
-        ].join('\n')
-        : signal.kind === 'message'
-        ? [
-            `${signal.created_by}'s schedule "${signal.title}" says:`,
-            '',
-            signal.note.split('\n').map(line => `> ${line}`).join('\n'),
-            '',
-            'Do what it says. If it turns into work worth tracking, put it in an issue as usual.',
-        ].join('\n')
-        : !signal.issue
-        ? [
-            `${signal.created_by} asks you to work through ${signal.status ? `the ${signal.status} issues in ` : ''}chunk ${signal.chunk}: ${signal.title} [${[signal.column, signal.priority].filter(Boolean).join(', ')}].`,
-            signal.note ? `Note: ${signal.note}` : '',
-            signal.issues.length
-                ? `Its ${signal.status ?? 'open'} issues, most urgent first:\n${signal.issues.map(i => `- ${i.id}: ${i.title} [${[i.column, i.priority].filter(Boolean).join(', ')}]`).join('\n')}`
-                : `It has no ${signal.status ?? 'open'} issues left.`,
-            `Take them one at a time as you would a focus on each (in-progress, comments, done). Read ${signal.chunk === 'none' ? `them with: curl '${api}/issues?chunk=none'` : `the chunk with: curl ${api}/chunks/${encodeURIComponent(signal.chunk)}`}`,
-        ].filter(Boolean).join('\n')
-        : signal.kind === 'comment'
-        ? [
-            `${signal.created_by} commented on ${signal.issue} (${signal.title}):`,
-            '',
-            signal.note.split('\n').map(line => `> ${line}`).join('\n'),
-            '',
-            `Answer with a comment on it: curl -s -X POST ${issue}/comments -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' --data @reply.json`,
-            `(the whole thread: curl ${issue}/comments)`,
-        ].join('\n')
-        : [
-            `${signal.created_by} asks you to focus on ${signal.issue}: ${signal.title}${where ? ` [${where}]` : ''}.`,
-            signal.note ? `Note: ${signal.note}` : '',
-            `Read it with: curl ${issue}`,
-        ].filter(Boolean).join('\n')
+    let content = signalWords(signal, {api, chat: !!chat})
     // What the owner gave the session as they started it, with the first signal after it connects (its hook gives it too).
     if (signal.context) content = `${content}\n\n${signal.context}`
-    const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : {schedule: String(signal.schedule)}
+    const about = signal.issue ? {issue: signal.issue} : signal.chunk ? {chunk: signal.chunk} : signal.schedule ? {schedule: String(signal.schedule)} : {}
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind, ...named ? {session: named} : {}}}})
-    log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : `from schedule ${signal.schedule}`)}`)
+    log(`delivered ${signal.kind} ${signal.issue ?? (signal.chunk ? `chunk ${signal.chunk}` : signal.schedule ? `from schedule ${signal.schedule}` : 'to this session')}`)
     // Tells orrery it got here, so the owner sees which window has it.
-    await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST'}).catch(() => {})
+    await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST', headers: personHeaders}).catch(() => {})
 }
 
 /** What orrery calls this session (`orrery · …`), as its stream says: every signal carries it, and Claude hears it
@@ -265,6 +221,7 @@ function listen({url, started, label}) {
     const query = new URLSearchParams(who)
     if (started) query.set('started', process.env.ORRERY_STARTED)
     return follow({
+        headers: personHeaders,
         url: () => {
             const asked = new URLSearchParams(query)
             if (last || catchUp) asked.set('after', String(last))
@@ -285,7 +242,7 @@ function listen({url, started, label}) {
 
 // One stream for all its projects (`*` picks up a project made later too). An orrery from before there was one
 // answers 404 there, and then each project's stream is followed on its own.
-const single = await fetch(`${base}/api/signals/stream`).then(r => r.status !== 404, () => true)
+const single = await fetch(`${base}/api/signals/stream`, {headers: personHeaders}).then(r => r.status !== 404, () => true)
 if (single) {
     const names = every ? '*' : projects.join(',')
     await listen({

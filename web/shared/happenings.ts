@@ -13,7 +13,7 @@ export interface OrreryEvent {
     /** What it's about: an issue's id, a release's version, a chunk's or doc's id, the event log's row (`event 12`). */
     subject?: string
     /** Who did it, when someone did. */
-    by?: {name: string, owner: boolean}
+    by?: {name: string, owner: boolean, person?: string}
     /** An untrusted schedule's session did it, steered by what outsiders wrote: no schedule hears it. */
     untrusted?: boolean
     /** A change's value before and after, as stored (a status's id, a label list); none for text (titles, notes). */

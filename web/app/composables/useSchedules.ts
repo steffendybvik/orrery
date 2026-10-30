@@ -1,4 +1,8 @@
-import type {Schedule, ScheduleAcross} from '#shared/roadmap'
+import type {Schedule, ScheduleAcross, ScheduleRun} from '#shared/roadmap'
+
+/** How long a run's confirmation shows. */
+const RAN_FOR = 6000
+let ranFor: ReturnType<typeof setTimeout> | undefined
 
 // Every project's schedules, by project, kept current from `/api/events`; and the schedule dialog
 // (open for a project, and a schedule to edit, or a new one filled in from a suggestion), the right-click menu, and pausing one.
@@ -8,11 +12,11 @@ export function useSchedules() {
     const of = (project: string) => byProject.value[project] ?? []
     const across = useState<ScheduleAcross[]>('schedules-across', () => [])
     async function loadAcross() {
-        across.value = await $fetch<ScheduleAcross[]>('/api/schedules/across').catch(() => across.value)
+        across.value = await apiFetch<ScheduleAcross[]>('/schedules/across').catch(() => across.value)
     }
 
     async function load() {
-        const list = await $fetch<Schedule[]>('/api/schedules').catch(() => [] as Schedule[])
+        const list = await apiFetch<Schedule[]>('/schedules').catch(() => [] as Schedule[])
         byProject.value = Object.groupBy(list, s => s.project) as Record<string, Schedule[]>
         await loadAcross()
     }
@@ -32,19 +36,40 @@ export function useSchedules() {
 
     /** Pauses a schedule, or resumes it, as the owner; the list catches up from the events. Their own change isn't news. */
     async function pause(schedule: Schedule, paused: boolean) {
-        useUnseen().seeSchedule(await $fetch<Schedule>(`/api/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}`, {
-            method: 'PATCH', headers: {'Orrery-Actor': await useOwner().load()}, body: {enabled: !paused},
+        useUnseen().seeSchedule(await apiFetch<Schedule>(`/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}`, {
+            method: 'PATCH', body: {enabled: !paused},
         }))
     }
 
     /** Makes an agent's schedule the owner's, as they read it (`updated_at`): it runs as theirs from then on (ORR-456). */
     async function adopt(schedule: Schedule): Promise<Schedule> {
-        const mine = await $fetch<Schedule>(`/api/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}/adopt`, {
-            method: 'POST', headers: {'Orrery-Actor': await useOwner().load()}, body: {seen: schedule.updated_at},
+        const mine = await apiFetch<Schedule>(`/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}/adopt`, {
+            method: 'POST', body: {seen: schedule.updated_at},
         })
         useUnseen().seeSchedule(mine)
         return mine
     }
 
-    return {byProject, of, load, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, adopt}
+    /** The last run's confirmation, which goes by itself, shown by ScheduleMenu whatever page it's on (ORR-688). */
+    const ran = useState<{text: string, project: string, issue?: string} | null>('schedule-ran', () => null)
+
+    /** Runs a schedule now, on top of its timetable or `instead` of its next run, staying on the page: says what it did, or
+     * gives why it failed, which a run can do with the request itself going through. */
+    async function run(schedule: Schedule, instead = false): Promise<string | null> {
+        try {
+            const done = await apiFetch<ScheduleRun>(`/projects/${encodeURIComponent(schedule.project)}/schedules/${schedule.id}/run`, {
+                method: 'POST', body: instead ? {instead: true} : undefined,
+            })
+            const text = ranSaid(done)
+            if (!text) return done.note ?? 'The run failed'
+            ran.value = {text, project: schedule.project, issue: done.issue}
+            clearTimeout(ranFor)
+            ranFor = setTimeout(() => ran.value = null, RAN_FOR)
+            return null
+        } catch (error) {
+            return errorMessage(error)
+        }
+    }
+
+    return {byProject, of, load, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, adopt, ran, run}
 }

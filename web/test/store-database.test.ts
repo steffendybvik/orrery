@@ -88,7 +88,7 @@ describe('the database', () => {
 
     it('keeps a schedule\'s presets, runs and what it holds through the rebuild for action schedules', async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
-        const old = openDb(path, MIGRATIONS.length - 1)
+        const old = openDb(path, MIGRATIONS.length - 2)
         const row = (sql: string) => old.prepare(sql).run()
         row("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'agent', 'x', 'x')")
         row(`INSERT INTO schedules (id, project, kind, title, on_event, presets, timezone, created_by, owned, created_at, updated_at)
@@ -101,6 +101,54 @@ describe('the database', () => {
         expect(await upgraded.get('SELECT kind, presets, move_from FROM schedules WHERE id = 7')).toEqual({kind: 'session', presets: '[3]', move_from: '[]'})
         expect(await upgraded.get('SELECT count(*) AS n FROM schedule_runs WHERE schedule = 7')).toEqual({n: 1})
         expect(await upgraded.get('SELECT count(*) AS n FROM schedule_held WHERE schedule = 7')).toEqual({n: 1})
+    })
+
+    it('moves a named owner from settings to people, and leaves an unnamed one as they are (ORR-653)', async () => {
+        const open = (name?: string) => {
+            const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+            const old = openDb(path, 62)
+            if (name) old.prepare("INSERT INTO settings (key, value) VALUES ('owner', ?)").run(JSON.stringify(name))
+            old.close()
+            return new Store(new SqliteDb(openDb(path)))
+        }
+        const named = open('Sköll Fenrisson')
+        expect(await named.ownerOf()).toEqual({name: 'skoll_fenrisson', display: 'Sköll Fenrisson', named: true})
+        expect(await named.people()).toMatchObject([{id: 'skoll_fenrisson', name: 'Sköll Fenrisson', role: 'owner'}])
+        expect(await named.db.get("SELECT 1 FROM settings WHERE key = 'owner'")).toBeUndefined()
+        const unnamed = open()
+        expect((await unnamed.ownerOf()).named).toBe(false)
+        expect(await unnamed.people()).toEqual([])
+    })
+
+    it('gives each board to the owner on upgrading, with one holder each (ORR-654)', async () => {
+        const open = (name?: string) => {
+            const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+            const old = openDb(path, 66)
+            if (name) old.prepare("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', 'x')").run(name.toLowerCase(), name)
+            old.prepare("INSERT INTO projects (id, name, key, uid, created_by, created_at, updated_at) VALUES ('greenhouse', 'Greenhouse', 'GRE', 'abcdefgh', 'agent', 'x', 'x')").run()
+            old.close()
+            return new Store(new SqliteDb(openDb(path)))
+        }
+        expect(await open('Skoll').members('greenhouse')).toMatchObject([{person: 'skoll', role: 'owner'}])
+        const unnamed = open()
+        expect(await unnamed.members('greenhouse')).toEqual([])
+        await unnamed.nameOwner({name: 'Skoll'})
+        expect(await unnamed.members('greenhouse')).toMatchObject([{person: 'skoll', role: 'owner'}])
+    })
+
+    it('gives each board and the server a random id on upgrading (ORR-674)', async () => {
+        const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+        const old = openDb(path, 63)
+        const add = old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES (?, ?, 'GRE', 'agent', 'x', 'x')")
+        add.run('greenhouse', 'Greenhouse')
+        add.run('pantry', 'Pantry')
+        old.close()
+        const store = new Store(new SqliteDb(openDb(path)))
+        const [a, b] = [(await store.project('greenhouse')).uid, (await store.project('pantry')).uid]
+        expect(a).toMatch(/^[a-z2-7]{8}$/)
+        expect(b).toMatch(/^[a-z2-7]{8}$/)
+        expect(a).not.toBe(b)
+        expect((await store.settings()).uid).toMatch(/^[a-z2-7]{8}$/)
     })
 
     it('copies itself before an upgrade takes steps, and only then', async () => {

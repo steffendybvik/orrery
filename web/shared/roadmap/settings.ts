@@ -6,6 +6,36 @@ import type {IssueStatus} from './board'
 export const TINTS = {slate: '#64748b', blue: '#3b82f6', teal: '#14b8a6', green: '#22c55e', amber: '#f59e0b', rose: '#f43f5e', violet: '#8b5cf6'} as const
 
 /** This orrery's own settings, not a project's. */
+/** Someone on this orrery (`GET /api/people`): the owner, or a member they added. `id` is what a session sets as
+ * `ORRERY_PERSON`, and `removed_at` when they were removed: their name stays on history. */
+export type KeyKind = 'agent' | 'person'
+/** A key as it's listed (ORR-664): never the key itself, which shows once, as it's made. */
+export interface KeyRecord {
+    id: string
+    person: string
+    kind: KeyKind
+    name: string
+    created_at: string
+    last_used_at?: string
+    revoked_at?: string
+}
+
+export interface Person {
+    id: string
+    name: string
+    role: 'owner' | 'member'
+    created_at: string
+    removed_at?: string
+}
+
+/** Someone on a board (ORR-654): its one holder (`owner`), who says who else is on it, or a `member`. */
+export interface BoardMember {
+    person: string
+    name: string
+    role: 'owner' | 'member'
+    created_at: string
+}
+
 /** Whose orrery it is: their name as the page shows it, and the `Orrery-Actor` id it makes. */
 export interface Owner {
     /** The id: the name in lowercase snake case (`skoll_fenrisson`); `owner` until they give one. */
@@ -144,6 +174,8 @@ export interface Settings {
     /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;
      * none uses their id. */
     handle: string | null
+    /** This server's random id, in the full form of what belongs to it, not a board: `pst-12-x7k2m9qd`. A restored backup keeps it. */
+    uid: string
     /** Where the team's tracker shows a task, with `{id}` for its id: `https://tracker.example.com/issue/{id}`. */
     tracker: string | null
     /** Whether orrery starts sessions itself, for any project whose repo has a launcher, and within what; none

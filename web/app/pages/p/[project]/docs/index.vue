@@ -46,6 +46,7 @@ const {docUnseen} = useUnseen()
         <p class="mt-3 text-xs text-faint">Or ask a session in its repo to add some, e.g. its README:</p>
         <pre class="overflow-x-auto rounded-xl bg-well p-3 text-left font-mono text-[11px] text-muted ring-1 ring-line">PUT /api/projects/{{ project.id }}/docs/readme
 {"title": "README", "body": "# …markdown…"}</pre>
+        <DeletedDocs :project="project.id" :docs="0" class="mt-3 text-left" />
       </div>
     </template>
     <NotFound v-else-if="ready" reason="It may have been renamed or deleted." to="/mine" back="Go to My issues">No project “{{ route.params.project }}”</NotFound>

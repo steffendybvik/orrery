@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Column} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
+import {PRIORITIES, fullId} from '#shared/roadmap'
 
 // ⌘K: every command and place, in sections. With nothing typed: Here (what fits the page), Jump to (the
 // projects, this one first) and Go to. Typing finds Projects, Issues, Chunks, Docs and Commands, a few of
@@ -27,6 +27,7 @@ const {open: openIssue, pathOf} = useIssueLink()
 const {filters, changed: filtering, clear} = useFilters()
 const {view, group} = useLastView()
 const {set: setTheme} = useTheme()
+const {all: messageAll, one: messageOne, listening} = useMessageSessions()
 const {columns} = useStatuses()
 const route = useRoute()
 const router = useRouter()
@@ -69,7 +70,7 @@ const here = computed<Entry[]>(() => {
         if (parent) entries.push({key: 'issue:parent', group: 'Issue', label: 'Open its parent', detail: parent.id, run: () => openIssue(p.id, parent.id)})
         entries.push(
             {key: 'issue:chunk', group: 'Issue', label: 'Open its chunk', detail: found.chunk.title, run: () => router.push(chunkPath(p.id, found.chunk.id))},
-            {key: 'issue:id', group: 'Copy', label: 'Copy the id', detail: found.issue.id, run: () => copy(found.issue.id, 'id')},
+            {key: 'issue:id', group: 'Copy', label: 'Copy the id', detail: found.issue.id, run: () => copy(fullId('issue', found.issue.id, p.uid), 'id')},
             {key: 'issue:link', group: 'Copy', label: 'Copy the link', run: () => copy(`${location.origin}${path}`, 'link')},
             {key: 'issue:curl', group: 'Copy', label: 'Copy a curl to update it', detail: 'for an agent', run: () => copy(
                 `curl -X PATCH ${location.origin}/api/projects/${p.id}/issues/${found.issue.id} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d '{"status": "in-progress"}'`, 'curl')},
@@ -104,6 +105,7 @@ const everywhere = computed<Entry[]>(() => [
     {key: 'go:connect', group: 'Go to', label: 'Connect an agent', run: () => router.push('/connect')},
     {key: 'go:sessions', group: 'Go to', label: 'Sessions', run: () => router.push('/sessions')},
     {key: 'go:schedules', group: 'Go to', label: 'Schedules', run: () => router.push('/schedules')},
+    {key: 'go:releases', group: 'Go to', label: 'Releases', detail: 'across projects', run: () => router.push('/releases')},
     {key: 'go:events', group: 'Go to', label: 'Events', detail: 'the event log', run: () => router.push('/events')},
     {key: 'go:context', group: 'Go to', label: 'Context', detail: 'what a session is sent', run: () => router.push('/context')},
     {key: 'go:pulls', group: 'Go to', label: 'Pull requests', run: () => router.push('/pulls')},
@@ -112,6 +114,9 @@ const everywhere = computed<Entry[]>(() => [
         router.push('/getting-started')
     }},
     {key: 'go:settings', group: 'Go to', label: 'App settings', run: () => router.push('/settings')},
+    ...(projects.value.some(p => p.starts) ? [{key: 'session:start', group: 'Session', label: 'Start session', detail: project.value?.name, run: () => useStartSession().open(project.value?.id ?? null)}] : []),
+    ...(listening.value.length ? [{key: 'session:message-all', group: 'Session', label: 'Message sessions', detail: 'every one listening', run: () => messageAll.value = true}] : []),
+    ...listening.value.map(s => ({key: `session:message:${s.id}`, group: 'Session', label: `Message ${s.name}`, detail: 'only it hears', run: () => messageOne.value = s})),
     {key: 'chat', group: 'Chat', label: chatAbout.value ? `Chat about ${chatAbout.value.name}` : 'Chat', detail: 'answers and makes issues', run: () => useChat().show(project.value?.id)},
     {key: 'project:new', group: 'Project', label: 'New project', run: () => useState('new-project').value = true},
     ...(filtering.value ? [{key: 'filter:clear', group: 'Filter', label: 'Reset the filters to the open issues', run: clear}] : []),
@@ -154,7 +159,7 @@ async function findClosed(raw: string) {
         closedFound.value = {}
         return
     }
-    const found = await Promise.all(lacking.map(p => $fetch<{id: string, title: string, aliases: string[]}[]>(`/api/projects/${encodeURIComponent(p.id)}/issues`, {query: {status: 'done,canceled', q: word}})
+    const found = await Promise.all(lacking.map(p => apiFetch<{id: string, title: string, aliases: string[]}[]>(`/projects/${encodeURIComponent(p.id)}/issues`, {query: {status: 'done,canceled', q: word}})
         .then(list => [p.id, list.slice(0, 50)] as const, () => [p.id, []] as const)))
     if (ask === asking) closedFound.value = Object.fromEntries(found)
 }
@@ -163,7 +168,7 @@ const issues = computed<Entry[]>(() => projects.value.flatMap(p => {
     const had = allIssues(p).map(({issue: i}) => i)
     const ids = new Set(had.map(i => i.id))
     return [...had, ...partial.value[p.id] ? (closedFound.value[p.id] ?? []).filter(i => !ids.has(i.id)) : []].map(i => ({
-        key: `i:${p.id}/${i.id}`, group: 'Issue', id: i.id, label: i.title, detail: p.name, also: i.aliases.join(' '), run: () => openIssue(p.id, i.id),
+        key: `i:${p.id}/${i.id}`, group: 'Issue', id: i.id, label: i.title, detail: p.name, also: [...i.aliases, fullId('issue', i.id, p.uid)].join(' '), run: () => openIssue(p.id, i.id),
     }))
 }))
 

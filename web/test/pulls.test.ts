@@ -197,7 +197,7 @@ describe('the repo cards in project order (ORR-610)', () => {
 
     it("follows the sidebar's order, a shared repo where its first project is, the rest after by name", () => {
         const repos = [repo('you/zebra', 'shop'), repo('you/shared', 'garden', 'blog'), repo('you/apple', 'shop'), repo('you/stray', 'gone'), repo('you/alpha', 'other')]
-        expect(inProjectOrder(repos, ['blog', 'shop', 'garden']).map(r => r.repo)).toEqual(['you/shared', 'you/apple', 'you/zebra', 'you/alpha', 'you/stray'])
+        expect(inProjectOrder(repos, ['blog', 'shop', 'garden'], r => r.repo).map(r => r.repo)).toEqual(['you/shared', 'you/apple', 'you/zebra', 'you/alpha', 'you/stray'])
     })
 })
 

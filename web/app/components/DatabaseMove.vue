@@ -8,7 +8,6 @@ import type {DatabaseCheck, DatabaseInfo} from '#shared/roadmap'
 // form, with Back in place of Cancel.
 const props = defineProps<{database: DatabaseInfo, first?: boolean}>()
 const emit = defineEmits<{back: []}>()
-const {load} = useOwner()
 
 type Kind = 'sqlite' | 'postgres'
 const KINDS: {value: Kind, label: string}[] = [{value: 'sqlite', label: 'SQLite file'}, {value: 'postgres', label: 'Postgres'}]
@@ -39,15 +38,15 @@ watch([kind, entry, path, url, fields], () => {
     failed.value = ''
 })
 
-async function send(route: '/api/database/check' | '/api/database/move', body: object) {
-    return await $fetch(route, {method: 'POST', headers: {'Orrery-Actor': await load()}, body})
+async function send(route: '/database/check' | '/database/move', body: object) {
+    return await apiFetch(route, {method: 'POST', body})
 }
 
 async function checkIt() {
     busy.value = true
     failed.value = ''
     try {
-        check.value = await send('/api/database/check', target.value) as DatabaseCheck
+        check.value = await send('/database/check', target.value) as DatabaseCheck
     } catch (error) {
         failed.value = errorMessage(error, 'check it')
     } finally {
@@ -60,7 +59,7 @@ async function move(how: 'copy' | 'use') {
     busy.value = true
     failed.value = ''
     try {
-        await send('/api/database/move', {...target.value, how})
+        await send('/database/move', {...target.value, how})
         moved.value = true
         location.reload()
     } catch (error) {

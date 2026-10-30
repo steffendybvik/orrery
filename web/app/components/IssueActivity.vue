@@ -5,7 +5,7 @@ import type {Comment, Issue, IssueEvent, Project} from '#shared/roadmap'
 // for a new comment. The owner's own comments edit and come out in place.
 const props = defineProps<{project: Project, issue: Issue}>()
 const emit = defineEmits<{comments: [Comment[]]}>()
-const {who, load} = useOwner()
+const {who} = useOwner()
 
 const comments = ref<Comment[]>([])
 // Once they're read, and as they change, so the page can copy the whole issue.
@@ -15,10 +15,10 @@ watch(() => [props.project.id, props.issue.id, props.issue.updated_at] as const,
     // Gone on to another issue (j/k) before these came back: they're that one's no longer.
     let stale = false
     onCleanup(() => stale = true)
-    const base = `/api/projects/${encodeURIComponent(p)}/issues/${encodeURIComponent(i)}`
+    const base = `/projects/${encodeURIComponent(p)}/issues/${encodeURIComponent(i)}`
     const loaded = await Promise.all([
-        $fetch<Comment[]>(`${base}/comments`).catch(() => []),
-        $fetch<IssueEvent[]>(`${base}/activity`).catch(() => []),
+        apiFetch<Comment[]>(`${base}/comments`).catch(() => []),
+        apiFetch<IssueEvent[]>(`${base}/activity`).catch(() => []),
     ])
     if (!stale) [comments.value, activity.value] = loaded
 }, {immediate: true})
@@ -34,6 +34,7 @@ function said(event: IssueEvent): string[] {
     if (field === 'status') return [`moved it to ${look(after ?? '').label}`]
     if (field === 'priority') return [after ? `set the priority to ${PRIORITY_LABEL[after] ?? after}` : 'took the priority off']
     if (field === 'assignee') return [after ? `assigned ${who(after)}` : 'unassigned it']
+    if (field === 'claim') return [after ? before ? `took it over from ${who(before)}` : 'took it up' : 'let it go']
     if (field === 'title') return [`renamed it from “${before ?? ''}”`]
     if (field === 'notes') return ['edited the description']
     if (field === 'parent') return [after ? `made it a sub-issue of ${after}` : 'made it a top-level issue']
@@ -124,8 +125,8 @@ async function answerSchedule(id: number, allow: boolean) {
     answeringSchedule.value = id
     scheduleFailed.value = null
     try {
-        const comment = await $fetch<Comment>(`/api/projects/${encodeURIComponent(props.project.id)}/issues/${encodeURIComponent(props.issue.id)}/schedule-requests/${id}`,
-            {method: 'POST', body: {allow}, headers: {'Orrery-Actor': await load()}})
+        const comment = await apiFetch<Comment>(`/projects/${encodeURIComponent(props.project.id)}/issues/${encodeURIComponent(props.issue.id)}/schedule-requests/${id}`,
+            {method: 'POST', body: {allow}})
         comments.value = comments.value.map(c => c.id === comment.id ? comment : c)
     } catch (error) {
         scheduleFailed.value = {id, message: errorMessage(error, allow ? 'allow it' : 'deny it')}
@@ -136,7 +137,7 @@ async function answerSchedule(id: number, allow: boolean) {
 async function removeComment(id: number) {
     removingComment.value = {id, busy: true}
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.project.id)}/issues/${encodeURIComponent(props.issue.id)}/comments/${id}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(props.project.id)}/issues/${encodeURIComponent(props.issue.id)}/comments/${id}`, {method: 'DELETE'})
         comments.value = comments.value.filter(c => c.id !== id)
         removingComment.value = null
     } catch (error) {

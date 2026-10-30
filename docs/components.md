@@ -177,6 +177,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `SectionIcon` | the icon of a project's page (issues, roadmap, docs…) |
 | `SessionDot` | a Claude session's state as a dot |
 | `PullStateChip` | where an open pull request stands (Conflicts, Behind, Ready to merge…), red to green |
+| `ScheduleRunButton` | **Run schedule** in a project's issues toolbar: a popover of the schedules Run now can run, each run at once; the confirmation is `ScheduleMenu`'s |
 | `PullFocus` | **Focus on this** on a pull request: a popover with the note `focusNote` writes from its state, to edit and send as a focus on its issue |
 | `KeyHint` | a key, as `<KeyHint>⌘↵</KeyHint>` |
 | `StepMark` | a step's number in a guide, ticked when done |
@@ -200,6 +201,10 @@ Already one component each; use them rather than drawing the same thing again.
 | `ViewToolbar` | a page's own controls under its header: how it's shown on the left, filters on the right (`#end`) |
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
+| `ArtifactFrame` | an artifact's sandboxed frame, the only place its HTML is drawn |
+| `DocDiff` | what changed between two versions of a doc's text, line by line |
+| `DocHistory` | a doc's revisions, each one's diff, and a restore; a removed doc's, to bring it back |
+| `DeletedDocs` | a project's removed docs, folded, each linking to its page |
 | `EmptyProjects` | what a page shows before there are any projects: Getting started |
 | `GettingStarted` | a new orrery's steps, ticked from live data (`useGettingStarted`): the first run as a page, `card` on My issues |
 | `LauncherHint` | while no launcher runs for a project, how to install one (on Getting started's last step, and in the chat), gone once one connects |
@@ -211,9 +216,9 @@ Already one component each; use them rather than drawing the same thing again.
 
 The layout (`layouts/default.vue`) mounts the dialogs any page can open, each as `Lazy…` behind `openedOnce`: it
 loads the first time it opens, in its own chunk, and then stays. A dialog is opened through the state its composable
-shares (`useNewIssue`, `useNewChunk`, `useNewDoc`, `useStartSession`, `useSchedules`, and `useState('new-project')`),
+shares (`useNewIssue`, `useNewChunk`, `useNewDoc`, `useStartSession`, `useMessageSessions`, `useSchedules`, and `useState('new-project')`),
 so any page or ⌘K can open it without holding it. `OwnerDialog` is mounted from the start; a dialog that belongs to
-one page (`PresetDialog`, `MessageSessionsDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
+one page (`PresetDialog`) stays on that page. A new one goes in the same way, built on `UiDialog`. ⌘K's palette, the menus and the bulk bar are
 mounted from the start, as they listen for keys or show on a right-click.
 
 ## Shared behaviour (`composables/`, `utils/`)
@@ -229,6 +234,7 @@ Auto-imported, like the components. Reach for these before writing the listener 
 | `useImageUpload(text, field)` | images pasted, dropped or picked into a Markdown field (with `ImageButton`), then back to typing in it; pasting and dropping work on the whole area around it (`useImageDrop`, with `ImageDropOverlay` while an image is dragged over) |
 | `useUnseen` | what's changed since the owner last looked (`unseen-row`, `unseen-dot`) |
 | `useTheme` | light, dark or the system's, remembered in this browser |
+| `apiFetch`, `apiUrl` | every call to the API, by its path under `/api`; a write goes as the owner unless it gives its own `headers` (`test/api-client.test.ts` holds it) |
 | `copyText` | copies text, with a fallback where the clipboard API refuses (`CopyButton` uses it) |
 | `errorMessage(error, verb)` | what a failed request says to show: the server's message, or that orrery didn't answer |
 | `isTyping(target)` | whether a key went to a field, where single-letter shortcuts mustn't fire |
@@ -251,7 +257,7 @@ being written again in each component:
 | `FilterMenu` | `Listbox` |
 | `SegmentedControl` | `RadioGroup` |
 | `StatusFocus`, `ChatPane`, `SessionMessage`, `StartedSession` | `Menu` |
-| `PullFocus` | `Popover` |
+| `PullFocus`, `ScheduleRunButton` | `Popover` |
 
 Something new that opens, picks or closes builds on the matching part and only draws it, in the classes above. Two
 things stay our own, as Headless UI (v1) has nothing that fits: the right-click menus (`UiContextMenu`), and ⌘K's

@@ -20,6 +20,13 @@ let sent: {project: string, session: string, text: string, owner: boolean}[]
 const issue = (id: string, kind: string, more: Record<string, unknown> = {}) =>
     ({id, title: `Do ${id}`, kind, column: kind === 'todo' ? 'Todo' : 'Backlog', created_at: `2026-10-29T0${id.slice(-1)}:00:00Z`, ...more})
 
+/** Whose an issue is, with more than one person (ORR-656); nothing to say with one. */
+let whoseWork: (assignee?: string | null) => string | null | undefined = () => undefined
+
+beforeEach(() => {
+    whoseWork = () => undefined
+})
+
 beforeEach(async () => {
     vi.useFakeTimers()
     sessions = [{id: 'w', project: 'orrery', state: 'idle', listening: true, idleAt: 1}]
@@ -45,6 +52,7 @@ beforeEach(async () => {
     vi.stubGlobal('CLEAR_AFTER', 5000)
     vi.stubGlobal('clearPending', (id: string) => due.includes(id))
     vi.stubGlobal('useStore', () => ({
+        whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         settings: async () => ({pick_next: on}),
         ownerOf: async () => ({name: 'steffen'}),
         listIssues: async (project: string) => board[project] ?? [],
@@ -86,6 +94,14 @@ describe('a session out of work', () => {
         await pick.pickNext('orrery', 'w')
         // ORR-5 is a parent: its sub-issue is the work.
         expect(ids(sent[0]!.text)).toEqual(['ORR-1', 'ORR-6', 'ORR-9'])
+    })
+
+    it('is handed only what is its own person\'s, with more than one person (ORR-656)', async () => {
+        whoseWork = assignee => assignee === 'claude' ? 'steffen' : assignee ?? null
+        sessions[0] = {...sessions[0]!, person: 'hati'} as Listed
+        board.orrery = [issue('ORR-1', 'todo'), issue('ORR-2', 'todo', {assignee: 'hati'}), issue('ORR-3', 'todo', {assignee: 'steffen'}), issue('ORR-4', 'todo', {assignee: 'claude'})]
+        await pick.pickNext('orrery', 'w')
+        expect(ids(sent[0]!.text)).toEqual(['ORR-2'])
     })
 
     it("isn't handed a follow-up under an issue another session is on (ORR-613)", async () => {

@@ -5,6 +5,7 @@ import type {NoticeList} from '#shared/roadmap'
 export default defineEventHandler(async event => {
     const {list, before, limit} = getQuery(event)
     return useStore().notices({
+        person: await personOf(event),
         list: list === undefined ? undefined : String(list) as NoticeList,
         before: before === undefined ? undefined : Number(before) || undefined,
         limit: limit === undefined ? undefined : Number(limit) || undefined,

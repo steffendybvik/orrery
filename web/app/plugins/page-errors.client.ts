@@ -21,7 +21,7 @@ export default defineNuxtPlugin(nuxtApp => {
         if (Math.floor(now / 60_000) !== minute) [minute, inMinute] = [Math.floor(now / 60_000), 0]
         if (++inMinute > 5) return
         sent.set(message, now)
-        $fetch('/api/events/log', {method: 'POST', body: {
+        apiFetch('/events/log', {method: 'POST', headers: {}, body: {
             message,
             ...error instanceof Error && error.stack ? {stack: error.stack} : {},
             page: location.pathname,

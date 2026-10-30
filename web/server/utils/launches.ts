@@ -31,6 +31,8 @@ export interface Launch {
     hears?: string[]
     untrusted?: boolean
     chat?: boolean
+    /** Who started it: its session's `ORRERY_PERSON`, so it's theirs. */
+    person?: string
 }
 
 /** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer,
@@ -191,6 +193,8 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const {project} = signal
     // One aimed at a session only that session hears, and a delivered one has been heard.
     if (!signal.protected || signal.target && signal.target !== EVERY || signal.delivered_to.length) return null
+    // Work for someone else's agents: this orrery's launcher is the owner's (ORR-656).
+    if (signal.person && signal.person !== (await useStore().ownerOf()).name) return null
     // The owner's answer that asks for no work (ORR-606).
     if (startsNone.getStore()) return null
     if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
@@ -220,7 +224,7 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
     if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
     const starts = await roomFor(project)
     // Held from here, so the limit counts it while its focus is made.
-    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}})
+    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...actor?.owner ? {person: actor.name} : {}})
     try {
         const session = launchTarget(held.id)
         held.after = issue

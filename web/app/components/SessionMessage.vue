@@ -8,7 +8,7 @@ import type {Preset, Session} from '#shared/roadmap'
 // something to send. A preset (one its sessions can have) fills the box to tweak before sending, and the message is
 // labelled by its name; emptying the box lets it go.
 const props = defineProps<{session: Session, project: string}>()
-const {load} = useOwner()
+const emit = defineEmits<{sent: []}>()
 const text = ref('')
 const presets = ref<Preset[]>([])
 const from = ref<Preset | null>(null)
@@ -17,7 +17,7 @@ watch(text, now => now.trim() || (from.value = null))
 /** The presets, asked for as the menu opens, so one made since the page loaded is there. */
 async function loadPresets() {
     placing()
-    presets.value = await $fetch<Preset[]>(`/api/projects/${encodeURIComponent(props.project)}/presets`).catch(() => presets.value)
+    presets.value = await apiFetch<Preset[]>(`/projects/${encodeURIComponent(props.project)}/presets`).catch(() => presets.value)
     await nextTick()
     placing()
 }
@@ -63,14 +63,15 @@ async function send() {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.project)}/sessions/${encodeURIComponent(props.session.id)}/message`, {
-            method: 'POST', headers: {'Orrery-Actor': await load()}, body: {text: message, ...from.value ? {preset: from.value.id} : {}},
+        await apiFetch(`/projects/${encodeURIComponent(props.project)}/sessions/${encodeURIComponent(props.session.id)}/message`, {
+            method: 'POST', body: {text: message, ...from.value ? {preset: from.value.id} : {}},
         })
         text.value = ''
         from.value = null
         sent.value = true
         clearTimeout(timer)
         timer = setTimeout(() => sent.value = false, 2000)
+        emit('sent')
     } catch (error) {
         failed.value = errorMessage(error)
     } finally {

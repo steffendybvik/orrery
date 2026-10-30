@@ -7,7 +7,6 @@ import {KINDS, TINTS} from '#shared/roadmap'
 // remove one, its issues moving to another status. Each kind keeps at least one. Saved as the owner; every
 // board follows live.
 const {statuses} = useStatuses()
-const {load} = useOwner()
 const failed = ref('')
 const busy = ref(false)
 const KIND_LABEL: Record<Kind, {label: string, hint: string}> = {
@@ -23,7 +22,7 @@ async function call(path: string, method: 'POST' | 'PATCH' | 'DELETE', body?: Re
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`/api/statuses${path}`, {method: method as 'POST', headers: {'Orrery-Actor': await load()}, body, query})
+        await apiFetch(`/statuses${path}`, {method: method as 'POST', body, query})
         return true
     } catch (error) {
         failed.value = errorMessage(error)

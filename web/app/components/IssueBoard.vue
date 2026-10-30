@@ -18,7 +18,6 @@ const {columns: order, look} = useStatuses()
 const {selected, isSelected, toggle} = useSelection()
 const {settings} = useAppSettings()
 const {filters} = useFilters()
-const {load} = useOwner()
 function click(event: MouseEvent, issue: Issue) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
     else open(props.project, issue.id)
@@ -93,9 +92,8 @@ function onStep(event: KeyboardEvent, issue: Issue) {
 /** Each card to the column, as the owner; the board updates live once they're saved. */
 async function move(issues: Issue[], column: Column) {
     failed.value = ''
-    const actor = await load()
     const results = await Promise.allSettled(issues.filter(i => i.column !== column).map(issue =>
-        $fetch(`/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(issue.id)}`, {method: 'PATCH', headers: {'Orrery-Actor': actor}, body: columnPatch(column, issue.proposal)})
+        apiFetch(`/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(issue.id)}`, {method: 'PATCH', body: columnPatch(column, issue.proposal)})
             .catch(error => Promise.reject(new Error(`${issue.id}: ${errorMessage(error)}`)))))
     const why = results.flatMap(r => r.status === 'rejected' ? [(r.reason as Error).message] : [])
     if (why.length) failed.value = `Couldn't move ${why.join('; ')}`
@@ -178,10 +176,11 @@ watch(columns, () => {
             <span class="font-mono">{{ issue.id }}</span>
             <span class="min-w-0 flex-1 truncate">{{ chunk.title }}</span>
             <WorkingDot v-if="!isClosed(issue.kind) && workerOf(project, issue.id)" :session="workerOf(project, issue.id)!" />
+            <ClaimMark :issue="issue" />
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />
           </div>
           <div class="flex items-start gap-2">
-            <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" class="mt-0.5" />
+            <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" class="mt-0.5" :class="{'animate-pulse motion-reduce:animate-none': !isClosed(issue.kind) && workerOf(project, issue.id)?.state === 'working'}" />
             <p class="line-clamp-3 min-w-0 flex-1 text-[13px] leading-snug" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', issueUnseen(project, issue) ? 'font-semibold' : '']"><InlineText :text="issue.title" /></p>
           </div>
           <WaitingChip v-if="issue.waiting" :asks="issue.waiting" :proposal="pendingProposal(issue)" class="self-start" />

@@ -43,21 +43,29 @@ export function matchRoute(route: string, method: string, path: string): Record<
 }
 
 /** The limits a cell names, held here as the request comes in: true lets it through. */
-const LIMITS: Record<NonNullable<PermissionCell['check']>, (params: Record<string, string>) => Promise<boolean>> = {
+const LIMITS: Record<NonNullable<PermissionCell['check']>, (params: Record<string, string>, person?: string) => Promise<boolean>> = {
     /** A comment only on one of the proposals an untrusted session raised: pending, labelled `external`. */
     externalProposal: async ({project, issue}) => {
         const found = project && issue ? await useStore().issue(decoded(project), decoded(issue)).catch(() => null) : null
         return found?.proposal === 'pending' && found.labels.includes(EXTERNAL)
     },
+    /** Only the person holding the board the route names (ORR-654). */
+    boardHolder: async ({project}, person) => !!project && !!person && await useStore().holdsBoard(decoded(project), person),
+    /** Only a session of the person asking (ORR-658), by the session or the launch the route names. */
+    ownSession: async ({session, launch}, person) => {
+        const found = session ? sessionNow(decoded(session)) : listSessions().find(s => s.started?.launch === decoded(launch ?? ''))
+        return !!person && found?.person === person
+    },
 }
 
-/** Whether `kind` may make this write: a row its cell allows, on a route the cell allows, past its check. */
-async function lets(row: Permission, kind: 'chat' | 'untrusted', method: string, path: string): Promise<boolean> {
+/** Whether `kind` may make this write: a row its cell allows, on a route the cell allows, past its check (`person`
+ * being the member asking). */
+export async function lets(row: Permission, kind: 'chat' | 'untrusted' | 'member', method: string, path: string, person?: string): Promise<boolean> {
     const cell = row[kind]
     if (cell.level !== 'free' && cell.level !== 'limited') return false
     for (const route of cell.routes ?? row.routes) {
         const params = matchRoute(route, method, path)
-        if (params && (!cell.check || await LIMITS[cell.check](params))) return true
+        if (params && (!cell.check || await LIMITS[cell.check](params, person))) return true
     }
     return false
 }

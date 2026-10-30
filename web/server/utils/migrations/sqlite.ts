@@ -3,6 +3,8 @@
 // test/schema-parity.test.ts holds the two to the same schema.
 import type {DatabaseSync} from 'node:sqlite'
 import {renumberSync} from '../renumber'
+import {ownerPerson} from '../owner-person'
+import {randomUid} from '../uid'
 
 // Each step brings the schema up one version (`PRAGMA user_version`); add steps, never edit them.
 // A step is SQL, or a function for what SQL can't say.
@@ -840,4 +842,126 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     );
     ALTER TABLE schedules ADD COLUMN across INTEGER REFERENCES schedules_across(id) ON DELETE CASCADE;
     CREATE UNIQUE INDEX schedules_across_project ON schedules(across, project) WHERE across IS NOT NULL;
+`, db => {
+    db.exec(`
+    -- The people on this orrery (ORR-653): the owner, moved over from settings, and the members they add. A person's id
+    -- never changes once they're a member; the owner's follows their name, as it always has.
+    CREATE TABLE people (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+        handle TEXT,
+        created_at TEXT NOT NULL,
+        removed_at TEXT
+    );
+    CREATE UNIQUE INDEX people_one_owner ON people(role) WHERE role = 'owner';
+`)
+    const owner = db.prepare("SELECT value FROM settings WHERE key = 'owner'").get() as {value: string} | undefined
+    const person = owner && ownerPerson(owner.value)
+    if (person) db.prepare("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)").run(person.id, person.name, new Date().toISOString())
+    db.exec("DELETE FROM settings WHERE key = 'owner'")
+}, (db: DatabaseSync) => {
+    // Each board and the server get a random id, for the full form of ids (ORR-674).
+    db.exec("ALTER TABLE projects ADD COLUMN uid TEXT NOT NULL DEFAULT ''")
+    const set = db.prepare('UPDATE projects SET uid = ? WHERE id = ?')
+    for (const {id} of db.prepare('SELECT id FROM projects').all() as {id: string}[]) set.run(randomUid(), id)
+    db.prepare("INSERT INTO settings (key, value) VALUES ('uid', ?)").run(JSON.stringify(randomUid()))
+}, `
+    -- A doc's past (ORR-675): a row for each save that changed its title or text, the whole of both, with ids across the
+    -- orrery so one number can mark a moment on any project. A row with \`deleted\` is the doc being removed, holding its
+    -- last text and its \`section\`, which only such a row keeps. They outlive the doc, so \`doc\` is a plain column. What's
+    -- there now starts each doc's history, and \`doc_mark\` is the newest revision as a release shipped: none for those
+    -- shipped before this, as that moment can't be worked out.
+    CREATE TABLE doc_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        doc TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        section TEXT,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        session_name TEXT,
+        owned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX doc_revisions_doc ON doc_revisions(project, doc, id);
+    INSERT INTO doc_revisions (project, doc, title, body, created_by, owned, created_at)
+        SELECT project, id, title, body, created_by, owned, updated_at FROM docs ORDER BY updated_at, project, id;
+    ALTER TABLE releases ADD COLUMN doc_mark INTEGER;
+`, `
+    -- Who holds an issue (ORR-655): the person who took it up and when, and the session on it, each taken with a
+    -- conditional write; and whose agent made it.
+    ALTER TABLE issues ADD COLUMN claimed_by TEXT;
+    ALTER TABLE issues ADD COLUMN claimed_at TEXT;
+    ALTER TABLE issues ADD COLUMN claimed_session TEXT;
+    ALTER TABLE issues ADD COLUMN created_person TEXT;
+`, `
+    -- A board's holder and members (ORR-654). Each board has one holder, the owner for those already here. The server's
+    -- owner is on every board without a row.
+    CREATE TABLE project_members (
+        project TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        person TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (project, person)
+    );
+    CREATE UNIQUE INDEX project_members_one_holder ON project_members(project) WHERE role = 'owner';
+    INSERT INTO project_members (project, person, role, created_at)
+        SELECT projects.id, people.id, 'owner', projects.created_at FROM projects, people WHERE people.role = 'owner';
+`, `
+    -- Logging in and verifying people (ORR-664). Only a hash of a key, a login or an invite is kept. A key's kind fixes its
+    -- rights: an agent key acts as an agent of its person, a person key signs in to the page.
+    CREATE TABLE keys (
+        id TEXT PRIMARY KEY,
+        person TEXT NOT NULL REFERENCES people(id) ON UPDATE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('agent', 'person')),
+        name TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT
+    );
+    CREATE UNIQUE INDEX keys_hash ON keys(hash);
+    CREATE TABLE logins (
+        id TEXT PRIMARY KEY,
+        person TEXT NOT NULL REFERENCES people(id) ON UPDATE CASCADE,
+        expires_at TEXT NOT NULL
+    );
+    CREATE TABLE identities (
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        person TEXT NOT NULL REFERENCES people(id) ON UPDATE CASCADE,
+        PRIMARY KEY (issuer, subject)
+    );
+    CREATE TABLE invites (
+        id TEXT PRIMARY KEY,
+        person TEXT NOT NULL REFERENCES people(id) ON UPDATE CASCADE,
+        expires_at TEXT NOT NULL,
+        used_at TEXT
+    );
+`, `
+    -- A doc's kind (ORR-677): Markdown, or an artifact, its text HTML that's only ever served locked down and drawn in a
+    -- sandboxed frame. Its revisions keep it too, so a deleted artifact comes back as one.
+    ALTER TABLE docs ADD COLUMN kind TEXT NOT NULL DEFAULT 'markdown' CHECK (kind IN ('markdown', 'artifact'));
+    ALTER TABLE doc_revisions ADD COLUMN kind TEXT NOT NULL DEFAULT 'markdown' CHECK (kind IN ('markdown', 'artifact'));
+`, `
+    -- Whose words (ORR-658): the person on a comment, whether an agent of theirs wrote it, and the person a signal is
+    -- for when it isn't the owner's. The owned flag stays the owner's alone. A member's own clears of the bell: the owner's
+    -- stay in comments.cleared.
+    ALTER TABLE comments ADD COLUMN person TEXT;
+    ALTER TABLE comments ADD COLUMN by_agent INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE signals ADD COLUMN person TEXT;
+    CREATE TABLE notice_clears (
+        comment INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+        person TEXT NOT NULL REFERENCES people(id) ON UPDATE CASCADE,
+        PRIMARY KEY (comment, person)
+    );
+`, `
+    -- A session's person (ORR-705): whoever's agent key it first reported with, so another person's key can't write as it.
+    CREATE TABLE session_people (
+        session TEXT PRIMARY KEY,
+        person TEXT NOT NULL REFERENCES people(id) ON UPDATE CASCADE,
+        at TEXT NOT NULL
+    );
 `]

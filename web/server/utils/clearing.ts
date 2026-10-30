@@ -59,7 +59,7 @@ export async function resumeRun(project: string, session: string): Promise<boole
     if (resumed.get(run) === left) return false
     resumed.set(run, left)
     await store.focusChunk(project, run.chunk, {session, status: run.status ?? null, release: run.release ?? null, note: "Carry on with what's left of it after the clear."},
-        {name: run.created_by, owner: run.protected})
+        {name: run.created_by, owner: run.protected, ...run.person ? {person: run.person} : {}})
     return true
 }
 
@@ -127,9 +127,18 @@ export function carryOn(project: string, id: string) {
             if (await store.waiting(now.project, ids)) return
             const parents = new Set((await store.workingOn(now.project, ids)).map(i => i.id))
             if (!parents.size) return
-            const next = (await store.listIssues(now.project))
+            const left = (await store.listIssues(now.project))
                 .filter(i => i.parent && parents.has(i.parent) && (i.kind === 'backlog' || i.kind === 'todo') && !isBlocked(i))
-                .sort(byPriority)[0]
+                .sort(byPriority)
+            // Only what's its own person's to start (ORR-656).
+            let next: (typeof left)[number] | undefined
+            for (const issue of left) {
+                const whose = await store.whoseWork(now.project, issue.assignee)
+                if (whose === undefined || whose === now.person) {
+                    next = issue
+                    break
+                }
+            }
             if (!next) return
             for (const session of carried.keys()) {
                 if (!sessionNow(session)) carried.delete(session)
@@ -163,7 +172,8 @@ export async function letGo(project: string, id: string, error?: string): Promis
     const why = error ? CUT_OFF[error] ?? `an API error (${error})` : 'an API error'
     const actor = {name: 'claude', owner: false}
     for (const issue of issues) {
-        await store.updateIssue(project, issue.id, {status: 'todo', assignee: null}, actor)
+        // With people it stays its person's, for another of their agents to pick up.
+        await store.updateIssue(project, issue.id, await store.isShared() ? {status: 'todo'} : {status: 'todo', assignee: null}, actor)
         await store.createComment(project, issue.id, {
             body: `The session working on this (${sessionNow(id)?.name ?? id}) had its turn cut off by ${why}, so it's back in Todo with nobody on it. Focus a session on it to pick it up again.`,
         }, actor)

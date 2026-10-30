@@ -1,28 +1,84 @@
 # Security
 
 orrery is built to run on your own machine, for you and your Claude Code sessions. It has **no
-accounts and no passwords**: whoever can reach it can use it. Read this before opening it to anyone
+passwords**. Alone on your own machine there's no login, so whoever can reach it can use it; off this machine, or with a
+second person, it asks for one. Read this before opening it to anyone
 else.
 
 ## Who can reach it
 
 - **This machine only, by default.** Compose publishes the port on `127.0.0.1`, and the dev server
   (`docker-compose.dev.yml`) is always this machine's only, since it also hands out the source.
-- **`ORRERY_HOST=0.0.0.0` opens it to your network.** Then anyone on that network can read every
-  project and change or delete anything, and steer your agents (below). Only do that on a network you
-  trust, or put it behind a reverse proxy that asks for a login.
+- **Off this machine, it asks for a login.** With `ORRERY_HOST=0.0.0.0` or any address but loopback, or a plain
+  `docker run`, every route refuses anything without a login or a key, reads included, and until someone
+  has claimed the server it answers nothing else ([Login and keys](#login-and-keys)).
 - **Host names.** orrery answers to `localhost` (and `*.localhost`) and IP addresses. Reaching it by
   another name, say `orrery.lan`, needs `ORRERY_ALLOWED_HOSTS=orrery.lan` (`NUXT_ALLOWED_HOSTS` without
   Docker). This is what stops DNS rebinding, a website pointing its own domain at your machine.
 
-## The owner is a name, not a password
+## Login and keys
+
+**When it's on.** Login is on with `ORRERY_AUTH=on`; when the server listens on anything but loopback (outside Docker the address it
+bound to, in Docker `ORRERY_HOST`); once a second person exists, and for good after that; and for any one request that
+carries a proxy's headers. On one person's own machine it's off, and nothing changes. `ORRERY_AUTH=off` turns it off only
+on loopback, for trying people out on one machine: anywhere else the server refuses to serve. If nobody could log in, the
+API answers 503 rather than opening.
+
+**What it guards.** Every route under `/api` needs a credential, with no exemption for loopback. The login's own routes
+are open, as are `/healthz`, the page's files and the channel's, which hold no data, and `/llms.txt`, `/llms-full.txt` and `/connect`, which
+say nothing about what's on this orrery without a credential: `/llms*` leave out the projects, and `/connect` gives the same few lines for
+every project, there or not, saying to ask again with a key. The orrery's id stays readable by anyone, in `/channel/manifest.json`. With it on, what `Orrery-Actor` and
+`Orrery-Person` say doesn't decide who anyone is.
+
+**With login off,** as on one machine with `ORRERY_AUTH=off`, people and the rules between them only stop honest agents and mistakes: `Orrery-Actor`, `Orrery-Person` and the page's **Acting as** are names, and anyone who can reach orrery can send someone else's.
+
+**Agent keys and person keys.** An agent with Bash can read its own environment, so a key has a kind. An **agent key** goes
+in a session's environment (`ORRERY_KEY`) and acts as an agent of its person: it can never be that person, sign in to the
+page, make a key, or do what only the owner may, even when its person is the owner. A **person key** signs in to the page
+and is swapped for a cookie at once: it's refused as a bearer, and the channel won't start with one. Only a hash of either is
+stored. Revoking works at once, and removing a person revokes theirs.
+
+**What an agent key still can do.** Act as any session of its own person, so the lock between one person's sessions keeps
+honest agents apart and isn't a boundary. The boundary is between people, and between a person and their agents.
+
+**Reads aren't kept to a board yet.** Anyone logged in, and their agents, can read every project.
+
+**What the tests prove.** `web/test/attack-*.test.ts`, on SQLite and Postgres, try each way in against the store: an agent
+taking, assigning itself, closing, moving or deleting another person's issue or an unassigned one, directly or through the
+issue above it; two agents racing; what each way of handing out work reaches, live and when a session catches up; and
+people, members, claims and keys through a copy, a backup, a restore and an upgrade. `auth.test.ts`, `oidc.test.ts`,
+`board-access.test.ts` and `permissions.test.ts` hold the credentials, the board check and every route, listed from the file
+tree. **They don't prove** anything about reads between boards, or a real provider's login, and they stand two servers in
+with two stores on one database, not two machines.
+
+**What this doesn't defend:**
+
+- **An agent on the server's machine.** Whoever has a shell on the server is its owner. An agent with Bash there can edit
+  the database or run `orrery:claim`, so running sessions on the same machine as the server gives them the owner's powers
+  if they go looking. Keys protect people from each other, and the owner from agents on other machines. Only sandboxing
+  sessions would change this.
+- **A tunnel, or a proxy that strips its headers.** It looks like loopback to orrery. Set `ORRERY_AUTH=on` there.
+- **Plain http.** Allowed on a private address, with a warning on the login page: over anything but a VPN, a person key and
+  the login's cookie can travel unencrypted. Another machine's sessions need https, as they fetch code from orrery.
+- **An older backup.** Restoring one brings back the keys revoked since it was made.
+
+**Logging in.** Through any standard OIDC provider, by setting its issuer, client id and secret (the authorization code flow with
+PKCE), with no passwords in orrery. An account is matched by issuer and subject, never email, and only attaches through the
+owner's single-use invite, so having an account with the provider gets nobody in. With no provider, the owner's person key signs in.
+`orrery:claim`, run on the server, makes the first one, so nothing on the network can race for it.
+
+## With login off, the owner is a name, not a password
 
 The owner (the name given on first open) is whoever sends their id in the `Orrery-Actor` header. That
 keeps agents from deleting the owner's things, as long as they name themselves honestly. It is not
 protection against a person or program that wants to pretend: anyone who can reach orrery can send
 the owner's id.
 
-Moving the database (App settings → Database → Move…) repoints orrery at a database the mover picks, and setting
+The same goes for the people an owner adds with `ORRERY_AUTH=off`, and for `Orrery-Person`, which says whose a session is:
+anyone who can reach orrery can send any of them. There, adding people, and keeping a board to its members, keeps honest
+sessions apart. It doesn't stop anyone, and reads aren't kept to a board at all yet.
+
+Moving the database (App settings → This orrery → **Move to another database…**) repoints orrery at a database the mover picks, and setting
 the backups chooses where a copy of everything goes, so both are kept to the machine orrery runs on, from where
 the connection comes rather than the name the request gives (its `Host`, which the caller chooses: ORR-421).
 Outside Docker the connection has to come from a loopback address. In Docker every request reaches the container
@@ -149,17 +205,27 @@ was given as it connected (ORR-443), so a program posting claims can't take a la
 that can open a launcher stream is a launcher, though, and gets a token like any other.
 
 The launcher starts sessions only in folders on its list (`~/.config/orrery/launcher.json`), and only something running
-on your machine puts a folder there: `--install` in it, or, with pick-up on (ORR-599), orrery's channel in a Claude
-session you opened in it, which is the folder trust Claude Code asked you for. orrery never names a folder for the
-launcher, so whoever can reach orrery can't make it start sessions somewhere new. `--no-pick-up` leaves it to
-`--install` alone, and `--uninstall` in a repo keeps it off.
+on your machine puts a folder there: `--install` in it, with pick-up on (ORR-599) orrery's channel in a Claude
+session you opened in it, which is the folder trust Claude Code asked you for, or you choosing it in the folder picker for
+**Connect a repo** (below). orrery never names a folder for the launcher, so whoever can reach orrery can't make it start
+sessions somewhere new. `--no-pick-up` leaves it to `--install` and that picker, and `--uninstall` in a repo keeps it off.
+
+**Connect a repo** (ORR-708) is the owner's, and asks a launcher service to open its machine's folder picker. With login
+off the owner is a name, so whoever can reach orrery can make that picker appear, but only someone at the machine can choose a
+folder. The launcher keeps the folder, tells orrery only its last part, and writes only there, which is the point of the
+picker: the files include hooks that run commands, and `.mcp.json`, which is committed. What goes in them is the launcher's own
+text and address. orrery supplies only its id and the projects' ids and prefixes, which the launcher refuses unless they're plain
+ids, so it can't put a command in a hook. It then opens Claude there, where Claude Code asks about the folder and the
+server as it always does. It keeps what's in each file, and says what it wrote: commit them, or don't, as with any change.
+It won't take your home folder or the root. Anything that can open a launcher stream is a launcher (above), so it could say it
+took a request, and the page would show what it said, which is all it gets.
 
 **Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
 there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the
 cursor on "Yes", so an Allow that arrives late can't answer a later prompt or pick "don't ask again". The pop-up shows the
 prompt from that pane, not the tool the session's hook names: anything can post a session's hook, so that line shows
 only for a session with no pane to read, which has no Allow (ORR-572). As with Watch and
-Stop, though, the owner is a name, not a password: whoever can reach orrery can press Allow, so a session's
+Stop, though, with login off the owner is a name, not a password: whoever can reach orrery can press Allow, so a session's
 permission prompts are only as safe as who can reach orrery ([above](#who-can-reach-it)).
 
 ### The owner's chat
@@ -202,6 +268,21 @@ machine**, as anything in a repo's `.mcp.json` would. The bootstrap holds to thi
 
 A repo connected the older way runs a checkout's scripts, and fetches nothing.
 
+## Artifacts
+
+An artifact is a doc whose text is HTML (ORR-677), which agents write freely, and they read text from outside. So it never
+runs as part of orrery's page, where it could do anything you can, such as press Allow on a session's prompt or use a
+secret. It's drawn only in a frame with `sandbox="allow-scripts"`, and served with a matching `Content-Security-Policy`, so
+opening its address in a tab is locked down too. `sandbox` gives it no origin, and the policy lets no request leave it.
+
+**It can't** call orrery's API, read the page around it, use cookies or storage, make a network request, open a popup,
+submit a form, or move the top tab. It has none of your data to send, only what its author put in it.
+
+**It can** run its own scripts and show anything, including a button that looks like one of orrery's, so don't take
+what it shows as orrery speaking. It can navigate its own frame, or itself if opened in its own tab, which can load another
+site's page there, though a link it shows has nothing of yours to carry. An endless loop can slow the tab, since a
+sandboxed frame usually shares its thread: leave the page.
+
 ## The browser can't be used against it
 
 A website open in your browser can't write to orrery: a write from another site's page (its `Origin`)
@@ -234,7 +315,7 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
 - **Agents never hold the value.** No route, event or page gives it back, only its last 4 characters.
 - **It only goes where you said.** Each secret names its hosts, and orrery sends it nowhere else and
   only over https. This is what stops a planted comment or fetched page talking an agent into sending
-  `{{secret:STRIPE_KEY}}` to its own server. Since the owner is only a name (above), anyone who can
+  `{{secret:STRIPE_KEY}}` to its own server. With login off the owner is only a name (above), so anyone who can
   reach orrery can narrow where a secret goes, replace it or delete it, but not widen it: that takes
   the value again. The hosts are sealed in with the value, so changing them in the database stops it
   opening.
@@ -259,7 +340,7 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
   Claude Code's notification text, and, before each tool it uses, the tool's name with its command, file, address or
   search (each Bash command in full, up to 4000 characters). They go to the orrery at `ORRERY_URL`, nowhere else.
 - **Context** (Advanced → Context) shows what each running session has been given since orrery started: the signals
-  sent to it and its orrery tools' answers, kept in memory only. Like every page, it's open to whatever can reach
+  sent to it and its orrery tools' answers, kept in memory only. Like every page, with login off it's open to whatever can reach
   orrery, sessions included, so an `egress` answer is kept by its size alone, never what the service sent back
   (ORR-573). Anything can add an entry to a session's list there, as it can post a session's hook.
 - **The event log** (Advanced → Events) keeps what went wrong, with error messages and stacks, for 30 days on

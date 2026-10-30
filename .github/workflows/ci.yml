@@ -44,7 +44,7 @@ jobs:
       # Every test on SQLite, then every unit test again on Postgres: the store's, the schema parity and upgrades, the
       # moves and backups into it. Each keeps its coverage, and the two are counted together, so code only the Postgres
       # run reaches (backing up into Postgres, moving to it) counts as tested (ORR-585).
-      - run: pnpm --dir web exec vitest run --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/sqlite.json
+      - run: pnpm --dir web exec vitest run --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/sqlite.json --reporter=json --outputFile.json=vitest-results.json
       - run: pnpm --dir web exec vitest run --project unit --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/postgres.json
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
@@ -67,6 +67,14 @@ jobs:
           console.log(['### Coverage', '', `Lines ${total.lines.pct}%, branches ${total.branches.pct}%, functions ${total.functions.pct}%.`, '',
             '| Area | Files | Run by no test | Lines | Branches |', '|---|---|---|---|---|', ...rows].join('\n'))
           EOF
+      # What `pnpm test:report` reads at ship time (Releasing, ORR-678), with the e2e job's.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: test-results-unit
+          path: |
+            web/vitest-results.json
+            web/coverage/coverage-summary.json
+          retention-days: 30
       - run: pnpm typecheck
       - run: pnpm lint
 
@@ -121,6 +129,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:e2e
+      - run: pnpm test:e2e:login
+        if: matrix.database == 'sqlite'
+      - uses: actions/upload-artifact@v7
+        if: matrix.database == 'sqlite'
+        with:
+          name: test-results-e2e
+          path: web/e2e-results.json
+          retention-days: 30
       # The report carries the traces of the failed tests (open with `pnpm exec playwright show-report`).
       - uses: actions/upload-artifact@v7
         if: failure()

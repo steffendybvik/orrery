@@ -58,7 +58,7 @@ beforeEach(async () => {
     focused = []
     scoped = []
     messages = []
-    vi.stubGlobal('useStore', () => ({
+    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), 
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
         focus: async (_project: string, issue: string, body: {session: string}) => {
@@ -95,6 +95,11 @@ afterEach(() => {
 const signal = (id: number, more: Partial<Signal> = {}) => ({id, project: 'greenhouse', kind: 'focus', protected: true, delivered_to: [], ...more}) as Signal
 
 describe('starting a session', () => {
+    it("doesn't happen for work that's another person's, as the launcher is the owner's (ORR-656)", async () => {
+        launches.addLauncher('greenhouse')
+        expect(await launches.considerLaunch(signal(5, {person: 'hati'}))).toBeNull()
+    })
+
     it("doesn't happen for work alone once the owner turns that off, only when they ask for one with it", async () => {
         starts = {limit: 2, minutes: 30, on_signal: false}
         launches.addLauncher('greenhouse')

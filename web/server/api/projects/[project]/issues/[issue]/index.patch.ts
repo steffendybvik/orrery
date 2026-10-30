@@ -4,11 +4,14 @@
 // A session (`Orrery-Session`) starting, editing or moving one another session is working on is refused (409), though
 // any may close it; two starting it at once go one after the other, so the second is refused. The owner's never are,
 // nor their chat's (`Orrery-Chat`), which may change only what it says and where it sits (`asChatEdit`, 403 otherwise).
+// With more than one person, moving it needs its person on the board it goes to (404 otherwise).
 export default defineEventHandler(async event => {
     const chat = chatWrite(event)
     const body = chat ? asChatEdit(await readBody(event)) : await readBody(event)
     const session = (await actorOf(event)).owner || chat ? undefined : sessionHeader(event)
     const [project, id] = [param(event, 'project'), param(event, 'issue')]
+    const to = (body as {project?: unknown} | null)?.project
+    if (typeof to === 'string') await needsBoard(event, to)
     const update = async () => useStore().updateIssue(project, id, body, await actorOf(event))
     const issue = session ? await useStore().claimed(project, id, (body as {status?: string} | null)?.status, currentId(session), update) : await update()
     // Moved, it's somewhere its address doesn't say.

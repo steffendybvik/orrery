@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// Connect an agent: one line to give a Claude session in an app's repo. It points the agent at the
+// Connect an agent: a button that has the launcher set a repo up (ConnectRepo), or one line to give a Claude session in
+// an app's repo. It points the agent at the
 // brief (/connect/<project>.md), which says how to keep the roadmap here and has it set the repo up
 // itself. The pieces are also here, folded, to set up by hand.
 useHead({title: 'Connect an agent · orrery'})
@@ -28,11 +29,18 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
       <header class="flex flex-col gap-3">
         <h2 class="text-2xl font-semibold tracking-tight">Give a session its roadmap</h2>
         <p class="text-[15px] leading-relaxed text-muted">
-          Pick the app and copy the line into a session in its repo. The agent reads its brief from orrery, starts keeping
-          the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the window.
+          Connect a repo with a click, or pick the app and copy the line into a session in its repo. The agent reads its brief
+          from orrery, starts keeping the roadmap here and sets the repo up, then asks you to restart it so orrery can reach the window.
           Any agent can also start from <a :href="`${origin}/llms.txt`" target="_blank" class="text-accent-600 underline underline-offset-2 dark:text-accent-400">/llms.txt</a>.
         </p>
       </header>
+
+      <ConnectRepo />
+
+      <div class="flex flex-col gap-1">
+        <h3 class="text-[15px] font-semibold">Or give an agent the line</h3>
+        <p class="text-[13px] leading-relaxed text-muted">For a repo on a machine with no folder picker, or if you'd rather an agent did it.</p>
+      </div>
 
       <section class="flex flex-col gap-3">
         <h3 class="label">The app</h3>

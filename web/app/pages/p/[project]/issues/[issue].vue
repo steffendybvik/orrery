@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {LockClosedIcon} from '@heroicons/vue/16/solid'
 import type {Comment, Issue} from '#shared/roadmap'
-import {issueRef, total} from '#shared/roadmap'
+import {fullId, shortId, total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, its open pull requests, sub-issues and activity, with its
 // properties beside them. The title and description edit in place, as the owner. j/k go to the next
@@ -10,7 +10,6 @@ const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready, reload} = useRoadmaps()
 const {open, last, pathOf} = useIssueLink()
-const {load} = useOwner()
 const {of: schedulesOf, edit: editSchedule} = useSchedules()
 /** The schedule that made it, if one did (and still exists). */
 const madeBy = computed(() => {
@@ -19,7 +18,10 @@ const madeBy = computed(() => {
 })
 
 const project = computed(() => byId(route.params.project as string))
-const issueId = computed(() => route.params.issue as string)
+const issueId = computed(() => {
+    const sent = route.params.issue as string
+    return shortId('issue', sent, byId(route.params.project as string)?.uid ?? '') ?? sent
+})
 const found = computed(() => findIssue(project.value, issueId.value))
 // An id it had before (MOT-5) goes to its own address.
 watch(found, f => {
@@ -40,10 +42,9 @@ watch([ready, issueId, found], async ([now, id, f]) => {
     await reload(route.params.project as string)
     looking.value = false
 }, {immediate: true})
-// What says whose board it's on, to put in a commit body or PR description.
-const {settings} = useAppSettings()
-const {owner, who} = useOwner()
-const ref_ = computed(() => issue.value ? issueRef(settings.value.handle ?? owner.value?.name ?? 'owner', issue.value.id) : '')
+// Its id to paste anywhere, which says whose board it's on: a commit body, a PR description (ORR-674).
+const {who} = useOwner()
+const full = computed(() => issue.value && project.value ? fullId('issue', issue.value.id, project.value.uid) : '')
 // Open, it's seen, and stays seen as it changes in front of you.
 const {seeIssue} = useUnseen()
 watch(() => issue.value?.updated_at, () => {
@@ -75,7 +76,7 @@ async function remove() {
     removing.value = 'busy'
     removeFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`, {method: 'DELETE'})
         back()
     } catch (error) {
         removing.value = 'ask'
@@ -108,7 +109,7 @@ const readKey = computed(() => issueKey.value && `${issueKey.value}/${issue.valu
 watch(readKey, async key => {
     if (!key || !project.value || !issue.value) return
     const at = issueKey.value
-    const got = await $fetch<Issue>(`/api/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`).catch(() => undefined)
+    const got = await apiFetch<Issue>(`/projects/${encodeURIComponent(project.value.id)}/issues/${encodeURIComponent(issue.value.id)}`).catch(() => undefined)
     if (got && readKey.value === key) read.value = {issue: at, notes: got.notes ?? ''}
 }, {immediate: true})
 /** The issue's notes as last read (kept while they're read again after a change); undefined until the first read. */
@@ -141,7 +142,7 @@ async function saveNotes() {
 // The whole issue, to paste elsewhere: there once its description and every comment have been read.
 const comments = ref<Comment[]>()
 const wholeIssue = computed(() => issue.value && issueNotes.value !== undefined && comments.value
-    ? issueAsMarkdown({ref: ref_.value, title: issue.value.title, notes: issueNotes.value, comments: comments.value, who})
+    ? issueAsMarkdown({ref: full.value, title: issue.value.title, notes: issueNotes.value, comments: comments.value, who})
     : undefined)
 watch(issueId, () => {
     editingTitle.value = editingNotes.value = false
@@ -216,7 +217,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
     <div class="sticky top-0 z-20">
       <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />
       <div v-if="issue && found && project" class="border-b border-line bg-panel px-4 py-1 sm:px-8 lg:hidden" data-testid="issue-id-bar">
-        <IssueIdRow :id="issue.id" :reference="ref_" />
+        <IssueIdRow :id="issue.id" :full="full" />
       </div>
     </div>
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
@@ -268,13 +269,13 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <p v-if="blockers.length" class="flex flex-wrap items-center gap-x-1 text-xs text-muted">
             <LockClosedIcon class="mr-0.5 size-3 text-amber-600 dark:text-amber-400" aria-hidden="true" />
             Waiting on
-            <span v-for="(b, i) in blockers" :key="b.link"><NuxtLink :to="pathOf(b.project, b.id)" class="font-mono text-fg hover:underline" :title="b.issue?.title">{{ b.link }}</NuxtLink>{{ i < blockers.length - 1 ? ',' : '' }}</span>
+            <span v-for="(b, i) in blockers" :key="b.link" class="inline-flex items-center"><NuxtLink :to="pathOf(b.project, b.id)" class="font-mono text-fg hover:underline" :title="b.issue?.title">{{ b.link }}</NuxtLink><button type="button" class="ml-0.5 rounded px-0.5 text-faint hover:bg-hover hover:text-fg" :aria-label="`Stop waiting on ${b.link}`" :title="`Stop waiting on ${b.link}`" @click="save({depends_on: (issue!.depends_on ?? []).filter(l => l !== b.link)})">×</button>{{ i < blockers.length - 1 ? ',' : '' }}</span>
           </p>
           <p v-if="saveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</p>
         </header>
 
         <div class="lg:hidden">
-          <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
+          <IssueProperties fold :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
 
         <ProposalPanel :project="project.id" :issue="issue" />
@@ -339,13 +340,13 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
       <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block dark:bg-panel">
         <!-- Clear of the worker's banner, which sticks above it, on one line at this width. -->
         <div class="sticky flex flex-col gap-4" :class="worker && !isClosed(issue.kind) ? 'top-16' : 'top-6'">
-          <IssueIdRow :id="issue.id" :reference="ref_" />
+          <IssueIdRow :id="issue.id" :full="full" />
           <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
       </aside>
     </div>
 
-    <NotFound v-else-if="ready && !looking" :to="project ? `/p/${project.id}` : '/mine'" :back="project ? `Back to ${project.name}` : 'Go to My issues'">
+    <NotFound v-else-if="ready && !looking" heading="h1" :to="project ? `/p/${project.id}` : '/mine'" :back="project ? `Back to ${project.name}` : 'Go to My issues'">
       No issue <span class="font-mono">{{ issueId }}</span>{{ project ? ` in ${project.name}` : '' }}
     </NotFound>
   </div>

@@ -47,3 +47,33 @@ test("a project drawing on another's releases shows in its release, in a section
     await expect(page.locator('[data-issue]', {hasText: 'Stock the shelves'})).toBeVisible()
     await expect(page.locator('[data-issue]', {hasText: 'Label the jars'})).toBeVisible()
 })
+
+test('the Releases page lists every project, a shared release once, and follows one to its page (ORR-671)', async ({page, request}) => {
+    await page.goto('/releases')
+    const bakery = page.getByRole('list', {name: 'Releases of Bakery'})
+    await expect(page.getByRole('link', {name: 'Bakery', exact: true}).last()).toBeVisible()
+    // Mill takes its releases from Bakery, so it's on Bakery's card and has none of its own.
+    await expect(page.getByText('shared with Mill')).toBeVisible()
+    await expect(page.getByRole('list', {name: 'Releases of Mill'})).toHaveCount(0)
+    await expect(bakery.getByRole('link')).toHaveCount(1)
+    await expect(bakery.getByRole('link')).toContainText('1.0.0')
+    await expect(bakery.getByRole('link')).toContainText('Mill')
+
+    // Live: a release made through the API shows without a reload, being prepared, on top of the shipped one.
+    await api(request, 'post', '/releases', {version: '1.1.0', branch: 'v1.1.0'})
+    await expect(bakery.getByRole('link')).toHaveCount(2)
+    await expect(bakery.getByRole('link').first()).toContainText('1.1.0')
+    await expect(bakery.getByRole('link').first()).toContainText('Preparing')
+
+    // The older ones fold away: once 1.1.0 ships after it, 1.0.0 goes under them.
+    await api(request, 'patch', '/releases/1.1.0', {shipped_on: '2999-01-01'})
+    await expect(bakery.getByRole('link')).toHaveCount(1)
+    await page.getByText('1 older').first().click()
+    await expect(page.getByRole('list', {name: 'Older releases of Bakery'}).getByRole('link')).toContainText('1.0.0')
+
+    // Kept to a project sharing them, in the address, its card is still Bakery's.
+    await page.goto('/releases?project=mill')
+    await expect(bakery.getByRole('link')).toContainText('1.1.0')
+    await bakery.getByRole('link').click()
+    await expect(page).toHaveURL(/\/p\/bakery\/releases\/1\.1\.0$/)
+})

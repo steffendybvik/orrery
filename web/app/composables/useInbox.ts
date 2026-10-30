@@ -55,7 +55,7 @@ export function useInbox() {
         const loaded = lists.value[list]
         // Pages go by comment; cleared proposals all come on the first.
         const before = older ? loaded.items.filter(n => !n.proposal).at(-1)?.id : undefined
-        const items = await $fetch<Notice[]>('/api/notices', {query: {list, before, limit: PAGE}}).catch(() => null)
+        const items = await apiFetch<Notice[]>('/notices', {query: {list, before, limit: PAGE}}).catch(() => null)
         if (!items) return
         lists.value[list] = {items: older ? [...loaded.items, ...items] : items, more: list !== 'waiting' && items.filter(n => !n.proposal).length === PAGE, loaded: true}
     }
@@ -70,7 +70,6 @@ export function useInbox() {
     /** Clears these notices (comments and proposals), or every read one: out of the bell and the page's lists
      * now, and the server keeps them out. Cleared loads again when it's next shown. */
     async function clear(these?: Notice[]) {
-        const owner = await useOwner().load()
         const gone = these ? new Set(these.map(noticeKey)) : undefined
         const going = (n: Notice) => gone ? gone.has(noticeKey(n)) : !n.proposal && isRead(n)
         hidden.value = [...hidden.value, ...notices.value.filter(n => n.proposal && going(n)).map(n => `${noticeKey(n)}@${n.updated_at}`)]
@@ -80,7 +79,7 @@ export function useInbox() {
         const body = these
             ? {ids: these.filter(n => !n.proposal).map(n => n.id), proposals: these.filter(n => n.proposal).map(({project, issue}) => ({project, issue}))}
             : {before: seenAt.value}
-        await $fetch('/api/notices/clear', {method: 'POST', headers: {'Orrery-Actor': owner}, body}).catch(() => {})
+        await apiFetch('/notices/clear', {method: 'POST', body}).catch(() => {})
         // Older ones move up into the bell's room.
         await refresh()
     }
@@ -88,7 +87,7 @@ export function useInbox() {
     /** Reads the bell again, e.g. after the owner answers on an issue; the waiting ones answered since
      * move into the inbox. */
     async function refresh() {
-        notices.value = await $fetch<Notice[]>('/api/notices').catch(() => notices.value)
+        notices.value = await apiFetch<Notice[]>('/notices').catch(() => notices.value)
         if (!lists.value.waiting.loaded) return
         const before = lists.value.waiting.items
         await load('waiting')

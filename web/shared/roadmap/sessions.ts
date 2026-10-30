@@ -6,6 +6,8 @@ import type {Issue} from './board'
  * the chunk) now; `comment` brings the owner's comment on an issue (in `note`) to the session working
  * on it, to answer; `message` is a schedule's message (in `note`), about no issue. */
 export interface Signal {
+    /** A member's signal (ORR-658): only their sessions hear it. The owner's say `protected` instead. */
+    person?: string
     id: number
     project: string
     /** The issue it's about, or for a focus on a whole chunk, `chunk` (`none`: the issues in no chunk; `all`: every chunk's). */
@@ -41,6 +43,8 @@ export type SessionState = (typeof SESSION_STATES)[number]
 
 /** A Claude window working on a project, known from its hooks and its channel. */
 export interface Session {
+    /** Whose it is, as its stream said when it connected (ORR-658). */
+    person?: string
     /** Claude Code's session id. */
     id: string
     project: string
@@ -72,6 +76,13 @@ export interface Session {
      * the `error` it named (`rate_limit`…), and what Claude Code told it, cut short. */
     cut_off?: {error?: string, text?: string, at: string}
 }
+
+/** Whether a session goes in a list of sessions (ORR-716): something can be done with it there, as it hears signals, its
+ * channel can stop it, or orrery started it. Any other is known only from its hooks, and has no message box and no Stop. */
+export const listable = (session: Pick<Session, 'listening' | 'reachable' | 'started'>) => session.listening || !!session.reachable || !!session.started
+
+/** The sessions the one-line hint is about (ORR-716): started by hand without the channel, so they can't hear the owner. */
+export const withoutChannel = <T extends Pick<Session, 'listening' | 'started'>>(sessions: T[]) => sessions.filter(s => !s.listening && !s.started)
 
 /** What a session's cut-off says on the page, in a few words (ORR-646). */
 export const cutOffLabel = ({error}: {error?: string}) => ({rate_limit: 'usage limit reached', billing_error: 'billing error'} as Record<string, string>)[error ?? ''] ?? 'cut off by an API error'

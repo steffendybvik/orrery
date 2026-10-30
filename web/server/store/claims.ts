@@ -4,9 +4,13 @@
 import {CLOSED, linkRef} from '#shared/roadmap'
 import type {Input} from '../utils/input'
 import {conflict} from '../utils/input'
+import type {Actor} from './schema'
 import {stamp} from './schema'
 import {ReleaseStore} from './releases'
 import {doneIssues} from './reads'
+
+/** How long a session's mark on an issue it's starting holds off another before its status lands. */
+const LOCK_LANDS = 5000
 
 export abstract class ClaimStore extends ReleaseStore {
     /** The session that last worked the issue, while it's there to hear; null otherwise (one session orrery picks). */
@@ -29,6 +33,64 @@ export abstract class ClaimStore extends ReleaseStore {
             session = excluded.session, at = excluded.at`, project, issue, session, now, now, project, issue)
     }
 
+    // The rails between people (ORR-655): they hold an agent's request, at the store so no route gets round them, on an
+    // orrery with more than one person. The owner, their chat and what orrery does itself aren't held.
+
+    /** Whose agent is asking (`person` undefined: nobody it can name), or null when the rails don't hold it. */
+    protected async railsFor(actor: Actor): Promise<{person: string | undefined} | null> {
+        if (!actor.asked || actor.owner || actor.chat || !await this.shared()) return null
+        return {person: actor.untrusted ? undefined : await this.personFor(actor.named ?? actor.name)}
+    }
+
+    /** The person asking, or a 409 saying how to be one. */
+    private personOrRefuse(rails: {person: string | undefined}, what: string): string {
+        if (rails.person) return rails.person
+        throw conflict(`This session names nobody on this orrery, so it can read and comment, but can't ${what}. Set ORRERY_PERSON to your id (GET /api/people) where you start Claude Code, or send Orrery-Person.`)
+    }
+
+    /** Refuses an agent an issue that isn't its person's, naming who has it. */
+    protected async mustHold(rails: {person: string | undefined}, issue: string, assignee: string | null, what: string) {
+        const person = this.personOrRefuse(rails, what)
+        const holder = await this.holderOf(assignee)
+        if (holder === person) return
+        throw conflict(`${issue} is ${holder ? `assigned to ${holder}` : 'assigned to nobody'}, and this session is ${person}'s, so it can't ${what}; ${holder ? 'comment on it instead, or pick another issue' : 'a person has to assign it first'}`)
+    }
+
+    /** Refuses an agent an issue, or anything under it, that isn't its person's: moving or deleting one takes them all. */
+    protected async mustHoldAll(rails: {person: string | undefined}, project: string, issues: string[], what: string) {
+        for (const issue of issues) await this.mustHold(rails, issue, (await this.issueRow(project, issue)).assignee, what)
+    }
+
+    /** An agent's assignee: what it may hand on (back to the owner, or letting go), with `claude` and its own person
+     * being who the issue is with already. Nobody else, as people assign. */
+    protected async railedAssignee(rails: {person: string | undefined}, issue: string, assignee: string | null | undefined): Promise<string | null | undefined> {
+        if (!assignee) return assignee
+        const id = assignee.toLowerCase()
+        if (id === 'claude' || id === rails.person) return undefined
+        if (id === await this.ownerId()) return assignee
+        throw conflict(`Only people assign: this session can't give ${issue} to ${assignee}`)
+    }
+
+    /** Takes up an issue for `person`, only if it's still assigned as the rails read it and nobody else holds it: one
+     * conditional write, so a reassignment or another server can't get in between. */
+    protected async claimFor(project: string, issue: string, person: string, assignee: string | null) {
+        const {changes} = await this.run(`UPDATE issues SET claimed_by = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(assignee, '') = ? AND (claimed_by IS NULL OR claimed_by = ?)`,
+            person, stamp(), project, issue, assignee ?? '', person)
+        if (!Number(changes)) throw conflict(`${issue} has just been taken or reassigned; read it again, or pick another issue`)
+    }
+
+    /** Puts the session on the issue as it starts it, with a conditional write, so of two starting it at once, on any
+     * server, one is refused. Another's mark only counts for a moment before its status lands, after which the claim
+     * goes by whether it has the issue started and is there to hear. */
+    private async lockFor(project: string, issue: string, session: string) {
+        const row = await this.get<{claimed_session: string | null, claimed_at: string | null}>('SELECT claimed_session, claimed_at FROM issues WHERE project = ? AND id = ?', project, issue)
+        const before = row?.claimed_session ?? ''
+        const landing = before && before !== session && row?.claimed_at && Date.now() - Date.parse(row.claimed_at) < LOCK_LANDS
+        const {changes} = landing ? {changes: 0} : await this.run(`UPDATE issues SET claimed_session = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(claimed_session, '') = ?`,
+            session, stamp(), project, issue, before)
+        if (!Number(changes)) throw conflict(`${issue} is already being worked on by another session (${before || 'just now'}); pick another issue`)
+    }
+
     /** Each issue's write in `claimed` under way, so the next waits for it. */
     private readonly claiming = new Map<string, Promise<unknown>>()
 
@@ -43,6 +105,8 @@ export abstract class ClaimStore extends ReleaseStore {
         const key = `${project}\n${await this.issueId(project, issue)}`
         const run = (this.claiming.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
             await this.claim(project, issue, status, session)
+            const id = await this.resolveStatus(status)
+            if ((await this.statuses()).find(s => s.id === id)?.kind === 'started') await this.lockFor(project, await this.issueId(project, issue), session)
             const written = await write()
             // One the write moved to another project is tied there by its route. The write has started it by now, so
             // the guard would see whoever was tied to it before (a comment while it sat in Todo) as on it: the claim

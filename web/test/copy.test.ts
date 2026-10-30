@@ -17,6 +17,7 @@ async function filled() {
     const store = new Store(new SqliteDb(openDb(':memory:')))
     const owner = {name: 'skoll', owner: true}
     await store.nameOwner({name: 'Skoll'})
+    await store.addPerson({name: 'Hati'})
     await store.createProject({name: 'Greenhouse', key: 'GRE'}, owner)
     await store.createChunk('greenhouse', {title: 'Shelves'})
     const parent = await store.createIssue('greenhouse', {title: 'Shelf labels', chunk: '1', status: 'todo'}, owner)
@@ -34,9 +35,9 @@ async function filled() {
 }
 
 const everything = async (store: Store) => ({
-    projects: await store.listBoards(), statuses: await store.statuses(), settings: await store.settings(), owner: await store.ownerOf(),
+    people: await store.people(), projects: await store.listBoards(), statuses: await store.statuses(), settings: await store.settings(), owner: await store.ownerOf(),
     comments: await store.listComments('greenhouse', 'GRE-2'), activity: (await store.listActivity('greenhouse', 'GRE-2')).map(({id, ...e}) => e),
-    doc: await store.doc('greenhouse', 'readme'), signals: await store.listSignals('greenhouse'),
+    doc: await store.doc('greenhouse', 'readme'), revisions: await store.docRevisions('greenhouse', 'readme'), signals: await store.listSignals('greenhouse'),
     secret: await secretsOf(store).get('STRIPE_KEY'),
     uploads: await Promise.all((await store.db.all<{id: string}>('SELECT id FROM uploads')).map(({id}) => store.upload(id))),
 })

@@ -5,7 +5,8 @@ import type {Feed} from '../../utils/signal-feed'
 // whose), and `stop` when the owner stops the session. `*` follows every project, and each one made later too. The
 // session counts as listening on each. `?after=` or `Last-Event-ID` catches up on every one of them (signal ids run
 // across projects); a session orrery started names its project (`started_for`), whose feed takes its launch. `name`
-// tells the session what orrery calls it, and again when that changes.
+// tells the session what orrery calls it, and again when that changes. With more than one person it follows only the
+// boards its person is on, and a session naming nobody is refused (409).
 export default defineEventHandler(async event => {
     const query = getQuery(event)
     const text = (key: string) => typeof query[key] === 'string' && query[key] ? String(query[key]) : undefined
@@ -14,21 +15,24 @@ export default defineEventHandler(async event => {
     if (!asked.length) throw badRequest('Say which projects: ?projects=hub,css, or * for every one')
     const every = asked.includes('*')
     const known = (await store.listProjects()).map(p => p.id)
-    const projects = every ? known : asked
-    const missing = projects.filter(p => !known.includes(p))
+    const missing = asked.filter(p => p !== '*' && !known.includes(p))
     if (missing.length) throw notFound(`No project ${missing.join(', ')}`)
+    // Only the boards its person is on (ORR-654): the others just aren't followed, and naming only those is a 404.
+    const projects = await boardsHeard(event, every ? known : asked)
+    if (!every && !projects.length) throw notFound(`No project ${asked.join(', ')}`)
     const from = query.after ?? getHeader(event, 'last-event-id')
     const after = from !== undefined ? Number(from) || 0 : undefined
     const origin = getRequestURL(event).origin
     const startedFor = text('started') ? text('started_for') ?? projects[0] : undefined
 
+    const person = await personOf(event)
     const feeds: Feed[] = []
     const stream = createEventStream(event)
     let closed = false
     let unnamed: (() => void) | undefined
     let left = () => {}
     const add = async (project: string, catchUp: number | undefined) => {
-        const feed = await openFeed(project, listenerOf(text, project === startedFor), catchUp, origin)
+        const feed = await openFeed(project, listenerOf(text, project === startedFor, person), catchUp, origin)
         if (closed) return feed.close()
         feeds.push(feed)
         // Its name before anything it catches up on.
@@ -44,7 +48,10 @@ export default defineEventHandler(async event => {
     const made = ({id}: {id: string}) => {
         if (!every || closed || following.has(id)) return
         following.add(id)
-        add(id, 0).catch(error => console.error(`[orrery] following ${id}:`, error))
+        boardsHeard(event, [id]).then(async ([on]) => {
+            if (on) await add(on, 0)
+            else following.delete(id)
+        }).catch(error => console.error(`[orrery] following ${id}:`, error))
     }
     const removed = (id: string) => {
         const gone = feeds.findIndex(f => f.project === id)

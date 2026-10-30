@@ -47,6 +47,8 @@ export interface ChatMessage {
     chunk?: ChatChunkRequest
     /** The session asking to make or change a doc, which waits on the owner's Allow (ORR-661). */
     doc?: ChatDocRequest
+    /** The session offering to file an issue the owner didn't ask for, which waits on their File issue (ORR-711). */
+    issue?: ChatIssueRequest
 }
 
 /** The App settings the owner's chat may ask to change (ORR-405), by what App settings calls them. The rest (secrets,
@@ -70,7 +72,7 @@ export interface ChatRequestDrift {
 
 /** One setting the chat asked to change, from what to what: saved only once the owner allows it, and `expired` when
  * they didn't answer in time or it asked again. */
-export interface ChatRequest {
+interface ChatRequest {
     setting: ChatSetting
     from: unknown
     to: unknown
@@ -166,7 +168,6 @@ export const CHAT_DOC_FIELDS = {
     section: 'Section',
     body: 'Text',
 } as const
-export type ChatDocField = keyof typeof CHAT_DOC_FIELDS
 
 /** A doc the chat asked to make (no `was`) or change (`id`): `body` holds only what it would change, and `was` the doc as
  * it stood when asked, for the page's diff. Saved as the owner's only once they allow it. A change is refused if the doc
@@ -178,6 +179,18 @@ export interface ChatDocRequest {
     body: {title?: string, section?: string | null, body?: string}
     was?: {title: string, section: string | null, body: string}
     stale?: boolean
+    state: ChatRequest['state']
+}
+
+/** An issue the chat offers to file (ORR-711): nothing is filed until the owner presses File issue, when `id` says what it
+ * became. `denied` is their Don't file, and `expired` as a setting's request is. */
+export interface ChatIssueRequest {
+    id?: string
+    title: string
+    notes?: string
+    priority?: string
+    labels?: string[]
+    chunk?: string
     state: ChatRequest['state']
 }
 

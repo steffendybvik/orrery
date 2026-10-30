@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {adoptable, inWsl, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {adoptable, inWsl, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -165,6 +165,20 @@ describe("the service's file", () => {
     })
 })
 
+describe('its sessions when the service restarts itself (ORR-686)', () => {
+    const opts = {node: '/opt/homebrew/bin/node', script: '/code/orrery/channel/orrery-launcher.mjs', path: '/usr/bin'}
+
+    it("has systemd leave them, as it would kill the tmux server they run in", () => {
+        expect(systemdUnit(opts)).toContain('[Service]\nKillMode=process\nExecStart=')
+    })
+
+    it('brings an older unit up to what installing would write, so that restarts nothing', () => {
+        const unit = systemdUnit(opts)
+        expect(keepingSessions(unit.replace('KillMode=process\n', ''))).toBe(unit)
+        expect(keepingSessions(unit)).toBe(unit)
+    })
+})
+
 describe('where the service installs (ORR-576)', () => {
     it('knows WSL by its variables or its kernel', () => {
         expect(inWsl({env: {WSL_DISTRO_NAME: 'Ubuntu'}, kernel: () => ''})).toBe(true)
@@ -212,6 +226,12 @@ describe('taking over a running session', () => {
             expect(launcherAlive(launcher.pid)).toBe(true)
         } finally {
             launcher.kill()
+        }
+        const served = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10000)', '/home/ada/.orrery/bootstrap.mjs', 'launcher', '--service'])
+        try {
+            expect(launcherAlive(served.pid)).toBe(true)
+        } finally {
+            served.kill()
         }
         expect(launcherAlive(process.pid)).toBe(false)
     })

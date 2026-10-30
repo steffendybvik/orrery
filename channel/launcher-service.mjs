@@ -40,8 +40,9 @@ export function serviceProblem({platform = process.platform, wsl = platform === 
     return "systemd isn't running here, so the launcher can't install as a service; run it in a terminal instead"
 }
 
-/** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip}`, empty when there's none yet. `pickUp`:
- * whether a repo's channel adds the repo as it connects; `skip`: the repos `--uninstall` took off, which it doesn't. */
+/** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip, orreries}`, empty when there's none yet. `pickUp`:
+ * whether a repo's channel adds the repo as it connects; `skip`: the repos `--uninstall` took off, which it doesn't;
+ * `orreries`: those it was installed for with no project, which it follows for Connect a repo (ORR-708). */
 export function readConfig(file = configFile()) {
     return listIn(file) ?? empty()
 }
@@ -63,6 +64,7 @@ export function listIn(file = configFile()) {
             projects: Array.isArray(config.projects) ? config.projects : [],
             pickUp: config.pickUp === true,
             skip: Array.isArray(config.skip) ? config.skip.filter(dir => typeof dir === 'string') : [],
+            ...Array.isArray(config.orreries) && config.orreries.length ? {orreries: config.orreries.filter(url => typeof url === 'string')} : {},
         }
     } catch {
         return null
@@ -104,6 +106,14 @@ export function pickUp(entries, dir, {file = configFile(), now = new Date()} = {
         .map(entry => ({...entry, picked_at: now.toISOString()}))
     if (added.length) writeList(added.reduce(withProject, config), file)
     return added
+}
+
+/** Connect a repo (ORR-708): puts the repo the owner just chose on the list, whichever way pick-up is set, and takes it off
+ * `skip`, as choosing it says they want it served. It writes the list alone, which the running service follows. */
+export function addToList(entries, dir, {file = configFile()} = {}) {
+    const config = listIn(file)
+    if (!config) throw new Error(`${file} can't be read as a list`)
+    writeList(skipping(entries.reduce(withProject, config), dir, false), file)
 }
 
 /** The list with the repo at `dir` kept off it (`--uninstall` there) or not (`--install`), for pick-up. */
@@ -148,6 +158,12 @@ export function plist({node, script, path, log}) {
 `
 }
 
+/** What keeps a unit's sessions going when its launcher restarts: left to itself, systemd kills all that's in the
+ * service's cgroup as it exits, the tmux server its sessions run in among them. */
+const KEEP_SESSIONS = 'KillMode=process'
+/** A unit installed before that, with it added where `systemdUnit` puts it, so installing again doesn't restart it. */
+export const keepingSessions = unit => unit.includes(KEEP_SESSIONS) ? unit : unit.replace('[Service]\n', `[Service]\n${KEEP_SESSIONS}\n`)
+
 /** systemd's user unit for the service, the same way; it logs to the journal. Inside WSL, `distro` is the one it was
  * installed from, which Watch opens Windows Terminal on (the service doesn't get WSL's own variables). */
 export function systemdUnit({node, script, path, distro}) {
@@ -156,6 +172,7 @@ export function systemdUnit({node, script, path, distro}) {
 Description=orrery launcher: starts Claude sessions for orrery
 
 [Service]
+${KEEP_SESSIONS}
 ExecStart=${quote(node)} ${[script].flat().map(quote).join(' ')} --service
 Environment=${quote(`${RELOADS}=1`)}
 Environment=${quote(`PATH=${path}`)}
@@ -247,9 +264,10 @@ function apply(where, config, opts) {
 
 /** Adds the projects of the repo at `dir` to the list (none, and no `dir`, to install the service alone), sets
  * pick-up, and starts the service if it isn't running on the same file. A restart stops the sessions it was running. */
-export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true}) {
+export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true, orrery}) {
     const where = platform()
-    const listed = {...entries.reduce(withProject, readConfig()), pickUp}
+    const before = readConfig()
+    const listed = {...entries.reduce(withProject, before), pickUp, ...orrery ? {orreries: [...new Set([...before.orreries ?? [], orrery.replace(/\/+$/, '')])]} : {}}
     const config = dir ? skipping(listed, dir, false) : listed
     const restarted = apply(where, config, {node, script, path})
     return {config, file: where.file, logs: where.logs, restarted}
@@ -268,6 +286,25 @@ export function uninstall(entries, {node = process.execPath, script, path = proc
     return {config, file: where.file}
 }
 
+/** Whether the sessions outlive the service restarting itself (ORR-686). On a Mac they do, as launchd kills only its
+ * job's process group and the tmux server has its own. systemd needs telling, so an older unit is brought up to date
+ * here, which takes effect with no restart. */
+export function restartKeepsSessions() {
+    if (process.platform === 'darwin') return true
+    try {
+        const {file} = platform()
+        const unit = readFileSync(file, 'utf8')
+        const kept = keepingSessions(unit)
+        if (kept !== unit) {
+            writeFileSync(file, kept)
+            run('systemctl', '--user', 'daemon-reload')
+        }
+        return kept.includes(KEEP_SESSIONS)
+    } catch {
+        return false
+    }
+}
+
 /** Stops the service and removes its file, whatever is on the list, which stays for the next `--install`. Pick-up goes
  * off with it, so no channel puts a repo on a list nothing serves. */
 export function removeService(where = platform(), config = readConfig()) {
@@ -281,11 +318,11 @@ export function removeService(where = platform(), config = readConfig()) {
     return {file: where.file}
 }
 
-/** Whether the process `pid` is a launcher still running. Once a launcher dies the system can hand its pid to
+/** Whether the process `pid` is a launcher still running, from a checkout or through the bootstrap (ORR-703). Once a launcher dies the system can hand its pid to
  * another program, which doesn't count: its sessions would otherwise be left to nobody. */
 export function launcherAlive(pid) {
     try {
-        return execFileSync('ps', ['-p', String(pid), '-o', 'command='], {encoding: 'utf8'}).includes('orrery-launcher')
+        return execFileSync('ps', ['-p', String(pid), '-o', 'command='], {encoding: 'utf8'}).match(/orrery-launcher|bootstrap\.mjs launcher/) !== null
     } catch {
         return false // No such process.
     }

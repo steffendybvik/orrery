@@ -6,7 +6,7 @@ import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db} from '../utils/database'
 import type {IssueRecord, ChunkRecord, ProjectRow, ChunkRow, IssueRow, DocRow, ReleaseRow} from './schema'
-import {OPEN_ASK, tallyReleases, releaseOf, summaryOf, matchOf} from './schema'
+import {OPEN_ASK, tallyReleases, releaseOf, docSummaryOf, matchOf} from './schema'
 import {known} from '#shared/known'
 
 /** The projects taking their releases from `project`, by id. */
@@ -97,6 +97,7 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         release: row.ships_in ?? undefined,
         created_by: row.created_by,
         ...row.session_name ? {session_name: row.session_name} : {},
+        ...row.claimed_by ? {claimed_by: row.claimed_by, ...row.claimed_at ? {claimed_at: row.claimed_at} : {}} : {},
         protected: !!row.owned,
         ...links.dependsOn.has(row.id) ? {depends_on: links.dependsOn.get(row.id)} : {},
         ...links.blockedBy.has(row.id) ? {blocked_by: links.blockedBy.get(row.id)} : {},
@@ -115,6 +116,19 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
     return buildBoard({chunks: grouped}, statuses)
 }
 
+
+/** The project's issues as far as tallying its releases takes (`tallyReleases`), all in one chunk: no comments, links,
+ * aliases or notes, so `GET /api/releases` doesn't build every project's board (ORR-671). */
+export async function readReleaseBoard(db: Db, project: string, statuses: IssueStatus[]): Promise<Board> {
+    const rows = await db.all<Pick<IssueRow, 'id' | 'parent' | 'status' | 'proposal' | 'ships_in'>>('SELECT id, parent, status, proposal, ships_in FROM issues WHERE project = ?', project)
+    const children = new Map<string | null, typeof rows>()
+    for (const row of rows) children.set(row.parent, [...children.get(row.parent) ?? [], row])
+    const input = (row: typeof rows[number]): IssueInput => ({
+        id: row.id, title: '', labels: [], status: row.status, proposal: row.proposal ?? undefined, release: row.ships_in ?? undefined,
+        tasks: (children.get(row.id) ?? []).map(input),
+    })
+    return buildBoard({chunks: [{id: '', title: '', summary: '', tasks: (children.get(null) ?? []).map(input)}]}, statuses)
+}
 
 /** The project's releases (its source's, when it takes them from another), in the order they're arranged in; each with how far its issues are
  * (see tallyReleases). A source counts the issues of every project drawing on it; one drawing on it counts its own. */
@@ -138,7 +152,7 @@ export async function readDocSummaries(db: Db, project: string, q = ''): Promise
         .sort((a, b) => Number(inTitle(b)) - Number(inTitle(a))
             || a.title.localeCompare(b.title, 'en', {sensitivity: 'base', numeric: true}) || a.id.localeCompare(b.id))
         .map(row => ({
-            id: row.id, title: row.title, summary: summaryOf(row.body), ...words.length ? {match: matchOf(row.body, words)} : {},
+            id: row.id, title: row.title, kind: row.kind, summary: docSummaryOf(row), ...words.length ? {match: matchOf(row.body, words)} : {},
             ...row.section ? {section: row.section} : {},
             created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
         }))

@@ -4,8 +4,8 @@
 
 ```
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
-              public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts), its package.json
-channel/      the channel and hooks Claude sessions run, by path, from every connected repo
+              public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
+channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -24,7 +24,7 @@ shared/                 types and rules both sides use: roadmap/ a file per area
 ```
 
 The root is a pnpm workspace with the app as its one package: `pnpm dev`, `pnpm test`,
-`pnpm typecheck`, `pnpm test:e2e` and `pnpm orrery:copy` run there and work in `web/`. The root's
+`pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm test:e2e`, `pnpm orrery:copy`, `pnpm orrery:claim` and `pnpm worktrees` run there and work in `web/`. The root's
 own dependency is the channel's MCP SDK, so `channel/` keeps working from other repos. The database
 stays in the repo's `.data/`.
 
@@ -51,6 +51,10 @@ Buttons, dialogs, menus and confirmations come from a small kit in `web/app/comp
 rest of the shared pieces (pickers, icons, chips) are one component each. [UI components](components.md)
 lists them and when to use which: reach for one before writing the markup again.
 
+The page reaches the API only through `web/app/utils/api.ts`: `apiFetch` by its path under `/api`, which sends a write as
+the owner unless the call gives its own `headers`, and `apiUrl` for an address that isn't a fetch. `test/api-client.test.ts`
+fails on a new `/api/` string or `$fetch` anywhere else in `web/app`.
+
 ## Checks
 
 `pnpm test` (the column rules, the store, schedules, and the components in a Nuxt environment) · `pnpm typecheck` ·
@@ -74,6 +78,9 @@ version, once on each database. A failed run leaves a trace to replay with `pnpm
 `e2e/visual.spec.ts` compares the board, the list and an issue's page to stored images. They're Linux's, so off
 Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwright image through Docker, and
 `pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
+
+`pnpm test:e2e:login` runs `e2e/login/` on an orrery of its own with `ORRERY_AUTH=on` and a fresh `web/.data/e2e-login.db`, as
+the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out.
 
 `pnpm test:e2e:perf` times the pages on a big orrery. `e2e/perf/seed.ts` fills a fresh `web/.data/perf.db` (or, with
 `E2E_POSTGRES_URL`, that Postgres) through the store: 20 projects, about 3,000 issues, 20,000 comments, 50,000

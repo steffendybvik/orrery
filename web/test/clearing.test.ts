@@ -15,6 +15,13 @@ let focused: unknown[]
 let carried: unknown[]
 let rechecked: number
 
+/** Whose an issue is, with more than one person (ORR-656); nothing to say with one. */
+let whoseWork: (assignee?: string | null) => string | null | undefined = () => undefined
+
+beforeEach(() => {
+    whoseWork = () => undefined
+})
+
 beforeEach(async () => {
     vi.useFakeTimers()
     session = {project: 'orrery', state: 'idle', started: {launch: 'l1'}, idleAt: 1, listening: true}
@@ -39,6 +46,7 @@ beforeEach(async () => {
     vi.stubGlobal('chatSession', () => chat)
     vi.stubGlobal('recheckIdle', () => void rechecked++)
     vi.stubGlobal('useStore', () => ({
+        whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         workingOn: async (_project: string, _ids: string[]) => working.map(id => ({id})), waiting: async (_project: string, _ids: string[]) => waiting,
         async busy(project: string, ids: string[]) {
             return (await this.workingOn(project, ids)).length > 0 || await this.waiting(project, ids)
@@ -208,6 +216,15 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
     it('is sent on to the most urgent of them, alone and as the owner, once it stays idle', async () => {
         clearing.carryOn('orrery', 'w')
         expect(carried).toEqual([])
+        await after()
+        expect(carried).toEqual([owners('ORR-3')])
+    })
+
+    it('passes over a sub-issue of someone else\'s, with more than one person (ORR-656)', async () => {
+        whoseWork = assignee => assignee ?? null
+        session = {...session, person: 'hati'}
+        issues = [...issues.filter(i => i.id === 'ORR-1'), sub('ORR-2', {priority: 'P0', assignee: 'skoll'}), sub('ORR-3', {priority: 'P2', assignee: 'hati'}), sub('ORR-4', {priority: 'P1'})]
+        clearing.carryOn('orrery', 'w')
         await after()
         expect(carried).toEqual([owners('ORR-3')])
     })

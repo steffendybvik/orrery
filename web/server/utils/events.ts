@@ -8,6 +8,7 @@ import {EventEmitter} from 'node:events'
 import type {H3Event} from 'h3'
 import type {OrreryEvent} from '#shared/happenings'
 import type {LoggedEvent, Project} from '#shared/roadmap'
+import {shortId} from '#shared/roadmap'
 import {diffProject, withoutNotes} from '#shared/patch'
 import type {Db} from './database'
 import {EventLog} from './event-log'
@@ -81,6 +82,7 @@ export function reread(id: string) {
 export function useStore(): Store {
     store ??= new Store(useDatabase(), reread, signal => projectEvents.emit('signal', signal), notice => projectEvents.emit('notice', notice), settings => projectEvents.emit('settings', settings))
     store.hears = hearing
+    store.sessionPerson = session => sessionNow(session)?.person
     store.happened = changed
     return store
 }
@@ -234,11 +236,15 @@ export function commentId(event: H3Event): number {
     return id
 }
 
-export function scheduleId(event: H3Event): number {
-    const id = Number(param(event, 'schedule'))
-    if (!Number.isInteger(id)) throw notFound(`No schedule ${param(event, 'schedule')}`)
+/** A preset's or schedule's number from the URL, or from its full form on this server (ORR-674): `pst-12-x7k2m9qd`. */
+async function serverId(event: H3Event, kind: 'preset' | 'schedule'): Promise<number> {
+    const sent = param(event, kind)
+    const id = Number(shortId(kind, sent, (await useStore().settings()).uid) ?? sent)
+    if (!Number.isInteger(id)) throw notFound(`No ${kind} ${sent}`)
     return id
 }
+export const scheduleId = (event: H3Event) => serverId(event, 'schedule')
+export const presetId = (event: H3Event) => serverId(event, 'preset')
 
 /** Answers a create with 201 Created. */
 export function created<T>(event: H3Event, value: T): T {
