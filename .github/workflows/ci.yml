@@ -1,6 +1,6 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
 # tag has to pass before `release.yml` publishes anything. The e2e flows and the performance run, on SQLite and on Postgres,
-# run on a pull request that isn't a draft, on a release tag, and by hand (Run workflow); a draft runs the unit tests alone.
+# run on a pull request into `main` that isn't a draft, on a release tag, and by hand (Run workflow); any other pull request runs the unit tests alone.
 name: CI
 
 on:
@@ -80,12 +80,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
 
-  # The main flows in a real browser, against `nuxt dev` with a fresh database: on a pull request that
-  # isn't a draft, each push to it included, so nothing merges into a release without them (ORR-731); on a
-  # release tag; and by hand. Drafts, and pushes, run the unit tests alone.
+  # The main flows in a real browser, against `nuxt dev` with a fresh database: on a pull request into `main`
+  # that isn't a draft, each push to it included, as they take too long for every pull request (ORR-749); on a
+  # release tag; and by hand. Drafts, pull requests into a release branch, and pushes, run the unit tests alone.
   # The Playwright version web/ pins, for the e2e job's image.
   playwright:
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && !github.event.pull_request.draft) }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && !github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
