@@ -58,6 +58,18 @@ describe('people, members, claims and keys', () => {
     })
 })
 
+describe.runIf(process.env.TEST_POSTGRES_URL)('on Postgres, people, members, claims and keys', () => {
+    it("go along in a backup, a SQLite snapshot, and a new orrery starts from it (ORR-733)", async () => {
+        const store = new Store(testDb())
+        const made = await peopled(store)
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-attack-'))
+        const backups = join(dir, 'backups')
+        await backUp(store.db, backups)
+        const restored = restoredCopy(backups, 'orrery.db', join(dir, 'live', 'orrery.db'))
+        await itCameThrough(new Store(new SqliteDb(openDb(restored))), made)
+    })
+})
+
 describe('going back', () => {
     it('works from the copy made before the upgrade: an older orrery\'s file, as it was, opening at its own step', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-attack-'))

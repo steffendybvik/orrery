@@ -22,7 +22,8 @@ sidebar (App settings → Advanced turns it back on).
    `docker compose pull && docker compose up -d`. The database moves to the new schema by itself. On SQLite it keeps a copy
    as it was first, `orrery-pre-<version>-step<n>.db` (`<n>` the schema step it was at, so each step taken under one version gets its own), in the backup folder (beside the database when backups are off).
    An older version won't open a database a newer one has moved on: it stops and says so. To go back, restore that
-   copy.
+   copy. On Postgres orrery keeps no copy, so take a `pg_dump` first, as restoring it is the way back: a failed upgrade leaves
+   the database as it was, but one that worked can't be undone, and orrery's backups are of the new schema soon after it.
 3. **Everything else follows.** Each connected repo's channel and hooks, and the launcher, run on your machine through
    `~/.orrery/bootstrap.mjs`, which fetches what orrery serves (`/channel`) and keeps it in `~/.orrery`. A session gets the
    new channel as it starts, and its hooks within a minute. The launcher restarts itself on the new code and takes its
