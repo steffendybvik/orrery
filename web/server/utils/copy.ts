@@ -8,9 +8,9 @@ import {one} from './database'
 
 /** In an order every foreign key is satisfied in, the statuses first (issues point at them). */
 export const COPIED_TABLES = ['statuses', 'settings', 'projects', 'releases', 'chunks', 'issues', 'comments', 'schedule_requests', 'issue_events', 'issue_sessions',
-    'issue_aliases', 'issue_links', 'chunk_aliases', 'docs', 'doc_sections', 'schedules_across', 'schedules', 'schedule_runs', 'schedule_held', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets', 'preset_defaults', 'events', 'proposal_clears', 'pull_states', 'pull_repos'] as const
+    'issue_aliases', 'issue_links', 'chunk_aliases', 'docs', 'doc_sections', 'doc_revisions', 'schedules_across', 'schedules', 'schedule_runs', 'schedule_held', 'signals', 'secrets', 'secret_uses', 'uploads', 'presets', 'preset_defaults', 'events', 'proposal_clears', 'pull_states', 'pull_repos'] as const
 /** The tables whose ids the database hands out, so Postgres's counters move on past the copied ones. */
-const NUMBERED = ['comments', 'issue_events', 'schedules_across', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
+const NUMBERED = ['comments', 'issue_events', 'doc_revisions', 'schedules_across', 'schedules', 'schedule_runs', 'signals', 'secret_uses', 'presets', 'events']
 
 /** `mark` is written into the target's settings as `backup_of`: the id of the orrery it's a backup of. */
 export async function copyDatabase(source: Db, target: Db, {replace = false, mark}: {replace?: boolean, mark?: string} = {}): Promise<Record<string, number>> {

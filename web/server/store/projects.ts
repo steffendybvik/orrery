@@ -158,6 +158,7 @@ export abstract class ProjectStore extends OwnerStore {
             await this.run('DELETE FROM chunks WHERE project = ?', id)
             await this.run('DELETE FROM docs WHERE project = ?', id)
             await this.run('DELETE FROM doc_sections WHERE project = ?', id)
+            await this.run('DELETE FROM doc_revisions WHERE project = ?', id)
             await this.run('DELETE FROM releases WHERE project = ?', id)
             await this.run('DELETE FROM issue_aliases WHERE project = ?', id)
             await this.run('DELETE FROM issue_links WHERE project = ? OR on_project = ?', id, id)

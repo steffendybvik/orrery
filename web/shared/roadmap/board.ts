@@ -191,6 +191,9 @@ export interface Release {
     frozen_on?: string
     /** The day it shipped (`YYYY-MM-DD`); none while it's being prepared. */
     shipped_on?: string
+    /** The newest doc revision when it shipped, across the orrery: a doc as of this release is its newest revision at or
+     * below this. None while it's being prepared, and on one shipped before revisions were kept. */
+    doc_mark?: number
     /** Its issues: those set for it, each with its sub-issues (in every project drawing on it, on its source). */
     issues: number
     kinds: Kinds
@@ -256,6 +259,35 @@ export interface DocSummary {
 export interface Doc extends DocSummary {
     project: string
     body: string
+}
+
+/** One saved version of a doc, as a doc's history lists them (ORR-675). Ids run across the orrery. */
+export interface DocRevisionSummary {
+    id: number
+    title: string
+    /** The doc being removed here: this holds its last text. */
+    deleted: boolean
+    created_by: string
+    /** The name of the session that wrote it, as it was then. */
+    session_name?: string
+    created_at: string
+}
+
+export interface DocRevision extends DocRevisionSummary {
+    project: string
+    doc: string
+    body: string
+}
+
+/** A doc that's gone and can come back, from its last revision. */
+export interface DeletedDoc {
+    id: string
+    title: string
+    summary: string
+    /** The revision that says it was removed. */
+    revision: number
+    deleted_by: string
+    deleted_at: string
 }
 
 /** One app: its details, its board and its docs. */

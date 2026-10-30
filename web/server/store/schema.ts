@@ -1,5 +1,5 @@
 // The store's records and rows, the fields each write takes, and turning rows into records.
-import type {ActivityField, Asks, Board, Chunk, Comment, Counts, Decision, Doc, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal} from '#shared/roadmap'
+import type {ActivityField, Asks, Board, Chunk, Comment, Counts, Decision, Doc, DocRevision, DocRevisionSummary, Issue, IssueEvent, Kind, Kinds, Priority, Project, Proposal, Release, ReleaseMode, Signal} from '#shared/roadmap'
 import {ASKS, DECISIONS, KINDS, PRIORITIES, RELEASE_MODES, TERMINALS, TINTS, emptyKinds} from '#shared/roadmap'
 import type {Field, Input} from '../utils/input'
 import {badRequest, isObject} from '../utils/input'
@@ -121,7 +121,8 @@ export interface IssueRow extends Made {
 export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number, section: string | null }
-export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, position: number }
+export interface DocRevisionRow { id: number, project: string, doc: string, title: string, body: string, section: string | null, deleted: number, created_by: string, session_name: string | null, owned: number, created_at: string }
+export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, doc_mark: number | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
 export interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
@@ -389,7 +390,7 @@ export function tallyReleases(versions: string[], boards: Board[]): Map<string, 
 
 export function releaseOf(row: ReleaseRow): Omit<Release, 'issues' | 'kinds'> {
     return {
-        version: row.version, branch: row.branch ?? undefined, notes: row.notes ?? undefined, frozen_on: row.frozen_on ?? undefined, shipped_on: row.shipped_on ?? undefined,
+        version: row.version, branch: row.branch ?? undefined, notes: row.notes ?? undefined, frozen_on: row.frozen_on ?? undefined, shipped_on: row.shipped_on ?? undefined, doc_mark: row.doc_mark ?? undefined,
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
 }
@@ -460,6 +461,15 @@ export function docOf(row: DocRow): Doc {
         id: row.id, project: row.project, title: row.title, summary: summaryOf(row.body), body: row.body, ...row.section ? {section: row.section} : {},
         created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
     }
+}
+
+export function docRevisionOf(row: DocRevisionRow): DocRevision {
+    return {...docRevisionSummaryOf(row), project: row.project, doc: row.doc, body: row.body}
+}
+
+/** A revision without its text, as a doc's history lists them. */
+export function docRevisionSummaryOf(row: Omit<DocRevisionRow, 'body'>): DocRevisionSummary {
+    return {id: row.id, title: row.title, deleted: !!row.deleted, created_by: row.created_by, ...row.session_name ? {session_name: row.session_name} : {}, created_at: row.created_at}
 }
 
 /** GitHub issues as sent, each a number or a string, kept as strings to read against the project's repo

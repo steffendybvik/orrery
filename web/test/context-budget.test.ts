@@ -39,14 +39,14 @@ describe('the tool list a session carries on every turn', () => {
 
     it('stays within its budget, for one project and for several', () => {
         // A work session's and an untrusted run's were cut by a third and more (ORR-625): 9,708 and 9,444 before. An
-        // issue's GitHub issues (ORR-635) added about 140 to each.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_150)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_050)
-        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(8_900)
-        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_600)
+        // issue's GitHub issues (ORR-635) added about 140 to each, and a doc's past (ORR-675) about 130.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_280)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_180)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_030)
+        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_730)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624).
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(9_000)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(10_250)
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(9_130)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(10_380)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {

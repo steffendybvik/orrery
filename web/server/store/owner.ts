@@ -41,7 +41,7 @@ export abstract class OwnerStore extends StatusStore {
         await this.db.transaction(async () => {
             await this.run("INSERT INTO settings (key, value) VALUES ('owner', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(display))
             if (name === before.name) return
-            for (const table of ['projects', 'chunks', 'issues', 'docs', 'comments', 'signals', 'schedules', 'issue_events'])
+            for (const table of ['projects', 'chunks', 'issues', 'docs', 'doc_revisions', 'comments', 'signals', 'schedules', 'issue_events'])
                 await this.run(`UPDATE ${table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?`, name, before.name)
             await this.run('UPDATE schedules_across SET created_by = ? WHERE lower(created_by) = ?', name, before.name)
             await this.run('UPDATE issues SET assignee = ? WHERE lower(assignee) = ?', name, before.name)

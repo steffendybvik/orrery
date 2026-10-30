@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {Doc} from '#shared/roadmap'
+import type {DeletedDoc, Doc} from '#shared/roadmap'
 
 // One doc, its Markdown drawn as a page with its table of contents beside it. Read again when it
 // changes through the API. Its title and text edit in place, and it can be removed, as the owner.
@@ -87,6 +87,26 @@ async function save() {
     }
 }
 
+// Its past, in place of the page (ORR-675). A restore comes back as the doc, which is then what's read.
+const history = ref(false)
+function restored(saved: Doc) {
+    before.value = {key: `${saved.project}/${saved.id}`, body: saved.body}
+    read(saved.project, saved.id, saved.body)
+    doc.value = saved
+    missing.value = false
+    history.value = false
+}
+
+// A doc that isn't there may have been removed: then it can be read and brought back.
+const removed = ref<DeletedDoc | null>(null)
+watch([missing, () => route.params.doc], async ([gone]) => {
+    removed.value = null
+    if (!gone) return
+    const asked = String(route.params.doc)
+    const list = await $fetch<DeletedDoc[]>(`/api/projects/${encodeURIComponent(String(route.params.project))}/deleted-docs`).catch(() => [])
+    if (missing.value && String(route.params.doc) === asked) removed.value = list.find(d => d.id === asked) ?? null
+})
+
 // Removing it, asked once more in place, then on to the project's other docs.
 const removing = ref<'ask' | 'busy' | null>(null)
 const removeFailed = ref('')
@@ -104,6 +124,7 @@ async function remove() {
 }
 watch(() => [route.params.project, route.params.doc], () => {
     editing.value = false
+    history.value = false
     removing.value = null
     removeFailed.value = ''
     resetUploads()
@@ -151,6 +172,10 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
           <h1 v-else class="min-w-0 flex-1 text-3xl font-semibold tracking-tight text-fg">{{ doc.title }}</h1>
           <div v-if="!editing" class="mt-1.5 flex shrink-0 items-center gap-1">
             <template v-if="!removing">
+              <UiButton variant="ghost" title="Every saved version, with what changed" @click="history = !history">
+                <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></svg>
+                {{ history ? 'Back to the doc' : 'History' }}
+              </UiButton>
               <UiButton variant="ghost" title="Edit its title and text" @click="edit">
                 <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg>
                 Edit
@@ -215,14 +240,22 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
           </UiButton>
         </div>
       </section>
+      <DocHistory v-else-if="history" :project="doc.project" :doc="doc.id" :updated-at="doc.updated_at" @restored="restored" />
       <MarkdownView v-else :source="doc.body" :title="doc.title" :before="before?.body" :data-size="size" />
       <p class="mt-12 rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PUT /api/projects/{{ doc.project }}/docs/{{ doc.id }}</p>
     </article>
-    <aside v-if="headings.length" class="hidden w-56 shrink-0 xl:block">
+    <aside v-if="headings.length && !history && !editing" class="hidden w-56 shrink-0 xl:block">
       <div class="sticky top-6">
         <DocContents :headings="headings" :root="scroller" />
       </div>
     </aside>
+    </div>
+    <div v-else-if="missing && removed" class="mx-auto max-w-3xl animate-fade-up px-4 py-8 sm:px-8 sm:py-12">
+      <header class="mb-8 flex flex-col gap-2 border-b border-line pb-6">
+        <h1 class="text-3xl font-semibold tracking-tight text-fg">{{ removed.title }}</h1>
+        <p class="text-xs text-faint">Removed by {{ who(removed.deleted_by) }} {{ ago(removed.deleted_at) }}. Its past is kept, so it can come back.</p>
+      </header>
+      <DocHistory :project="String(route.params.project)" :doc="removed.id" @restored="restored" />
     </div>
     <NotFound v-else-if="missing && ready" :to="`/p/${route.params.project}/docs`" back="Back to the docs">No doc “{{ route.params.doc }}”</NotFound>
   </div>
