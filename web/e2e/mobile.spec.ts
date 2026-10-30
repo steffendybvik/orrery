@@ -43,17 +43,17 @@ test('the sidebar is a drawer behind the menu button, gone again once a page is 
     await expect(drawer).not.toBeInViewport()
 })
 
-test("the drawer's foot has GitHub and, beside it, Releases (ORR-609)", async ({page}) => {
+test("the drawer's foot has GitHub and, beside it, orrery's releases (ORR-609)", async ({page}) => {
     await page.goto('/mine')
     await page.getByRole('button', {name: 'Open the sidebar'}).tap()
     const drawer = page.locator('aside')
     const github = drawer.getByRole('link', {name: 'GitHub', exact: true})
-    const releases = drawer.getByRole('link', {name: 'Releases'})
+    const releases = drawer.getByRole('link', {name: 'orrery releases'})
     await expect(github).toHaveAttribute('href', 'https://github.com/steffendybvik/orrery')
     await expect(releases).toHaveAttribute('href', 'https://github.com/steffendybvik/orrery/releases')
     await expect(releases).toHaveAttribute('target', '_blank')
     await expect(releases).toBeInViewport({ratio: 1})
-    // One row: Releases to GitHub's right.
+    // One row: orrery's releases to GitHub's right.
     const [g, r] = [await github.boundingBox(), await releases.boundingBox()]
     expect(r!.x).toBeGreaterThanOrEqual(g!.x + g!.width)
     expect(Math.abs(r!.y - g!.y)).toBeLessThan(4)
