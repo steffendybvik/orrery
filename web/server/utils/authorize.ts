@@ -25,6 +25,13 @@ export function allows(row: Permission, kind: ActorKind): boolean {
     return ['free', 'limited', 'owned'].includes(row[kind].level)
 }
 
+/** The member asking, in person, for what they may do to their own session (ORR-658): `checkBoards` has held them to
+ * their own by the row's `member` cell. Anyone else goes on to `authorize`, so an agent of theirs is still refused. */
+export async function memberAsking(event: H3Event): Promise<Actor | undefined> {
+    const actor = await actorOf(event)
+    return actor.person ? actor : undefined
+}
+
 /** Lets the request through if the table lets whoever's asking do `id`, else throws its 403. The actor, for the route. */
 export async function authorize(event: H3Event, id: string): Promise<Actor> {
     const row = permission(id)

@@ -15,6 +15,7 @@ let checkBoards: (event: Event) => Promise<void>
 let boardsHeard: (event: Event, projects: string[]) => Promise<string[]>
 
 const owner = {name: 'skoll', owner: true}
+let sessionsNow: {id: string, person?: string, started?: {launch: string}}[] = []
 const claude = {name: 'claude', owner: false}
 const hati = {name: 'hati', owner: false}
 
@@ -28,6 +29,8 @@ beforeEach(async () => {
     vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
     vi.stubGlobal('decoded', (part: string) => decodeURIComponent(part))
     vi.stubGlobal('EXTERNAL', 'external')
+    vi.stubGlobal('sessionNow', (id: string) => sessionsNow.find(s => s.id === id))
+    vi.stubGlobal('listSessions', () => sessionsNow)
     vi.resetModules()
     const board = await import('../server/utils/board')
     checkBoards = board.checkBoards as unknown as typeof checkBoards
@@ -122,7 +125,7 @@ describe('with more than one person', () => {
         for (const p of PERMISSIONS) {
             const lines = p.member.routes ?? p.routes
             const {level, check} = p.member
-            const passes = (level === 'free' || level === 'limited') && check !== 'boardHolder'
+            const passes = (level === 'free' || level === 'limited') && check !== 'boardHolder' && check !== 'ownSession'
             for (const line of p.routes) {
                 const {method, path} = route(line)
                 const anotherRow = PERMISSIONS.some(q => q !== p && q.routes.includes(line) && ['free', 'limited'].includes(q.member.level) && (q.member.routes ?? q.routes).includes(line) && !q.member.check)
@@ -130,6 +133,17 @@ describe('with more than one person', () => {
                 expect(got, `${p.id}: ${line}`).toBe((passes && lines.includes(line)) || anotherRow ? 200 : 403)
             }
         }
+    })
+
+    it('lets them stop, watch and Allow only their own sessions (ORR-658)', async () => {
+        sessionsNow = [{id: 'hatis', person: 'hati', started: {launch: 'h1'}}, {id: 'skolls', person: 'skoll', started: {launch: 's1'}}]
+        const asPerson = {'orrery-actor': 'hati'}
+        for (const [mine, theirs] of [['sessions/hatis/stop', 'sessions/skolls/stop'], ['launches/h1/stop', 'launches/s1/stop'], ['launches/h1/extend', 'launches/s1/extend'], ['launches/h1/watch', 'launches/s1/watch'], ['launches/h1/allow', 'launches/s1/allow']]) {
+            expect(await answer('POST', `/api/projects/greenhouse/${mine}`, asPerson), mine).toBe(200)
+            expect(await answer('POST', `/api/projects/greenhouse/${theirs}`, asPerson), theirs).toBe(403)
+        }
+        expect(await answer('POST', '/api/projects/greenhouse/launches', asPerson)).toBe(403)
+        sessionsNow = []
     })
 
     it('leaves what a board holds to its holder', async () => {

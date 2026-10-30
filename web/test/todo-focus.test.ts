@@ -35,6 +35,7 @@ beforeEach(async () => {
     said = []
     vi.stubGlobal('listSessions', () => sessions)
     vi.stubGlobal('sessionIds', (id: string) => [id])
+    vi.stubGlobal('sessionNow', (id: string) => sessions.find(s => s.id === id))
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('chatSession', (id: string) => chats.includes(id))
     vi.stubGlobal('untrustedSession', () => false)
@@ -71,6 +72,31 @@ async function hear(...events: Parameters<typeof todo.heardTodo>[0][]) {
     for (const event of events) todo.heardTodo(event)
     await vi.advanceTimersByTimeAsync(todo.TODO_AFTER)
 }
+
+describe('a member\'s move into Todo (ORR-658)', () => {
+    const hatis = {name: 'hati', owner: false, person: 'hati'}
+    const byHati = (id: string) => ({event: {type: 'issue.status', project: 'orrery', subject: id, by: hatis, from: 'backlog', to: 'todo'}})
+
+    beforeEach(() => {
+        sessions = [
+            {id: 'theirs', project: 'orrery', state: 'idle', listening: true, person: 'skoll'} as Listed,
+            {id: 'mine', project: 'orrery', state: 'idle', listening: true, person: 'hati'} as Listed,
+        ]
+    })
+
+    it('goes only to their own session, in their name, and only for what\'s assigned to them', async () => {
+        board = [issue('ORR-1', 'todo', {assignee: 'hati'}), issue('ORR-2'), issue('ORR-3', 'todo', {assignee: 'skoll'})]
+        await hear(byHati('ORR-1'), byHati('ORR-2'), byHati('ORR-3'))
+        expect(sent).toMatchObject([{issue: 'ORR-1', session: 'mine', by: {name: 'hati', owner: false, person: 'hati'}}])
+    })
+
+    it('waits when none of theirs is free', async () => {
+        sessions = sessions.filter(s => s.id === 'theirs')
+        board = [issue('ORR-1', 'todo', {assignee: 'hati'})]
+        await hear(byHati('ORR-1'))
+        expect(sent).toEqual([])
+    })
+})
 
 describe('an issue the owner moves into Todo', () => {
     it('goes to an idle session, as theirs, aimed at it', async () => {

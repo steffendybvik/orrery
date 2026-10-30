@@ -3,7 +3,8 @@ import type {ChatScheduleRequest, Comment, IssueEvent} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
 import {checkInput, notFound} from '../utils/input'
 import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
-import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, commentOf, eventOf, signalOf, nullable, stamp, ORRERY} from './schema'
+import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, PERSONS_WORDS, commentOf, eventOf, signalOf, nullable, stamp, ORRERY} from './schema'
+import {refusedFor} from '../utils/permission'
 import {SignalStore} from './signals'
 
 /** orrery itself, speaking on an issue. */
@@ -95,9 +96,10 @@ export abstract class CommentStore extends SignalStore {
         const rails = input.asks ? await this.railsFor(actor) : null
         const assignee = rails ? rails.person && rails.person === await this.holderOf(row.assignee) ? rails.person : undefined
             : !actor.owner && input.asks ? (await this.ownerId()) : asker
+        const {person, by_agent} = await this.voiceOf(actor)
         const id = await this.db.transaction(async () => {
-            const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, asks, created_by, session_name, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
-                project, issue, String(input.body), nullable(input.asks), actor.name, actor.session ?? null, Number(actor.owner), now, now)
+            const {id} = await this.one<{id: number}>('INSERT INTO comments (project, issue, body, asks, created_by, session_name, owned, person, by_agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+                project, issue, String(input.body), nullable(input.asks), actor.name, actor.session ?? null, Number(actor.owner), person, by_agent, now, now)
             if (assignee) {
                 await this.run('UPDATE issues SET assignee = ? WHERE project = ? AND id = ?', assignee, project, issue)
                 await this.record(project, issue, actor, [['assignee', row.assignee, assignee]])
@@ -107,9 +109,18 @@ export abstract class CommentStore extends SignalStore {
         })
         this.changed(project)
         this.tell(input.asks ? 'comment.asks' : 'comment.added', project, issue, actor, input.asks ? {to: String(input.asks)} : {})
-        if (actor.owner) await this.carryComment(project, issue, String(input.body), actor)
-        else this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
+        if (actor.owner || actor.person) await this.carryComment(project, issue, String(input.body), actor)
+        if (!actor.owner) this.onNotice({...await this.comment(project, issue, id), project, title: (await this.issueRow(project, issue)).title})
         return await this.comment(project, issue, id)
+    }
+
+    /** Whose a comment is (ORR-658): the person's own words, or one of their agents', or nobody's (orrery itself, and an
+     * untrusted session or a session naming nobody). */
+    private async voiceOf(actor: Actor): Promise<{person: string | null, by_agent: number}> {
+        if (actor.owner) return {person: await this.ownerId(), by_agent: 0}
+        if (actor.person) return {person: actor.person, by_agent: 0}
+        const person = actor.asked && !actor.untrusted ? await this.personFor(actor.named ?? actor.name) : undefined
+        return {person: person ?? null, by_agent: 1}
     }
 
     /** orrery asking the owner on an issue (`asks: feedback`, ORR-508, or a `decision`): to the bell, as an agent's ask,
@@ -165,29 +176,36 @@ export abstract class CommentStore extends SignalStore {
 
     /** The owner's comments in the project that no agent has answered and no session has had yet, nor waits in the pool
      * for one to take (from the last day, as `pooledWaiting`), sent to `session` (just connected) to catch up on. Says
-     * how many. orrery's own word after one (a pull request's news) answers nothing (ORR-528). */
-    async carryUnanswered(project: string, session: string): Promise<number> {
-        const waiting = await this.all<{issue: string, body: string, created_by: string}>(`
-            SELECT c.issue, c.body, c.created_by FROM comments c
-            WHERE c.project = ? AND c.owned = 1
-              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND a.owned = 0 AND a.created_by != ? AND a.id > c.id)
+     * how many. orrery's own word after one (a pull request's news) answers nothing (ORR-528). A session whose person
+     * is a member (`person`) gets their own words too, on what's theirs. */
+    async carryUnanswered(project: string, session: string, person?: string): Promise<number> {
+        const waiting = await this.all<{issue: string, body: string, created_by: string, owned: number}>(`
+            SELECT c.issue, c.body, c.created_by, c.owned FROM comments c
+            WHERE c.project = ? AND (c.owned = 1 OR (c.person = ? AND c.by_agent = 0
+                AND EXISTS (SELECT 1 FROM issues i WHERE i.project = c.project AND i.id = c.issue AND lower(i.assignee) = c.person)))
+              AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND NOT ${PERSONS_WORDS('a')} AND a.created_by != ? AND a.id > c.id)
               AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment'
                               AND s.created_at >= c.created_at AND (s.delivered_to != '[]' OR (s.target IS NULL AND s.created_at >= ?)))
-            ORDER BY c.created_at LIMIT 10`, project, ORRERY.name, new Date(Date.now() - 86_400_000).toISOString())
+            ORDER BY c.created_at LIMIT 10`, project, person ?? null, ORRERY.name, new Date(Date.now() - 86_400_000).toISOString())
         for (const comment of waiting) {
-            const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-                project, comment.issue, 'comment', comment.body, session, comment.created_by, 1, stamp())
+            const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+                project, comment.issue, 'comment', comment.body, session, comment.owned ? null : person ?? null, comment.created_by, comment.owned, stamp())
             this.onSignal(signalOf(row))
         }
         return waiting.length
     }
 
     /** The owner's comment goes to the session that last worked the issue, so one session answers it; when none has,
-     * or that one isn't there to hear it, to one session orrery picks (pool.ts), which becomes the issue's (ORR-513). */
+     * or that one isn't there to hear it, to one session orrery picks (pool.ts), which becomes the issue's (ORR-513).
+     * A member's goes only to their own sessions (ORR-658): the one on the issue if it's theirs, else one of theirs if
+     * the issue is, and on someone else's issue to nobody, as it's only there to be read. */
     protected async carryComment(project: string, issue: string, body: string, actor: Actor) {
-        const target = await this.listeningWorker(project, issue)
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'comment', body, target, actor.name, 1, stamp())
+        const member = actor.owner ? undefined : actor.person
+        const worker = await this.listeningWorker(project, issue)
+        const target = member && worker && this.sessionPerson(worker) !== member ? null : worker
+        if (member && !target && await this.holderOf((await this.issueRow(project, issue)).assignee) !== member) return
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, issue, 'comment', body, target, member ?? null, actor.name, member ? 0 : 1, stamp())
         this.onSignal(signalOf(row))
     }
 
@@ -196,6 +214,7 @@ export abstract class CommentStore extends SignalStore {
         issue = await this.issueId(project, issue)
         const row = await this.commentRow(project, issue, id)
         this.refuse(actor, `Editing comment ${id}`, row.owned ? [`comment ${id}`] : [])
+        this.leaveTheirWords(row, actor, `Editing comment ${id}`)
         const input = checkInput(body, COMMENT_FIELDS, true)
         await this.db.transaction(async () => {
             await this.update('comments', 'id = ?', [id], {body: input.body, asks: input.asks})
@@ -203,16 +222,22 @@ export abstract class CommentStore extends SignalStore {
         })
         this.changed(project)
         // A session may have read the first version already, so the owner's new words go to it too.
-        if (actor.owner && row.owned && input.body !== undefined && String(input.body) !== row.body) {
+        if ((actor.owner && row.owned || actor.person && !row.by_agent && row.person === actor.person) && input.body !== undefined && String(input.body) !== row.body) {
             await this.carryComment(project, issue, `(Edited: this replaces their earlier comment.)\n\n${input.body}`, actor)
         }
         return await this.comment(project, issue, id)
+    }
+
+    /** A member's comment is theirs, as the owner's are the owner's: only they and the owner change it. */
+    private leaveTheirWords(row: CommentRow, actor: Actor, action: string) {
+        if (row.person && !row.by_agent && !actor.owner && actor.person !== row.person) throw refusedFor('issues.delete', `${action} is ${row.person}'s call: they wrote it`)
     }
 
     async deleteComment(project: string, issue: string, id: number, actor = AGENT) {
         issue = await this.issueId(project, issue)
         const row = await this.commentRow(project, issue, id)
         this.refuse(actor, `Deleting comment ${id}`, row.owned ? [`comment ${id}`] : [])
+        this.leaveTheirWords(row, actor, `Deleting comment ${id}`)
         await this.db.transaction(async () => {
             await this.run('DELETE FROM comments WHERE id = ?', id)
             await this.touchIssue(project, issue)

@@ -84,6 +84,9 @@ export interface Actor {
     named?: string
     /** The owner's chat, which is the owner's whatever it's called. */
     chat?: boolean
+    /** The member acting themselves, never an agent of theirs (ORR-658). They aren't `owner`, which stays the owner's
+     * alone, and aren't an agent either: their words go to their own sessions. */
+    person?: string
 }
 
 export const AGENT: Actor = {name: 'agent', owner: false}
@@ -130,13 +133,13 @@ export interface IssueRow extends Made {
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
     choices: string, picks: string | null, explore: string | null, ships_in: string | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null
 }
-export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null }
+export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null, person: string | null, by_agent: number }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface DocRow extends Made { project: string, id: string, title: string, body: string, position: number, section: string | null, kind: DocKind }
 export interface DocRevisionRow { id: number, project: string, doc: string, title: string, body: string, section: string | null, kind: DocKind, deleted: number, created_by: string, session_name: string | null, owned: number, created_at: string }
 export interface ReleaseRow extends Made { project: string, version: string, branch: string | null, notes: string | null, frozen_on: string | null, shipped_on: string | null, doc_mark: number | null, position: number }
 export interface PresetRow { id: number, project: string | null, name: string, text: string, icon: string | null, color: string | null, default_key: string | null, created_at: string, updated_at: string }
-export interface SignalRow { id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
+export interface SignalRow { person?: string | null, id: number, project: string, issue: string | null, chunk: string | null, status: string | null, release: string | null, schedule: number | null, kind: 'focus' | 'comment' | 'message', note: string | null, preset: string | null, via: string | null, target: string | null, delivered_to: string, instructions: string, created_by: string, owned: number, created_at: string }
 
 export const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/
 /** A named tint or any `#rrggbb`: the page's tint, a project icon's colour. */
@@ -358,7 +361,9 @@ export const IMAGE_TYPES: [string, (bytes: Buffer) => boolean][] = [
 ]
 
 /** Whether the owner has commented on the issue since comment `c`. */
-export const SINCE = 'EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id)'
+/** What's a person's own words on a comment `c` is: the owner's, or a member's (ORR-658). */
+export const PERSONS_WORDS = (c: string) => `(${c}.owned = 1 OR (${c}.person IS NOT NULL AND ${c}.by_agent = 0))`
+export const SINCE = `EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND ${PERSONS_WORDS('o')} AND o.id > c.id)`
 export const ANSWERED = `${SINCE} AS answered`
 /** Comment `c` is an agent's question the owner hasn't answered yet: what its issue waits on them for. */
 export const OPEN_ASK = `c.asks IS NOT NULL AND c.owned = 0 AND NOT ${SINCE}`
@@ -381,7 +386,7 @@ export function eventOf(row: EventRow): IssueEvent {
 export function signalOf(row: SignalRow): Signal {
     return {
         id: row.id, project: row.project, issue: row.issue ?? undefined, chunk: row.chunk ?? undefined, status: row.status ?? undefined, release: row.release ?? undefined, schedule: row.schedule ?? undefined, kind: row.kind, note: row.note ?? undefined, preset: row.preset ?? undefined, ...row.via === 'chat' ? {via: 'chat' as const} : {},
-        target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
+        target: row.target ?? undefined, delivered_to: JSON.parse(row.delivered_to) as string[], instructions: JSON.parse(row.instructions) as string[], ...row.person ? {person: row.person} : {}, created_by: row.created_by, protected: !!row.owned, created_at: row.created_at,
     }
 }
 

@@ -16,7 +16,7 @@ export interface PermissionCell {
     /** The row's routes this kind may call, when it's only some of them (the chat edits one issue, never many at once). */
     routes?: string[]
     /** A limit held where the request comes in (server/utils/guard.ts `LIMITS`), by name. */
-    check?: 'externalProposal' | 'boardHolder'
+    check?: 'externalProposal' | 'boardHolder' | 'ownSession'
 }
 
 /** The kinds of session, as the table's columns: one working in a repo, the owner's chat, and an untrusted schedule's. */
@@ -183,7 +183,7 @@ export const PERMISSIONS: Permission[] = [
         session: {level: 'owner'},
         chat: {level: 'asks', note: 'Done as yours on your Allow'},
         untrusted: refused,
-        member: ownerAlone,
+        member: {level: 'limited', note: 'Stop or give more time to their own, never their agents; starting one stays the owner’s', routes: ['POST /api/projects/:project/launches/:launch/stop', 'POST /api/projects/:project/launches/:launch/extend', 'POST /api/projects/:project/sessions/:session/stop'], check: 'ownSession'},
     },
     {
         id: 'sessions.watch', area: 'Sessions', action: 'Watch a session in a terminal',
@@ -192,7 +192,7 @@ export const PERMISSIONS: Permission[] = [
         session: {level: 'owner'},
         chat: refused,
         untrusted: refused,
-        member: ownerAlone,
+        member: {level: 'limited', note: 'Their own, never their agents', check: 'ownSession'},
     },
     {
         id: 'sessions.allow', area: 'Sessions', action: 'Allow what a session asks permission for',
@@ -201,7 +201,7 @@ export const PERMISSIONS: Permission[] = [
         session: {level: 'owner'},
         chat: refused,
         untrusted: refused,
-        member: ownerAlone,
+        member: {level: 'limited', note: 'Their own, never their agents', check: 'ownSession'},
     },
     {
         id: 'chats.reply', area: 'Sessions', action: 'Answer in a chat, and ask the owner there',
@@ -373,7 +373,7 @@ export const PERMISSIONS: Permission[] = [
         session: {level: 'owner'},
         chat: refused,
         untrusted: refused,
-        member: ownerAlone,
+        member: {level: 'limited', note: 'Their own bell, never their agents', routes: ['POST /api/notices/clear']},
     },
     {
         id: 'owner.name', area: 'This orrery', action: 'Give or change the owner’s name',

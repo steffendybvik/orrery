@@ -93,14 +93,24 @@ export abstract class SignalStore extends IssueStore {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
         if (input.session === EVERY) throw badRequest(`Only a chunk can go to every session, not issue ${issue}: name one in "session", or leave it out for orrery to pick one`)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const target = nullable(input.session) ?? await this.listeningWorker(project, issue) ?? (await this.heldAbove(project, issue))?.holder ?? null
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'focus', nullable(input.note), target, instructions, actor.name, Number(actor.owner), stamp())
+        const member = this.memberAiming(actor, input.session)
+        const theirs = (session: string | null | undefined) => session && (!member || this.sessionPerson(session) === member) ? session : null
+        const target = nullable(input.session) ?? theirs(await this.listeningWorker(project, issue)) ?? theirs((await this.heldAbove(project, issue))?.holder) ?? null
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, issue, 'focus', nullable(input.note), target, member ?? null, instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
         if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
         this.onSignal(signal)
         return signal
+    }
+
+    /** The member behind a signal, if one is (ORR-658): it goes only to their own sessions, so naming someone else's is
+     * refused rather than sent nowhere. */
+    private memberAiming(actor: Actor, session: unknown): string | undefined {
+        const member = actor.owner ? undefined : actor.person
+        if (member && session && session !== EVERY && this.sessionPerson(String(session)) !== member) throw conflict(`Session ${String(session)} isn't ${member}'s, so it can't be sent this: comment on the issue instead`)
+        return member
     }
 
     /** Asks the sessions (or `session`) to work through the chunk's open issues now, or (`status`) its issues of
@@ -128,8 +138,8 @@ export abstract class SignalStore extends IssueStore {
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
-        const row = await this.one<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), instructions, actor.name, Number(actor.owner), stamp())
+        const row = await this.one<SignalRow>('INSERT INTO signals (project, chunk, status, release, kind, note, target, person, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+            project, chunk, status, release, 'focus', nullable(input.note), nullable(input.session), this.memberAiming(actor, input.session) ?? null, instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         this.onSignal(signal)
         return signal
@@ -219,15 +229,15 @@ export abstract class SignalStore extends IssueStore {
      * it's on its way, so another isn't sent (ORR-515). */
     async focusOnItsWay(project: string, issue: string): Promise<boolean> {
         const since = new Date(Date.now() - 600_000).toISOString()
-        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1
+        return !!await this.get(`SELECT 1 FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND (owned = 1 OR person IS NOT NULL)
             AND delivered_to = '[]' AND created_at >= ? LIMIT 1`, project, issue, since)
     }
 
-    /** The owner's signals from the last day for one session orrery picks (pool.ts) that none has heard yet: the next
-     * session to go idle takes them. */
+    /** The owner's and members' signals from the last day for one session orrery picks (pool.ts) that none has heard
+     * yet: the next session to go idle that may hear them takes them. */
     async pooledWaiting(project: string): Promise<Signal[]> {
         const since = new Date(Date.now() - 86_400_000).toISOString()
-        return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'
+        return (await this.all<SignalRow>(`SELECT * FROM signals WHERE project = ? AND (owned = 1 OR person IS NOT NULL) AND delivered_to = '[]'
             AND target IS NULL AND created_at >= ? ORDER BY id`, project, since)).map(signalOf)
     }
 
