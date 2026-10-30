@@ -201,7 +201,7 @@ export interface Release {
 }
 
 /** A project's own issues in a release: all of it, or its part when several projects share the release. */
-export interface ReleasePart {
+interface ReleasePart {
     project: string
     issues: number
     kinds: Kinds

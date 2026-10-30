@@ -17,12 +17,12 @@ import {GITHUB_SECRET, issueIdsIn, PAGE, PAGES, pullState} from './pulls'
 import type {Store} from './store'
 
 /** How often a repo is polled: with a token, and without one. */
-export const POLL_EVERY = 60_000
+const POLL_EVERY = 60_000
 export const POLL_WITHOUT_TOKEN = 10 * 60_000
 /** Without a token, how soon the owner's Poll now may poll a repo again after the last one they asked for, and after any
  * read: two of GitHub's 60 requests an hour each time, so pressing it as often as it allows, with the background poll,
  * costs at most 36 an hour a repo. */
-export const POLL_NOW_WITHOUT_TOKEN = 5 * 60_000
+const POLL_NOW_WITHOUT_TOKEN = 5 * 60_000
 const READ_AGAIN_WITHOUT_TOKEN = 60_000
 /** How long a refused token holds a repo before it's tried again. */
 const REFUSED_FOR = 60 * 60_000
