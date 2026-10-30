@@ -25,7 +25,7 @@ export default defineConfig({
             ...process.env.PERF_NO_BUILD ? [] : ['nuxt build'],
             'node .output/server/index.mjs',
         ].join(' && '),
-        env: {NUXT_DATABASE: database, NUXT_BACKUP_DIR: '', PORT: String(port), JITI_ALIAS: JSON.stringify({'#shared': shared})},
+        env: {NUXT_DATABASE: database, NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', PORT: String(port), JITI_ALIAS: JSON.stringify({'#shared': shared})},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
         timeout: 600_000,

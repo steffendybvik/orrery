@@ -44,6 +44,7 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 | `ORRERY_DATABASE` | a `postgres://` URL to keep the orrery in Postgres instead (see [Postgres](#postgres)) | the SQLite file |
 | `ORRERY_SECRET_KEY` | encrypts the [secrets](API.md#secrets) your agents use without seeing: a long random string (`openssl rand -base64 32`). Keep it out of the backups; without the same key, secrets set with it won't open | made on first start, kept in `orrery.key` beside the database (`/data` in Docker; none outside Docker on Postgres, so set it there) |
 | `ORRERY_BUILD_CONTEXT` | what the image is built from: a ref on GitHub, e.g. `https://github.com/steffendybvik/orrery.git#main`, so a branch switched in this folder never ends up in it | this folder |
+| `ORRERY_UPDATE_CHECK` | `false` stops orrery asking GitHub for its own releases (at start, then every 12 hours), which it does to show a notice above the version in the sidebar when a newer one is out. A pre-release is offered only to an orrery running one | on |
 | `ORRERY_ENVIRONMENT` | this orrery's name when you run more than one, e.g. `work`: a chip by its name, and the start of every tab's title | `personal` |
 
 ## Backups
@@ -245,4 +246,4 @@ The database file is made if it isn't there (by default the repo's `.data/orrery
 relative `NUXT_DATABASE` is taken from the folder the server starts in, so give it an absolute one. It can also be a
 Postgres URL (`postgres://user:password@host:5432/orrery`): orrery lays down its tables on an empty
 database, and backs it up as a SQLite snapshot when `NUXT_BACKUP_DIR` is set. The other settings are
-`NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY` and `NUXT_PUBLIC_ENVIRONMENT`.
+`NUXT_BACKUP_DIR`, `NUXT_ALLOWED_HOSTS`, `NUXT_SECRET_KEY`, `NUXT_UPDATE_CHECK` and `NUXT_PUBLIC_ENVIRONMENT`.
