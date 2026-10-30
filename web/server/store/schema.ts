@@ -24,6 +24,9 @@ export interface ReleaseDetail extends Release {
 /** An issue on its own: where it sits, and its sub-issues by id. */
 export interface IssueRecord extends Omit<Issue, 'tasks'> {
     project: string
+    /** Found by a search `in: all` in its text (ORR-641): where, and the text around it unless an outsider's session raised it. */
+    match_in?: 'description' | 'comment'
+    match?: string
     /** What says whose board it's on, for commit bodies and PR descriptions: `orrery-<handle>: <id>`. */
     ref?: string
     parent: string | null
@@ -74,6 +77,8 @@ export interface Actor {
 export const AGENT: Actor = {name: 'agent', owner: false}
 
 export interface IssueFilter {
+    /** `all`: `q` is words, in the id and title, the description or a comment; else it's text in the id or title. */
+    in?: string
     /** A status's id, or a kind (`started`): what the issue says. */
     status?: string
     priority?: string
@@ -490,3 +495,6 @@ export function presetInput(input: Input): {name?: string, text?: string} {
 export function stamp() {
     return new Date().toISOString()
 }
+
+/** Who orrery's own comments and changes are by. */
+export const ORRERY: Actor = {name: 'orrery', owner: false}

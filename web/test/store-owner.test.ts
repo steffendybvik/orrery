@@ -183,6 +183,18 @@ describe('comments that wait on the owner', () => {
         expect((await store.issue('greenhouse', id)).waiting).toBeUndefined()
     })
 
+    it("doesn't read a closed issue as waiting, and does again once it's reopened (ORR-640)", async () => {
+        const {id} = await store.createIssue('greenhouse', {title: 'Vents'})
+        await store.createComment('greenhouse', id, {body: 'Which?', asks: 'decision'}, {name: 'claude', owner: false})
+        expect((await store.issue('greenhouse', id)).waiting).toBe('decision')
+        for (const status of ['done', 'canceled']) {
+            await store.updateIssue('greenhouse', id, {status}, {name: 'skoll', owner: true})
+            expect((await store.issue('greenhouse', id)).waiting).toBeUndefined()
+        }
+        await store.updateIssue('greenhouse', id, {status: 'todo'}, {name: 'skoll', owner: true})
+        expect((await store.issue('greenhouse', id)).waiting).toBe('decision')
+    })
+
     it("make the issue the owner's until they answer, then the asker's again", async () => {
         const {id} = await store.createIssue('greenhouse', {title: 'A', assignee: 'claude'})
         const agent = {name: 'claude', owner: false}

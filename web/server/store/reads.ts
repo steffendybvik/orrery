@@ -1,7 +1,7 @@
 // The store's reads that need nothing but the database: a project's board, its releases with how far their issues are,
 // its docs without their text, and the board's issues as records (ORR-501). StoreBase builds a project from them.
 import type {Asks, Board, Choice, Chunk, DocSummary, Issue, IssueStatus, Picks, Release} from '#shared/roadmap'
-import {linkRef} from '#shared/roadmap'
+import {CLOSED, linkRef} from '#shared/roadmap'
 import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db} from '../utils/database'
@@ -65,6 +65,8 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
     for (const row of issues) {
         if (row.proposal === 'pending' && !row.owned && !(row.parent && proposals.has(row.parent)) && !waiting.has(row.id)) waiting.set(row.id, 'decision')
     }
+    // One that's done or canceled waits on nobody, whatever was left unanswered on it (ORR-640).
+    const closed = new Set(statuses.filter(s => CLOSED.includes(s.kind)).map(s => s.id))
     const links = await readLinks(db, project, statuses)
     const issueAliases = await aliases('issue_aliases', 'issue')
     const chunkAliases = await aliases('chunk_aliases', 'chunk')
@@ -89,7 +91,7 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
         picks: row.picks ? JSON.parse(row.picks) as Picks : undefined,
         explore: row.explore ? JSON.parse(row.explore) as {choice: string, option: string} : undefined,
         comments: comments.get(row.id) ?? 0,
-        waiting: waiting.get(row.id),
+        waiting: closed.has(row.status) ? undefined : waiting.get(row.id),
         aliases: issueAliases.get(row.id) ?? [],
         schedule: row.schedule ?? undefined,
         release: row.ships_in ?? undefined,

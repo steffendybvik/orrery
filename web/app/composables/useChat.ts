@@ -119,11 +119,11 @@ export function useChat() {
     }
 
     /** The owner allowing or denying a setting, a schedule or a message the chat asked for: allowed, it's saved or sent. */
-    async function answer(message: number, allow: boolean) {
+    async function answer(message: number, allow: boolean, anyway = false) {
         if (!chat.value || chat.value.ended) return
         failed.value = ''
         try {
-            await $fetch(`/api/chats/${chat.value.id}/requests/${message}`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {allow}})
+            await $fetch(`/api/chats/${chat.value.id}/requests/${message}`, {method: 'POST', headers: {'Orrery-Actor': await load()}, body: {allow, ...anyway ? {anyway} : {}}})
         } catch (error) {
             failed.value = errorMessage(error, allow ? 'allow' : 'deny')
         }

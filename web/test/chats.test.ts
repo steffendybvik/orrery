@@ -522,6 +522,62 @@ describe("the owner's chat moving issues", () => {
         await expect(chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-9'], status: 'done'}})).rejects.toMatchObject({statusCode: 404})
     })
 
+    it("shows no change on a request whose issues haven't moved", async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'done'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {priority: 'P1'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        expect(asked.move).toMatchObject({state: 'allowed'})
+        expect(asked.move!.drifted).toBeUndefined()
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: GRE-1 is now in done, saved.)')
+    })
+
+    it('moves an issue that changed while it waited only once the owner has seen it and goes ahead anyway', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-2'], status: 'todo', assignee: 'claude'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'done'}, {name: 'skoll', owner: true})
+        const told = messages.length
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        expect(asked.move).toMatchObject({state: 'asked', drifted: [{issue: 'GRE-1', field: 'status', from: 'todo', to: 'done'}]})
+        expect(await state('GRE-1')).toEqual(['done', null])
+        expect(await state('GRE-2')).toEqual(['todo', null])
+        expect(messages.length).toBe(told)
+        // Changed further since it was shown: it shows that, and still waits.
+        await store.updateIssue('greenhouse', 'GRE-2', {assignee: 'freya'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true}, true)
+        expect(asked.move).toMatchObject({state: 'asked', drifted: [{issue: 'GRE-1', field: 'status'}, {issue: 'GRE-2', field: 'assignee', from: null, to: 'freya'}]})
+        expect(await state('GRE-2')).toEqual(['todo', 'freya'])
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true}, true)
+        expect(asked.move!.state).toBe('allowed')
+        expect([await state('GRE-1'), await state('GRE-2')]).toEqual([['todo', 'claude'], ['todo', 'claude']])
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: GRE-1, GRE-2 are now in todo, assigned to claude, saved. Before that, GRE-1 was in todo when you asked and is in done now. GRE-2 was assigned to nobody when you asked and is assigned to freya now.)')
+    })
+
+    it('tells the session what had changed when the owner denies it, and shows the change as it happens', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'done'}, {name: 'skoll', owner: true})
+        chats.heardForMoves({event: {type: 'issue.status', project: 'greenhouse', subject: 'GRE-1'} as never})
+        await vi.waitFor(() => expect(asked.move!.drifted).toEqual([{issue: 'GRE-1', field: 'status', from: 'todo', to: 'done'}]))
+        await chats.answer('c1c2c3c4c5c6', asked.id, false, {name: 'skoll', owner: true})
+        expect(asked.move!.state).toBe('denied')
+        expect(messages.at(-1)!.text).toBe('(I denied your request to put GRE-1 in backlog: nothing changed. GRE-1 was in todo when you asked and is in done now.)')
+    })
+
+    it('still denies a request whose issue has been deleted', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await store.deleteIssue('greenhouse', 'GRE-1', {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, false, {name: 'skoll', owner: true})
+        expect(asked.move!.state).toBe('denied')
+    })
+
+    it('takes the warning away when the issue goes back as it was', async () => {
+        const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1'], status: 'backlog'}})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'done'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        await store.updateIssue('greenhouse', 'GRE-1', {status: 'todo'}, {name: 'skoll', owner: true})
+        await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true})
+        expect(asked.move!.drifted).toBeUndefined()
+        expect(asked.move!.state).toBe('allowed')
+    })
+
     it('keeps those moved when one fails on Allow, and moves only the rest when allowed again', async () => {
         const asked = await chats.ask('c1c2c3c4c5c6', {move: {ids: ['GRE-1', 'GRE-3'], assignee: 'claude'}})
         // Asking again for one of them lets the one before go.
@@ -532,7 +588,10 @@ describe("the owner's chat moving issues", () => {
         expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.move).toMatchObject({state: 'asked', moved: ['GRE-1']})
         expect(await state('GRE-1')).toEqual(['todo', 'claude'])
         await store.updateIssue('greenhouse', 'GRE-3', {proposal: null}, {name: 'skoll', owner: true})
+        // Putting it up as a proposal assigned it to the owner, so that's shown first; GRE-1, moved already, isn't.
         await chats.answer('c1c2c3c4c5c6', again.id, true, {name: 'skoll', owner: true})
+        expect(chats.chatOf('c1c2c3c4c5c6').messages.find(m => m.id === again.id)!.move!.drifted).toEqual([{issue: 'GRE-3', field: 'assignee', from: null, to: 'skoll'}])
+        await chats.answer('c1c2c3c4c5c6', again.id, true, {name: 'skoll', owner: true}, true)
         expect(await state('GRE-3')).toEqual(['todo', 'claude'])
     })
 })

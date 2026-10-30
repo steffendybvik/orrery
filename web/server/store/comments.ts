@@ -3,11 +3,11 @@ import type {ChatScheduleRequest, Comment, IssueEvent} from '#shared/roadmap'
 import {CLOSED} from '#shared/roadmap'
 import {checkInput, notFound} from '../utils/input'
 import type {Actor, CommentRow, EventRow, SignalRow} from './schema'
-import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, commentOf, eventOf, signalOf, nullable, stamp} from './schema'
+import {AGENT, COMMENT_FIELDS, ANSWERED, OPEN_ASK, commentOf, eventOf, signalOf, nullable, stamp, ORRERY} from './schema'
 import {SignalStore} from './signals'
 
 /** orrery itself, speaking on an issue. */
-export const ORRERY: Actor = {name: 'orrery', owner: false}
+export {ORRERY}
 
 interface ScheduleRequestRow {
     comment: number

@@ -46,7 +46,7 @@ export const TOOLS = [
             release: {type: 'string', description: 'A release\'s version, or "none"'},
             label: {type: 'string'},
             external: {type: 'string', description: 'A team task id'},
-            q: {type: 'string', description: 'Text in the id or title'},
+            q: {type: 'string', description: 'In the id, title, notes or comments'},
             blocked: {type: 'boolean'},
             open: {type: 'boolean', description: 'Leave out done and canceled (default true); false lists every status'},
         }},
@@ -359,6 +359,9 @@ export const NOT_FOR_CHAT = ['start_issue', 'finish_issue', 'update_issue', 'wri
  * don't ride on its every turn (ORR-544). */
 export const CHAT_READS = ['chunks', 'presets', 'preset', 'schedules']
 
+/** How many of a search's hits in the text the `issues` tool quotes (ORR-641), so a common word stays small. */
+const MATCHES_SHOWN = 15
+
 /** How many of an issue's latest comments the `issue` tool gives in full (ORR-547). */
 const LATEST_COMMENTS = 5
 
@@ -366,6 +369,13 @@ const LATEST_COMMENTS = 5
 function firstLine(body) {
     const first = body.split('\n').map(l => l.trim()).find(Boolean) ?? ''
     return first.length > 140 ? `${first.slice(0, 139)}…` : first
+}
+
+/** An approved proposal's choices as what still matters, each question with the titles picked (ORR-643). A choice left
+ * unanswered stays out; a pending proposal, or one sent back or rejected, has no such thing and keeps them all. */
+function pickedOf({decided_by, proposal, picks, choices}) {
+    if (!decided_by || proposal || !picks || !choices?.length) return null
+    return choices.filter(c => picks[c.key]?.length).map(c => ({question: c.question, picked: picks[c.key].map(key => c.options.find(o => o.key === key)?.title ?? key)}))
 }
 
 /** A GitHub login as it can only be: letters, digits, `_` and `-` (ORR-532). */
@@ -452,13 +462,21 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
         },
         async issues(args) {
             const query = new URLSearchParams(pick(args, ['status', 'assignee', 'chunk', 'release', 'label', 'external', 'blocked', 'q']))
+            if (args.q) query.set('in', 'all')
             let issues = await call('GET', `/issues?${query}`, undefined, at(await projectOf(args)))
             if (args.open !== false && !args.status) issues = issues.filter(i => !['done', 'canceled'].includes(i.kind))
             // A work session lists only what it could take up: backlog is mostly proposals and research (ORR-545). The chat keeps it.
             const backlog = chat || args.open === false || args.status ? 0 : issues.filter(i => i.kind === 'backlog').length
             if (backlog) issues = issues.filter(i => i.kind !== 'backlog')
             const hidden = backlog ? `${backlog} in backlog not shown: status: backlog lists them` : ''
-            return [issues.length ? issues.map(line).join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
+            // Where a hit in the text is, and the words around it for the first few. Never to an untrusted session, whose
+            // words those aren't to take in (ORR-641): it opens the issue to read them, as what they are.
+            let shown = 0
+            const said = issues.map(i => {
+                if (!i.match_in) return line(i)
+                return `${line(i)}\n    in its ${i.match_in}${i.match && !untrusted && ++shown <= MATCHES_SHOWN ? `: ${i.match}` : ''}`
+            })
+            return [said.length ? said.join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
         },
         async issue({id, comments: which}) {
             const base = at(await projectOf({id}))
@@ -475,12 +493,18 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const counted = Object.entries(Object.groupBy(finished, t => t.status)).map(([status, of]) => `${of.length} ${status}`).join(', ')
             const subIssues = {sub_issues: tasks.filter(t => !finished.includes(t)).map(line), ...counted ? {finished_sub_issues: counted} : {}}
             const all = which === 'all'
+            const picked = all ? null : pickedOf(rest)
+            if (picked) {
+                delete rest.choices
+                rest.picks = picked
+            }
             const said = comments.map((c, i) => all || i >= comments.length - LATEST_COMMENTS || (c.asks && !c.answered)
                 ? {by: c.created_by, at: c.created_at, ...c.asks ? {asks: c.asks, answered: c.answered} : {}, body: c.body}
                 : {by: c.created_by, at: c.created_at, first_line: firstLine(c.body)})
             const older = said.filter(c => 'first_line' in c).length
             return JSON.stringify({...rest, ...subIssues, ...open.length ? {pull_requests: open} : {}, comments: said,
-                ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {}})
+                ...older ? {older_comments: `${older} shown by their first line: comments: "all" gives them in full`} : {},
+                ...picked ? {choices_left_out: 'comments: "all" gives every option'} : {}})
         },
         async create_issue(args) {
             const {proposal, project, ...fields} = args

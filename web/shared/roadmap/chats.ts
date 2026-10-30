@@ -161,9 +161,13 @@ export interface ChatSendRequest {
 
 /** Issues the chat asked to move to another status or assign (`body.status`, `body.assignee`; null unassigns): each one's
  * from → to in `changes`, with its title. Made as the owner's, as if they'd moved them on the page, only once they allow
- * it; `moved` names those done, so Allow again after one failed moves the rest. `expired` as a setting's request is. */
+ * it; `moved` names those done, so Allow again after one failed moves the rest. `was` is each one's status and assignee
+ * when it was asked, and `drifted` what has changed on them since: Allow then moves nothing until it's allowed anyway
+ * (ORR-644). `expired` as a setting's request is. */
 export interface ChatMoveRequest {
     changes: {issue: string, title: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
+    was?: Record<string, {status: string, assignee: string | null}>
+    drifted?: {issue: string, field: 'status' | 'assignee', from: string | null, to: string | null}[]
     body: {ids: string[], status?: string, assignee?: string | null}
     moved?: string[]
     state: ChatRequest['state']
