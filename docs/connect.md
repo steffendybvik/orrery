@@ -42,7 +42,8 @@ In the repo's `.mcp.json`, one server for this orrery, named after it (`orrery-<
       "env": {
         "ORRERY_URL": "http://localhost:9000",
         "ORRERY_ID": "orr_7f3a9c",
-        "ORRERY_PROJECTS": "shop"
+        "ORRERY_PROJECTS": "shop",
+        "ORRERY_PERSON": "${ORRERY_PERSON:-}"
       }
     }
   }
@@ -58,6 +59,9 @@ with no project ticked gets none, so where the channel lists `*` it hears every 
 `ORRERY_ID` is the orrery's id (on its Connect page, or `GET /api/settings`): the channel refuses another orrery at
 `ORRERY_URL`, so a repo set up for one never writes to another after an address changes. A repo that works with two
 Orrerys has one server for each. An older setup, a server per project with `ORRERY_PROJECT`, works the same.
+`ORRERY_PERSON` says whose the session is, on an orrery with more than one person: your id from `GET /api/people`, set
+in your own environment. It's written as `${ORRERY_PERSON:-}` because this file is committed, and a name in it would
+make every clone that person. With one person, there's nothing to set.
 
 Channels are a Claude Code research preview, so a session only shows the channel's messages when it
 was started with it: `claude --dangerously-load-development-channels server:orrery-personal`. A terminal

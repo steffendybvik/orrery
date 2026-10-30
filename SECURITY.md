@@ -22,6 +22,9 @@ keeps agents from deleting the owner's things, as long as they name themselves h
 protection against a person or program that wants to pretend: anyone who can reach orrery can send
 the owner's id.
 
+The same goes for the people an owner adds, and for `Orrery-Person`, which says whose a session is: with no login yet,
+anyone who can reach orrery can send any of them. Adding people keeps honest sessions apart. It doesn't stop anyone.
+
 Moving the database (App settings → Database → Move…) repoints orrery at a database the mover picks, and setting
 the backups chooses where a copy of everything goes, so both are kept to the machine orrery runs on, from where
 the connection comes rather than the name the request gives (its `Host`, which the caller chooses: ORR-421).

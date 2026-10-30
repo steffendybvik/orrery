@@ -17,6 +17,26 @@ export async function actorOf(event: H3Event): Promise<Actor> {
     return {name, owner, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}}
 }
 
+/** Whose a request is (ORR-653): the owner's, and their chat's, whatever they send; a session's, the person it names
+ * (`Orrery-Person`, from `ORRERY_PERSON`); and an untrusted session's nobody's. Worked out each time from what it sends,
+ * so a restart or a `/clear` changes nothing. */
+export async function personOf(event: H3Event): Promise<string | undefined> {
+    if (untrustedWrite(event)) return undefined
+    const {owner, name} = await actorOf(event)
+    if (owner) return name.toLowerCase()
+    return chatWrite(event) ? (await useStore().ownerOf()).name : await useStore().personFor(personHeader(event))
+}
+
+const personHeader = (event: H3Event) => getHeader(event, 'orrery-person')?.trim() || undefined
+
+/** Refuses a change to an issue from a session that can't say whose it is, on an orrery with more than one person: it
+ * can still read and comment. An untrusted session has its own guard. */
+export async function needsPerson(event: H3Event) {
+    if (untrustedWrite(event) || await personOf(event)) return
+    const named = personHeader(event)
+    throw conflict(`${named ? `"${named}" isn't anyone on this orrery` : 'This session names nobody'}, and this orrery has more than one person, so it can read and comment but can't take up or change an issue. Set ORRERY_PERSON to your id (GET /api/people) where you start Claude Code, or send Orrery-Person.`)
+}
+
 /** The issue a write went to is the work of the session that says it made it (`Orrery-Session`), if one
  * does, so the owner's comments on it, and their decision on a proposal, go to that session. Not a chat's: what it
  * makes is for others to work. */

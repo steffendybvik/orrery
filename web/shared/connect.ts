@@ -56,6 +56,8 @@ export function connectPieces(target: ConnectTarget): ConnectPieces {
     const mcpJson = JSON.stringify({
         mcpServers: {[server]: {command: 'node', args: ['${HOME}/.orrery/bootstrap.mjs', 'channel'], env: {
             ORRERY_URL: origin, ...target.orrery ? {ORRERY_ID: target.orrery.id} : {}, ORRERY_PROJECTS: id,
+            // From the user's environment: this file is committed, so a name in it would make every clone that person.
+            ORRERY_PERSON: '${ORRERY_PERSON:-}',
         }}},
     }, null, 2)
     const command = `ORRERY_PROJECT=${id} ORRERY_URL=${origin}${target.orrery ? ` ORRERY_ID=${target.orrery.id}` : ''} node "$HOME/.orrery/bootstrap.mjs" hook`

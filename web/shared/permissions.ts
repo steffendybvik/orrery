@@ -268,6 +268,14 @@ export const PERMISSIONS: Permission[] = [
         untrusted: refused,
     },
     {
+        id: 'people.write', area: 'This orrery', action: 'Add, rename or remove a person',
+        why: 'Who works on this orrery is the owner’s to decide.',
+        routes: ['POST /api/people', 'PATCH /api/people/:person', 'DELETE /api/people/:person'],
+        session: {level: 'owner'},
+        chat: refused,
+        untrusted: refused,
+    },
+    {
         id: 'secrets.write', area: 'Secrets', action: 'Set, change or delete a secret',
         why: 'A secret’s value and where it may go are the owner’s to decide.',
         routes: ['PUT /api/secrets/:name', 'PATCH /api/secrets/:name', 'DELETE /api/secrets/:name'],

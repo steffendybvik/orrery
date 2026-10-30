@@ -7,10 +7,10 @@ import type {Instruction} from '#shared/prompt'
 import {DEFAULT_CHUNK_PROMPT, DEFAULT_FOCUS_PROMPT, defaultInstructions} from '#shared/prompt'
 import type {ProjectSummary, Actor, ProjectRow} from './schema'
 import {AGENT, SLUG, PROJECT_FIELDS, PROMPT_FIELDS, releaseModeOf, nullable, stamp} from './schema'
-import {OwnerStore} from './owner'
+import {PeopleStore} from './people'
 import {refusedFor} from '../utils/permission'
 
-export abstract class ProjectStore extends OwnerStore {
+export abstract class ProjectStore extends PeopleStore {
     async listProjects(): Promise<ProjectSummary[]> {
         return Promise.all((await this.all<ProjectRow>('SELECT * FROM projects ORDER BY lower(name), name')).map(async row => {
             const {board, ...project} = await this.projectOf(row)

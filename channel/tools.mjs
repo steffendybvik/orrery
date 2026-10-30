@@ -419,13 +419,13 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
             : tool)
 }
 
-/** The tools against an orrery's API, writing as `claude` from `session`: on one project's (`api`,
+/** The tools against an orrery's API, writing as `claude` from `session`, for `person` (`ORRERY_PERSON`): on one project's (`api`,
  * `…/api/projects/<project>`), or on several (`root`, `…/api`, and `projects`, their ids). `untrusted` for an untrusted
  * schedule's session, which says so on every call and reads GitHub issues through `gh` (its arguments; run in the
  * session's folder); `chat`, the launch of the owner's chat this session is for, the same way. `report` hears each call's
  * tool and the text it answered, for the Context page (ORR-549); `load` a group of `ON_DEMAND` a work session asked for. */
-export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
-    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
+export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''), projects = api ? [decodeURIComponent(api.split('/').pop())] : [], session, person, untrusted = false, chat, fetch = globalThis.fetch, gh = runGh, report = () => {}, load = () => {}}) {
+    const headers = {'Content-Type': 'application/json', 'Orrery-Actor': 'claude', ...session ? {'Orrery-Session': session} : {}, ...person ? {'Orrery-Person': person} : {}, ...untrusted ? {'Orrery-Untrusted': 'yes'} : {},
         ...chat ? {'Orrery-Chat': 'yes', 'Orrery-Launch': chat} : {}}
     async function call(method, path, body, base) {
         const response = await fetch(`${base}${path}`, {method, headers, ...body === undefined ? {} : {body: JSON.stringify(body)}})

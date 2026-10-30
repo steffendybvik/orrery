@@ -103,6 +103,23 @@ describe('the database', () => {
         expect(await upgraded.get('SELECT count(*) AS n FROM schedule_held WHERE schedule = 7')).toEqual({n: 1})
     })
 
+    it('moves a named owner from settings to people, and leaves an unnamed one as they are (ORR-653)', async () => {
+        const open = (name?: string) => {
+            const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+            const old = openDb(path, MIGRATIONS.length - 1)
+            if (name) old.prepare("INSERT INTO settings (key, value) VALUES ('owner', ?)").run(JSON.stringify(name))
+            old.close()
+            return new Store(new SqliteDb(openDb(path)))
+        }
+        const named = open('Sköll Fenrisson')
+        expect(await named.ownerOf()).toEqual({name: 'skoll_fenrisson', display: 'Sköll Fenrisson', named: true})
+        expect(await named.people()).toMatchObject([{id: 'skoll_fenrisson', name: 'Sköll Fenrisson', role: 'owner'}])
+        expect(await named.db.get("SELECT 1 FROM settings WHERE key = 'owner'")).toBeUndefined()
+        const unnamed = open()
+        expect((await unnamed.ownerOf()).named).toBe(false)
+        expect(await unnamed.people()).toEqual([])
+    })
+
     it('copies itself before an upgrade takes steps, and only then', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'orrery-'))
         const path = join(dir, 'orrery.db')

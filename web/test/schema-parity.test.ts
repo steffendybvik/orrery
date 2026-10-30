@@ -10,9 +10,11 @@ import {COPIED_TABLES} from '../server/utils/copy'
 import {SqliteDb} from '../server/utils/database'
 import {openDb} from '../server/utils/db'
 import {PostgresDb} from '../server/utils/postgres'
+import {BASELINE, STEPS} from '../server/utils/migrations/postgres'
 import {Store} from '../server/utils/store'
 
 const url = process.env.TEST_POSTGRES_URL!
+const POSTGRES_STEPS = BASELINE + STEPS.length
 
 /** A table as both databases can describe it: its columns (NOT NULL, default without Postgres's casts), its indexes
  * other than the primary key (columns, unique), and how many CHECKs it has. Column order isn't part of it: an added
@@ -113,6 +115,12 @@ describe.runIf(url)('upgrading Postgres with data in it', () => {
     it("keeps the orrery's prompts through the API going snake_case (step 30)", async () => {
         const store = await upgraded(29, `INSERT INTO settings (key, value) VALUES ('focusPrompt', '"Look at {issue}"'), ('chunkPrompt', '"Work {chunk}"');`)
         expect(await store.settings()).toMatchObject({focus_prompt: 'Look at {issue}', chunk_prompt: 'Work {chunk}'})
+    })
+
+    it('moves a named owner from settings to people (ORR-653)', async () => {
+        const store = await upgraded(POSTGRES_STEPS - 1, `INSERT INTO settings (key, value) VALUES ('owner', '"Sköll Fenrisson"');`)
+        expect(await store.ownerOf()).toEqual({name: 'skoll_fenrisson', display: 'Sköll Fenrisson', named: true})
+        expect(await store.people()).toMatchObject([{id: 'skoll_fenrisson', role: 'owner'}])
     })
 
     it('gives each project its release mode from the releases it had (step 32)', async () => {
