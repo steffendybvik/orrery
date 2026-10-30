@@ -31,7 +31,9 @@ const {open, large, chat, session, project, pinned, failed, chats, lands, start,
 const answering = ref<number | null>(null)
 async function decide(message: number, allow: boolean, anyway = false) {
     answering.value = message
-    await answer(message, allow, anyway)
+    const held = await answer(message, allow, anyway)
+    // It came back saying what has changed: a double-click's second press isn't an answer to that.
+    if (held) await new Promise(resolve => setTimeout(resolve, 800))
     answering.value = null
 }
 const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed', expired: 'Expired: not answered in time, or asked again'}
@@ -370,8 +372,9 @@ const {over, on: drop} = useImageDrop(attach)
           <span class="text-xs text-faint">Asks to change a setting</span>
           <span class="text-fg"><span class="font-medium">{{ CHAT_SETTINGS[m.request.setting] }}</span>:
             <span class="text-muted line-through decoration-faint">{{ settingValue(m.request.from) }}</span> → <span class="break-all">{{ settingValue(m.request.to) }}</span></span>
+          <RequestDrift v-if="m.request.state === 'asked'" :drifted="m.request.drifted" />
           <div v-if="m.request.state === 'asked' && !chat!.ended" class="flex gap-2">
-            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true, !!m.request.drifted?.length)">{{ m.request.drifted?.length ? 'Allow anyway' : 'Allow' }}</UiButton>
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
           <span v-else class="text-xs" :class="m.request.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.request.state === 'asked' ? 'Not answered' : ANSWERED[m.request.state] }}</span>
@@ -385,7 +388,7 @@ const {over, on: drop} = useImageDrop(attach)
           </div>
           <span v-else class="text-xs" :class="m.send.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.send.state === 'asked' ? 'Not answered' : SENT[m.send.state](m.send.sent ?? []) }}</span>
         </div>
-        <ScheduleRequestCard v-if="m.schedule" :request="m.schedule" :answerable="!chat!.ended" :busy="answering === m.id" @answer="allow => decide(m.id, allow)" />
+        <ScheduleRequestCard v-if="m.schedule" :request="m.schedule" :answerable="!chat!.ended" :busy="answering === m.id" @answer="allow => decide(m.id, allow, !!m.schedule!.drifted?.length)" />
         <div v-if="m.release" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="m.release.change ? `Change release ${m.release.version}` : `Add release ${m.release.version}`">
           <span class="text-xs text-faint">{{ m.release.change ? 'Asks to change a release' : 'Asks to add a release' }}</span>
           <span class="font-medium text-fg">{{ m.release.version }}</span>
@@ -397,8 +400,9 @@ const {over, on: drop} = useImageDrop(attach)
               </dd>
             </template>
           </dl>
+          <RequestDrift v-if="m.release.state === 'asked'" :drifted="m.release.drifted" />
           <div v-if="m.release.state === 'asked' && !chat!.ended" class="flex gap-2">
-            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true, !!m.release.drifted?.length)">{{ m.release.drifted?.length ? 'Allow anyway' : 'Allow' }}</UiButton>
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
           <span v-else class="text-xs" :class="m.release.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.release.state === 'asked' ? 'Not answered' : ANSWERED[m.release.state] }}</span>
@@ -416,8 +420,9 @@ v-if="m.chunk" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 r
               </dd>
             </template>
           </dl>
+          <RequestDrift v-if="m.chunk.state === 'asked'" :drifted="m.chunk.drifted" />
           <div v-if="m.chunk.state === 'asked' && !chat!.ended" class="flex gap-2">
-            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true)">Allow</UiButton>
+            <UiButton variant="primary" size="sm" :disabled="answering === m.id" @click="decide(m.id, true, !!m.chunk.drifted?.length)">{{ m.chunk.drifted?.length ? 'Allow anyway' : 'Allow' }}</UiButton>
             <UiButton size="sm" :disabled="answering === m.id" @click="decide(m.id, false)">Deny</UiButton>
           </div>
           <span v-else class="text-xs" :class="m.chunk.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ m.chunk.state === 'asked' ? 'Not answered' : ANSWERED[m.chunk.state] }}</span>

@@ -26,8 +26,9 @@ const answered = computed(() => ({allowed: 'Allowed and saved', denied: 'Denied:
         </dd>
       </template>
     </dl>
+    <RequestDrift v-if="request.state === 'asked'" :drifted="request.drifted" />
     <div v-if="request.state === 'asked' && answerable" class="flex gap-2">
-      <UiButton variant="primary" size="sm" :disabled="busy" @click="$emit('answer', true)">Allow</UiButton>
+      <UiButton variant="primary" size="sm" :disabled="busy" @click="$emit('answer', true)">{{ request.drifted?.length ? 'Allow anyway' : 'Allow' }}</UiButton>
       <UiButton size="sm" :disabled="busy" @click="$emit('answer', false)">Deny</UiButton>
     </div>
     <span v-else class="text-xs" :class="request.state === 'allowed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'">{{ answered }}</span>
