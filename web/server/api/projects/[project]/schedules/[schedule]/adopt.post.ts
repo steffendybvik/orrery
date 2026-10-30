@@ -4,5 +4,5 @@
 export default defineEventHandler(async event => {
     const body = await readBody<{seen?: unknown} | undefined>(event).catch(() => undefined)
     if (body?.seen !== undefined && typeof body.seen !== 'string') throw badRequest('"seen" is the updated_at you read the schedule at')
-    return await useScheduler().adopt(param(event, 'project'), scheduleId(event), await actorOf(event), body?.seen as string | undefined)
+    return await useScheduler().adopt(param(event, 'project'), await scheduleId(event), await actorOf(event), body?.seen as string | undefined)
 })

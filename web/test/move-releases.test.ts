@@ -12,7 +12,7 @@ beforeEach(async () => {
     await store.createProject({name: 'shop', key: 'SHO', release_mode: 'own'}, me)
     await store.createRelease('shop', {version: '1.0'}, me)
     await store.createProject({name: 'app', key: 'APP', release_mode: 'shared', releases_from: 'shop'}, me)
-    await store.createProject({name: 'docs', key: 'DOC', release_mode: 'own'}, me)
+    await store.createProject({name: 'docs', key: 'DCS', release_mode: 'own'}, me)
     await store.createRelease('docs', {version: '1.0'}, me)
     await store.createProject({name: 'lab', key: 'LAB'}, me)
     await store.createIssue('shop', {title: 'Refunds', release: '1.0'}, me)

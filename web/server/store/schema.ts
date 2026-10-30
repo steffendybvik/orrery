@@ -29,6 +29,8 @@ export interface IssueRecord extends Omit<Issue, 'tasks'> {
     match?: string
     /** What says whose board it's on, for commit bodies and PR descriptions: `orrery-<handle>: <id>`. */
     ref?: string
+    /** Its id to paste anywhere: `GRE-12-x7k2m9qd`, which finds nothing on any other board. */
+    full_id?: string
     parent: string | null
     /** The chunk it's in, a sub-issue's being its top-level issue's. */
     chunk: string | null
@@ -49,11 +51,15 @@ export const BULK_FIELDS = ['status', 'priority', 'assignee', 'chunk', 'release'
 export interface IssueDetail extends Issue {
     project: string
     ref: string
+    /** Its id to paste anywhere: `GRE-12-x7k2m9qd`, which finds nothing on any other board. */
+    full_id: string
     parent: string | null
     chunk: string | null
 }
 
 export interface ChunkRecord extends Omit<Chunk, 'tasks'> {
+    /** Its id to paste anywhere: `chk-3-x7k2m9qd`, which finds nothing on any other board. */
+    full_id?: string
     project: string
     position: number
     created_at: string
@@ -106,7 +112,7 @@ export interface IssueFilter {
 
 interface Made { created_by: string, owned: number, created_at: string, updated_at: string }
 export interface ProjectRow extends Made {
-    id: string, name: string, key: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
+    id: string, name: string, key: string, uid: string, description: string | null, icon: string | null, icon_color: string | null, next_number: number, next_chunk: number,
     focus_prompt: string | null, chunk_prompt: string | null, instructions: string, muted: string, starts: string | null, repo: string | null,
     release_mode: ReleaseMode, releases_from: string | null
 }

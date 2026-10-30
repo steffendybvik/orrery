@@ -118,7 +118,7 @@ describe.runIf(url)('upgrading Postgres with data in it', () => {
     })
 
     it('moves a named owner from settings to people (ORR-653)', async () => {
-        const store = await upgraded(POSTGRES_STEPS - 1, `INSERT INTO settings (key, value) VALUES ('owner', '"Sköll Fenrisson"');`)
+        const store = await upgraded(POSTGRES_STEPS - 2, `INSERT INTO settings (key, value) VALUES ('owner', '"Sköll Fenrisson"');`)
         expect(await store.ownerOf()).toEqual({name: 'skoll_fenrisson', display: 'Sköll Fenrisson', named: true})
         expect(await store.people()).toMatchObject([{id: 'skoll_fenrisson', role: 'owner'}])
     })

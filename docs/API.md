@@ -22,6 +22,23 @@ A number is handed out once: not again after its issue or chunk is deleted, move
 an import, and not while it's still an alias. Signals follow an issue that moves; those about what's
 deleted or replaced go with it.
 
+Each id also has a **full form**, for pasting: on another board or server it gets a 404, never someone else's issue
+(a project's `key` is chosen per server, so `GRE-142` alone can mean something else there). It adds a random id, 8
+characters of base32: the project's `uid`, or the server's (`uid` on `GET /settings`) for what belongs to the server.
+
+| Kind | Short | Full | Random part |
+|---|---|---|---|
+| Issue | `GRE-142` | `GRE-142-x7k2m9qd` | the project's |
+| Doc | `ideas` | `doc-ideas-x7k2m9qd` | the project's |
+| Chunk | `3` | `chk-3-x7k2m9qd` | the project's |
+| Preset | `12` | `pst-12-x7k2m9qd` | the server's |
+| Schedule | `12` | `sch-12-x7k2m9qd` | the server's |
+
+Every route takes either form, and an alias's full form too. Issues, chunks and docs read back with theirs in
+`full_id`. A project's `uid` goes with it when the database moves, and a restored backup keeps the server's. An issue
+moved to another project has a new full id, and its old one gets a 404. A new project can't take the `key` `DOC`, `CHK`,
+`PST` or `SCH`, which read as the start of a full id; one that has it already keeps it.
+
 ## Who can delete what
 
 There's no auth. The owner is whoever gave their name when the orrery was first opened (`GET /api/owner`
@@ -142,8 +159,10 @@ until the release ships.
   project's `repo` (`523` or `"#523"`, when that's on GitHub), `owner/name#523`, or its link; the issue page and list
   show one on the project's repo as `#523`. `?github_issue=523` (any of those forms) finds the issues that came from
   it. Set it, not `external`, when an issue comes from a GitHub issue: `external` is the team's tracker
-- `ref` (read only, on `GET …/issues` and `GET …/issues/:issue`): what says whose board the issue is on,
-  `orrery-<handle>: <id>` (`orrery-ada: DOC-132`), from the orrery's `handle` (see [For agents](#for-agents))
+- `full_id` (read only, on `GET …/issues` and `GET …/issues/:issue`): its id to paste anywhere (see [Ids](#ids)), which
+  is what a commit body or PR description says
+- `ref` (read only, the same): the earlier way of saying whose board it's on, `orrery-<handle>: <id>`
+  (`orrery-ada: DOC-132`), from the orrery's `handle` (see [For agents](#for-agents)); kept, but use `full_id`
 
 ### Proposals
 

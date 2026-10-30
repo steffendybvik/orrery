@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {Column, Priority} from '#shared/roadmap'
-import {PRIORITIES} from '#shared/roadmap'
+import {PRIORITIES, fullId} from '#shared/roadmap'
 
 // Right-clicking an issue's row or card: move it to a column, set its priority, put it in a chunk, ask
 // the Claude sessions to focus on it, copy its id, open or remove it, all as the owner, without
@@ -58,7 +58,9 @@ const focus = (every = false) => send('/focus', 'POST', every ? {session: '*'} :
 const remove = () => send('', 'DELETE')
 
 async function copyId() {
-    if (issue.value && await copyText(issue.value.id)) note.value = `Copied ${issue.value.id}`
+    if (!issue.value || !project.value) return
+    const full = fullId('issue', issue.value.id, project.value.uid)
+    if (await copyText(full)) note.value = `Copied ${full}`
 }
 
 

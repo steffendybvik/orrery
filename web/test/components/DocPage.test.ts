@@ -11,7 +11,7 @@ registerEndpoint('/api/projects/greenhouse/docs/potting-mix', () => doc)
 
 const mounted: VueWrapper[] = []
 beforeEach(() => {
-    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', releases: [], docs: [doc], board: {chunks: []}} as unknown as Project]
+    useRoadmaps().projects.value = [{id: 'greenhouse', name: 'Greenhouse', key: 'GRE', uid: 'x7k2m9qd', releases: [], docs: [doc], board: {chunks: []}} as unknown as Project]
 })
 afterEach(() => {
     mounted.splice(0).forEach(w => w.unmount())
@@ -28,7 +28,7 @@ async function mount() {
 describe('a doc page', () => {
     it.each([
         ['Copy URL', "this doc's URL", `${location.origin}/p/greenhouse/docs/potting-mix`],
-        ['Copy id', "this doc's id", 'potting-mix'],
+        ['Copy id', "this doc's id", 'doc-potting-mix-x7k2m9qd'],
     ])('%s copies what it says', async (label, name, text) => {
         const writeText = vi.fn(async () => {})
         vi.stubGlobal('navigator', {...navigator, clipboard: {writeText}})

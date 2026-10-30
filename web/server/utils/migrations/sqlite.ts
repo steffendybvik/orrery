@@ -4,6 +4,7 @@
 import type {DatabaseSync} from 'node:sqlite'
 import {renumberSync} from '../renumber'
 import {ownerPerson} from '../owner-person'
+import {randomUid} from '../uid'
 
 // Each step brings the schema up one version (`PRAGMA user_version`); add steps, never edit them.
 // A step is SQL, or a function for what SQL can't say.
@@ -859,4 +860,10 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     const person = owner && ownerPerson(owner.value)
     if (person) db.prepare("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)").run(person.id, person.name, new Date().toISOString())
     db.exec("DELETE FROM settings WHERE key = 'owner'")
+}, (db: DatabaseSync) => {
+    // Each board and the server get a random id, for the full form of ids (ORR-674).
+    db.exec("ALTER TABLE projects ADD COLUMN uid TEXT NOT NULL DEFAULT ''")
+    const set = db.prepare('UPDATE projects SET uid = ? WHERE id = ?')
+    for (const {id} of db.prepare('SELECT id FROM projects').all() as {id: string}[]) set.run(randomUid(), id)
+    db.prepare("INSERT INTO settings (key, value) VALUES ('uid', ?)").run(JSON.stringify(randomUid()))
 }]

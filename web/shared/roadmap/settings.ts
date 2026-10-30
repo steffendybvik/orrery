@@ -154,6 +154,8 @@ export interface Settings {
     /** The owner's handle in an issue's reference (`orrery-<handle>: DOC-132`), such as their GitHub login;
      * none uses their id. */
     handle: string | null
+    /** This server's random id, in the full form of what belongs to it, not a board: `pst-12-x7k2m9qd`. A restored backup keeps it. */
+    uid: string
     /** Where the team's tracker shows a task, with `{id}` for its id: `https://tracker.example.com/issue/{id}`. */
     tracker: string | null
     /** Whether orrery starts sessions itself, for any project whose repo has a launcher, and within what; none

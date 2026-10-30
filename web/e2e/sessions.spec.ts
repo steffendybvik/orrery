@@ -383,7 +383,7 @@ test("keeps an issue's id and copy buttons in view: in the panel, or in a bar un
     await expect(bar).toBeHidden()
     await scroll()
     await expect(row).toBeInViewport()
-    await expect(row.getByText('Copy ref')).toBeVisible()
+    await expect(row.getByText('Copy', {exact: true})).toBeVisible()
     // Narrow, with nobody on it: a bar on top.
     await page.setViewportSize({width: 700, height: 600})
     await page.goto(`/p/kitchen/issues/${issue.id}`)

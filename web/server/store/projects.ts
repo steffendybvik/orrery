@@ -1,6 +1,7 @@
 // Projects: making, changing and deleting them, their prompts and where their releases come from.
 import type {Project, ReleaseMode, Starts} from '#shared/roadmap'
 import {keyFor, slugify} from '#shared/roadmap'
+import {randomUid} from '../utils/uid'
 import type {Input} from '../utils/input'
 import {badRequest, checkInput, conflict} from '../utils/input'
 import type {Instruction} from '#shared/prompt'
@@ -9,6 +10,9 @@ import type {ProjectSummary, Actor, ProjectRow} from './schema'
 import {AGENT, SLUG, PROJECT_FIELDS, PROMPT_FIELDS, releaseModeOf, nullable, stamp} from './schema'
 import {PeopleStore} from './people'
 import {refusedFor} from '../utils/permission'
+
+/** Keys a new project can't take, as they read as the start of a full id (ORR-674); ones already in use keep working. */
+const FULL_ID_KEYS = ['DOC', 'CHK', 'PST', 'SCH']
 
 export abstract class ProjectStore extends PeopleStore {
     async listProjects(): Promise<ProjectSummary[]> {
@@ -39,11 +43,12 @@ export abstract class ProjectStore extends PeopleStore {
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
         const key = input.key ? String(input.key) : keyFor(name)
+        if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a doc's, chunk's, preset's or schedule's full id starts; give another in "key"`)
         const {mode, from} = releaseModeOf(input, 'none', null)
         if (from) await this.checkReleasesFrom(id, from)
         const now = stamp()
-        await this.run('INSERT INTO projects (id, name, key, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            id, name, key, nullable(input.description), nullable(input.icon), nullable(input.icon_color), nullable(input.repo), mode, from, actor.name, Number(actor.owner), now, now)
+        await this.run('INSERT INTO projects (id, name, key, uid, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            id, name, key, randomUid(), nullable(input.description), nullable(input.icon), nullable(input.icon_color), nullable(input.repo), mode, from, actor.name, Number(actor.owner), now, now)
         await this.update('projects', 'id = ?', [id], this.promptColumns(input))
         this.changed(id)
         return await this.project(id)
