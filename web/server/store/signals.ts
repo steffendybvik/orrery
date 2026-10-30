@@ -72,9 +72,10 @@ export abstract class SignalStore extends IssueStore {
 
     /** `focus` for an issue id already resolved and checked. Aimed at no session, it goes to the one already on the
      * issue if that one is listening, else to the one on an issue above it (ORR-613: a follow-up is its to start), else
-     * to one orrery picks (pool.ts); `*` sends it to every session. */
+     * to one orrery picks (pool.ts). Only a chunk can go to every session (ORR-681). */
     protected async sendFocus(project: string, issue: string, body: unknown, actor: Actor): Promise<Signal> {
         const input = checkInput(body ?? {}, SIGNAL_FIELDS)
+        if (input.session === EVERY) throw badRequest(`Only a chunk can go to every session, not issue ${issue}: name one in "session", or leave it out for orrery to pick one`)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
         const target = nullable(input.session) ?? await this.listeningWorker(project, issue) ?? (await this.heldAbove(project, issue))?.holder ?? null
         const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',

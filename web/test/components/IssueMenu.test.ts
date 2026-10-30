@@ -82,13 +82,12 @@ describe('IssueMenu', () => {
         expect(sent).toEqual([{method: 'PATCH', path: 'GRE-1', actor: 'skoll', body: {chunk: null}}])
     })
 
-    it('asks one listening session, or all of them, and says which', async () => {
+    it('asks one listening session, never all of them, and says so', async () => {
         const {wrapper, button} = await mount()
+        expect(wrapper.text()).not.toContain('Ask all')
         await button('Ask a session to focus on it').trigger('click')
         await vi.waitFor(() => expect(wrapper.text()).toContain('Sent to one session, the first free'))
-        await button('Ask all 2 sessions to focus on it').trigger('click')
-        await vi.waitFor(() => expect(wrapper.text()).toContain('Sent to all 2 sessions'))
-        expect(sent.map(s => s.body)).toEqual([{}, {session: '*'}])
+        expect(sent.map(s => s.body)).toEqual([{}])
         expect(useIssueMenu().target.value).not.toBeNull()
     })
 

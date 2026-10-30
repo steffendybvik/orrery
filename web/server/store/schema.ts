@@ -261,7 +261,7 @@ export const DECIDED: Record<Decision, string> = {approved: 'Approved this propo
 
 export const SIGNAL_FIELDS: Record<string, Field> = {
     note: {type: 'string', nullable: true},
-    /** A session id, or `*` for every session on the project; left out, one session orrery picks gets it. */
+    /** A session id; left out, one session orrery picks gets it. A chunk's can be `*`, for every session on the project. */
     session: {type: 'string', nullable: true},
     /** The standing instructions to add, by id (the orrery's or the project's); left out, those ticked by default. */
     instructions: {type: 'strings', nullable: true},
