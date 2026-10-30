@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import {focusNote, inProjectOrder, sendBackNote} from '#shared/roadmap'
-import {githubRepo, namesIssue, pullState, Pulls} from '../server/utils/pulls'
+import {githubRepo, namesIssue, pullsPage, pullState, Pulls} from '../server/utils/pulls'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -198,5 +198,53 @@ describe('the repo cards in project order (ORR-610)', () => {
     it("follows the sidebar's order, a shared repo where its first project is, the rest after by name", () => {
         const repos = [repo('you/zebra', 'shop'), repo('you/shared', 'garden', 'blog'), repo('you/apple', 'shop'), repo('you/stray', 'gone'), repo('you/alpha', 'other')]
         expect(inProjectOrder(repos, ['blog', 'shop', 'garden']).map(r => r.repo)).toEqual(['you/shared', 'you/apple', 'you/zebra', 'you/alpha', 'you/stray'])
+    })
+})
+
+describe('more than a page of them (ORR-615)', () => {
+    const next = (page: number) => ({link: `<https://api.github.com/repositories/1/pulls?state=open&per_page=100&page=${page}>; rel="next", <https://api.github.com/repositories/1/pulls?state=open&per_page=100&page=9>; rel="last"`})
+    const page = (from: number, count: number) => Array.from({length: count}, (_, i) => listed(from + i, {draft: true}))
+
+    it("follow GitHub's next page, up to three hundred, and say when there were more", async () => {
+        answers[LIST] = () => json(page(1, 100), 200, next(2))
+        answers['/repositories/1/pulls?state=open&per_page=100&page=2'] = () => json(page(101, 100), 200, next(3))
+        answers['/repositories/1/pulls?state=open&per_page=100&page=3'] = () => json(page(201, 100), 200, next(4))
+        const all = await pulls.all()
+        expect(all.open).toBe(300)
+        expect(all.repos[0]).toMatchObject({repo: 'you/shop', open: 300, cut: 300})
+        expect(asked).toHaveLength(3)
+        // A shorter list reads to its end, and isn't cut.
+        answers['/repositories/1/pulls?state=open&per_page=100&page=2'] = () => json(page(101, 30))
+        now += 5 * 60_000
+        const fewer = await pulls.all()
+        expect(fewer.open).toBe(130)
+        expect(fewer.repos[0]!.cut).toBeUndefined()
+    })
+
+    it('never follow a next page off api.github.com', async () => {
+        answers[LIST] = () => json(page(1, 100), 200, {link: '<https://elsewhere.example/pulls?page=2>; rel="next"'})
+        expect((await pulls.all()).open).toBe(100)
+        expect(asked).toHaveLength(1)
+    })
+
+    it('page them in the same order, the counts staying totals, a page past the last being the last', async () => {
+        await secrets.set('GITHUB_TOKEN', {value: TOKEN, hosts: ['api.github.com']}, me)
+        answers[LIST] = () => json([...page(1, 120), listed(500, {created_at: '2026-10-29T09:30:00Z'})])
+        answers['/repos/you/shop/pulls/500'] = () => json({draft: false, mergeable_state: 'dirty'})
+        const all = await pulls.all()
+        expect(pullsPage(all, {})).toBe(all)
+        const first = pullsPage(all, {page: '1', limit: '50'})
+        expect(first).toMatchObject({open: 121, needs: 1, page: 1, limit: 50})
+        expect(first.pulls).toHaveLength(50)
+        // The one that needs someone first, then oldest first, carried on across pages.
+        expect(first.pulls[0]!.number).toBe(500)
+        const third = pullsPage(all, {page: '3', limit: '50'})
+        expect(third.pulls.map(p => p.number)).toEqual(all.pulls.slice(100).map(p => p.number))
+        expect(third.repos[0]).toMatchObject({open: 121, needs: 1})
+        expect(pullsPage(all, {page: '9', limit: '50'})).toMatchObject({page: 3})
+        // 50 a page unless asked, never more than 200, and nonsense is the first page.
+        expect(pullsPage(all, {page: '2'}).limit).toBe(50)
+        expect(pullsPage(all, {limit: '1000'}).limit).toBe(200)
+        expect(pullsPage(all, {page: 'x', limit: '-3'})).toMatchObject({page: 1, limit: 50})
     })
 })

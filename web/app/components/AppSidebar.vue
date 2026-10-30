@@ -205,7 +205,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
           <span class="flex-1">Pull requests</span>
           <span v-if="pulls?.needs" class="rounded-full bg-rose-500 px-1.5 font-mono text-[10px] font-medium text-white tabular-nums" :title="`${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone: conflicts, failing checks or behind`">{{ pulls.needs }}</span>
-          <span v-else-if="pulls?.pulls.length" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.pulls.length }}</span>
+          <span v-else-if="pulls?.open" class="font-mono text-[11px] text-faint tabular-nums">{{ pulls.open }}</span>
         </NuxtLink>
       </template>
 

@@ -79,8 +79,16 @@ export interface OpenPull extends PullRequest {
  * read when it couldn't. Without a token only the list is read, as GitHub allows 60 requests an hour then, so every PR
  * not a draft is `checking`. */
 export interface AllPulls {
+    /** Every one, or one page of them when `page` is asked for (ORR-615). */
     pulls: OpenPull[]
+    /** How many are open, and how many of those need someone, on every page. */
+    open: number
     needs: number
-    /** `held`: why Poll now didn't ask GitHub for the repo (a rate limit, a refused token, or polled without one a moment ago). */
-    repos: {repo: string, projects: string[], token: boolean, checked_at: string | null, error?: string, held?: string}[]
+    /** The page `pulls` is (from 1), and how many go on one, when paged. */
+    page?: number
+    limit?: number
+    /** `open` and `needs` are the repo's, on every page. `cut`: GitHub had more open than orrery reads (300), and
+     * this many were read. `held`: why Poll now didn't ask GitHub for the repo (a rate limit, a refused token, or
+     * polled without one a moment ago). */
+    repos: {repo: string, projects: string[], token: boolean, checked_at: string | null, open: number, needs: number, cut?: number, error?: string, held?: string}[]
 }

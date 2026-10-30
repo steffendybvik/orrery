@@ -17,8 +17,11 @@ export const GITHUB_SECRET = 'GITHUB_TOKEN'
 const API = 'https://api.github.com'
 const FRESH = 60_000
 const FRESH_WITHOUT_TOKEN = 5 * 60_000
-/** The open PRs a repo's list reads: GitHub's largest page. */
-const PAGE = 100
+/** The open PRs a page of a repo's list reads: GitHub's largest. */
+export const PAGE = 100
+/** The most pages of a repo's open PRs read, following GitHub's `Link: rel="next"` (ORR-615): 300 PRs, for three
+ * requests a read. A repo with more is cut short, and says so. */
+export const PAGES = 3
 
 /** orrery's own request to GitHub for a project (a GET, or a POST with `init`): `secret` says whether a token went with it. */
 export type GitHubGet = (url: string, project: string, headers: Record<string, string>, init?: {method?: 'GET' | 'POST', body?: string})
@@ -123,6 +126,8 @@ export class Pulls {
     private readonly asking = new Map<string, Promise<unknown>>()
     /** Until when GitHub said no more, per repo: nothing is asked of it before then. */
     private readonly limited = new Map<string, number>()
+    /** The repos whose open PRs were cut short at `PAGES` when last read, with how many were read (ORR-615). */
+    private readonly cut = new Map<string, number>()
 
     constructor(
         private readonly store: Store,
@@ -173,7 +178,7 @@ export class Pulls {
                     const shown = kept.token ? keptShown(pull) : {...keptShown(pull), state: pull.draft ? 'draft' as const : 'checking' as const}
                     pulls.push({...shown, repo, ...issue ? {issue} : {}})
                 }
-                repos.push({repo, projects, token: kept.token, checked_at: kept.checked_at, ...kept.error ? {error: kept.error} : {}})
+                repos.push({repo, projects, token: kept.token, checked_at: kept.checked_at, open: 0, needs: 0, ...kept.error ? {error: kept.error} : {}, ...this.cutAt(repo)})
                 continue
             }
             // Asked as the first project's: the token's projects are checked against it.
@@ -190,12 +195,28 @@ export class Pulls {
                 const issue = await this.issueOf(projects, issueIdsIn(pull))
                 pulls.push({...this.shown(pull, state), repo, ...issue ? {issue} : {}})
             }
-            repos.push({repo, projects, token: list.secret, checked_at: list.at ? new Date(list.at).toISOString() : null, ...error ? {error} : {}})
+            repos.push({repo, projects, token: list.secret, checked_at: list.at ? new Date(list.at).toISOString() : null, open: 0, needs: 0, ...error ? {error} : {}, ...this.cutAt(repo)})
         }
         this.forgetOld()
         const needs = (pull: OpenPull) => PULL_NEEDS.includes(pull.state)
         pulls.sort((a, b) => Number(needs(b)) - Number(needs(a)) || a.created_at.localeCompare(b.created_at))
-        return {pulls, needs: pulls.filter(needs).length, repos}
+        for (const repo of repos) {
+            const own = pulls.filter(p => p.repo === repo.repo)
+            repo.open = own.length
+            repo.needs = own.filter(needs).length
+        }
+        return {pulls, open: pulls.length, needs: pulls.filter(needs).length, repos}
+    }
+
+    /** The poll read the repo's open PRs: cut short after `read` of them, or (undefined) all of them. */
+    cutShort(repo: string, read: number | undefined) {
+        if (read === undefined) this.cut.delete(repo)
+        else this.cut.set(repo, read)
+    }
+
+    private cutAt(repo: string): {cut?: number} {
+        const read = this.cut.get(repo)
+        return read === undefined ? {} : {cut: read}
     }
 
     /** Until when GitHub's rate limit holds the repo, while it does. */
@@ -299,7 +320,11 @@ export class Pulls {
     }
 
     private async list(repo: string, project: string): Promise<{value: ListedPull[], secret: boolean}> {
-        return await this.ask<ListedPull[]>(repo, project, `/repos/${repo}/pulls?state=open&per_page=${PAGE}`)
+        const {value, secret, more} = await this.askPages<ListedPull>(repo, project, `/repos/${repo}/pulls?state=open&per_page=${PAGE}`)
+        // A PR opened or closed between two pages shifts the rest, so one can be on both.
+        const once = [...new Map(value.map(pull => [pull.number, pull])).values()]
+        this.cutShort(repo, more ? once.length : undefined)
+        return {value: once, secret}
     }
 
     private async state(repo: string, project: string, pull: ListedPull): Promise<{value: PullState, secret: boolean}> {
@@ -311,6 +336,27 @@ export class Pulls {
     /** Asks GitHub `path` for the repo, as the project's (a POST with `body`, for GraphQL): what it answered, and whether
      * a token went. A rate limit holds the repo until GitHub's reset, for the poll and the pages alike. */
     async ask<T>(repo: string, project: string, path: string, body?: unknown): Promise<{value: T, secret: boolean}> {
+        const {value, secret} = await this.request<T>(repo, project, path, body)
+        return {value, secret}
+    }
+
+    /** Asks GitHub for the list at `path`, and for the pages after it while its `Link` header names a next one, up to
+     * `PAGES` (ORR-615): everything read, whether a token went, and whether GitHub had more past the last page read. */
+    async askPages<T>(repo: string, project: string, path: string): Promise<{value: T[], secret: boolean, more: boolean}> {
+        const value: T[] = []
+        let secret = false
+        let next: string | undefined = path
+        for (let page = 0; next && page < PAGES; page++) {
+            const read: {value: T[], secret: boolean, next?: string} = await this.request<T[]>(repo, project, next)
+            value.push(...read.value)
+            secret ||= read.secret
+            // Only ever on to api.github.com, whatever the header says.
+            next = read.next?.startsWith(`${API}/`) ? read.next.slice(API.length) : undefined
+        }
+        return {value, secret, more: !!next}
+    }
+
+    private async request<T>(repo: string, project: string, path: string, body?: unknown): Promise<{value: T, secret: boolean, next?: string}> {
         const until = this.limited.get(repo)
         if (until && this.now() < until) throw new Error(limitMessage(until))
         const {response, secret} = await this.get(`${API}${path}`, project, {
@@ -319,7 +365,10 @@ export class Pulls {
             'User-Agent': 'orrery',
             ...body === undefined ? {} : {'Content-Type': 'application/json'},
         }, body === undefined ? undefined : {method: 'POST', body: JSON.stringify(body)})
-        if (response.ok) return {value: await response.json() as T, secret}
+        if (response.ok) {
+            const next = response.headers.get('link')?.match(/<([^>]+)>;\s*rel="next"/)?.[1]
+            return {value: await response.json() as T, secret, ...next ? {next} : {}}
+        }
         const left = response.headers.get('x-ratelimit-remaining')
         if (response.status === 429 || (response.status === 403 && left === '0')) {
             const reset = Number(response.headers.get('x-ratelimit-reset')) * 1000
@@ -362,4 +411,23 @@ function keptShown(pull: KeptPull): PullRequest {
 function limitMessage(until: number, secret?: boolean): string {
     const at = new Date(until).toISOString().slice(11, 16)
     return `GitHub's rate limit is used up until ${at} UTC${secret === false ? `; a ${GITHUB_SECRET} secret for api.github.com raises it` : ''}`
+}
+
+/** How many pull requests a page of `GET /api/pulls` holds unless asked otherwise, and at most (ORR-615). */
+export const PULLS_PAGE = 50
+const PULLS_PAGE_MOST = 200
+
+/** `all` as `?page=&limit=` asks (ORR-615): every one when neither is given, else page `page` (from 1), `limit` to a
+ * page, in the same order. The counts, the repos' included, stay totals. A page past the last is the last, so a
+ * refresh after PRs close still has a page to show. */
+export function pullsPage(all: AllPulls, query: {page?: unknown, limit?: unknown}): AllPulls {
+    if (query.page === undefined && query.limit === undefined) return all
+    // A whole number from 1, else `or`.
+    const counted = (value: unknown, or: number) => {
+        const n = Math.floor(Number(value))
+        return n >= 1 ? n : or
+    }
+    const limit = Math.min(counted(query.limit, PULLS_PAGE), PULLS_PAGE_MOST)
+    const page = Math.min(counted(query.page, 1), Math.max(1, Math.ceil(all.pulls.length / limit)))
+    return {...all, pulls: all.pulls.slice((page - 1) * limit, page * limit), page, limit}
 }
