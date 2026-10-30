@@ -60,6 +60,15 @@ export async function startOidc(event: H3Event, invite?: string): Promise<string
 
 const refused = (message: string) => createError({statusCode: 401, statusMessage: 'Unauthorized', message})
 
+/** What `startOidc` kept in its cookie; none when the cookie isn't that, as a browser can send anything. */
+function readKept(kept: string): {state: string, nonce: string, verifier: string, invite?: string} | undefined {
+    try {
+        return JSON.parse(Buffer.from(kept, 'base64url').toString()) ?? undefined
+    } catch {
+        return undefined
+    }
+}
+
 /** The way back: checks it answers this browser's own request, swaps the code for an ID token, verifies that against the
  * provider's keys, and says who the provider vouches for, and which invite this browser came with. */
 export async function finishOidc(event: H3Event): Promise<{issuer: string, subject: string, invite?: string}> {
@@ -67,8 +76,8 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
     const kept = getCookie(event, COOKIE)
     deleteCookie(event, COOKIE, {path: COOKIE_PATH})
     if (!kept) throw refused('This login has run out: start again')
-    const asked = JSON.parse(Buffer.from(kept, 'base64url').toString()) as {state: string, nonce: string, verifier: string, invite?: string}
-    if (typeof state !== 'string' || state !== asked.state || typeof code !== 'string') throw refused("This login doesn't match the one this browser started")
+    const asked = readKept(kept)
+    if (!asked || typeof state !== 'string' || state !== asked.state || typeof code !== 'string') throw refused("This login doesn't match the one this browser started")
     const {token_endpoint, jwks_uri, issuer} = await provider()
     const {clientId, clientSecret} = settings()
     const {id_token} = await $fetch<{id_token?: string}>(token_endpoint, {
