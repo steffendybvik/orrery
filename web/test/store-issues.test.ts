@@ -333,6 +333,23 @@ describe('starting an issue', () => {
         await store.claim('greenhouse', shelves, undefined, 'second')
     })
 
+    it("stays with its session when another writes to it, as a reviewer's comment does (ORR-627)", async () => {
+        const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-review'})).id
+        await store.workedBy('greenhouse', shelves, 'first')
+        await store.workedBy('greenhouse', shelves, 'reviewer')
+        expect(await store.takenFrom('greenhouse', shelves, 'reviewer')).toBe('first')
+        await store.claim('greenhouse', shelves, 'in-progress', 'first')
+        // Once that session is gone, or the issue isn't started, the next one to write to it has it.
+        store.hears = (_project, session) => session !== 'first'
+        await store.workedBy('greenhouse', shelves, 'reviewer')
+        store.hears = () => true
+        expect(await store.takenFrom('greenhouse', shelves, 'first')).toBe('reviewer')
+        await store.updateIssue('greenhouse', shelves, {status: 'todo'})
+        await store.workedBy('greenhouse', shelves, 'first')
+        await store.updateIssue('greenhouse', shelves, {status: 'in-review'})
+        expect(await store.takenFrom('greenhouse', shelves, 'reviewer')).toBe('first')
+    })
+
     it("is refused for a sub-issue while another session that's there has a parent above it started (ORR-611)", async () => {
         const shelves = (await store.createIssue('greenhouse', {title: 'Shelves', status: 'in-review'})).id
         const brackets = (await store.createIssue('greenhouse', {title: 'Brackets', parent: shelves})).id

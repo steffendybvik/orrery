@@ -17,9 +17,11 @@ export abstract class ClaimStore extends ReleaseStore {
 
     /** Notes that `session` is working the issue (it wrote to it, or was asked to focus on it): the owner's
      * comments on it go to that session from now on. `since` is when it took the issue, kept while the same session
-     * works it again. An issue that isn't there (any more) is let be. */
+     * works it again. An issue that isn't there (any more) is let be, and so is one another session has started and is
+     * still there to hear (ORR-627): a reviewer's comment on it doesn't take it from the session on it. */
     async workedBy(project: string, issue: string, session: string) {
         issue = await this.issueId(project, issue)
+        if (await this.takenFrom(project, issue, session).catch(() => null)) return
         const now = stamp()
         await this.run(`INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?)
             ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END,
