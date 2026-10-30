@@ -40,7 +40,7 @@ function add(s: ScheduleSuggestion) {
   <section v-if="offered.length" class="flex flex-col overflow-hidden rounded-2xl ring-1 ring-line">
     <header class="flex flex-col gap-0.5 border-b border-line bg-well/60 px-4 py-2.5">
       <h2 class="text-[14px] font-semibold">Suggested for {{ byId(project)?.name ?? project }}</h2>
-      <p class="text-xs text-muted">Ready-made schedules for the presets orrery ships. Add opens one filled in; nothing runs until you save it.</p>
+      <p class="text-xs text-muted">Ready-made schedules, most for the presets orrery ships. Add opens one filled in; nothing runs until you save it.</p>
     </header>
     <div v-for="s in offered" :key="s.key" class="flex items-center gap-3 border-b border-line/60 px-4 py-3 text-sm last:border-b-0">
       <span class="flex w-9 shrink-0 justify-center -space-x-1.5">
