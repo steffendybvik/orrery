@@ -129,6 +129,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:e2e
+      - run: pnpm test:e2e:login
+        if: matrix.database == 'sqlite'
       - uses: actions/upload-artifact@v7
         if: matrix.database == 'sqlite'
         with:
