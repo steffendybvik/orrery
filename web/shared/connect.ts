@@ -131,6 +131,21 @@ Tell the owner what's in progress and what's urgent, and ask them to restart you
     return {brief, bootstrap: bootstrapInstall(origin), claudeMd, mcpJson, settingsJson, server, launch, monitor, prompt, url}
 }
 
+/** The brief for a request with no credential on an orrery that asks for one: nothing about what's on it, and the same
+ * whether the project exists, so it can't be used to find out. */
+export function lockedBrief(url: string): string {
+    return `# Connect this repo to orrery
+
+This orrery asks for a login, and this request had no credential, so this brief can't say anything about its projects.
+
+1. Ask the owner to give you an agent key, or make one yourself on orrery's page: App settings → You → Your keys.
+2. Keep it in \`ORRERY_KEY\` where Claude Code starts, or in \`~/.config/orrery/keys.json\`. Never put it in \`.mcp.json\`, which is committed.
+3. Read this brief again with it, and follow that:
+
+    curl -s -H "Authorization: Bearer $ORRERY_KEY" '${url}'
+`
+}
+
 /** A name's id and prefix, as orrery would make them (`app` for an id when the name makes none). */
 export function idsFor(name: string): {id: string, key: string} {
     return {id: slugify(name) || 'app', key: keyFor(name)}

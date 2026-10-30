@@ -25,8 +25,9 @@ on loopback, for trying people out on one machine: anywhere else the server refu
 API answers 503 rather than opening.
 
 **What it guards.** Every route under `/api` needs a credential, with no exemption for loopback. The login's own routes
-are open, as are `/healthz`, the page's files and the channel's, which hold no data, and `/llms.txt`, `/llms-full.txt` and `/connect`, which show
-projects' names and keys (`/llms*` their progress too). With it on, what `Orrery-Actor` and
+are open, as are `/healthz`, the page's files and the channel's, which hold no data, and `/llms.txt`, `/llms-full.txt` and `/connect`, which
+say nothing about what's on this orrery without a credential: `/llms*` leave out the projects, and `/connect` gives the same few lines for
+every project, there or not, saying to ask again with a key. The orrery's id stays readable by anyone, in `/channel/manifest.json`. With it on, what `Orrery-Actor` and
 `Orrery-Person` say doesn't decide who anyone is.
 
 **Agent keys and person keys.** An agent with Bash can read its own environment, so a key has a kind. An **agent key** goes

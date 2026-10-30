@@ -712,7 +712,7 @@ removed isn't added again. Only the owner makes, changes or removes them (an age
 
 ## For agents
 
-`/llms.txt` says how to use orrery and lists the projects (with login on, it and `/connect` stay open and show their names and keys); `/llms-full.txt` adds this reference;
+`/llms.txt` says how to use orrery and lists the projects (with login on, it and `/connect` stay open, and without a credential show none of them: `/connect` then says to ask again with an agent key, whichever project you name); `/llms-full.txt` adds this reference;
 `/connect/<project>.md?session=` is the brief for a Claude session in that project's repo (how to set it up);
 `/channel/bootstrap.mjs`, `/channel/orrery-channel.mjs`, `orrery-hook.mjs` and `orrery-launcher.mjs` are what a connected
 machine runs, with `/channel/manifest.json` (`{id, version, code, files: {<file>: <sha256>}}`) saying what's there; and

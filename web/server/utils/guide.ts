@@ -3,6 +3,7 @@
 // docs/using.md, which the channel's `guide` tool hands a session asked about orrery).
 import type {H3Event} from 'h3'
 import {total} from '#shared/roadmap'
+import {mayRead} from './auth'
 
 export async function apiReference(): Promise<string> {
     return String(await useStorage('assets:docs').getItem('API.md') ?? '')
@@ -20,7 +21,8 @@ export function originOf(event: H3Event): string {
 
 export async function overview(event: H3Event): Promise<string> {
     const origin = originOf(event)
-    const projects = await useStore().listProjects()
+    const listed = await mayRead(event)
+    const projects = listed ? await useStore().listProjects() : []
     return `# orrery
 
 > A local roadmap board for your projects and the agent sessions working on them. Each app's roadmap (chunks of work, issues with
@@ -48,6 +50,6 @@ description, so the owner can jump to it.
 
 ## Projects
 
-${projects.map(p => `- ${p.name}: id \`${p.id}\`, prefix \`${p.key}\`, ${p.kinds.done}/${total(p.kinds)} done (${origin}/api/projects/${p.id})`).join('\n') || '- none yet: create one with POST /api/projects'}
+${!listed ? `This orrery asks for a credential, so its projects aren't listed here. With an agent key: \`curl -s -H "Authorization: Bearer $ORRERY_KEY" ${origin}/llms.txt\`` : projects.map(p => `- ${p.name}: id \`${p.id}\`, prefix \`${p.key}\`, ${p.kinds.done}/${total(p.kinds)} done (${origin}/api/projects/${p.id})`).join('\n') || '- none yet: create one with POST /api/projects'}
 `
 }

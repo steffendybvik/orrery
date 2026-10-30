@@ -44,6 +44,13 @@ export async function authMode(event: H3Event): Promise<'off' | 'on' | 'closed'>
     return await useStore().authStaysOn().catch(() => true) ? 'on' : 'off'
 }
 
+/** Whether this request may read what's on this orrery, for a route outside /api that the middleware leaves open (ORR-689):
+ * anyone with auth off, and with it on, a credential. */
+export async function mayRead(event: H3Event): Promise<boolean> {
+    const mode = await authMode(event)
+    return mode === 'off' || (mode === 'on' && !!await credential(event))
+}
+
 /** Whether anyone can get in: a provider is set up, or the owner has a person key. */
 export async function canGetIn(): Promise<boolean> {
     return oidcOn() || await useStore().ownerHasKey()
