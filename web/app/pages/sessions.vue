@@ -20,7 +20,7 @@ const {ordered} = useProjectOrder()
 const {open} = useStartSession()
 // Which terminal Watch opens, under Setup: it's about the sessions orrery starts, so it lives with them.
 const {settings, save} = useAppSettings()
-const messaging = ref(false)
+const {all: messaging} = useMessageSessions()
 // Whose session settings the two sections below show: the orrery's (every project), or one project's own.
 const scope = ref('')
 const scoped = computed(() => projects.value.find(p => p.id === scope.value))
@@ -237,5 +237,4 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     </aside>
     </div>
   </div>
-  <MessageSessionsDialog :open="messaging" @close="messaging = false" />
 </template>
