@@ -206,6 +206,16 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
         </IconPicker>
       </section>
 
+      <section id="export" class="flex flex-col gap-3 border-t border-line pt-8">
+        <div>
+          <h2 class="text-[15px] font-semibold text-fg">Export</h2>
+          <p class="mt-0.5 text-[13px] text-muted">The whole board as one file: its issues, comments, activity, docs and their history, images, schedules and presets. Secrets stay here, and the board stays as it is.</p>
+        </div>
+        <div>
+          <a :href="apiUrl(`/projects/${encodeURIComponent(project.id)}/export`)" download class="inline-flex items-center rounded-md px-3 py-1.5 text-[13px] font-medium ring-1 ring-line text-fg hover:bg-hover">Download the board</a>
+        </div>
+      </section>
+
       <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
