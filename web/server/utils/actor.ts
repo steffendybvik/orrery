@@ -18,11 +18,11 @@ export async function actorOf(event: H3Event): Promise<Actor> {
     // With auth on (ORR-664) the credential decides: a person logged in is that person, and an agent key is an agent
     // whatever name it sends, with a label that's a person's name counting for nothing.
     const who = verified(event)
-    if (who?.via === 'browser') return {name: who.person, owner: who.owner}
+    if (who?.via === 'browser') return {name: who.person, owner: who.owner, asked: true, named: who.person}
     if (who) {
         const label = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
         const session = sessionName(sessionHeader(event))
-        return {name: await useStore().isPerson(label) ? 'agent' : label, owner: false, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}}
+        return {name: await useStore().isPerson(label) ? 'agent' : label, owner: false, asked: true, named: who.person, ...untrustedWrite(event) ? {untrusted: true} : {}, ...session ? {session} : {}, ...chatWrite(event) ? {chat: true} : {}}
     }
     const name = getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'
     const owner = name.toLowerCase() === (await useStore().ownerOf()).name

@@ -92,6 +92,15 @@ describe('with auth on', () => {
         expect((await actorOf(honest as never)).name).toBe('claude')
     })
 
+    it("an agent key is held to the rails between people, whoever it says it's for", async () => {
+        const issue = await store.createIssue('greenhouse', {title: "Skoll's", assignee: 'skoll'})
+        const event = asking('/api/projects', {headers: bearer(agent, {'orrery-actor': 'claude', 'orrery-person': 'skoll', 'orrery-session': 'w'})})
+        await gate(event)
+        const actor = await actorOf(event as never)
+        expect(actor).toMatchObject({asked: true, named: 'hati', owner: false})
+        expect((await failure(() => store.updateIssue('greenhouse', issue.id, {status: 'done'}, actor))).status).toBe(409)
+    })
+
     it("an owner's agent key is still not the owner", async () => {
         const {key} = await store.makeKey('skoll', {kind: 'agent', name: 'desk'})
         const event = asking('/api/projects', {headers: bearer(key, {'orrery-actor': 'skoll'})})
@@ -122,7 +131,7 @@ describe('with auth on', () => {
         const cookie = `orrery_login=${secret}`
         const read = asking('/api/projects', {headers: {cookie, 'orrery-actor': 'someone'}})
         await gate(read)
-        expect(await actorOf(read as never)).toEqual({name: 'skoll', owner: true})
+        expect(await actorOf(read as never)).toEqual({name: 'skoll', owner: true, asked: true, named: 'skoll'})
         expect((await failure(() => gate(asking('/api/projects', {method: 'POST', headers: {cookie}})))).status).toBe(403)
         await expect(gate(asking('/api/projects', {method: 'POST', headers: {cookie, origin: 'http://localhost:9000'}}))).resolves.toBeUndefined()
         await store.endLogin(secret)
