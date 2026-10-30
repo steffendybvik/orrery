@@ -21,7 +21,7 @@ export function lockedDown(dir, server) {
 
 /** How the owner's chat session is started: with the Claude Code settings of the machine it runs on, as a terminal there
  * (ORR-750), so what they allow it may do, what they deny it may not, and what they'd ask about it asks. orrery holds it
- * only to its own rules: the channel but its tools that take up work. */
+ * only to its own rules: the channel but its tools that take up work (its GitHub reads among what it keeps, ORR-748). */
 export function chatOnly(dir, server) {
     return ['--allowedTools', `mcp__${server}`,
         '--disallowedTools', ...NOT_FOR_CHAT.map(tool => `mcp__${server}__${tool}`)]
