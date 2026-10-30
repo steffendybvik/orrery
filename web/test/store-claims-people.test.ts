@@ -165,6 +165,13 @@ describe('with two people', () => {
             expect((await store.issue('greenhouse', theirs)).assignee).toBe('skoll')
         })
 
+        it('sends a proposal under its person\'s issue to the owner, and back to that person once approved', async () => {
+            const mine = await add({assignee: 'hati'})
+            const {id, assignee, claimed_by} = await store.createIssue('greenhouse', {title: 'Idea', parent: mine, proposal: 'pending', status: 'in-progress'}, hatis)
+            expect({assignee, claimed_by}).toEqual({assignee: 'skoll', claimed_by: undefined})
+            expect(await store.decide('greenhouse', id, {decision: 'approved'}, owner)).toMatchObject({assignee: 'hati'})
+        })
+
         it('gives an approved proposal to the person whose agent proposed it', async () => {
             const {id} = await store.createIssue('greenhouse', {title: 'Idea', proposal: 'pending'}, hatis)
             expect((await store.issue('greenhouse', id)).assignee).toBe('skoll')
