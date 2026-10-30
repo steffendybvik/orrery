@@ -151,6 +151,17 @@ describe('starting a session', () => {
         again()
     })
 
+    it("isn't for the owner's answer that asks for no work, such as Allow on a schedule request (ORR-606)", async () => {
+        const done = launches.addLauncher('greenhouse')
+        const {startsNone} = await import('../server/utils/starts-none')
+        expect(await startsNone.run(true, () => launches.considerLaunch(signal(5)))).toBeNull()
+        expect(sent).toEqual([])
+        expect(launches.launchState('greenhouse').starting).toBe(0)
+        // Real work after it still starts one.
+        expect(await launches.considerLaunch(signal(6))).not.toBeNull()
+        done()
+    })
+
     it("isn't for a signal aimed at one session, or one that's been delivered", async () => {
         launches.addLauncher('greenhouse')
         expect(await launches.considerLaunch(signal(1, {target: 'window-a'}))).toBeNull()

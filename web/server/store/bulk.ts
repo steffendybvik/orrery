@@ -10,6 +10,7 @@ import {BULK_FIELDS, AGENT, DECISION_FIELDS, DECIDED, stamp} from './schema'
 import {CommentStore, ORRERY} from './comments'
 import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
+import {startsNone} from '../utils/starts-none'
 
 export abstract class BulkStore extends CommentStore {
     /** Runs `work` for each issue on its own, so one refusal doesn't stop the rest, and says each one's outcome. */
@@ -151,7 +152,9 @@ export abstract class BulkStore extends CommentStore {
         const said = picks ? `Approved this proposal with:\n${describePicks(choices, picks)}`
             : explored ? `Asked to explore ${explored.key} (${explored.title}) further: add a choice that goes down it, then put the proposal up again.`
             : DECIDED[decision]
-        await this.createComment(project, id, {body: note ? `${said}\n\n${note}` : said}, actor)
+        // Approving, or asking for changes, is work; a rejection is said to the session but starts none (ORR-606).
+        const comment = () => this.createComment(project, id, {body: note ? `${said}\n\n${note}` : said}, actor)
+        await (decision === 'rejected' ? startsNone.run(true, comment) : comment())
         // Approving is the owner saying it's work, so it goes on the roadmap now, keeping who decided and the picks:
         // into Todo while it's still in the backlog, else where its work already took it (started, done).
         if (decision === 'approved') {

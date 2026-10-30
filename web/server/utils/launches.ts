@@ -12,6 +12,7 @@ import type {LauncherRepo, Session, SessionContext, Signal, StartedSession, Star
 import type {Actor} from './store'
 import {EVERY} from './pool'
 import {scheduleRunning} from './schedules'
+import {startsNone} from './starts-none'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
  * catch up from; `minutes` how long it has, none until stopped; `tmux` names the tmux session it runs in;
@@ -183,13 +184,15 @@ export const startAsked = new AsyncLocalStorage<boolean>()
 
 /** Starts a session for the signal if it's the owner's, nobody on its project is there to hear it, the owner
  * lets the project have sessions started (for any signal, unless `on_signal` is off and the owner didn't ask for one with
- * it), a launcher is there to start one, and the limits allow it. One
+ * it, and not for an answer of theirs that asks for no work, `startsNone`), a launcher is there to start one, and the limits allow it. One
  * launch on its way covers every signal after it, as its channel catches up from the first. The launch is
  * held from the first check, so signals that come together start one session, not one each. */
 export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const {project} = signal
     // One aimed at a session only that session hears, and a delivered one has been heard.
     if (!signal.protected || signal.target && signal.target !== EVERY || signal.delivered_to.length) return null
+    // The owner's answer that asks for no work (ORR-606).
+    if (startsNone.getStore()) return null
     if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
     const asked = !!startAsked.getStore()
     const held = hold(project, {after: signal.id - 1})
