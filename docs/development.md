@@ -97,3 +97,23 @@ beside them in `web/server/utils/migrations/postgres.ts`: add a step to both, ne
 on the same step with the same tables, columns, indexes and checks, and that a step changing data does the same on
 each; a step that changes data gets an upgrade test there. Before a SQLite file takes steps it's copied to
 `orrery-pre-<version>-step<n>.db`, and a database past the newest step the code knows (from a newer orrery) isn't opened.
+
+## Benchmarking the browser suite
+
+[Test speed and coverage](/p/orrery/docs/test-speed-and-coverage) is the history: one run per version, so a slowdown shows when it arrives. It only means something if the runs are alike, so:
+
+**What goes in the history.** The run CI makes of the release pull request, which Releasing's *Keep its test numbers* step records with `--source ci`: the SQLite job, in Chrome, in Playwright's image. A local run can hold a version's place until then, and CI's replaces it. The times on GitHub's runners move a little from run to run, so read a few percent as nothing, and a trend over versions as real.
+
+**What the page holds apart.** A version isn't compared with the one before it when one is local and one on CI, when tests failed in either, or when the browser suite ran differently (its workers, and `metadata.server` in `playwright.config.ts`, kept with each run). Changing how the suite runs starts a new baseline: say so in the release's notes, and change `metadata.server` if it's the server that changed.
+
+**Trying a change locally.** Don't add these runs to the history. To compare two ways of running the suite:
+
+1. Use one machine, and one worktree, with nothing but the change between the runs. A commit from later on brings different tests.
+2. Run nothing else: no other session's suite (check `pnpm worktrees` and Sessions), and at least 5 GB free on the disk. A full disk fails tests with `ENOSPC`, and looks like flaky tests.
+3. Throw away the first run of each way, as it warms Vite's cache, then run each three times and take the median:
+   ```sh
+   PLAYWRIGHT_JSON_OUTPUT_NAME=run.json pnpm exec playwright test --reporter=line,json
+   ```
+4. Read `stats.duration` in `run.json`, in milliseconds, and time the whole command too: a build a way needs is paid on every CI run, so count it.
+5. Count a run only if every test passed and the same tests ran. A way that's faster but fails tests isn't faster.
+6. Put the numbers on the issue, with the commit, the machine and how many workers, so the result can be checked later.
