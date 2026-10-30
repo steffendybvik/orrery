@@ -19,11 +19,18 @@ const tools = (projects: string[], options: object = {}) => toolsFor(projects, o
 describe('the tool list a session carries on every turn', () => {
     it('gives each kind of session these tools, so adding one is a choice', () => {
         // The chat's planning reads (chunks, presets, preset, schedules) are the chat's alone (ORR-544).
+        // A work session's rarer tools (asking for a schedule, secrets and egress, the event log) wait behind more_tools
+        // (ORR-625), and come in its list once it asks for their group.
         const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
-            'write_doc', 'sessions', 'secrets', 'egress', 'events', 'guide', 'resolve_event']
-        // A working session asks the owner for a schedule on its issue (ORR-458); an untrusted one goes without.
-        expect(tools(['greenhouse']).map(t => t.name)).toEqual([...work, 'create_schedule', 'update_schedule'])
-        expect(tools(['greenhouse'], {untrusted: true}).map(t => t.name)).toEqual([...work, 'github_issues'])
+            'write_doc', 'sessions', 'guide']
+        expect(tools(['greenhouse']).map(t => t.name)).toEqual([...work, 'more_tools'])
+        expect(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue',
+            'update_issue', 'start_issue', 'finish_issue', 'comment', 'releases', 'docs', 'doc', 'write_doc', 'sessions', 'secrets', 'egress',
+            'events', 'guide', 'resolve_event', 'create_schedule', 'update_schedule'])
+        expect(tools(['greenhouse'], {loaded: ['debug']}).map(t => t.name)).toEqual([...work.slice(0, -1), 'events', 'guide', 'resolve_event', 'more_tools'])
+        // An untrusted one has only what orrery lets it do: read, raise proposals and comment on them, and read GitHub issues.
+        expect(tools(['greenhouse'], {untrusted: true}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue', 'comment', 'releases', 'docs',
+            'doc', 'sessions', 'guide', 'github_issues'])
         // The chat's requests (sessions, messages, settings, schedules, releases, chunks) sit behind request and
         // request_fields, read when it needs one (ORR-624).
         expect(tools(['greenhouse'], {chat: true}).map(t => t.name)).toEqual(['issues', 'issue', 'create_issue', 'comment', 'chunks', 'releases', 'docs',
@@ -31,13 +38,14 @@ describe('the tool list a session carries on every turn', () => {
     })
 
     it('stays within its budget, for one project and for several', () => {
-        // Each grew by about 250 with issue dependencies (ORR-601): `depends_on` on the issue tools, `blocked` on issues.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(9_800)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(10_800)
-        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(9_500)
-        // The chat's fell from about 20,500 when its requests went behind request (ORR-624).
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(9_300)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(10_600)
+        // A work session's and an untrusted run's were cut by a third and more (ORR-625): 9,708 and 9,444 before.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_000)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(6_900)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(8_900)
+        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_500)
+        // The chat's fell from about 20,100 when its requests went behind request (ORR-624).
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(8_900)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(10_100)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {
@@ -60,6 +68,7 @@ describe("the server's instructions a session carries on every turn", () => {
         expect(size(instructionsFor({base, serves: 'projects "greenhouse", "pantry"', several: true}))).toBeLessThanOrEqual(1_250)
         // The chat's grew by the asking rule its tools no longer each repeat (ORR-624).
         expect(size(instructionsFor({base, serves: 'project "greenhouse"', chat: true}))).toBeLessThanOrEqual(1_300)
+        expect(size(instructionsFor({base, serves: 'project "greenhouse"', untrusted: true}))).toBeLessThanOrEqual(420)
     })
 
     it("and the chat's brief, its start context, says only what they don't (ORR-624)", () => {

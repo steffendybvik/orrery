@@ -53,7 +53,8 @@ planted issue is a prompt injection, and an ordinary session runs with your perm
 schedule's run never goes to your sessions. Instead:
 
 - **It gets a session of its own**, which the launcher starts with none of Claude Code's own tools (no
-  Bash, no file reads), only the orrery tools except `egress` and `secrets`. It reads GitHub issues with
+  Bash, no file reads), only the orrery tools for reading the roadmap, raising proposals and commenting on them: none
+  that start, change or finish issues, write docs, reach `egress` or `secrets`, or read the event log. It reads GitHub issues with
   the channel's `github_issues`, which runs `gh` itself on the repo the folder's git remote names, with
   arguments the session can't turn into another host (`-R`) or a browser (`--web`). Everything else is refused,
   not asked (`dontAsk`), and your own and the repo's settings, with their allow lists, are left out
