@@ -199,14 +199,17 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
   </PageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />
+    <!-- One sticky block, so the bar sits right under the banner however many lines the banner wraps to (ORR-649). -->
+    <div class="sticky top-0 z-20">
+      <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />
+      <div v-if="issue && found && project" class="border-b border-line bg-panel px-4 py-1 sm:px-8 lg:hidden" data-testid="issue-id-bar">
+        <IssueIdRow :id="issue.id" :reference="ref_" />
+      </div>
+    </div>
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
       <article class="flex min-w-0 flex-1 flex-col gap-8 px-4 py-6 sm:px-8 sm:py-10">
         <header class="flex flex-col gap-2">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="font-mono text-xs whitespace-nowrap text-faint">{{ issue.id }}</span>
-            <CopyButton :text="issue.id" compact />
-            <CopyButton :text="ref_" label="Copy ref" :name="`${ref_}, for a commit body or PR description`" compact />
             <a v-if="issue.waiting" href="#waiting" title="Go to the question"><WaitingChip :asks="issue.waiting" /></a>
             <button
                 v-if="madeBy"
@@ -319,7 +322,8 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
       <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block dark:bg-panel">
         <!-- Clear of the worker's banner, which sticks above it, on one line at this width. -->
-        <div class="sticky" :class="worker && !isClosed(issue.kind) ? 'top-16' : 'top-6'">
+        <div class="sticky flex flex-col gap-4" :class="worker && !isClosed(issue.kind) ? 'top-16' : 'top-6'">
+          <IssueIdRow :id="issue.id" :reference="ref_" />
           <IssueProperties :issue="issue" :project="project" :chunk="found.chunk" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
       </aside>
