@@ -80,9 +80,12 @@ function editIt() {
     </template>
   </UiContextMenu>
   <Teleport to="body">
-    <div v-if="ran" role="status" class="glass fixed bottom-4 left-1/2 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-fade-up rounded-full px-4 py-2 text-xs text-fg">
-      <NuxtLink v-if="ran.issue" :to="`/p/${ran.project}/issues/${encodeURIComponent(ran.issue)}`" class="hover:underline">{{ ran.text }}</NuxtLink>
-      <template v-else>{{ ran.text }}</template>
+    <!-- Live while it's empty too, as a screen reader only announces what changes in a region it already knows. -->
+    <div aria-live="polite">
+      <div v-if="ran" role="status" class="glass fixed bottom-4 left-1/2 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-fade-up rounded-full px-4 py-2 text-xs text-fg">
+        <NuxtLink v-if="ran.issue" :to="`/p/${ran.project}/issues/${encodeURIComponent(ran.issue)}`" class="hover:underline">{{ ran.text }}</NuxtLink>
+        <template v-else>{{ ran.text }}</template>
+      </div>
     </div>
   </Teleport>
 </template>
