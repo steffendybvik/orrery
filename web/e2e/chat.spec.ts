@@ -663,6 +663,20 @@ test("follows the page's project until one is picked by hand, then stays pinned 
     await pane.getByRole('button', {name: 'Close the chat'}).click()
 })
 
+test('writes a code block in the box: Enter after ``` closes it, and inside it is a new line, not a send', async ({page}) => {
+    await page.goto('/p/observatory')
+    await page.getByRole('button', {name: /^Agent/}).click()
+    const box = page.getByRole('textbox', {name: 'Message'})
+    await box.pressSequentially('```ts')
+    await box.press('Enter')
+    await box.pressSequentially('one')
+    await box.press('Enter')
+    await box.pressSequentially('two')
+    await expect(box).toHaveValue('```ts\none\ntwo\n```')
+    await box.press('ControlOrMeta+z')
+    await expect(box).not.toHaveValue('```ts\none\ntwo\n```')
+})
+
 test('holds a setting that changed while the request waited until Allow anyway', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
     let session: ReturnType<typeof hold> | undefined
