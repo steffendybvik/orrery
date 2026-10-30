@@ -13,7 +13,7 @@ test("saves a pasted link to the tracker's projects page as its task link", asyn
 
         await field.fill('https://linear.app/acme/team/ENG/projects/all')
         await field.blur()
-        await expect(page.getByRole('status')).toContainText('https://linear.app/acme/issue/{id}')
+        await expect(page.getByRole('status').filter({hasText: 'Saved as a task link'})).toContainText('https://linear.app/acme/issue/{id}')
         await expect(field).toHaveValue('https://linear.app/acme/issue/{id}')
         expect((await (await request.get('/api/settings')).json()).tracker).toBe('https://linear.app/acme/issue/{id}')
     } finally {
