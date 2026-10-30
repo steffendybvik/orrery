@@ -47,7 +47,9 @@ test("shows a work session's parts and their sizes, with the total, and the chat
     const first = work.parts.toSorted((a: {chars: number}, b: {chars: number}) => b.chars - a.chars)[0]
     await expect(parts.first()).toContainText(first.title)
     await parts.first().locator('summary').click()
-    await expect(parts.first().locator('pre')).toContainText(first.text.slice(0, 40))
+    // A tool comes compact, as the channel sends it, and the page lays it out (ORR-625).
+    const shown = first.group === 'tools' ? JSON.stringify(JSON.parse(first.text), null, 2) : first.text
+    await expect(parts.first().locator('pre')).toContainText(shown.slice(0, 40))
 
     await page.getByRole('button', {name: 'Chat', exact: true}).click()
     await expect(page).toHaveURL(/kind=chat/)
