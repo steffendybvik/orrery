@@ -35,7 +35,7 @@ const unread = computed(() => pulls.value?.repos.filter(r => r.error).length ?? 
 const noneRead = computed(() => !!unread.value && unread.value === pulls.value?.repos.length)
 // The repos as cards, each with its pull requests on this page in the answer's order. One with none here shows only
 // on the first page, or when it couldn't be read, so later pages are the repos they list.
-const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.value.map(p => p.id)).map(repo => {
+const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.value.map(p => p.id), r => r.repo).map(repo => {
     const own = (pulls.value?.pulls ?? []).filter(p => p.repo === repo.repo)
     return {...repo, pulls: own}
 }).filter(card => card.pulls.length || card.error || page.value === 1))
