@@ -39,6 +39,7 @@ function said(event: IssueEvent): string[] {
     if (field === 'notes') return ['edited the description']
     if (field === 'parent') return [after ? `made it a sub-issue of ${after}` : 'made it a top-level issue']
     if (field === 'project') return [`moved it here from ${before}`]
+    if (field === 'uploaded') return ['brought it in from a file']
     if (field === 'proposal') return [after ? PROPOSAL_SAID[after] ?? after : before === 'approved' ? 'put it on the roadmap' : 'committed it']
     if (field === 'chunk') {
         const title = props.project.board.chunks.find(c => c.id === after)?.title ?? after
