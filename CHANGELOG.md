@@ -7,6 +7,76 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, and a group with nothing in it is left out. 1.0.0, the first release's
 overview, is one list.
 
+## 1.0.0-rc.14 (2026-10-30)
+
+### Features
+
+- **The chat can ask to change docs:** the chat can ask to create a doc or change one, and nothing is saved until you
+  press **Allow**. The card shows a new doc in full and a change as what differs, never rendered. A change is refused
+  if the doc moved on after the chat asked. Removing a doc, and renaming or deleting a section, stay yours.
+- **GITHUB_TOKEN ready-made:** App settings lists `GITHUB_TOKEN` as *Not set*, and **Set** asks only for the token,
+  with the scopes it needs and a link to make one. A token GitHub turned down says so on its row.
+- **The issue a session is on, in the sidebar:** a working or waiting session's row has a second line with its newest
+  issue's id and title, linked to it, and `+n` when it holds more.
+- **GitHub issues on an issue:** an issue has GitHub issue references of its own, shown as a `#523` chip and on its
+  page, and filterable with `?github_issue=`. Links already in Team tasks move there on upgrade.
+- **Schedules that move issues:** a new kind, **Moves issues**, moves the issue an event is about, or a release's
+  issues, to a status with no session, and comments why. It's yours alone and runs only on an event. It passes over a
+  parent, a proposal, an issue waiting on you and, on a pull request's event, an issue with another pull request open.
+  Schedules → Suggested offers two, made off: **Merged PR closes its issue** and **Shipped release closes its
+  issues**. PR news on its own still moves nothing.
+- **Schedules across projects:** New schedule's project picker has **All projects** and **Several projects**. Each
+  project gets its own copy with its own runs and guards, and a project added later gets one within 30 seconds. Untick
+  a project, or use **Leave this project out** on its copy, to opt it out. A schedule like this is yours alone:
+  sessions and the chat can't ask for one yet.
+- **Sessions search an issue's text:** `q` on the `issues` tool finds words in descriptions and comments, title
+  matches first, each with where it is and the words around it. `?q=` on its own stays the id and title, and `&in=all`
+  searches the text. An issue labelled `external` says only where, and an untrusted session gets no quotes.
+
+### Changes
+
+- **The chosen option stands out:** a segmented control fills its chosen option with the accent, everywhere it's used,
+  in light and dark.
+- **Less for sessions to read:** the `issue` tool gives an approved proposal's questions with only the titles picked
+  (`comments: "all"` still gives every option), and the chat ends its turn in a few words after `reply` instead of
+  repeating the answer.
+- **Code blocks in any text box:** Three backticks then Enter closes the block below the cursor, and inside one Enter
+  is a new line, even where it would otherwise send. ⌘E (Ctrl-E) wraps a selection or starts an empty block.
+- **An issue's id and copy buttons stay in view:** at the top of the right panel, or in a slim bar when there's no
+  panel, stacked under the banner of a session working on the issue.
+- **Double-click a description to edit it:** it opens the same editor as **Edit**, which stays. A link, picture or
+  button keeps its own click, and a drag still selects.
+- **Copy a whole issue:** **Copy issue**, under the description, copies its ref, title, description and every comment
+  as Markdown, each comment with who wrote it and when.
+
+### Fixes
+
+- **Usage limits show:** a session that hits its usage limit reads **usage limit reached**, with what Claude Code
+  said, on its Sessions card and sidebar row, where before it just read as idle. Being cut off this way also leaves
+  issues in review or waiting on you where they are, rather than back in Todo.
+- **Event schedules lose nothing to their minute:** a second subject within a schedule's minute was dropped for good.
+  It now waits its turn at one a minute, if it still fits, and the schedule's row says how many are waiting.
+- **Sessions don't see outsiders' pull request text:** `GET /pulls` and an issue's pulls give a pull request's title
+  and branch only to the owner, and its author only when it's a plain login, as an outsider writes those.
+- **A GITHUB_TOKEN that can't be used says so:** one saved without `api.github.com` was quietly ignored and the pages
+  read as if none was set. Secrets now warns and adds the host on a click, the pages say why it wasn't used, and a
+  change to the secrets polls the affected repos at once.
+- **Allow warns before overriding newer changes:** a chat's request to move issues, or to change a chunk, release,
+  schedule or setting, applied as asked however long it had waited. Allow now shows what changed since, and saves only
+  on **Move anyway** or **Allow anyway**. The chat's session hears what had changed.
+- **A closed issue isn't waiting:** a done or canceled issue with an unanswered question no longer reads as waiting on
+  you. Reopened, it does again.
+
+### Docs
+
+- **Quick start pulls the published image:** it downloads the release's `compose.yml` into the clone and runs it, and
+  `ORRERY_REPO_DIR` names the clone. Building from source moved to Running orrery.
+
+### Internal
+
+- **Worktrees get tidied:** sessions work under `../orrery-worktrees/` and remove a worktree once its pull request
+  merges, and `pnpm worktrees` lists what's safe to remove (`--remove` clears it).
+
 ## 1.0.0-rc.13 (2026-10-30)
 
 ### Features
