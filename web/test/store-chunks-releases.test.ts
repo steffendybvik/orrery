@@ -5,6 +5,7 @@ import {Store} from '../server/utils/store'
 import {testDb} from './db'
 import type {Actor} from '../server/utils/store'
 import {failure, storeSetup} from './store-setup'
+import {releasesToTrack} from '#shared/roadmap'
 
 let store: Store
 let changes: string[]
@@ -64,6 +65,12 @@ describe('chunks', () => {
     })
 })
 describe('releases', () => {
+    it("are put in a card's order: those being prepared as arranged, then the latest shipped, then the older (ORR-671)", () => {
+        const [a, b, c, d] = [{version: 'a'}, {version: 'b', shipped_on: '2026-10-01'}, {version: 'c', shipped_on: '2026-10-03'}, {version: 'd', frozen_on: '2026-10-02'}]
+        expect(releasesToTrack<{version: string, shipped_on?: string}>([a, b, c, d])).toEqual({preparing: [a, d], latest: c, older: [b]})
+        expect(releasesToTrack([a])).toEqual({preparing: [a], latest: undefined, older: []})
+    })
+
     const owner: Actor = {name: 'skoll', owner: true}
 
     beforeEach(async () => {
@@ -218,6 +225,32 @@ describe('releases', () => {
             await store.createProject({name: 'pos', key: 'POS'})
             await store.updateProject('pos', {releases_from: 'repository'})
             await store.createRelease('repository', {version: '2.25.0'})
+        })
+
+        it('are listed once across projects, with each project\'s part, counted as the project counts them (ORR-671)', async () => {
+            await store.createRelease('repository', {version: '2.26.0', notes: 'Not on the list', shipped_on: '2026-10-01'})
+            await store.createIssue('repository', {title: 'Release PR', release: '2.25.0'})
+            await store.createIssue('hub', {title: 'Invoices', release: '2.25.0', status: 'done'})
+            const parent = await store.createIssue('pos', {title: 'Receipts', release: '2.25.0'})
+            await store.createIssue('pos', {title: 'Tips', parent: parent.id})
+            // A sub-issue set for another release counts there, and a proposal as proposed, as on the project's own list.
+            await store.createIssue('pos', {title: 'Till', parent: parent.id, release: '2.26.0'})
+            await store.createIssue('pos', {title: 'Maybe', release: '2.25.0', proposal: 'pending'})
+
+            await store.createProject({name: 'shed', key: 'SHE'})
+            const cards = await store.allReleases()
+            // Not `hub` or `pos`, on the source's card, nor `shed`, with none turned on.
+            expect(cards.map(c => c.project)).toEqual(['greenhouse', 'repository'])
+            expect(cards[1]!.projects).toEqual(['repository', 'hub', 'pos'])
+            const [newest, older] = cards[1]!.releases
+            const own = (await store.project('repository')).releases
+            expect(newest).toMatchObject({version: '2.26.0', shipped_on: '2026-10-01', issues: own[0]!.issues, kinds: own[0]!.kinds})
+            expect(newest).not.toHaveProperty('notes')
+            expect(older).toMatchObject({version: '2.25.0', issues: own[1]!.issues, kinds: own[1]!.kinds})
+            for (const [project, part] of [['hub', older!.projects[1]], ['pos', older!.projects[2]]] as const) {
+                const theirs = (await store.project(project)).releases.find(r => r.version === '2.25.0')!
+                expect(part).toEqual({project, issues: theirs.issues, kinds: theirs.kinds})
+            }
         })
 
         it("let a project's issues ship in its source's releases, counted there across projects", async () => {

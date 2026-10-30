@@ -200,6 +200,33 @@ export interface Release {
     updated_at: string
 }
 
+/** A project's own issues in a release: all of it, or its part when several projects share the release. */
+export interface ReleasePart {
+    project: string
+    issues: number
+    kinds: Kinds
+}
+
+/** A release on the Releases page across projects (ORR-671), without its notes, with each project's part. */
+export interface TrackedRelease extends Omit<Release, 'notes'> {
+    projects: ReleasePart[]
+}
+
+/** The releases made on one project, in the order they're arranged in, with the projects they cover: itself first,
+ * then those taking their releases from it. `GET /api/releases` lists one of these for each project with its own. */
+export interface ProjectReleases {
+    project: string
+    projects: string[]
+    releases: TrackedRelease[]
+}
+
+/** How a project's card on the Releases page has them: those being prepared as arranged, then its latest shipped one,
+ * with the older ones to fold away, latest first. */
+export function releasesToTrack<T extends Pick<Release, 'shipped_on'>>(releases: T[]): {preparing: T[], latest?: T, older: T[]} {
+    const shipped = releases.filter(r => r.shipped_on).sort((a, b) => (b.shipped_on ?? '').localeCompare(a.shipped_on ?? ''))
+    return {preparing: releases.filter(r => !r.shipped_on), latest: shipped[0], older: shipped.slice(1)}
+}
+
 /** Whether the release is in feature freeze: frozen, and not shipped yet. */
 export const isFrozen = (release: Pick<Release, 'frozen_on' | 'shipped_on'> | undefined) => !!release?.frozen_on && !release.shipped_on
 

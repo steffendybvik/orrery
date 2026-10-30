@@ -116,6 +116,19 @@ export async function readBoard(db: Db, project: string, statuses: IssueStatus[]
 }
 
 
+/** The project's issues as far as tallying its releases takes (`tallyReleases`), all in one chunk: no comments, links,
+ * aliases or notes, so `GET /api/releases` doesn't build every project's board (ORR-671). */
+export async function readReleaseBoard(db: Db, project: string, statuses: IssueStatus[]): Promise<Board> {
+    const rows = await db.all<Pick<IssueRow, 'id' | 'parent' | 'status' | 'proposal' | 'ships_in'>>('SELECT id, parent, status, proposal, ships_in FROM issues WHERE project = ?', project)
+    const children = new Map<string | null, typeof rows>()
+    for (const row of rows) children.set(row.parent, [...children.get(row.parent) ?? [], row])
+    const input = (row: typeof rows[number]): IssueInput => ({
+        id: row.id, title: '', labels: [], status: row.status, proposal: row.proposal ?? undefined, release: row.ships_in ?? undefined,
+        tasks: (children.get(row.id) ?? []).map(input),
+    })
+    return buildBoard({chunks: [{id: '', title: '', summary: '', tasks: (children.get(null) ?? []).map(input)}]}, statuses)
+}
+
 /** The project's releases (its source's, when it takes them from another), in the order they're arranged in; each with how far its issues are
  * (see tallyReleases). A source counts the issues of every project drawing on it; one drawing on it counts its own. */
 export async function readReleases(db: Db, project: ProjectRow, board: Board, statuses: IssueStatus[]): Promise<Release[]> {

@@ -1,14 +1,42 @@
 // A project's releases, and the projects sharing them.
-import type {Issue, Release} from '#shared/roadmap'
+import type {Issue, ProjectReleases, Release} from '#shared/roadmap'
 import {badRequest, checkInput, conflict} from '../utils/input'
-import type {ReleaseDetail} from './schema'
-import {AGENT, RELEASE_FIELDS, tallyReleases, noReleases, nullable, stamp} from './schema'
+import type {ProjectRow, ReleaseDetail, ReleaseRow} from './schema'
+import {AGENT, RELEASE_FIELDS, releaseOf, tallyReleases, noReleases, nullable, stamp} from './schema'
 import {DocStore} from './docs'
+import {readReleaseBoard} from './reads'
 import {known} from '#shared/known'
 
 export abstract class ReleaseStore extends DocStore {
     async listReleases(project: string): Promise<Release[]> {
         return (await this.project(project)).releases
+    }
+
+    /** Every project with releases of its own, each with those it covers (ORR-671): a release several projects share
+     * is listed once, under the project it's made on, with each project's part. */
+    async allReleases(): Promise<ProjectReleases[]> {
+        const statuses = await this.statuses()
+        const shipping = await this.all<Pick<ProjectRow, 'id' | 'release_mode' | 'releases_from'>>("SELECT id, release_mode, releases_from FROM projects WHERE release_mode <> 'none' ORDER BY id")
+        return await Promise.all(shipping.filter(p => p.release_mode === 'own').map(async ({id}) => {
+            const projects = [id, ...shipping.filter(p => p.releases_from === id).map(p => p.id)]
+            const rows = await this.all<ReleaseRow>('SELECT * FROM releases WHERE project = ? ORDER BY position, created_at DESC', id)
+            const versions = rows.map(row => row.version)
+            const boards = await Promise.all(projects.map(project => readReleaseBoard(this.db, project, statuses)))
+            const together = tallyReleases(versions, boards)
+            const parts = boards.map(board => tallyReleases(versions, [board]))
+            return {
+                project: id,
+                projects,
+                releases: rows.map(row => {
+                    const {notes: _, ...release} = releaseOf(row)
+                    return {
+                        ...release,
+                        ...known(together.get(row.version), `a tally for ${row.version}`),
+                        projects: projects.map((project, at) => ({project, ...known(parts[at]?.get(row.version), `${project}'s tally for ${row.version}`)})),
+                    }
+                }),
+            }
+        }))
     }
 
     /** The release with its issues: those set for it (a sub-issue's when its parent isn't), each with its sub-issues,
