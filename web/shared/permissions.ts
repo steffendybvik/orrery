@@ -102,9 +102,9 @@ export const PERMISSIONS: Permission[] = [
     {
         id: 'docs.write', area: 'Roadmap', action: 'Write and change docs and releases',
         why: 'Docs are material, kept current by the sessions that read them.',
-        routes: ['PUT /api/projects/:project/docs/:doc', 'POST /api/projects/:project/doc-sections', 'PATCH /api/projects/:project/doc-sections/:section', 'DELETE /api/projects/:project/doc-sections/:section', 'POST /api/projects/:project/releases'],
+        routes: ['PUT /api/projects/:project/docs/:doc', 'POST /api/projects/:project/docs', 'PATCH /api/projects/:project/docs/:doc', 'POST /api/projects/:project/doc-sections', 'PATCH /api/projects/:project/doc-sections/:section', 'DELETE /api/projects/:project/doc-sections/:section', 'POST /api/projects/:project/releases'],
         session: {level: 'free'},
-        chat: refused,
+        chat: {level: 'asks', note: 'A doc made or changed as yours on your Allow, refused if it changed after it asked; never a section renamed or deleted, nor a doc removed'},
         untrusted: refused,
     },
     {

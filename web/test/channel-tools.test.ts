@@ -228,6 +228,7 @@ describe("the channel's tools", () => {
         expect(fields).toMatch(/^create_chunk: Makes a chunk/)
         expect(fields).toContain('"required":["title"]')
         expect(calls).toEqual([])
+        expect((await call('request_fields', {action: 'update_doc'})).content[0]!.text).toMatch(/^update_doc: Changes one of this project's docs/)
         expect((await call('request', {action: 'delete_everything'})).isError).toBe(true)
         expect((await call('request_fields', {action: 'nope'})).content[0]!.text).toMatch(/No action "nope": one of start_session/)
         // A work session has neither.

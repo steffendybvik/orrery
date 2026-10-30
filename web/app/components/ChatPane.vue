@@ -17,7 +17,7 @@ import type {ChatIssues, ChatMessage} from '#shared/roadmap'
 // Send, the owner picks where the issues it makes land, Todo or Backlog; the server holds the chat to it. A setting the
 // chat asks to change shows from → to with Allow and Deny; only Allow saves it. So does a schedule it asks to make (each
 // field it sets) or change (each from → to), a release it asks to add or change, a chunk it asks to make or change (ORR-510),
-// a session it asks to start, stop or give more time (ChatSessionCard), and issues it asks to move or assign (each
+// a doc it asks to make or change (ChatDocCard, ORR-661), a session it asks to start, stop or give more time (ChatSessionCard), and issues it asks to move or assign (each
 // one's status or assignee, from → to, its id a link). A message it asks to send other sessions shows with who it goes to, and
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
 // wide screen it shows on hover or focus). A message that's just `/clear` clears the session's context instead of going
@@ -368,6 +368,7 @@ const {over, on: drop} = useImageDrop(attach)
           <CopyButton :text="m.text" name="this reply" class="transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" />
         </div>
         <ChatSessionCard v-if="m.session" :request="m.session" :busy="answering === m.id" :ended="!!chat!.ended" @decide="allow => decide(m.id, allow)" />
+        <ChatDocCard v-if="m.doc" :request="m.doc" :busy="answering === m.id" :ended="!!chat!.ended" @decide="allow => decide(m.id, allow)" />
         <div v-if="m.request" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring-1 ring-line" role="group" :aria-label="`Change ${CHAT_SETTINGS[m.request.setting]}`">
           <span class="text-xs text-faint">Asks to change a setting</span>
           <span class="text-fg"><span class="font-medium">{{ CHAT_SETTINGS[m.request.setting] }}</span>:
