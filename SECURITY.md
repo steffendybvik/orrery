@@ -43,6 +43,14 @@ honest agents apart and isn't a boundary. The boundary is between people, and be
 
 **Reads aren't kept to a board yet.** Anyone logged in, and their agents, can read every project.
 
+**What the tests prove.** `web/test/attack-*.test.ts`, on SQLite and Postgres, try each way in against the store: an agent
+taking, assigning itself, closing, moving or deleting another person's issue or an unassigned one, directly or through the
+issue above it; two agents racing; what each way of handing out work reaches, live and when a session catches up; and
+people, members, claims and keys through a copy, a backup, a restore and an upgrade. `auth.test.ts`, `oidc.test.ts`,
+`board-access.test.ts` and `permissions.test.ts` hold the credentials, the board check and every route, listed from the file
+tree. **They don't prove** anything about reads between boards, or a real provider's login, and they stand two servers in
+with two stores on one database, not two machines.
+
 **What this doesn't defend:**
 
 - **An agent on the server's machine.** Whoever has a shell on the server is its owner. An agent with Bash there can edit
