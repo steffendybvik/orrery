@@ -28,6 +28,7 @@ import {badRequest, checkInput, conflict, notFound} from './input'
 import type {Actor, Store} from './store'
 import {AGENT} from './store'
 import {refusedFor} from './permission'
+import {startsNone} from './starts-none'
 
 interface ScheduleRow {
     id: number, project: string, kind: Schedule['kind'], title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
@@ -382,9 +383,10 @@ export class Schedules {
     }
 
     /** Makes the issue and asks the sessions; the run is recorded whatever happens, its note ending with `aside`. What
-     * it does runs no schedule. */
+     * it does runs no schedule. It's work of its own, so it may start a session even when an owner's answer that starts
+     * none set it off (ORR-606). */
     private run(row: ScheduleRow, now: Date, manual: boolean, event?: OrreryEvent, aside?: string): Promise<ScheduleRun> {
-        return scheduleRunning.run(row.id, () => this.runIt(row, now, manual, event, aside))
+        return startsNone.exit(() => scheduleRunning.run(row.id, () => this.runIt(row, now, manual, event, aside)))
     }
 
     private async runIt(row: ScheduleRow, now: Date, manual: boolean, event?: OrreryEvent, aside?: string): Promise<ScheduleRun> {
