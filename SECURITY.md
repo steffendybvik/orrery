@@ -194,10 +194,20 @@ was given as it connected (ORR-443), so a program posting claims can't take a la
 that can open a launcher stream is a launcher, though, and gets a token like any other.
 
 The launcher starts sessions only in folders on its list (`~/.config/orrery/launcher.json`), and only something running
-on your machine puts a folder there: `--install` in it, or, with pick-up on (ORR-599), orrery's channel in a Claude
-session you opened in it, which is the folder trust Claude Code asked you for. orrery never names a folder for the
-launcher, so whoever can reach orrery can't make it start sessions somewhere new. `--no-pick-up` leaves it to
-`--install` alone, and `--uninstall` in a repo keeps it off.
+on your machine puts a folder there: `--install` in it, with pick-up on (ORR-599) orrery's channel in a Claude
+session you opened in it, which is the folder trust Claude Code asked you for, or you choosing it in the folder picker for
+**Connect a repo** (below). orrery never names a folder for the launcher, so whoever can reach orrery can't make it start
+sessions somewhere new. `--no-pick-up` leaves it to `--install` and that picker, and `--uninstall` in a repo keeps it off.
+
+**Connect a repo** (ORR-708) is the owner's, and asks a launcher service to open its machine's folder picker. With login
+off the owner is a name, so whoever can reach orrery can make that picker appear, but only someone at the machine can choose a
+folder. The launcher keeps the folder, tells orrery only its last part, and writes only there, which is the point of the
+picker: the files include hooks that run commands, and `.mcp.json`, which is committed. What goes in them is the launcher's own
+text and address. orrery supplies only its id and the projects' ids and prefixes, which the launcher refuses unless they're plain
+ids, so it can't put a command in a hook. It then opens Claude there, where Claude Code asks about the folder and the
+server as it always does. It keeps what's in each file, and says what it wrote: commit them, or don't, as with any change.
+It won't take your home folder or the root. Anything that can open a launcher stream is a launcher (above), so it could say it
+took a request, and the page would show what it said, which is all it gets.
 
 **Allow** on a session at a permission prompt (ORR-489) is the owner's alone, and no session's or chat's: a prompt is
 there for a person to answer. Its launcher presses Enter only while the pane still shows a permission prompt with the

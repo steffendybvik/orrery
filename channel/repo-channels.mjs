@@ -28,7 +28,7 @@ export function channelsIn(dir) {
 
 /** A channel's orrery (its own `ORRERY_URL`, else the one given, else the default), and the projects it names:
  * each of `ORRERY_PROJECTS`, or `ORRERY_PROJECT`; none for `*`, which serves whatever the orrery has. */
-function served(channel, fallbackUrl) {
+export function served(channel, fallbackUrl) {
     const url = trim(plain(channel.env.ORRERY_URL) ?? fallbackUrl ?? DEFAULT_URL)
     const listed = plain(channel.env.ORRERY_PROJECTS)?.split(',').map(p => p.trim()).filter(Boolean) ?? []
     const every = listed.includes('*')
