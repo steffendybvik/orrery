@@ -131,6 +131,8 @@ export interface Issue {
     created_by: string
     /** The name of the session that made it, as it was then (ORR-466). */
     session_name?: string
+    /** The person who has taken it up (ORR-655), on an orrery with more than one person. */
+    claimed_by?: string
     /** Made by the owner: no one else can delete it. */
     protected: boolean
     /** The issues it builds on (ORR-601), as `linkRef`s: work on it waits until each is done. Only with some. */

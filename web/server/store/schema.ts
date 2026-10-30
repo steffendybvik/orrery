@@ -78,6 +78,12 @@ export interface Actor {
     via?: 'chat'
     /** The name of the session that made the write (`Orrery-Session`), kept with what it wrote (ORR-466). */
     session?: string
+    /** From a request (`actorOf`), so the rails between people hold it (ORR-655); what orrery does itself isn't. */
+    asked?: boolean
+    /** Who it says it's working for (`Orrery-Person`): `personFor` says whether that's anyone. */
+    named?: string
+    /** The owner's chat, which is the owner's whatever it's called. */
+    chat?: boolean
 }
 
 export const AGENT: Actor = {name: 'agent', owner: false}
@@ -122,7 +128,7 @@ export interface IssueRow extends Made {
     assignee: string | null, labels: string, external: string, github_issues: string, notes: string | null,
     parent: string | null, chunk: string | null, position: number, schedule: number | null,
     proposal: Proposal | null, decided_by: string | null, decided_at: string | null, decision_note: string | null,
-    choices: string, picks: string | null, explore: string | null, ships_in: string | null, session_name: string | null
+    choices: string, picks: string | null, explore: string | null, ships_in: string | null, claimed_by: string | null, claimed_at: string | null, claimed_session: string | null, created_person: string | null, session_name: string | null
 }
 export interface CommentRow extends Made { id: number, project: string, issue: string, body: string, asks: Asks | null, answered?: number, session_name: string | null }
 export interface EventRow { id: number, project: string, issue: string, field: ActivityField, before: string | null, after: string | null, created_by: string, session_name: string | null, owned: number, created_at: string }

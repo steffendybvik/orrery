@@ -499,4 +499,11 @@ export const STEPS: (string | ((client: Pick<PoolClient, 'query'>) => Promise<un
         FROM generate_series(1, 8) WHERE projects.id IS NOT NULL
     );
     INSERT INTO settings (key, value) SELECT 'uid', '"' || string_agg(substr('abcdefghijklmnopqrstuvwxyz234567', floor(random() * 32)::int + 1, 1), '') || '"' FROM generate_series(1, 8);
+`, `
+    -- Who holds an issue (ORR-655): the person who took it up and when, and the session on it, each taken with a
+    -- conditional write; and whose agent made it.
+    ALTER TABLE issues ADD COLUMN claimed_by text;
+    ALTER TABLE issues ADD COLUMN claimed_at text;
+    ALTER TABLE issues ADD COLUMN claimed_session text;
+    ALTER TABLE issues ADD COLUMN created_person text;
 `]

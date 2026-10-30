@@ -29,6 +29,14 @@ afterEach(() => {
 })
 
 describe('a session cut off mid-turn', () => {
+    it('with more than one person, leaves the issue with its person, for another of their agents', async () => {
+        await store.nameOwner({name: 'Skoll'})
+        await store.addPerson({name: 'Hati'})
+        await store.updateIssue('greenhouse', 'GRE-1', {assignee: 'hati'})
+        await clearing.letGo('greenhouse', 'w', 'overloaded')
+        expect(await store.issue('greenhouse', 'GRE-1')).toMatchObject({status: 'todo', assignee: 'hati'})
+    })
+
     it('puts what it had in progress back in Todo, with nobody on it and a comment why', async () => {
         expect(await clearing.letGo('greenhouse', 'w', 'overloaded')).toEqual(['GRE-1', 'GRE-2'])
         for (const id of ['GRE-1', 'GRE-2']) {

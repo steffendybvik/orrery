@@ -106,7 +106,7 @@ describe('the database', () => {
     it('moves a named owner from settings to people, and leaves an unnamed one as they are (ORR-653)', async () => {
         const open = (name?: string) => {
             const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
-            const old = openDb(path, MIGRATIONS.length - 2)
+            const old = openDb(path, MIGRATIONS.length - 3)
             if (name) old.prepare("INSERT INTO settings (key, value) VALUES ('owner', ?)").run(JSON.stringify(name))
             old.close()
             return new Store(new SqliteDb(openDb(path)))
@@ -122,7 +122,7 @@ describe('the database', () => {
 
     it('gives each board and the server a random id on upgrading (ORR-674)', async () => {
         const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
-        const old = openDb(path, MIGRATIONS.length - 1)
+        const old = openDb(path, MIGRATIONS.length - 2)
         const add = old.prepare("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES (?, ?, 'GRE', 'agent', 'x', 'x')")
         add.run('greenhouse', 'Greenhouse')
         add.run('pantry', 'Pantry')
