@@ -180,7 +180,7 @@ watch(columns, () => {
             <PersonAvatar v-if="issue.assignee" :name="issue.assignee" :size="16" />
           </div>
           <div class="flex items-start gap-2">
-            <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" class="mt-0.5" />
+            <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" class="mt-0.5" :class="{'animate-pulse motion-reduce:animate-none': !isClosed(issue.kind) && workerOf(project, issue.id)?.state === 'working'}" />
             <p class="line-clamp-3 min-w-0 flex-1 text-[13px] leading-snug" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', issueUnseen(project, issue) ? 'font-semibold' : '']"><InlineText :text="issue.title" /></p>
           </div>
           <WaitingChip v-if="issue.waiting" :asks="issue.waiting" :proposal="pendingProposal(issue)" class="self-start" />

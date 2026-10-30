@@ -295,6 +295,34 @@ test("shows on an issue's page which session is on it, while it listens", async 
     }
 })
 
+test("a board card's status icon pulses only while its session works, and not with reduced motion", async ({page, request, baseURL}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Scrub the oven', status: 'todo'})
+    const report = (event: string) => request.post('/api/sessions', {data: {id: 'e2e-w3', project: 'kitchen', event, name: 'e2e-w3'}})
+    await report('SessionStart')
+    const stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-w3&name=e2e-w3&format=text')
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {id: string, listening: boolean}) => s.id === 'e2e-w3' && s.listening)).toBe(true)
+        await page.goto('/p/kitchen?view=board')
+        const card = page.locator('[draggable="true"]').filter({hasText: 'Scrub the oven'})
+        const icon = card.locator('svg[aria-label]').first()
+        const animation = () => icon.evaluate(el => getComputedStyle(el).animationName)
+        await expect.poll(animation).toBe('none')
+        await api(request, 'post', `/issues/${issue.id}/focus`, {session: 'e2e-w3'}, OWNER)
+        await report('UserPromptSubmit')
+        await expect.poll(animation).toBe('pulse')
+        await page.emulateMedia({reducedMotion: 'reduce'})
+        await expect.poll(animation).toBe('none')
+        await page.emulateMedia({reducedMotion: 'no-preference'})
+        await expect.poll(animation).toBe('pulse')
+        // The dot stays, as the session's still on it, but nothing's happening now.
+        await report('Stop')
+        await expect.poll(animation).toBe('none')
+        await expect(page.getByRole('img', {name: 'e2e-w3 is working on it'})).toHaveCount(1)
+    } finally {
+        stream.stop()
+    }
+})
+
 test('a session orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
