@@ -1,0 +1,57 @@
+// Schedules: recurring work in a project, and each time one ran.
+import type {OnFilter} from '../happenings'
+import type {Priority} from './board'
+
+/** One time a schedule ran: the issue it made, or why it didn't. */
+export interface ScheduleRun {
+    at: string
+    /** `made` an issue, `sent` a message, or `skipped` / `failed` (with why). */
+    outcome: 'made' | 'sent' | 'skipped' | 'failed'
+    issue?: string
+    note?: string
+    /** What an event run was about (an issue's id, a release's version), once per schedule. */
+    subject?: string
+}
+
+/** Recurring work in a project: at each time (`cron` in `timezone`, once `at`, or `on` an event) orrery makes an issue
+ * from it, and with `ask` points the project's listening Claude sessions at it; or, as a `message`
+ * schedule, sends `notes` to the sessions without an issue; or, as a `session` schedule, starts a session. */
+export interface Schedule {
+    id: number
+    project: string
+    kind: 'issue' | 'message' | 'session'
+    title: string
+    /** The issue's description, or the message. */
+    notes?: string
+    cron?: string
+    at?: string
+    /** Runs when an event of this type happens instead of on a clock: `issue.status`, `release.*` (shared/happenings.ts). */
+    on?: string
+    /** What the event must also say: `{to: "in-review"}`, `{by: "owner"}`, `{level: "error"}`. */
+    on_filter?: OnFilter
+    /** Preset ids a message or session schedule is given, their text before `notes`; none for an issue schedule. */
+    presets: number[]
+    timezone: string
+    /** Where its issues start: a status's id (not a closed one). */
+    column: string
+    chunk?: string
+    priority?: Priority
+    labels: string[]
+    ask: boolean
+    /** Skips a run while the issue from the last one isn't done. */
+    skip_open: boolean
+    /** A message schedule: skips a run when no issue or comment in the project changed since the last one it sent. */
+    only_if_changed: boolean
+    /** A message schedule whose session reads what others wrote (GitHub issues): its message goes to a session
+     * started for it alone, with only the orrery tools (`github_issues` among them), and what that session raises is a proposal. */
+    untrusted: boolean
+    enabled: boolean
+    /** When it runs next; none once it's paused or a one-off has run. */
+    next_run?: string
+    /** The latest runs, newest first. */
+    runs: ScheduleRun[]
+    created_by: string
+    protected: boolean
+    created_at: string
+    updated_at: string
+}
