@@ -19,7 +19,8 @@ server/api/             the routes, one file per method and path (/api/…)
 server/store/           the store, a file per domain (issues, chunks, comments, signals, releases, docs, presets…),
                         each class extending the one before; server/utils/store.ts is the last, `Store`, which the routes use
 server/utils/           the rest of the server: the database and its migrations, sessions and launches, schedules, secrets
-shared/                 types and rules both sides use (roadmap.ts)
+shared/                 types and rules both sides use: roadmap/ a file per area (board, sessions, schedules, settings…),
+                        gathered by roadmap.ts, which everything imports from
 ```
 
 The root is a pnpm workspace with the app as its one package: `pnpm dev`, `pnpm test`,
