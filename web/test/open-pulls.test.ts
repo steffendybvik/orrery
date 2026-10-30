@@ -62,7 +62,7 @@ describe('every open pull request', () => {
             listed(9, {head: {ref: 'chore/bump'}}),
         ])
         const got = await pulls.all()
-        expect(got.repos).toEqual([{repo: 'you/shop', projects: ['shop', 'till'], token: false, checked_at: '2026-10-29T10:00:00.000Z'}])
+        expect(got.repos).toEqual([{repo: 'you/shop', projects: ['shop', 'till'], token: false, checked_at: '2026-10-29T10:00:00.000Z', open: 3, needs: 0}])
         expect(got.pulls.map(p => [p.number, p.state, p.issue?.id ?? null])).toEqual([[7, 'checking', 'TIL-1'], [8, 'draft', 'SHO-2'], [9, 'checking', null]])
         expect(got.pulls[0]!.issue).toEqual({project: 'till', id: 'TIL-1', title: 'Receipts'})
         expect(got.needs).toBe(0)
@@ -91,10 +91,10 @@ describe('every open pull request', () => {
     })
 
     it('says why a repo couldn\'t be read, and asks nothing with no repo on GitHub', async () => {
-        expect(await pulls.all()).toEqual({pulls: [], needs: 0, repos: [{repo: 'you/shop', projects: ['shop'], token: false, checked_at: '2026-10-29T10:00:00.000Z', error: expect.stringContaining('GitHub has no public you/shop')}]})
+        expect(await pulls.all()).toEqual({pulls: [], open: 0, needs: 0, repos: [{repo: 'you/shop', projects: ['shop'], token: false, checked_at: '2026-10-29T10:00:00.000Z', open: 0, needs: 0, error: expect.stringContaining('GitHub has no public you/shop')}]})
         await store.updateProject('shop', {repo: null})
         asked = []
-        expect(await pulls.all()).toEqual({pulls: [], needs: 0, repos: []})
+        expect(await pulls.all()).toEqual({pulls: [], open: 0, needs: 0, repos: []})
         expect(asked).toEqual([])
     })
 })

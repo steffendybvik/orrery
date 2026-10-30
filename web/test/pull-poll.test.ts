@@ -55,7 +55,13 @@ beforeEach(async () => {
         asked.push({url: String(url), method: init?.method ?? 'GET', auth: headers.get('authorization')})
         const path = new URL(String(url)).pathname + new URL(String(url)).search
         if (refuse) return json({message: 'Bad credentials'}, 401)
-        if (path === '/graphql') return json({data: {repository: {open: {nodes: open}, done: {nodes: done}}}})
+        if (path === '/graphql') {
+            // A hundred open to a page, as GitHub gives them, the cursor being where the next starts.
+            const after = (JSON.parse(String(init?.body)) as {variables: {after?: string}}).variables.after
+            const from = Number(after ?? 0)
+            const page = {nodes: open.slice(from, from + 100), pageInfo: {hasNextPage: from + 100 < open.length, endCursor: String(from + 100)}}
+            return json({data: {repository: after ? {open: page} : {open: page, done: {nodes: done}}}})
+        }
         return rest[path]?.() ?? json({message: 'Not Found'}, 404)
     }
     secrets = new Secrets(store, () => 'a long random test key', () => {}, send as typeof fetch)
@@ -402,6 +408,39 @@ describe('the pull request poll', () => {
         poll.secretsChanged()
         expect(await poll.pollNow()).toEqual(new Map())
         expect(asked).toHaveLength(2)
+    })
+
+    it('reads past the first hundred open, up to three hundred, saying when it stopped short (ORR-615)', async () => {
+        await withToken()
+        open = Array.from({length: 250}, (_, i) => pr(i + 1))
+        await poll.tick()
+        expect(asked.filter(a => a.url.endsWith('/graphql'))).toHaveLength(3)
+        let all = await pulls.all()
+        expect(all.open).toBe(250)
+        expect(all.repos[0]!.cut).toBeUndefined()
+        open = Array.from({length: 350}, (_, i) => pr(i + 1))
+        asked = []
+        await minuteOn()
+        expect(asked).toHaveLength(3)
+        all = await pulls.all()
+        expect(all.open).toBe(300)
+        expect(all.repos[0]).toMatchObject({open: 300, cut: 300})
+    })
+
+    it("doesn't take the open ones past the cut for closed (ORR-615)", async () => {
+        await withToken()
+        open = Array.from({length: 300}, (_, i) => pr(i + 1))
+        await poll.tick()
+        // Five newer ones push the last five past what's read: still open, not closed.
+        open = [...Array.from({length: 5}, (_, i) => pr(1000 + i)), ...open]
+        await minuteOn()
+        expect(await store.db.get('SELECT COUNT(*) AS n FROM pull_states WHERE closed = 1')).toEqual({n: 0})
+        expect((await pulls.all()).repos[0]!.cut).toBe(300)
+        // Back under the cut, one gone from the list is closed again.
+        open = open.slice(0, 200)
+        await minuteOn()
+        expect((await pulls.all()).repos[0]!.cut).toBeUndefined()
+        expect(await store.db.get('SELECT COUNT(*) AS n FROM pull_states WHERE closed = 1')).toEqual({n: 105})
     })
 
     it('lets go of a repo nobody points at any more', async () => {

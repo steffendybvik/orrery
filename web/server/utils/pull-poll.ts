@@ -5,14 +5,15 @@
 //
 // With a GITHUB_TOKEN secret each repo is one GraphQL query a minute: its open PRs, and those most recently merged or
 // closed. Without one GitHub allows 60 requests an hour, so it's two REST lists every ten minutes, which say nothing of
-// a PR's state but do say it merged or closed. A repo's first poll only records, as does its first with a token after
+// a PR's state but do say it merged or closed. A repo with more than 100 open costs a query (or list) more for each
+// hundred, up to 300 read (ORR-615); past that it's cut short, says so on the page, and closes none it didn't read. A repo's first poll only records, as does its first with a token after
 // polls without one: turning it on, or adding a token, tells nothing of the PRs already open. A rate limit holds the repo until GitHub's reset (shared with the pages); a refused token holds it an
 // hour, or until the secrets change, said once in the event log until a poll works again.
 import type {PullState} from '#shared/roadmap'
 import {PULL_NEEDS} from '#shared/roadmap'
 import type {EventEntry} from './event-log'
 import type {KeptPull, ListedPull, Pulls} from './pulls'
-import {GITHUB_SECRET, issueIdsIn, pullState} from './pulls'
+import {GITHUB_SECRET, issueIdsIn, PAGE, PAGES, pullState} from './pulls'
 import type {Store} from './store'
 
 /** How often a repo is polled: with a token, and without one. */
@@ -81,11 +82,23 @@ const FIELDS = `number title url body isDraft headRefName baseRefName headRefOid
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
 const QUERY = `query($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
-        open: pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ${FIELDS} } }
+        open: pullRequests(states: OPEN, first: ${PAGE}, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ${FIELDS} } pageInfo { hasNextPage endCursor } }
         done: pullRequests(states: [MERGED, CLOSED], first: ${DONE}, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ${FIELDS}
             timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { actor { login } } } } } }
     }
 }`
+/** The open PRs after the first page, while there are more (ORR-615). */
+const OPEN_AFTER = `query($owner: String!, $name: String!, $after: String!) {
+    repository(owner: $owner, name: $name) {
+        open: pullRequests(states: OPEN, first: ${PAGE}, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ${FIELDS} } pageInfo { hasNextPage endCursor } }
+    }
+}`
+
+/** A page of a repo's PRs as GitHub's GraphQL gives it. */
+interface GraphPage {
+    nodes: GraphPull[]
+    pageInfo?: {hasNextPage: boolean, endCursor: string | null}
+}
 
 interface GraphPull {
     number: number
@@ -262,7 +275,7 @@ export class PullPoll {
 
     /** Reads the repo's PRs, keeps what each is, and tells what changed. */
     async poll(repo: string, projects: string[], asker: string, token: boolean) {
-        let read: {open: Polled[], done: Polled[]}
+        let read: {open: Polled[], done: Polled[], more: boolean}
         try {
             read = token ? await this.graph(repo, asker) : await this.lists(repo, asker)
         } catch (error) {
@@ -281,6 +294,7 @@ export class PullPoll {
             return
         }
         this.told401.delete(repo)
+        this.pulls.cutShort(repo, read.more ? read.open.length : undefined)
         const at = new Date(this.now()).toISOString()
         // Only records: the repo's first poll, and its first with a token after polls without one, which couldn't tell a
         // PR's state, checks or reviews, so every PR already conflicting or failing would read as news (ORR-525).
@@ -325,29 +339,43 @@ export class PullPoll {
                 pull.review ?? (token ? null : was?.review ?? null), pull.review_id ?? (token ? null : was?.review_id ?? null), pull.checks ?? (token ? null : was?.checks ?? null),
                 pull.merged ? 1 : 0, pull.closed ? 1 : 0, pull.merge_sha, pull.closed_by, pull.created_at, pull.updated_at, at, JSON.stringify(told))
         }
-        // Open when last seen, and in neither list now: closed or merged in a rush the lists missed. Kept as closed, told nothing.
+        // Open when last seen, and in neither list now: closed or merged in a rush the lists missed. Kept as closed, told
+        // nothing. Not when the open ones were cut short: those past the cut are still open (ORR-615).
         for (const [number, was] of kept) {
-            if (!seen.has(number) && !was.merged && !was.closed) await this.store.db.run('UPDATE pull_states SET closed = 1, seen_at = ? WHERE repo = ? AND number = ?', at, repo, number)
+            if (!read.more && !seen.has(number) && !was.merged && !was.closed) await this.store.db.run('UPDATE pull_states SET closed = 1, seen_at = ? WHERE repo = ? AND number = ?', at, repo, number)
         }
         await this.store.db.run(`INSERT INTO pull_repos (repo, polled_at, token, error) VALUES (?, ?, ?, NULL)
             ON CONFLICT (repo) DO UPDATE SET polled_at = excluded.polled_at, token = excluded.token, error = NULL`, repo, at, token ? 1 : 0)
         for (const change of changes) this.onChange(change)
     }
 
-    private async graph(repo: string, asker: string): Promise<{open: Polled[], done: Polled[]}> {
+    /** The repo's open PRs, a page a query up to `PAGES` of them, and the most recently done with the first; `more`
+     * when GitHub had more open past the last page read (ORR-615). */
+    private async graph(repo: string, asker: string): Promise<{open: Polled[], done: Polled[], more: boolean}> {
         const [owner, name] = repo.split('/')
-        const {value} = await this.pulls.ask<{data?: {repository: {open: {nodes: GraphPull[]}, done: {nodes: GraphPull[]}} | null}, errors?: {message: string}[]}>(
-            repo, asker, '/graphql', {query: QUERY, variables: {owner, name}})
-        if (value.errors?.length) throw new Error(`GitHub answered for ${repo}: ${value.errors.map(e => e.message).join('; ')}`)
-        const found = value.data?.repository
-        if (!found) throw new Error(`GitHub has no ${repo} that the ${GITHUB_SECRET} secret can read`)
-        return {open: found.open.nodes.map(fromGraph), done: found.done.nodes.map(fromGraph)}
+        const query = async (text: string, after?: string) => {
+            const {value} = await this.pulls.ask<{data?: {repository: {open: GraphPage, done?: GraphPage} | null}, errors?: {message: string}[]}>(
+                repo, asker, '/graphql', {query: text, variables: {owner, name, ...after ? {after} : {}}})
+            if (value.errors?.length) throw new Error(`GitHub answered for ${repo}: ${value.errors.map(e => e.message).join('; ')}`)
+            const found = value.data?.repository
+            if (!found) throw new Error(`GitHub has no ${repo} that the ${GITHUB_SECRET} secret can read`)
+            return found
+        }
+        const first = await query(QUERY)
+        const open = first.open.nodes.map(fromGraph)
+        let page = first.open.pageInfo
+        for (let read = 1; page?.hasNextPage && page.endCursor && read < PAGES; read++) {
+            const next = (await query(OPEN_AFTER, page.endCursor)).open
+            open.push(...next.nodes.map(fromGraph))
+            page = next.pageInfo
+        }
+        return {open, done: (first.done?.nodes ?? []).map(fromGraph), more: !!page?.hasNextPage}
     }
 
-    private async lists(repo: string, asker: string): Promise<{open: Polled[], done: Polled[]}> {
-        const open = await this.pulls.ask<ListedPull[]>(repo, asker, `/repos/${repo}/pulls?state=open&per_page=100`)
+    private async lists(repo: string, asker: string): Promise<{open: Polled[], done: Polled[], more: boolean}> {
+        const open = await this.pulls.askPages<ListedPull>(repo, asker, `/repos/${repo}/pulls?state=open&per_page=${PAGE}`)
         const done = await this.pulls.ask<ListedPull[]>(repo, asker, `/repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=${DONE}`)
-        return {open: open.value.map(fromList), done: done.value.map(fromList)}
+        return {open: open.value.map(fromList), done: done.value.map(fromList), more: open.more}
     }
 
     /** Lets go of merged and closed PRs a week on, and of repos nobody's project points at any more. */

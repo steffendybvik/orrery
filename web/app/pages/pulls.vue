@@ -9,20 +9,36 @@ import {inProjectOrder, PULL_NEEDS} from '#shared/roadmap'
 // Focus on this to send a session to it (ORR-607); the header's copy button copies the repo's name. Poll
 // asks GitHub now rather than waiting for the background poll's next turn; a repo it held back (GitHub's limits) says
 // why in its header.
+// They come 50 to a page (ORR-615), in that order across every repo, so page 1 always has those that need someone; a
+// card shows its PRs on this page, its counts every page's. The page is in the address, so a reload stays on it.
 useHead({title: 'Pull requests · orrery'})
 const {projects, ready, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {pulls, follow, poll, polling, failed} = useOpenPulls()
+const route = useRoute()
+const router = useRouter()
+const page = computed({
+    get: () => Math.max(1, Math.floor(Number(route.query.page)) || 1),
+    set: at => void router.replace({query: {...route.query, page: at > 1 ? at : undefined}}),
+})
+const {pulls, follow, poll, polling, failed} = useOpenPulls(page)
 follow(60_000)
+// Past the last page (PRs closed since), the answer is the last page: the address follows.
+watch(() => pulls.value?.page, at => {
+    if (at && at !== page.value) page.value = at
+})
+const limit = computed(() => pulls.value?.limit ?? 50)
+const pages = computed(() => Math.max(1, Math.ceil((pulls.value?.open ?? 0) / limit.value)))
+const from = computed(() => ((pulls.value?.page ?? page.value) - 1) * limit.value + 1)
 const needs = (state: string) => (PULL_NEEDS as string[]).includes(state)
 // The repos GitHub couldn't be read for: their pull requests aren't in the list, so it can't say none are open (ORR-552).
 const unread = computed(() => pulls.value?.repos.filter(r => r.error).length ?? 0)
 const noneRead = computed(() => !!unread.value && unread.value === pulls.value?.repos.length)
-// The repos as cards, each with its own pull requests in the answer's order.
+// The repos as cards, each with its pull requests on this page in the answer's order. One with none here shows only
+// on the first page, or when it couldn't be read, so later pages are the repos they list.
 const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.value.map(p => p.id)).map(repo => {
     const own = (pulls.value?.pulls ?? []).filter(p => p.repo === repo.repo)
-    return {...repo, pulls: own, needs: own.filter(p => needs(p.state)).length}
-}))
+    return {...repo, pulls: own}
+}).filter(card => card.pulls.length || card.error || page.value === 1))
 </script>
 
 <template>
@@ -34,13 +50,22 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
   <ViewToolbar>
     <span class="text-xs text-muted">
       <template v-if="!pulls">Asking GitHub…</template>
-      <template v-else-if="pulls.pulls.length">{{ pulls.pulls.length }} open{{ pulls.needs ? `, ${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone` : '' }}</template>
+      <template v-else-if="pulls.open">{{ pulls.open }} open{{ pulls.needs ? `, ${pulls.needs} need${pulls.needs === 1 ? 's' : ''} someone` : '' }}</template>
       <template v-else-if="noneRead">Couldn't read GitHub</template>
       <template v-else>None open</template>
       <template v-if="unread && !noneRead">, {{ unread }} repo{{ unread === 1 ? '' : 's' }} not read</template>
     </span>
     <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
     <template #end>
+      <div v-if="pulls && pages > 1" class="flex shrink-0 items-center gap-1 text-xs text-faint">
+        <span class="mr-1 font-mono tabular-nums">{{ from }}–{{ from + pulls.pulls.length - 1 }} of {{ pulls.open }}</span>
+        <UiButton variant="ghost" size="xs" square :disabled="page <= 1" title="Previous page" aria-label="Previous page" @click="page = page - 1">
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+        </UiButton>
+        <UiButton variant="ghost" size="xs" square :disabled="page >= pages" title="Next page" aria-label="Next page" @click="page = page + 1">
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+        </UiButton>
+      </div>
       <UiButton class="shrink-0" :disabled="polling || !pulls?.repos.length" title="Ask GitHub now, rather than at the next poll" @click="poll">
         <svg class="size-3.5" :class="{'animate-spin motion-reduce:animate-none': polling}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5" /></svg>
         {{ polling ? 'Polling…' : 'Poll' }}
@@ -62,13 +87,14 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
             <CopyButton class="self-center" :text="card.repo" :name="`the repo name ${card.repo}`" compact />
             <span class="text-xs text-muted">{{ card.projects.map(p => byId(p)?.name ?? p).join(', ') }}</span>
             <span v-if="!card.error" class="ml-auto text-xs" :class="card.needs ? 'text-rose-600 dark:text-rose-400' : 'text-muted'">
-              <template v-if="card.pulls.length">{{ card.pulls.length }} open{{ card.needs ? `, ${card.needs} need${card.needs === 1 ? 's' : ''} someone` : '' }}</template>
+              <template v-if="card.open">{{ card.open }} open{{ card.needs ? `, ${card.needs} need${card.needs === 1 ? 's' : ''} someone` : '' }}</template>
               <template v-else>none open</template>
             </span>
             <span class="w-full text-[11px] text-faint">
               <template v-if="card.error">not read</template>
               <template v-else-if="card.token">read with the GITHUB_TOKEN secret{{ card.checked_at ? `, ${ago(card.checked_at)}` : '' }}</template>
               <template v-else>read without a token, so only the list: set a GITHUB_TOKEN secret for api.github.com to see where each stands</template>
+              <template v-if="card.cut"> · <span class="text-amber-700 dark:text-amber-400">only the first {{ card.cut }} read: GitHub has more open</span></template>
               <template v-if="card.held"> · <span class="text-amber-700 dark:text-amber-400">not polled now: {{ card.held }}</span></template>
             </span>
           </div>
@@ -93,6 +119,9 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
               </span>
             </li>
           </ul>
+          <p v-if="!card.error && card.pulls.length && card.pulls.length < card.open" class="border-t border-line px-3 py-1.5 text-[11px] text-faint">
+            {{ card.open - card.pulls.length }} more on other pages
+          </p>
         </li>
       </ul>
     </div>
