@@ -13,5 +13,6 @@ type ApiOptions = NitroFetchOptions<NitroFetchRequest>
 export async function apiFetch<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
     const write = (options.method ?? 'GET').toUpperCase() !== 'GET'
     const headers = options.headers ?? (write ? {'Orrery-Actor': await useOwner().load()} : undefined)
-    return await $fetch<T>(apiUrl(path), {...options, ...headers ? {headers} : {}} as ApiOptions) as T
+    // The global one, which plugins/unseen.client.ts wraps: a plain `$fetch` here is auto-imported as the one underneath it.
+    return await globalThis.$fetch<T>(apiUrl(path), {...options, ...headers ? {headers} : {}} as ApiOptions) as T
 }

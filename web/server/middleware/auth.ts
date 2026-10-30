@@ -1,7 +1,8 @@
 // With auth on (ORR-664), every route under /api asks for a credential, reads included, so the checks after this are
 // against a verified person. There's no loopback exemption, as in Docker orrery can't tell loopback from the network.
 // Runs first. What stays open is what can't hold data: the login's own routes, and outside /api the page's files, the
-// channel's and connect's, which nothing could send a key for. Off, as on one person's own machine, this does nothing.
+// channel's, and /llms* and /connect, which leave out what's on this orrery unless `mayRead` says otherwise (ORR-689).
+// Off, as on one person's own machine, this does nothing.
 import {authMode, canGetIn, credential} from '../utils/auth'
 
 const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/oidc/start', '/api/auth/oidc/callback'])

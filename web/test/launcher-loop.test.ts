@@ -1,6 +1,6 @@
 import {execFileSync, spawn} from 'node:child_process'
 import type {ChildProcess} from 'node:child_process'
-import {chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync} from 'node:fs'
+import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync} from 'node:fs'
 import {createServer} from 'node:http'
 import type {AddressInfo} from 'node:net'
 import {tmpdir} from 'node:os'
@@ -55,6 +55,7 @@ async function standInOrrery(version: string) {
     const asked: Asked[] = []
     const streams = new Map<string, Set<import('node:http').ServerResponse>>()
     const refused = new Set<string>()
+    const connectStreams = new Set<import('node:http').ServerResponse>()
     const server = createServer((req, res) => {
         const url = new URL(req.url ?? '/', 'http://orrery')
         let body = ''
@@ -70,6 +71,14 @@ async function standInOrrery(version: string) {
                 res.on('close', () => open.delete(res))
                 return
             }
+            if (url.pathname === '/api/connects/stream') {
+                res.writeHead(200, {'Content-Type': 'text/event-stream'})
+                res.write(`event: ready\ndata: ${JSON.stringify({token: 'connect-token', orrery: 'orr_stand_in'})}\n\n`)
+                connectStreams.add(res)
+                res.on('close', () => connectStreams.delete(res))
+                return
+            }
+            if (url.pathname.endsWith('/report')) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({claimed: true}))
             const claim = /\/launches\/([^/]+)\/claim$/.exec(url.pathname)
             if (claim) return void res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify({claimed: !refused.has(claim[1]!)}))
             res.writeHead(200, {'Content-Type': 'application/json'}).end('{}')
@@ -83,6 +92,9 @@ async function standInOrrery(version: string) {
         refuse: (id: string) => refused.add(id),
         event: (event: string, data: unknown, project = 'greenhouse') => streams.get(project)?.forEach(s => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
         listening: (project = 'greenhouse') => streams.get(project)?.size ?? 0,
+        connectEvent: (event: string, data: unknown) => connectStreams.forEach(s => s.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
+        connecting: () => connectStreams.size,
+        connectReports: () => paths('/report').map(a => JSON.parse(a.body) as Record<string, unknown>),
         reported: () => paths('/launches/running').map(a => JSON.parse(a.body).launches as Record<string, unknown>[]),
         ended: () => paths('/ended').map(a => /launches\/([^/]+)\/ended/.exec(a.path)![1]!),
         claims: () => paths('/claim'),
@@ -104,12 +116,17 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
     for (const dir of [bin, fake, home, sockets, repo]) mkdirSync(dir)
     writeFileSync(join(bin, 'tmux'), FAKE_TMUX)
     chmodSync(join(bin, 'tmux'), 0o755)
+    // A folder picker that chooses the repo, for either system, and a terminal that only says it opened.
+    for (const name of ['osascript', 'zenity', 'x-terminal-emulator', 'claude']) {
+        writeFileSync(join(bin, name), `#!${process.execPath}\nconst args = process.argv.slice(2).join(' ')\nif (/choose folder|--file-selection/.test(args)) console.log(${JSON.stringify(repo)})\nelse require('node:fs').appendFileSync(${JSON.stringify(join(fake, 'opened'))}, args + '\\n')\n`)
+        chmodSync(join(bin, name), 0o755)
+    }
     writeFileSync(join(fake, 'calls'), '')
     writeFileSync(join(fake, 'state.json'), JSON.stringify(sessions))
     const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string
     const orrery = await standInOrrery(version)
     // `ps` is how it tells a live launcher, so the system's folders stay on PATH, after the fake.
-    const env = {PATH: `${bin}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TMUX_TMPDIR: sockets, FAKE_TMUX: fake}
+    const env = {PATH: `${bin}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), TMUX_TMPDIR: sockets, FAKE_TMUX: fake, DISPLAY: ':0'}
     const children: ChildProcess[] = []
     onTestFinished(() => {
         children.forEach(child => child.kill('SIGKILL'))
@@ -119,6 +136,7 @@ async function bench({onTestFinished}: Finishing, sessions: Sessions = {}) {
     const list = join(home, '.config', 'orrery', 'launcher.json')
     return {
         orrery, repo, root, tmuxCalls, list,
+        opened: () => existsSync(join(fake, 'opened')) ? readFileSync(join(fake, 'opened'), 'utf8') : '',
         state: () => JSON.parse(readFileSync(join(fake, 'state.json'), 'utf8')) as Sessions,
         called: (command: string) => tmuxCalls().filter(call => call[0] === command),
         writeList: (projects: Record<string, unknown>[]) => {
@@ -312,5 +330,27 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
             expect(orrery.ended()).toEqual([])
             expect(Object.keys(state())).toEqual([nameOf(ID.a)])
         })
+    })
+    it('as a service, sets up the folder chosen in its picker, serves it, and opens Claude there (ORR-708)', async context => {
+        const {orrery, repo, start, writeList, list, opened} = await bench(context)
+        writeList([{url: orrery.url, project: 'greenhouse', dir: repo}])
+        await start({service: true})
+        await vi.waitFor(() => expect(orrery.connecting()).toBe(1), WAIT)
+        orrery.connectEvent('pick', {id: 'c1'})
+        await vi.waitFor(() => expect(orrery.connectReports().at(-1)).toMatchObject({state: 'picked', folder: 'repo'}), WAIT)
+        expect(JSON.stringify(orrery.connectReports())).not.toContain(repo)
+        orrery.connectEvent('write', {id: 'c1', projects: [{id: 'orchard', key: 'ORC'}], orrery: {id: 'orr_stand_in', environment: 'personal'}, terminal: 'terminal'})
+        await vi.waitFor(() => expect(orrery.connectReports().at(-1)).toMatchObject({state: 'done', written: ['.mcp.json', '.claude/settings.json', 'CLAUDE.md']}), WAIT)
+        expect(JSON.parse(readFileSync(join(repo, '.mcp.json'), 'utf8')).mcpServers['orrery-personal'].env).toMatchObject({ORRERY_URL: orrery.url, ORRERY_PROJECTS: 'orchard'})
+        expect(JSON.parse(readFileSync(list, 'utf8')).projects.map((p: {project: string}) => p.project)).toEqual(['greenhouse', 'orchard'])
+        expect(opened()).toContain('--dangerously-load-development-channels server:orrery-personal')
+        await vi.waitFor(() => expect(orrery.listening('orchard')).toBe(1), WAIT)
+    })
+
+    it('in a terminal, takes no connect requests (ORR-708)', async context => {
+        const {orrery, start} = await bench(context)
+        await start()
+        await vi.waitFor(() => expect(orrery.listening()).toBe(1), WAIT)
+        expect(orrery.connecting()).toBe(0)
     })
 })

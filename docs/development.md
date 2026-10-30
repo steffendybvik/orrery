@@ -79,6 +79,9 @@ version, once on each database. A failed run leaves a trace to replay with `pnpm
 Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwright image through Docker, and
 `pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
 
+`pnpm test:e2e:login` runs `e2e/login/` on an orrery of its own with `ORRERY_AUTH=on` and a fresh `web/.data/e2e-login.db`, as
+the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out.
+
 `pnpm test:e2e:perf` times the pages on a big orrery. `e2e/perf/seed.ts` fills a fresh `web/.data/perf.db` (or, with
 `E2E_POSTGRES_URL`, that Postgres) through the store: 20 projects, about 3,000 issues, 20,000 comments, 50,000
 history rows, plus proposals, events, docs and schedules. The `PERF_*` variables change the sizes (`PERF_ISSUES=10000`).

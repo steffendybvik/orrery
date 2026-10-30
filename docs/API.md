@@ -600,6 +600,12 @@ with review instructions in it.
 | `POST /projects/:project/launches/:launch/ended` | 204: the launcher saying the launch's session stopped |
 | `POST /projects/:project/launches/running` | `{launches: [{id, tmux, stops_at?, context?, untrusted?, chat?}]}` → 204: the launcher, each time it connects, saying which sessions it started still run, so a restarted orrery counts them as started again, with the context they were given (a launch orrery still knows keeps its own) |
 | `POST /projects/:project/launches/:launch/stop` | the session: the owner stopping it, through its launcher |
+| `GET /connects` | `{pickers, current?}`: how many connected launchers can open a folder picker, and the connect request under way |
+| `POST /connects` | 201 the request `{id, state}`, `asking`: the owner pressing **Connect a repo** (ORR-708). 409 with no launcher that can. It takes no folder: orrery never names one |
+| `GET /connects/:connect` | `{id, state, host?, folder?, projects?, every?, written?, unchanged?, opened?, message?}`. `state` is `asking`, `picking`, `picked`, `writing`, `done`, `canceled` or `failed`; `folder` is only the last part of the path; `projects` what it has on this orrery, and `every` whether its channel serves them all |
+| `POST /connects/:connect/write` | `{projects}`, ids on this orrery, to add to the folder chosen → the request, `writing`. The owner's; 400 with none for a repo that has none yet, 404 for a project that isn't here, 409 until a folder is chosen |
+| `GET /connects/stream?host=` | for a launcher service with a folder picker on its machine: `ready` `{token, orrery}`, `pick` `{id}`, and `write` `{id, projects: [{id, key}], orrery: {id, environment}, terminal}` to the one that took it. On a server with several people, the owner's alone (403). An older launcher doesn't open it, so it's never asked |
+| `POST /connects/:connect/report` | `{state, folder?, projects?, every?, written?, unchanged?, opened?, message?}` with `Orrery-Launcher` (the stream's token) → `{claimed}`: the first to say `picking` holds the request, and any other is told `false`. 403 without a connected launcher's token |
 | `POST /projects/:project/launches/:launch/watch` | the session: the owner watching it; its launcher opens a terminal attached to it, in the app `GET /settings` names (`terminal`: `terminal`, `iterm`, `warp` or `ghostty`, set with `PATCH /settings {terminal}`; on Linux the system's own terminal); 409 when no launcher is running for the project |
 | `POST /projects/:project/launches/:launch/allow` | the session: the owner allowing what it's asking permission for; its launcher answers "Yes" once, only while the pane still shows the prompt ("Yes, and don't ask again" stays in its terminal); 409 when it isn't `waiting`, or no launcher is running for the project |
 | `GET /projects/:project/launches/:launch/screen` | `{screen, at?}`: the owner viewing its screen, read only, polled about once a second; the launcher sends the tmux pane as text for as long as this is asked for, and `screen` is null until the first comes in; 409 when no launcher is running for the project |
@@ -712,7 +718,7 @@ removed isn't added again. Only the owner makes, changes or removes them (an age
 
 ## For agents
 
-`/llms.txt` says how to use orrery and lists the projects (with login on, it and `/connect` stay open and show their names and keys); `/llms-full.txt` adds this reference;
+`/llms.txt` says how to use orrery and lists the projects (with login on, it and `/connect` stay open, and without a credential show none of them: `/connect` then says to ask again with an agent key, whichever project you name); `/llms-full.txt` adds this reference;
 `/connect/<project>.md?session=` is the brief for a Claude session in that project's repo (how to set it up);
 `/channel/bootstrap.mjs`, `/channel/orrery-channel.mjs`, `orrery-hook.mjs` and `orrery-launcher.mjs` are what a connected
 machine runs, with `/channel/manifest.json` (`{id, version, code, files: {<file>: <sha256>}}`) saying what's there; and

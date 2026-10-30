@@ -40,8 +40,9 @@ export function serviceProblem({platform = process.platform, wsl = platform === 
     return "systemd isn't running here, so the launcher can't install as a service; run it in a terminal instead"
 }
 
-/** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip}`, empty when there's none yet. `pickUp`:
- * whether a repo's channel adds the repo as it connects; `skip`: the repos `--uninstall` took off, which it doesn't. */
+/** The launcher's list: `{projects: [{url, project, dir}], pickUp, skip, orreries}`, empty when there's none yet. `pickUp`:
+ * whether a repo's channel adds the repo as it connects; `skip`: the repos `--uninstall` took off, which it doesn't;
+ * `orreries`: those it was installed for with no project, which it follows for Connect a repo (ORR-708). */
 export function readConfig(file = configFile()) {
     return listIn(file) ?? empty()
 }
@@ -63,6 +64,7 @@ export function listIn(file = configFile()) {
             projects: Array.isArray(config.projects) ? config.projects : [],
             pickUp: config.pickUp === true,
             skip: Array.isArray(config.skip) ? config.skip.filter(dir => typeof dir === 'string') : [],
+            ...Array.isArray(config.orreries) && config.orreries.length ? {orreries: config.orreries.filter(url => typeof url === 'string')} : {},
         }
     } catch {
         return null
@@ -104,6 +106,14 @@ export function pickUp(entries, dir, {file = configFile(), now = new Date()} = {
         .map(entry => ({...entry, picked_at: now.toISOString()}))
     if (added.length) writeList(added.reduce(withProject, config), file)
     return added
+}
+
+/** Connect a repo (ORR-708): puts the repo the owner just chose on the list, whichever way pick-up is set, and takes it off
+ * `skip`, as choosing it says they want it served. It writes the list alone, which the running service follows. */
+export function addToList(entries, dir, {file = configFile()} = {}) {
+    const config = listIn(file)
+    if (!config) throw new Error(`${file} can't be read as a list`)
+    writeList(skipping(entries.reduce(withProject, config), dir, false), file)
 }
 
 /** The list with the repo at `dir` kept off it (`--uninstall` there) or not (`--install`), for pick-up. */
@@ -254,9 +264,10 @@ function apply(where, config, opts) {
 
 /** Adds the projects of the repo at `dir` to the list (none, and no `dir`, to install the service alone), sets
  * pick-up, and starts the service if it isn't running on the same file. A restart stops the sessions it was running. */
-export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true}) {
+export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true, orrery}) {
     const where = platform()
-    const listed = {...entries.reduce(withProject, readConfig()), pickUp}
+    const before = readConfig()
+    const listed = {...entries.reduce(withProject, before), pickUp, ...orrery ? {orreries: [...new Set([...before.orreries ?? [], orrery.replace(/\/+$/, '')])]} : {}}
     const config = dir ? skipping(listed, dir, false) : listed
     const restarted = apply(where, config, {node, script, path})
     return {config, file: where.file, logs: where.logs, restarted}

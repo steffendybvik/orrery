@@ -58,7 +58,6 @@ test('runs a schedule now instead of its next run, which it skips', async ({page
 test('runs a schedule from the issues page, and has no button with none to run (ORR-687)', async ({page, request}) => {
     const empty = await makeProject(request, {name: 'Hedgerow'})
     await page.goto(`/p/${empty.id}`)
-    // An empty board has its own New issue beside the toolbar's (ORR-693).
     await expect(page.getByRole('button', {name: 'New issue'}).first()).toBeVisible()
     await expect(page.getByRole('button', {name: 'Run schedule'})).toBeHidden()
 
