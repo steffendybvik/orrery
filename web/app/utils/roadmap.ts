@@ -1,4 +1,4 @@
-import type {Chunk, Column, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
+import type {Chunk, Column, Comment, Issue, Kinds, Place, Project, Release, SessionContext} from '#shared/roadmap'
 import {CLOSED, PRIORITIES, TINTS, linkRef, madeUpName, open, parseLinkRef, total} from '#shared/roadmap'
 import {serverName} from '#shared/connect'
 
@@ -122,6 +122,17 @@ export function filterTree(issues: Issue[], matches: (issue: Issue) => boolean):
         const tasks = filterTree(issue.tasks, matches)
         return matches(issue) || tasks.length ? [{...issue, tasks}] : []
     })
+}
+
+/** An issue to paste elsewhere, as Markdown: its ref, title and description, then its comments in order, each saying
+ * who wrote it and when. */
+export function issueAsMarkdown({ref, title, notes, comments, who}: {ref: string, title: string, notes: string, comments: Comment[], who: (actor: string, session?: string) => string}): string {
+    return [
+        ref,
+        `# ${title}`,
+        ...notes ? [notes] : [],
+        ...comments.flatMap(c => ['---', `**${who(c.created_by, c.session_name)}**, ${c.created_at.slice(0, 16).replace('T', ' ')} UTC`, c.body]),
+    ].join('\n\n')
 }
 
 /** "just now", "5m", "3h", "2d", else the date. */

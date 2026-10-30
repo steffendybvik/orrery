@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {LockClosedIcon} from '@heroicons/vue/16/solid'
-import type {Issue} from '#shared/roadmap'
+import type {Comment, Issue} from '#shared/roadmap'
 import {issueRef, total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, its open pull requests, sub-issues and activity, with its
@@ -42,7 +42,7 @@ watch([ready, issueId, found], async ([now, id, f]) => {
 }, {immediate: true})
 // What says whose board it's on, to put in a commit body or PR description.
 const {settings} = useAppSettings()
-const {owner} = useOwner()
+const {owner, who} = useOwner()
 const ref_ = computed(() => issue.value ? issueRef(settings.value.handle ?? owner.value?.name ?? 'owner', issue.value.id) : '')
 // Open, it's seen, and stays seen as it changes in front of you.
 const {seeIssue} = useUnseen()
@@ -138,9 +138,15 @@ async function saveNotes() {
     if (next !== (issueNotes.value ?? '') && !await save({notes: next || null})) return
     editingNotes.value = false
 }
+// The whole issue, to paste elsewhere: there once its description and every comment have been read.
+const comments = ref<Comment[]>()
+const wholeIssue = computed(() => issue.value && issueNotes.value !== undefined && comments.value
+    ? issueAsMarkdown({ref: ref_.value, title: issue.value.title, notes: issueNotes.value, comments: comments.value, who})
+    : undefined)
 watch(issueId, () => {
     editingTitle.value = editingNotes.value = false
     resetUploads()
+    comments.value = undefined
 })
 
 // While it waits on issues not closed yet (ORR-601), a line under the title names them, each to its page.
@@ -313,6 +319,9 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           >Edit</UiButton>
           <MarkdownView v-if="issueNotes" :source="issueNotes" @dblclick="editNotesFromText" />
           <button v-else-if="issueNotes !== undefined" type="button" class="text-sm text-faint italic hover:text-muted" @click="editNotes">No description. Add one</button>
+          <div v-if="wholeIssue" class="mt-4 flex">
+            <CopyButton :text="wholeIssue" label="Copy issue" name="the whole issue" />
+          </div>
         </section>
 
         <section v-if="issue.tasks.length" class="flex flex-col gap-2">
@@ -322,7 +331,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           </div>
         </section>
 
-        <IssueActivity :project="project" :issue="issue" />
+        <IssueActivity :project="project" :issue="issue" @comments="comments = $event" />
 
         <p class="rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PATCH /api/projects/{{ project.id }}/issues/{{ issue.id }}</p>
       </article>
