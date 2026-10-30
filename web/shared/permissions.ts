@@ -220,6 +220,14 @@ export const PERMISSIONS: Permission[] = [
         untrusted: refused,
     },
     {
+        id: 'schedules.action', area: 'Schedules', action: 'Make a schedule that moves issues',
+        why: 'It moves issues as the owner, with no session.',
+        routes: ['POST /api/projects/:project/schedules'],
+        session: {level: 'owner', note: 'It asks you on its issue instead'},
+        chat: {level: 'asks', note: 'Saved as yours on your Allow'},
+        untrusted: refused,
+    },
+    {
         id: 'schedules.adopt', area: 'Schedules', action: 'Make an agent’s schedule the owner’s (Make it mine)',
         why: 'From then on its words reach sessions as the owner’s, so the owner reads them first: changing it, a pause or a rename, doesn’t make it theirs.',
         routes: ['POST /api/projects/:project/schedules/:schedule/adopt'],

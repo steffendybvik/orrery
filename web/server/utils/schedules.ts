@@ -15,11 +15,15 @@
 // A `session` schedule (ORR-342) starts a session through the project's launcher instead, as Start session does: with
 // its `presets` and its words, focused on the issue or release an event was about. A message schedule's `presets` go
 // before its words, read at each run, so a preset is written once and sent on a timer (ORR-332).
+//
+// An `action` schedule (ORR-636) changes the board itself, with no session: on an event it moves the event's issue, or a
+// release's issues, to its status (`place`), each with a word from orrery saying why. It's the owner's alone, and it passes
+// over what still waits on them: an open ask, a proposal, or (for a pull request's news) another PR still open.
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {Cron} from 'croner'
 import type {OnFilter, OrreryEvent} from '#shared/happenings'
 import {EVENT_PATTERN, matchesType} from '#shared/happenings'
-import type {Preset, Priority, Schedule, ScheduleRun} from '#shared/roadmap'
+import type {Issue, Preset, Priority, Schedule, ScheduleRun} from '#shared/roadmap'
 import {CLOSED, EVENT_LEVELS, KINDS, PRIORITIES} from '#shared/roadmap'
 import type {Db} from './database'
 import {one} from './database'
@@ -33,7 +37,7 @@ import {startsNone} from './starts-none'
 interface ScheduleRow {
     id: number, project: string, kind: Schedule['kind'], title: string, notes: string | null, cron: string | null, at: string | null, timezone: string,
     place: string, chunk: string | null, priority: Priority | null, labels: string, ask: number, skip_open: number, only_if_changed: number, untrusted: number, enabled: number,
-    next_run: string | null, on_event: string | null, on_filter: string | null, presets: string, created_by: string, owned: number, created_at: string, updated_at: string
+    next_run: string | null, on_event: string | null, on_filter: string | null, presets: string, move_from: string, created_by: string, owned: number, created_at: string, updated_at: string
 }
 interface RunRow { id: number, schedule: number, at: string, outcome: ScheduleRun['outcome'], issue: string | null, note: string | null, subject: string | null }
 
@@ -66,8 +70,8 @@ function parsePresets(value: unknown): string {
 
 const SCHEDULE_FIELDS: Record<string, Field> = {
     /** `issue` (the default) makes an issue each run; `message` sends `notes` to the sessions instead; `session` starts
-     * a session with `presets` and `notes`. */
-    kind: {type: 'string', values: ['issue', 'message', 'session']},
+     * a session with `presets` and `notes`; `action` moves what its event is about to `column`. */
+    kind: {type: 'string', values: ['issue', 'message', 'session', 'action']},
     title: {type: 'string', required: true},
     notes: {type: 'string', nullable: true},
     /** Five fields (minute hour day month weekday), e.g. `0 9 * * 1-5`; or `at`, once; or `on`, an event. */
@@ -80,8 +84,10 @@ const SCHEDULE_FIELDS: Record<string, Field> = {
     presets: {type: 'json', nullable: true, parse: parsePresets},
     /** An IANA zone, e.g. `Europe/Oslo`; the server's when left out. */
     timezone: {type: 'string'},
-    /** Where its issues start: an open status's id, or a kind (`todo`). */
+    /** Where its issues start: an open status's id, or a kind (`todo`). An action schedule's: the status it moves them to. */
     column: {type: 'string'},
+    /** The statuses (ids or kinds) an action schedule moves issues out of; none, any open one. */
+    move_from: {type: 'strings', nullable: true},
     chunk: {type: 'string', nullable: true},
     priority: {type: 'string', values: PRIORITIES, nullable: true},
     labels: {type: 'strings', nullable: true},
@@ -167,8 +173,8 @@ export class Schedules {
 
     async create(project: string, body: unknown, actor = AGENT): Promise<Schedule> {
         const insert = await this.toCreate(project, body, actor)
-        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
-            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, ...insert)
+        const {id} = await one<{id: number}>(this.db, `INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, move_from, timezone, place, chunk, priority, labels, ask, skip_open, only_if_changed,
+            untrusted, enabled, next_run, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, ...insert)
         this.listeners = null
         this.onChange(project)
         return await this.get(project, id)
@@ -191,8 +197,9 @@ export class Schedules {
         const enabled = input.enabled ?? true
         const kind = String(input.kind ?? 'issue') as Schedule['kind']
         const presets = await this.presets(project, kind, input.presets ?? '[]')
-        this.checkKind(kind, text(input.notes), presets, !!input.untrusted, actor)
-        return [project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, when.timezone, await this.place(input.column ?? 'todo'), chunk,
+        this.checkKind(kind, text(input.notes), presets, !!input.untrusted, actor, when.on)
+        if (kind === 'action' && input.column === undefined) throw badRequest('An action schedule moves issues to a status: send it in "column"')
+        return [project, kind, String(input.title).trim(), text(input.notes), when.cron, when.at, when.on, filterOf(when.on, input.on_filter), presets, await this.moveFrom(input.move_from), when.timezone, await this.place(input.column ?? 'todo', kind), chunk,
             text(input.priority), JSON.stringify(input.labels ?? []), Number(input.ask ?? false), Number(input.skip_open ?? true), Number(input.only_if_changed ?? false),
             Number(input.untrusted ?? false), Number(enabled),
             enabled ? nextRun(when, new Date()) : null, actor.name, Number(actor.owner), now, now]
@@ -228,13 +235,16 @@ export class Schedules {
         const message = input.notes === undefined ? row.notes : text(input.notes)
         const presets = input.presets === undefined && kind === row.kind ? row.presets : await this.presets(project, kind, input.presets === undefined ? row.presets : input.presets ?? '[]')
         const untrusted = input.untrusted === undefined ? !!row.untrusted : !!input.untrusted
-        this.checkKind(kind, message, presets, untrusted, actor, ', or "untrusted": false')
+        this.checkKind(kind, message, presets, untrusted, actor, when.on, ', or "untrusted": false')
+        if (kind === 'action' && row.kind !== 'action' && input.column === undefined) throw badRequest('An action schedule moves issues to a status: send it in "column"')
         const set: Record<string, unknown> = {
             kind: input.kind,
             title: input.title === undefined ? undefined : String(input.title).trim(),
             notes: input.notes === undefined ? undefined : text(input.notes),
             cron: when.cron, at: when.at, on_event: when.on, on_filter: filter, presets, timezone: when.timezone,
-            place: input.column === undefined ? undefined : await this.place(input.column),
+            // A status an action schedule moved issues to may be closed, which is no place for another kind's issues to start.
+            place: input.column !== undefined ? await this.place(input.column, kind) : kind === row.kind ? undefined : await this.place(row.place, kind),
+            move_from: input.move_from === undefined ? undefined : await this.moveFrom(input.move_from),
             chunk: input.chunk === undefined ? undefined : await this.chunk(project, input.chunk),
             priority: input.priority === undefined ? undefined : text(input.priority),
             labels: input.labels === undefined ? undefined : JSON.stringify(input.labels ?? []),
@@ -470,7 +480,7 @@ export class Schedules {
             return await record('failed', null, error instanceof Error ? error.message : String(error))
         }
         const run: Run = {row, now, manual, event, actor, about, presets, record}
-        return row.kind === 'session' ? await this.runSession(run) : row.kind === 'message' ? await this.runMessage(run) : await this.runIssue(run)
+        return row.kind === 'session' ? await this.runSession(run) : row.kind === 'message' ? await this.runMessage(run) : row.kind === 'action' ? await this.runAction(run) : await this.runIssue(run)
     }
 
     /** A session schedule's run: starts a session with its presets and notes, on the issue or release it ran on. */
@@ -543,6 +553,66 @@ export class Schedules {
         }
     }
 
+    /** An action schedule's run: moves what its event is about to its status, as the owner, with no session. What it
+     * passes over it says, and a run that moved nothing is `skipped`, so the subject's next event can still move it. */
+    private async runAction({row, event, actor, about, record}: Run): Promise<ScheduleRun> {
+        if (!actor.owner) return await record('skipped', null, 'made by an agent, so it moves nothing')
+        if (!event?.subject) return await record('skipped', null, 'it moves what an event is about, and this run has no event')
+        const to = await this.store.status(row.place).catch(() => null)
+        if (!to) return await record('failed', null, `its status ${row.place} is gone`)
+        const issues = await this.actionIssues(row, event).catch(() => null)
+        if (!issues) return await record('skipped', null, `${event.subject} is gone`)
+        if (!issues.length) return await record('skipped', null, `${event.type} on ${event.subject} has no issues to move`)
+        const statuses = new Map((await this.store.statuses()).map(s => [s.id, s.name]))
+        const moved: string[] = []
+        const passed: string[] = []
+        const failed: string[] = []
+        for (const issue of issues) {
+            const why = await this.passesOver(row, event, issue, to.id)
+            if (why) {
+                passed.push(`${issue.id} ${why}`)
+                continue
+            }
+            try {
+                await this.store.updateIssue(row.project, issue.id, {status: to.id}, actor)
+                await this.store.systemNote(row.project, issue.id, [
+                    `Moved from ${statuses.get(issue.column) ?? issue.column} to ${to.name} by the schedule "${row.title}". ${about ?? ''}`.trim(),
+                    row.notes,
+                ].filter(Boolean).join('\n\n'))
+                moved.push(issue.id)
+            } catch (error) {
+                failed.push(`${issue.id}: ${error instanceof Error ? error.message : String(error)}`)
+            }
+        }
+        const said = [moved.length ? `moved ${moved.join(', ')} to ${to.name}` : '', ...passed, ...failed].filter(Boolean).join('; ')
+        return await record(moved.length ? 'made' : failed.length ? 'failed' : 'skipped', moved.length === 1 ? moved[0] ?? null : null, said)
+    }
+
+    /** What an action schedule's event would move: a release's issues, at any depth (a parent follows its sub-issues, so
+     * not it), or the issue itself. None for an event about anything else. It throws when the subject has gone. */
+    private async actionIssues(row: ScheduleRow, event: OrreryEvent): Promise<Issue[]> {
+        const subject = String(event.subject)
+        if (event.type.startsWith('release.')) {
+            const leaves = (issue: Issue): Issue[] => issue.tasks.length ? issue.tasks.filter(t => !t.release || t.release === subject).flatMap(leaves) : [issue]
+            return (await this.store.release(row.project, subject)).tasks.flatMap(leaves)
+        }
+        return ['issue.', 'pr.', 'comment.'].some(thing => event.type.startsWith(thing)) ? [await this.store.issue(row.project, subject)] : []
+    }
+
+    /** Why an action schedule leaves this issue where it is, in a few words; none when it moves it. What waits on the
+     * owner stays for them, and a closed issue stays closed unless `move_from` names its status. */
+    private async passesOver(row: ScheduleRow, event: OrreryEvent, issue: Issue, to: string): Promise<string | null> {
+        if (issue.column === to) return 'is there already'
+        if (issue.tasks.length) return 'has sub-issues, and follows them'
+        if (issue.proposal) return 'is a proposal'
+        if (issue.waiting) return 'waits on the owner'
+        const from = JSON.parse(row.move_from) as string[]
+        const fits = from.length ? from.some(f => f === issue.column || f === issue.kind) : !CLOSED.includes(issue.kind as never)
+        if (!fits) return `is in ${issue.column}`
+        if (event.type.startsWith('pr.') && await this.db.get("SELECT 1 FROM pull_states WHERE merged = 0 AND closed = 0 AND names LIKE ?", `%"${issue.id}"%`)) return 'has another pull request open'
+        return null
+    }
+
     /** Whether an issue or comment in its project changed since its last sent run (or it never sent one). */
     private async changedSinceSent(row: ScheduleRow): Promise<boolean> {
         const sent = await this.db.get<{at: string}>("SELECT at FROM schedule_runs WHERE schedule = ? AND outcome = 'sent' ORDER BY id DESC LIMIT 1", row.id)
@@ -565,25 +635,34 @@ export class Schedules {
 
     /** The presets a message or session schedule is given, checked as its project's sessions can have them; none for an issue's. */
     private async presets(project: string, kind: Schedule['kind'], given: Input[string]): Promise<string> {
-        if (kind === 'issue') return '[]'
+        if (kind === 'issue' || kind === 'action') return '[]'
         const ids = JSON.parse(String(given)) as number[]
         await this.store.presetsFor(project, ids)
         return JSON.stringify(ids)
     }
 
     /** What each kind needs: a message has words, its own or a preset's; a session is the owner's to start, as it works
-     * as them; only a message is untrusted. */
-    private checkKind(kind: Schedule['kind'], notes: string | null, presets: string, untrusted: boolean, actor: Actor, orElse = '') {
+     * as them; an action is too, and needs an event to move what it's about; only a message is untrusted. */
+    private checkKind(kind: Schedule['kind'], notes: string | null, presets: string, untrusted: boolean, actor: Actor, on: string | null, orElse = '') {
         if (kind === 'message' && !notes?.trim() && presets === '[]') throw badRequest('A message schedule needs its message in "notes", or a preset in "presets"')
         if (kind === 'session' && !actor.owner) throw refusedFor('schedules.session', 'Only the owner makes a session schedule: it starts work as them; send Orrery-Actor: <owner>')
+        if (kind === 'action' && !actor.owner) throw refusedFor('schedules.action', 'Only the owner makes an action schedule: it moves issues as them; send Orrery-Actor: <owner>')
+        if (kind === 'action' && !on) throw badRequest('An action schedule moves what an event is about: send "on", not "cron" or "at"')
         if (untrusted && kind !== 'message') throw badRequest(`Only a message schedule is untrusted: send "kind": "message"${orElse}`)
     }
 
-    /** The open status a schedule's issues start in, from an id or a kind. */
-    private async place(column: Input[string]): Promise<string> {
+    /** The open status a schedule's issues start in, from an id or a kind; an action schedule's may be closed, as it's where it moves them. */
+    private async place(column: Input[string], kind: Schedule['kind']): Promise<string> {
         const status = await this.store.status(await this.store.resolveStatus(column))
-        if (CLOSED.includes(status.kind)) throw badRequest(`A schedule's issues start open, not in ${status.name}`)
+        if (kind !== 'action' && CLOSED.includes(status.kind)) throw badRequest(`A schedule's issues start open, not in ${status.name}`)
         return status.id
+    }
+
+    /** `move_from` as it's sent, checked and stored: statuses' ids or kinds, as a filter names them. */
+    private async moveFrom(given: Input[string]): Promise<string> {
+        const from = (given ?? []) as string[]
+        for (const status of from) if (!KINDS.includes(status as never)) await this.store.status(status)
+        return JSON.stringify([...new Set(from)])
     }
 
     private async row(project: string, id: number): Promise<ScheduleRow> {
@@ -637,7 +716,7 @@ export class Schedules {
         return {
             id: row.id, project: row.project, kind: row.kind, title: row.title, notes: row.notes ?? undefined,
             cron: row.cron ?? undefined, at: row.at ?? undefined, on: row.on_event ?? undefined,
-            ...row.on_filter ? {on_filter: JSON.parse(row.on_filter) as OnFilter} : {}, presets: JSON.parse(row.presets) as number[], timezone: row.timezone,
+            ...row.on_filter ? {on_filter: JSON.parse(row.on_filter) as OnFilter} : {}, presets: JSON.parse(row.presets) as number[], move_from: JSON.parse(row.move_from) as string[], timezone: row.timezone,
             column: row.place, chunk: row.chunk ?? undefined, priority: row.priority ?? undefined, labels: JSON.parse(row.labels) as string[],
             ask: !!row.ask, skip_open: !!row.skip_open, only_if_changed: !!row.only_if_changed, untrusted: !!row.untrusted, enabled: !!row.enabled, next_run: row.next_run ?? undefined,
             runs: runs.map(r => ({at: r.at, outcome: r.outcome, issue: r.issue ?? undefined, note: r.note ?? undefined, ...r.subject ? {subject: r.subject} : {}})),

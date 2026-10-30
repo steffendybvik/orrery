@@ -79,7 +79,7 @@ export abstract class StatusStore extends StoreBase {
         ownerOnly(actor, 'settings.write')
         const status = await this.status(id)
         await this.keepOneOf(status)
-        const used = (await this.one<{n: number}>('SELECT (SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ?) AS n', id, id)).n
+        const used = (await this.one<{n: number}>('SELECT (SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ? OR move_from LIKE ?) AS n', id, id, `%"${id}"%`)).n
         if (into !== undefined) await this.status(into)
         if (into === id) throw badRequest('Move its issues to another status')
         if (used && !into) throw conflict(`${used} issues or schedules are in ${status.name}; say which status they move to with ?into=`)
@@ -87,6 +87,7 @@ export abstract class StatusStore extends StoreBase {
             if (into) {
                 await this.run('UPDATE issues SET status = ? WHERE status = ?', into, id)
                 await this.run('UPDATE schedules SET place = ? WHERE place = ?', into, id)
+                await this.run('UPDATE schedules SET move_from = replace(move_from, ?, ?) WHERE move_from LIKE ?', `"${id}"`, `"${into}"`, `%"${id}"%`)
                 await this.run('UPDATE signals SET status = ? WHERE status = ?', into, id)
             }
             await this.run('DELETE FROM statuses WHERE id = ?', id)

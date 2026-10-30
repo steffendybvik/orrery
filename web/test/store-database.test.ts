@@ -9,6 +9,7 @@ import {beforeEach, describe, expect, it} from 'vitest'
 import {total} from '#shared/roadmap'
 import {backUp, backupPostgres, lastBackup} from '../server/utils/backup'
 import {openDb} from '../server/utils/db'
+import {MIGRATIONS} from '../server/utils/migrations/sqlite'
 import {SqliteDb} from '../server/utils/database'
 import {PostgresDb} from '../server/utils/postgres'
 import {readRoadmap} from '../server/utils/roadmap'
@@ -83,6 +84,23 @@ describe('the database', () => {
         expect(await upgraded.createIssue('greenhouse', {title: 'new', chunk: 'ux'})).toMatchObject({id: 'GRE-4', chunk: '2'})
         expect((await upgraded.createChunk('greenhouse', {title: 'Print'})).id).toBe('3')
         expect((await upgraded.updateIssue('greenhouse', 'GRE-4', {priority: 'P0'})).priority).toBe('P0')
+    })
+
+    it('keeps a schedule\'s presets, runs and what it holds through the rebuild for action schedules', async () => {
+        const path = join(mkdtempSync(join(tmpdir(), 'orrery-')), 'old.db')
+        const old = openDb(path, MIGRATIONS.length - 1)
+        const row = (sql: string) => old.prepare(sql).run()
+        row("INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('greenhouse', 'greenhouse', 'GRE', 'agent', 'x', 'x')")
+        row(`INSERT INTO schedules (id, project, kind, title, on_event, presets, timezone, created_by, owned, created_at, updated_at)
+            VALUES (7, 'greenhouse', 'session', 'Review', 'issue.status', '[3]', 'UTC', 'skoll', 1, 'x', 'x')`)
+        row("INSERT INTO schedule_runs (schedule, at, outcome, subject) VALUES (7, 'x', 'sent', 'GRE-1')")
+        row("INSERT INTO schedule_held (schedule, subject, event, at) VALUES (7, 'GRE-2', '{}', 'x')")
+        old.close()
+
+        const upgraded = new SqliteDb(openDb(path))
+        expect(await upgraded.get('SELECT kind, presets, move_from FROM schedules WHERE id = 7')).toEqual({kind: 'session', presets: '[3]', move_from: '[]'})
+        expect(await upgraded.get('SELECT count(*) AS n FROM schedule_runs WHERE schedule = 7')).toEqual({n: 1})
+        expect(await upgraded.get('SELECT count(*) AS n FROM schedule_held WHERE schedule = 7')).toEqual({n: 1})
     })
 
     it('copies itself before an upgrade takes steps, and only then', async () => {

@@ -55,7 +55,7 @@ test('runs a schedule now instead of its next run, which it skips', async ({page
 test("a suggested schedule opens filled in, and leaves the list once it's made", async ({page, request}) => {
     await page.goto('/schedules?project=cottage')
     const suggested = page.locator('section', {has: page.getByRole('heading', {name: 'Suggested for Cottage'})})
-    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(4)
+    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(6)
     await suggested.getByRole('button', {name: 'Add Review an issue in review'}).click()
     const dialog = page.getByRole('dialog', {name: 'New schedule'})
     await expect(dialog.getByLabel('Title')).toHaveValue('Review an issue in review')
@@ -68,7 +68,22 @@ test("a suggested schedule opens filled in, and leaves the list once it's made",
     expect(made).toMatchObject({kind: 'session', on: 'issue.status', on_filter: {to: 'in-review'}, enabled: true})
     expect(made.presets).toHaveLength(1)
     await expect(suggested.getByRole('button', {name: 'Add Review an issue in review'})).toBeHidden()
-    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(3)
+    await expect(suggested.getByRole('button', {name: /^Add /})).toHaveCount(5)
+})
+
+test('a suggestion that moves issues is made paused (ORR-637)', async ({page, request}) => {
+    await makeProject(request, {name: 'Orchard', key: 'ORC'})
+    await page.goto('/schedules?project=orchard')
+    const suggested = page.locator('section', {has: page.getByRole('heading', {name: 'Suggested for Orchard'})})
+    await suggested.getByRole('button', {name: 'Add Merged PR closes its issue'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await expect(dialog.getByRole('radio', {name: 'Moves issues'})).toBeChecked()
+    await expect(dialog.getByText("Paused: it won't run until you resume it")).toBeVisible()
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    await expect(dialog).toBeHidden()
+    const [made] = await projectApi('orchard')(request, 'get', '/schedules')
+    expect(made).toMatchObject({kind: 'action', on: 'pr.merged', column: 'done', move_from: ['in-review'], enabled: false})
+    await expect(suggested.getByRole('button', {name: 'Add Merged PR closes its issue'})).toBeHidden()
 })
 
 test('offers Review GitHub issues to a project on GitHub, every three hours (ORR-629)', async ({page, request}) => {
@@ -110,4 +125,26 @@ test("says an agent's schedule is the agent's, and runs it only once the owner m
     await expect.poll(async () => (await api(request, 'get', `/schedules/${made.id}`)).protected).toBe(true)
     await expect(row).not.toContainText('not running')
     await expect(row.locator('.unseen-dot')).toBeHidden()
+})
+
+test('makes a schedule that moves issues, which runs on an event and has no Run now', async ({page, request}) => {
+    await page.goto('/schedules?project=vineyard')
+    await page.getByRole('button', {name: 'New schedule in Vineyard'}).click()
+    const dialog = page.getByRole('dialog', {name: 'New schedule'})
+    await dialog.getByRole('radio', {name: 'Moves issues'}).click()
+    await dialog.getByLabel('Title').fill('Merged PR closes its issue')
+    // On an event, with no clock to pick.
+    await expect(dialog.getByRole('radio', {name: 'Time', exact: true})).toBeHidden()
+    await dialog.getByRole('button', {name: 'Event', exact: true}).click()
+    await dialog.getByRole('option', {name: "An issue's pull request is merged"}).click()
+    await dialog.getByRole('group', {name: 'Moves it from'}).getByRole('button', {name: 'In review'}).click()
+    await dialog.getByRole('button', {name: /Create schedule/}).click()
+    await expect(dialog).toBeHidden()
+    const made = (await api(request, 'get', '/schedules')).find((s: {title: string}) => s.title === 'Merged PR closes its issue')
+    expect(made).toMatchObject({kind: 'action', on: 'pr.merged', column: 'done', move_from: ['in-review'], protected: true})
+    await expect(page.getByText('moves to Done')).toBeVisible()
+
+    await page.getByText('Merged PR closes its issue').click({button: 'right'})
+    await expect(page.getByRole('menu').getByRole('button', {name: /Remove/})).toBeVisible()
+    await expect(page.getByRole('menu').getByRole('button', {name: /Run now/})).toBeHidden()
 })
