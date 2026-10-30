@@ -57,7 +57,8 @@ function main(remove) {
         const head = git(path, 'rev-parse', 'HEAD')
         const why = whyKept({
             path, locked,
-            dirty: !!git(path, 'status', '--porcelain'),
+            // Without its optional lock, or `status` rewrites the index, and every worktree reads as touched just now.
+            dirty: !!git(path, '--no-optional-locks', 'status', '--porcelain'),
             inUse: cwds.some(cwd => cwd === path || cwd.startsWith(`${path}/`)) || commands.includes(`${path}/`) || commands.includes(`${path} `),
             touched: Math.max(statSync(path).mtimeMs, ...['index', 'HEAD', 'logs/HEAD'].map(file => join(gitDir, file)).filter(existsSync).map(file => statSync(file).mtimeMs)),
             onGitHub: merged.has(head) || !!git(path, 'branch', '-r', '--contains', head),
