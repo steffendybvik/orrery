@@ -123,6 +123,16 @@ describe.runIf(url)('upgrading Postgres with data in it', () => {
         expect(await store.people()).toMatchObject([{id: 'skoll_fenrisson', role: 'owner'}])
     })
 
+    it('gives each board and the server a random id (ORR-674)', async () => {
+        const store = await upgraded(POSTGRES_STEPS - 1, `${PROJECT}
+            INSERT INTO projects (id, name, key, created_by, created_at, updated_at) VALUES ('pantry', 'pantry', 'PAN', 'agent', 'x', 'x');`)
+        const [a, b] = [(await store.project('greenhouse')).uid, (await store.project('pantry')).uid]
+        expect(a).toMatch(/^[a-z2-7]{8}$/)
+        expect(b).toMatch(/^[a-z2-7]{8}$/)
+        expect(a).not.toBe(b)
+        expect((await store.settings()).uid).toMatch(/^[a-z2-7]{8}$/)
+    })
+
     it('gives each project its release mode from the releases it had (step 32)', async () => {
         const store = await upgraded(31, `INSERT INTO projects (id, name, key, releases_from, created_by, created_at, updated_at) VALUES
             ('greenhouse', 'greenhouse', 'GRE', NULL, 'agent', '1', '1'), ('pantry', 'pantry', 'PAN', 'greenhouse', 'agent', '2', '2'),
