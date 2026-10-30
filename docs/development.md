@@ -4,8 +4,8 @@
 
 ```
 web/          the Nuxt app: app/ (the page), server/ (the API and the store), shared/ (both),
-              public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts), its package.json
-channel/      the channel and hooks Claude sessions run, by path, from every connected repo
+              public/, test/ (unit), e2e/ (browser), scripts/ (copy.ts, claim.mjs, worktrees.mjs), its package.json
+channel/      the channel, hooks and launcher Claude sessions run, which orrery serves to their machines
 docs/         these docs; docs/API.md is also served to agents (/api/guide, /llms-full.txt)
 ```
 
@@ -24,7 +24,7 @@ shared/                 types and rules both sides use: roadmap/ a file per area
 ```
 
 The root is a pnpm workspace with the app as its one package: `pnpm dev`, `pnpm test`,
-`pnpm typecheck`, `pnpm test:e2e` and `pnpm orrery:copy` run there and work in `web/`. The root's
+`pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm test:e2e`, `pnpm orrery:copy`, `pnpm orrery:claim` and `pnpm worktrees` run there and work in `web/`. The root's
 own dependency is the channel's MCP SDK, so `channel/` keeps working from other repos. The database
 stays in the repo's `.data/`.
 
