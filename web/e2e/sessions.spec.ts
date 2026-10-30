@@ -364,3 +364,21 @@ test('ships presets that can be reset to default, and restored once removed', as
     await expect(presets.getByRole('button', {name: 'Edit Debug an error'})).toBeVisible()
     await expect(presets.getByRole('button', {name: 'Restore defaults'})).toBeHidden()
 })
+
+test('marks a session cut off by a usage limit until its next turn gets going', async ({page, request}) => {
+    const say = (data: object) => request.post('/api/sessions', {data: {id: 'e2e-cut', project: 'kitchen', ...data}})
+    await say({event: 'SessionStart', name: 'kitchen · Cut'})
+    try {
+        await page.goto('/sessions')
+        const row = page.getByRole('complementary').getByRole('link', {name: /Cut/})
+        await expect(row).toContainText('idle')
+        await say({event: 'StopFailure', error: 'rate_limit', error_text: "You've hit your 5-hour limit · resets 10:20am"})
+        await expect(row).toContainText('usage limit reached')
+        await expect(page.getByTestId('session-cut-off')).toContainText("usage limit reached: You've hit your 5-hour limit · resets 10:20am")
+        await say({event: 'UserPromptSubmit'})
+        await expect(row).toContainText('working')
+        await expect(page.getByTestId('session-cut-off')).toHaveCount(0)
+    } finally {
+        await say({event: 'SessionEnd'})
+    }
+})

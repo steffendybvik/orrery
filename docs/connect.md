@@ -83,7 +83,8 @@ permission prompt says what it's for. Register it in the repo's `.claude/setting
 `UserPromptSubmit`, `PreToolUse` and `PermissionRequest` (both with `"async": true`, so they never hold up a tool or
 answer its prompt), `Stop`, `StopFailure`, `Notification` and `SessionEnd`.
 `StopFailure` is a turn an API error cut off (the network, a rate limit): the issues that session had in progress go
-back to Todo with nobody on it, and a comment says why.
+back to Todo with nobody on it, and a comment says why. One in review or waiting on you stays where it is. The Sessions
+page and the sidebar mark the session (**usage limit reached**, with what Claude Code said) until its next turn gets going.
 
 ```json
 {
