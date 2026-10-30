@@ -490,3 +490,47 @@ test('marks a session cut off by a usage limit until its next turn gets going', 
         await say({event: 'SessionEnd'})
     }
 })
+
+test('a session opened in a terminal has Stop, asked once more, which ends it through its channel', async ({page, baseURL}) => {
+    const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-terminal&name=e2e-terminal&stops=yes')
+    try {
+        await page.goto('/sessions')
+        const card = page.locator('#session-e2e-terminal')
+        const stop = card.getByRole('button', {name: 'Stop', exact: true})
+        await expect(stop).toBeVisible()
+        await expect(card.getByRole('button', {name: 'Show screen'})).toHaveCount(0)
+        await stop.click()
+        await expect.poll(() => channel.said.text).not.toContain('event: stop')
+        await card.getByRole('button', {name: 'Stop it?'}).click()
+        await expect.poll(() => channel.said.text).toContain('event: stop')
+    } finally {
+        channel.stop()
+    }
+})
+
+test('Show screen draws what the launcher sends, read only, and asks for it only while shown', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
+    let stream: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await request.post('/api/projects/kitchen/launches/running', {data: {launches: [{id: 'e2e5c7ee2e5c', tmux: 'orrery-e2e-screen'}]}})
+        stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-screen&name=e2e-screen&started=e2e5c7ee2e5c&format=text')
+        await page.goto('/sessions')
+        const card = page.locator('#session-e2e-screen')
+        await expect(card.getByRole('button', {name: 'Show screen'})).toBeVisible()
+        expect(launcher.said.text).not.toContain('event: view')
+        await card.getByRole('button', {name: 'Show screen'}).click()
+        const screen = card.getByLabel("e2e-screen's screen")
+        await expect(screen).toHaveText('Waiting for the launcher to send the screen…')
+        await expect.poll(() => launcher.said.text).toContain('e2e5c7ee2e5c')
+        const sent = await request.post('/api/projects/kitchen/launches/e2e5c7ee2e5c/screen', {data: {screen: '> stirring the soup   \n\n\n'}})
+        expect((await sent.json()).watching).toBe(true)
+        await expect(screen).toHaveText('> stirring the soup')
+        await expect(card.getByText(/^Read only · as of /)).toBeVisible()
+        await card.getByRole('button', {name: 'Hide screen'}).click()
+        await expect(screen).toHaveCount(0)
+    } finally {
+        stream?.stop()
+        launcher.stop()
+    }
+})

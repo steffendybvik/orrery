@@ -1,5 +1,5 @@
 import {expect, test} from '@playwright/test'
-import {AGENT, makeProject, newIssue, projectApi} from './support'
+import {AGENT, OWNER, makeProject, newIssue, projectApi} from './support'
 
 // Issues on a project of their own: made from the page and moved on the board, the board leaving out the columns
 // the filter does, sub-issues, ⌘K, a change showing live in another tab, the open ones first, what changed
@@ -175,4 +175,18 @@ test('double-clicking a description opens its editor, unless it was a link, a pi
     await text.hover()
     await page.getByRole('button', {name: 'Edit'}).first().click()
     await expect(editor).toBeFocused()
+})
+
+test('links the GitHub issues an issue came from, short for the project\'s own repo', async ({page, request}) => {
+    await makeProject(request, {name: 'Tracks', key: 'TRK'})
+    expect((await request.patch('/api/projects/tracks', {data: {repo: 'https://github.com/orrery-e2e/tracks'}, headers: OWNER})).ok()).toBeTruthy()
+    const made = await request.post('/api/projects/tracks/issues', {data: {title: 'Oil the points', github_issues: ['orrery-e2e/tracks#523', 'orrery-e2e/depot#7']}, headers: OWNER})
+    expect(made.ok(), await made.text()).toBeTruthy()
+    const {id} = await made.json()
+    await page.goto('/p/tracks')
+    const own = page.getByRole('link', {name: '#523', exact: true})
+    await expect(own).toHaveAttribute('href', 'https://github.com/orrery-e2e/tracks/issues/523')
+    await page.goto(`/p/tracks/issues/${id}`)
+    await expect(page.getByRole('link', {name: '#523', exact: true})).toBeVisible()
+    await expect(page.getByRole('link', {name: 'orrery-e2e/depot#7', exact: true})).toHaveAttribute('href', 'https://github.com/orrery-e2e/depot/issues/7')
 })
