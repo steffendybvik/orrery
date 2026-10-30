@@ -6,11 +6,15 @@ import type {AllPulls} from '#shared/roadmap'
 // The page asks for its `page` of them, 50 to a page (ORR-615), and keeps it apart; the counts ask for one, as they
 // show only `open` and `needs`.
 // `poll` is the page's Poll now: GitHub asked at once, and the fresh list back (ORR-534).
+// Each read names the owner: anyone else gets a PR without its title, branch or odd author (ORR-532).
 export function useOpenPulls(page?: Ref<number>) {
+    const {load: owner} = useOwner()
     const pulls = useState<AllPulls | null>(page ? 'open-pulls-page' : 'open-pulls', () => null)
     const query = () => page ? {page: page.value} : {limit: 1}
     async function load() {
-        pulls.value = await $fetch<AllPulls>('/api/pulls', {query: query()}).catch(() => pulls.value)
+        pulls.value = await owner()
+            .then(actor => $fetch<AllPulls>('/api/pulls', {query: query(), headers: {'Orrery-Actor': actor}}))
+            .catch(() => pulls.value)
     }
     const polling = ref(false)
     const failed = ref('')
@@ -20,7 +24,7 @@ export function useOpenPulls(page?: Ref<number>) {
         polling.value = true
         failed.value = ''
         try {
-            pulls.value = await $fetch<AllPulls>('/api/pulls/poll', {method: 'POST', query: query(), headers: {'Orrery-Actor': await useOwner().load()}})
+            pulls.value = await $fetch<AllPulls>('/api/pulls/poll', {method: 'POST', query: query(), headers: {'Orrery-Actor': await owner()}})
         } catch (error) {
             failed.value = errorMessage(error, 'poll')
         } finally {

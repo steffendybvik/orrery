@@ -7,6 +7,7 @@
 // (ORR-491), asks. While the poll (pull-poll.ts) has just read the repo with a token, they're read off what it keeps;
 // otherwise GitHub is asked, and the answers kept for a minute (five without a token, as GitHub allows 60 requests an
 // hour then), so many pages and issues cost one list per repo.
+import type {H3Event} from 'h3'
 import type {AllPulls, IssuePulls, OpenPull, PullRequest, PullState} from '#shared/roadmap'
 import {PULL_NEEDS, githubRepo} from '#shared/roadmap'
 import {notFound} from './input'
@@ -424,6 +425,23 @@ function limitMessage(until: number, secret?: boolean): string {
 /** How many pull requests a page of `GET /api/pulls` holds unless asked otherwise, and at most (ORR-615). */
 export const PULLS_PAGE = 50
 const PULLS_PAGE_MOST = 200
+
+/** A GitHub login as it can only be: letters, digits, `_` and `-`. */
+const LOGIN = /^[\w-]+$/
+
+/** A PR as anyone but the owner reads it (ORR-532): never its title or head branch, which an outsider may have written,
+ * as sessions read what they're given as the owner's; its author only when it's a plain login, so a session can tell
+ * its own PR from an outsider's. */
+export function pullForSession<T extends PullRequest>({title: _title, branch: _branch, author, ...pull}: T) {
+    return {...pull, ...LOGIN.test(author) ? {author} : {}}
+}
+
+/** The answer to a read of PRs, for whoever's asking: in full for the owner, as their pages send their name, and each
+ * PR as `pullForSession` gives it for anyone else, a chat naming the owner included. */
+export async function pullsForAsker<T extends {pulls: PullRequest[]}>(event: H3Event, answer: T) {
+    if (kindOf(event, await actorOf(event)) === 'owner') return answer
+    return {...answer, pulls: answer.pulls.map(pullForSession)}
+}
 
 /** `all` as `?page=&limit=` asks (ORR-615): every one when neither is given, else page `page` (from 1), `limit` to a
  * page, in the same order. The counts, the repos' included, stay totals. A page past the last is the last, so a
