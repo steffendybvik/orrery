@@ -641,7 +641,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
     // It says how to install the launcher, the command to copy, rather than the server's error line (ORR-591).
     await expect(pane.getByText('No launcher is running for Observatory.')).toBeVisible()
-    await expect(pane.getByText(/channel\/orrery-launcher\.mjs --install/)).toBeVisible()
+    await expect(pane.getByText(/bootstrap\.mjs launcher --install/)).toBeVisible()
     await expect(pane.getByRole('button', {name: /Copy/})).toBeVisible()
     await expect(pane.getByText('No launcher is running for observatory: install it once')).toHaveCount(0)
     // Tried once, not again every few seconds.

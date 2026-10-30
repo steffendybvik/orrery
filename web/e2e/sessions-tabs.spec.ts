@@ -18,7 +18,7 @@ test('the Sessions page keeps what runs and how it is set up on two tabs', async
     for (const name of ['Starting sessions', 'What sessions hear', 'Presets'])
         await expect(page.getByRole('heading', {name, exact: true})).toBeVisible()
     // The launcher's install command comes first, in view without opening the guide, as each new repo needs it (ORR-473).
-    await expect(page.locator('#starts pre').first()).toHaveText(/orrery-launcher\.mjs --install$/)
+    await expect(page.locator('#starts pre').first()).toHaveText(/bootstrap\.mjs launcher --install$/)
     await page.getByRole('radio', {name: 'Sessions', exact: true}).click()
     await expect(page).toHaveURL(/\/sessions$/)
     await expect(page.getByRole('heading', {name: 'Presets', exact: true})).toBeHidden()
