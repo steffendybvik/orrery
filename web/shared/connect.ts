@@ -5,6 +5,8 @@
 import {keyFor, slugify} from './roadmap'
 
 export interface ConnectTarget {
+    /** This orrery asks for a login, so the brief's own requests send `ORRERY_KEY`. */
+    login?: boolean
     /** Where orrery runs, as the agent should reach it. */
     origin: string
     /** Where the orrery repo is on the machine (for the channel and hook scripts). */
@@ -49,6 +51,8 @@ export const launcherInstall = (origin: string) => `${bootstrapInstall(origin)} 
 
 export function connectPieces(target: ConnectTarget): ConnectPieces {
     const {origin, id, key, isNew} = target
+    // With login on, these go with the session's key, as what asks for this brief does (ORR-714).
+    const withKey = target.login ? ' -H "Authorization: Bearer $ORRERY_KEY"' : ''
     const name = target.name.replace(/\s+/g, ' ').trim()
     const session = sessionName(target.session ?? '') || undefined
     const server = target.orrery ? serverName(target.orrery.environment) : id
@@ -82,11 +86,11 @@ You're working in the ${name} repo. Its roadmap lives in orrery at ${origin}, as
 
 First read how to use it:
 
-    curl -s ${origin}/llms-full.txt
+    curl -s${withKey} ${origin}/llms-full.txt
 ${isNew ? `
 The project doesn't exist yet. Create it:
 
-    curl -s -X POST ${origin}/api/projects -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d ${shellQuote(JSON.stringify({name, id, key}))}
+    curl -s -X POST ${origin}/api/projects${withKey} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d ${shellQuote(JSON.stringify({name, id, key}))}
 ` : ''}
 ## While you work
 

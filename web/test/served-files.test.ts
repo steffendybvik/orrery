@@ -51,6 +51,7 @@ beforeEach(async () => {
     vi.stubGlobal('apiReference', guide.apiReference)
     vi.stubGlobal('originOf', guide.originOf)
     vi.stubGlobal('mayRead', (await import('../server/utils/auth')).mayRead)
+    vi.stubGlobal('authMode', (await import('../server/utils/auth')).authMode)
     await store.nameOwner({name: 'Skoll'})
     agent = (await store.makeKey('skoll', {kind: 'agent', name: 'laptop'})).key
     personal = (await store.makeKey('skoll', {kind: 'person', name: 'claim'})).key

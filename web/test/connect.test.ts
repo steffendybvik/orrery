@@ -17,6 +17,18 @@ describe('connecting a repo', () => {
         expect(brief).toContain("add `greenhouse` to that entry's `ORRERY_PROJECTS`")
     })
 
+    it('sends the key on its own requests only with login on (ORR-714)', () => {
+        const key = 'Authorization: Bearer $ORRERY_KEY'
+        const line = (brief: string, what: string) => brief.split('\n').find(l => l.includes(what)) ?? ''
+        const open = connectPieces({...greenhouse, isNew: true}).brief
+        const locked = connectPieces({...greenhouse, isNew: true, login: true}).brief
+        for (const what of ['-X POST http://localhost:9000/api/projects', '/llms-full.txt']) {
+            expect(line(open, what)).toContain('curl -s')
+            expect(line(open, what)).not.toContain(key)
+            expect(line(locked, what)).toContain(key)
+        }
+    })
+
     it('names the channel after the project when the orrery is not known', () => {
         const {mcpJson, server} = connectPieces(greenhouse)
         expect(server).toBe('greenhouse')
