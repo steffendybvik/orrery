@@ -36,6 +36,8 @@ test("keeps an issue to the session on it: another's edit and start are refused,
     try {
         await expect.poll(async () => (await api(request, 'get', '/projects/cellar/sessions')).filter((s: {id: string, listening: boolean}) => ids.includes(s.id) && s.listening).length).toBe(2)
         const {id} = await api(request, 'post', '/projects/cellar/issues', {title: 'Rack the wine', status: 'todo'}, OWNER)
+        // The other session's comment while it's in Todo doesn't keep it from the one that starts it (ORR-627).
+        await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Mind the bottom rack'}, as('e2e-c2'))
         await api(request, 'patch', `/projects/cellar/issues/${id}`, {status: 'in-review'}, as('e2e-c1'))
 
         // The other session: no edit, no start, but it may comment, as a reviewer does with its findings.
@@ -43,7 +45,14 @@ test("keeps an issue to the session on it: another's edit and start are refused,
         expect(refused.status()).toBe(409)
         expect(await refused.text()).toContain('already being worked on by another session (e2e-c1)')
         expect((await request.patch(`/api/projects/cellar/issues/${id}`, {data: {status: 'in-progress'}, headers: as('e2e-c2')})).status()).toBe(409)
-        await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Found two loose racks'}, as('e2e-c2'))
+        const review = await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Found two loose racks'}, as('e2e-c2'))
+        // Its comment doesn't make the issue its own (ORR-627): its edit, even of that comment, is still refused, and
+        // the first session still moves it back to fix what the review found.
+        const after = await request.patch(`/api/projects/cellar/issues/${id}`, {data: {title: 'Mine now'}, headers: as('e2e-c2')})
+        expect(await after.text()).toContain('already being worked on by another session (e2e-c1)')
+        expect((await request.patch(`/api/projects/cellar/issues/${id}/comments/${review.id}`, {data: {body: 'Three'}, headers: as('e2e-c2')})).status()).toBe(409)
+        await api(request, 'patch', `/projects/cellar/issues/${id}`, {status: 'in-progress'}, as('e2e-c1'))
+        await api(request, 'patch', `/projects/cellar/issues/${id}`, {status: 'in-review'}, as('e2e-c1'))
         // Its own session and the owner may.
         await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Racked the reds'}, as('e2e-c1'))
         await api(request, 'post', `/projects/cellar/issues/${id}/comments`, {body: 'Whites next'}, OWNER)

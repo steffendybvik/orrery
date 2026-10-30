@@ -165,8 +165,9 @@ describe("what a project's sessions are on", () => {
             vi.setSystemTime(new Date('2026-10-29T09:20:00Z'))
             await store.workedBy('greenhouse', shelves, 'a')
             expect(await since('a')).toBe('2026-10-29T09:00:00.000Z')
-            // Another session taking it starts the clock again.
+            // Another session taking it, once the first is gone (ORR-627), starts the clock again.
             vi.setSystemTime(new Date('2026-10-29T09:30:00Z'))
+            store.hears = (_project, session) => session !== 'a'
             await store.workedBy('greenhouse', shelves, 'b')
             expect(await since('b')).toBe('2026-10-29T09:30:00.000Z')
         } finally {

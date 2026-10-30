@@ -17,9 +17,12 @@ export abstract class ClaimStore extends ReleaseStore {
 
     /** Notes that `session` is working the issue (it wrote to it, or was asked to focus on it): the owner's
      * comments on it go to that session from now on. `since` is when it took the issue, kept while the same session
-     * works it again. An issue that isn't there (any more) is let be. */
-    async workedBy(project: string, issue: string, session: string) {
+     * works it again. An issue that isn't there (any more) is let be, and so is one another session has started and is
+     * still there to hear (ORR-627): a reviewer's comment on it doesn't take it from the session on it. `claimed`: the
+     * claim already let this session's start through (`claimed`), so the issue is its, whoever was tied to it before. */
+    async workedBy(project: string, issue: string, session: string, {claimed = false} = {}) {
         issue = await this.issueId(project, issue)
+        if (!claimed && await this.takenFrom(project, issue, session).catch(() => null)) return
         const now = stamp()
         await this.run(`INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?)
             ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END,
@@ -41,8 +44,10 @@ export abstract class ClaimStore extends ReleaseStore {
         const run = (this.claiming.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
             await this.claim(project, issue, status, session)
             const written = await write()
-            // One the write moved to another project is tied there by its route.
-            await this.workedBy(project, issue, session).catch(() => {})
+            // One the write moved to another project is tied there by its route. The write has started it by now, so
+            // the guard would see whoever was tied to it before (a comment while it sat in Todo) as on it: the claim
+            // already said it's this session's.
+            await this.workedBy(project, issue, session, {claimed: true}).catch(() => {})
             return written
         })
         this.claiming.set(key, run)

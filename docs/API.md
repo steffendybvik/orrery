@@ -610,8 +610,9 @@ commenting on them, whether or not orrery knows its launch. A chat's session (`O
 and `Orrery-Launch: <its chat>` on every call and `chat=yes` on its streams, and is held to what a [chat](#chats) does. A write that sends `Orrery-Session: <its id>` (the tools do) ties the session
 to the issue, so the owner's comments on it go to that session. Such a write to an issue another session has
 started (in progress or in review), while that session is still listening, is refused with a 409: starting it or
-an edit alike, so pick another issue. A comment isn't (ORR-613): it neither starts nor changes the issue, and it's how
-a reviewer's findings reach the session on it. Closing it (done, canceled) is any session's, and the owner's
+an edit alike (a comment's edit too), so pick another issue. A comment isn't (ORR-613): it neither starts nor changes
+the issue, and it's how a reviewer's findings reach the session on it. Nor does it tie the commenting session to the
+issue (ORR-627): no write moves a started issue off a session that's still listening. Closing it (done, canceled) is any session's, and the owner's
 writes are never refused. A chunk's list marks such an issue `(another session is on it: skip it)` for the
 other sessions. Two sessions starting the same issue at once are taken one after the other, so only the first
 gets it.
