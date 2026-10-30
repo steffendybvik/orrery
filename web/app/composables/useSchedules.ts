@@ -1,18 +1,28 @@
-import type {Schedule} from '#shared/roadmap'
+import type {Schedule, ScheduleAcross} from '#shared/roadmap'
 
 // Every project's schedules, by project, kept current from `/api/events`; and the schedule dialog
 // (open for a project, and a schedule to edit, or a new one filled in from a suggestion), the right-click menu, and pausing one.
+// And the schedules across projects (ORR-638): one made from one opens that to edit.
 export function useSchedules() {
     const byProject = useState<Record<string, Schedule[]>>('schedules', () => ({}))
     const of = (project: string) => byProject.value[project] ?? []
+    const across = useState<ScheduleAcross[]>('schedules-across', () => [])
+    async function loadAcross() {
+        across.value = await $fetch<ScheduleAcross[]>('/api/schedules/across').catch(() => across.value)
+    }
 
     async function load() {
         const list = await $fetch<Schedule[]>('/api/schedules').catch(() => [] as Schedule[])
         byProject.value = Object.groupBy(list, s => s.project) as Record<string, Schedule[]>
+        await loadAcross()
     }
 
-    const editing = useState<{project: string, schedule?: Schedule, draft?: Partial<Schedule>} | null>('schedule-dialog', () => null)
-    const edit = (project: string, schedule?: Schedule, draft?: Partial<Schedule>) => editing.value = {project, schedule, draft}
+    const editing = useState<{project: string, schedule?: Schedule, draft?: Partial<Schedule>, across?: ScheduleAcross} | null>('schedule-dialog', () => null)
+    function edit(project: string, schedule?: Schedule, draft?: Partial<Schedule>) {
+        const from = schedule?.across && across.value.find(a => a.id === schedule.across)
+        editing.value = from ? {project, across: from} : {project, schedule, draft}
+    }
+    const editAcross = (from: ScheduleAcross) => editing.value = {project: '', across: from}
 
     const menu = useState<{schedule: Schedule, x: number, y: number} | null>('schedule-menu', () => null)
     function openMenu(event: MouseEvent, schedule: Schedule) {
@@ -36,5 +46,5 @@ export function useSchedules() {
         return mine
     }
 
-    return {byProject, of, load, editing, edit, menu, openMenu, pause, adopt}
+    return {byProject, of, load, across, loadAcross, editing, edit, editAcross, menu, openMenu, pause, adopt}
 }

@@ -13,21 +13,26 @@ import type {Repeat} from '~/utils/schedule'
 // the event must also say (the status it moves to, who did it, the level). A message can be presets (their text, read at each
 // run, before its own words), and a schedule can start a session with presets instead (ORR-332, ORR-342). An agent's says
 // so at the top, and whether it runs, with Make it mine: changing it here leaves it the agent's (ORR-456). Or it moves what
-// its event is about to a status, with no session (ORR-636), so it only runs on an event.
-const {editing, pause, adopt} = useSchedules()
+// its event is about to a status, with no session (ORR-636), so it only runs on an event. Or it's across projects (ORR-638):
+// All projects, with those to leave out unticked, or several, ticked; it then can't name a chunk, or run once or untrusted.
+const {editing, pause, adopt, loadAcross} = useSchedules()
 const {seeSchedule} = useUnseen()
 const {byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const projectOptions = computed(() => ordered.value.map(p => ({value: p.id, label: p.name})))
+const ALL = '*'
+const SEVERAL = '+'
+const projectOptions = computed(() => [{value: ALL, label: 'All projects'}, {value: SEVERAL, label: 'Several projects…'}, ...group.value ? [] : ordered.value.map(p => ({value: p.id, label: p.name}))])
 // Each project's sidebar icon, for the project picker.
 const icons = computed(() => new Map(ordered.value.flatMap(p => p.icon && heroicon(p.icon) ? [[p.id, {icon: p.icon, color: p.icon_color}] as const] : [])))
 const {load} = useOwner()
 
-const KINDS: {value: Repeat['kind'], label: string}[] = [
+const ALL_KINDS: {value: Repeat['kind'], label: string}[] = [
     {value: 'daily', label: 'Every day'}, {value: 'weekdays', label: 'Weekdays'}, {value: 'weekly', label: 'Some days of the week'},
     {value: 'monthly', label: 'Monthly'}, {value: 'minutes', label: 'Every N minutes'}, {value: 'hours', label: 'Every N hours'},
     {value: 'once', label: 'Once'}, {value: 'cron', label: 'Advanced (cron)'},
 ]
+// Across projects it can't run once.
+const KINDS = computed(() => isAcross.value ? ALL_KINDS.filter(k => k.value !== 'once') : ALL_KINDS)
 // Where its issues start: any open status.
 const {places} = useStatuses()
 const starts = computed(() => places.value.filter(p => p.kind !== 'proposed' && !isClosed(p.kind)))
@@ -62,13 +67,23 @@ const onFilter = computed<OnFilter>(() => ({...to.value.trim() ? {to: to.value.t
     ...level.value ? {level: level.value as OnFilter['level']} : {}}))
 
 const project = ref('')
+const isAcross = computed(() => project.value === ALL || project.value === SEVERAL)
+// Across projects: those left out of All, or those ticked of Several.
+const skipped = ref<string[]>([])
+const listed = ref<string[]>([])
+const reaches = (id: string) => project.value === ALL ? !skipped.value.includes(id) : listed.value.includes(id)
+function reach(id: string) {
+    const list = project.value === ALL ? skipped : listed
+    list.value = list.value.includes(id) ? list.value.filter(p => p !== id) : [...list.value, id]
+}
 const sends = ref<Schedule['kind']>('issue')
 const SENDS = [{value: 'issue' as const, label: 'Makes an issue'}, {value: 'message' as const, label: 'Sends a message'}, {value: 'session' as const, label: 'Starts a session'}, {value: 'action' as const, label: 'Moves issues'}]
 // The presets the project's sessions can have, asked for as the project is picked; those ticked, in the order ticked.
 const presets = ref<Preset[]>([])
 const picked = ref<number[]>([])
 watch(project, async id => {
-    presets.value = id ? await $fetch<Preset[]>(`/api/projects/${encodeURIComponent(id)}/presets`).catch(() => []) : []
+    const url = id === ALL || id === SEVERAL ? '/api/presets' : id ? `/api/projects/${encodeURIComponent(id)}/presets` : ''
+    presets.value = url ? await $fetch<Preset[]>(url).catch(() => []) : []
 }, {immediate: true})
 const usable = computed(() => picked.value.filter(id => presets.value.some(p => p.id === id)))
 function pick(id: number) {
@@ -104,6 +119,7 @@ const failed = ref('')
 const titleInput = ref<HTMLInputElement | null>(null)
 
 const existing = computed(() => editing.value?.schedule)
+const group = computed(() => editing.value?.across)
 const here = computed(() => byId(project.value))
 const chunks = computed(() => here.value?.board.chunks.filter(c => c.id) ?? [])
 const known = computed(() => here.value ? [...new Set(allIssues(here.value).flatMap(({issue}) => issue.labels))] : [])
@@ -122,8 +138,10 @@ watch(editing, now => {
     if (!now) return
     if (now.schedule) seeSchedule(now.schedule)
     // One to edit, or a new one, empty or filled in from a suggestion.
-    const s: Partial<Schedule> | undefined = now.schedule ?? now.draft
-    project.value = now.project
+    const s: Partial<Schedule> | undefined = now.schedule ?? now.across ?? now.draft
+    project.value = now.across ? now.across.projects === '*' ? ALL : SEVERAL : now.project
+    skipped.value = [...now.across?.skip ?? []]
+    listed.value = now.across && now.across.projects !== '*' ? [...now.across.projects] : []
     sends.value = s?.kind ?? 'issue'
     title.value = s?.title ?? ''
     notes.value = s?.notes ?? ''
@@ -171,6 +189,10 @@ watch(sends, now => {
     } else if (!starts.value.some(p => p.id === column.value)) column.value = todo
 })
 
+watch(isAcross, now => {
+    if (now && kind.value === 'once') kind.value = 'weekdays'
+})
+
 const repeat = computed<Repeat>(() => {
     switch (kind.value) {
         case 'weekly': return {kind: 'weekly', time: time.value, days: days.value}
@@ -185,7 +207,7 @@ const repeat = computed<Repeat>(() => {
 const cronText = computed(() => toCron(repeat.value))
 const atText = computed(() => repeat.value.kind === 'once' ? repeat.value.at : null)
 const upcoming = computed(() => nextTimes(cronText.value, atText.value, timezone.value))
-const ready = computed(() => !!project.value && !!title.value.trim() && (sends.value !== 'message' || !!notes.value.trim() || !!usable.value.length)
+const ready = computed(() => !!project.value && (project.value !== SEVERAL || !!listed.value.length) && !!title.value.trim() && (sends.value !== 'message' || !!notes.value.trim() || !!usable.value.length)
     && (trigger.value === 'event' ? EVENT_PATTERN.test(on.value) : upcoming.value.length > 0) && !saving.value)
 
 function toggleDay(d: number) {
@@ -200,11 +222,13 @@ function close() {
 const removing = ref<'ask' | 'busy' | null>(null)
 watch(editing, () => removing.value = null)
 async function remove() {
-    if (!existing.value) return
+    if (!existing.value && !group.value) return
     removing.value = 'busy'
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value)}/schedules/${existing.value.id}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        const url = group.value ? `/api/schedules/across/${group.value.id}` : `/api/projects/${encodeURIComponent(project.value)}/schedules/${existing.value?.id}`
+        await $fetch(url, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        if (group.value) await loadAcross()
         close()
     } catch (error) {
         failed.value = errorMessage(error)
@@ -236,8 +260,15 @@ async function save() {
         ...!existing.value && !enabled.value ? {enabled: false} : {},
     }
     try {
-        const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`
         const headers = {'Orrery-Actor': await load()}
+        if (isAcross.value) {
+            const across = {...body, chunk: undefined, untrusted: undefined, projects: project.value === ALL ? ALL : listed.value, skip: project.value === ALL ? skipped.value : []}
+            await (group.value ? $fetch(`/api/schedules/across/${group.value.id}`, {method: 'PATCH', headers, body: across}) : $fetch('/api/schedules', {method: 'POST', headers, body: across}))
+            await loadAcross()
+            close()
+            return
+        }
+        const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`
         seeSchedule(existing.value ? await $fetch<Schedule>(`${base}/${existing.value.id}`, {method: 'PATCH', headers, body})
             : await $fetch<Schedule>(base, {method: 'POST', headers, body}))
         close()
@@ -275,11 +306,12 @@ async function makeMine() {
 }
 
 async function togglePause() {
-    if (!existing.value || pausing.value) return
+    if ((!existing.value && !group.value) || pausing.value) return
     pausing.value = true
     failed.value = ''
     try {
-        await pause(existing.value, enabled.value)
+        if (group.value) await $fetch(`/api/schedules/across/${group.value.id}`, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: {enabled: !enabled.value}})
+        else if (existing.value) await pause(existing.value, enabled.value)
         enabled.value = !enabled.value
     } catch (error) {
         failed.value = errorMessage(error)
@@ -293,13 +325,13 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
 </script>
 
 <template>
-  <UiDialog :open="editing" :label="existing ? 'Edit schedule' : 'New schedule'" width="2xl" @close="close" @submit="save">
+  <UiDialog :open="editing" :label="existing || group ? 'Edit schedule' : 'New schedule'" width="2xl" @close="close" @submit="save">
     <div class="flex items-center gap-2 text-xs text-faint">
       <SectionIcon section="schedules" />
-      <span>{{ existing ? 'Edit schedule in' : 'New schedule in' }}</span>
+      <span>{{ existing || group ? 'Edit schedule in' : 'New schedule in' }}</span>
       <PropertyPicker v-if="!existing" v-model="project" :options="projectOptions" label="Project" field>
         <ProjectIcon v-if="icons.has(project)" :icon="icons.get(project)?.icon ?? ''" :color="icons.get(project)?.color" class="size-3.5" />
-        <span class="truncate text-fg">{{ here?.name ?? 'Pick a project' }}</span>
+        <span class="truncate text-fg">{{ project === ALL ? 'All projects' : project === SEVERAL ? 'Several projects' : here?.name ?? 'Pick a project' }}</span>
         <template #option="{option}">
           <ProjectIcon v-if="icons.has(option.value)" :icon="icons.get(option.value)?.icon ?? ''" :color="icons.get(option.value)?.color" class="size-3.5" />
           <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
@@ -307,6 +339,20 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       </PropertyPicker>
       <span v-else class="text-fg">{{ here?.name ?? project }}</span>
       <KeyHint class="ml-auto">esc</KeyHint>
+    </div>
+    <div v-if="isAcross" class="flex flex-col gap-1.5 text-xs text-muted">
+      <div class="flex flex-wrap gap-1.5" role="group" aria-label="Projects it's for">
+        <button
+            v-for="p in ordered"
+            :key="p.id"
+            type="button"
+            :aria-pressed="reaches(p.id)"
+            class="h-7 rounded-md px-2 ring-1 transition-colors"
+            :class="reaches(p.id) ? 'bg-accent-500/10 text-fg ring-accent-500/50' : 'ring-line hover:bg-hover'"
+            @click="reach(p.id)"
+        >{{ p.name }}</button>
+      </div>
+      <p>{{ project === ALL ? 'Each ticked gets its own copy, with its own runs, and a project added later joins in.' : 'Each ticked gets its own copy, with its own runs.' }}</p>
     </div>
 
     <div v-if="agents && existing" class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-500/30 dark:text-amber-200" role="note">
@@ -398,7 +444,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       </template>
       <div v-else class="flex flex-wrap items-center gap-2">
         <PropertyPicker v-model="kind" :options="KINDS" label="Repeats" field>
-          <span class="truncate">{{ labelOf(KINDS, kind) }}</span>
+          <span class="truncate">{{ labelOf(ALL_KINDS, kind) }}</span>
         </PropertyPicker>
         <template v-if="['daily', 'weekdays', 'weekly', 'monthly'].includes(kind)">
           <template v-if="kind === 'monthly'">
@@ -453,7 +499,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         <input v-model="onlyIfChanged" type="checkbox" class="accent-accent-500">
         Skip a run when no issue or comment changed since the last message
       </label>
-      <label class="flex items-center gap-1.5">
+      <label v-if="!isAcross" class="flex items-center gap-1.5">
         <input v-model="untrusted" type="checkbox" class="accent-accent-500">
         It reads what others wrote, such as GitHub issues: give it a locked-down session of its own
       </label>
@@ -517,7 +563,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
             <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
           </template>
         </PropertyPicker>
-        <PropertyPicker v-model="chunk" :options="chunkOptions(chunks)" label="Chunk" field>
+        <PropertyPicker v-if="!isAcross" v-model="chunk" :options="chunkOptions(chunks)" label="Chunk" field>
           <span class="truncate" :class="!chunk && 'text-faint'">{{ labelOf(chunkOptions(chunks), chunk) }}</span>
         </PropertyPicker>
         <LabelPicker v-model="labels" :labels="known" />
@@ -533,17 +579,17 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     </section>
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
-      <UiConfirm v-if="existing && removing" inline class="text-xs" :busy="removing === 'busy'" @confirm="remove" @cancel="removing = null">
-        Remove this schedule? The issues it made stay.
+      <UiConfirm v-if="(existing || group) && removing" inline class="text-xs" :busy="removing === 'busy'" @confirm="remove" @cancel="removing = null">
+        {{ group ? 'Remove it from every project? The issues it made stay.' : 'Remove this schedule? The issues it made stay.' }}
       </UiConfirm>
-      <UiButton v-else-if="existing" variant="danger-ghost" size="md" title="Remove this schedule" @click="removing = 'ask'">Remove</UiButton>
-      <UiButton v-if="existing && !removing && !(existing.at && !existing.enabled)" size="md" :disabled="pausing" @click="togglePause">
+      <UiButton v-else-if="existing || group" variant="danger-ghost" size="md" title="Remove this schedule" @click="removing = 'ask'">Remove</UiButton>
+      <UiButton v-if="(group || (existing && !(existing.at && !existing.enabled))) && !removing" size="md" :disabled="pausing" @click="togglePause">
         {{ enabled ? '❙❙ Pause' : '▶ Resume' }}
       </UiButton>
       <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>
       <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Saving…' : existing ? 'Save schedule' : 'Create schedule' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+        {{ saving ? 'Saving…' : existing || group ? 'Save schedule' : 'Create schedule' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

@@ -111,6 +111,7 @@ const OUTCOME = {
               :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : s.kind === 'action' ? 'bg-amber-500/12 text-amber-700 dark:text-amber-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
           >{{ s.kind === 'message' ? s.untrusted ? 'Own locked-down session' : 'Messages sessions' : s.kind === 'session' ? 'Starts a session' : s.kind === 'action' ? 'Moves issues' : 'Makes an issue' }}</span>
         </div>
+        <span v-if="s.across" class="truncate text-xs text-muted">Across projects: edit it here, or leave this project out from its ⋯</span>
         <span v-if="byAgent(s)" class="truncate text-xs text-amber-700 dark:text-amber-300">{{ byAgent(s) }}</span>
         <span v-if="gist(s)" class="truncate text-xs text-muted">{{ gist(s) }}</span>
         <span class="truncate text-xs text-faint">
