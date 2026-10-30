@@ -1,11 +1,13 @@
 // The main flows in a real browser (`pnpm test:e2e`): `nuxt dev` on a port of its own (one per checkout, e2e-port.ts),
 // with a database made fresh for each run, so the tests start from an empty orrery whose owner has no name yet. A SQLite
 // file by default; with E2E_POSTGRES_URL (a database named for it, `orrery_e2e`), that Postgres, emptied first.
+// Chrome by default; E2E_BROWSER=webkit or firefox runs them in that one. One at a time, as each needs an orrery of its own.
 import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
 
 const port = e2ePort(3100)
 const postgres = process.env.E2E_POSTGRES_URL
+const browser = devices[{webkit: 'Desktop Safari', firefox: 'Desktop Firefox'}[process.env.E2E_BROWSER ?? ''] ?? 'Desktop Chrome']
 
 export default defineConfig({
     testDir: 'e2e',
@@ -16,8 +18,8 @@ export default defineConfig({
     reporter: process.env.CI ? [['list'], ['html', {open: 'never'}], ['json', {outputFile: 'e2e-results.json'}]] : 'list',
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure'},
     projects: [
-        {name: 'first-run', testMatch: 'first-run.spec.ts', use: devices['Desktop Chrome']},
-        {name: 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**'], dependencies: ['first-run'], use: devices['Desktop Chrome']},
+        {name: 'first-run', testMatch: 'first-run.spec.ts', use: browser},
+        {name: process.env.E2E_BROWSER || 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**'], dependencies: ['first-run'], use: browser},
     ],
     webServer: {
         command: `${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-* .data/e2e.db.backups.json .data/e2e-moved-*.db'} && nuxt dev --port ${port}`,

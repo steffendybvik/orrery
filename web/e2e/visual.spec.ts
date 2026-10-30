@@ -8,6 +8,7 @@ import {OWNER} from './support'
 // it makes them anew). A project of its own, so the page holds only what this file made; the owner named if no
 // one has yet; and starting sessions off, as earlier files may leave it on, which changes what the sessions panel says.
 test.skip(process.platform !== 'linux', "The images are Linux's: run `pnpm test:e2e:visual`")
+test.skip(({browserName}) => browserName !== 'chromium', "The images are Chrome's")
 test.describe.configure({mode: 'serial'})
 test.use({viewport: {width: 1280, height: 800}, colorScheme: 'light'})
 

@@ -43,7 +43,7 @@ const TRIES = `<pre id="out">waiting</pre><script>
 })()
 </script>`
 
-test("runs its script, which can't reach the app, the network, a popup, a form or the top tab", async ({page, request}) => {
+test("runs its script, which can't reach the app, the network, a popup, a form or the top tab", async ({page, request, browserName}) => {
     await put(request, 'tries', 'Tries', TRIES)
     // The browser reports a blocked image as a request that failed, so what counts is that none was answered.
     const answered: string[] = []
@@ -63,7 +63,8 @@ test("runs its script, which can't reach the app, the network, a popup, a form o
     expect(out).toMatchObject({api: 'blocked', parent: 'blocked', storage: 'blocked', cookie: 'blocked', popup: 'blocked', image: 'blocked', origin: 'null'})
     await expect(page).toHaveURL(/\/p\/atelier\/docs\/tries$/)
     expect(answered).toEqual([])
-    expect(failed).toEqual(['/api/sentinel-image csp'])
+    // Only Chrome reports it this way: the others don't report a blocked image as a request at all.
+    if (browserName === 'chromium') expect(failed).toEqual(['/api/sentinel-image csp'])
     expect(popups).toBe(0)
     await expect(page.locator('iframe[title="Artifact"]')).toHaveAttribute('sandbox', 'allow-scripts')
 })
