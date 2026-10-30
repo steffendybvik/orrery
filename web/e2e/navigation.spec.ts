@@ -39,7 +39,8 @@ const ROUTES = (): Route[] => [
     {path: `/p/atlas/roadmap/${made.chunk}`, heading: 'Coastlines', sidebar: 'Roadmap', palette: 'Coastlines'},
     {path: '/p/atlas/releases', heading: 'Atlas', sidebar: 'Releases', palette: 'Atlas releases'},
     {path: '/p/atlas/releases/2.0.0', heading: '2.0.0', sidebar: 'Releases'},
-    {path: '/p/atlas/docs', heading: 'Atlas', sidebar: 'Docs', palette: 'Atlas docs'},
+    // Docs opens on the first doc, whose title is the page's h1 (ORR-623).
+    {path: '/p/atlas/docs', heading: 'Projections', sidebar: 'Docs', palette: 'Atlas docs'},
     {path: `/p/atlas/docs/${made.doc}`, heading: 'Projections', sidebar: 'Docs', palette: 'Projections'},
     {path: '/p/atlas/settings', heading: 'Atlas', sidebar: 'Settings', palette: 'Atlas settings'},
     {path: `/p/atlas/issues/${made.issue}`, heading: 'Chart the fjords', sidebar: 'Issues', palette: 'Chart the fjords'},

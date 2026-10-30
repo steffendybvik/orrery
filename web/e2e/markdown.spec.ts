@@ -70,3 +70,11 @@ test("gives headings ids of their own that can't name anything on the page", asy
     // A heading named for something on window doesn't take its place.
     expect(await page.evaluate(() => typeof window.location.href)).toBe('string')
 })
+
+test("draws a `#` heading as an h2 that looks like one, leaving the page's own h1 alone (ORR-623)", async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Labels', notes: '# Pickles\n\nsour\n\n## Jam\n\nsweet'})
+    await page.goto(`/p/pantry-notes/issues/${issue.id}`)
+    await expect(page.locator('.doc h2[data-h1]')).toHaveText('Pickles')
+    await expect(page.locator('.doc h1')).toHaveCount(0)
+    await expect(page.getByRole('heading', {level: 1})).toHaveCount(1)
+})
