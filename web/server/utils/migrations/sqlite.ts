@@ -896,4 +896,9 @@ export const MIGRATIONS: (string | ((db: DatabaseSync) => void))[] = [`
     ALTER TABLE issues ADD COLUMN claimed_at TEXT;
     ALTER TABLE issues ADD COLUMN claimed_session TEXT;
     ALTER TABLE issues ADD COLUMN created_person TEXT;
+`, `
+    -- A doc's kind (ORR-677): Markdown, or an artifact, its text HTML that's only ever served locked down and drawn in a
+    -- sandboxed frame. Its revisions keep it too, so a deleted artifact comes back as one.
+    ALTER TABLE docs ADD COLUMN kind TEXT NOT NULL DEFAULT 'markdown' CHECK (kind IN ('markdown', 'artifact'));
+    ALTER TABLE doc_revisions ADD COLUMN kind TEXT NOT NULL DEFAULT 'markdown' CHECK (kind IN ('markdown', 'artifact'));
 `]

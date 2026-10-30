@@ -3,8 +3,9 @@ import type {Doc} from '#shared/roadmap'
 
 // Writing a doc in a project, as the owner (so agents can't delete it): its title and its text, in Markdown.
 // orrery makes its id from the title. An image pasted or dropped anywhere on the dialog, or picked, goes into the text
-// as Markdown. ⌘↵ creates it and opens it, Esc closes.
-const {target, close} = useNewDoc()
+// as Markdown. An artifact (ORR-677) is the same with HTML for its text, and no images. ⌘↵ creates it and opens it, Esc closes.
+const {target, kind, close} = useNewDoc()
+const artifact = computed(() => kind.value === 'artifact')
 const {byId} = useRoadmaps()
 const {load} = useOwner()
 const router = useRouter()
@@ -38,7 +39,7 @@ async function create() {
         const doc = await $fetch<Doc>(`/api/projects/${encodeURIComponent(at)}/docs`, {
             method: 'POST',
             headers: {'Orrery-Actor': await load()},
-            body: {title: title.value.trim(), body: body.value.trim()},
+            body: {title: title.value.trim(), body: body.value.trim(), ...artifact.value ? {kind: 'artifact'} : {}},
         })
         close()
         router.push(`/p/${at}/docs/${doc.id}`)
@@ -51,28 +52,28 @@ async function create() {
 </script>
 
 <template>
-  <UiDialog :open="target" label="New doc" width="2xl" class="relative" v-on="drop" @close="close" @submit="create">
+  <UiDialog :open="target" :label="artifact ? 'New artifact' : 'New doc'" width="2xl" class="relative" v-on="artifact ? {} : drop" @close="close" @submit="create">
     <ImageDropOverlay v-if="over" />
     <div class="flex items-center gap-2 text-xs text-faint">
-      <span>New doc<template v-if="project"> in {{ project.name }}</template></span>
+      <span>{{ artifact ? 'New artifact' : 'New doc' }}<template v-if="project"> in {{ project.name }}</template></span>
       <KeyHint class="ml-auto">esc</KeyHint>
     </div>
-    <input ref="titleInput" v-model="title" placeholder="Doc title, e.g. How releases work" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
+    <input ref="titleInput" v-model="title" :placeholder="artifact ? 'Artifact title, e.g. Test speed' : 'Doc title, e.g. How releases work'" aria-label="Title" class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
     <textarea
         ref="bodyInput"
         v-model="body"
         rows="8"
-        placeholder="Write it in Markdown (paste or drop an image)"
+        :placeholder="artifact ? 'Write it in HTML, with Tailwind classes. It runs in a locked-down frame: everything has to be inline.' : 'Write it in Markdown (paste or drop an image)'"
         aria-label="Text"
         class="field-sizing-content max-h-[60vh] min-h-40 resize-none bg-transparent font-mono text-[13px] leading-6 text-fg placeholder:text-faint focus:outline-none"
     />
     <div class="flex items-center gap-2 border-t border-line pt-3">
-      <ImageButton @picked="upload" />
+      <ImageButton v-if="!artifact" @picked="upload" />
       <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
       <span v-else-if="uploading" class="text-xs text-faint">Adding image…</span>
       <span v-else-if="uploadError" class="text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Creating…' : 'Create doc' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
+        {{ saving ? 'Creating…' : artifact ? 'Create artifact' : 'Create doc' }} <KeyHint class="bg-white/20 text-white ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

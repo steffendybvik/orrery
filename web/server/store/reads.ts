@@ -6,7 +6,7 @@ import type {IssueInput} from '../utils/roadmap'
 import {buildBoard} from '../utils/roadmap'
 import type {Db} from '../utils/database'
 import type {IssueRecord, ChunkRecord, ProjectRow, ChunkRow, IssueRow, DocRow, ReleaseRow} from './schema'
-import {OPEN_ASK, tallyReleases, releaseOf, summaryOf, matchOf} from './schema'
+import {OPEN_ASK, tallyReleases, releaseOf, docSummaryOf, matchOf} from './schema'
 import {known} from '#shared/known'
 
 /** The projects taking their releases from `project`, by id. */
@@ -152,7 +152,7 @@ export async function readDocSummaries(db: Db, project: string, q = ''): Promise
         .sort((a, b) => Number(inTitle(b)) - Number(inTitle(a))
             || a.title.localeCompare(b.title, 'en', {sensitivity: 'base', numeric: true}) || a.id.localeCompare(b.id))
         .map(row => ({
-            id: row.id, title: row.title, summary: summaryOf(row.body), ...words.length ? {match: matchOf(row.body, words)} : {},
+            id: row.id, title: row.title, kind: row.kind, summary: docSummaryOf(row), ...words.length ? {match: matchOf(row.body, words)} : {},
             ...row.section ? {section: row.section} : {},
             created_by: row.created_by, protected: !!row.owned, created_at: row.created_at, updated_at: row.updated_at,
         }))

@@ -122,6 +122,19 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 | `PATCH /projects/:project/releases/:release` | `{branch?, notes?, frozen_on?, shipped_on?, position?}`; `position` moves it in the list (0 the top); the version doesn't change; `null` clears |
 | `DELETE /projects/:project/releases/:release` | its issues stay, set for none, in every project drawing on it too |
 
+An **artifact** (ORR-677) is a doc with `kind: "artifact"`, whose `body` is HTML: a visual for a person to look at, with
+sections and history like any doc. Make one with `POST` or `PUT` (`write_doc` for a session). Its kind is fixed when it's
+made, and a doc's `kind` is otherwise `markdown`. It's only ever drawn in a sandboxed frame on its doc's page, or served
+at `…/artifact` with the same lock.
+
+- **What it has:** its own inline scripts and styles, and images and fonts as `data:` addresses. Tailwind is there already,
+  so write ordinary classes with no build step, along with the app's theme (`bg-canvas`, `bg-panel`, `text-fg`, `text-muted`,
+  `ring-line`, `bg-accent-500`…). `dark:` classes follow the page's dark mode.
+- **What it can't do:** make any request, so everything has to be in the HTML: no library from a CDN, no uploaded images,
+  no live data. It also can't read orrery's API or the page around it, use storage, open a popup, submit a form or move the
+  top tab. An error stays inside its frame.
+- It can be a fragment or a whole document, though `class` on its own `<html>` is ignored, as orrery's comes first.
+
 A doc's **revisions** (ORR-675): a save that changes its title or text keeps the whole of both, whether it came from the
 page, a session or `PUT`. Moving it to another section, a new position, or the same text saved again doesn't count. A
 removal is a revision too (`deleted: true`), holding its last text. `GET …/docs/:doc` always reads the latest. Their ids
@@ -242,10 +255,11 @@ instead of `done` when it won't ship.
 | | |
 |---|---|
 | `GET /projects/:project/docs` | without their text but with a `summary` (the first paragraph as plain text, about 160 characters), by title, A–Z (a `position` sent with a doc is kept but no longer orders them). `?q=` keeps those with every word of it in their title or text (any order or case), the ones with them all in the title first, each with a `match`: about 160 characters of text around its first hit. Each has its `section` when it's filed under one |
-| `POST /projects/:project/docs` | `{title, body?, id?, section?}`; `body` is Markdown, and `section` (up to 60 characters) is the group it's listed under, such as `Decisions` |
+| `POST /projects/:project/docs` | `{title, body?, id?, section?, kind?}`; `body` is Markdown (or HTML with `kind: "artifact"`, below), and `section` (up to 60 characters) is the group it's listed under, such as `Decisions` |
 | `GET /projects/:project/docs/:doc` | with its Markdown |
-| `PUT /projects/:project/docs/:doc` | `{title, body?, section?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync. A `section` left out keeps the one it has |
+| `PUT /projects/:project/docs/:doc` | `{title, body?, section?, kind?}`: creates (201) or replaces, for keeping a repo's `.md` file in sync. A `section` left out keeps the one it has |
 | `PATCH /projects/:project/docs/:doc` | `{title?, body?, section?}`; `section` `null` or `""` takes it out of one. Moving a doc to another section doesn't count as changing it (its `updated_at` stays) |
+| `GET /projects/:project/docs/:doc/artifact` | an artifact's HTML as a page, locked down (below); `?theme=dark` for dark mode. A 404 for a Markdown doc |
 | `DELETE /projects/:project/docs/:doc` | its past stays, so it can come back; only deleting the project removes that |
 | `GET /projects/:project/docs/:doc/revisions` | its revisions, newest first, without their text: `{id, title, deleted, created_by, session_name?, created_at}`. A deleted doc's too; a 404 when there's never been such a doc |
 | `GET /projects/:project/docs/:doc/revisions/:revision` | that revision with its `project`, `doc` and Markdown `body` |
