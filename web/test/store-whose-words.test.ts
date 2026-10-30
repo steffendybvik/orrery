@@ -53,12 +53,11 @@ describe('a comment', () => {
         expect(signals).toHaveLength(before)
     })
 
-    it('from the owner still goes to the session on it, whoever\'s it is', async () => {
+    it('from the owner goes to the session on it, as the issue is that person\'s', async () => {
         const id = await add({assignee: 'hati'})
         await store.workedBy('greenhouse', id, 'hati-a')
         await store.createComment('greenhouse', id, {body: 'Stop that'}, owner)
-        expect(lastSignal()).toMatchObject({target: 'hati-a', protected: true})
-        expect(lastSignal().person).toBeUndefined()
+        expect(lastSignal()).toMatchObject({target: 'hati-a', protected: true, person: 'hati'})
     })
 
     it('from an agent wakes nobody, and is kept with its person', async () => {

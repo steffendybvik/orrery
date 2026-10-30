@@ -94,10 +94,18 @@ export abstract class SignalStore extends IssueStore {
         if (input.session === EVERY) throw badRequest(`Only a chunk can go to every session, not issue ${issue}: name one in "session", or leave it out for orrery to pick one`)
         const instructions = JSON.stringify(await this.instructionsFor(project, input.instructions))
         const member = this.memberAiming(actor, input.session)
-        const theirs = (session: string | null | undefined) => session && (!member || this.sessionPerson(session) === member) ? session : null
+        // The owner's goes to the sessions of whoever has the issue, and on what's nobody's, to their own (ORR-656).
+        const whose = member ?? (actor.owner ? await this.whoseWork(project, (await this.issueRow(project, issue)).assignee) ?? (await this.isShared() ? await this.ownerId() : undefined) : undefined)
+        const named = input.session && input.session !== EVERY ? this.sessionPerson(String(input.session)) : undefined
+        if (!member && whose && named && named !== whose) throw conflict(`${issue} is ${whose}'s, and session ${String(input.session)} is ${named}'s, so it can't be sent this: assign the issue to them first`)
+        const theirs = (session: string | null | undefined) => {
+            if (!session) return null
+            const person = this.sessionPerson(session)
+            return !whose || person === whose || !member && !person ? session : null
+        }
         const target = nullable(input.session) ?? theirs(await this.listeningWorker(project, issue)) ?? theirs((await this.heldAbove(project, issue))?.holder) ?? null
         const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, instructions, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'focus', nullable(input.note), target, member ?? null, instructions, actor.name, Number(actor.owner), stamp())
+            project, issue, 'focus', nullable(input.note), target, whose ?? null, instructions, actor.name, Number(actor.owner), stamp())
         const signal = signalOf(row)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
         if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)

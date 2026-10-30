@@ -179,33 +179,45 @@ export abstract class CommentStore extends SignalStore {
      * how many. orrery's own word after one (a pull request's news) answers nothing (ORR-528). A session whose person
      * is a member (`person`) gets their own words too, on what's theirs. */
     async carryUnanswered(project: string, session: string, person?: string): Promise<number> {
-        const waiting = await this.all<{issue: string, body: string, created_by: string, owned: number}>(`
-            SELECT c.issue, c.body, c.created_by, c.owned FROM comments c
+        const waiting = await this.all<{issue: string, body: string, created_by: string, owned: number, assignee: string | null}>(`
+            SELECT c.issue, c.body, c.created_by, c.owned, (SELECT i.assignee FROM issues i WHERE i.project = c.project AND i.id = c.issue) AS assignee FROM comments c
             WHERE c.project = ? AND (c.owned = 1 OR (c.person = ? AND c.by_agent = 0
                 AND EXISTS (SELECT 1 FROM issues i WHERE i.project = c.project AND i.id = c.issue AND lower(i.assignee) = c.person)))
               AND NOT EXISTS (SELECT 1 FROM comments a WHERE a.project = c.project AND a.issue = c.issue AND NOT ${PERSONS_WORDS('a')} AND a.created_by != ? AND a.id > c.id)
               AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment'
                               AND s.created_at >= c.created_at AND (s.delivered_to != '[]' OR (s.target IS NULL AND s.created_at >= ?)))
             ORDER BY c.created_at LIMIT 10`, project, person ?? null, ORRERY.name, new Date(Date.now() - 86_400_000).toISOString())
+        let carried = 0
         for (const comment of waiting) {
+            // The owner's words go to whoever has the issue (ORR-656), and on what's nobody's, to the owner's own.
+            const whose = comment.owned ? await this.whoseWork(project, comment.assignee) : person
+            const to = whose === null ? await this.ownerId() : whose
+            if (to && to !== person) continue
+            carried++
             const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-                project, comment.issue, 'comment', comment.body, session, comment.owned ? null : person ?? null, comment.created_by, comment.owned, stamp())
+                project, comment.issue, 'comment', comment.body, session, to ?? null, comment.created_by, comment.owned, stamp())
             this.onSignal(signalOf(row))
         }
-        return waiting.length
+        return carried
     }
 
     /** The owner's comment goes to the session that last worked the issue, so one session answers it; when none has,
      * or that one isn't there to hear it, to one session orrery picks (pool.ts), which becomes the issue's (ORR-513).
      * A member's goes only to their own sessions (ORR-658): the one on the issue if it's theirs, else one of theirs if
-     * the issue is, and on someone else's issue to nobody, as it's only there to be read. */
+     * the issue is, and on someone else's issue to nobody, as it's only there to be read. The owner's and orrery's go to
+     * the sessions of whoever has the issue (ORR-656), and on what's nobody's, the owner's to their own and orrery's to no one. */
     protected async carryComment(project: string, issue: string, body: string, actor: Actor) {
         const member = actor.owner ? undefined : actor.person
+        const {assignee} = await this.issueRow(project, issue)
+        const whose = member ?? await this.whoseWork(project, assignee)
+        if (!member && whose === null && !actor.owner) return
+        const person = whose === null ? await this.ownerId() : whose
         const worker = await this.listeningWorker(project, issue)
-        const target = member && worker && this.sessionPerson(worker) !== member ? null : worker
-        if (member && !target && await this.holderOf((await this.issueRow(project, issue)).assignee) !== member) return
+        const held = worker && this.sessionPerson(worker)
+        const target = person && worker && (member ? held !== member : held && held !== person) ? null : worker
+        if (member && !target && await this.holderOf(assignee) !== member) return
         const row = await this.one<SignalRow>('INSERT INTO signals (project, issue, kind, note, target, person, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
-            project, issue, 'comment', body, target, member ?? null, actor.name, member ? 0 : 1, stamp())
+            project, issue, 'comment', body, target, person ?? null, actor.name, member ? 0 : 1, stamp())
         this.onSignal(signalOf(row))
     }
 

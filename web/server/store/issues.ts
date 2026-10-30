@@ -329,7 +329,9 @@ export abstract class IssueStore extends ClaimStore {
             if (!(actor.owner || actor.person) || !await urgentWork(after) || (before && await urgentWork(before))) return
             // One blocked (ORR-601) waits for what it depends on, urgent or not: it's handed out once that's done.
             if ((await this.blockers(project, after.id)).length) return
-            await this.sendFocus(project, after.id, {note: 'It was just made urgent (P0).', session: await this.listeningWorker(project, after.id)}, actor)
+            // On a board with more than one person, what's nobody's stays put (ORR-656).
+            if (actor.owner && await this.whoseWork(project, after.assignee) === null) return
+            await this.sendFocus(project, after.id, {note: 'It was just made urgent (P0).'}, actor)
         } catch (error) {
             console.error(`[orrery] pushing urgent ${after.id} in ${project}:`, error)
         }

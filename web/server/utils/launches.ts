@@ -193,6 +193,8 @@ export async function considerLaunch(signal: Signal): Promise<Launch | null> {
     const {project} = signal
     // One aimed at a session only that session hears, and a delivered one has been heard.
     if (!signal.protected || signal.target && signal.target !== EVERY || signal.delivered_to.length) return null
+    // Work for someone else's agents: this orrery's launcher is the owner's (ORR-656).
+    if (signal.person && signal.person !== (await useStore().ownerOf()).name) return null
     // The owner's answer that asks for no work (ORR-606).
     if (startsNone.getStore()) return null
     if (listening(project) || !launchersOf(project) || pendingOn(project)) return null
