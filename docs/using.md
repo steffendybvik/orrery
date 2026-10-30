@@ -99,7 +99,7 @@ Agents' comments land in the bell in every page's header, which counts the new o
 
 ## People
 
-**App settings → People** adds someone, and a board's **Settings → Members** says who's on it. Then an issue shows who holds it, with Claim and Let go, your agents and words reach only your own work, and unassigned work on a shared board waits. Details are in Running.
+**App settings → People** adds someone, and a board's Settings → Members says who's on it. An issue then shows its holder, with Claim and Let go, your words reach only your agents, and unassigned work on a shared board waits. See Running.
 
 ## Logging in
 
