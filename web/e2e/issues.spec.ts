@@ -1,9 +1,9 @@
 import {expect, test} from '@playwright/test'
-import {makeProject, newIssue, projectApi} from './support'
+import {AGENT, makeProject, newIssue, projectApi} from './support'
 
 // Issues on a project of their own: made from the page and moved on the board, the board leaving out the columns
-// the filter does, sub-issues, ⌘K, a change showing live in another tab, the open ones first, and what changed
-// since the owner last looked.
+// the filter does, sub-issues, ⌘K, a change showing live in another tab, the open ones first, what changed
+// since the owner last looked, and double-clicking a description to edit it.
 test.describe.configure({mode: 'serial'})
 
 const api = projectApi('scullery')
@@ -124,4 +124,55 @@ test("marks what changed since the owner last looked, but not the owner's own ch
     await page.waitForTimeout(500)
     await expect(page.getByRole('button', {name: /Mark \d+ seen/})).toBeHidden()
     await expect(page.getByTitle(/changed since you last looked/)).toBeHidden()
+})
+
+test('double-clicking a description opens its editor, unless it was a link, a picture or a drag', async ({page, request}) => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    const upload = await (await request.post('/api/uploads', {data: {data: png, name: 'shelf'}, headers: AGENT})).json()
+    const notes = `Top shelf first, then the rest\n\n![The shelf](${upload.url})\n\n[The plan](/p/scullery)`
+    const issue = await api(request, 'post', '/issues', {title: 'Sort the shelves', notes})
+    await page.goto(`/p/scullery/issues/${issue.id}`)
+    const text = page.locator('.doc p', {hasText: 'Top shelf first'})
+    const editor = page.getByRole('textbox', {name: 'Description'})
+    await expect(text).toBeVisible()
+
+    // A drag selects, and the editor stays shut; so does a double-click dragged across words.
+    const box = (await text.boundingBox())!
+    const y = box.y + box.height / 2
+    await page.mouse.move(box.x + 2, y)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 120, y, {steps: 5})
+    await page.mouse.up()
+    await expect.poll(() => page.evaluate(() => getSelection()?.toString())).toContain('Top')
+    await page.mouse.click(box.x + 2, y)
+    await page.mouse.down()
+    await page.mouse.up()
+    await page.mouse.down({clickCount: 2})
+    await page.mouse.move(box.x + 120, y, {steps: 5})
+    await page.mouse.up({clickCount: 2})
+    await expect(editor).toBeHidden()
+
+    await text.dblclick()
+    await expect(editor).toBeFocused()
+    await expect(editor).toHaveValue(notes)
+    // Esc leaves it as it was.
+    await page.keyboard.press('Escape')
+    await expect(text).toBeVisible()
+    expect((await api(request, 'get', `/issues/${issue.id}`)).notes).toBe(notes)
+
+    // A picture and a link keep their own click.
+    // The picture opens larger on the first click, and the second closes it again.
+    await page.locator('.doc img[alt="The shelf"]').dblclick()
+    await expect(page.getByRole('dialog', {name: 'The shelf'})).toBeHidden()
+    await expect(editor).toBeHidden()
+    await page.locator('.doc a', {hasText: 'The plan'}).dblclick()
+    await expect(page).toHaveURL(/\/p\/scullery(\?.*)?$/)
+    await page.goto(`/p/scullery/issues/${issue.id}`)
+    await expect(text).toBeVisible()
+    await expect(editor).toBeHidden()
+
+    // The Edit button stays.
+    await text.hover()
+    await page.getByRole('button', {name: 'Edit'}).first().click()
+    await expect(editor).toBeFocused()
 })
