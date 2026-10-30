@@ -261,14 +261,19 @@ function noteDrift(chat: Chat, request: ChatMoveRequest, drifted: NonNullable<Ch
 
 /** What the store said happened: an issue's status or assignee changing shows on any request still asking to move it,
  * so the owner sees it before they answer. A parent's column follows its sub-issues with no event of its own: that
- * shows when they answer. */
+ * shows when they answer. Not while they're answering: `answerMove` has read what changed, and what it hears then is
+ * its own move, which isn't a change since it asked. */
 export function heardForMoves({event}: {event: OrreryEvent}) {
     if (event.type !== 'issue.status' && event.type !== 'issue.assignee') return
     for (const chat of chats.values()) {
         if (chat.project !== event.project) continue
-        for (const {move} of chat.messages) {
+        for (const {id, move} of chat.messages) {
             if (move?.state !== 'asked' || !move.body.ids.includes(event.subject as string)) continue
-            void driftOf(chat, move).then(drifted => noteDrift(chat, move, drifted)).catch(() => {})
+            const open = () => move.state === 'asked' && !answering.has(`${chat.id}:${id}`)
+            if (!open()) continue
+            void driftOf(chat, move).then(drifted => {
+                if (open()) noteDrift(chat, move, drifted)
+            }).catch(() => {})
         }
     }
 }
