@@ -12,6 +12,8 @@ test('splits App settings into tabs by what they reach, and a link opens the rig
     await expect(page).toHaveURL(/tab=issues/)
     await expect(page.getByText('How issues work in every project on this orrery')).toBeVisible()
     for (const name of ['Team tracker', 'Issue statuses', 'Proposals']) await expect(page.getByRole('heading', {name})).toBeVisible()
+    // Proposals first (ORR-612).
+    expect(await page.locator('section[id]').evaluateAll(sections => sections.map(s => s.id))).toEqual(['proposals', 'tracker', 'statuses'])
     await expect(page.getByRole('heading', {name: 'Your name'})).toHaveCount(0)
 
     await page.goto('/settings#tint')
