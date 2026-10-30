@@ -26,6 +26,8 @@ export default defineConfig({
     testDir: 'e2e',
     // What `pnpm test:report` keeps with a run's numbers, so a change to how this runs isn't taken for a speedup.
     metadata: {server: 'dev'},
+    // Without the project's name, as visual.spec.ts runs in `alone` in the whole suite and `chromium` on its own.
+    snapshotPathTemplate: '{snapshotDir}/{testFileDir}/{testFileName}-snapshots/{arg}-chromium{-snapshotSuffix}{ext}',
     // One orrery for every file. first-run.spec.ts opens it fresh, with an owner who has no name yet, so it runs first,
     // as a Playwright project the rest depend on; each of them then makes an orrery project of its own.
     workers: whole ? 4 : 1,

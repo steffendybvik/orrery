@@ -142,7 +142,8 @@ test("keeps orrery's own image an image", async ({page, request}) => {
     await page.goto(`/p/pantry-notes/issues/${issue.id}`)
     const image = page.locator('.doc img').first()
     await expect(image).toBeVisible()
-    expect(await image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0)
+    // Its alt text shows before the file has loaded.
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0)
 })
 
 test("gives headings ids of their own that can't name anything on the page", async ({page, request}) => {
