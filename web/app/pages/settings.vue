@@ -19,7 +19,7 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'name', text: 'Your name', level: 2},
         {id: 'handle', text: 'Your handle', level: 2},
         // Only when this orrery asks for a login (ORR-664): alone on your own machine, none of it shows.
-        ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2}] : [],
+        ...useAuth().status.value?.mode === 'on' ? [{id: 'keys', text: 'Your keys', level: 2 as const}] : [],
     ]},
     {value: 'issues', label: 'Issues', scope: "How issues work in every project on this orrery. A project's own settings are on its Settings tab.", sections: [
         {id: 'proposals', text: 'Proposals', level: 2},

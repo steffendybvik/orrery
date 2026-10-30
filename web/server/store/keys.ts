@@ -108,8 +108,9 @@ export abstract class KeyStore extends PeopleStore {
             const used = await this.run('UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?', stamp(), hashOf(invite), stamp())
             if (!Number(used.changes)) throw conflict('That invite has been used or has run out: ask for a new one')
             const row = await this.get<{person: string}>('SELECT person FROM invites WHERE id = ?', hashOf(invite))
-            await this.run('INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?)', issuer, subject, row?.person)
-            return row?.person
+            if (!row) throw conflict('That invite has been used or has run out: ask for a new one')
+            await this.run('INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?)', issuer, subject, row.person)
+            return row.person
         })
     }
 
