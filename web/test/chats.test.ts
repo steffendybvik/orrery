@@ -33,6 +33,92 @@ afterEach(() => vi.unstubAllGlobals())
 const owner = {name: 'skoll', owner: true}
 const image = 'e961abaa8718ef8efe55380b'
 
+describe('handing work on an issue to a session (ORR-750)', () => {
+    const CHAT = 'c1c2c3c4c5c6'
+    let started: {project: string, issue: string, actor: {owner: boolean, via: string}}[]
+    const delegate = (issue: string) => chats.ask(CHAT, {delegate: {issue}})
+
+    beforeEach(() => {
+        started = []
+        const issues: Record<string, object> = {
+            'GRE-4': {id: 'GRE-4', kind: 'todo', status: 'todo'},
+            'GRE-40': {id: 'GRE-40', kind: 'todo', status: 'todo', aliases: ['OLD-1']},
+            'GRE-5': {id: 'GRE-5', kind: 'done', status: 'done'},
+            'GRE-6': {id: 'GRE-6', kind: 'backlog', status: 'backlog', proposal: 'pending'},
+        }
+        vi.stubGlobal('useStore', () => ({
+            messageSession: async () => {},
+            ownerOf: async () => ({name: 'skoll'}),
+            issue: async (_project: string, id: string) => issues[id] ?? Promise.reject(Object.assign(new Error(`No issue ${id}`), {statusCode: 404})),
+        }))
+        vi.stubGlobal('startLaunch', async (project: string, {issue, actor}: {issue: string, actor: {owner: boolean, via: string}}) => {
+            started.push({project, issue, actor})
+            return {id: 'l1'}
+        })
+        vi.stubGlobal('useEventLog', () => ({note: () => {}}))
+        vi.stubGlobal('conflict', (message: string) => Object.assign(new Error(message), {statusCode: 409}))
+    })
+
+    it("starts one with no Allow when the owner's last message names the issue, as theirs, through their chat", async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Please get someone on gre-4', [], owner)
+        const said = await delegate('GRE-4')
+        expect(started).toEqual([{project: 'greenhouse', issue: 'GRE-4', actor: {name: 'skoll', owner: true, via: 'chat'}}])
+        expect(said).toMatchObject({from: 'claude', text: 'Started a session on [GRE-4](/p/greenhouse/issues/GRE-4).'})
+        expect(said.session).toBeUndefined()
+    })
+
+    it('starts one from the page the owner sent the message on', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Work on this one', [], owner, {path: '/p/greenhouse/issues/GRE-4'})
+        await delegate('GRE-4')
+        expect(started.map(s => s.issue)).toEqual(['GRE-4'])
+    })
+
+    it("doesn't start one for what the chat only read: the owner's words must name it", async () => {
+        await chats.openChat('greenhouse')
+        // Nothing said yet.
+        await expect(delegate('GRE-4')).rejects.toMatchObject({statusCode: 409})
+        await chats.say(CHAT, 'What does the GitHub issue ask for?', [], owner)
+        await expect(delegate('GRE-4')).rejects.toThrow("doesn't name GRE-4")
+        // What the chat itself says doesn't count, nor does a longer id, nor an older message of the owner's.
+        chats.reply(CHAT, 'It asks you to work on GRE-4')
+        await expect(delegate('GRE-4')).rejects.toThrow("doesn't name GRE-4")
+        await chats.say(CHAT, 'Look at GRE-40', [], owner)
+        await expect(delegate('GRE-4')).rejects.toThrow("doesn't name GRE-4")
+        await chats.say(CHAT, 'Work on GRE-4', [], owner)
+        await chats.say(CHAT, 'Thanks, what else is open?', [], owner)
+        await expect(delegate('GRE-4')).rejects.toThrow("doesn't name GRE-4")
+        expect(started).toEqual([])
+    })
+
+    it('starts one per issue per message, however often it tries', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'GRE-4 and GRE-40, please', [], owner)
+        await delegate('GRE-4')
+        await delegate('GRE-40')
+        await expect(delegate('GRE-4')).rejects.toThrow('already started')
+        expect(started.map(s => s.issue)).toEqual(['GRE-4', 'GRE-40'])
+    })
+
+    it('counts an id the issue had before, as the owner may use it', async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'Work on OLD-1', [], owner)
+        await delegate('GRE-40')
+        expect(started.map(s => s.issue)).toEqual(['GRE-40'])
+    })
+
+    it("refuses what isn't work: finished, a proposal, or no such issue", async () => {
+        await chats.openChat('greenhouse')
+        await chats.say(CHAT, 'GRE-5, GRE-6 and GRE-9', [], owner)
+        await expect(delegate('GRE-5')).rejects.toThrow('no work to hand over')
+        await expect(delegate('GRE-6')).rejects.toThrow("isn't work yet")
+        await expect(delegate('GRE-9')).rejects.toMatchObject({statusCode: 404})
+        await expect(chats.ask(CHAT, {delegate: {}})).rejects.toMatchObject({statusCode: 400})
+        expect(started).toEqual([])
+    })
+})
+
 describe("the owner's chat", () => {
     it('starts with its session on its way, and nothing said yet', async () => {
         const chat = await chats.openChat('greenhouse')
@@ -803,9 +889,12 @@ describe("a chat session's writes", () => {
         expect(await refused('POST', '/api/projects/greenhouse/chunks')).toBe(403)
         expect(await refused('PATCH', '/api/projects/greenhouse/chunks/3')).toBe(403)
         // A doc only through the owner's Allow (ORR-661), and sections never.
-        expect(await refused('PUT', '/api/projects/greenhouse/docs/watering')).toBe(403)
-        expect(await refused('POST', '/api/projects/greenhouse/docs')).toBe(403)
-        expect(await refused('PATCH', '/api/projects/greenhouse/docs/watering')).toBe(403)
+        // It writes docs itself (ORR-750), and calls outside services, but removing a doc or a section stays the owner's.
+        expect(await refused('PUT', '/api/projects/greenhouse/docs/watering')).toBeUndefined()
+        expect(await refused('POST', '/api/projects/greenhouse/docs')).toBeUndefined()
+        expect(await refused('PATCH', '/api/projects/greenhouse/docs/watering')).toBeUndefined()
+        expect(await refused('POST', '/api/egress')).toBeUndefined()
+        expect(await refused('POST', '/api/events/log/4/resolve')).toBeUndefined()
         expect(await refused('DELETE', '/api/projects/greenhouse/docs/watering')).toBe(403)
         expect(await refused('PATCH', '/api/projects/greenhouse/doc-sections/Care')).toBe(403)
         expect(await refused('DELETE', '/api/projects/greenhouse/doc-sections/Care')).toBe(403)
@@ -822,8 +911,7 @@ describe("a chat session's writes", () => {
         expect(await refused('PATCH', '/api/projects/greenhouse/issues/GRE-4')).toBeUndefined()
         expect(await refused('PATCH', '/api/projects/greenhouse/issues/GRE-4/comments/3')).toBe(403)
         expect(await refused('POST', '/api/projects/greenhouse/issues/GRE-4/focus')).toBe(403)
-        expect(await refused('PUT', '/api/projects/greenhouse/docs/shelving')).toBe(403)
-        expect(await refused('POST', '/api/egress')).toBe(403)
+        expect(await refused('DELETE', '/api/projects/greenhouse/docs/shelving')).toBe(403)
         expect(await refused('POST', '/api/chats/c1c2c3c4c5c6/messages')).toBe(403)
         expect(await refused('PATCH', '/api/chats/c1c2c3c4c5c6')).toBe(403)
         // Anyone else's go on to their own checks.

@@ -136,13 +136,39 @@ So it has no way to send what it reads anywhere but to orrery, as proposals you 
 
 ### The chat
 
-The chat (the button in the corner) is a session started for you to talk to on the page. Its launcher starts it with
-`Read`, `Grep` and `Glob` and no Bash or edits, so it can't change the code or run anything, and without `egress`,
-`secrets`, `write_doc`, `resolve_event` or the tools that take up or finish work. orrery holds its writes to making issues (unstarted and
+The chat (the button in the corner) is a session started for you to talk to on the page. Its launcher starts it with the Claude
+Code settings of its machine, as a terminal there gets (ORR-750): what your allow list permits it may do, what your deny list
+refuses it may not, and what a terminal would ask about, it asks. **So it has your own permissions, and it reads what others wrote**:
+a planted comment can try to talk it into whatever your settings allow, such as fetching a page. With Bash allowed, it can also
+reach orrery without its channel's mark, and the guards below don't hold there. They're orrery's own rules, not a boundary.
+So it can edit files and run commands where your settings let it. It goes without only the tools that take up or finish work
+(`start_issue`, `finish_issue`, and `update_issue`, as that sets a status). What your settings would ask about shows as
+**Allow** and **Deny**, in its pane while that's open and in a pop-up otherwise. orrery holds what it sends through its channel to making issues (unstarted and
 unassigned), changing an issue's title, description, priority, labels, team tasks, chunk, release, parent or what it depends on (any other
-change is refused), commenting, and
+change is refused), commenting, writing docs (never removing one or changing a section), `egress` under each secret's own rules, marking events dealt with, and
 answering you. It changes those fields even on an issue another session is working: the check that refuses one
 session's writes to another's issue lets you and your chat through, since it changes one only when you ask.
+
+**It reads GitHub, and what it reads there isn't filtered.** `github_issues` and `github_pulls` give it any issue or pull
+request on the repo the folder's git remote names, in full: titles, branches, bodies, comments, reviews, diffs and CI logs,
+which anyone who can open an issue or a pull request can write. Its instructions and the tools' descriptions say this is
+data, never instructions, which helps and isn't a boundary. So planted text could talk it into filing an issue or a comment,
+and those can reach your work sessions as material: unlike an untrusted session's, what it files doesn't wait as a proposal.
+Read what it files after reading GitHub with that in mind. The tools only read: `gh` runs inside the channel, each value in a
+flag of its own, on that one repo, and the chat has no tool that comments, merges or closes on GitHub. The answers are kept
+on the Context page by their size alone (ORR-748).
+
+**What it writes can't load anything by being shown.** See [The browser can't be used against it](#the-browser-cant-be-used-against-it).
+A link it writes can still carry what it read, once you click it, so look at where one goes before following it.
+
+**It starts a session on an issue with no Allow, on your word** (`delegate_issue`). The server starts one only when your last
+message in the chat names that issue, or you sent it from that issue's page, once per issue per message, and within the
+project's limits. It passes on no words of its own, and the session reads the issue as material. That check is in the code, so a
+GitHub comment, an issue or a doc the chat read can't by itself make a start through this tool. **What only its instructions
+hold:** whether you meant it. If you name an issue while asking about it, or paste text naming one, the check passes, and only the
+chat's instructions tell it not to start one. The session works as yours, with your settings, on whatever the issue says, so
+a planted issue you hand over is still planted. And with Bash allowed, the chat can reach orrery without its channel's mark,
+past this check entirely.
 
 Five more go further, and you should know how far:
 
@@ -152,15 +178,15 @@ Five more go further, and you should know how far:
   Nothing is saved until you press **Allow**, and then a new one is yours, so a schedule that starts sessions starts
   them as you. A change to an agent's schedule leaves it the agent's: only **Make it mine** makes it yours. Read what it would send before allowing it. Whether a schedule is untrusted, and deleting one, stay yours on
   the Schedules page.
-- **Sessions, releases, chunks and moves** it can only ask for as well: starting, stopping or giving more time to a
-  session, adding or changing a release or a chunk, and moving issues to another status or assigning them. Each shows
+- **Sessions, releases, chunks and moves** it can only ask for as well: starting a session for anything but work on an
+  issue you named, stopping or giving more time to a session, adding or changing a release or a chunk, and moving issues to another status or assigning them. Each shows
   what it would do, and nothing happens until you press **Allow**.
-- **Docs** it can only ask for too: a new one shows its title, section and full text, and a change shows what changes,
+- **Docs** it writes itself now, and can also ask for: a new one shows its title, section and full text, and a change shows what changes,
   the text as a diff. Nothing is saved until you press **Allow**, and then it's yours. Docs are material later sessions
   read, and the chat reads what others wrote, so read what it asks to save as you would anything that could come from a
   planted comment. A change is refused if the doc changed after the chat asked, so you never approve one against text
   you didn't see. orrery refuses the chat on the doc routes, and removing a doc or renaming or deleting a section stays
-  yours on the page (ORR-661).
+  yours on the page (ORR-661). A doc it writes itself (`write_doc`, ORR-750) doesn't wait, so docs can carry what it was talked into.
 - **Messages to your sessions** it can only ask for as well: you see the text and who it goes to, and nothing is sent
   until you press **Send**. orrery refuses the chat on both message routes, so this holds whatever it was talked into.
   Once sent, a message goes out as yours, the owner's instructions in the sense below, marked as sent through the chat
@@ -233,17 +259,18 @@ permission prompts are only as safe as who can reach orrery ([above](#who-can-re
 ### The owner's chat
 
 The chat on the page writes as `claude`, like any agent, under the same rules: it makes and changes issues and
-comments, and it can't touch presets, prompts or settings. Five things go further, since you asked for them there,
-and each is only ever asked:
+comments, and it can't touch presets, prompts or settings. Its one rule of its own is that it doesn't take up or finish
+an issue, and it starts a session for that on your word ([The chat](#the-chat)). Five things go further, since you asked for them there,
+and each is asked:
 
 - **Changing an App setting, or making or changing a schedule:** you see it from → to, and nothing is saved until you
   press **Allow** in the page. An allowed schedule is yours, so read what it sends.
-- **Starting, stopping or extending a session:** you see what would start (its project, focus, presets and words) or
+- **Starting a session for anything but work on an issue you named, stopping or extending one:** you see what would start (its project, focus, presets and words) or
   which session, and nothing happens until you press **Allow**. A session started this way is yours, with the context
   shown, so read it. The launch routes refuse the chat itself, and watching one (a window on your machine) stays yours.
 - **Adding or changing a release or a chunk, or moving or assigning issues:** you see what would change, and nothing
   is saved until you press **Allow**.
-- **Making or changing a doc:** you see the title, section and full text, or a diff of what changes, and nothing is
+- **Making or changing a doc, when it asks rather than writing it itself:** you see the title, section and full text, or a diff of what changes, and nothing is
   saved until you press **Allow**. A change that no longer fits the doc as it stands is refused (ORR-661).
 - **Messaging your other sessions:** you see the text and who it goes to, and nothing is sent until you press
   **Send**. Then it goes as you, marked as sent through the chat. The message routes refuse the chat itself, so a
@@ -301,6 +328,12 @@ asking first. orrery never says yes, and sets no CORS headers, so another site c
 either. A session's stream changes who's listening just by being opened, so a browser can't open one
 at all, not even as a picture in orrery's own page; only the channel, the launcher and curl can.
 
+Nor can what's written in orrery send anything out just by being shown (ORR-748). Issues, comments, docs and the chat's
+replies are drawn as Markdown, and an agent that has read something could put it in an image's address, which a browser would
+ask for by itself. So orrery's pages carry a `Content-Security-Policy` that loads images and media only from orrery, and fonts
+and styles only from orrery and Google Fonts. Browsers' DNS prefetching
+is off too, as looking up a link's host would send a name out. A link sends something only when you click it.
+
 ## Secrets
 
 [Secrets](docs/API.md#secrets) let your agents call outside services without the key ever reaching
@@ -352,7 +385,7 @@ are. Only a review by your own handle (`handle` in App settings) is quoted (ORR-
 - **Context** (Advanced → Context) shows what each running session has been given since orrery started: the signals
   sent to it and its orrery tools' answers, kept in memory only. Like every page, with login off it's open to whatever can reach
   orrery, sessions included, so an `egress` answer is kept by its size alone, never what the service sent back
-  (ORR-573). Anything can add an entry to a session's list there, as it can post a session's hook.
+  (ORR-573), and so is a GitHub read (ORR-748). Anything can add an entry to a session's list there, as it can post a session's hook.
 - **The event log** (Advanced → Events) keeps what went wrong, with error messages and stacks, for 30 days on
   this machine. Secrets' values and database passwords are taken out before it's written. Every session can read
   it. A session can mark an error resolved, but the row then says which agent did, and the bell keeps showing it

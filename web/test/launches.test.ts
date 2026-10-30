@@ -432,6 +432,18 @@ describe('a session orrery started', () => {
         expect(answered).toEqual(['greenhouse/abc'])
     })
 
+    it('has its permission prompt answered "No" by its launcher when the owner denies it, only while it waits at one (ORR-750)', () => {
+        expect(() => launches.denyLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
+        session = {name: 'greenhouse · Gna', state: 'working', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        expect(() => launches.denyLaunch('greenhouse', 'abc')).toThrow("greenhouse · Gna isn't waiting at a permission prompt")
+        session = {...session, state: 'waiting'}
+        expect(() => launches.denyLaunch('greenhouse', 'abc')).toThrow('attach by hand with tmux attach -t orrery-greenhouse-abc')
+        launches.addLauncher('greenhouse')
+        launches.denyLaunch('greenhouse', 'abc')
+        expect(sent).toEqual([{type: 'deny', project: 'greenhouse', id: 'abc'}])
+        expect(answered).toEqual(['greenhouse/abc'])
+    })
+
     it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {
         expect(() => launches.viewLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}

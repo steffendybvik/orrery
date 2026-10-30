@@ -484,9 +484,8 @@ test('asks the owner to make or change a doc, and saves it as theirs only on the
         }
 
         // It can't write one itself, by any route, whatever it says it is.
-        expect((await request.put('/api/projects/observatory/docs/lenses', {data: {title: 'Lenses'}, headers: asChat})).status()).toBe(403)
-        expect((await request.post('/api/projects/observatory/docs', {data: {title: 'Lenses'}, headers: asChat})).status()).toBe(403)
-        expect((await request.put('/api/projects/observatory/docs/lenses', {data: {title: 'Lenses'}, headers: {...asChat, 'Orrery-Actor': OWNER['Orrery-Actor']}})).status()).toBe(403)
+        // It writes docs itself too (ORR-750), but removing one stays the owner's.
+        expect((await request.delete('/api/projects/observatory/docs/lenses', {headers: asChat})).status()).toBe(403)
 
         await page.goto('/p/observatory')
         await page.getByRole('button', {name: 'Agent (a chat is running)'}).click()
@@ -814,5 +813,49 @@ test('holds a setting that changed while the request waited until Allow anyway',
         await endChats(request)
         session?.stop()
         launcher.stop()
+    }
+})
+
+test('asks for permission in its own pane, with Allow and Deny, and starts a session only on an issue the owner named (ORR-750)', async ({page, request, baseURL}) => {
+    const launcher = hold(baseURL!, '/api/projects/observatory/launches/stream')
+    let session: ReturnType<typeof hold> | undefined
+    try {
+        await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
+        const {id: issue} = await (await request.post('/api/projects/observatory/issues', {data: {title: 'Polish the lens'}, headers: OWNER})).json() as {id: string}
+        await page.goto('/p/observatory')
+        await page.getByRole('button', {name: 'Agent', exact: true}).click()
+        const pane = page.getByRole('region', {name: 'Chat'})
+        await pane.getByLabel('Message').fill('What is on the top shelf?')
+        await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        const [chat] = await (await request.get('/api/chats')).json()
+        const after = launcher.said.text.match(/"after":(\d+)/)![1]
+        session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-ask&name=e2e-ask&started=${chat.id}&chat=yes&after=${after}&format=text`)
+        await expect.poll(() => session!.said.text).toContain('What is on the top shelf?')
+
+        // A planted comment can't start one: the owner's words didn't name the issue.
+        const asChat = {'Orrery-Actor': 'claude', 'Orrery-Chat': 'yes', 'Orrery-Launch': chat.id}
+        const delegate = () => request.post(`/api/chats/${chat.id}/requests`, {data: {delegate: {issue}}, headers: asChat})
+        const unnamed = await delegate()
+        expect(unnamed.status()).toBe(409)
+        expect(await unnamed.text()).toContain(`doesn't name ${issue}`)
+        // Named, it goes on to the start itself, which here orrery isn't let do, and says so.
+        await pane.getByLabel('Message').fill(`Get someone on ${issue}`)
+        await pane.getByLabel('Message').press('Enter')
+        await expect.poll(() => session!.said.text).toContain(`Get someone on ${issue}`)
+        const named = await delegate()
+        expect(await named.text()).not.toContain("doesn't name")
+
+        // Its permission prompt shows in the pane, and not over the page as well.
+        await request.post('/api/sessions', {data: {id: 'e2e-ask', project: 'observatory', event: 'Notification', message: 'Claude needs your permission to use WebFetch'}})
+        const prompt = pane.getByRole('alertdialog', {name: 'needs permission'})
+        await expect(prompt).toContainText('Claude needs your permission to use WebFetch')
+        await expect(page.getByRole('alertdialog', {name: 'needs permission'})).toHaveCount(1)
+        await prompt.getByRole('button', {name: 'Deny'}).click()
+        await expect.poll(() => launcher.said.text).toContain('event: deny')
+    } finally {
+        session?.stop()
+        launcher.stop()
+        await endChats(request)
     }
 })

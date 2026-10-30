@@ -4,6 +4,8 @@ import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
 import {chatOnly, lockedDown} from '../../channel/locked-down.mjs'
+// @ts-expect-error: the channel is plain JavaScript, run by node on the host
+import {NOT_FOR_CHAT} from '../../channel/tools.mjs'
 
 const hooks = {Stop: [{hooks: [{type: 'command', command: 'node channel/orrery-hook.mjs'}]}]}
 
@@ -31,36 +33,15 @@ describe("an untrusted schedule's session", () => {
 })
 
 describe("the owner's chat", () => {
-    it('gets the hooks a repo keeps in its local settings, as nothing else says when its turn ends (ORR-744)', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
-        mkdirSync(join(dir, '.claude'))
-        writeFileSync(join(dir, '.claude', 'settings.local.json'), JSON.stringify({hooks, permissions: {allow: ['Bash(curl:*)']}}))
-        const args: string[] = chatOnly(dir, 'orrery-shop')
-        expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks})
+    it('starts with the owner\'s own settings, as a terminal does: nothing restricted, no fixed tools and nothing refused unasked (ORR-750)', () => {
+        const args: string[] = chatOnly('/repo', 'orrery-shop')
+        for (const flag of ['--restricted', '--tools', '--permission-mode', '--settings', '--strict-mcp-config', '--mcp-config']) expect(args).not.toContain(flag)
     })
 
-    it('gets both when a repo has hooks in each of its settings', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
-        mkdirSync(join(dir, '.claude'))
-        const other = {type: 'command', command: 'node other.mjs'}
-        writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({hooks}))
-        writeFileSync(join(dir, '.claude', 'settings.local.json'), JSON.stringify({hooks: {Stop: [{hooks: [other]}], Notification: [{hooks: [other]}]}}))
-        const args: string[] = chatOnly(dir, 'orrery-shop')
-        expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({
-            hooks: {Stop: [...hooks.Stop, {hooks: [other]}], Notification: [{hooks: [other]}]},
-        })
-    })
-
-    it('reads the repo and has the channel but its tools that take up work, with only the repo\'s hooks and servers', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'orrery-repo-'))
-        mkdirSync(join(dir, '.claude'))
-        writeFileSync(join(dir, '.claude', 'settings.json'), JSON.stringify({hooks, permissions: {allow: ['Bash(curl:*)']}}))
-        const args: string[] = chatOnly(dir, 'orrery-shop')
-        expect(args).toEqual(expect.arrayContaining(['--restricted', '--strict-mcp-config']))
-        expect(args.slice(args.indexOf('--tools'), args.indexOf('--tools') + 2)).toEqual(['--tools', 'Read,Grep,Glob'])
-        expect(args.slice(args.indexOf('--permission-mode'), args.indexOf('--permission-mode') + 2)).toEqual(['--permission-mode', 'dontAsk'])
-        expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toEqual({hooks})
-        expect(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))).toEqual(['Read', 'Grep', 'Glob', 'mcp__orrery-shop'])
-        expect(args.slice(args.indexOf('--disallowedTools') + 1)).toEqual(['start_issue', 'finish_issue', 'update_issue', 'write_doc', 'egress', 'secrets', 'resolve_event'].map(t => `mcp__orrery-shop__${t}`))
+    it('has the channel without asking, and leaves Claude Code\'s own tools to the owner\'s settings, but not the channel\'s tools that take up work', () => {
+        const args: string[] = chatOnly('/repo', 'orrery-shop')
+        expect(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'))).toEqual(['mcp__orrery-shop'])
+        const refused = args.slice(args.indexOf('--disallowedTools') + 1)
+        expect(refused).toEqual(NOT_FOR_CHAT.map((tool: string) => `mcp__orrery-shop__${tool}`))
     })
 })

