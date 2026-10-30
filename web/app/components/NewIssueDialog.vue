@@ -7,7 +7,6 @@ import type {Column, Priority} from '#shared/roadmap'
 // opens its page, Esc closes.
 const {target, close} = useNewIssue()
 const {byId} = useRoadmaps()
-const {load} = useOwner()
 const {open: openIssue} = useIssueLink()
 
 const project = computed(() => byId(target.value?.project))
@@ -55,10 +54,8 @@ async function create() {
     saving.value = true
     failed.value = ''
     try {
-        const owner = await load()
-        const issue = await $fetch<{id: string}>(`/api/projects/${encodeURIComponent(project.value.id)}/issues`, {
+        const issue = await apiFetch<{id: string}>(`/projects/${encodeURIComponent(project.value.id)}/issues`, {
             method: 'POST',
-            headers: {'Orrery-Actor': owner},
             body: {
                 ...labels.value.length ? {labels: labels.value} : {},
                 title: title.value.trim(),
@@ -71,8 +68,8 @@ async function create() {
         })
         const id = project.value.id
         if (ask.value) {
-            await $fetch(`/api/projects/${encodeURIComponent(id)}/issues/${encodeURIComponent(issue.id)}/focus`, {
-                method: 'POST', headers: {'Orrery-Actor': owner}, body: {note: `A new ${labels.value.length ? labels.value.join(', ') : 'issue'}: please pick it up.`},
+            await apiFetch(`/projects/${encodeURIComponent(id)}/issues/${encodeURIComponent(issue.id)}/focus`, {
+                method: 'POST', body: {note: `A new ${labels.value.length ? labels.value.join(', ') : 'issue'}: please pick it up.`},
             }).catch(() => {})
         }
         close()

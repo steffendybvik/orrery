@@ -5,9 +5,9 @@ import type {Doc, DocRevision, DocRevisionSummary} from '#shared/roadmap'
 // saves it as a new revision, so that can be undone too; a removed doc's last text brings it back.
 const props = defineProps<{project: string, doc: string, updatedAt?: string}>()
 const emit = defineEmits<{restored: [doc: Doc]}>()
-const {who, load} = useOwner()
+const {who} = useOwner()
 
-const base = computed(() => `/api/projects/${encodeURIComponent(props.project)}/docs/${encodeURIComponent(props.doc)}/revisions`)
+const base = computed(() => `/projects/${encodeURIComponent(props.project)}/docs/${encodeURIComponent(props.doc)}/revisions`)
 const revisions = ref<DocRevisionSummary[] | null>(null)
 const picked = ref<number | null>(null)
 const failed = ref('')
@@ -16,7 +16,7 @@ watch([base, () => props.updatedAt], async (_, __, onCleanup) => {
     let left = false
     onCleanup(() => left = true)
     try {
-        const list = await $fetch<DocRevisionSummary[]>(base.value)
+        const list = await apiFetch<DocRevisionSummary[]>(base.value)
         if (left) return
         revisions.value = list
         if (!list.some(r => r.id === picked.value)) picked.value = list[0]?.id ?? null
@@ -35,7 +35,7 @@ function text(id: number): Promise<DocRevision> {
     const url = `${base.value}/${id}`
     let found = texts.get(url)
     if (!found) {
-        found = $fetch<DocRevision>(url)
+        found = apiFetch<DocRevision>(url)
         found.catch(() => texts.delete(url))
         texts.set(url, found)
     }
@@ -67,7 +67,7 @@ async function restore() {
     busy.value = true
     failed.value = ''
     try {
-        emit('restored', await $fetch<Doc>(`${base.value}/${picked.value}/restore`, {method: 'POST', headers: {'Orrery-Actor': await load()}}))
+        emit('restored', await apiFetch<Doc>(`${base.value}/${picked.value}/restore`, {method: 'POST'}))
     } catch (error) {
         failed.value = errorMessage(error, 'restore')
     } finally {

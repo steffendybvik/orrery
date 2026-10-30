@@ -24,7 +24,6 @@ const SEVERAL = '+'
 const projectOptions = computed(() => [{value: ALL, label: 'All projects'}, {value: SEVERAL, label: 'Several projects…'}, ...group.value ? [] : ordered.value.map(p => ({value: p.id, label: p.name}))])
 // Each project's sidebar icon, for the project picker.
 const icons = computed(() => new Map(ordered.value.flatMap(p => p.icon && heroicon(p.icon) ? [[p.id, {icon: p.icon, color: p.icon_color}] as const] : [])))
-const {load} = useOwner()
 
 const ALL_KINDS: {value: Repeat['kind'], label: string}[] = [
     {value: 'daily', label: 'Every day'}, {value: 'weekdays', label: 'Weekdays'}, {value: 'weekly', label: 'Some days of the week'},
@@ -82,8 +81,8 @@ const SENDS = [{value: 'issue' as const, label: 'Makes an issue'}, {value: 'mess
 const presets = ref<Preset[]>([])
 const picked = ref<number[]>([])
 watch(project, async id => {
-    const url = id === ALL || id === SEVERAL ? '/api/presets' : id ? `/api/projects/${encodeURIComponent(id)}/presets` : ''
-    presets.value = url ? await $fetch<Preset[]>(url).catch(() => []) : []
+    const url = id === ALL || id === SEVERAL ? '/presets' : id ? `/projects/${encodeURIComponent(id)}/presets` : ''
+    presets.value = url ? await apiFetch<Preset[]>(url).catch(() => []) : []
 }, {immediate: true})
 const usable = computed(() => picked.value.filter(id => presets.value.some(p => p.id === id)))
 function pick(id: number) {
@@ -226,8 +225,8 @@ async function remove() {
     removing.value = 'busy'
     failed.value = ''
     try {
-        const url = group.value ? `/api/schedules/across/${group.value.id}` : `/api/projects/${encodeURIComponent(project.value)}/schedules/${existing.value?.id}`
-        await $fetch(url, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        const url = group.value ? `/schedules/across/${group.value.id}` : `/projects/${encodeURIComponent(project.value)}/schedules/${existing.value?.id}`
+        await apiFetch(url, {method: 'DELETE'})
         if (group.value) await loadAcross()
         close()
     } catch (error) {
@@ -260,17 +259,16 @@ async function save() {
         ...!existing.value && !enabled.value ? {enabled: false} : {},
     }
     try {
-        const headers = {'Orrery-Actor': await load()}
         if (isAcross.value) {
             const across = {...body, chunk: undefined, untrusted: undefined, projects: project.value === ALL ? ALL : listed.value, skip: project.value === ALL ? skipped.value : []}
-            await (group.value ? $fetch(`/api/schedules/across/${group.value.id}`, {method: 'PATCH', headers, body: across}) : $fetch('/api/schedules', {method: 'POST', headers, body: across}))
+            await (group.value ? apiFetch(`/schedules/across/${group.value.id}`, {method: 'PATCH', body: across}) : apiFetch('/schedules', {method: 'POST', body: across}))
             await loadAcross()
             close()
             return
         }
-        const base = `/api/projects/${encodeURIComponent(project.value)}/schedules`
-        seeSchedule(existing.value ? await $fetch<Schedule>(`${base}/${existing.value.id}`, {method: 'PATCH', headers, body})
-            : await $fetch<Schedule>(base, {method: 'POST', headers, body}))
+        const base = `/projects/${encodeURIComponent(project.value)}/schedules`
+        seeSchedule(existing.value ? await apiFetch<Schedule>(`${base}/${existing.value.id}`, {method: 'PATCH', body})
+            : await apiFetch<Schedule>(base, {method: 'POST', body}))
         close()
     } catch (error) {
         failed.value = errorMessage(error)
@@ -310,7 +308,7 @@ async function togglePause() {
     pausing.value = true
     failed.value = ''
     try {
-        if (group.value) await $fetch(`/api/schedules/across/${group.value.id}`, {method: 'PATCH', headers: {'Orrery-Actor': await load()}, body: {enabled: !enabled.value}})
+        if (group.value) await apiFetch(`/schedules/across/${group.value.id}`, {method: 'PATCH', body: {enabled: !enabled.value}})
         else if (existing.value) await pause(existing.value, enabled.value)
         enabled.value = !enabled.value
     } catch (error) {

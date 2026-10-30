@@ -8,7 +8,6 @@ const props = defineProps<{open: boolean}>()
 const emit = defineEmits<{close: []}>()
 const {sessions} = useRoadmaps()
 const {ordered} = useProjectOrder()
-const {load} = useOwner()
 
 const STATES: {id: SessionState, label: string}[] = [
     {id: 'idle', label: 'Idle'},
@@ -60,8 +59,8 @@ async function send() {
     busy.value = true
     failed.value = ''
     try {
-        const {sent: to} = await $fetch<{sent: {name: string, signal: Signal}[]}>('/api/sessions/message', {
-            method: 'POST', headers: {'Orrery-Actor': await load()},
+        const {sent: to} = await apiFetch<{sent: {name: string, signal: Signal}[]}>('/sessions/message', {
+            method: 'POST',
             body: {text: message, states: states.value, ...projects.value.length ? {projects: projects.value} : {}},
         })
         sent.value = to.map(s => s.name)

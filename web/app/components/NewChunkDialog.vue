@@ -5,7 +5,6 @@ import type {Chunk} from '#shared/roadmap'
 // in Markdown. orrery gives it the next number. ⌘↵ creates it and opens it, Esc closes.
 const {target, close} = useNewChunk()
 const {byId} = useRoadmaps()
-const {load} = useOwner()
 const router = useRouter()
 
 const project = computed(() => byId(target.value ?? undefined))
@@ -30,9 +29,8 @@ async function create() {
     failed.value = ''
     const at = target.value
     try {
-        const chunk = await $fetch<Chunk>(`/api/projects/${encodeURIComponent(at)}/chunks`, {
+        const chunk = await apiFetch<Chunk>(`/projects/${encodeURIComponent(at)}/chunks`, {
             method: 'POST',
-            headers: {'Orrery-Actor': await load()},
             body: {title: title.value.trim(), ...summary.value.trim() ? {summary: summary.value.trim()} : {}},
         })
         close()

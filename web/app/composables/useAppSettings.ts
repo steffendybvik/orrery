@@ -35,7 +35,7 @@ export function useAppSettings() {
         settings.value = {...settings.value, ...change}
         apply()
         try {
-            const saved = await $fetch<Settings>('/api/settings', {method: 'PATCH', headers: {'Orrery-Actor': await useOwner().load()}, body: change})
+            const saved = await apiFetch<Settings>('/settings', {method: 'PATCH', body: change})
             if (mine === latest.value) {
                 settings.value = saved
                 apply()

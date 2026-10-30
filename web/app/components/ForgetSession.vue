@@ -5,7 +5,6 @@ import type {Session} from '#shared/roadmap'
 // its hooks, and a terminal closed by hand sends none. It takes it off the list and nothing else, so it asks nothing
 // first: if the session is still running, its next hook brings it back.
 const props = defineProps<{session: Session}>()
-const {load} = useOwner()
 const busy = ref(false)
 const failed = ref('')
 
@@ -13,8 +12,8 @@ async function forget() {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.session.project)}/sessions/${encodeURIComponent(props.session.id)}/forget`, {
-            method: 'POST', headers: {'Orrery-Actor': await load()},
+        await apiFetch(`/projects/${encodeURIComponent(props.session.project)}/sessions/${encodeURIComponent(props.session.id)}/forget`, {
+            method: 'POST',
         })
     } catch (error) {
         failed.value = errorMessage(error)

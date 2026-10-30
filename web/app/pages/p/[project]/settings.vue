@@ -5,7 +5,6 @@ const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready} = useRoadmaps()
 const {of} = useSchedules()
-const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 
 // Its name, saved on Enter or on leaving the field; Esc puts it back.
@@ -23,7 +22,7 @@ async function rename() {
     }
     nameFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {name: next}, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {name: next}})
     } catch (error) {
         nameFailed.value = errorMessage(error)
     }
@@ -41,7 +40,7 @@ async function saveRepo() {
     if (next === (project.value.repo ?? '')) return
     repoFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {repo: next || null}, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: {repo: next || null}})
     } catch (error) {
         repoFailed.value = errorMessage(error)
     }
@@ -65,7 +64,7 @@ async function saveReleaseMode(next: string) {
     const body = next.startsWith('from:') ? {release_mode: 'shared', releases_from: next.slice(5)} : {release_mode: next}
     releasesFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body})
     } catch (error) {
         releasesFailed.value = errorMessage(error)
     }
@@ -78,7 +77,7 @@ async function saveIcon(change: {icon?: string | null, icon_color?: string | nul
     if (!project.value) return
     iconFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: change, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'PATCH', body: change})
     } catch (error) {
         iconFailed.value = errorMessage(error)
     }
@@ -105,7 +104,7 @@ async function remove() {
     removing.value = true
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}`, {method: 'DELETE', headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}`, {method: 'DELETE'})
         router.push('/mine')
     } catch (error) {
         failed.value = errorMessage(error, 'delete')

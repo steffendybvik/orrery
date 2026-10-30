@@ -32,7 +32,7 @@ export function useLaunchState(project: MaybeRefOrGetter<string>) {
         if (!id) return Promise.resolve()
         const already = asking.get(id)
         if (already) return already
-        const ask = $fetch<LaunchState>(`/api/projects/${encodeURIComponent(id)}/launches`).catch(() => null)
+        const ask = apiFetch<LaunchState>(`/projects/${encodeURIComponent(id)}/launches`).catch(() => null)
             .then(state => {
                 all.value = {...all.value, [id]: state}
             })

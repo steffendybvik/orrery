@@ -9,7 +9,6 @@ import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 // owner's +30 min (for one with a time). Headless UI's Menu does the keys, focus and outside-click.
 const props = defineProps<{session: Session}>()
 const viewing = defineModel<boolean>('viewing', {default: false})
-const {load} = useOwner()
 const busy = ref<'stop' | 'extend' | 'watch' | null>(null)
 const {settings} = useAppSettings()
 const failed = ref('')
@@ -22,8 +21,8 @@ async function act(what: 'stop' | 'extend' | 'watch') {
     busy.value = what
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.session.project)}/launches/${launch}/${what}`, {
-            method: 'POST', headers: {'Orrery-Actor': await load()}, body: what === 'extend' ? {minutes: 30} : {},
+        await apiFetch(`/projects/${encodeURIComponent(props.session.project)}/launches/${launch}/${what}`, {
+            method: 'POST', body: what === 'extend' ? {minutes: 30} : {},
         })
         stopping.value = false
     } catch (error) {

@@ -6,7 +6,7 @@ import type {Choice, Decision, Issue, Picks} from '#shared/roadmap'
 // says so, with the picks, and can put it up again. With choices, approving sends what's ticked, and Explore
 // on an option asks for changes down that option.
 const props = defineProps<{project: string, issue: Issue}>()
-const {who, load} = useOwner()
+const {who} = useOwner()
 const note = ref('')
 const busy = ref(false)
 const failed = ref('')
@@ -23,13 +23,13 @@ const STATE = {
 }
 const DID: Record<Decision, string> = {approved: 'approved it', changes: 'asked for changes', rejected: 'rejected it'}
 
-const api = computed(() => `/api/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue.id)}`)
+const api = computed(() => `/projects/${encodeURIComponent(props.project)}/issues/${encodeURIComponent(props.issue.id)}`)
 
 async function send(path: string, method: 'POST' | 'PATCH', body: Record<string, unknown>) {
     busy.value = true
     failed.value = ''
     try {
-        await $fetch(`${api.value}${path}`, {method, headers: {'Orrery-Actor': await load()}, body})
+        await apiFetch(`${api.value}${path}`, {method, body})
         note.value = ''
     } catch (error) {
         failed.value = errorMessage(error)

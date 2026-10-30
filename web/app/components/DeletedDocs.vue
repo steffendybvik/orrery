@@ -10,7 +10,7 @@ const removed = ref<DeletedDoc[]>([])
 watch(() => [props.project, props.docs] as const, async ([project], _, onCleanup) => {
     let left = false
     onCleanup(() => left = true)
-    const list = await $fetch<DeletedDoc[]>(`/api/projects/${encodeURIComponent(project)}/deleted-docs`).catch(() => null)
+    const list = await apiFetch<DeletedDoc[]>(`/projects/${encodeURIComponent(project)}/deleted-docs`).catch(() => null)
     if (!left && list) removed.value = list
 }, {immediate: true})
 </script>

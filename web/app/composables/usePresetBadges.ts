@@ -8,7 +8,7 @@ export function usePresetBadges() {
     function load(project: string) {
         if (known.value[project]) return
         known.value = {...known.value, [project]: []}
-        $fetch<Preset[]>(`/api/projects/${encodeURIComponent(project)}/presets`)
+        apiFetch<Preset[]>(`/projects/${encodeURIComponent(project)}/presets`)
             .then(all => known.value = {...known.value, [project]: all})
             .catch(() => {})
     }

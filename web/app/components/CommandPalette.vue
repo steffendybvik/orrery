@@ -159,7 +159,7 @@ async function findClosed(raw: string) {
         closedFound.value = {}
         return
     }
-    const found = await Promise.all(lacking.map(p => $fetch<{id: string, title: string, aliases: string[]}[]>(`/api/projects/${encodeURIComponent(p.id)}/issues`, {query: {status: 'done,canceled', q: word}})
+    const found = await Promise.all(lacking.map(p => apiFetch<{id: string, title: string, aliases: string[]}[]>(`/projects/${encodeURIComponent(p.id)}/issues`, {query: {status: 'done,canceled', q: word}})
         .then(list => [p.id, list.slice(0, 50)] as const, () => [p.id, []] as const)))
     if (ask === asking) closedFound.value = Object.fromEntries(found)
 }

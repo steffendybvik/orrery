@@ -76,7 +76,7 @@ const homes = computed(() => ordered.value.filter(p => own(p.id).length).map(p =
 watch(() => homes.value.map(p => `${p}:${own(p).map(s => `${s.id}/${s.state}`).join(',')}:${lastSignal(p)?.id ?? ''}/${lastSignal(p)?.delivered_to.length ?? 0}`).join('|'), () => {
     if (!homes.value.length) return
     // One call for them all (ORR-442), not one per project.
-    $fetch<Record<string, Record<string, SessionWork>>>('/api/sessions/work', {query: {projects: homes.value.join(',')}})
+    apiFetch<Record<string, Record<string, SessionWork>>>('/sessions/work', {query: {projects: homes.value.join(',')}})
         .then(found => work.value = {...work.value, ...found})
         .catch(() => {})
 }, {immediate: true})

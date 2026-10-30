@@ -158,8 +158,7 @@ async function backUpNow() {
     backingUp.value = true
     backupFailed.value = ''
     try {
-        const actor = await loadOwner()
-        settings.value.database = await $fetch<DatabaseInfo>('/api/backups', {method: 'POST', headers: {'Orrery-Actor': actor}})
+        settings.value.database = await apiFetch<DatabaseInfo>('/backups', {method: 'POST'})
     } catch (error) {
         backupFailed.value = errorMessage(error)
     } finally {
@@ -170,7 +169,7 @@ async function backUpNow() {
 // The backups in the folder, to restore one (ORR-448): read when the page opens, and again after a backup.
 const backups = ref<Backups | null>(null)
 const loadBackups = async () => {
-    backups.value = await $fetch<Backups>('/api/backups').catch(() => backups.value)
+    backups.value = await apiFetch<Backups>('/backups').catch(() => backups.value)
 }
 onMounted(loadBackups)
 watch(() => settings.value.database?.backed_up_at, loadBackups)
@@ -201,8 +200,7 @@ async function putBackups(body: object) {
     settingBackups.value = true
     backupsFailed.value = ''
     try {
-        const actor = await loadOwner()
-        settings.value.database = await $fetch<DatabaseInfo>('/api/backups', {method: 'PUT', body, headers: {'Orrery-Actor': actor}})
+        settings.value.database = await apiFetch<DatabaseInfo>('/backups', {method: 'PUT', body})
     } catch (error) {
         backupsFailed.value = errorMessage(error)
     } finally {

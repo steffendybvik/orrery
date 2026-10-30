@@ -4,7 +4,6 @@
 const route = useRoute()
 const router = useRouter()
 const {byId, ready} = useRoadmaps()
-const {load} = useOwner()
 const project = computed(() => byId(route.params.project as string))
 // Where its releases are made, when it takes them from another project.
 const source = computed(() => project.value?.releases_from ? byId(project.value.releases_from) : undefined)
@@ -30,8 +29,8 @@ async function make() {
     busy.value = true
     failed.value = ''
     try {
-        const made = await $fetch<{version: string}>(`/api/projects/${encodeURIComponent(project.value.id)}/releases`, {
-            method: 'POST', headers: {'Orrery-Actor': await load()}, body: {version: version.value.trim(), branch: branch.value.trim() || null},
+        const made = await apiFetch<{version: string}>(`/projects/${encodeURIComponent(project.value.id)}/releases`, {
+            method: 'POST', body: {version: version.value.trim(), branch: branch.value.trim() || null},
         })
         router.push(releasePath(project.value.id, made.version))
     } catch (error) {
@@ -89,7 +88,7 @@ async function move(version: string, index: number) {
     order.value = versions
     moveFailed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(project.value.id)}/releases/${encodeURIComponent(version)}`, {method: 'PATCH', body: {position: index}, headers: {'Orrery-Actor': await load()}})
+        await apiFetch(`/projects/${encodeURIComponent(project.value.id)}/releases/${encodeURIComponent(version)}`, {method: 'PATCH', body: {position: index}})
     } catch (error) {
         order.value = null
         moveFailed.value = errorMessage(error)

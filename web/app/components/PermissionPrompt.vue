@@ -23,8 +23,8 @@ async function poll() {
     if (stopped || !launch.value) return
     if (document.visibilityState === 'visible') {
         try {
-            const shot = await $fetch<{screen: string | null}>(
-                `/api/projects/${encodeURIComponent(props.session.project)}/launches/${launch.value}/screen`,
+            const shot = await apiFetch<{screen: string | null}>(
+                `/projects/${encodeURIComponent(props.session.project)}/launches/${launch.value}/screen`,
                 {headers: {'Orrery-Actor': await load()}},
             )
             screen.value = shot.screen
@@ -44,8 +44,8 @@ async function act(what: 'allow' | 'watch') {
     busy.value = what
     failed.value = ''
     try {
-        await $fetch(`/api/projects/${encodeURIComponent(props.session.project)}/launches/${launch.value}/${what}`, {
-            method: 'POST', headers: {'Orrery-Actor': await load()},
+        await apiFetch(`/projects/${encodeURIComponent(props.session.project)}/launches/${launch.value}/${what}`, {
+            method: 'POST',
         })
     } catch (error) {
         failed.value = errorMessage(error)

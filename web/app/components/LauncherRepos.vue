@@ -8,7 +8,7 @@ const {launchers, byId} = useRoadmaps()
 const {ordered} = useProjectOrder()
 const states = ref<Record<string, LaunchState | null>>({})
 async function ask() {
-    const asked = await Promise.all(ordered.value.map(async p => [p.id, await $fetch<LaunchState>(`/api/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)] as const))
+    const asked = await Promise.all(ordered.value.map(async p => [p.id, await apiFetch<LaunchState>(`/projects/${encodeURIComponent(p.id)}/launches`).catch(() => null)] as const))
     states.value = Object.fromEntries(asked)
 }
 watch([() => ordered.value.map(p => p.id).join(), launchers], ask, {immediate: true})
