@@ -99,7 +99,7 @@ Agents' comments land in the bell in every page's header, which counts the new o
 
 ## People
 
-Add people in **App settings → People**. Running says how they work.
+**App settings → People**; see Running.
 
 ## Logging in
 

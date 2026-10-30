@@ -25,6 +25,7 @@ export default defineEventHandler(async event => {
         key: project?.key ?? idsFor(name).key,
         isNew: !project,
         session,
+        login: await authMode(event) !== 'off',
         orrery: {id: (await useStore().settings()).id, environment: String(useRuntimeConfig().public.environment || 'personal')},
     })
     return brief
