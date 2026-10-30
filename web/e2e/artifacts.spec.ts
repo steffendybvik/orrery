@@ -105,9 +105,10 @@ test("draws Tailwind's classes and the app's theme, and follows dark mode", asyn
     await page.getByRole('button', {name: 'Switch to dark'}).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
     await expect(box).toHaveCSS('padding-top', '16px')
-    await expect.poll(() => box.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(light)
+    // Switching replaces the frame, so these retry a read that finds the old one going.
+    await expect(box).not.toHaveCSS('background-color', light)
     await page.getByRole('button', {name: 'Switch to light'}).click()
-    await expect.poll(() => box.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(light)
+    await expect(box).toHaveCSS('background-color', light)
     await page.evaluate(() => {
         localStorage.removeItem('orrery-theme')
     })
