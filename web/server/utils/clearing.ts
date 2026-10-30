@@ -127,9 +127,18 @@ export function carryOn(project: string, id: string) {
             if (await store.waiting(now.project, ids)) return
             const parents = new Set((await store.workingOn(now.project, ids)).map(i => i.id))
             if (!parents.size) return
-            const next = (await store.listIssues(now.project))
+            const left = (await store.listIssues(now.project))
                 .filter(i => i.parent && parents.has(i.parent) && (i.kind === 'backlog' || i.kind === 'todo') && !isBlocked(i))
-                .sort(byPriority)[0]
+                .sort(byPriority)
+            // Only what's its own person's to start (ORR-656).
+            let next: (typeof left)[number] | undefined
+            for (const issue of left) {
+                const whose = await store.whoseWork(now.project, issue.assignee)
+                if (whose === undefined || whose === now.person) {
+                    next = issue
+                    break
+                }
+            }
             if (!next) return
             for (const session of carried.keys()) {
                 if (!sessionNow(session)) carried.delete(session)

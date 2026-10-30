@@ -65,6 +65,16 @@ async function open(listener = who(), from?: number) {
 }
 
 describe("a project's feed", () => {
+    it('hears the owner\'s signal with a person only on that person\'s session, however it comes (ORR-656)', async () => {
+        const hatis = signal(1, {person: 'hati'})
+        const mine = await open(who({person: 'hati'}))
+        expect(mine.wanted(hatis)).toBe(true)
+        const theirs = await open(who({session: 's-2', person: 'manni'}))
+        expect(theirs.wanted(hatis)).toBe(false)
+        expect(theirs.ours(hatis)).toBe(false)
+        expect(theirs.wanted(signal(2))).toBe(true)
+    })
+
     it('hears a member\'s signal only on that member\'s session (ORR-658)', async () => {
         const hatis = signal(1, {protected: false, person: 'hati'})
         const feed = await open(who({person: 'hati'}))

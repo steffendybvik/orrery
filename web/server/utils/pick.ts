@@ -31,16 +31,29 @@ const urgency = (issue: Pick<Issue, 'priority'>) => issue.priority ? RANK[issue.
  * (todo-focus.ts) both go by it. */
 export const forSessions = (issue: {assignee?: string | null}) => !issue.assignee || issue.assignee.toLowerCase() === 'claude'
 
+/** Who may be handed an issue (ORR-656): `null` nobody; `{}` any session, as with one person; else the sessions of
+ * `{person}`, the person whose work it is. The owner's own is theirs to work, as `forSessions` says, and a member's goes
+ * to their agents. `member`: only they may be handed it, as it's their hand-out. */
+export async function handedTo(project: string, issue: {assignee?: string | null}, member?: string): Promise<{person?: string} | null> {
+    const store = useStore()
+    const whose = await store.whoseWork(project, issue.assignee)
+    if (whose === undefined) return forSessions(issue) ? {} : null
+    if (whose === null || member && whose !== member) return null
+    return whose === (await store.ownerOf()).name && !forSessions(issue) ? null : {person: whose}
+}
+
 /** The issues a session hearing `projects` may start: Todo, or Backlog when there's no Todo, most urgent first (then
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
  * answer, ones blocked by an issue not done yet (ORR-601), sub-issues of one another session is on (ORR-613), and parents
  * (their sub-issues are the work). At most PICK_FROM. */
-export async function pickable(projects: string[]): Promise<(IssueRecord & {project: string})[]> {
+export async function pickable(projects: string[], person?: string): Promise<(IssueRecord & {project: string})[]> {
     const store = useStore()
     const open: (IssueRecord & {project: string})[] = []
     for (const project of projects) {
         for (const issue of await store.listIssues(project)) {
-            if (issue.proposal || issue.waiting || !forSessions(issue) || isBlocked(issue)) continue
+            if (issue.proposal || issue.waiting || isBlocked(issue)) continue
+            const to = await handedTo(project, issue)
+            if (!to || to.person && to.person !== person) continue
             if (issue.kind !== 'todo' && issue.kind !== 'backlog') continue
             // A follow-up under an issue a session is on is that session's to start (ORR-611), and the one picking isn't it: it's out of work.
             if (issue.parent && await store.heldAbove(project, issue.id)) continue
@@ -84,7 +97,7 @@ export async function pickNext(project: string, id: string): Promise<boolean> {
     if (await store.busy(project, ids)) return false
     const run = runOf(id)
     if (run?.chunk && (await scopeOf(store, run.project, run)).open.length) return false
-    const issues = await pickable([session.project, ...session.also ?? []])
+    const issues = await pickable([session.project, ...session.also ?? []], session.person)
     for (const known of handed.keys()) {
         if (!sessionNow(known)) handed.delete(known)
     }

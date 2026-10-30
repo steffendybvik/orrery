@@ -53,11 +53,12 @@ export async function openFeed(project: string, who: Listener, from: number | un
     const api = `${origin}/api/projects/${encodeURIComponent(project)}`
 
     /** The signal with what the session needs to act on it (signal-payload.ts). */
-    const told = (signal: Signal) => signalPayload(store, project, signal, {api, me: who.session ? currentId(who.session) : undefined})
+    const told = (signal: Signal) => signalPayload(store, project, signal, {api, me: who.session ? currentId(who.session) : undefined, person: who.person})
     // The owner's signals for every session, for one orrery picks, or for this one (by any id it has had); a receipt (delivered_to) isn't news.
-    const ours = (signal: Signal) => aimedAt(signal, attended?.id)
+    const ours = (signal: Signal) => aimedAt(signal, attended?.id) && (!signal.person || signal.person === who.person)
     // A member's words reach only that member's sessions (ORR-658), at the receiver, so nothing that sends one can get past it.
-    const heardFrom = (signal: Signal) => signal.protected || !!signal.person && signal.person === who.person
+    // The owner's go the same way when they carry a person (ORR-656), and otherwise to every session.
+    const heardFrom = (signal: Signal) => signal.person ? signal.person === who.person : signal.protected
     const wanted = (signal: Signal) => signal.project === project && heardFrom(signal) && !signal.delivered_to.length && ours(signal)
     // One aimed at no session goes to the one that takes it (pool.ts); a session that can't hear it takes none.
     const mine = (signal: Signal) => !pooled(signal) || heard && take(signal, project, attended?.id)

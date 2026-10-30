@@ -40,6 +40,16 @@ describe('a signal as a session is told it', () => {
         expect((await signalPayload(store, 'shop', await store.message('shop', 9, 'Old words.', me), {api})).title).toBe('a schedule')
     })
 
+    it('lists only what is its own person\'s, with more than one person (ORR-656)', async () => {
+        await store.nameOwner({name: 'Skoll'})
+        await store.addPerson({name: 'Hati'})
+        await store.addMember('shop', {person: 'hati'}, {name: 'skoll', owner: true})
+        await store.updateIssue('shop', 'SHO-1', {assignee: 'hati'}, {name: 'skoll', owner: true})
+        const sent = await store.focusChunk('shop', 'all', {}, {name: 'skoll', owner: true})
+        const told = await signalPayload(store, 'shop', sent, {api, person: 'hati'})
+        expect(told.issues?.map(i => i.id)).toEqual(['SHO-1'])
+    })
+
     it("lists a chunk's open issues most urgent first, by their statuses' names, marking one another session is on", async () => {
         // Started by another session that's there: that's what holds it.
         await store.updateIssue('shop', 'SHO-1', {status: 'in-progress'}, me)
