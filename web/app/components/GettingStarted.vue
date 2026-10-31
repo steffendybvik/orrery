@@ -63,8 +63,8 @@ async function tryDemo() {
 
   <div v-else class="mx-auto flex w-full max-w-xl animate-fade-up flex-col gap-6 px-4 py-14">
     <div class="flex items-center gap-3">
-      <div class="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-accent-300 to-accent-600 shadow-lg shadow-accent-600/30">
-        <OrreryMark class="size-5 text-zinc-950" />
+      <div class="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-tile-from to-tile-to shadow-lg shadow-accent-600/30">
+        <OrreryMark class="size-5 text-white" />
       </div>
       <div class="flex flex-col">
         <h2 class="text-lg font-semibold tracking-tight">Getting started</h2>
