@@ -7,6 +7,8 @@ export interface Notice extends Comment {
     title: string
     /** Taken out of the bell; only `GET /notices?list=cleared` lists these. */
     cleared?: boolean
+    /** Its reader has opened it on the notifications page: apart from what the bell has counted as seen. */
+    read?: boolean
     /** An agent's proposal waiting on the owner instead of a comment: `asks: decision` until they decide it,
      * its notes as the body, put up at `created_at`, `id` 0. Cleared, it's `cleared` until it's put up again. */
     proposal?: {choices: number}

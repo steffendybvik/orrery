@@ -20,6 +20,11 @@ registerEndpoint('/api/notices', event => {
     asked.push({list, before})
     return pages[`${list}${before ? `<${before}` : ''}`] ?? []
 })
+const marked: unknown[] = []
+registerEndpoint('/api/notices/read', {method: 'POST', handler: async event => {
+    marked.push(await readBody(event))
+    return {read: 1}
+}})
 registerEndpoint('/api/notices/clear', {method: 'POST', handler: async event => {
     cleared.push(await readBody(event))
     return {cleared: 1}
@@ -30,6 +35,7 @@ beforeEach(() => {
     pages = {}
     asked.length = 0
     cleared.length = 0
+    marked.length = 0
     localStorage.setItem('orrery-notices-seen', SEEN)
     clearNuxtState(['notices', 'notice-lists', 'notices-hidden', 'notices-seen', 'owner'])
 })
@@ -83,7 +89,7 @@ describe('useInbox', () => {
         inbox.notices.value = [fresh, old]
         bell = [fresh]
         await inbox.clear()
-        expect(cleared).toEqual([{before: SEEN}])
+        expect(cleared).toEqual([{read: true}])
         expect(inbox.notices.value.map(n => n.id)).toEqual([2])
 
         const proposal = notice(3, SEEN, {proposal: 'pending'} as Partial<Notice>)
@@ -92,5 +98,58 @@ describe('useInbox', () => {
         await inbox.clear([fresh, proposal])
         expect(cleared.at(-1)).toEqual({ids: [2], proposals: [{project: 'greenhouse', issue: 'GRE-3'}]})
         expect(inbox.notices.value).toEqual([])
+    })
+})
+
+describe('noticeDays', () => {
+    const now = new Date(2026, 9, 31, 12)
+    const at = (day: number, hour: number) => new Date(2026, 9, day, hour).toISOString()
+
+    it('groups by day, newest first, one row per issue, with a total and an unread count', () => {
+        const days = noticeDays([
+            notice(1, at(30, 9), {issue: 'GRE-1', read: true}),
+            notice(2, at(31, 8), {issue: 'GRE-2'}),
+            notice(3, at(31, 10), {issue: 'GRE-2', read: true}),
+            notice(4, at(31, 11), {issue: 'GRE-4', read: true}),
+            notice(5, at(20, 11), {issue: 'GRE-2'}),
+        ], now)
+        expect(days.map(d => [d.label, d.total, d.unread])).toEqual([['Today', 3, 1], ['Yesterday', 1, 0], [expect.stringMatching(/20/), 1, 1]])
+        expect(days[0]!.rows.map(r => [r.issue, r.notices.map(n => n.id), r.unread])).toEqual([['GRE-4', [4], false], ['GRE-2', [3, 2], true]])
+    })
+
+    it('keeps the same issue on two days as two rows, and marks one with a question waiting', () => {
+        const days = noticeDays([
+            notice(1, at(30, 9), {issue: 'GRE-1', asks: 'decision'}),
+            notice(2, at(31, 8), {issue: 'GRE-1', read: true}),
+        ], now)
+        expect(days.map(d => d.rows.length)).toEqual([1, 1])
+        expect(days[1]!.rows[0]!.waiting).toBe(true)
+        expect(days[0]!.rows[0]!.waiting).toBe(false)
+    })
+
+    it('counts no proposal as unread, as it has no read state', () => {
+        const [today] = noticeDays([notice(0, at(31, 9), {issue: 'GRE-9', asks: 'decision', proposal: {choices: 0}})], now)
+        expect([today!.total, today!.unread, today!.rows[0]!.waiting, today!.rows[0]!.unread]).toEqual([1, 0, true, false])
+    })
+})
+
+describe('reading a notice', () => {
+    it('marks those unread, here and on the server, and leaves the bell counting what it did', async () => {
+        const inbox = useInbox()
+        const fresh = notice(2, '2026-10-29T11:00:00.000Z')
+        const already = notice(3, '2026-10-29T12:00:00.000Z', {read: true})
+        const proposal = notice(0, '2026-10-29T13:00:00.000Z', {issue: 'GRE-9', asks: 'decision', proposal: {choices: 0}})
+        inbox.notices.value = [fresh, already, proposal]
+        inbox.lists.value.inbox.items = [fresh, already]
+        const counted = inbox.unread.value
+        await inbox.markRead([fresh, already, proposal])
+        expect(marked).toEqual([{ids: [2]}])
+        expect(inbox.lists.value.inbox.items.every(n => n.read)).toBe(true)
+        expect(inbox.unread.value).toBe(counted)
+    })
+
+    it('sends nothing when all of them are read already', async () => {
+        await useInbox().markRead([notice(3, '2026-10-29T12:00:00.000Z', {read: true})])
+        expect(marked).toEqual([])
     })
 })

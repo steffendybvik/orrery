@@ -394,13 +394,13 @@ export const PERMISSIONS: Permission[] = [
         member: ownerAlone,
     },
     {
-        id: 'notices.clear', area: 'This orrery', action: 'Clear the bell, or forget a session',
+        id: 'notices.clear', area: 'This orrery', action: 'Clear the bell or mark it read, or forget a session',
         why: 'What waits on the owner goes when they say.',
-        routes: ['POST /api/notices/clear', 'POST /api/projects/:project/sessions/:session/forget'],
+        routes: ['POST /api/notices/clear', 'POST /api/notices/read', 'POST /api/projects/:project/sessions/:session/forget'],
         session: {level: 'owner'},
         chat: refused,
         untrusted: refused,
-        member: {level: 'limited', note: 'Their own bell, never their agents', routes: ['POST /api/notices/clear']},
+        member: {level: 'limited', note: 'Their own bell, never their agents', routes: ['POST /api/notices/clear', 'POST /api/notices/read']},
     },
     {
         id: 'owner.name', area: 'This orrery', action: 'Give or change the owner’s name',
