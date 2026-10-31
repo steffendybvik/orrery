@@ -219,6 +219,14 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
         </div>
       </section>
 
+      <section id="upload" class="flex flex-col gap-3 border-t border-line pt-8">
+        <div>
+          <h2 class="text-[15px] font-semibold text-fg">Upload</h2>
+          <p class="mt-0.5 text-[13px] text-muted">Brings a board's file in as a new board, so this one stays as it is. Nothing in the file counts as yours, and its schedules arrive paused.</p>
+        </div>
+        <BoardUpload />
+      </section>
+
       <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
