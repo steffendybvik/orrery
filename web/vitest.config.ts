@@ -25,7 +25,8 @@ export default defineConfig({
             provider: 'v8',
             include: ['server/utils/**', 'server/store/**', 'server/api/**', 'server/middleware/**', 'shared/**', 'app/components/**', 'app/composables/**', 'app/utils/**', '../channel/**/*.mjs'],
             allowExternal: true,
-            reporter: ['text', 'json-summary'],
+            // `json` is what `pnpm test:report` adds other runs' lines to (ORR-745).
+            reporter: ['text', 'json-summary', 'json'],
         },
     },
 })

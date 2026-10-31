@@ -58,7 +58,7 @@ const REDIRECTS = [
 
 // What the page walk already finds, for ORR-724 to fix: each comes off this list as it's fixed, and until then a new
 // case of one of these isn't caught. Any other rule fails the walk.
-const A11Y_KNOWN = ['label-content-name-mismatch', 'nested-interactive', 'aria-prohibited-attr']
+const A11Y_KNOWN = ['label-content-name-mismatch', 'nested-interactive']
 
 let advanced = false
 

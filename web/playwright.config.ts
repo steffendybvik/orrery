@@ -50,6 +50,8 @@ export default defineConfig({
         env: {NUXT_DATABASE: postgres || '.data/e2e.db', NUXT_BACKUP_DIR: '', NUXT_UPDATE_CHECK: 'false', ORRERY_AUTH: 'off'},
         url: `http://localhost:${port}/api/settings`,
         reuseExistingServer: false,
+        // V8 writes its coverage as a process exits, so a run that collects it has to let the server stop by itself (ORR-745).
+        ...process.env.NODE_V8_COVERAGE ? {gracefulShutdown: {signal: 'SIGTERM' as const, timeout: 15_000}} : {},
         timeout: 180_000,
     },
 })
