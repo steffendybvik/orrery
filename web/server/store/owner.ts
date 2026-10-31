@@ -7,10 +7,11 @@ import type {CommentRow} from './schema'
 import {AGENT, OWNER_FIELDS, actorId, ANSWERED, SINCE, commentOf, stamp} from './schema'
 import {StatusStore} from './statuses'
 
-/** A person's bell, as SQL on a comment `c` joined to its issue `i`: what's in it, and what they have and haven't cleared. */
-type Bell = {cleared: string, left: string, mine: string}
+/** A person's bell, as SQL on a comment `c` joined to its issue `i`: what's in it, what they have and haven't cleared, and
+ * what they've read. */
+type Bell = {cleared: string, left: string, mine: string, read: string}
 /** On the comments' own flag, in the order of their index (ORR-441). */
-const OWNERS_BELL: Bell = {cleared: 'c.cleared = 1', left: 'c.cleared = 0', mine: 'c.owned = 0'}
+const OWNERS_BELL: Bell = {cleared: 'c.cleared = 1', left: 'c.cleared = 0', mine: 'c.owned = 0', read: 'c.was_read = 1'}
 
 export abstract class OwnerStore extends StatusStore {
     /** Whether more than one person is here (people.ts). */
@@ -128,20 +129,21 @@ export abstract class OwnerStore extends StatusStore {
      * order and stops at `count` (ORR-441). */
     private async commentRows(which: string, count?: number, before?: number, bell: Bell = OWNERS_BELL): Promise<Notice[]> {
         const after = before !== undefined ? 'AND (c.created_at, c.id) < (SELECT created_at, id FROM comments WHERE id = ?)' : ''
-        return (await this.all<CommentRow & {title: string, gone: number}>(`
-            SELECT c.*, i.title, ${ANSWERED}, CASE WHEN ${bell.cleared} THEN 1 ELSE 0 END AS gone FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
+        return (await this.all<CommentRow & {title: string, gone: number, opened: number}>(`
+            SELECT c.*, i.title, ${ANSWERED}, CASE WHEN ${bell.cleared} THEN 1 ELSE 0 END AS gone, CASE WHEN ${bell.read} THEN 1 ELSE 0 END AS opened FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
             WHERE ${bell.mine} AND ${which} ${after}
             ORDER BY c.created_at DESC, c.id DESC ${count ? 'LIMIT ?' : ''}`,
         ...before !== undefined ? [before] : [], ...count ? [count] : []))
-            .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.gone ? {cleared: true} : {}}))
+            .map(row => ({...commentOf(row), project: row.project, title: row.title, ...row.gone ? {cleared: true} : {}, ...row.opened ? {read: true} : {}}))
     }
 
     /** Takes notices out of the bell (the comments stay on their issues, the proposals pending): the comments in
-     * `ids` and the agents' proposals in `proposals` (`{project, issue}`), or all comments made at or before `before`.
+     * `ids` and the agents' proposals in `proposals` (`{project, issue}`), all comments made at or before `before`, or
+     * every one `read`, leaving those still waiting on the owner.
      * Says how many. A member's clears are their own (`person`), and the owner's stay on the comment. */
     async clearNotices(body: unknown, person?: string): Promise<number> {
         if (person && person !== await this.ownerId()) return await this.clearOwnNotices(body, person)
-        const {ids = [], proposals = [], before} = (body ?? {}) as {ids?: unknown, proposals?: unknown, before?: unknown}
+        const {ids = [], proposals = [], before, read} = (body ?? {}) as {ids?: unknown, proposals?: unknown, before?: unknown, read?: unknown}
         const picked = Array.isArray(ids) && ids.every(id => Number.isInteger(id)) && Array.isArray(proposals)
             && proposals.every(p => typeof p?.project === 'string' && typeof p?.issue === 'string')
         if (picked && (ids.length || proposals.length)) {
@@ -163,12 +165,16 @@ export abstract class OwnerStore extends StatusStore {
             return Number((await this.run(`UPDATE comments AS c SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND created_at <= ?
                 AND (asks IS NULL OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id))`, before)).changes)
         }
-        throw badRequest('Send "ids" (comment ids), "proposals" ([{project, issue}]) or "before" (a time) to clear')
+        if (read === true) {
+            return Number((await this.run(`UPDATE comments AS c SET cleared = 1 WHERE owned = 0 AND cleared = 0 AND was_read = 1
+                AND (asks IS NULL OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND o.owned = 1 AND o.id > c.id))`)).changes)
+        }
+        throw badRequest('Send "ids" (comment ids), "proposals" ([{project, issue}]), "before" (a time) or "read": true to clear')
     }
 
     /** What a member's clearing takes out of their bell alone. */
     private async clearOwnNotices(body: unknown, person: string): Promise<number> {
-        const {ids, before} = (body ?? {}) as {ids?: unknown, before?: unknown}
+        const {ids, before, read} = (body ?? {}) as {ids?: unknown, before?: unknown, read?: unknown}
         const bell = await this.bellOf(person)
         if (Array.isArray(ids) && ids.length && ids.every(id => Number.isInteger(id))) {
             return Number((await this.run(`INSERT INTO notice_clears (comment, person) SELECT c.id, ? FROM comments c WHERE c.id IN (${ids.map(() => '?').join(', ')}) ON CONFLICT DO NOTHING`, person, ...ids as number[])).changes)
@@ -177,7 +183,23 @@ export abstract class OwnerStore extends StatusStore {
             return Number((await this.run(`INSERT INTO notice_clears (comment, person) SELECT c.id, ? FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
                 WHERE ${bell.mine} AND c.created_at <= ? AND (c.asks IS NULL OR ${SINCE}) ON CONFLICT DO NOTHING`, person, before)).changes)
         }
-        throw badRequest('Send "ids" (comment ids) or "before" (a time) to clear')
+        if (read === true) {
+            return Number((await this.run(`INSERT INTO notice_clears (comment, person) SELECT c.id, ? FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue
+                WHERE ${bell.mine} AND ${bell.read} AND (c.asks IS NULL OR ${SINCE}) ON CONFLICT DO NOTHING`, person)).changes)
+        }
+        throw badRequest('Send "ids" (comment ids), "before" (a time) or "read": true to clear')
+    }
+
+    /** Marks the comments in `ids` read, for whoever opened them: the owner's on the comment, a member's their own.
+     * Says how many changed. It leaves what the bell counts alone. */
+    async readNotices(body: unknown, person?: string): Promise<number> {
+        const {ids} = (body ?? {}) as {ids?: unknown}
+        if (!Array.isArray(ids) || !ids.length || !ids.every(id => Number.isInteger(id))) throw badRequest('Send "ids" (comment ids) to mark read')
+        const marks = ids.map(() => '?').join(', ')
+        if (person && person !== await this.ownerId()) {
+            return Number((await this.run(`INSERT INTO notice_reads (comment, person) SELECT c.id, ? FROM comments c WHERE c.id IN (${marks}) ON CONFLICT DO NOTHING`, person, ...ids as number[])).changes)
+        }
+        return Number((await this.run(`UPDATE comments SET was_read = 1 WHERE owned = 0 AND was_read = 0 AND id IN (${marks})`, ...ids as number[])).changes)
     }
 
     /** Whose bell it is, as what filters its comments (ORR-658). With one person, every agent's comment, as ever. With
@@ -193,6 +215,7 @@ export abstract class OwnerStore extends StatusStore {
         const cleared = `EXISTS (SELECT 1 FROM notice_clears n WHERE n.comment = c.id AND n.person = ${quoted})`
         return {
             cleared,
+            read: `EXISTS (SELECT 1 FROM notice_reads n WHERE n.comment = c.id AND n.person = ${quoted})`,
             left: `NOT ${cleared}`,
             mine: `((c.person = ${quoted} AND c.by_agent = 1) OR (${assigned} AND (c.person IS NULL OR c.person <> ${quoted} OR c.by_agent = 1)))`,
         }

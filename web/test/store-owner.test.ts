@@ -132,7 +132,30 @@ describe('the bell', () => {
         expect(await store.listComments('greenhouse', id)).toHaveLength(3)
         expect((await store.notices({list: 'cleared'})).map(n => [n.body, n.cleared])).toEqual([['two', true], ['one', true]])
         expect((await failure(() => store.clearNotices({}))).status).toBe(400)
+        expect((await failure(() => store.readNotices({}))).status).toBe(400)
     })
+
+    it('keeps what the owner has read on the comment, apart from seen, and clears only those read (ORR-785)', async () => {
+        const {id} = await store.createIssue('greenhouse', {title: 'A'})
+        const agent = {name: 'claude', owner: false}
+        const read = await store.createComment('greenhouse', id, {body: 'read'}, agent)
+        const unread = await store.createComment('greenhouse', id, {body: 'unread'}, agent)
+        expect((await store.notices()).some(n => n.read)).toBe(false)
+        expect(await store.readNotices({ids: [read.id]})).toBe(1)
+        expect(await store.readNotices({ids: [read.id]})).toBe(0)
+        expect((await store.notices({list: 'inbox'})).map(n => [n.id, !!n.read]).sort()).toEqual([[read.id, true], [unread.id, false]].sort())
+        expect(await store.clearNotices({read: true})).toBe(1)
+        expect((await store.notices({list: 'inbox'})).map(n => n.id)).toEqual([unread.id])
+    })
+
+    it('leaves a question waiting when clearing the read ones', async () => {
+        const {id} = await store.createIssue('greenhouse', {title: 'A'})
+        const asked = await store.createComment('greenhouse', id, {body: 'Which?', asks: 'decision'}, {name: 'claude', owner: false})
+        await store.readNotices({ids: [asked.id]})
+        expect(await store.clearNotices({read: true})).toBe(0)
+        expect((await store.notices({list: 'waiting'})).map(n => n.id)).toEqual([asked.id])
+    })
+
 })
 describe("the notifications page's lists", () => {
     it('splits waiting from the inbox, and pages the inbox and the cleared ones newest first', async () => {
