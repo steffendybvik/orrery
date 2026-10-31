@@ -3,10 +3,11 @@
 // hundred branches, which has each one's last commit, its PR and how far it's ahead. Without, GitHub's list has only
 // names, so the PR comes from what orrery keeps (`issue_pulls`), and age and commits aren't known.
 //
-// A name can be written by anyone who can push, and a fork's PR isn't here at all, but this is the owner's alone all the
-// same (`pulls.branches`), as what sessions read is held to what can't carry someone's words (ORR-532).
-import type {AllBranches, RepoBranch} from '#shared/roadmap'
-import {branchVerdict} from '#shared/roadmap'
+// A name can be written by anyone who can push, and a fork's PR isn't here at all, so `all` is the owner's alone
+// (`pulls.branches`), but an issue's own branches go to sessions with their names held to `SAFE_BRANCH`, so one can carry on
+// from another's (ORR-799, the owner's say over ORR-532, which still holds for a PR's title and head branch).
+import type {AllBranches, IssueBranches, RepoBranch} from '#shared/roadmap'
+import {branchVerdict, SAFE_BRANCH} from '#shared/roadmap'
 import {conflict, notFound} from './input'
 import {GITHUB_SECRET, issueIdsIn, PAGE, PAGES} from './pulls'
 import type {Pulls} from './pulls'
@@ -39,7 +40,7 @@ interface GraphAnswer {
     errors?: {message: string, type?: string}[]
 }
 
-type Read = Omit<RepoBranch, 'issue' | 'verdict' | 'why' | 'repo'> & {head_sha?: string | null}
+type Read = Omit<RepoBranch, 'issue' | 'verdict' | 'why' | 'repo' | 'carry_on'> & {head_sha?: string | null}
 type RepoRead = AllBranches['repos'][number] & {branches: RepoBranch[]}
 
 export class Branches {
@@ -60,6 +61,22 @@ export class Branches {
         const branches = reads.flatMap(r => r.branches).sort((a, b) => order[a.verdict] - order[b.verdict]
             || (b.committed_at ?? '').localeCompare(a.committed_at ?? '') || a.name.localeCompare(b.name))
         return {branches, repos: reads.map(({branches: _branches, ...repo}) => repo)}
+    }
+
+    /** The branches the issue's work can carry on from, the newest first; `session` is who's asking, so it isn't told of itself. */
+    async forIssue(project: string, id: string, session: string | undefined): Promise<IssueBranches> {
+        project = await this.store.projectId(project)
+        const issue = await this.pulls.issueOf([project], [id])
+        if (!issue) throw notFound(`No issue ${id} in ${project}`)
+        const entry = [...await this.pulls.repos()].find(([, projects]) => projects.includes(project))
+        if (!entry) return {repo: null, base: null, branches: []}
+        const read = await this.read(...entry)
+        const other_session = !!await this.store.takenFrom(project, issue.id, session).catch(() => null)
+        const branches = read.branches
+            .filter(b => b.carry_on && b.issue?.project === project && b.issue.id === issue.id && SAFE_BRANCH.test(b.name))
+            .sort((a, b) => (b.committed_at ?? '').localeCompare(a.committed_at ?? '') || a.name.localeCompare(b.name))
+            .map(({name, sha, committed_at, ahead, pull}) => ({name, sha, committed_at, ahead, ...pull ? {pull} : {}, other_session}))
+        return {repo: read.repo, base: read.base, branches, ...read.error ? {error: read.error} : {}}
     }
 
     /** The owner removing a branch: only one that still reads as remove, asked afresh, so nothing that has moved on since the
@@ -101,10 +118,13 @@ export class Branches {
             const kind = issue ? await this.kindOf(issue.project, issue.id) : undefined
             const worked = !!issue && kind === 'started' && !!await this.store.takenFrom(issue.project, issue.id, undefined).catch(() => null)
             const {head_sha, ...shown} = branch
-            branches.push({...shown, repo, ...issue ? {issue: {...issue, kind: kind ?? ''}} : {}, ...branchVerdict({
-                held: held.has(branch.name), sha: branch.sha, ahead: branch.ahead, worked, ...kind ? {issueKind: kind} : {},
+            const facts = {
+                held: held.has(branch.name), sha: branch.sha, ahead: branch.ahead, ...kind ? {issueKind: kind} : {},
                 ...branch.pull ? {pull: {state: branch.pull.state, head_sha}} : {},
-            })})
+            }
+            // Without the session: one on the issue keeps a spent branch from removal, which doesn't make it work to pick up.
+            const carry_on = !facts.held && branch.pull?.state !== 'closed' && branchVerdict({...facts, worked: false}).verdict !== 'remove'
+            branches.push({...shown, repo, ...issue ? {issue: {...issue, kind: kind ?? ''}} : {}, carry_on, ...branchVerdict({...facts, worked})})
         }
         return {repo, projects, base, token, branches, ...more ? {cut: read.length} : {}}
     }

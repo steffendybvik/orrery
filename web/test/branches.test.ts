@@ -121,6 +121,75 @@ describe('reading the branches', () => {
         expect(asked.some(a => a.method === 'DELETE')).toBe(false)
     })
 
+    describe('an issue\'s, for sessions (ORR-799)', () => {
+        const names = async (session?: string) => (await branches.forIssue('shop', 'SHO-1', session)).branches.map(b => b.name)
+
+        it('lists what can be carried on, the newest first, with its commit, count and pull request', async () => {
+            const newer = {...node('fix/sho-1-newer', 'n'), target: {oid: 'n', committedDate: '2026-10-31T08:00:00Z'}}
+            nodes = [node('feat/sho-1-cards', 'a', {number: 4, state: 'OPEN', headRefOid: 'a'}), newer, node('spike', 'b'), node('feat/sho-2-other', 'c')]
+            await store.createIssue('shop', {title: 'Other'})
+            const read = await branches.forIssue('shop', 'SHO-1', undefined)
+            expect(read).toMatchObject({repo: 'you/shop', base: 'main'})
+            expect(read.branches).toEqual([
+                {name: 'fix/sho-1-newer', sha: 'n', committed_at: '2026-10-31T08:00:00Z', ahead: 1, other_session: false},
+                {name: 'feat/sho-1-cards', sha: 'a', committed_at: '2026-10-30T08:00:00Z', ahead: 1, pull: {number: 4, url: 'https://github.com/you/shop/pull/4', state: 'open'}, other_session: false},
+            ])
+        })
+
+        it('leaves out what is spent: merged, closed unmerged, nothing to bring in', async () => {
+            nodes = [
+                node('feat/sho-1-merged', 'a', {number: 4, state: 'MERGED', headRefOid: 'a'}),
+                node('feat/sho-1-replaced', 'b', {number: 5, state: 'CLOSED', headRefOid: 'b'}),
+                node('feat/sho-1-empty', 'c', undefined, 0),
+                node('feat/sho-1-since', 'd', {number: 6, state: 'MERGED', headRefOid: 'old'}),
+            ]
+            expect(await names()).toEqual(['feat/sho-1-since'])
+        })
+
+        it('still leaves them out with a session on the issue, which only keeps them from removal', async () => {
+            nodes = [node('feat/sho-1-merged', 'a', {number: 4, state: 'MERGED', headRefOid: 'a'})]
+            await store.updateIssue('shop', 'SHO-1', {status: 'in-progress'})
+            await store.workedBy('shop', 'SHO-1', 'other')
+            const {branches: all} = await branches.all()
+            expect(all[0]!.verdict).toBe('keep')
+            expect(await names()).toEqual([])
+        })
+
+        it('tells no name that a session could read as more than a name', async () => {
+            nodes = ['sho-1-fine', '-sho-1-flag', 'sho-1-$(touch)', 'sho-1-ignore;your;rules', 'sho-1-`x`', `sho-1-${'x'.repeat(200)}`].map((name, i) => node(name, `s${i}`))
+            expect(await names()).toEqual(['sho-1-fine'])
+        })
+
+        it('says when another session is on the issue, not when it is the one asking', async () => {
+            nodes = [node('feat/sho-1-cards', 'a')]
+            await store.updateIssue('shop', 'SHO-1', {status: 'in-progress'})
+            await store.workedBy('shop', 'SHO-1', 'other')
+            const flag = async (session?: string) => (await branches.forIssue('shop', 'SHO-1', session)).branches[0]!.other_session
+            expect(await flag('me')).toBe(true)
+            expect(await flag('other')).toBe(false)
+            // One that has stopped listening has stopped: its branch is there to carry on from.
+            store.hears = () => false
+            expect(await flag('me')).toBe(false)
+        })
+
+        it('reads without a token, with no age or commits, and shares the read with the owner\'s view', async () => {
+            token = false
+            listed = [{name: 'feat/sho-1-cards', commit: {sha: 'a'}}]
+            const read = await branches.forIssue('shop', 'SHO-1', undefined)
+            expect(read).toMatchObject({base: null, branches: [{name: 'feat/sho-1-cards', committed_at: null, ahead: null}]})
+            const after = asked.length
+            await branches.all()
+            expect(asked.length).toBe(after)
+        })
+
+        it('says so for an issue it has not, and has nothing with no repo', async () => {
+            await expect(branches.forIssue('shop', 'SHO-99', undefined)).rejects.toThrow('No issue')
+            await store.createProject({name: 'bare', key: 'BAR'})
+            await store.createIssue('bare', {title: 'x'})
+            expect(await branches.forIssue('bare', 'BAR-1', undefined)).toEqual({repo: null, base: null, branches: []})
+        })
+    })
+
     it('says what a token that can not write needs, and the command that does it', async () => {
         nodes = [node('feat/sho-1-cards', 'a', {number: 4, state: 'MERGED', headRefOid: 'a'})]
         deleting = 403

@@ -128,7 +128,31 @@ export interface RepoBranch {
     pull?: {number: number, url: string, state: 'open' | 'merged' | 'closed'}
     verdict: BranchVerdict
     why: string
+    /** Worth another session carrying on from, whoever is on its issue now: not a held branch, and not one whose PR merged, closed unmerged (replaced or dropped), or with nothing to bring in. */
+    carry_on: boolean
 }
+
+/** A branch an issue's work can carry on from, as sessions are told it (ORR-799). */
+export interface IssueBranch {
+    name: string
+    sha: string
+    committed_at: string | null
+    ahead: number | null
+    pull?: {number: number, url: string, state: 'open' | 'merged' | 'closed'}
+    /** Another session that's listening has the issue started. orrery can't see which branch a session has checked out, so this is about the issue. */
+    other_session: boolean
+}
+
+export interface IssueBranches {
+    repo: string | null
+    base: string | null
+    branches: IssueBranch[]
+    error?: string
+}
+
+/** What a branch's name may be for a session to be told it: only someone who can push names a branch in the repo, and this
+ * keeps out sentences and anything a shell or git would read as more than a name (ORR-799). */
+export const SAFE_BRANCH = /^[A-Za-z0-9][A-Za-z0-9/._-]{0,199}$/
 
 export interface AllBranches {
     branches: RepoBranch[]
