@@ -35,3 +35,19 @@ test("the owner's picks on a proposal survive a live update before they approve"
     await page.getByRole('button', {name: 'Approve'}).click()
     await expect.poll(async () => (await api(request, 'get', `/issues/${proposal.id}`)).picks).toEqual({store: ['sheet']})
 })
+
+test('Request changes and Reject keep it in Proposed, with the note, and Change decision brings the choice back', async ({page, request}) => {
+    const proposal = await api(request, 'post', '/issues', {title: 'Heat the glasshouse', proposal: 'pending'})
+    await page.goto(`/p/orangery/issues/${proposal.id}`)
+
+    await page.getByRole('textbox', {name: 'A note with your decision'}).fill('Cost it first')
+    await page.getByRole('button', {name: 'Request changes'}).click()
+    await expect(page.getByText('Changes asked for')).toBeVisible()
+    await expect(page.getByText('“Cost it first”')).toBeVisible()
+    expect(await api(request, 'get', `/issues/${proposal.id}`)).toMatchObject({column: 'proposed', proposal: 'changes', decision_note: 'Cost it first'})
+
+    await page.getByRole('button', {name: 'Change decision'}).click()
+    await page.getByRole('button', {name: 'Reject'}).click()
+    await expect(page.getByText('Rejected', {exact: true})).toBeVisible()
+    expect(await api(request, 'get', `/issues/${proposal.id}`)).toMatchObject({column: 'proposed', proposal: 'rejected', decided_by: 'ada_lovelace'})
+})

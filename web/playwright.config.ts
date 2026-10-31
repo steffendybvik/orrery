@@ -14,7 +14,7 @@ const whole = process.env.E2E_WHOLE
 // Who shares what on the one orrery. These change a thing other specs read, so each group takes turns inside itself,
 // and a spec that changes something shared goes in a group here. What's in neither group runs side by side.
 const SESSIONS = ['chat', 'sessions', 'sessions-across', 'sessions-tabs', 'session-claims', 'pick-next', 'permission-prompt', 'whole-session']
-const SETTINGS = ['navigation', 'events', 'context', 'settings-tabs', 'settings-tracker', 'pickers', 'routes', 'schedules', 'schedule-project', 'schedule-remove', 'unique-ids']
+const SETTINGS = ['navigation', 'events', 'context', 'settings-tabs', 'settings-tracker', 'secrets', 'pickers', 'routes', 'schedules', 'schedule-project', 'schedule-remove', 'unique-ids']
 // A second person refuses other specs' writes, and moving the database takes it from under them: these run with nothing
 // else, last, with the visual spec, as its images show the whole sidebar.
 const ALONE = ['people', 'settings-database', 'visual']
