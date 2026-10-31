@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {BoltIcon} from '@heroicons/vue/16/solid'
 import type {Project, Schedule} from '#shared/roadmap'
+import {canActivate} from '#shared/roadmap'
 
 // A project's schedules as a card: the project at its head, with its own New schedule, then its schedules: running event
 // ones first (they have no time to sort by and can fire at any moment, ORR-709), then soonest first, paused (and one-offs
@@ -11,7 +12,7 @@ import type {Project, Schedule} from '#shared/roadmap'
 // one with ▶ while it's paused. An agent's says who made it and whether it runs, and is tinted as unseen until it's
 // opened, as issues are (ORR-456).
 const props = defineProps<{project: Project, schedules: Schedule[]}>()
-const {edit, openMenu, pause} = useSchedules()
+const {edit, openMenu, pause, setAll} = useSchedules()
 const {scheduleUnseen} = useUnseen()
 const {who} = useOwner()
 /** An agent's: a message or session one doesn't run until the owner makes it theirs. */
@@ -50,6 +51,30 @@ async function togglePause(s: Schedule) {
         pausing.value.delete(s.id)
     }
 }
+// Pause all and Activate all, on this project's schedules alone (ORR-783). Pausing goes at once; activating asks first, as
+// it also turns on what was paused on purpose. Afterwards a line says how many changed, and names any that failed.
+const pausable = computed(() => props.schedules.filter(s => s.enabled).length)
+const activatable = computed(() => props.schedules.filter(canActivate).length)
+const asking = ref(false)
+const settingAll = ref(false)
+const allDone = ref('')
+const allFailed = ref('')
+const count = (n: number) => `${n} ${n === 1 ? 'schedule' : 'schedules'}`
+async function changeAll(enabled: boolean) {
+    settingAll.value = true
+    allDone.value = ''
+    allFailed.value = ''
+    try {
+        const {changed, failed} = await setAll(props.project.id, enabled)
+        allDone.value = `${enabled ? 'Activated' : 'Paused'} ${count(changed.length)}.`
+        allFailed.value = failed.length ? `Couldn't change ${failed.map(f => `${f.title}: ${f.message}`).join('; ')}` : ''
+    } catch (error) {
+        allFailed.value = errorMessage(error)
+    } finally {
+        settingAll.value = false
+        asking.value = false
+    }
+}
 const ran = (s: Schedule) => !!s.at && !s.enabled
 /** The first line of what it says, for a glance at what it's for. */
 const gist = (s: Schedule) => s.notes?.split('\n').find(line => line.trim())?.replace(/^[#>*\-\s]+/, '') ?? ''
@@ -71,11 +96,20 @@ const OUTCOME = {
         <h2 class="truncate text-[14px] font-semibold">{{ project.name }}</h2>
       </NuxtLink>
       <span class="shrink-0 text-xs text-faint">{{ active }} running<template v-if="schedules.length - active">, {{ schedules.length - active }} paused</template></span>
-      <UiButton class="ml-auto shrink-0" :aria-label="`New schedule in ${project.name}`" @click="edit(project.id)">
+      <UiButton class="ml-auto shrink-0" :disabled="!pausable || settingAll" :aria-label="`Pause all in ${project.name}`" @click="changeAll(false)">Pause all</UiButton>
+      <UiButton class="shrink-0" :disabled="!activatable || settingAll" :aria-label="`Activate all in ${project.name}`" @click="asking = true">Activate all</UiButton>
+      <UiButton class="shrink-0" :aria-label="`New schedule in ${project.name}`" @click="edit(project.id)">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         New schedule
       </UiButton>
     </header>
+    <div v-if="asking || allDone || allFailed" class="flex flex-col gap-1 border-b border-line/60 px-4 py-2 text-xs">
+      <UiConfirm v-if="asking" inline action="Activate" busy-action="Activating…" size="xs" :busy="settingAll" @confirm="changeAll(true)" @cancel="asking = false">
+        Activate {{ count(activatable) }}, including any paused on purpose?
+      </UiConfirm>
+      <p v-if="allDone" class="text-muted" role="status">{{ allDone }}</p>
+      <p v-if="allFailed" class="text-rose-700 dark:text-rose-400" role="alert">{{ allFailed }}</p>
+    </div>
     <p v-if="!schedules.length" class="px-4 py-6 text-center text-[13px] text-faint">Nothing scheduled here yet.</p>
     <div
         v-for="s in sorted"

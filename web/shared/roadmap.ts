@@ -10,3 +10,9 @@ export * from './roadmap/events'
 export * from './roadmap/chats'
 export * from './roadmap/notices'
 export * from './roadmap/pulls'
+
+/** Whether Activate all turns this schedule on: one that's paused, but no one-off, as a paused one is shown as having run
+ * and may have, even with its time still ahead (ORR-783). */
+export function canActivate(schedule: {enabled: boolean, at?: string | null}): boolean {
+    return !schedule.enabled && !schedule.at
+}
