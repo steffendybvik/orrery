@@ -129,7 +129,7 @@ const everywhere = computed<Entry[]>(() => [
     })),
     ...columns.value.map(({id: c, label}) => ({
         key: `filter:column:${c}`, group: 'Filter',
-        label: `${filters.value.columns.includes(c) ? 'Stop filtering' : 'Filter'} by column: ${label}`,
+        label: `${filters.value.columns.includes(c) ? 'Stop filtering' : 'Filter'} by status: ${label}`,
         run: () => filters.value.columns = toggle<Column>(filters.value.columns, c),
     })),
     {key: 'filter:search', group: 'Filter', label: 'Filter by id or title', hint: '/', run: () => nextTick(() => document.getElementById('search')?.focus())},

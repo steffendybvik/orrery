@@ -546,7 +546,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
     <section v-else class="flex flex-col gap-2 border-t border-line pt-3">
       <span class="label">Each run makes an issue</span>
       <div class="flex flex-wrap items-center gap-2">
-        <PropertyPicker v-model="column" :options="startOptions" label="Where it starts" field>
+        <PropertyPicker v-model="column" :options="startOptions" label="Status it starts in" field>
           <StatusIcon :column="column" />
           <span class="truncate">{{ labelOf(startOptions, column) }}</span>
           <template #option="{option}">

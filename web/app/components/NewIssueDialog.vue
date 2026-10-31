@@ -108,7 +108,7 @@ async function create() {
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-        <PropertyPicker v-model="column" :options="whereOptions" label="Where" field>
+        <PropertyPicker v-model="column" :options="whereOptions" label="Status" field>
           <StatusIcon :column="column" />
           <span class="truncate">{{ whereOptions.find(o => o.value === column)?.label ?? column }}</span>
           <template #option="{option}">
