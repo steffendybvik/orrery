@@ -47,10 +47,11 @@ export function folderProblem(dir, home = homedir()) {
     return resolve(dir) === resolve(home) || dirname(resolve(dir)) === resolve(dir) ? `${dir} isn't a repo: choose the repo's own folder` : null
 }
 
-/** A line of shell that opens Claude in `dir` with `server`'s channel. */
-function claudeLine(dir, claude, server) {
+/** A line of shell that opens Claude in `dir` with `server`'s channel. `server` can be the name a repo's own .mcp.json
+ * gives it, so it's quoted like the rest: nothing in the repo runs before Claude Code asks about the folder. */
+export function claudeLine(dir, claude, server) {
     const quote = text => `'${text.replace(/'/g, "'\\''")}'`
-    return `cd ${quote(dir)} && exec ${quote(claude)} --dangerously-load-development-channels server:${server}`
+    return `cd ${quote(dir)} && exec ${quote(claude)} --dangerously-load-development-channels ${quote(`server:${server}`)}`
 }
 
 /** Puts the bootstrap on this machine if it isn't, as Connect's line does: the channel and hooks written run through it.

@@ -318,7 +318,7 @@ describe.concurrent("a launcher's own loop", {timeout: 40_000}, () => {
         await vi.waitFor(() => expect(orrery.connectReports().at(-1)).toMatchObject({state: 'done', written: ['.mcp.json', '.claude/settings.json', 'CLAUDE.md']}), WAIT)
         expect(JSON.parse(readFileSync(join(repo, '.mcp.json'), 'utf8')).mcpServers['orrery-personal'].env).toMatchObject({ORRERY_URL: orrery.url, ORRERY_PROJECTS: 'orchard'})
         expect(JSON.parse(readFileSync(list, 'utf8')).projects.map((p: {project: string}) => p.project)).toEqual(['greenhouse', 'orchard'])
-        expect(opened()).toContain('--dangerously-load-development-channels server:orrery-personal')
+        expect(opened()).toMatch(/--dangerously-load-development-channels \W*server:orrery-personal/)
         await vi.waitFor(() => expect(orrery.listening('orchard')).toBe(1), WAIT)
     })
 
