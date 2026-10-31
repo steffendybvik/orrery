@@ -30,6 +30,9 @@ overview, is one list.
   stays idle. Pointing a session at a Backlog issue still works.
 - **A limit on a request's size:** a body over 32 MB gets a 413, over 256 MB for a board's file or an import, and over
   64 KB on the login's routes, including a doc or comment that big.
+- **Text meets AA contrast in both themes:** a primary button's words go from white to near-black on the same orange,
+  and faint text, the accent's words, red text and assignees' initials change to be readable.
+- **The docs list's New buttons stand apart from its sections,** with a rule above them and a stronger colour.
 
 ### Fixes
 
@@ -41,10 +44,13 @@ overview, is one list.
   name.
 - **A chat no longer stays on Thinking…** in a repo that keeps its hooks in its local settings.
 - **A fresh install no longer offers to restore its own empty backups.**
+- **A session's state no longer sticks as a page opens:** one that changed just then could stay shown as it was until it
+  next changed.
 
 ### Docs
 
 - **Upgrading on Postgres:** Running says to take a `pg_dump` first, as orrery keeps no copy before upgrading there.
+- **The README's images:** all the same size, with docs and schedules added and events gone.
 
 ### Internal
 
@@ -52,6 +58,7 @@ overview, is one list.
   release from it, so don't make one by hand.
 - **The browser suite:** it runs on four workers, grouped by what specs share, and only on pull requests into `main`. A
   session's pull request into a release branch merges itself once `check` and `docker` pass.
+- **README images:** `pnpm images:readme` takes them, so they stay the same size and pages.
 - **Test speed history:** each run keeps how the suite ran, and a version isn't compared with one that ran differently
   or had failing tests. Working on orrery says how to benchmark. This version starts a new baseline.
 - **Tests:** axe on every page of the walk, a test that fails when a page has no browser test, the components no browser

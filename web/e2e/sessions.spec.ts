@@ -323,6 +323,38 @@ test("a board card's status icon pulses only while its session works, and not wi
     }
 })
 
+test("keeps a session's state that changes as the page opens, over the older read of the sessions", async ({page, request, baseURL}) => {
+    const report = (event: string) => request.post('/api/sessions', {data: {id: 'e2e-w4', project: 'kitchen', event, name: 'e2e-w4'}})
+    await report('SessionStart')
+    const stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-w4&name=e2e-w4&format=text')
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/sessions')).some((s: {id: string, listening: boolean}) => s.id === 'e2e-w4' && s.listening)).toBe(true)
+        // Read while it's idle, and held back until the event saying it works has come.
+        let read = () => {}
+        const wasRead = new Promise<void>(resolve => read = resolve)
+        let release = () => {}
+        const released = new Promise<void>(resolve => release = resolve)
+        await page.route('**/api/sessions', async route => {
+            const response = await route.fetch()
+            read()
+            await released
+            await route.fulfill({response})
+        })
+        await page.goto('/p/kitchen')
+        await wasRead
+        await report('UserPromptSubmit')
+        const row = page.locator('a[href="/sessions#session-e2e-w4"]').first()
+        await expect(row).toContainText('working')
+        const landed = page.waitForResponse('**/api/sessions')
+        release()
+        await (await landed).finished()
+        await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))))
+        await expect(row).toContainText('working')
+    } finally {
+        stream.stop()
+    }
+})
+
 test('a session orrery started has Stop out front, asked once more', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
