@@ -37,6 +37,8 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
 
       <ConnectRepo />
 
+      <LauncherRepos />
+
       <div class="flex flex-col gap-1">
         <h3 class="text-[15px] font-semibold">Or give an agent the line</h3>
         <p class="text-[13px] leading-relaxed text-muted">For a repo on a machine with no folder picker, or if you'd rather an agent did it.</p>

@@ -403,16 +403,23 @@ test('+30 minutes tells the launcher, for a session with a stop time', async ({p
     }
 })
 
-test('lists the repos the launcher serves on Setup, picked up or installed (ORR-605)', async ({page, baseURL}) => {
+test('lists the repos the launchers serve on Connect, with a line pointing there from Setup (ORR-605, ORR-774)', async ({page, baseURL}) => {
     const picked = hold(baseURL!, `/api/projects/kitchen/launches/stream?dir=${encodeURIComponent('/code/kitchen')}&picked=${encodeURIComponent(new Date().toISOString())}`)
     const installed = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/dairy')}`)
+    const connected = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/garden')}&connected=${encodeURIComponent(new Date().toISOString())}`)
     await page.goto('/sessions?tab=setup')
-    const repos = page.getByRole('list', {name: 'Repos the launcher serves'})
+    await page.getByRole('link', {name: /^Serving \d+ repos?$/}).click()
+    await expect(page).toHaveURL(/\/connect#connected-repos$/)
+    const repos = page.getByRole('list', {name: 'Connected repos'})
     await expect(repos.getByRole('listitem').filter({hasText: '/code/kitchen'})).toContainText(/Kitchen\s*picked up/)
     await expect(repos.getByRole('listitem').filter({hasText: '/code/dairy'})).toContainText(/Dairy\s*installed/)
+    await expect(repos.getByRole('listitem').filter({hasText: '/code/garden'})).toContainText(/connected/)
+    await expect(page.getByText("isn't on it")).toBeVisible()
     picked.stop()
     installed.stop()
+    connected.stop()
     await expect(repos).toHaveCount(0)
+    await expect(page.getByText('None listed.')).toBeVisible()
 })
 
 test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {

@@ -1,4 +1,4 @@
-import type {APIRequestContext, Page} from '@playwright/test'
+import type {APIRequestContext, Locator, Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
 
 // What the spec files split from the first-run story share: a project of their own made through the API, the API as
@@ -22,6 +22,16 @@ export async function makeProject(request: APIRequestContext, data: {name: strin
     if (made.status() === 409 && test.info().retry > 0) return (await request.get(`/api/projects/${data.name.toLowerCase()}`)).json()
     expect(made.ok(), await made.text()).toBeTruthy()
     return made.json()
+}
+
+/** Drags a card on the board to a column, finding the column once the drag has started: picking a card up adds the
+ * columns the filter hides, which moves the others. */
+export async function dragCard(page: Page, card: Locator, column: Locator) {
+    await card.hover()
+    await page.mouse.down()
+    await page.mouse.move(10, 10, {steps: 2})
+    await column.hover()
+    await page.mouse.up()
 }
 
 /** A stream held open the way a channel or launcher holds it, keeping what arrives; `stop` lets it go. */
