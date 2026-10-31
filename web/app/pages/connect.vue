@@ -2,7 +2,8 @@
 // Connect an agent: a button that has the launcher set a repo up (ConnectRepo), or one line to give a Claude session in
 // an app's repo. It points the agent at the
 // brief (/connect/<project>.md), which says how to keep the roadmap here and has it set the repo up
-// itself. The pieces are also here, folded, to set up by hand.
+// itself. The pieces are also here, folded, to set up by hand. Its second tab, MCP server (`?tab=mcp`), says what connecting
+// gives a session (McpReference).
 useHead({title: 'Connect an agent · orrery'})
 const route = useRoute()
 const router = useRouter()
@@ -16,6 +17,11 @@ const newName = ref('')
 const sessionName = ref('')
 const project = computed(() => ordered.value.find(p => p.id === picked.value))
 const pieces = useConnect(project, {name: newName, session: sessionName})
+const tabs = [{value: 'connect' as const, label: 'Connect'}, {value: 'mcp' as const, label: 'MCP server'}]
+const tab = computed<'connect' | 'mcp'>({
+    get: () => route.query.tab === 'mcp' ? 'mcp' : 'connect',
+    set: next => router.replace({query: {...route.query, tab: next === 'mcp' ? 'mcp' : undefined}}),
+})
 </script>
 
 <template>
@@ -26,6 +32,9 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex max-w-3xl animate-fade-up flex-col gap-8 px-4 py-8 sm:px-8 sm:py-12">
+      <SegmentedControl v-model="tab" :options="tabs" class="self-start" />
+      <McpReference v-if="tab === 'mcp'" />
+      <template v-else>
       <header class="flex flex-col gap-3">
         <h2 class="text-2xl font-semibold tracking-tight">Give a session its roadmap</h2>
         <p class="text-[15px] leading-relaxed text-muted">
@@ -107,6 +116,7 @@ const pieces = useConnect(project, {name: newName, session: sessionName})
           <CopyBlock title="Without the preview: ask the session to watch" hint="Uses the Monitor tool; a watch lasts up to 30 minutes, then the session restarts it." :text="pieces.monitor" />
         </div>
       </details>
+      </template>
     </div>
   </div>
 </template>

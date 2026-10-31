@@ -80,7 +80,7 @@ alias shop="cd ~/code/shop && claude --dangerously-load-development-channels ser
 
 Then `source ~/.zshrc` and start the session with `shop`.
 
-The same server gives the session **tools** for its projects' roadmaps, so it works without curl:
+The same server gives the session **tools** for its projects' roadmaps, so it works without curl (the **MCP server** tab on Connect lists them all, and who gets each):
 `issues`, `issue`, `start_issue`, `comment` (with `asks` for a decision or feedback), `finish_issue`,
 `create_issue` (a proposal too, with choices), `update_issue`, `releases`, `docs`, `doc` and
 `write_doc`; `sessions`, to read who's working on what; and `guide`, how orrery itself works ([Using orrery](using.md),
