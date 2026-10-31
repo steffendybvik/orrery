@@ -108,6 +108,6 @@ const putUpAgain = () => send('', 'PATCH', {proposal: 'pending'})
       <UiButton v-if="approved" variant="ghost" size="md" :disabled="busy" title="Take it off the roadmap and back to Proposed, to decide again" @click="putUpAgain">Put it up again</UiButton>
       <UiButton v-else variant="ghost" size="md" @click="reopened = true">Change decision</UiButton>
     </div>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </section>
 </template>

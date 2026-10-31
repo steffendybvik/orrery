@@ -19,11 +19,11 @@ const VARIANT = {
     'secondary': 'text-muted ring-1 ring-line hover:bg-hover hover:text-fg',
     'ghost': 'text-muted hover:bg-hover hover:text-fg',
     'danger': 'bg-rose-600 font-medium text-white hover:opacity-90',
-    'danger-outline': 'font-medium text-rose-600 ring-1 ring-rose-500/40 hover:bg-rose-500/10 dark:text-rose-400',
-    'danger-ghost': 'text-muted hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400',
+    'danger-outline': 'font-medium text-rose-700 ring-1 ring-rose-500/40 hover:bg-rose-500/10 dark:text-rose-400',
+    'danger-ghost': 'text-muted hover:bg-rose-500/10 hover:text-rose-700 dark:hover:text-rose-400',
     'success': 'bg-emerald-600 font-medium text-white hover:opacity-90',
     'success-outline': 'font-medium text-emerald-700 ring-1 ring-emerald-500/40 hover:bg-emerald-500/10 dark:text-emerald-300',
-    'warning-outline': 'font-medium text-amber-700 ring-1 ring-amber-500/40 hover:bg-amber-500/10 dark:text-amber-300',
+    'warning-outline': 'font-medium text-amber-800 ring-1 ring-amber-500/40 hover:bg-amber-500/10 dark:text-amber-300',
 }
 const SIZE = {
     xs: 'h-6 rounded-md px-1.5 text-xs',

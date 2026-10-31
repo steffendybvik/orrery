@@ -87,17 +87,20 @@
 }
 
 /* An orrery's tint (App settings), so one looks unlike another: the backgrounds take on a little of
-   its colour, more in the dark. useAppSettings sets `data-tint` and `--tint` on <html>. */
+   its colour, more in the dark, and the faint grey moves away from them to stay readable. useAppSettings
+   sets `data-tint` and `--tint` on <html>. */
 :root[data-tint] {
     --canvas: color-mix(in oklab, var(--tint) 9%, #fafafa);
     --panel: color-mix(in oklab, var(--tint) 6%, #ffffff);
     --raised: color-mix(in oklab, var(--tint) 4%, #ffffff);
+    --faint: #5c5c64;
 }
 
 .dark[data-tint] {
     --canvas: color-mix(in oklab, var(--tint) 12%, #09090b);
     --panel: color-mix(in oklab, var(--tint) 10%, #131316);
     --raised: color-mix(in oklab, var(--tint) 8%, #1c1c20);
+    --faint: #9c9ca5;
 }
 
 /* The panel for everything floating over the page (`glass`). Solid, not frosted: most of them

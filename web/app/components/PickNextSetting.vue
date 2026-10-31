@@ -25,6 +25,6 @@ async function set(on: boolean) {
       proposals or anything waiting on you. Backlog stays put. It starts the one it judges best, and may pass over
       one it can't do yet, saying why. With nothing to pick, it stays idle until the board changes. Off, it waits for you.
     </p>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

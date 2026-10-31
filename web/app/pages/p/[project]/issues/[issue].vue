@@ -248,7 +248,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
               Remove {{ issue.id }}{{ subCount ? ` and its ${subCount} sub-issue${subCount === 1 ? '' : 's'}` : '' }}, with its comments?
             </UiConfirm>
           </div>
-          <p v-if="removeFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ removeFailed }}</p>
+          <p v-if="removeFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ removeFailed }}</p>
           <input
               v-if="editingTitle"
               ref="titleInput"
@@ -271,7 +271,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             Waiting on
             <span v-for="(b, i) in blockers" :key="b.link" class="inline-flex items-center"><NuxtLink :to="pathOf(b.project, b.id)" class="font-mono text-fg hover:underline" :title="b.issue?.title">{{ b.link }}</NuxtLink><button type="button" class="ml-0.5 rounded px-0.5 text-faint hover:bg-hover hover:text-fg" :aria-label="`Stop waiting on ${b.link}`" :title="`Stop waiting on ${b.link}`" @click="save({depends_on: (issue!.depends_on ?? []).filter(l => l !== b.link)})">×</button>{{ i < blockers.length - 1 ? ',' : '' }}</span>
           </p>
-          <p v-if="saveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ saveFailed }}</p>
+          <p v-if="saveFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ saveFailed }}</p>
         </header>
 
         <div class="lg:hidden">
@@ -305,7 +305,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <div class="flex items-center justify-end gap-2">
             <ImageButton @picked="upload" />
             <span v-if="uploading" class="mr-auto text-xs text-faint">Adding image…</span>
-            <span v-else-if="uploadError" class="mr-auto text-xs text-rose-600 dark:text-rose-400">{{ uploadError }}</span>
+            <span v-else-if="uploadError" class="mr-auto text-xs text-rose-700 dark:text-rose-400">{{ uploadError }}</span>
             <span v-else class="mr-auto text-xs text-faint">Markdown</span>
             <UiButton :disabled="saving" @click="editingNotes = false">Cancel <KeyHint>esc</KeyHint></UiButton>
             <UiButton variant="primary" :disabled="saving || !!uploading" @click="saveNotes">

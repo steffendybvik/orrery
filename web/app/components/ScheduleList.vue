@@ -58,7 +58,7 @@ const OUTCOME = {
     made: 'text-emerald-600 dark:text-emerald-400',
     sent: 'text-emerald-600 dark:text-emerald-400',
     skipped: 'text-faint',
-    failed: 'text-rose-600 dark:text-rose-400',
+    failed: 'text-rose-700 dark:text-rose-400',
 }
 </script>
 
@@ -116,7 +116,7 @@ const OUTCOME = {
           >{{ s.kind === 'message' ? s.untrusted ? 'Own locked-down session' : 'Messages sessions' : s.kind === 'session' ? 'Starts a session' : s.kind === 'action' ? 'Moves issues' : 'Makes an issue' }}</span>
         </div>
         <span v-if="s.across" class="truncate text-xs text-muted">Across projects: edit it here, or leave this project out from its ⋯</span>
-        <span v-if="byAgent(s)" class="truncate text-xs text-amber-700 dark:text-amber-300">{{ byAgent(s) }}</span>
+        <span v-if="byAgent(s)" class="truncate text-xs text-amber-800 dark:text-amber-300">{{ byAgent(s) }}</span>
         <span v-if="gist(s)" class="truncate text-xs text-muted">{{ gist(s) }}</span>
         <span class="truncate text-xs text-faint">
           <BoltIcon v-if="s.on" class="mr-0.5 inline size-3 align-[-2px] text-teal-600 dark:text-teal-400" aria-hidden="true" />{{ describe(s) }}<template v-if="s.kind === 'action'"> · moves to {{ movesTo(s) }}</template><template v-if="s.held"> · {{ s.held }} waiting their turn</template><template v-if="s.kind === 'issue' && s.ask"> · asks the sessions</template><template v-if="s.kind === 'issue' && s.priority"> · {{ s.priority }}</template><template v-if="s.kind === 'issue' && s.labels.length"> · {{ s.labels.join(', ') }}</template>

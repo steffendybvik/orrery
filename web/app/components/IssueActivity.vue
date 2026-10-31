@@ -208,7 +208,7 @@ async function removeComment(id: number) {
               <CopyButton :text="entry.comment.body" name="the comment" />
             </span>
           </div>
-          <p v-if="removingComment?.id === entry.comment.id && removingComment.failed" class="text-xs text-rose-600 dark:text-rose-400">{{ removingComment.failed }}</p>
+          <p v-if="removingComment?.id === entry.comment.id && removingComment.failed" class="text-xs text-rose-700 dark:text-rose-400">{{ removingComment.failed }}</p>
           <CommentBox
               v-if="editingComment === entry.comment.id"
               :project="project.id"
@@ -225,7 +225,7 @@ async function removeComment(id: number) {
               expired="Expired: asked again since"
               @answer="allow => answerSchedule(entry.comment!.id, allow)"
           />
-          <p v-if="scheduleFailed?.id === entry.comment.id" class="text-xs text-rose-600 dark:text-rose-400">{{ scheduleFailed.message }}</p>
+          <p v-if="scheduleFailed?.id === entry.comment.id" class="text-xs text-rose-700 dark:text-rose-400">{{ scheduleFailed.message }}</p>
         </li>
       </template>
     </ol>

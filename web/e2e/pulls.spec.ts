@@ -62,7 +62,7 @@ test('lists where each pull request stands, and Focus on this sends the note it 
     await expect(ready).toContainText('no issue')
     await expect(ready.getByRole('button', {name: 'Focus on this'})).toHaveCount(0)
     await conflicting.getByRole('button', {name: 'Focus on this'}).click()
-    const note = page.getByLabel('Note')
+    const note = page.getByRole('textbox', {name: 'Note'})
     await expect(note).toHaveValue(/#11 .*conflicts with main/)
     await note.fill('Mind the ladder')
     await page.getByRole('button', {name: 'Send', exact: true}).click()

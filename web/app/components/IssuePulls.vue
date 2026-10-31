@@ -77,7 +77,7 @@ async function sendBack(pull: PullRequest) {
         </span>
       </li>
     </ul>
-    <p v-for="(state, number) in sent" v-show="state.failed" :key="number" class="text-xs text-rose-600 dark:text-rose-400">#{{ number }}: {{ state.failed }}</p>
-    <p v-if="got.error" class="text-xs text-rose-600 dark:text-rose-400">{{ got.error }}</p>
+    <p v-for="(state, number) in sent" v-show="state.failed" :key="number" class="text-xs text-rose-700 dark:text-rose-400">#{{ number }}: {{ state.failed }}</p>
+    <p v-if="got.error" class="text-xs text-rose-700 dark:text-rose-400">{{ got.error }}</p>
   </section>
 </template>

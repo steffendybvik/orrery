@@ -131,7 +131,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
         </UiButton>
         <UiButton v-if="first" :disabled="busy" @click="emit('back')">Back</UiButton>
         <UiButton v-else :disabled="busy" @click="open = false">Cancel</UiButton>
-        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+        <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
         <span v-else-if="moved" class="text-xs text-muted">Moved. Loading it…</span>
       </div>
       <p v-if="!first" class="text-xs text-faint">

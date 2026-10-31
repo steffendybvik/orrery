@@ -89,7 +89,7 @@ async function restore() {
             @click="picked = revision.id"
         >
           <PersonAvatar :name="revision.created_by" :size="16" />
-          <span class="min-w-0 flex-1 truncate" :class="revision.deleted ? 'text-rose-600 dark:text-rose-400' : 'text-fg'">
+          <span class="min-w-0 flex-1 truncate" :class="revision.deleted ? 'text-rose-700 dark:text-rose-400' : 'text-fg'">
             {{ label(revision) }}<span class="text-muted"> by {{ who(revision.created_by) }}</span><span v-if="revision.session_name" class="text-faint"> · {{ revision.session_name }}</span>
           </span>
           <span v-if="revision.id === newest?.id && !revision.deleted" class="shrink-0 text-xs text-accent-700 dark:text-accent-400">Current</span>
@@ -97,7 +97,7 @@ async function restore() {
         </button>
       </li>
     </ul>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     <template v-if="shown">
       <div class="flex min-h-7 items-center justify-between gap-3">
         <p class="min-w-0 truncate text-sm font-medium text-fg">

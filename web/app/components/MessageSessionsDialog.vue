@@ -123,7 +123,7 @@ async function send() {
     </div>
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
-      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <span v-else-if="sent" class="text-xs text-muted" role="status">
         {{ sent.length ? `Sent to ${sent.join(', ')}` : 'Nobody was there to hear it' }}
       </span>

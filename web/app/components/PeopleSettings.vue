@@ -38,6 +38,6 @@ const remove = (id: string) => run(() => apiFetch(`/people/${encodeURIComponent(
       <input v-model="name" aria-label="Their name" placeholder="Their name" maxlength="60" class="h-8 w-72 max-w-full field">
       <UiButton type="submit" variant="primary" size="md" :disabled="busy || !name.trim()">Add a person</UiButton>
     </form>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

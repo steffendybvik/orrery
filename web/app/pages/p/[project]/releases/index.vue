@@ -146,10 +146,10 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
             <UiButton size="md" @click="cancel">Cancel</UiButton>
           </div>
         </div>
-        <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+        <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
       </form>
 
-      <p v-if="moveFailed" class="text-xs text-rose-600 dark:text-rose-400">{{ moveFailed }}</p>
+      <p v-if="moveFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ moveFailed }}</p>
       <ul v-if="releases.length" class="flex flex-col gap-2">
         <li
             v-for="(release, index) in releases"

@@ -159,7 +159,7 @@ const button = 'flex h-7 items-center whitespace-nowrap rounded-md px-2 text-xs 
       <p v-else-if="selected.length" class="hidden items-center gap-1 text-[11px] text-faint sm:flex">
         Drag over the ticks, or shift-click, for a run · a group's tick for all of it · <KeyHint>⌘A</KeyHint> for the page
       </p>
-      <ul v-if="failed.length" class="max-h-24 overflow-y-auto text-xs text-rose-600 dark:text-rose-400">
+      <ul v-if="failed.length" class="max-h-24 overflow-y-auto text-xs text-rose-700 dark:text-rose-400">
         <li v-for="line in failed" :key="line">{{ line }}</li>
       </ul>
     </div>

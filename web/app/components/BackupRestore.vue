@@ -58,7 +58,7 @@ async function restore() {
                 <template v-if="s.environment"> · from <span class="font-medium">{{ s.environment }}</span></template>
                 <span v-if="s.of" class="font-mono text-faint">{{ ` (${s.of})` }}</span>
               </span>
-              <span v-if="other(s)" class="text-xs text-amber-700 dark:text-amber-400">A copy of another orrery, not this one ({{ backups.environment }}).</span>
+              <span v-if="other(s)" class="text-xs text-amber-800 dark:text-amber-400">A copy of another orrery, not this one ({{ backups.environment }}).</span>
             </span>
           </label>
         </li>
@@ -70,7 +70,7 @@ async function restore() {
         </UiButton>
         <UiButton v-if="first" :disabled="busy" @click="emit('fresh')">Start fresh</UiButton>
         <UiButton v-else :disabled="busy" @click="open = false">Cancel</UiButton>
-        <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+        <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
         <span v-else-if="restored" class="text-xs text-muted">Restored. Loading it…</span>
       </div>
       <p class="text-xs text-faint">

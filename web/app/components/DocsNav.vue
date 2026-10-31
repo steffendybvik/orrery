@@ -219,7 +219,7 @@ async function makeSection() {
         >
       </form>
     </div>
-    <p v-if="failed" class="px-2 text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="px-2 text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     <DeletedDocs :project="project.id" :docs="project.docs.length" class="hidden md:block md:mt-3" />
 
     <UiContextMenu :at="menuDoc ? menu : null" :label="`Move ${menuDoc?.title}`" width="w-56" @close="closeMenu">

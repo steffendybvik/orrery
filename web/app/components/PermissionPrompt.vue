@@ -78,6 +78,6 @@ async function act(what: 'allow' | 'deny' | 'watch') {
       <UiButton size="xs" :disabled="!!busy" @click="act('watch')">{{ busy === 'watch' ? 'Opening…' : 'Open tmux' }}</UiButton>
     </div>
     <p v-else class="text-faint">Started in a terminal: answer it there.</p>
-    <p v-if="failed" class="text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </div>
 </template>

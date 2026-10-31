@@ -96,7 +96,7 @@ const n = (value: number) => value.toLocaleString('en')
         <NuxtLink to="/settings?tab=advanced" class="underline underline-offset-2 hover:text-fg">App settings</NuxtLink>
         to see a running session's from its card.
       </p>
-      <p v-if="failed" class="text-sm text-rose-600 dark:text-rose-400">{{ failed }}</p>
+      <p v-if="failed" class="text-sm text-rose-700 dark:text-rose-400">{{ failed }}</p>
 
       <section v-if="view" aria-label="Total" class="flex flex-col gap-2">
         <p class="text-sm">

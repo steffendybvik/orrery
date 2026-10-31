@@ -438,7 +438,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
             Runs once for each thing it's about (an issue, a release), at most once a minute. What a schedule's run does sets nothing off.
             An event's type is <code>thing.what</code> (<code>issue.&lt;field&gt;</code>, <code>release.frozen</code>, a kind from the event log); <code>*</code> stands for any part.
           </template>
-          <span v-else class="text-rose-600 dark:text-rose-400">Type an event, e.g. <code>issue.priority</code>, or a pattern like <code>release.*</code></span>
+          <span v-else class="text-rose-700 dark:text-rose-400">Type an event, e.g. <code>issue.priority</code>, or a pattern like <code>release.*</code></span>
         </p>
       </template>
       <div v-else class="flex flex-wrap items-center gap-2">
@@ -487,7 +487,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
       </div>
       <p v-if="trigger === 'time'" class="text-xs text-faint">
         <template v-if="upcoming.length">Next runs <span class="text-muted">{{ upcoming.map(t => when(t, timezone)).join(' · ') }}</span></template>
-        <span v-else class="text-rose-600 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
+        <span v-else class="text-rose-700 dark:text-rose-400">{{ kind === 'once' ? 'Pick a time that hasn’t passed' : 'That doesn’t give a time yet' }}</span>
       </p>
     </section>
 
@@ -586,7 +586,7 @@ const labelOf = (options: {value: string, label: string}[], value: string) => op
         {{ enabled ? '❙❙ Pause' : '▶ Resume' }}
       </UiButton>
       <span v-if="!enabled" class="text-xs text-faint">Paused: it won't run until you resume it</span>
-      <span v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</span>
+      <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
         {{ saving ? 'Saving…' : existing || group ? 'Save schedule' : 'Create schedule' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
       </UiButton>

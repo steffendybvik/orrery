@@ -197,6 +197,6 @@ watch(columns, () => {
         <div v-if="!cards.length" class="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-faint">Nothing here</div>
       </div>
     </section>
-    <p v-if="failed" role="alert" class="fixed bottom-4 left-1/2 z-30 max-w-[90vw] -translate-x-1/2 rounded-lg bg-panel px-3 py-2 text-xs text-rose-600 shadow-lg ring-1 ring-line dark:text-rose-400" @click="failed = ''">{{ failed }}</p>
+    <p v-if="failed" role="alert" class="fixed bottom-4 left-1/2 z-30 max-w-[90vw] -translate-x-1/2 rounded-lg bg-panel px-3 py-2 text-xs text-rose-700 shadow-lg ring-1 ring-line dark:text-rose-400" @click="failed = ''">{{ failed }}</p>
   </div>
 </template>

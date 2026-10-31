@@ -120,6 +120,6 @@ async function send() {
         {{ busy ? 'Sending…' : sent ? 'Sent' : 'Send' }}
       </button>
     </div>
-    <p v-if="failed" class="text-xs text-rose-600 dark:text-rose-400">{{ failed }}</p>
+    <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
   </form>
 </template>
