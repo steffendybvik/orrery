@@ -84,7 +84,7 @@ const reset = () => editing.value && send(`/presets/${editing.value.id}/reset`, 
       <UiButton v-if="editing?.default?.changed" size="sm" title="Put back the name, text and badge orrery ships it with" @click="reset">Reset to default</UiButton>
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton type="submit" variant="primary" size="md" class="ml-auto" :disabled="!ready">
-        {{ saving ? 'Saving…' : editing ? 'Save preset' : 'Add preset' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
+        {{ saving ? 'Saving…' : editing ? 'Save preset' : 'Add preset' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>

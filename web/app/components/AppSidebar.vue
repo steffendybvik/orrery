@@ -149,7 +149,7 @@ function nudge(id: string, by: number, event: KeyboardEvent) {
       >
         <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
         <span class="flex-1">My issues</span>
-        <span v-if="urgentCount" class="rounded-full bg-accent-500 px-1.5 font-mono text-[10px] font-medium text-zinc-950 tabular-nums" :title="`${urgentCount} urgent`">{{ urgentCount }}</span>
+        <span v-if="urgentCount" class="rounded-full bg-accent-fill px-1.5 font-mono text-[10px] font-medium text-on-accent tabular-nums" :title="`${urgentCount} urgent`">{{ urgentCount }}</span>
         <span v-if="mineCount" class="font-mono text-[11px] text-faint tabular-nums">{{ mineCount }}</span>
       </NuxtLink>
 

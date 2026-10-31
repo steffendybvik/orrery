@@ -129,7 +129,7 @@ const OUTCOME = {
           type="button"
           class="grid size-9 shrink-0 place-items-center rounded-full transition hover:scale-105 active:scale-95 disabled:opacity-50"
           :class="s.enabled
-            ? 'bg-accent-500 text-zinc-950 shadow-sm shadow-accent-600/30 hover:bg-accent-400'
+            ? 'bg-accent-fill text-on-accent shadow-sm shadow-accent-600/30 hover:bg-accent-700 dark:hover:bg-accent-400'
             : 'border-2 border-line text-muted hover:border-accent-500 hover:text-accent-700 dark:hover:text-accent-400'"
           :disabled="pausing.has(s.id)"
           :title="s.enabled ? 'Running: pause it' : 'Paused: resume it'"

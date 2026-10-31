@@ -124,8 +124,8 @@ function closing(vnode: VNode) {
       <ComboboxOptions class="max-h-64 overflow-y-auto border-t border-line pt-1">
         <ComboboxOption v-for="option in shown" :key="option.value" v-slot="{active, selected}" :value="option.value" as="template">
           <li class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-fg" :class="active && 'bg-active'">
-            <span v-if="multiple" class="grid size-3.5 shrink-0 place-items-center rounded ring-1" :class="selected ? 'bg-accent-500 ring-accent-500' : 'ring-faint/60'">
-              <svg v-if="selected" class="size-2.5 text-zinc-950" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
+            <span v-if="multiple" class="grid size-3.5 shrink-0 place-items-center rounded ring-1" :class="selected ? 'bg-accent-fill ring-accent-fill' : 'ring-faint/60'">
+              <svg v-if="selected" class="size-2.5 text-on-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>
             </span>
             <slot name="option" :option="option"><span class="min-w-0 flex-1 truncate" :title="option.label">{{ option.label }}</span></slot>
             <svg v-if="!multiple && selected" class="ml-auto size-3.5 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10" /></svg>

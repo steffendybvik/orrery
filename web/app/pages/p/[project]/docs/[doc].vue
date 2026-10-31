@@ -240,7 +240,7 @@ useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
           <span v-else class="mr-auto text-xs text-faint">{{ isArtifact ? 'HTML' : 'Markdown' }}</span>
           <UiButton :disabled="saving" @click="editing = false">Cancel <KeyHint>esc</KeyHint></UiButton>
           <UiButton variant="primary" :disabled="saving || !!uploading || !title.trim()" @click="save">
-            {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
+            {{ saving ? 'Saving…' : 'Save' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
           </UiButton>
         </div>
       </section>

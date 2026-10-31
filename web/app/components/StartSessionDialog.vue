@@ -290,7 +290,7 @@ async function start() {
           </span>
           <span
               class="grid size-4 shrink-0 place-items-center rounded-full"
-              :class="picked.includes(p.id) ? 'bg-accent-500 text-zinc-950' : 'ring-1 ring-inset ring-line'"
+              :class="picked.includes(p.id) ? 'bg-accent-fill text-on-accent' : 'ring-1 ring-inset ring-line'"
           >
             <svg v-if="picked.includes(p.id)" class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
           </span>
@@ -315,7 +315,7 @@ async function start() {
         <template v-if="launches > 1">each, {{ count * launches }} in all</template>
       </label>
       <UiButton type="submit" variant="primary" size="md" :class="most > 1 ? '' : 'ml-auto'" :disabled="!ready">
-        {{ busy ? 'Starting…' : count * launches > 1 ? `Start ${count * launches} sessions` : 'Start session' }} <KeyHint class="bg-black/10 text-zinc-950 ring-0">⌘↵</KeyHint>
+        {{ busy ? 'Starting…' : count * launches > 1 ? `Start ${count * launches} sessions` : 'Start session' }} <KeyHint class="bg-black/10 text-on-accent ring-0">⌘↵</KeyHint>
       </UiButton>
     </div>
   </UiDialog>
