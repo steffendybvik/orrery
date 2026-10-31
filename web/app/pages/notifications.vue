@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type {Notice} from '#shared/roadmap'
 import type {NoticeRow} from '~/composables/useInbox'
 
 // The bell, larger, as a list and a reading pane. The list: what waits on the owner first (it goes when answered, decided or
 // cleared; clearing a proposal leaves it pending), then the rest by day as a timeline, one line per issue a day, each saying
-// what happened. Choosing a line opens its history beside the list (on a narrow window, in its place) and marks it read;
-// opening the page only resets the bell's count, so the filled dots stay what's still to read.
+// what happened. The list has the page until a line is chosen: that opens its history beside the list (on a narrow window, in
+// its place) and marks it read, and choosing it again or closing the pane gives the list the page back. Opening the page only
+// resets the bell's count, so the filled dots stay what's still to read.
 useHead({title: 'Notifications · orrery'})
 const {notices, lists, seen, load, loadChanges, markRead, clear} = useInbox()
 const {byId} = useRoadmaps()
@@ -50,6 +50,7 @@ const selected = computed<NoticeRow | undefined>(() => {
 })
 const narrow = () => !window.matchMedia('(min-width: 1024px)').matches
 function choose(row: NoticeRow) {
+    if (selected.value?.key === row.key) return back()
     const to = {query: {...route.query, open: row.key}}
     if (narrow()) router.push(to)
     else router.replace(to)
@@ -62,7 +63,7 @@ function back() {
 watch(selected, row => {
     if (row) markRead(row.notices)
 }, {immediate: true})
-const clearOne = (notice: Notice) => clear([notice])
+const clearLine = (row: NoticeRow) => clear(row.notices.filter(n => !n.cleared))
 </script>
 
 <template>
@@ -90,7 +91,7 @@ const clearOne = (notice: Notice) => clear([notice])
   </div>
 
   <div v-else class="flex min-h-0 flex-1">
-    <div class="min-w-0 flex-1 overflow-y-auto border-line lg:w-[26rem] lg:flex-none lg:border-r" :class="{'hidden lg:block': selected}">
+    <div class="min-w-0 flex-1 overflow-y-auto border-line" :class="{'hidden lg:block lg:w-[26rem] lg:flex-none lg:border-r': selected}">
       <section v-if="waiting.length" aria-label="Waiting on you">
         <h2 class="sticky top-0 z-20 flex items-baseline gap-2 border-b-2 border-faint/40 bg-canvas px-3 py-1.5 text-[11px] font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-300">
           Waiting on you
@@ -104,7 +105,7 @@ const clearOne = (notice: Notice) => clear([notice])
               :selected="selected?.key === row.key"
               :project="manyProjects ? projectName(row.project) : undefined"
               @select="choose(row)"
-              @clear="clearOne(row.notices[0]!)"
+              @clear="clearLine(row)"
           />
         </ul>
       </section>
@@ -122,7 +123,7 @@ const clearOne = (notice: Notice) => clear([notice])
               :selected="selected?.key === row.key"
               :project="manyProjects ? projectName(row.project) : undefined"
               @select="choose(row)"
-              @clear="clearOne(row.notices[0]!)"
+              @clear="clearLine(row)"
           />
         </ul>
       </section>
@@ -130,9 +131,8 @@ const clearOne = (notice: Notice) => clear([notice])
         <UiButton @click="load('inbox', true)">Show older</UiButton>
       </div>
     </div>
-    <div class="min-w-0 flex-1 overflow-y-auto" :class="{'hidden lg:block': !selected}">
-      <NoticeHistory v-if="selected" :key="selected.key" :row="selected" :project="projectName(selected.project)" @back="back" />
-      <p v-else-if="loaded" class="px-6 py-24 text-center text-xs text-faint">Choose a line to read what happened on it.</p>
+    <div v-if="selected" class="min-w-0 flex-1 overflow-y-auto">
+      <NoticeHistory :key="selected.key" :row="selected" :project="projectName(selected.project)" @back="back" />
     </div>
   </div>
 </template>

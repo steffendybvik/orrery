@@ -3,7 +3,7 @@ import type {NoticeRow} from '~/composables/useInbox'
 
 // A line in Notifications' list: an issue's notices from one day, or what waits on the owner on it. What it says is what
 // happened (its status, a pull request merged) or, for a question, the question; choosing it opens its history beside the
-// list. A filled dot is unread, a hollow one read, violet waits on the owner.
+// list. A filled dot is unread, a hollow one read, violet waits on the owner. Its × clears the whole line.
 const props = defineProps<{row: NoticeRow, selected: boolean, project?: string}>()
 defineEmits<{select: [], clear: []}>()
 const {changes, lists} = useInbox()
@@ -21,13 +21,14 @@ const more = computed(() => props.row.waiting ? props.row.notices.length - 1 : 0
 const time = computed(() => new Date(props.row.latest).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'}))
 const when = computed(() => new Date(props.row.latest).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}))
 const state = computed(() => props.row.waiting ? 'waiting' : props.row.unread ? 'unread' : 'read')
-const clearable = computed(() => props.row.notices.length === 1 && !lead.value?.cleared)
+const clearable = computed(() => props.row.notices.filter(n => !n.cleared).length)
+const clearLabel = computed(() => clearable.value === 1 ? 'Clear this notice' : `Clear these ${clearable.value}`)
 </script>
 
 <template>
   <li class="border-b border-line">
     <div
-        class="group relative grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-2 pr-3 pl-2 transition-colors hover:bg-hover"
+        class="group relative grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-2 pr-10 pl-2 transition-colors hover:bg-hover"
         :class="[
           row.waiting ? 'bg-violet-500/10' : row.unread ? 'bg-accent-500/10' : '',
           selected ? 'bg-active shadow-[inset_2px_0_0_var(--color-accent-500)]' : '',
@@ -67,15 +68,15 @@ const clearable = computed(() => props.row.notices.length === 1 && !lead.value?.
         </p>
       </div>
       <div class="flex flex-col items-end py-2 font-mono text-xs text-muted">
-        <span :class="{'group-hover:invisible': clearable}" :title="when">{{ time }}</span>
+        <span :title="when">{{ time }}</span>
         <span class="mt-0.5">{{ row.issue }}</span>
       </div>
       <button
           v-if="clearable"
           type="button"
-          class="absolute top-1 right-2 z-10 grid size-6 place-items-center rounded-md text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-fg focus-visible:opacity-100"
-          title="Clear"
-          aria-label="Clear this notice"
+          class="absolute top-1/2 right-2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-md text-faint hover:bg-active hover:text-fg"
+          :title="clearLabel"
+          :aria-label="clearLabel"
           @click="$emit('clear')"
       >
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
