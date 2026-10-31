@@ -41,13 +41,18 @@ stored. Revoking works at once, and removing a person revokes theirs.
 **What an agent key still can do.** Act as any session of its own person, so the lock between one person's sessions keeps
 honest agents apart and isn't a boundary. The boundary is between people, and between a person and their agents.
 
+**What a channel's marks can't do.** `Orrery-Chat` and `Orrery-Untrusted` say which of the owner's sessions a write comes
+from, and nothing proves them, so they count only with the owner's credential, or with login off. With anyone else's they're
+ignored, and that person gets what they'd get without them. The owner's own agent keys can still send them: that's between the
+owner and their agents, not between people.
+
 **Reads aren't kept to a board yet.** Anyone logged in, and their agents, can read every project.
 
 **What the tests prove.** `web/test/attack-*.test.ts`, on SQLite and Postgres, try each way in against the store: an agent
 taking, assigning itself, closing, moving or deleting another person's issue or an unassigned one, directly or through the
 issue above it; two agents racing; what each way of handing out work reaches, live and when a session catches up; and
 people, members, claims and keys through a copy, a backup, a restore and an upgrade. `auth.test.ts`, `oidc.test.ts`,
-`board-access.test.ts` and `permissions.test.ts` hold the credentials, the board check and every route, listed from the file
+`board-access.test.ts`, `session-marks.test.ts` and `permissions.test.ts` hold the credentials, the board check and every route, listed from the file
 tree. **They don't prove** anything about reads between boards, or a real provider's login, and they stand two servers in
 with two stores on one database, not two machines.
 
