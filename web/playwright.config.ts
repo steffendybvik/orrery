@@ -38,12 +38,12 @@ export default defineConfig({
         {name: 'first-run', testMatch: 'first-run.spec.ts', use: chrome},
         ...whole
             ? [
-                {name: 'free', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', ...specs(shared)], dependencies: ['first-run'], use: chrome},
+                {name: 'free', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**', ...specs(shared)], dependencies: ['first-run'], use: chrome},
                 {name: 'sessions', testMatch: specs(SESSIONS), dependencies: ['first-run'], workers: 1, use: chrome},
                 {name: 'settings', testMatch: specs(SETTINGS), dependencies: ['first-run'], workers: 1, use: chrome},
                 {name: 'alone', testMatch: specs(ALONE), dependencies: beforeLast, workers: 1, use: chrome},
             ]
-            : [{name: 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**'], dependencies: ['first-run'], use: chrome}],
+            : [{name: 'chromium', testIgnore: ['first-run.spec.ts', 'perf/**', 'login/**', 'readme/**'], dependencies: ['first-run'], use: chrome}],
     ],
     webServer: {
         command: `${postgres ? 'jiti scripts/e2e-postgres.ts' : 'rm -f .data/e2e.db .data/e2e.db-* .data/e2e.db.backups.json .data/e2e-moved-*.db'} && nuxt dev --port ${port}`,
